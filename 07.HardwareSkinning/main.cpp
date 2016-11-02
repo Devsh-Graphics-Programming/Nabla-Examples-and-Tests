@@ -1,10 +1,10 @@
+#define _IRR_STATIC_LIB_
 #include <irrlicht.h>
-#include "driverChoice.h"
 
-#include "../source/Irrlicht/CGeometryCreator.h"
 
 using namespace irr;
 using namespace core;
+
 
 //!Same As Last Example
 class MyEventReceiver : public IEventReceiver
@@ -38,25 +38,55 @@ private:
 class SimpleCallBack : public video::IShaderConstantSetCallBack
 {
     s32 mvpUniformLocation;
+    s32 cameraDirUniformLocation;
+    s32 texUniformLocation[4];
     video::E_SHADER_CONSTANT_TYPE mvpUniformType;
+    video::E_SHADER_CONSTANT_TYPE cameraDirUniformType;
+    video::E_SHADER_CONSTANT_TYPE texUniformType[4];
 public:
-    SimpleCallBack() : mvpUniformLocation(-1), mvpUniformType(video::ESCT_FLOAT_VEC3) {}
+    SimpleCallBack() : cameraDirUniformLocation(-1), cameraDirUniformType(video::ESCT_FLOAT_VEC3) {}
 
     virtual void PostLink(video::IMaterialRendererServices* services, const video::E_MATERIAL_TYPE& materialType, const core::array<video::SConstantLocationNamePair>& constants)
     {
-        //! Normally we'd iterate through the array and check our actual constant names before mapping them to locations but oh well
-        mvpUniformLocation = constants[0].location;
-        mvpUniformType = constants[0].type;
+        for (size_t i=0; i<constants.size(); i++)
+        {
+            if (constants[i].name=="MVP")
+            {
+                mvpUniformLocation = constants[i].location;
+                mvpUniformType = constants[i].type;
+            }
+            else if (constants[i].name=="cameraPos")
+            {
+                cameraDirUniformLocation = constants[i].location;
+                cameraDirUniformType = constants[i].type;
+            }
+            else if (constants[i].name=="tex0")
+            {
+                texUniformLocation[0] = constants[i].location;
+                texUniformType[0] = constants[i].type;
+            }
+            else if (constants[i].name=="tex3")
+            {
+                texUniformLocation[3] = constants[i].location;
+                texUniformType[3] = constants[i].type;
+            }
+        }
     }
 
     virtual void OnSetConstants(video::IMaterialRendererServices* services, s32 userData)
     {
+        core::vectorSIMDf modelSpaceCamPos;
+        modelSpaceCamPos.set(services->getVideoDriver()->getTransform(video::E4X3TS_WORLD_VIEW_INVERSE).getTranslation());
+        services->setShaderConstant(&modelSpaceCamPos,cameraDirUniformLocation,cameraDirUniformType,1);
         services->setShaderConstant(services->getVideoDriver()->getTransform(video::EPTS_PROJ_VIEW_WORLD).pointer(),mvpUniformLocation,mvpUniformType,1);
+
+        int32_t id[] = {0,1,2,3};
+        services->setShaderTextures(id+0,texUniformLocation[0],texUniformType[0],1);
+        services->setShaderTextures(id+3,texUniformLocation[3],texUniformType[3],1);
     }
 
     virtual void OnUnsetMaterial() {}
 };
-
 
 
 int main()
@@ -80,18 +110,16 @@ int main()
 
 
 	video::IVideoDriver* driver = device->getVideoDriver();
-    SimpleCallBack* callBack = new SimpleCallBack();
 
-    //! First need to make a material other than default to be able to draw with custom shader
-    video::SMaterial material;
-    material.BackfaceCulling = false; //! Triangles will be visible from both sides
-    material.MaterialType = (video::E_MATERIAL_TYPE)driver->getGPUProgrammingServices()->addHighLevelShaderMaterialFromFiles("../mesh.vert",
+    SimpleCallBack* cb = new SimpleCallBack();
+    video::E_MATERIAL_TYPE newMaterialType = (video::E_MATERIAL_TYPE)driver->getGPUProgrammingServices()->addHighLevelShaderMaterialFromFiles("../mesh.vert",
                                                         "","","", //! No Geometry or Tessellation Shaders
                                                         "../mesh.frag",
                                                         3,video::EMT_SOLID, //! 3 vertices per primitive (this is tessellation shader relevant only
-                                                        callBack, //! No Shader Callback (we dont have any constants/uniforms to pass to the shader)
+                                                        cb, //! Our Shader Callback
                                                         0); //! No custom user data
-    callBack->drop();
+    cb->drop();
+
 
 
 	scene::ISceneManager* smgr = device->getSceneManager();
@@ -101,27 +129,37 @@ int main()
 	camera->setPosition(core::vector3df(-4,0,0));
 	camera->setTarget(core::vector3df(0,0,0));
 	camera->setNearValue(0.01f);
-	camera->setFarValue(100.0f);
+	camera->setFarValue(250.0f);
     smgr->setActiveCamera(camera);
 	device->getCursorControl()->setVisible(false);
 	MyEventReceiver receiver;
 	device->setEventReceiver(&receiver);
 
+        #define kInstanceSquareSize 10
+	scene::ISceneNode* instancesToRemove[kInstanceSquareSize*kInstanceSquareSize];
 
-	//! Test Creation Of Builtin
-	scene::IMeshSceneNode* cube = dynamic_cast<scene::IMeshSceneNode*>(smgr->addCubeSceneNode(1.f,0,-1));
-    cube->setRotation(core::vector3df(45,20,15));
-    cube->getMaterial(0).setTexture(0,driver->getTexture("../../media/irrlicht2_dn.jpg"));
+	//! Test Loading of Obj
+    scene::ICPUMesh* cpumesh = smgr->getMesh("../../media/dwarf.x");
+    if (cpumesh&&cpumesh->getMeshType()==scene::EMT_ANIMATED_SKINNED)
+    {
+        scene::ISkinnedMeshSceneNode* anode = 0;
+        scene::ICPUSkinnedMesh* animMesh = dynamic_cast<scene::ICPUSkinnedMesh*>(cpumesh);
+        scene::IGPUMesh* gpumesh = driver->createGPUMeshFromCPU(cpumesh);
+        smgr->getMeshCache()->removeMesh(cpumesh); //drops hierarchy
 
-	scene::IMeshSceneNode* sphere = dynamic_cast<scene::IMeshSceneNode*>(smgr->addSphereSceneNode(2,128));
-    sphere->getMaterial(0).setTexture(0,driver->getTexture("../../media/skydome.jpg"));
-    sphere->getMaterial(0).MaterialType = material.MaterialType;
-    sphere->setPosition(core::vector3df(4,0,0));
+        for (size_t x=0; x<kInstanceSquareSize; x++)
+        for (size_t z=0; z<kInstanceSquareSize; z++)
+        {
+            instancesToRemove[x+kInstanceSquareSize*z] = anode = smgr->addSkinnedMeshSceneNode(static_cast<scene::IGPUSkinnedMesh*>(gpumesh));
+            anode->setScale(core::vector3df(0.05f));
+            anode->setPosition(core::vector3df(x,0.f,z)*4.f);
+            anode->setAnimationSpeed(18.f*float(x+1+(z+1)*kInstanceSquareSize)/float(kInstanceSquareSize*kInstanceSquareSize));
+            anode->setMaterialType(newMaterialType);
+            anode->setMaterialTexture(3,anode->getBonePoseTBO());
+        }
 
-	scene::ISceneNode* billboard = smgr->addBillboardSceneNode(0,core::dimension2df(1.f,1.f),core::vector3df(-4,0,0));
-    billboard->getMaterial(0).setTexture(0,driver->getTexture("../../media/wall.jpg"));
-
-    //scene::CGeometryCreator* geom = new scene::CGeometryCreator();
+        gpumesh->drop();
+    }
 
 
 	uint64_t lastFPSTime = 0;
@@ -134,49 +172,6 @@ int main()
         //! This animates (moves) the camera and sets the transforms
         //! Also draws the meshbuffer
         smgr->drawAll();
-
-        //! Stress test for memleaks aside from demo how to create meshes that live on the GPU RAM
-        {/*
-            scene::IGPUMeshBuffer* mb = new scene::IGPUMeshBuffer();
-            scene::IGPUMeshDataFormatDesc* desc = driver->createGPUMeshDataFormatDesc();
-            mb->setMeshDataAndFormat(desc);
-            desc->drop();
-
-            uint16_t indices_indexed16[] = {
-                0,1,2,1,2,3,
-                4,5,6,5,6,7,
-                0,1,4,1,4,5,
-                2,3,6,3,6,7,
-                0,2,4,2,4,6,
-                1,3,5,3,5,7
-            };
-            video::IGPUBuffer* index = driver->createGPUBuffer(sizeof(indices_indexed16),indices_indexed16);
-            desc->mapIndexBuffer(index);
-            mb->setIndexType(video::EIT_16BIT);
-            mb->setIndexCount(2*3*6);
-            mb->setIndexRange(0,7);
-            index->drop();
-
-            float attrArr[] = {
-                -1.f,-1.f,-1.f,0.f,0.f,
-                 1.f,-1.f,-1.f,0.5f,0.f,
-                -1.f, 1.f,-1.f,1.f,0.f,
-                 1.f, 1.f,-1.f,0.f,0.5f,
-                -1.f,-1.f, 1.f,0.5f,0.5f,
-                 1.f,-1.f, 1.f,1.f,0.5f,
-                -1.f, 1.f, 1.f,0.f,1.f,
-                 1.f, 1.f, 1.f,0.5f,1.f
-            };
-            video::IGPUBuffer* attr0 = driver->createGPUBuffer(sizeof(attrArr),attrArr);
-            desc->mapVertexAttrBuffer(attr0,scene::EVAI_ATTR0,scene::ECPA_THREE,scene::ECT_FLOAT,20,0);
-            desc->mapVertexAttrBuffer(attr0,scene::EVAI_ATTR1,scene::ECPA_TWO,scene::ECT_FLOAT,20,3*4);
-            attr0->drop();
-
-            driver->setTransform(video::ETS_WORLD,core::matrix4());
-            driver->setMaterial(material);
-            driver->drawMeshBuffer(mb);
-            mb->drop();*/
-        }
 
 		driver->endScene();
 
@@ -195,6 +190,10 @@ int main()
 			lastFPSTime = time;
 		}
 	}
+
+    for (size_t x=0; x<kInstanceSquareSize; x++)
+    for (size_t z=0; z<kInstanceSquareSize; z++)
+        instancesToRemove[x+kInstanceSquareSize*z]->remove();
 
 	device->drop();
 
