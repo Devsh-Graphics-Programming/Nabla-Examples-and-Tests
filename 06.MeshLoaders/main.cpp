@@ -1,3 +1,4 @@
+#define _IRR_STATIC_LIB_
 #include <irrlicht.h>
 #include "driverChoice.h"
 
@@ -5,6 +6,7 @@
 
 using namespace irr;
 using namespace core;
+
 
 //!Same As Last Example
 class MyEventReceiver : public IEventReceiver
@@ -38,25 +40,55 @@ private:
 class SimpleCallBack : public video::IShaderConstantSetCallBack
 {
     s32 mvpUniformLocation;
+    s32 cameraDirUniformLocation;
+    s32 texUniformLocation[4];
     video::E_SHADER_CONSTANT_TYPE mvpUniformType;
+    video::E_SHADER_CONSTANT_TYPE cameraDirUniformType;
+    video::E_SHADER_CONSTANT_TYPE texUniformType[4];
 public:
-    SimpleCallBack() : mvpUniformLocation(-1), mvpUniformType(video::ESCT_FLOAT_VEC3) {}
+    SimpleCallBack() : cameraDirUniformLocation(-1), cameraDirUniformType(video::ESCT_FLOAT_VEC3) {}
 
     virtual void PostLink(video::IMaterialRendererServices* services, const video::E_MATERIAL_TYPE& materialType, const core::array<video::SConstantLocationNamePair>& constants)
     {
-        //! Normally we'd iterate through the array and check our actual constant names before mapping them to locations but oh well
-        mvpUniformLocation = constants[0].location;
-        mvpUniformType = constants[0].type;
+        for (size_t i=0; i<constants.size(); i++)
+        {
+            if (constants[i].name=="MVP")
+            {
+                mvpUniformLocation = constants[i].location;
+                mvpUniformType = constants[i].type;
+            }
+            else if (constants[i].name=="cameraPos")
+            {
+                cameraDirUniformLocation = constants[i].location;
+                cameraDirUniformType = constants[i].type;
+            }
+            else if (constants[i].name=="tex0")
+            {
+                texUniformLocation[0] = constants[i].location;
+                texUniformType[0] = constants[i].type;
+            }
+            else if (constants[i].name=="tex3")
+            {
+                texUniformLocation[3] = constants[i].location;
+                texUniformType[3] = constants[i].type;
+            }
+        }
     }
 
     virtual void OnSetConstants(video::IMaterialRendererServices* services, s32 userData)
     {
+        core::vectorSIMDf modelSpaceCamPos;
+        modelSpaceCamPos.set(services->getVideoDriver()->getTransform(video::E4X3TS_WORLD_VIEW_INVERSE).getTranslation());
+        services->setShaderConstant(&modelSpaceCamPos,cameraDirUniformLocation,cameraDirUniformType,1);
         services->setShaderConstant(services->getVideoDriver()->getTransform(video::EPTS_PROJ_VIEW_WORLD).pointer(),mvpUniformLocation,mvpUniformType,1);
+/*
+        int32_t id[] = {0,1,2,3};
+        services->setShaderTextures(id+0,texUniformLocation[0],texUniformType[0],1);
+        services->setShaderTextures(id+3,texUniformLocation[3],texUniformType[3],1);*/
     }
 
     virtual void OnUnsetMaterial() {}
 };
-
 
 
 int main()
@@ -80,18 +112,16 @@ int main()
 
 
 	video::IVideoDriver* driver = device->getVideoDriver();
-    SimpleCallBack* callBack = new SimpleCallBack();
 
-    //! First need to make a material other than default to be able to draw with custom shader
-    video::SMaterial material;
-    material.BackfaceCulling = false; //! Triangles will be visible from both sides
-    material.MaterialType = (video::E_MATERIAL_TYPE)driver->getGPUProgrammingServices()->addHighLevelShaderMaterialFromFiles("../mesh.vert",
+    SimpleCallBack* cb = new SimpleCallBack();
+    video::E_MATERIAL_TYPE newMaterialType = (video::E_MATERIAL_TYPE)driver->getGPUProgrammingServices()->addHighLevelShaderMaterialFromFiles("../mesh.vert",
                                                         "","","", //! No Geometry or Tessellation Shaders
                                                         "../mesh.frag",
                                                         3,video::EMT_SOLID, //! 3 vertices per primitive (this is tessellation shader relevant only
-                                                        callBack, //! No Shader Callback (we dont have any constants/uniforms to pass to the shader)
+                                                        cb, //! Our Shader Callback
                                                         0); //! No custom user data
-    callBack->drop();
+    cb->drop();
+
 
 
 	scene::ISceneManager* smgr = device->getSceneManager();
@@ -107,21 +137,23 @@ int main()
 	MyEventReceiver receiver;
 	device->setEventReceiver(&receiver);
 
-
-	//! Test Creation Of Builtin
-	scene::IMeshSceneNode* cube = dynamic_cast<scene::IMeshSceneNode*>(smgr->addCubeSceneNode(1.f,0,-1));
-    cube->setRotation(core::vector3df(45,20,15));
-    cube->getMaterial(0).setTexture(0,driver->getTexture("../../media/irrlicht2_dn.jpg"));
-
-	scene::IMeshSceneNode* sphere = dynamic_cast<scene::IMeshSceneNode*>(smgr->addSphereSceneNode(2,128));
-    sphere->getMaterial(0).setTexture(0,driver->getTexture("../../media/skydome.jpg"));
-    sphere->getMaterial(0).MaterialType = material.MaterialType;
-    sphere->setPosition(core::vector3df(4,0,0));
-
-	scene::ISceneNode* billboard = smgr->addBillboardSceneNode(0,core::dimension2df(1.f,1.f),core::vector3df(-4,0,0));
-    billboard->getMaterial(0).setTexture(0,driver->getTexture("../../media/wall.jpg"));
-
-    //scene::CGeometryCreator* geom = new scene::CGeometryCreator();
+	//! Test Loading of Obj
+    scene::ICPUMesh* cpumesh = smgr->getMesh("../../media/extrusionLogo_TEST_fixed.stl");
+    if (cpumesh)
+    {
+        scene::IGPUMesh* gpumesh = driver->createGPUMeshFromCPU(dynamic_cast<scene::SCPUMesh*>(cpumesh));
+        smgr->getMeshCache()->removeMesh(cpumesh);
+        smgr->addMeshSceneNode(gpumesh)->setMaterialType(newMaterialType);
+        gpumesh->drop();
+    }
+    cpumesh = smgr->getMesh("../../media/cow.obj");
+    if (cpumesh)
+    {
+        scene::IGPUMesh* gpumesh = driver->createGPUMeshFromCPU(dynamic_cast<scene::SCPUMesh*>(cpumesh));
+        smgr->getMeshCache()->removeMesh(cpumesh);
+        smgr->addMeshSceneNode(gpumesh,0,-1,core::vector3df(3.f,1.f,0.f))->setMaterialType(newMaterialType);
+        gpumesh->drop();
+    }
 
 
 	uint64_t lastFPSTime = 0;
