@@ -1,12 +1,12 @@
 #define _IRR_STATIC_LIB_
 #include <irrlicht.h>
-#include "driverChoice.h"
 
-#include "../source/Irrlicht/CGeometryCreator.h"
+#include "COpenGLStateManager.h"
 
 using namespace irr;
 using namespace core;
 
+bool quit = false;
 
 //!Same As Last Example
 class MyEventReceiver : public IEventReceiver
@@ -24,7 +24,7 @@ public:
             switch (event.KeyInput.Key)
             {
             case irr::KEY_KEY_Q: // switch wire frame mode
-                exit(0);
+                quit = true;
                 return true;
             default:
                 break;
@@ -79,12 +79,16 @@ public:
     {
         core::vectorSIMDf modelSpaceCamPos;
         modelSpaceCamPos.set(services->getVideoDriver()->getTransform(video::E4X3TS_WORLD_VIEW_INVERSE).getTranslation());
-        services->setShaderConstant(&modelSpaceCamPos,cameraDirUniformLocation,cameraDirUniformType,1);
-        services->setShaderConstant(services->getVideoDriver()->getTransform(video::EPTS_PROJ_VIEW_WORLD).pointer(),mvpUniformLocation,mvpUniformType,1);
-/*
+        if (cameraDirUniformLocation!=-1)
+            services->setShaderConstant(&modelSpaceCamPos,cameraDirUniformLocation,cameraDirUniformType,1);
+        if (mvpUniformLocation!=-1)
+            services->setShaderConstant(services->getVideoDriver()->getTransform(video::EPTS_PROJ_VIEW_WORLD).pointer(),mvpUniformLocation,mvpUniformType,1);
+
         int32_t id[] = {0,1,2,3};
-        services->setShaderTextures(id+0,texUniformLocation[0],texUniformType[0],1);
-        services->setShaderTextures(id+3,texUniformLocation[3],texUniformType[3],1);*/
+        if (texUniformLocation[0]!=-1)
+            services->setShaderTextures(id+0,texUniformLocation[0],texUniformType[0],1);
+        if (texUniformLocation[3]!=-1)
+            services->setShaderTextures(id+3,texUniformLocation[3],texUniformType[3],1);
     }
 
     virtual void OnUnsetMaterial() {}
@@ -130,84 +134,67 @@ int main()
 	camera->setPosition(core::vector3df(-4,0,0));
 	camera->setTarget(core::vector3df(0,0,0));
 	camera->setNearValue(0.01f);
-	camera->setFarValue(100.0f);
+	camera->setFarValue(250.0f);
     smgr->setActiveCamera(camera);
 	device->getCursorControl()->setVisible(false);
 	MyEventReceiver receiver;
 	device->setEventReceiver(&receiver);
 
+        #define kInstanceSquareSize 10
+	scene::ISceneNode* instancesToRemove[kInstanceSquareSize*kInstanceSquareSize] = {0};
+
 	//! Test Loading of Obj
-    scene::ICPUMesh* cpumesh = smgr->getMesh("../../media/extrusionLogo_TEST_fixed.stl");
-    if (cpumesh)
+    scene::ICPUMesh* cpumesh = smgr->getMesh("../../media/dwarf.x");
+    if (cpumesh&&cpumesh->getMeshType()==scene::EMT_ANIMATED_SKINNED)
     {
-        scene::IGPUMesh* gpumesh = driver->createGPUMeshFromCPU(dynamic_cast<scene::SCPUMesh*>(cpumesh));
-        smgr->getMeshCache()->removeMesh(cpumesh);
-        smgr->addMeshSceneNode(gpumesh)->setMaterialType(newMaterialType);
+        scene::ISkinnedMeshSceneNode* anode = 0;
+        scene::ICPUSkinnedMesh* animMesh = dynamic_cast<scene::ICPUSkinnedMesh*>(cpumesh);
+        scene::IGPUMesh* gpumesh = driver->createGPUMeshFromCPU(cpumesh);
+        smgr->getMeshCache()->removeMesh(cpumesh); //drops hierarchy
+
+        for (size_t x=0; x<kInstanceSquareSize; x++)
+        for (size_t z=0; z<kInstanceSquareSize; z++)
+        {
+            instancesToRemove[x+kInstanceSquareSize*z] = anode = smgr->addSkinnedMeshSceneNode(static_cast<scene::IGPUSkinnedMesh*>(gpumesh));
+            anode->setScale(core::vector3df(0.05f));
+            anode->setPosition(core::vector3df(x,0.f,z)*4.f);
+            anode->setAnimationSpeed(18.f*float(x+1+(z+1)*kInstanceSquareSize)/float(kInstanceSquareSize*kInstanceSquareSize));
+            anode->setMaterialType(newMaterialType);
+            anode->setMaterialTexture(3,anode->getBonePoseTBO());
+        }
+
         gpumesh->drop();
     }
-    cpumesh = smgr->getMesh("../../media/cow.obj");
-    if (cpumesh)
-    {
-        scene::IGPUMesh* gpumesh = driver->createGPUMeshFromCPU(dynamic_cast<scene::SCPUMesh*>(cpumesh));
-        smgr->getMeshCache()->removeMesh(cpumesh);
-        smgr->addMeshSceneNode(gpumesh,0,-1,core::vector3df(3.f,1.f,0.f))->setMaterialType(newMaterialType);
-        gpumesh->drop();
-    }
+
+    //! We use a renderbuffer because we don't intend on reading from it
+    const uint32_t numberOfSamples = 8;
+    video::IRenderBuffer* color = driver->addMultisampleRenderBuffer(numberOfSamples,params.WindowSize,video::ECF_A8R8G8B8);
+    video::IRenderBuffer* depth = driver->addMultisampleRenderBuffer(numberOfSamples,params.WindowSize,video::ECF_DEPTH32F);
+    video::IFrameBuffer* framebuffer = driver->addFrameBuffer();
+    framebuffer->attach(video::EFAP_COLOR_ATTACHMENT0,color);
+    framebuffer->attach(video::EFAP_DEPTH_ATTACHMENT,depth);
 
 
 	uint64_t lastFPSTime = 0;
 
-	while(device->run())
+	while(device->run()&&(!quit))
 	//if (device->isWindowActive())
 	{
-		driver->beginScene(true, true, video::SColor(255,0,0,255) );
+		driver->beginScene( false,false );
 
+		driver->setRenderTarget(framebuffer);
+		vectorSIMDf clearColor(1.f,1.f,1.f,1.f);
+        driver->clearColorBuffer(video::EFAP_COLOR_ATTACHMENT0,clearColor.pointer);
+		driver->clearZBuffer();
         //! This animates (moves) the camera and sets the transforms
         //! Also draws the meshbuffer
+
+        glEnable(GL_MULTISAMPLE);
         smgr->drawAll();
+        glDisable(GL_MULTISAMPLE);
 
-        //! Stress test for memleaks aside from demo how to create meshes that live on the GPU RAM
-        {/*
-            scene::IGPUMeshBuffer* mb = new scene::IGPUMeshBuffer();
-            scene::IGPUMeshDataFormatDesc* desc = driver->createGPUMeshDataFormatDesc();
-            mb->setMeshDataAndFormat(desc);
-            desc->drop();
-
-            uint16_t indices_indexed16[] = {
-                0,1,2,1,2,3,
-                4,5,6,5,6,7,
-                0,1,4,1,4,5,
-                2,3,6,3,6,7,
-                0,2,4,2,4,6,
-                1,3,5,3,5,7
-            };
-            video::IGPUBuffer* index = driver->createGPUBuffer(sizeof(indices_indexed16),indices_indexed16);
-            desc->mapIndexBuffer(index);
-            mb->setIndexType(video::EIT_16BIT);
-            mb->setIndexCount(2*3*6);
-            mb->setIndexRange(0,7);
-            index->drop();
-
-            float attrArr[] = {
-                -1.f,-1.f,-1.f,0.f,0.f,
-                 1.f,-1.f,-1.f,0.5f,0.f,
-                -1.f, 1.f,-1.f,1.f,0.f,
-                 1.f, 1.f,-1.f,0.f,0.5f,
-                -1.f,-1.f, 1.f,0.5f,0.5f,
-                 1.f,-1.f, 1.f,1.f,0.5f,
-                -1.f, 1.f, 1.f,0.f,1.f,
-                 1.f, 1.f, 1.f,0.5f,1.f
-            };
-            video::IGPUBuffer* attr0 = driver->createGPUBuffer(sizeof(attrArr),attrArr);
-            desc->mapVertexAttrBuffer(attr0,scene::EVAI_ATTR0,scene::ECPA_THREE,scene::ECT_FLOAT,20,0);
-            desc->mapVertexAttrBuffer(attr0,scene::EVAI_ATTR1,scene::ECPA_TWO,scene::ECT_FLOAT,20,3*4);
-            attr0->drop();
-
-            driver->setTransform(video::ETS_WORLD,core::matrix4());
-            driver->setMaterial(material);
-            driver->drawMeshBuffer(mb);
-            mb->drop();*/
-        }
+        const bool needToCopyDepth = false;
+        driver->blitRenderTargets(framebuffer,0,needToCopyDepth);
 
 		driver->endScene();
 
@@ -215,13 +202,21 @@ int main()
 		uint64_t time = device->getTimer()->getRealTime();
 		if (time-lastFPSTime > 1000)
 		{
-			std::wostringstream sstr;
-			sstr << L"Builtin Nodes Demo - Irrlicht Engine FPS:" << driver->getFPS() << " PrimitvesDrawn:" << driver->getPrimitiveCountDrawn();
+			std::wostringstream str;
+			str << L"Builtin Nodes Demo - Irrlicht Engine [" << driver->getName() << "] FPS:" << driver->getFPS() << " PrimitvesDrawn:" << driver->getPrimitiveCountDrawn();
 
-			device->setWindowCaption(sstr.str().c_str());
+			device->setWindowCaption(str.str());
 			lastFPSTime = time;
 		}
 	}
+
+	driver->removeFrameBuffer(framebuffer);
+	driver->removeRenderBuffer(color);
+	driver->removeRenderBuffer(depth);
+
+    for (size_t x=0; x<kInstanceSquareSize; x++)
+    for (size_t z=0; z<kInstanceSquareSize; z++)
+        instancesToRemove[x+kInstanceSquareSize*z]->remove();
 
 	device->drop();
 
