@@ -5,16 +5,16 @@
 #define _NBL_STATIC_LIB_
 #include <iostream>
 #include <cstdio>
-#include <irrlicht.h>
+#include <nabla.h>
 
 #include "../common/QToQuitEventReceiver.h"
-#include "irr/asset/CGeometryCreator.h"
+#include "nbl/asset/CGeometryCreator.h"
 
 /*
 	General namespaces. Entire engine consists of those bellow.
 */
 
-using namespace irr;
+using namespace nbl;
 using namespace asset;
 using namespace video;
 using namespace core;
@@ -28,7 +28,7 @@ int main()
 		 Used to create a device.
 	*/
 
-	irr::SIrrlichtCreationParameters params;
+	nbl::SIrrlichtCreationParameters params;
 	params.Bits = 24; 
 	params.ZBufferBits = 24;
 	params.DriverType = video::EDT_OPENGL;
@@ -77,7 +77,7 @@ int main()
 	*/
 
 	auto geometryCreator = device->getAssetManager()->getGeometryCreator();
-	auto rectangleGeometry = geometryCreator->createRectangleMesh(irr::core::vector2df_SIMD(1.5, 3));
+	auto rectangleGeometry = geometryCreator->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3));
 
 	/*
 		Loading an asset bundle. You can specify some flags 
@@ -110,8 +110,8 @@ int main()
 
 	const IAsset::E_TYPE types[]{ IAsset::E_TYPE::ET_SPECIALIZED_SHADER, IAsset::E_TYPE::ET_SPECIALIZED_SHADER, static_cast<IAsset::E_TYPE>(0u) };
 
-	auto cpuVertexShader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(assetManager->findAssets("irr/builtin/materials/lambertian/singletexture/specializedshader.vert", types)->front().getContents().begin()[0]);
-	auto cpuFragmentShader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(assetManager->findAssets("irr/builtin/materials/lambertian/singletexture/specializedshader.frag", types)->front().getContents().begin()[0]);
+	auto cpuVertexShader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(assetManager->findAssets("nbl/builtin/materials/lambertian/singletexture/specializedshader.vert", types)->front().getContents().begin()[0]);
+	auto cpuFragmentShader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(assetManager->findAssets("nbl/builtin/materials/lambertian/singletexture/specializedshader.frag", types)->front().getContents().begin()[0]);
 
 	auto gpuVertexShader = driver->getGPUObjectsFromAssets(&cpuVertexShader.get(), &cpuVertexShader.get() + 1)->front();
 	auto gpuFragmentShader = driver->getGPUObjectsFromAssets(&cpuFragmentShader.get(), &cpuFragmentShader.get() + 1)->front();
@@ -293,7 +293,7 @@ int main()
 
 		const auto viewProjection = camera->getConcatenatedMatrix();
 		core::matrix3x4SIMD modelMatrix;
-		modelMatrix.setRotation(irr::core::quaternion(0, 1, 0));
+		modelMatrix.setRotation(nbl::core::quaternion(0, 1, 0));
 
 		auto mv = core::concatenateBFollowedByA(camera->getViewMatrix(), modelMatrix);
 		auto mvp = core::concatenateBFollowedByA(viewProjection, modelMatrix);
