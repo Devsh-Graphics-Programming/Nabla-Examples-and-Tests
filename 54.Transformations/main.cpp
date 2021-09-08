@@ -126,6 +126,7 @@ int main()
 	auto initOutput = CommonAPI::Init<WIN_W, WIN_H, FBO_COUNT>(video::EAT_OPENGL, "Solar System Transformations", asset::EF_D32_SFLOAT);
 	auto system = std::move(initOutput.system);
     auto window = std::move(initOutput.window);
+    auto windowCb = std::move(initOutput.windowCb);
     auto gl = std::move(initOutput.apiConnection);
     auto surface = std::move(initOutput.surface);
     auto gpuPhysicalDevice = std::move(initOutput.physicalDevice);
@@ -152,6 +153,9 @@ int main()
 	constexpr uint32_t NumSolarSystemObjects = 11;
 	constexpr uint32_t NumInstances = NumSolarSystemObjects;
 	
+	// GPU data pool
+	//auto propertyPool = video::CPropertyPool<core::allocator,InstanceData,SolarSystemObject>::create(device.get(),blocks,NumSolarSystemObjects);
+
 	// SolarSystemObject and InstanceData have 1-to-1 relationship
 	core::vector<InstanceData> instancesData;
 	core::vector<SolarSystemObject> solarSystemObjectsData;
@@ -390,10 +394,16 @@ int main()
 
 	// render loop
 	double dt = 0;
+	
+	uint32_t resourceIx = 0;
 
-	for (uint32_t i = 0u; i < FRAME_COUNT; ++i)
+	while(windowCb->isWindowOpen())
 	{
-		const auto resourceIx = i%FRAMES_IN_FLIGHT;
+		resourceIx++;
+		if(resourceIx >= FRAMES_IN_FLIGHT) {
+			resourceIx = 0;
+		}
+
 		auto& cb = cmdbuf[resourceIx];
 		auto& fence = frameComplete[resourceIx];
 		if (fence)
