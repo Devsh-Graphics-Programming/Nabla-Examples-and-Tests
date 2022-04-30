@@ -10,7 +10,6 @@
 "../../media/mitsuba/lamp.zip scene.xml"
 "../../media/mitsuba/living-room-2.zip scene.xml"
 "../../media/mitsuba/spaceship.zip scene.xml"
-"../../media/mitsuba/spaceship.zip scene.xml"
 ;"..\Scenes\unity.zip 33_render_1_1.xml"
 ;"..\Scenes\unity.zip 34_render_2_1.xml"
 ;"..\Scenes\unity.zip 35_render_3_1.xml"
