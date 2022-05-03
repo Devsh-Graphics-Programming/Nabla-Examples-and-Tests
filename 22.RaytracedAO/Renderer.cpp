@@ -53,7 +53,8 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
 		m_staticViewData{{0u,0u},0u,0u}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
-		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr)
+		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
+		m_envMapImportanceSampling(_driver)
 {
 	// TODO: reimplement
 	m_useDenoiser = false;
@@ -116,7 +117,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 	}
 	
 	{
-		constexpr auto raytracingCommonDescriptorCount = 8u;
+		constexpr auto raytracingCommonDescriptorCount = 10u;
 		IGPUDescriptorSetLayout::SBinding bindings[raytracingCommonDescriptorCount];
 		fillIotaDescriptorBindingDeclarations(bindings,ISpecializedShader::ESS_COMPUTE,raytracingCommonDescriptorCount);
 		bindings[0].type = asset::EDT_UNIFORM_BUFFER;
@@ -127,7 +128,8 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		bindings[5].type = asset::EDT_STORAGE_IMAGE;
 		bindings[6].type = asset::EDT_STORAGE_IMAGE;
 		bindings[7].type = asset::EDT_COMBINED_IMAGE_SAMPLER;
-
+		bindings[8].type = asset::EDT_COMBINED_IMAGE_SAMPLER;
+		bindings[9].type = asset::EDT_COMBINED_IMAGE_SAMPLER;
 		m_commonRaytracingDSLayout = m_driver->createGPUDescriptorSetLayout(bindings,bindings+raytracingCommonDescriptorCount);
 	}
 
@@ -705,8 +707,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	video::IFrameBuffer* finalEnvFramebuffer = nullptr;
 	{
 		const auto colorFormat = asset::EF_R16G16B16A16_SFLOAT;
-		const auto mipCount = 13u;
-		const auto resolution = 0x1u<<(mipCount-1u);
+		const auto resolution = 0x1u<<(MipCountEnvmap-1u);
 
 		IGPUImage::SCreationParams imgInfo;
 		imgInfo.format = colorFormat;
@@ -714,7 +715,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		imgInfo.extent.width = resolution;
 		imgInfo.extent.height = resolution/2;
 		imgInfo.extent.depth = 1u;
-		imgInfo.mipLevels = mipCount;
+		imgInfo.mipLevels = MipCountEnvmap;
 		imgInfo.arrayLayers = 1u;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
@@ -729,7 +730,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 		imgViewInfo.subresourceRange.baseMipLevel = 0u;
 		imgViewInfo.subresourceRange.layerCount = 1u;
-		imgViewInfo.subresourceRange.levelCount = mipCount;
+		imgViewInfo.subresourceRange.levelCount = MipCountEnvmap;
 
 		m_finalEnvmap = m_driver->createGPUImageView(std::move(imgViewInfo));
 
@@ -786,6 +787,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	// always needs doing after rendering
 	// TODO: better filter and GPU accelerated
 	m_finalEnvmap->regenerateMipMapLevels();
+
+	m_envMapImportanceSampling.initResources(m_finalEnvmap);
 }
 
 void Renderer::finalizeScene(Renderer::InitializationData& initData)
@@ -826,16 +829,16 @@ void Renderer::finalizeScene(Renderer::InitializationData& initData)
 	}
 }
 
-core::smart_refctd_ptr<IGPUImageView> Renderer::createScreenSizedTexture(E_FORMAT format, uint32_t layers)
+core::smart_refctd_ptr<IGPUImageView> Renderer::createTexture(uint32_t width, uint32_t height, E_FORMAT format, uint32_t mipLevels, uint32_t layers)
 {
 	const auto real_layers = layers ? layers:1u;
 
 	IGPUImage::SCreationParams imgparams;
-	imgparams.extent = {m_staticViewData.imageDimensions.x,m_staticViewData.imageDimensions.y,1u};
+	imgparams.extent = {width, height, 1u};
 	imgparams.arrayLayers = real_layers;
 	imgparams.flags = static_cast<IImage::E_CREATE_FLAGS>(0);
 	imgparams.format = format;
-	imgparams.mipLevels = 1u;
+	imgparams.mipLevels = mipLevels;
 	imgparams.samples = IImage::ESCF_1_BIT;
 	imgparams.type = IImage::ET_2D;
 
@@ -848,11 +851,15 @@ core::smart_refctd_ptr<IGPUImageView> Renderer::createScreenSizedTexture(E_FORMA
 	viewparams.subresourceRange.baseArrayLayer = 0u;
 	viewparams.subresourceRange.layerCount = real_layers;
 	viewparams.subresourceRange.baseMipLevel = 0u;
-	viewparams.subresourceRange.levelCount = 1u;
+	viewparams.subresourceRange.levelCount = mipLevels;
 
 	return m_driver->createGPUImageView(std::move(viewparams));
 }
 
+core::smart_refctd_ptr<IGPUImageView> Renderer::createScreenSizedTexture(E_FORMAT format, uint32_t layers)
+{
+	return createTexture(m_staticViewData.imageDimensions.x, m_staticViewData.imageDimensions.y, format, 1u, layers);
+}
 
 core::smart_refctd_ptr<asset::ICPUBuffer> Renderer::SampleSequence::createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount)
 {
@@ -900,8 +907,6 @@ core::smart_refctd_ptr<ICPUBuffer> Renderer::SampleSequence::createBufferView(IV
 	// return for caching
 	return buff;
 }
-
-//
 
 // TODO: be able to fail
 void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleSequenceCachePath)
@@ -1114,6 +1119,7 @@ void Renderer::deinitSceneResources()
 	m_sceneBound = core::aabbox3df(FLT_MAX, FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
 	
 	m_finalEnvmap = nullptr;
+	m_envMapImportanceSampling.deinitResources();
 	m_staticViewData = {{0u,0u},0u,0u};
 
 	auto rr = m_rrManager->getRadeonRaysAPI();
@@ -1133,8 +1139,10 @@ void Renderer::deinitSceneResources()
 	maxSensorSamples = MaxFreeviewSamples;
 }
 
-void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
+void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float envMapRegularizationFactor)
 {
+	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
+
 	m_staticViewData.imageDimensions = {width, height};
 	m_rcpPixelSize = { 2.f/float(m_staticViewData.imageDimensions.x),-2.f/float(m_staticViewData.imageDimensions.y) };
 
@@ -1153,7 +1161,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 		uint32_t _maxRaysPerDispatch = 0u;
 		auto setRayBufferSizes = [renderPixelCount,this,&_maxRaysPerDispatch,&raygenBufferSize,&intersectionBufferSize](uint32_t sampleMultiplier) -> void
 		{
-			m_staticViewData.samplesPerPixelPerDispatch = SAMPLING_STRATEGY_COUNT*sampleMultiplier;
+			m_staticViewData.samplesPerPixelPerDispatch = sampleMultiplier;
 
 			const size_t minimumSampleCountPerDispatch = static_cast<size_t>(renderPixelCount)*getSamplesPerPixelPerDispatch();
 			_maxRaysPerDispatch = static_cast<uint32_t>(minimumSampleCountPerDispatch);
@@ -1174,14 +1182,20 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 		}
 	}
 	
-	(std::ofstream("runtime_defines.glsl")
-		<< "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
+	// write a SAMPLE_SEQUENCE_STRIDE_EACH_STRATEGY + STRATEGY_COUNT for clarity(??) 
+	auto stream = std::ofstream("runtime_defines.glsl");
+
+	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
 		<< m_globalMeta->m_global.m_materialCompilerGLSL_declarations
 		<< "#define SAMPLE_SEQUENCE_STRIDE " << SampleSequence::computeQuantizedDimensions(pathDepth) << "\n"
 		<< "#ifndef MAX_RAYS_GENERATED\n"
 		<< "#	define MAX_RAYS_GENERATED " << getSamplesPerPixelPerDispatch() << "\n"
-		<< "#endif\n"
-	).close();
+		<< "#endif\n";
+
+	if(!enableRIS)
+		stream << "#define ONLY_BXDF_SAMPLING\n";
+
+	stream.close();
 	
 	compileShadersFuture = std::async(std::launch::async, [&]()
 	{
@@ -1265,10 +1279,13 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 	m_albedoRslv = createScreenSizedTexture(EF_A2B10G10R10_UNORM_PACK32);
 	m_normalRslv = createScreenSizedTexture(EF_R16G16B16A16_SFLOAT);
 
-	constexpr uint32_t MaxDescritorUpdates = 8u;
+	constexpr uint32_t MaxDescritorUpdates = 10u;
 	IGPUDescriptorSet::SDescriptorInfo infos[MaxDescritorUpdates];
 	IGPUDescriptorSet::SWriteDescriptorSet writes[MaxDescritorUpdates];
-
+	
+	auto warpMap = m_envMapImportanceSampling.getWarpMapImageView();
+	auto lumaMap = m_envMapImportanceSampling.getLuminanceImageView();
+	
 	// set up m_commonRaytracingDS
 	core::smart_refctd_ptr<IGPUBuffer> _staticViewDataBuffer;
 	size_t staticViewDataBufferSize=0u;
@@ -1281,10 +1298,30 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 		setImageInfo(infos+6,asset::EIL_GENERAL,core::smart_refctd_ptr(m_normalAcc));
 
 		// envmap
-		setImageInfo(infos+7,asset::EIL_GENERAL,core::smart_refctd_ptr(m_finalEnvmap));
-		ISampler::SParams samplerParams = { ISampler::ETC_REPEAT, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
-		infos[7].image.sampler = m_driver->createGPUSampler(samplerParams);
-		infos[7].image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
+		{
+			setImageInfo(infos+7,asset::EIL_GENERAL,core::smart_refctd_ptr(m_finalEnvmap));
+			ISampler::SParams samplerParams = { ISampler::ETC_REPEAT, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
+			infos[7].image.sampler = m_driver->createGPUSampler(samplerParams);
+			infos[7].image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
+		}
+		// warpmap
+		{
+			setImageInfo(infos+8,asset::EIL_GENERAL,core::smart_refctd_ptr(warpMap));
+			ISampler::SParams samplerParams = { ISampler::ETC_REPEAT, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
+			infos[8].image.sampler = m_driver->createGPUSampler(samplerParams);
+			infos[8].image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
+		}
+		
+		IGPUDescriptorSet::SDescriptorInfo luminanceDescriptorInfo = {};
+		// luminance mip maps
+		{
+			ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_BORDER, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, 0u, false, ECO_ALWAYS };
+			auto sampler = m_driver->createGPUSampler(samplerParams);
+
+			luminanceDescriptorInfo.desc = lumaMap;
+			luminanceDescriptorInfo.image.sampler = sampler;
+			luminanceDescriptorInfo.image.imageLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+		}
 
 		createEmptyInteropBufferAndSetUpInfo(infos+3,m_rayBuffer[0],raygenBufferSize);
 		setBufferInfo(infos+4,m_rayCountBuffer);
@@ -1292,7 +1329,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 		for (auto i=0u; i<2u; i++)
 			m_commonRaytracingDS[i] = m_driver->createGPUDescriptorSet(core::smart_refctd_ptr(m_commonRaytracingDSLayout));
 
-		constexpr auto descriptorUpdateCount = 8u;
+		constexpr auto descriptorUpdateCount = 10u;
 		setDstSetAndDescTypesOnWrites(m_commonRaytracingDS[0].get(),writes,infos,{
 			EDT_UNIFORM_BUFFER,
 			EDT_UNIFORM_TEXEL_BUFFER,
@@ -1302,7 +1339,17 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 			EDT_STORAGE_IMAGE,
 			EDT_STORAGE_IMAGE,
 			EDT_COMBINED_IMAGE_SAMPLER,
+			EDT_COMBINED_IMAGE_SAMPLER,
 		});
+		
+		// Set last write
+		writes[9].binding = 9u;
+		writes[9].arrayElement = 0u;
+		writes[9].count = 1u;
+		writes[9].descriptorType = EDT_COMBINED_IMAGE_SAMPLER;
+		writes[9].dstSet = m_commonRaytracingDS[0].get();
+		writes[9].info = &luminanceDescriptorInfo;
+
 		m_driver->updateDescriptorSets(descriptorUpdateCount,writes,0u,nullptr);
 		// set up second DS
 		createEmptyInteropBufferAndSetUpInfo(infos+3,m_rayBuffer[1],raygenBufferSize);
@@ -1334,7 +1381,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height)
 			//region.imageSubresource.aspectMask = ;
 			region.imageSubresource.baseArrayLayer = 0u;
 			region.imageSubresource.layerCount = 1u;
-			region.imageExtent = {m_staticViewData.imageDimensions.x,m_staticViewData.imageDimensions.y,0u};
+			region.imageExtent = {m_staticViewData.imageDimensions.x,m_staticViewData.imageDimensions.y,1u};
 			auto scrambleKeys = createScreenSizedTexture(EF_R32G32_UINT);
 			m_driver->copyBufferToImage(tmpBuff.get(),scrambleKeys->getCreationParameters().image.get(),1u,&region);
 			setImageInfo(infos+0,asset::EIL_SHADER_READ_ONLY_OPTIMAL,std::move(scrambleKeys));
@@ -1537,7 +1584,7 @@ void Renderer::takeAndSaveScreenShot(const std::filesystem::path& screenshotFile
 void Renderer::denoiseCubemapFaces(
 	std::filesystem::path filePaths[6],
 	const std::string& mergedFileName,
-	int borderPixels,
+	int32_t cropOffsetX, int32_t cropOffsetY, int32_t cropWidth, int32_t cropHeight,
 	const DenoiserArgs& denoiserArgs)
 {
 	auto commandQueue = m_rrManager->getCLCommandQueue();
@@ -1555,30 +1602,32 @@ void Renderer::denoiseCubemapFaces(
 	for(uint32_t i = 0; i < 6; ++i)
 		normalFilePaths[i] = filePaths[i].replace_extension().string() + "_normal.exr";
 	
-	std::string mergedRenderFilePath = mergedFileName + ".exr";
-	std::string mergedAlbedoFilePath = mergedFileName + "_albedo.exr";
-	std::string mergedNormalFilePath = mergedFileName + "_normal.exr";
-	std::string mergedDenoisedFilePath = mergedFileName + "_denoised.exr";
+	std::filesystem::path mergedCubeMapOutputPath = filePaths[0].parent_path();
+
+	std::filesystem::path mergedRenderFilePath = mergedCubeMapOutputPath / std::filesystem::path(mergedFileName + ".exr");
+	std::filesystem::path mergedAlbedoFilePath = mergedCubeMapOutputPath / std::filesystem::path(mergedFileName + "_albedo.exr");
+	std::filesystem::path mergedNormalFilePath = mergedCubeMapOutputPath / std::filesystem::path(mergedFileName + "_normal.exr");
+	std::filesystem::path mergedDenoisedFilePath = mergedCubeMapOutputPath / std::filesystem::path(mergedFileName + "_denoised.exr");
 	
 	std::ostringstream mergeRendersCmd;
 	mergeRendersCmd << "call ../mergeCubemap.bat";
 	for(uint32_t i = 0; i < 6; ++i)
 		mergeRendersCmd << " " << renderFilePaths[i];
-	mergeRendersCmd << " " << mergedRenderFilePath;
+	mergeRendersCmd << " " << mergedRenderFilePath.string();
 	std::system(mergeRendersCmd.str().c_str());
 
 	std::ostringstream mergeAlbedosCmd;
 	mergeAlbedosCmd << "call ../mergeCubemap.bat ";
 	for(uint32_t i = 0; i < 6; ++i)
 		mergeAlbedosCmd << " " << albedoFilePaths[i];
-	mergeAlbedosCmd << " " << mergedAlbedoFilePath;
+	mergeAlbedosCmd << " " << mergedAlbedoFilePath.string();
 	std::system(mergeAlbedosCmd.str().c_str());
 	
 	std::ostringstream mergeNormalsCmd;
 	mergeNormalsCmd << "call ../mergeCubemap.bat ";
 	for(uint32_t i = 0; i < 6; ++i)
 		mergeNormalsCmd << " " << normalFilePaths[i];
-	mergeNormalsCmd << " " << mergedNormalFilePath;
+	mergeNormalsCmd << " " << mergedNormalFilePath.string();
 	std::system(mergeNormalsCmd.str().c_str());
 
 	const std::string defaultBloomFile = "../../media/kernels/physical_flare_512.exr";
@@ -1593,9 +1642,9 @@ void Renderer::denoiseCubemapFaces(
 	std::ostringstream denoiserCmd;
 	// 1.ColorFile 2.AlbedoFile 3.NormalFile 4.BloomPsfFilePath(STRING) 5.BloomScale(FLOAT) 6.BloomIntensity(FLOAT) 7.TonemapperArgs(STRING)
 	denoiserCmd << "call ../denoiser_hook.bat";
-	denoiserCmd << " \"" << mergedRenderFilePath << "\"";
-	denoiserCmd << " \"" << mergedAlbedoFilePath << "\"";
-	denoiserCmd << " \"" << mergedNormalFilePath << "\"";
+	denoiserCmd << " \"" << mergedRenderFilePath.string() << "\"";
+	denoiserCmd << " \"" << mergedAlbedoFilePath.string() << "\"";
+	denoiserCmd << " \"" << mergedNormalFilePath.string() << "\"";
 	denoiserCmd << " \"" << bloomFilePathStr << "\"";
 	denoiserCmd << " " << bloomScale;
 	denoiserCmd << " " << bloomIntensity;
@@ -1611,7 +1660,10 @@ void Renderer::denoiseCubemapFaces(
 		std::ostringstream extractImagesCmd;
 		auto mergedDenoisedWithoutExtension = std::filesystem::path(mergedDenoisedFilePath).replace_extension().string();
 		extractImagesCmd << "call ../extractCubemap.bat ";
-		extractImagesCmd << " " << std::to_string(borderPixels);
+		extractImagesCmd << " " << std::to_string(cropOffsetX);
+		extractImagesCmd << " " << std::to_string(cropOffsetY);
+		extractImagesCmd << " " << std::to_string(cropWidth);
+		extractImagesCmd << " " << std::to_string(cropHeight);
 		extractImagesCmd << " " << mergedDenoisedWithoutExtension + extension;
 		for(uint32_t i = 0; i < 6; ++i)
 		{
@@ -1900,7 +1952,6 @@ bool Renderer::traceBounce(uint32_t& raycount)
 
 	return true;
 }
-
 
 const float Renderer::AntiAliasingSequence[Renderer::AntiAliasingSequenceLength][2] =
 {

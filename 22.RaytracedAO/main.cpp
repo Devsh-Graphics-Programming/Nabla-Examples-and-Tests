@@ -299,6 +299,10 @@ int main(int argc, char** argv)
 	{
 		int32_t width = 0u;
 		int32_t height = 0u;
+		int32_t cropWidth = 0u;
+		int32_t cropHeight = 0u;
+		int32_t cropOffsetX = 0u;
+		int32_t cropOffsetY = 0u;
 		bool rightHandedCamera = true;
 		uint32_t samplesNeeded = 0u;
 		float moveSpeed = core::nan<float>();
@@ -310,8 +314,8 @@ int main(int argc, char** argv)
 		ext::MitsubaLoader::CElementSensor::Type type;
 		ext::MitsubaLoader::CElementFilm::FileFormat fileFormat;
 		Renderer::DenoiserArgs denoiserInfo = {};
-		int32_t highQualityEdges = 0u;
 		bool envmap = false;
+		float envmapRegFactor = 0.0f;
 
 		scene::CSceneNodeAnimatorCameraModifiedMaya* getInteractiveCameraAnimator()
 		{
@@ -410,7 +414,7 @@ int main(int argc, char** argv)
 		mainSensorData.denoiserInfo.bloomIntensity = film.denoiserBloomIntensity;
 		mainSensorData.denoiserInfo.tonemapperArgs = std::string(film.denoiserTonemapperArgs);
 		mainSensorData.fileFormat = film.fileFormat;
-		mainSensorData.highQualityEdges = film.highQualityEdges;
+		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
 		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
 		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
 		{
@@ -513,8 +517,7 @@ int main(int argc, char** argv)
 		float realFoVDegrees;
 		auto width = film.cropWidth;
 		auto height = film.cropHeight;
-		mainSensorData.width = width;
-		mainSensorData.height = height;
+
 		float aspectRatio = float(width) / float(height);
 		auto convertFromXFoV = [=](float fov) -> float
 		{
@@ -522,9 +525,6 @@ int main(int argc, char** argv)
 			return core::degrees(atan(aspectX/aspectRatio)*2.f);
 		};
 
-		// TODO: apply the crop offset
-		assert(film.cropOffsetX==0 && film.cropOffsetY==0);
-		
 		float nearClip = cameraBase->nearClip;
 		float farClip = cameraBase->farClip;
 		if(farClip > nearClip * 10'000.0f)
@@ -532,6 +532,13 @@ int main(int argc, char** argv)
 
 		if (mainSensorData.type == ext::MitsubaLoader::CElementSensor::Type::SPHERICAL)
 		{
+			mainSensorData.width = film.width;
+			mainSensorData.height = film.height;
+			mainSensorData.cropWidth = film.cropWidth;
+			mainSensorData.cropHeight = film.cropHeight;
+			mainSensorData.cropOffsetX = film.cropOffsetX;
+			mainSensorData.cropOffsetY = film.cropOffsetY;
+
 			nbl::core::vectorSIMDf camViews[6] =
 			{
 				nbl::core::vectorSIMDf(+1, 0, 0, 0), // +X
@@ -567,14 +574,11 @@ int main(int argc, char** argv)
 				SensorData cubemapFaceSensorData = mainSensorData;
 				cubemapFaceSensorData.envmap = true;
 
-				if(mainSensorData.width != mainSensorData.height)
+				if((mainSensorData.width != mainSensorData.height) || (mainSensorData.cropWidth != mainSensorData.cropHeight))
 				{
-					std::cout << "[ERROR] Cannot generate cubemap faces where film.width and film.height are not equal. (Aspect Ration must be 1)" << std::endl;
+					std::cout << "[ERROR] Cannot generate cubemap faces where film.width and film.height are not equal. (Aspect Ratio must be 1)" << std::endl;
 					assert(false);
 				}
-				const auto baseResolution = core::max(mainSensorData.width,mainSensorData.height);
-				cubemapFaceSensorData.width = baseResolution + mainSensorData.highQualityEdges * 2;
-				cubemapFaceSensorData.height = baseResolution + mainSensorData.highQualityEdges * 2;
 
 				// FIXME: suffix added after extension
 				cubemapFaceSensorData.outputFilePath.replace_extension();
@@ -615,6 +619,14 @@ int main(int argc, char** argv)
 		}
 		else
 		{
+			mainSensorData.width = film.cropWidth;
+			mainSensorData.height = film.cropHeight;
+			
+			if(film.cropOffsetX != 0 || film.cropOffsetY != 0)
+			{
+				std::cout << "[WARN] CropOffsets are non-zero. cropping is not supported for non cubemap renders." << std::endl;
+			}
+
 			mainSensorData.staticCamera = smgr->addCameraSceneNode(nullptr); 
 			auto& staticCamera = mainSensorData.staticCamera;
 
@@ -747,6 +759,7 @@ int main(int argc, char** argv)
 	// Render To file
 	int32_t prevWidth = 0;
 	int32_t prevHeight = 0;
+	float prevRegFactor = 0.0f;
 	for(uint32_t s = 0u; s < sensors.size(); ++s)
 	{
 		if(!receiver.keepOpen())
@@ -756,15 +769,16 @@ int main(int argc, char** argv)
 		
 		printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
 
-		bool needsReinit = (prevWidth != sensorData.width) || (prevHeight != sensorData.height); // >= or !=
+		bool needsReinit = (prevWidth != sensorData.width) || (prevHeight != sensorData.height) || (prevRegFactor != sensorData.envmapRegFactor); // >= or !=
 		prevWidth = sensorData.width;
 		prevHeight = sensorData.height;
+		prevRegFactor = sensorData.envmapRegFactor;
 		
 		renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
 		if(needsReinit) 
 		{
 			renderer->deinitScreenSizedResources();
-			renderer->initScreenSizedResources(sensorData.width,sensorData.height);
+			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor);
 		}
 		
 		smgr->setActiveCamera(sensorData.staticCamera);
@@ -834,7 +848,6 @@ int main(int argc, char** argv)
 	{
 		uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
 		assert(beginIdx + 6 <= sensors.size());
-		auto borderPixels = sensors[beginIdx].highQualityEdges;
 
 		std::filesystem::path filePaths[6] = {};
 
@@ -845,7 +858,11 @@ int main(int argc, char** argv)
 		}
 
 		std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
-		renderer->denoiseCubemapFaces(filePaths, mergedFileName, borderPixels, sensors[beginIdx].denoiserInfo);
+		renderer->denoiseCubemapFaces(
+			filePaths,
+			mergedFileName,
+			sensors[beginIdx].cropOffsetX, sensors[beginIdx].cropOffsetY, sensors[beginIdx].cropWidth, sensors[beginIdx].cropHeight,
+			sensors[beginIdx].denoiserInfo);
 	}
 
 	// Interactive
@@ -857,14 +874,14 @@ int main(int argc, char** argv)
 		{
 			if(index >= 0 && index < sensors.size())
 			{
-				bool needsReinit = (activeSensor == -1) || (sensors[activeSensor].width != sensors[index].width) || (sensors[activeSensor].height != sensors[index].height); // should be >= or != ?
+				bool needsReinit = (activeSensor == -1) || (sensors[activeSensor].width != sensors[index].width) || (sensors[activeSensor].height != sensors[index].height) || (sensors[activeSensor].envmapRegFactor != sensors[index].envmapRegFactor); // should be >= or != ?
 				activeSensor = index;
 
 				renderer->resetSampleAndFrameCounters();
 				if(needsReinit)
 				{
 					renderer->deinitScreenSizedResources();
-					renderer->initScreenSizedResources(sensors[activeSensor].width,sensors[activeSensor].height);
+					renderer->initScreenSizedResources(sensors[activeSensor].width,sensors[activeSensor].height,sensors[activeSensor].envmapRegFactor);
 				}
 
 				smgr->setActiveCamera(sensors[activeSensor].interactiveCamera);
