@@ -7,6 +7,7 @@
 #undef PI
 
 #include "nbl/ext/MitsubaLoader/CMitsubaLoader.h"
+#include "nbl/ext/EnvmapImportanceSampling/EnvmapImportanceSampling.h"
 
 #include <ISceneManager.h>
 
@@ -23,6 +24,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
     public:
 		#include "rasterizationCommon.h"
 		#include "raytraceCommon.h"
+		#include "nbl/builtin/glsl/ext/EnvmapImportanceSampling/parameters.glsl"
 		#ifdef __cplusplus
 			#undef uint
 			#undef vec4
@@ -44,7 +46,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		void deinitSceneResources();
 		
-		void initScreenSizedResources(uint32_t width, uint32_t height);
+		void initScreenSizedResources(uint32_t width, uint32_t height, float envMapRegularizationFactor);
 
 		void deinitScreenSizedResources();
 
@@ -52,7 +54,11 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		void takeAndSaveScreenShot(const std::filesystem::path& screenshotFilePath, bool denoise = false, const DenoiserArgs& denoiserArgs = {});
 		
-		void denoiseCubemapFaces(std::filesystem::path filePaths[6], const std::string& mergedFileName, int borderPixels, const DenoiserArgs& denoiserArgs = {});
+		void denoiseCubemapFaces(
+			std::filesystem::path filePaths[6],
+			const std::string& mergedFileName, 
+			int32_t cropOffsetX, int32_t cropOffsetY, int32_t cropWidth, int32_t cropHeight,
+			const DenoiserArgs& denoiserArgs = {});
 
 		bool render(nbl::ITimer* timer, const bool transformNormals, const bool beauty=true);
 
@@ -124,6 +130,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		void finalizeScene(InitializationData& initData);
 
 		//
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> createTexture(uint32_t width, uint32_t height, nbl::asset::E_FORMAT format, uint32_t mipLevels=1u, uint32_t layers=0u);
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> createScreenSizedTexture(nbl::asset::E_FORMAT format, uint32_t layers=0u);
 
 		//
@@ -162,7 +169,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_raygenGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_closestHitGPUShader;
 		nbl::core::smart_refctd_ptr<IGPUSpecializedShader> m_resolveGPUShader;
-
+		
 		// semi persistent data
 		nbl::io::path sampleSequenceCachePath;
 		struct SampleSequence
@@ -235,11 +242,13 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::video::IFrameBuffer* m_visibilityBuffer,* m_colorBuffer;
 		
 		// Resources used for blending environmental maps
+		static constexpr uint32_t MipCountEnvmap = 11u;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline> blendEnvPipeline;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> blendEnvDescriptorSet;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUMeshBuffer> blendEnvMeshBuffer;
-
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;
+		
+		nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 
 		std::future<bool> compileShadersFuture;
 };
