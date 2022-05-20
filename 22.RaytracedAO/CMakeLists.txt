@@ -42,3 +42,11 @@ nbl_create_executable_project(
 	"${RAY_TRACED_AO_EXAMPLE_INCLUDE_DIRS}"
 	"${RAY_TRACED_AO_EXAMPLE_LIBS}"
 )
+
+if(NBL_RUN_TESTS)
+	get_target_property(_RTAO_OUTPUT_RUNTIME_RELEASE_ ${EXECUTABLE_NAME} RUNTIME_OUTPUT_DIRECTORY_RELEASE)
+	set(_NBL_PATHTRACER_EXE_ "${_RTAO_OUTPUT_RUNTIME_RELEASE_}/${EXECUTABLE_NAME}.exe" CACHE FILEPATH "")
+	set(_NBL_SCENES_INPUT_TXT_ "${CMAKE_CURRENT_SOURCE_DIR}/test_scenes.txt" CACHE FILEPATH "")
+	set(_NBL_PRIVATE_SCENES_INPUT_TXT_ "" CACHE FILEPATH "You can specify a path to private scenes text file, leave empty if not used")
+	configure_file("${NBL_ROOT_PATH}/ci/ditt/main.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/main.py")
+endif() 
