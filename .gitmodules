@@ -1,3 +1,4 @@
 [submodule "media"]
 	path = media
 	url = git@github.com:Devsh-Graphics-Programming/media.git
+	branch = ditt
