@@ -177,7 +177,7 @@ int main(int argc, char** argv)
 		if(filePath.empty())
 		{
 			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. \nIf you cancel or choosen file fails to load, simple scene will be loaded.", pfd::choice::ok);
-			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml"});
+			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml"});
 			if (!file.result().empty())
 				filePath = file.result()[0];
 		}

@@ -1761,7 +1761,7 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			return core::concatenateBFollowedByA(jitterMatrix,core::concatenateBFollowedByA(camera->getProjectionMatrix(),m_prevView));
 		}(m_framesDispatched);
 		m_raytraceCommonData.rcpFramesDispatched = 1.f/float(m_framesDispatched);
-		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched,Renderer::AntiAliasingSequenceLength));
+		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
 		if(!modifiedViewProj.getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(m_raytraceCommonData.viewProjMatrixInverse))
 			std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
 		// for (auto i=0u; i<3u; i++)
