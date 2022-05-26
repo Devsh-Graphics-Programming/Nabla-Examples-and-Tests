@@ -274,6 +274,16 @@ mat2x3 rand6d(in uvec3 scramble_keys[2], in int _sample, int depth)
 }
 
 #include <nbl/builtin/glsl/ext/EnvmapImportanceSampling/functions.glsl>
+// for some reason Mitsuba uses Left-Handed coordinate system with Y-up for Envmaps
+vec3 worldSpaceToMitsubaEnvmap(in vec3 worldSpace)
+{
+	return vec3(-worldSpace.z,worldSpace.xy);
+}
+vec3 mitsubaEnvmapToWorldSpace(in vec3 mitsubaEnvmaSpace)
+{
+	return vec3(mitsubaEnvmaSpace.yz,-mitsubaEnvmaSpace.x);
+}
+
 
 nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 	out vec3 direction,
@@ -296,8 +306,9 @@ nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 #ifndef ONLY_BXDF_SAMPLING
 	float bxdfWeight = 0;
 
-	float p_bxdf_bxdf = bxdfCosThroughput.pdf; // BxDF PDF evaluated with BxDF sample (returned from 
-	float p_env_bxdf = nbl_glsl_sampling_envmap_HierarchicalWarp_deferred_pdf(bxdfSample.L, luminance); // Envmap PDF evaluated with BxDF sample (returned by manual tap of the envmap PDF texture)
+	float p_bxdf_bxdf = bxdfCosThroughput.pdf; // BxDF PDF evaluated with BxDF sample (returned from BxDF sampling)
+	// Envmap PDF evaluated with BxDF sample (returned by manual tap of the envmap PDF texture)
+	float p_env_bxdf = nbl_glsl_ext_HierarchicalWarp_deferred_pdf(worldSpaceToMitsubaEnvmap(bxdfSample.L), luminance);
 
 	float p_env_env = 0.0f; // Envmap PDF evaluated with Envmap sample (returned from envmap importance sampling)
 	float p_bxdf_env = 0.0f; // BXDF evaluated with Envmap sample (returned from envmap importance sampling)
@@ -308,7 +319,8 @@ nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 	{
 		nbl_glsl_MC_setCurrInteraction(precomp);
 
-		envmapSample = nbl_glsl_sampling_envmap_HierarchicalWarp_generate(/*out*/p_env_env, rand[1].xy, warpMap, currInteraction.inner);
+		const vec3 envmapDir = nbl_glsl_ext_HierarchicalWarp_generate(/*out*/p_env_env, rand[1].xy, warpMap);
+		envmapSample = nbl_glsl_createLightSample(mitsubaEnvmapToWorldSpace(envmapDir),currInteraction.inner);
 
 		nbl_glsl_MC_microfacet_t microfacet;
 		microfacet.inner = nbl_glsl_calcAnisotropicMicrofacetCache(currInteraction.inner, envmapSample);
@@ -368,9 +380,7 @@ nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 	
 	result.quotient *= w_star_over_p_env;
 	result.pdf /= w_star_over_p_env;
-#endif // ifndef ONLY_BXDF_SAMPLING
-
-#ifdef ONLY_BXDF_SAMPLING
+#else
 	outSample = bxdfSample;
 	result = bxdfCosThroughput;
 #endif
@@ -490,9 +500,10 @@ struct Contribution
 
 void Contribution_initMiss(out Contribution contrib, in float aovThroughputScale)
 {
-	vec2 uv = nbl_glsl_sampling_envmap_generateUVCoordFromDirection(-normalizedV);
+	// weird swizzle on the V to match mitsuba convention
+	vec2 uv = nbl_glsl_sampling_envmap_uvCoordFromDirection(worldSpaceToMitsubaEnvmap(-normalizedV));
 	// funny little trick borrowed from things like Progressive Photon Mapping
-	const float bias = 0.0625f*(1.f-aovThroughputScale)*pow(pc.cummon.rcpFramesDispatched,0.08f);
+	const float bias = 0.f;//0.0625f*(1.f-aovThroughputScale)*pow(pc.cummon.rcpFramesDispatched,0.08f);
 	contrib.albedo = contrib.color = textureGrad(envMap, uv, vec2(bias*0.5,0.f), vec2(0.f,bias)).rgb;
 	contrib.worldspaceNormal = normalizedV;
 }
