@@ -22,7 +22,7 @@ public:
 	{
 		CommonAPI::InitOutput initOutput;
 		initOutput.system = core::smart_refctd_ptr(system);
-		CommonAPI::InitWithNoExt(initOutput, video::EAT_OPENGL, "Subgroup Arithmetic Test");
+		CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "Subgroup Arithmetic Test");
 		system = std::move(initOutput.system);
 		auto gl = std::move(initOutput.apiConnection);
 		auto logger = std::move(initOutput.logger);
@@ -62,7 +62,10 @@ public:
 		SBufferRange<IGPUBuffer> in_gpu_range;
 		in_gpu_range.offset = begin * sizeof(uint32_t);
 		in_gpu_range.size = elementCount * sizeof(uint32_t);
-		in_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP], in_count * sizeof(uint32_t), in);
+		IGPUBuffer::SCreationParams bufferParams = {};
+		bufferParams.size = in_count * sizeof(uint32_t);
+		bufferParams.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+		in_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP], std::move(bufferParams), in);
 
 		const auto scanType = video::CScanner::EST_EXCLUSIVE;
 		auto scanner = utilities->getDefaultScanner();
@@ -77,8 +80,12 @@ public:
 			scratch_gpu_range.offset = 0u;
 			scratch_gpu_range.size = scan_push_constants.scanParams.getScratchSize();
 			IGPUBuffer::SCreationParams params = {};
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-			scratch_gpu_range.buffer = logicalDevice->createDeviceLocalGPUBufferOnDedMem(params, scratch_gpu_range.size);
+			params.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			
+			scratch_gpu_range.buffer = logicalDevice->createBuffer(params);
+			auto memReqs = scratch_gpu_range.buffer->getMemoryReqs();
+			memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+			auto scratchMem = logicalDevice->allocate(memReqs, scratch_gpu_range.buffer.get());
 		}
 
 		auto dsLayout = scanner->getDefaultDescriptorSetLayout();
@@ -155,8 +162,13 @@ public:
 		if (BenchmarkingRuns == 1u)
 		{
 			IGPUBuffer::SCreationParams params = {};
+			params.size = in_gpu_range.size;
 			params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			auto downloaded_buffer = logicalDevice->createDownStreamingGPUBufferOnDedMem(params, in_gpu_range.size);
+
+			auto downloaded_buffer = logicalDevice->createBuffer(params);
+			auto memReqs = downloaded_buffer->getMemoryReqs();
+			memReqs.memoryTypeBits &= gpuPhysicalDevice->getDownStreamingMemoryTypeBits();
+			auto queriesMem = logicalDevice->allocate(memReqs, downloaded_buffer.get());
 			{
 				core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 				{
