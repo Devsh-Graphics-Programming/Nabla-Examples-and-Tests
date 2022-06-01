@@ -80,6 +80,7 @@ public:
 			scratch_gpu_range.offset = 0u;
 			scratch_gpu_range.size = scan_push_constants.scanParams.getScratchSize();
 			IGPUBuffer::SCreationParams params = {};
+			params.size = scratch_gpu_range.size;
 			params.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			
 			scratch_gpu_range.buffer = logicalDevice->createBuffer(params);
@@ -105,20 +106,18 @@ public:
 				auto cmdPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 				logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 
-				// TODO: barriers
-				IGPUCommandBuffer::SBufferMemoryBarrier srcBufferBarrier;
-				IGPUCommandBuffer::SBufferMemoryBarrier dstBufferBarrier;
-
 				// TODO: begin and end query
 				cmdbuf->begin(IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
 				cmdbuf->fillBuffer(scratch_gpu_range.buffer.get(), 0u, sizeof(uint32_t) + scratch_gpu_range.size / 2u, 0u);
 				cmdbuf->bindComputePipeline(scan_pipeline);
 				auto pipeline_layout = scan_pipeline->getLayout();
 				cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipeline_layout, 0u, 1u, &ds.get());
+
+				// We don't need barriers here, there are no valiadtion errors about synchronization of using any buffer
 				scanner->dispatchHelper(
 					cmdbuf.get(), pipeline_layout, scan_push_constants, scan_dispatch_info,
-					static_cast<asset::E_PIPELINE_STAGE_FLAGS>(asset::EPSF_COMPUTE_SHADER_BIT | asset::EPSF_TRANSFER_BIT), 1u, &srcBufferBarrier,
-					static_cast<asset::E_PIPELINE_STAGE_FLAGS>(asset::EPSF_COMPUTE_SHADER_BIT | asset::EPSF_TRANSFER_BIT), 1u, &dstBufferBarrier
+					static_cast<asset::E_PIPELINE_STAGE_FLAGS>(asset::EPSF_COMPUTE_SHADER_BIT | asset::EPSF_TRANSFER_BIT), 0u, nullptr,
+					static_cast<asset::E_PIPELINE_STAGE_FLAGS>(asset::EPSF_COMPUTE_SHADER_BIT | asset::EPSF_TRANSFER_BIT), 0u, nullptr
 				);
 				cmdbuf->end();
 			}
