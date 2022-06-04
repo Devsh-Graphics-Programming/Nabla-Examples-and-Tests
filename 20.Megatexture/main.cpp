@@ -617,9 +617,9 @@ APP_CONSTRUCTOR(MegaTextureApp)
         gpuuboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
         gpuuboCreationParams.queueFamilyIndexCount = 0u;
         gpuuboCreationParams.queueFamilyIndices = nullptr;
-        auto ubomemreq = logicalDevice->getDeviceLocalGPUMemoryReqs();
-        ubomemreq.vulkanReqs.size = neededDS1UBOsz;
-        gpuubo = logicalDevice->createGPUBufferOnDedMem(gpuuboCreationParams, ubomemreq);
+        gpuuboCreationParams.size = neededDS1UBOsz;
+        gpuubo = logicalDevice->createBuffer(gpuuboCreationParams);
+        logicalDevice->allocate(gpuubo->getMemoryReqs());
 
         auto descriptorPoolDs1 = createDescriptorPool(1u); // TODO check it out
 
@@ -663,8 +663,12 @@ APP_CONSTRUCTOR(MegaTextureApp)
 
         gpuds2 = logicalDevice->createDescriptorSet(descriptorPoolDs2.get(), std::move(gpu_ds2layout));
         {
+
+            video::IGPUBuffer::SCreationParams bufferCreationParams;
+            bufferCreationParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+            bufferCreationParams.size = sizeof(video::IGPUVirtualTexture::SPrecomputedData);
             core::smart_refctd_ptr<video::IUtilities> utilities = core::make_smart_refctd_ptr<video::IUtilities>(core::smart_refctd_ptr(logicalDevice));
-            core::smart_refctd_ptr<video::IGPUBuffer> buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], sizeof(video::IGPUVirtualTexture::SPrecomputedData), &gpuvt->getPrecomputedData());
+            core::smart_refctd_ptr<video::IGPUBuffer> buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(bufferCreationParams), &gpuvt->getPrecomputedData());
 
             {
                 std::array<video::IGPUDescriptorSet::SWriteDescriptorSet, 1> write;
@@ -709,7 +713,7 @@ APP_CONSTRUCTOR(MegaTextureApp)
         auto commandBuffer = commandBuffers[0];
 
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
 
         asset::SViewport viewport;
         viewport.minDepth = 1.f;

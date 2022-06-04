@@ -308,17 +308,17 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 				gpuds1layout = (*gpu_array)[0];
 			}
 
-			auto ubomemreq = logicalDevice->getDeviceLocalGPUMemoryReqs();
-			ubomemreq.vulkanReqs.size = uboDS1ByteSize;
-
 			video::IGPUBuffer::SCreationParams creationParams;
 			creationParams.canUpdateSubRange = true;
 			creationParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT;
 			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
 			creationParams.queueFamilyIndices = 0u;
 			creationParams.queueFamilyIndices = nullptr;
+			creationParams.size = uboDS1ByteSize;
 
-			auto gpuubo = logicalDevice->createGPUBufferOnDedMem(creationParams, ubomemreq);
+			auto gpuubo = logicalDevice->createBuffer(creationParams);
+			logicalDevice->allocate(gpuubo->getMemoryReqs(), gpuubo.get());
+
 			auto gpuds1 = logicalDevice->createDescriptorSet(gpuUBODescriptorPool.get(), std::move(gpuds1layout));
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -460,7 +460,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
 
 		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+		commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
 
 		asset::SViewport viewport;
 		viewport.minDepth = 1.f;

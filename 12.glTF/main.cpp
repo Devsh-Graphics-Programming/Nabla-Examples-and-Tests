@@ -209,11 +209,14 @@ class GLTFApp : public ApplicationBase
 			auto xferQueue = logicalDevice->getQueue(xferCmdbuf->getQueueFamilyIndex(),0u);
 			asset::SBufferBinding<video::IGPUBuffer> xferScratch;
 			{
-				video::IGPUBuffer::SCreationParams scratchParams = {};
+				video::IGPUBuffer::SCreationParams scratchParams;
 				scratchParams.canUpdateSubRange = true;
 				scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT)|video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				xferScratch = {0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(scratchParams,ppHandler->getMaxScratchSize())};
+				scratchParams.size = ppHandler->getMaxScratchSize();
+				xferScratch = {0ull,logicalDevice->createBuffer(scratchParams)};
 				xferScratch.buffer->setObjectDebugName("PropertyPoolHandler Scratch Buffer");
+				logicalDevice->allocate(xferScratch.buffer->getMemoryReqs(), xferScratch.buffer.get());
+				
 			}
 
 
@@ -351,8 +354,9 @@ class GLTFApp : public ApplicationBase
 				// first uint needs to be the count
 				allNodes.insert(allNodes.begin(),allNodes.size());
 				pivotNodesRange.offset += sizeof(uint32_t);
-
-				auto allNodesBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(scene::ITransformTree::node_t)*allNodes.size(),allNodes.data());
+				video::IGPUBuffer::SCreationParams params;
+				params.size = sizeof(scene::ITransformTree::node_t) * allNodes.size();
+				auto allNodesBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,std::move(params),allNodes.data());
 				transformTreeManager->updateRecomputeGlobalTransformsDescriptorSet(logicalDevice.get(),ttmDescriptorSets.recomputeGlobal.get(),{0ull,allNodesBuffer});
 				pivotNodesRange.buffer = std::move(allNodesBuffer);
 			}

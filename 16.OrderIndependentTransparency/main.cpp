@@ -366,8 +366,7 @@ public:
 
         descriptorPool = createDescriptorPool(1u);
 
-        ubomemreq = logicalDevice->getDeviceLocalGPUMemoryReqs();
-        ubomemreq.vulkanReqs.size = neededDS1UBOsz;
+   
 
         video::IGPUBuffer::SCreationParams gpuuboCreationParams;
         gpuuboCreationParams.canUpdateSubRange = true;
@@ -376,8 +375,11 @@ public:
         gpuuboCreationParams.queueFamilyIndexCount = 0u;
         gpuuboCreationParams.queueFamilyIndices = nullptr;
         gpuuboCreationParams.canUpdateSubRange = true;
+        gpuuboCreationParams.size = neededDS1UBOsz;
 
-        gpuubo = logicalDevice->createGPUBufferOnDedMem(gpuuboCreationParams, ubomemreq);
+        gpuubo = logicalDevice->createBuffer(gpuuboCreationParams);
+        logicalDevice->allocate(gpuubo->getMemoryReqs(), gpuubo.get());
+
         gpuds1 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
         {
             video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -524,7 +526,7 @@ public:
         const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
 
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
 
         asset::SViewport viewport;
         viewport.minDepth = 1.f;

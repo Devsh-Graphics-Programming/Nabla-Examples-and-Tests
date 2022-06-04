@@ -404,7 +404,7 @@ public:
 		swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
 
 		// safe to proceed
-		cb->begin(IGPUCommandBuffer::EU_NONE);
+		cb->begin(video::IGPUCommandBuffer::EU_NONE);
 
 		{
 			asset::SViewport vp;

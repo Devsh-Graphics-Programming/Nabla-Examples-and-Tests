@@ -274,7 +274,9 @@ public:
 		constexpr size_t BUF_SZ = 4ull * sizeof(float) * PARTICLE_COUNT;
 		video::IGPUBuffer::SCreationParams bufferCreationParams = {};
 		bufferCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_VERTEX_BUFFER_BIT);
-		m_gpuParticleBuf = device->createDeviceLocalGPUBufferOnDedMem(bufferCreationParams, 2ull * BUF_SZ);
+		bufferCreationParams.size = 2ull * BUF_SZ;
+		m_gpuParticleBuf = device->createBuffer(bufferCreationParams);
+		device->allocate(m_gpuParticleBuf->getMemoryReqs(), m_gpuParticleBuf.get());
 		asset::SBufferRange<video::IGPUBuffer> range;
 		range.buffer = m_gpuParticleBuf;
 		range.offset = POS_BUF_IX * BUF_SZ;
@@ -282,13 +284,11 @@ public:
 		utils->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_GRAPHICS], range, particlePos.data());
 		particlePos.clear();
 
-		auto devLocalReqs = device->getDeviceLocalGPUMemoryReqs();
-
-		devLocalReqs.vulkanReqs.size = core::roundUp(sizeof(UBOCompute), 64ull);
-
 		video::IGPUBuffer::SCreationParams uboComputeCreationParams = {};
 		uboComputeCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
-		auto gpuUboCompute = device->createGPUBufferOnDedMem(uboComputeCreationParams, devLocalReqs);
+		uboComputeCreationParams.size = core::roundUp(sizeof(UBOCompute), 64ull);
+		auto gpuUboCompute = device->createBuffer(uboComputeCreationParams);
+		device->allocate(gpuUboCompute->getMemoryReqs(), gpuUboCompute.get());
 		m_gpuds0Compute = device->createDescriptorSet(dscPool.get(), std::move(gpuDs0layoutCompute));
 		{
 			video::IGPUDescriptorSet::SDescriptorInfo i[3];
@@ -370,10 +370,11 @@ public:
 
 		m_graphicsPipeline = device->createGraphicsPipeline(nullptr, std::move(gp_params));
 
-		devLocalReqs.vulkanReqs.size = sizeof(m_viewParams);
 		video::IGPUBuffer::SCreationParams gfxUboCreationParams = {};
 		gfxUboCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
-		auto gpuUboGraphics = device->createGPUBufferOnDedMem(gfxUboCreationParams, devLocalReqs);
+		gfxUboCreationParams.size = sizeof(m_viewParams);
+		auto gpuUboGraphics = device->createBuffer(gfxUboCreationParams);
+		device->allocate(gpuUboGraphics->getMemoryReqs(), gpuUboGraphics.get());
 		{
 			video::IGPUDescriptorSet::SWriteDescriptorSet w;
 			video::IGPUDescriptorSet::SDescriptorInfo i;
@@ -430,7 +431,7 @@ public:
 		}
 
 		// safe to proceed
-		cb->begin(IGPUCommandBuffer::EU_NONE);
+		cb->begin(video::IGPUCommandBuffer::EU_NONE);
 
 		{
 			auto time = std::chrono::high_resolution_clock::now();

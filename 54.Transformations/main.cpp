@@ -245,8 +245,10 @@ class TransformationApp : public ApplicationBase
 			ssboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			ssboCreationParams.queueFamilyIndexCount = 0u;
 			ssboCreationParams.queueFamilyIndices = nullptr;
+			ssboCreationParams.size = ssboSz;
 
-			auto ssbo_buf = device->createDeviceLocalGPUBufferOnDedMem(ssboCreationParams, ssboSz);
+			auto ssbo_buf = device->createBuffer(ssboCreationParams);
+			device->allocate(ssbo_buf->getMemoryReqs(), ssbo_buf.get());
 
 			asset::SBufferRange<video::IGPUBuffer> propBufs[transform_tree_t::property_pool_t::PropertyCount];
 			for (uint32_t i=0u; i<transform_tree_t::property_pool_t::PropertyCount; ++i)
@@ -413,18 +415,31 @@ class TransformationApp : public ApplicationBase
 					tmp_parents[i] = solarSystemObjectsData[i].parentIndex;
 					tmp_transforms[i] = solarSystemObjectsData[i].getTform();
 				}
-				auto tmp_node_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, sizeof(scene::ITransformTree::node_t) * NumInstances, tmp_nodes.data());
+				video::IGPUBuffer::SCreationParams nodebufParams;
+				nodebufParams.size = sizeof(scene::ITransformTree::node_t) * NumInstances;
+				nodebufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				auto tmp_node_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(nodebufParams), tmp_nodes.data());
 				tmp_node_buf->setObjectDebugName("Temporary Nodes");
-				auto tmp_parent_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, sizeof(scene::ITransformTree::parent_t) * NumInstances, tmp_parents.data());
+
+				video::IGPUBuffer::SCreationParams parentbufParams;
+				parentbufParams.size = sizeof(scene::ITransformTree::parent_t) * NumInstances;
+				parentbufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				auto tmp_parent_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(parentbufParams), tmp_parents.data());
 				tmp_parent_buf->setObjectDebugName("Temporary Parents");
-				auto tmp_transform_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, sizeof(scene::ITransformTree::relative_transform_t) * NumInstances, tmp_transforms.data());
+
+				video::IGPUBuffer::SCreationParams transformbufParams;
+				transformbufParams.size = sizeof(scene::ITransformTree::relative_transform_t) * NumInstances;
+				transformbufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				auto tmp_transform_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(transformbufParams), tmp_transforms.data());
 				tmp_transform_buf->setObjectDebugName("Temporary Transforms");
 
 				//
 				video::IGPUBuffer::SCreationParams scratchParams = {};
 				scratchParams.canUpdateSubRange = true;
 				scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createDeviceLocalGPUBufferOnDedMem(scratchParams,utils->getDefaultPropertyPoolHandler()->getMaxScratchSize()) };
+				scratchParams.size = utils->getDefaultPropertyPoolHandler()->getMaxScratchSize();
+				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createBuffer(scratchParams) };
+				device->allocate(scratch.buffer->getMemoryReqs(), scratch.buffer.get());
 				scratch.buffer->setObjectDebugName("Scratch Buffer");
 				{
 					video::CPropertyPoolHandler::TransferRequest transfers[scene::ITransformTreeManager::TransferCount];
@@ -438,7 +453,7 @@ class TransformationApp : public ApplicationBase
 						ttm->setupTransfers(req, transfers);
 					}
 
-					cmdbuf_nodes->begin(IGPUCommandBuffer::EU_NONE);
+					cmdbuf_nodes->begin(video::IGPUCommandBuffer::EU_NONE);
 					utils->getDefaultPropertyPoolHandler()->transferProperties(
 						cmdbuf_nodes.get(), fence_nodes.get(), scratch, { 0ull,tmp_node_buf },
 						transfers, transfers + scene::ITransformTreeManager::TransferCount, initOutput.logger.get()
@@ -495,8 +510,10 @@ class TransformationApp : public ApplicationBase
 			colorBufCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			colorBufCreationParams.queueFamilyIndexCount = 0u;
 			colorBufCreationParams.queueFamilyIndices = nullptr;
+			colorBufCreationParams.size = ColorBufSz;
 
-			auto gpuColorBuf = device->createDeviceLocalGPUBufferOnDedMem(colorBufCreationParams, ColorBufSz);
+			auto gpuColorBuf = device->createBuffer(colorBufCreationParams );
+			device->allocate(gpuColorBuf->getMemoryReqs(), gpuColorBuf.get());
 			core::vectorSIMDf colors[ObjectCount]{
 				core::vectorSIMDf(0.f, 0.f, 1.f),
 				core::vectorSIMDf(0.f, 1.f, 0.f),
@@ -589,12 +606,19 @@ class TransformationApp : public ApplicationBase
 			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			creationParams.queueFamilyIndexCount = 0u;
 			creationParams.queueFamilyIndices = nullptr;
+			creationParams.size= ModsRangesBufSz;
 
 
 
-			modRangesBuf = device->createDeviceLocalGPUBufferOnDedMem(creationParams, ModsRangesBufSz);
-			relTformModsBuf = device->createDeviceLocalGPUBufferOnDedMem(creationParams, sizeof(scene::nbl_glsl_transform_tree_relative_transform_modification_t) * ObjectCount);
-			nodeIdsBuf = device->createDeviceLocalGPUBufferOnDedMem(creationParams, std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull));
+			modRangesBuf = device->createBuffer(creationParams);
+			creationParams.size = sizeof(scene::nbl_glsl_transform_tree_relative_transform_modification_t) * ObjectCount;
+			relTformModsBuf = device->createBuffer(creationParams);
+			creationParams.size = std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull);
+			nodeIdsBuf = device->createBuffer(creationParams);
+
+			device->allocate(modRangesBuf->getMemoryReqs(), modRangesBuf.get());
+			device->allocate(relTformModsBuf->getMemoryReqs(), relTformModsBuf.get());
+			device->allocate(nodeIdsBuf->getMemoryReqs(), nodeIdsBuf.get());
 			{
 				//update `nodeIdsBuf`
 				uint32_t countAndIds[1u + ObjectCount];
@@ -620,7 +644,11 @@ class TransformationApp : public ApplicationBase
 				aabb.MaxEdge *= obj.scale;
 				aabbs.emplace_back() = aabb;
 			}
-			ttm->updateDebugDrawDescriptorSet(device.get(),ttmDescriptorSets.debugDraw.get(),{0ull,utils->createFilledDeviceLocalBufferOnDedMem(device->getQueue(0,0),sizeof(core::CompressedAABB)*aabbs.size(),aabbs.data())});
+			video::IGPUBuffer::SCreationParams params;
+			params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
+			params.size = sizeof(core::CompressedAABB)* aabbs.size();
+			ttm->updateDebugDrawDescriptorSet(device.get(),ttmDescriptorSets.debugDraw.get(),{0ull,utils->createFilledDeviceLocalBufferOnDedMem(device->getQueue(0,0),std::move(params),aabbs.data())});
 		}
 
 		void onAppTerminated_impl() override
@@ -648,7 +676,7 @@ class TransformationApp : public ApplicationBase
 			timestamp++;
 
 			// safe to proceed
-			cb->begin(IGPUCommandBuffer::EU_NONE);
+			cb->begin(video::IGPUCommandBuffer::EU_NONE);
 
 			// we don't wait on anything because we do everything on the same queue
 			uint32_t waitSemaphoreCount = 0u;

@@ -383,8 +383,6 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 		auto gpuGDescriptorPool = createDescriptorPool(1, EDT_UNIFORM_BUFFER);
 		auto gpuGDs1Layout = logicalDevice->createDescriptorSetLayout(&gpuUboBinding, &gpuUboBinding + 1);
-		auto dev_local_reqs = logicalDevice->getDeviceLocalGPUMemoryReqs();
-		dev_local_reqs.vulkanReqs.size = sizeof(SBasicViewParameters);
 
 		video::IGPUBuffer::SCreationParams gpuUBOCreationParams;
 		//gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
@@ -392,8 +390,10 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		gpuUBOCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
 		gpuUBOCreationParams.queueFamilyIndexCount = 0u;
 		gpuUBOCreationParams.queueFamilyIndices = nullptr;
+		gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
 
-		gpuUBO = logicalDevice->createGPUBufferOnDedMem(gpuUBOCreationParams, dev_local_reqs);
+		gpuUBO = logicalDevice->createBuffer(gpuUBOCreationParams);
+		logicalDevice->allocate(gpuUBO->getMemoryReqs(), gpuUBO.get()); 
 
 		gpuGDescriptorSet1 = logicalDevice->createDescriptorSet(gpuGDescriptorPool.get(), gpuGDs1Layout);
 		{
@@ -572,7 +572,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 		auto& commandBuffer = commandBuffers[0];
 		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+		commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
 
 		asset::SViewport viewport;
 		viewport.minDepth = 1.f;

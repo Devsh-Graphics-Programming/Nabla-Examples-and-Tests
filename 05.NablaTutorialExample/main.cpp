@@ -293,19 +293,21 @@ public:
 
 				We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
 			*/
+			{
+				IGPUBuffer::SCreationParams creationParams = {};
+				creationParams.canUpdateSubRange = true;
+				creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
+				auto gpuubobuffer = logicalDevice->createBuffer(creationParams);
 
-			IGPUBuffer::SCreationParams creationParams = {};
-			creationParams.canUpdateSubRange = true;
-			creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
-			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq;
-			memReq.vulkanReqs.size = sizeof(SBasicViewParameters);
-			memReq.vulkanReqs.alignment = physicalDevice->getLimits().UBOAlignment;
-			memReq.vulkanReqs.memoryTypeBits = 0xffffffffu;
-			memReq.memoryHeapLocation = IDeviceMemoryAllocation::ESMT_DEVICE_LOCAL;
-			memReq.mappingCapability = IDeviceMemoryAllocation::EMAF_NONE;
-			memReq.prefersDedicatedAllocation = true;
-			memReq.requiresDedicatedAllocation = true;
-			gpuubo = logicalDevice->createGPUBufferOnDedMem(creationParams,memReq);
+				IDeviceMemoryBacked::SDeviceMemoryRequirements memReq;
+				memReq.prefersDedicatedAllocation = true;
+				memReq.requiresDedicatedAllocation = true;
+				//memReq.alignmentLog2 = physicalDevice->getLimits().UBOAlignment;
+				memReq.size = sizeof(SBasicViewParameters);
+				memReq.memoryTypeBits = physicalDevice->getDeviceLocalMemoryTypeBits();
+
+				logicalDevice->allocate(memReq, gpuubobuffer.get());
+			}
 
 			/*
 				Creating descriptor sets - texture (sampler) and basic view parameters (UBO).

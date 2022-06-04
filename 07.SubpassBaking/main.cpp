@@ -237,8 +237,6 @@ public:
 
             auto descriptorPool = logicalDevice->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, &gpuds1layout.get(), &gpuds1layout.get() + 1);
 
-            auto ubomemreq = logicalDevice->getDeviceLocalGPUMemoryReqs();
-            ubomemreq.vulkanReqs.size = neededDS1UBOsz;
 
             video::IGPUBuffer::SCreationParams cameraUBOCreationParams;
             cameraUBOCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
@@ -246,8 +244,13 @@ public:
             cameraUBOCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
             cameraUBOCreationParams.queueFamilyIndexCount = 0u;
             cameraUBOCreationParams.queueFamilyIndices = nullptr;
+            cameraUBOCreationParams.size = neededDS1UBOsz;
+            cameraUBO = logicalDevice->createBuffer(cameraUBOCreationParams);
 
-            cameraUBO = logicalDevice->createGPUBufferOnDedMem(cameraUBOCreationParams, ubomemreq);
+            auto ubomemreq = cameraUBO->getMemoryReqs();
+            ubomemreq.size = neededDS1UBOsz;
+            logicalDevice->allocate(ubomemreq, cameraUBO.get());
+
             perCameraDescSet = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
             {
                 video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -289,7 +292,7 @@ public:
         inheritanceInfo.occlusionQueryEnable = true;
         // inheritanceInfo.queryFlags = ;
 
-        bakedCommandBuffer->begin(video::IGPUCommandBuffer::EU_RENDER_PASS_CONTINUE_BIT | video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT, &inheritanceInfo);
+        bakedCommandBuffer->begin((video::IGPUCommandBuffer::E_USAGE)(video::IGPUCommandBuffer::EU_RENDER_PASS_CONTINUE_BIT | video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT), &inheritanceInfo);
         asset::SViewport viewport;
         viewport.minDepth = 1.f;
         viewport.maxDepth = 0.f;
@@ -411,7 +414,7 @@ public:
                 auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
                 core::smart_refctd_ptr<video::IGPUCommandBuffer> tferCmdBuf;
                 logicalDevice->createCommandBuffers(commandPools[decltype(initOutput)::EQT_TRANSFER_UP].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
-                tferCmdBuf->begin(IGPUCommandBuffer::EU_NONE); // TODO some one time submit bit or something
+                tferCmdBuf->begin(video::IGPUCommandBuffer::EU_NONE); // TODO some one time submit bit or something
                 {
                     auto* ppHandler = utilities->getDefaultPropertyPoolHandler();
                     // if we did multiple transfers, we'd reuse the scratch
@@ -420,7 +423,12 @@ public:
                         video::IGPUBuffer::SCreationParams scratchParams = {};
                         scratchParams.canUpdateSubRange = true;
                         scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-                        scratch = { 0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(scratchParams,ppHandler->getMaxScratchSize()) };
+                        scratchParams.size = ppHandler->getMaxScratchSize();
+                        auto scratchBuff = logicalDevice->createBuffer(scratchParams);
+                        auto memReqs = scratchBuff->getMemoryReqs();
+                        memReqs.size = scratchParams.size;
+                        logicalDevice->allocate(memReqs, scratchBuff.get());
+                        scratch = { 0ull,scratchBuff };
                         scratch.buffer->setObjectDebugName("Scratch Buffer");
                     }
                     auto* pRequest = &request;
@@ -503,7 +511,7 @@ public:
 
         //
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
 
         // late latch input
         const auto nextPresentationTimestamp = oracle.acquireNextImage(swapchain.get(), imageAcquire[resourceIx].get(), nullptr, &acquiredNextFBO);

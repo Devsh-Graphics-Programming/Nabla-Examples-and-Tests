@@ -351,14 +351,23 @@ public:
             assert(pmbData.mdiParameterCount == meshBuffersInRangeCnt);
 
             //create draw call inputs
-            mdiCallParams[i].indexBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], packedMeshBuffer[i].indexBuffer.buffer->getSize(), packedMeshBuffer[i].indexBuffer.buffer->getPointer());
+            video::IGPUBuffer::SCreationParams indexbufferCreationParams;
+            indexbufferCreationParams.size = packedMeshBuffer[i].indexBuffer.buffer->getSize();
+            indexbufferCreationParams.usage = video::IGPUBuffer::EUF_INDEX_BUFFER_BIT;
+            mdiCallParams[i].indexBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(indexbufferCreationParams), packedMeshBuffer[i].indexBuffer.buffer->getPointer());
 
             auto& cpuVtxBuff = packedMeshBuffer[i].vertexBufferBindings[0].buffer;
 
-            gpuIndirectDrawBuffer[i] = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], sizeof(CustomIndirectCommand) * pmbData.mdiParameterCount, packedMeshBuffer[i].MDIDataBuffer->getPointer());
+            video::IGPUBuffer::SCreationParams indirectbufferCreationParams;
+            indirectbufferCreationParams.size = sizeof(CustomIndirectCommand) * pmbData.mdiParameterCount;
+            indirectbufferCreationParams.usage = video::IGPUBuffer::EUF_INDIRECT_BUFFER_BIT;
+            gpuIndirectDrawBuffer[i] = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(indirectbufferCreationParams), packedMeshBuffer[i].MDIDataBuffer->getPointer());
             mdiCallParams[i].indirectDrawBuff = core::smart_refctd_ptr(gpuIndirectDrawBuffer[i]);
 
-            auto gpuVtxBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], cpuVtxBuff->getSize(), cpuVtxBuff->getPointer());
+            video::IGPUBuffer::SCreationParams vertexbufferCreationParams;
+            vertexbufferCreationParams.size = cpuVtxBuff->getSize();
+            vertexbufferCreationParams.usage = video::IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
+            auto gpuVtxBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(vertexbufferCreationParams), cpuVtxBuff->getPointer());
 
             for (uint32_t j = 0u; j < video::IGPUMeshBuffer::MAX_ATTR_BUF_BINDING_COUNT; j++)
             {

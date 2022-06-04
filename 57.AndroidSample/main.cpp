@@ -313,9 +313,9 @@ void main()
 			auto vs_unspec = device->createShader(core::make_smart_refctd_ptr<asset::ICPUShader>(vs_source));
 			auto fs_unspec = device->createShader(core::make_smart_refctd_ptr<asset::ICPUShader>(fs_source));
 
-			asset::ISpecializedShader::SInfo vsinfo(nullptr, nullptr, "main", asset::ISpecializedShader::ESS_VERTEX, "vs");
+			asset::ISpecializedShader::SInfo vsinfo(nullptr, nullptr, "main");
 			auto vs = device->createSpecializedShader(vs_unspec.get(), vsinfo);
-			asset::ISpecializedShader::SInfo fsinfo(nullptr, nullptr, "main", asset::ISpecializedShader::ESS_FRAGMENT, "fs");
+			asset::ISpecializedShader::SInfo fsinfo(nullptr, nullptr, "main");
 			auto fs = device->createSpecializedShader(fs_unspec.get(), fsinfo);
 
 			video::IGPUSpecializedShader* shaders[2]{ vs.get(), fs.get() };
@@ -368,11 +368,11 @@ void main()
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements mreq;
 
-			auto mreqs = device->getDeviceLocalGPUMemoryReqs();
-			mreqs.vulkanReqs.size = sizeof(vertices);
 			video::IGPUBuffer::SCreationParams params;
 			params.canUpdateSubRange = true;
-			buffer = device->createGPUBufferOnDedMem(params, mreqs);
+			params.size = sizeof(vertices);
+			buffer = device->createBuffer(params);
+			device->allocate(buffer->getMemoryReqs(), buffer.get());
 			assert(buffer);
 
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> cb;

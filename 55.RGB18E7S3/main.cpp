@@ -123,18 +123,18 @@ int main()
         }
     }
 
-    auto ssboMemoryReqs = logicalDevice->getDeviceLocalGPUMemoryReqs();
-    ssboMemoryReqs.vulkanReqs.size = sizeof(SShaderStorageBufferObject);
-    ssboMemoryReqs.mappingCapability = video::IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE;
-
     video::IGPUBuffer::SCreationParams ssboCreationParams;
     ssboCreationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
     ssboCreationParams.canUpdateSubRange = true;
     ssboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
     ssboCreationParams.queueFamilyIndexCount = 0u;
     ssboCreationParams.queueFamilyIndices = nullptr;
+    ssboCreationParams.size = sizeof(SShaderStorageBufferObject);
 
-    auto gpuDownloadSSBOmapped = logicalDevice->createGPUBufferOnDedMem(ssboCreationParams,ssboMemoryReqs);
+    auto gpuDownloadSSBOmapped = logicalDevice->createBuffer(ssboCreationParams);
+    core::bitflag< video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS> allocateFlags((video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS)video::IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE);
+
+    logicalDevice->allocate(gpuDownloadSSBOmapped->getMemoryReqs(), gpuDownloadSSBOmapped.get(), allocateFlags);
 
     video::IGPUDescriptorSetLayout::SBinding gpuBindingsLayout[ES_COUNT] =
     {
@@ -187,7 +187,7 @@ int main()
     auto gpuFence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
     {
 
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
 
         commandBuffer->bindComputePipeline(gpuComputePipeline.get());
         commandBuffer->bindDescriptorSets(asset::EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0, 1, &gpuCDescriptorSet.get());
