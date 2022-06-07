@@ -132,9 +132,9 @@ int main()
     ssboCreationParams.size = sizeof(SShaderStorageBufferObject);
 
     auto gpuDownloadSSBOmapped = logicalDevice->createBuffer(ssboCreationParams);
-    core::bitflag< video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS> allocateFlags((video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS)video::IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE);
-
-    logicalDevice->allocate(gpuDownloadSSBOmapped->getMemoryReqs(), gpuDownloadSSBOmapped.get(), allocateFlags);
+    auto downloadSSBOmemreqs = gpuDownloadSSBOmapped->getMemoryReqs();
+    downloadSSBOmemreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+    logicalDevice->allocate(downloadSSBOmemreqs, gpuDownloadSSBOmapped.get());
 
     video::IGPUDescriptorSetLayout::SBinding gpuBindingsLayout[ES_COUNT] =
     {

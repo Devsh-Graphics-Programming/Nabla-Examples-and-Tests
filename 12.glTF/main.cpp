@@ -215,7 +215,9 @@ class GLTFApp : public ApplicationBase
 				scratchParams.size = ppHandler->getMaxScratchSize();
 				xferScratch = {0ull,logicalDevice->createBuffer(scratchParams)};
 				xferScratch.buffer->setObjectDebugName("PropertyPoolHandler Scratch Buffer");
-				logicalDevice->allocate(xferScratch.buffer->getMemoryReqs(), xferScratch.buffer.get());
+				auto xferScratchMemReqs = xferScratch.buffer->getMemoryReqs();
+				xferScratchMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				logicalDevice->allocate(xferScratchMemReqs, xferScratch.buffer.get());
 				
 			}
 

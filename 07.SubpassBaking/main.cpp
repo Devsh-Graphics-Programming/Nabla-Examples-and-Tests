@@ -248,7 +248,7 @@ public:
             cameraUBO = logicalDevice->createBuffer(cameraUBOCreationParams);
 
             auto ubomemreq = cameraUBO->getMemoryReqs();
-            ubomemreq.size = neededDS1UBOsz;
+            ubomemreq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
             logicalDevice->allocate(ubomemreq, cameraUBO.get());
 
             perCameraDescSet = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));

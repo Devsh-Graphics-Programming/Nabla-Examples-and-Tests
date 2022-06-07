@@ -619,7 +619,9 @@ APP_CONSTRUCTOR(MegaTextureApp)
         gpuuboCreationParams.queueFamilyIndices = nullptr;
         gpuuboCreationParams.size = neededDS1UBOsz;
         gpuubo = logicalDevice->createBuffer(gpuuboCreationParams);
-        logicalDevice->allocate(gpuubo->getMemoryReqs());
+        auto gpuuboMemReqs = gpuubo->getMemoryReqs();
+        gpuuboMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+        logicalDevice->allocate(gpuuboMemReqs, gpuubo.get());
 
         auto descriptorPoolDs1 = createDescriptorPool(1u); // TODO check it out
 

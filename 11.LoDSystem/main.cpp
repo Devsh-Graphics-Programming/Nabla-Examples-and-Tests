@@ -429,20 +429,18 @@ class LoDSystemApp : public ApplicationBase
                    
                     nodeList = {0ull,~0ull, logicalDevice->createBuffer(params)};
                     nodeList.buffer->setObjectDebugName("transformTreeNodeList");
-
-                    video::IDeviceMemoryAllocator::SAllocateInfo allocInfo;
-                    allocInfo.size = params.size;
-                    allocInfo.dedication = nodeList.buffer.get();
-                    logicalDevice->allocate(allocInfo);
+                    auto nodeListMemReqs = nodeList.buffer->getMemoryReqs();
+                    nodeListMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+                    logicalDevice->allocate(nodeListMemReqs, nodeList.buffer.get());
 
                     video::IGPUBuffer::SCreationParams cullparams;
                     cullparams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
                     cullparams.size = sizeof(culling_system_t::InstanceToCull) * MaxInstanceCount;
                     cullingParams.instanceList = {0ull,~0ull,logicalDevice->createBuffer(cullparams) };
 
-                    allocInfo.size = cullparams.size;
-                    allocInfo.dedication = cullingParams.instanceList.buffer.get();
-                    logicalDevice->allocate(allocInfo);
+                    auto cullbufMemReqs = cullingParams.instanceList.buffer->getMemoryReqs();
+                    cullbufMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+                    logicalDevice->allocate(cullbufMemReqs, cullingParams.instanceList.buffer.get());
 
 
                 }
@@ -676,10 +674,9 @@ class LoDSystemApp : public ApplicationBase
                                 scratchParams.size = ppHandler->getMaxScratchSize();
                                 scratch = { 0ull,logicalDevice->createBuffer(scratchParams) };
                                 scratch.buffer->setObjectDebugName("Scratch Buffer");
-                                video::IDeviceMemoryAllocator::SAllocateInfo allocInfo;
-                                allocInfo.size = scratchParams.size;
-                                allocInfo.dedication = scratch.buffer.get();
-                                logicalDevice->allocate(allocInfo);
+                                auto scratchMemReqs = scratch.buffer->getMemoryReqs();
+                                scratchMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+                                logicalDevice->allocate(scratchMemReqs, scratch.buffer.get());
                             }
                             auto* pRequests = upstreamRequests;
                             uint32_t waitSemaphoreCount = 0u;

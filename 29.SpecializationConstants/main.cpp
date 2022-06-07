@@ -276,7 +276,9 @@ public:
 		bufferCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_VERTEX_BUFFER_BIT);
 		bufferCreationParams.size = 2ull * BUF_SZ;
 		m_gpuParticleBuf = device->createBuffer(bufferCreationParams);
-		device->allocate(m_gpuParticleBuf->getMemoryReqs(), m_gpuParticleBuf.get());
+		auto particleBufMemReqs = m_gpuParticleBuf->getMemoryReqs();
+		particleBufMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		device->allocate(particleBufMemReqs, m_gpuParticleBuf.get());
 		asset::SBufferRange<video::IGPUBuffer> range;
 		range.buffer = m_gpuParticleBuf;
 		range.offset = POS_BUF_IX * BUF_SZ;
@@ -288,7 +290,9 @@ public:
 		uboComputeCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
 		uboComputeCreationParams.size = core::roundUp(sizeof(UBOCompute), 64ull);
 		auto gpuUboCompute = device->createBuffer(uboComputeCreationParams);
-		device->allocate(gpuUboCompute->getMemoryReqs(), gpuUboCompute.get());
+		auto gpuUboComputeMemReqs = gpuUboCompute->getMemoryReqs();
+		gpuUboComputeMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		device->allocate(gpuUboComputeMemReqs, gpuUboCompute.get());
 		m_gpuds0Compute = device->createDescriptorSet(dscPool.get(), std::move(gpuDs0layoutCompute));
 		{
 			video::IGPUDescriptorSet::SDescriptorInfo i[3];
@@ -374,7 +378,10 @@ public:
 		gfxUboCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
 		gfxUboCreationParams.size = sizeof(m_viewParams);
 		auto gpuUboGraphics = device->createBuffer(gfxUboCreationParams);
-		device->allocate(gpuUboGraphics->getMemoryReqs(), gpuUboGraphics.get());
+		auto gpuUboGraphicsMemReqs = gpuUboGraphics->getMemoryReqs();
+		gpuUboGraphicsMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+
+		device->allocate(gpuUboGraphicsMemReqs, gpuUboGraphics.get());
 		{
 			video::IGPUDescriptorSet::SWriteDescriptorSet w;
 			video::IGPUDescriptorSet::SDescriptorInfo i;

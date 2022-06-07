@@ -317,7 +317,9 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 			creationParams.size = uboDS1ByteSize;
 
 			auto gpuubo = logicalDevice->createBuffer(creationParams);
-			logicalDevice->allocate(gpuubo->getMemoryReqs(), gpuubo.get());
+			auto gpuuboMemReqs = gpuubo->getMemoryReqs();
+			gpuuboMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			logicalDevice->allocate(gpuuboMemReqs, gpuubo.get());
 
 			auto gpuds1 = logicalDevice->createDescriptorSet(gpuUBODescriptorPool.get(), std::move(gpuds1layout));
 			{

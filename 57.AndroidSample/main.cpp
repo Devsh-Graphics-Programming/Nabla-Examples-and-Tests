@@ -372,7 +372,9 @@ void main()
 			params.canUpdateSubRange = true;
 			params.size = sizeof(vertices);
 			buffer = device->createBuffer(params);
-			device->allocate(buffer->getMemoryReqs(), buffer.get());
+			auto buffermemreqs = buffer->getMemoryReqs();
+			buffermemreqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			device->allocate(buffermemreqs, buffer.get());
 			assert(buffer);
 
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> cb;

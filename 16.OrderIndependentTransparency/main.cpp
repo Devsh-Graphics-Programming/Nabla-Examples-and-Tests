@@ -378,7 +378,9 @@ public:
         gpuuboCreationParams.size = neededDS1UBOsz;
 
         gpuubo = logicalDevice->createBuffer(gpuuboCreationParams);
-        logicalDevice->allocate(gpuubo->getMemoryReqs(), gpuubo.get());
+        auto gpuuboMemReqs = gpuubo->getMemoryReqs();
+        gpuuboMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+        logicalDevice->allocate(gpuuboMemReqs, gpuubo.get());
 
         gpuds1 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
         {

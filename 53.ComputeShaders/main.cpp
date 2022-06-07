@@ -393,7 +393,9 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
 
 		gpuUBO = logicalDevice->createBuffer(gpuUBOCreationParams);
-		logicalDevice->allocate(gpuUBO->getMemoryReqs(), gpuUBO.get()); 
+		auto gpuUBOmemreqs = gpuUBO->getMemoryReqs();
+		gpuUBOmemreqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+		logicalDevice->allocate(gpuUBOmemreqs, gpuUBO.get());
 
 		gpuGDescriptorSet1 = logicalDevice->createDescriptorSet(gpuGDescriptorPool.get(), gpuGDs1Layout);
 		{
