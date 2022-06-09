@@ -350,8 +350,10 @@ int main()
 	}
 	
 	// Create Out Image TODO
-	smart_refctd_ptr<IGPUImageView> outHDRImageViews[FBO_COUNT] = {};
-	for(uint32_t i = 0; i < FBO_COUNT; ++i) {
+	MAX_FBO_COUNT = 4u;
+	smart_refctd_ptr<IGPUImageView> outHDRImageViews[MAX_FBO_COUNT] = {};
+	assert(MAX_FBO_COUNT >= swapChainimage->getSwapChainCount());
+	for(uint32_t i = 0; i < swapChainimage->getSwapChainCount(); ++i) {
 		outHDRImageViews[i] = createHDRImageView(device, asset::EF_R16G16B16A16_SFLOAT, WIN_W, WIN_H);
 	}
 
