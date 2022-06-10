@@ -299,7 +299,7 @@ public:
 			creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
 			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq;
 			memReq.vulkanReqs.size = sizeof(SBasicViewParameters);
-			memReq.vulkanReqs.alignment = physicalDevice->getLimits().UBOAlignment;
+			memReq.vulkanReqs.alignment = physicalDevice->getLimits().minUBOAlignment;
 			memReq.vulkanReqs.memoryTypeBits = 0xffffffffu;
 			memReq.memoryHeapLocation = IDeviceMemoryAllocation::ESMT_DEVICE_LOCAL;
 			memReq.mappingCapability = IDeviceMemoryAllocation::EMAF_NONE;
