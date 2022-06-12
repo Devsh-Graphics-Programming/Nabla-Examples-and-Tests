@@ -46,7 +46,9 @@ nbl_create_executable_project(
 if(NBL_RUN_TESTS)
 	get_target_property(_RTAO_OUTPUT_RUNTIME_RELEASE_ ${EXECUTABLE_NAME} RUNTIME_OUTPUT_DIRECTORY_RELEASE)
 	set(_NBL_PATHTRACER_EXE_ "${_RTAO_OUTPUT_RUNTIME_RELEASE_}/${EXECUTABLE_NAME}.exe" CACHE FILEPATH "")
-	set(_NBL_SCENES_INPUT_TXT_ "${CMAKE_CURRENT_SOURCE_DIR}/public_test_scenes.txt" CACHE FILEPATH "")
+	set(_NBL_SCENES_INPUT_TXT_ "${NBL_ROOT_PATH}/ci/22.RaytracedAO/public_test_scenes.txt" CACHE FILEPATH "")
+	set(_NBL_CI_ROOT_ "${NBL_ROOT_PATH}/ci")
 	# use "_NBL_PRIVATE_SCENES_INPUT_TXT_" cache variable to add private scenes rendering
-	configure_file("${NBL_ROOT_PATH}/ci/ditt/main.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/main.py")
+	configure_file("${NBL_ROOT_PATH}/ci/22.RaytracedAO/updateAllReferences.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/22.RaytracedAO/updateAllReferences.py")
+	configure_file("${NBL_ROOT_PATH}/ci/22.RaytracedAO/runAllTests.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/22.RaytracedAO/runAllTests.py")
 endif() 
