@@ -89,6 +89,7 @@ int main()
 	constexpr uint32_t WIN_H = 720;
 	constexpr uint32_t FBO_COUNT = 2u;
 	constexpr uint32_t FRAMES_IN_FLIGHT = 5u;
+	constexpr bool LOG_TIMESTAMP = false;
 	static_assert(FRAMES_IN_FLIGHT>FBO_COUNT);
 	
 	CommonAPI::SFeatureRequest<video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
@@ -166,6 +167,11 @@ int main()
 	};
 
 	auto descriptorPool = device->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxDescriptorCount, PoolSizesCount, poolSizes);
+
+	const auto timestampQueryPool = device->createQueryPool({
+		.queryType = video::IQueryPool::EQT_TIMESTAMP,
+		.queryCount = 2u
+	});
 
 	// Camera 
 	core::vectorSIMDf cameraPosition(0, 5, -10);
@@ -486,6 +492,7 @@ int main()
 				
 		// safe to proceed
 		cb->begin(IGPUCommandBuffer::EU_NONE);
+		cb->resetQueryPool(timestampQueryPool.get(), 0u, 2u);
 
 		// renderpass 
 		uint32_t imgnum = 0u;
@@ -555,11 +562,13 @@ int main()
 
 		// cube envmap handle
 		{
+			cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, timestampQueryPool.get(), 0u);
 			cb->bindComputePipeline(gpuComputePipeline.get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0u, 1u, &descriptorSets0[imgnum].get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 1u, 1u, &uboDescriptorSet1.get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 2u, 1u, &descriptorSet2.get());
 			cb->dispatch(dispatchInfo.workGroupCount[0], dispatchInfo.workGroupCount[1], dispatchInfo.workGroupCount[2]);
+			cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT, timestampQueryPool.get(), 1u);
 		}
 		// TODO: tone mapping and stuff
 
@@ -645,6 +654,16 @@ int main()
 		device->resetFences(1, &fence.get());
 		CommonAPI::Submit(device.get(), swapchain.get(), cb.get(), graphicsQueue, imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
 		CommonAPI::Present(device.get(), swapchain.get(), graphicsQueue, renderFinished[resourceIx].get(), imgnum);
+		
+		if (LOG_TIMESTAMP)
+		{
+			std::array<uint64_t, 4> timestamps{};
+			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT) | video::IQueryPool::EQRF_WITH_AVAILABILITY_BIT | video::IQueryPool::EQRF_64_BIT;
+			device->getQueryPoolResults(timestampQueryPool.get(), 0u, 2u, sizeof(timestamps), timestamps.data(), sizeof(uint64_t) * 2ull, queryResultFlags);
+			const float timePassed = (timestamps[2] - timestamps[0]) * device->getPhysicalDevice()->getLimits().timestampPeriodInNanoSeconds;
+			logger->log("Time Passed (Seconds) = %f", system::ILogger::ELL_INFO, (timePassed * 1e-9));
+			logger->log("Timestamps availablity: %d, %d", system::ILogger::ELL_INFO, timestamps[1], timestamps[3]);
+		}
 	}
 	
 	const auto& fboCreationParams = fbo[0]->getCreationParameters();
