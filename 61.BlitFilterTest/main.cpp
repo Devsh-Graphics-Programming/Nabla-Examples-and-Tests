@@ -672,7 +672,7 @@ private:
 			blitFilter->updateDescriptorSet(blitDS.get(), blitWeightsDS.get(), inImageView, normalizationInImageView, coverageAdjustmentScratchBuffer, scaledKernelPhasedLUTView);
 
 			logger->log("GPU begin..");
-			blitFilter->blit(
+			blitFilter->blit<decltype(kernelX), decltype(kernelY), decltype(kernelZ)>(
 				queues[CommonAPI::InitOutput::EQT_COMPUTE], alphaSemantic,
 				blitDS.get(), alphaTestPipeline.get(),
 				blitDS.get(), blitWeightsDS.get(), blitPipeline.get(),
