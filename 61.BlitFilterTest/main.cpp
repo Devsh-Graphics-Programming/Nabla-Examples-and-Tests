@@ -150,7 +150,7 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #1");
 
@@ -175,7 +175,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #2");
 
@@ -201,7 +201,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #3");
 
@@ -233,7 +233,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #4");
 
@@ -260,7 +260,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #5");
 
@@ -683,27 +683,31 @@ private:
 				video::CComputeBlit::DefaultAlphaBinCount, 512);
 			logger->log("GPU end..");
 
-			if ((outImage->getCreationParameters().type == asset::IImage::ET_2D) && (layerCount == 1))
+			if (outImage->getCreationParameters().type == asset::IImage::ET_2D)
 			{
-				auto outCPUImageView = ext::ScreenShot::createScreenShot(
-					logicalDevice.get(),
-					queues[CommonAPI::InitOutput::EQT_COMPUTE],
-					nullptr,
-					outImageView.get(),
-					static_cast<asset::E_ACCESS_FLAGS>(0u),
-					asset::EIL_GENERAL);
+				if (layerCount > 1)
+				{
+					// This can be removed once ext::ScreenShot::createScreenShot works for multiple layers.
+					logger->log("Layer count (%d) is greater than 1 for a 2D image, not calculating GPU alpha coverage..\n", system::ILogger::ELL_WARNING, layerCount);
+				}
+				else
+				{
+					auto outCPUImageView = ext::ScreenShot::createScreenShot(
+						logicalDevice.get(),
+						queues[CommonAPI::InitOutput::EQT_COMPUTE],
+						nullptr,
+						outImageView.get(),
+						static_cast<asset::E_ACCESS_FLAGS>(0u),
+						asset::EIL_GENERAL);
 
-				if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-					logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
+					if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
+						logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
 
-				const char* writePath = "gpu_out.exr";
-				asset::IAssetWriter::SAssetWriteParams writeParams(outCPUImageView.get());
-				if (!assetManager->writeAsset(writePath, writeParams))
-					logger->log("Failed to write image at path %s\n", system::ILogger::ELL_ERROR, writePath);
-			}
-			else
-			{
-				logger->log("Layer count (%d) is greater than 1, not calculating GPU alpha coverage..\n", system::ILogger::ELL_WARNING, layerCount);
+					const char* writePath = "gpu_out.exr";
+					asset::IAssetWriter::SAssetWriteParams writeParams(outCPUImageView.get());
+					if (!assetManager->writeAsset(writePath, writeParams))
+						logger->log("Failed to write image at path %s\n", system::ILogger::ELL_ERROR, writePath);
+				}
 			}
 
 			// download results to check
