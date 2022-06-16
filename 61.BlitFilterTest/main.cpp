@@ -60,8 +60,6 @@ core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims
 		std::uniform_real_distribution<double> dist(0.0, pixelValueUpperBound);
 		std::mt19937 prng;
 
-		std::uniform_int_distribution<int> dist2(0, 4);
-
 		uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
 		const auto layerSize = bufferSize / imageParams.arrayLayers;
 
@@ -152,7 +150,7 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		// if (false)
+		if (false)
 		{
 			logger->log("Test #1");
 
@@ -177,7 +175,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
+		if (false)
 		{
 			logger->log("Test #2");
 
@@ -203,7 +201,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
+		if (false)
 		{
 			logger->log("Test #3");
 
@@ -235,7 +233,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
+		if (false)
 		{
 			logger->log("Test #4");
 
@@ -262,7 +260,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha);
 		}
 
-		// if (false)
+		if (false)
 		{
 			logger->log("Test #5");
 
@@ -289,7 +287,7 @@ public:
 
 		// if (false)
 		{
-			const auto layerCount = 1;
+			const auto layerCount = 7;
 			logger->log("Test #6");
 			const core::vectorSIMDu32 inImageDim(511u, 1024u, 1u, layerCount);
 			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_2D;
@@ -379,6 +377,7 @@ private:
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 				logger->log("CPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(referenceAlpha, outImageCPU.get()));
 
+#if 0
 			if (outImageCPU->getCreationParameters().type == asset::IImage::ET_2D)
 			{
 				const char* writePath = "cpu_out.exr";
@@ -402,6 +401,7 @@ private:
 				if (!assetManager->writeAsset(writePath, wparams))
 					logger->log("Failed to write cpu image at path %s\n", system::ILogger::ELL_ERROR, writePath);
 			}
+#endif
 
 			memcpy(cpuOutput.data(), outImageCPU->getBuffer()->getPointer(), cpuOutput.size());
 
@@ -621,7 +621,7 @@ private:
 
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 			{
-				const auto defaultWorkGroupDims = video::CComputeBlit::getDefaultWorkgroupDims(inImageType, layersToBlit);
+				const auto defaultWorkGroupDims = video::CComputeBlit::getDefaultWorkgroupDims(inImageType);
 				auto alphaTestSpecShader = blitFilter->createAlphaTestSpecializedShader(inImage->getCreationParameters().type, defaultWorkGroupDims);
 				alphaTestPipeline = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(blitPipelineLayout), std::move(alphaTestSpecShader));
 
@@ -683,7 +683,7 @@ private:
 				video::CComputeBlit::DefaultAlphaBinCount, 512);
 			logger->log("GPU end..");
 
-			if (outImage->getCreationParameters().type == asset::IImage::ET_2D)
+			if ((outImage->getCreationParameters().type == asset::IImage::ET_2D) && (layerCount == 1))
 			{
 				auto outCPUImageView = ext::ScreenShot::createScreenShot(
 					logicalDevice.get(),
@@ -700,6 +700,10 @@ private:
 				asset::IAssetWriter::SAssetWriteParams writeParams(outCPUImageView.get());
 				if (!assetManager->writeAsset(writePath, writeParams))
 					logger->log("Failed to write image at path %s\n", system::ILogger::ELL_ERROR, writePath);
+			}
+			else
+			{
+				logger->log("Layer count (%d) is greater than 1, not calculating GPU alpha coverage..\n", system::ILogger::ELL_WARNING, layerCount);
 			}
 
 			// download results to check
@@ -785,7 +789,7 @@ private:
 							if (std::isnan(gpuDecodedPixel[ch]) || std::isinf(gpuDecodedPixel[ch]))
 								__debugbreak();
 
-							if (std::abs(cpuDecodedPixel[ch] - gpuDecodedPixel[ch]) > 1e-5f)
+							if (std::abs(cpuDecodedPixel[ch] - gpuDecodedPixel[ch]) > 1e-3f)
 								__debugbreak();
 #endif
 
