@@ -49,6 +49,6 @@ if(NBL_RUN_TESTS)
 	set(_NBL_SCENES_INPUT_TXT_ "${NBL_ROOT_PATH}/ci/22.RaytracedAO/public_test_scenes.txt" CACHE FILEPATH "")
 	set(_NBL_CI_ROOT_ "${NBL_ROOT_PATH}/ci")
 	# use "_NBL_PRIVATE_SCENES_INPUT_TXT_" cache variable to add private scenes rendering
-	configure_file("${NBL_ROOT_PATH}/ci/22.RaytracedAO/updateAllReferences.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/22.RaytracedAO/updateAllReferences.py")
-	configure_file("${NBL_ROOT_PATH}/ci/22.RaytracedAO/runAllTests.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/22.RaytracedAO/runAllTests.py")
+	configure_file("${NBL_ROOT_PATH}/ci/22.RaytracedAO/updateAllReferences.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/updateAllReferenceData.py")
+	configure_file("${NBL_ROOT_PATH}/ci/22.RaytracedAO/runAllTests.py" "${CMAKE_CURRENT_BINARY_DIR}/ci/runAllTests.py")
 endif() 
