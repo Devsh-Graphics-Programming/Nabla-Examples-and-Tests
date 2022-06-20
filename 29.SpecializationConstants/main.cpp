@@ -438,7 +438,7 @@ public:
 		}
 
 		// safe to proceed
-		cb->begin(video::IGPUCommandBuffer::EU_NONE);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 
 		{
 			auto time = std::chrono::high_resolution_clock::now();

@@ -414,7 +414,7 @@ public:
                 auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
                 core::smart_refctd_ptr<video::IGPUCommandBuffer> tferCmdBuf;
                 logicalDevice->createCommandBuffers(commandPools[decltype(initOutput)::EQT_TRANSFER_UP].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
-                tferCmdBuf->begin(video::IGPUCommandBuffer::EU_NONE); // TODO some one time submit bit or something
+                tferCmdBuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
                 {
                     auto* ppHandler = utilities->getDefaultPropertyPoolHandler();
                     // if we did multiple transfers, we'd reuse the scratch
@@ -511,7 +511,7 @@ public:
 
         //
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 
         // late latch input
         const auto nextPresentationTimestamp = oracle.acquireNextImage(swapchain.get(), imageAcquire[resourceIx].get(), nullptr, &acquiredNextFBO);

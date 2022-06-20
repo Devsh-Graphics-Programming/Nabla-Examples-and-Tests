@@ -124,9 +124,7 @@ class TransformationApp : public ApplicationBase
 {
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280;
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_H = 720;
-		_NBL_STATIC_INLINE_CONSTEXPR uint32_t FBO_COUNT = 1u; //delete fbo count SC_COUNT
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t FRAMES_IN_FLIGHT = 5u;
-		static_assert(FRAMES_IN_FLIGHT > FBO_COUNT);
 
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t ObjectCount = 11u;
 
@@ -177,7 +175,7 @@ class TransformationApp : public ApplicationBase
 		}
 		uint32_t getSwapchainImageCount() override
 		{
-			return FBO_COUNT;
+			return swapchain->getImageCount();
 		}
 		virtual nbl::asset::E_FORMAT getDepthFormat() override
 		{
@@ -215,16 +213,18 @@ class TransformationApp : public ApplicationBase
 			utils = std::move(initOutput.utilities);
 
 			auto commandPools = std::move(initOutput.commandPools);
-			auto graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+			transferUpCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
 
-			// Remove FBO_COUNT, SC_COUNT
-			//create command buffer for every pool
+
+			//create one command buffer for every pool
 			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 			{
-				device->createCommandBuffers(graphicsCommandPools[i].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf[i]);
+				device->createCommandBuffers(transferUpCommandPools[i].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf[i]);
 			}
 			
-			// FRAMES_IN_FLIGHT < sc->getImageCount() ----> LOG WARINING
+			//warning! frames in flight is lower than needed
+			_NBL_DEBUG_BREAK_IF(FRAMES_IN_FLIGHT < swapchain->getImageCount())
+				
 
 			nbl::video::IGPUObjectFromAssetConverter CPU2GPU;
 
@@ -408,12 +408,11 @@ class TransformationApp : public ApplicationBase
 			solarSystemObjectsData[plutoIndex].initialRelativePosition = core::vector3df_SIMD(36.0f, 0.0f, 0.0f);
 
 			// upload data
-			//TODO change graphics command pool to transferUp
 			{
-				auto* q = device->getQueue(graphicsCommandPools[0]->getQueueFamilyIndex(), 0u);
+				auto* q = device->getQueue(transferUpCommandPools[0]->getQueueFamilyIndex(), 0u);
 
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf_nodes;
-				device->createCommandBuffers(graphicsCommandPools[0].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf_nodes);
+				device->createCommandBuffers(transferUpCommandPools[0].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf_nodes);
 
 				auto fence_nodes = device->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 
@@ -462,7 +461,7 @@ class TransformationApp : public ApplicationBase
 						ttm->setupTransfers(req, transfers);
 					}
 
-					cmdbuf_nodes->begin(video::IGPUCommandBuffer::EU_NONE);
+					cmdbuf_nodes->begin(video::IGPUCommandBuffer::NONE);
 					utils->getDefaultPropertyPoolHandler()->transferProperties(
 						cmdbuf_nodes.get(), fence_nodes.get(), scratch, { 0ull,tmp_node_buf },
 						transfers, transfers + scene::ITransformTreeManager::TransferCount, initOutput.logger.get()
@@ -672,7 +671,7 @@ class TransformationApp : public ApplicationBase
 				resourceIx = 0;
 
 			auto& cb = cmdbuf[resourceIx];
-			auto& graphicsCommandPool = graphicsCommandPools[resourceIx]; // these shuold be different for each resourceIx because each cmdBuf was allocated from a different command pool
+			auto& transferCommandPool = transferUpCommandPools[resourceIx]; // these shuold be different for each resourceIx because each cmdBuf was allocated from a different command pool
 			// assert graphicsCommandPool is the same as cb->getPool
 			auto& fence = frameComplete[resourceIx];
 			if (fence)
@@ -925,7 +924,7 @@ class TransformationApp : public ApplicationBase
 		scene::ITransformTreeManager::DescriptorSets ttmDescriptorSets;
 		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugDrawPipeline;
 
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> graphicsCommandPools[FRAMES_IN_FLIGHT];
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> transferUpCommandPools[FRAMES_IN_FLIGHT];
 		core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
 		core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
 		core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
