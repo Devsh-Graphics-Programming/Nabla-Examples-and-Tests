@@ -13,10 +13,6 @@ using namespace nbl::asset;
 using namespace nbl::core;
 using namespace nbl::video;
 
-#define ALPHA_BIN_COUNT 4096
-uint32_t histogram[ALPHA_BIN_COUNT];
-uint32_t cum_histogram[ALPHA_BIN_COUNT];
-
 #define FATAL_LOG(x, ...) {logger->log(##x, system::ILogger::ELL_ERROR, __VA_ARGS__); exit(-1);}
 
 using ScaledBoxKernel = asset::CScaledImageFilterKernel<CBoxImageFilterKernel>;
@@ -154,7 +150,7 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #1");
 
@@ -179,7 +175,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #2");
 
@@ -205,7 +201,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #3");
 
@@ -241,141 +237,16 @@ public:
 		{
 			logger->log("Test #4");
 
-			const char* pathToInputImage = "alpha_test_input_32.exr"; // "alpha_test_input.exr";
+			const char* pathToInputImage = "alpha_test_input.exr";
 			core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
 			if (!inImage)
 				FATAL_LOG("Failed to load the image at path %s\n", pathToInputImage);
 
-			const float referenceAlpha = 0.5f;
 			const auto& inExtent = inImage->getCreationParameters().extent;
-
-#if 1
-			core::vectorSIMDu32 dummy;
-
-			const auto inImageFormat = inImage->getCreationParameters().format;
-
-			// compute passed input pixel count
-			uint64_t passed_input_pixel_count = 0;
-			uint8_t* bytePtr = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
-			for (auto y = 0; y < inExtent.height; ++y) for (auto x = 0; x < inExtent.width; ++x)
-			{
-				const uint64_t pixelIndex = (y * inExtent.width) + x;
-				const void* encodedPixel = bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(inImageFormat);
-				double decodedPixel[4];
-				asset::decodePixelsRuntime(inImageFormat, &encodedPixel, decodedPixel, dummy.x, dummy.y);
-
-				if (decodedPixel[3] > referenceAlpha)
-					++passed_input_pixel_count;
-			}
-
-			const char* pathToOutputImage = "alpha_test_input_32_output_with_no_scale.exr";
-			auto outImage = loadImage(pathToOutputImage);
-			if (!outImage)
-				FATAL_LOG("Failed to load the image at path %s\n", pathToOutputImage);
-
-			const auto outImageFormat = outImage->getCreationParameters().format;
-
-			// For 256 bins
-			// 
-			// From the GPU:
-			// inPixelCount = 230400.00000000000
-			// outPixelCount = 10863.000000000000
-			// passedInputPixelCount = 114888.00000000000
-			// pixelsShouldFailCount = 5447.0000000000000
-			// bucketIndex = 34.000000000000000
-			// newReferenceAlpha = 0.13137255609035492
-			// alphaScale = 3.8059699535369873
-			// outAlphaCoverage = 0.536500
-
-			// From the CPU:
-			// inPixelCount = 230400
-			// outPixelCount = 10863
-			// passedInputPixelCount = 114888
-			// pixelsShouldFailCount = 5447
-			// bucketIndex = 34
-			// newReferenceAlpha = 0.131372556
-			// alphaScale = 3.80596995
-			// outAlphaCoverage = 0.536500037
-
-			// For 4096 bins
-			// 
-			// From the GPU:
-			// inPixelCount = 230400.00000000000
-			// outPixelCount = 10863.000000000000
-			// passedInputPixelCount = 114888.00000000000
-			// pixelsShouldFailCount = 5447.0000000000000
-			// bucketIndex = 544
-			// newReferenceAlpha = 0.13272283971309662
-			// alphaScale = 3.7672491073608398
-			// outAlphaCoverage =  0.507042
-			// 
-			// From the CPU:
-			// inPixelCount = 230400
-			// outPixelCount = 10863
-			// passedInputPixelCount = 114888
-			// pixelsShouldFailCount = 5447
-			// bucketIndex = 545
-			// newReferenceAlpha = 0.132967040
-			// alphaScale = 3.76033044
-			// outAlphaCoverage = 0.501610994
-
-			constexpr auto AlphaBinCount = ALPHA_BIN_COUNT;
-			memset(histogram, 0, AlphaBinCount * sizeof(uint32_t));
-
-			const auto& outExtent = outImage->getCreationParameters().extent;
-
-			bytePtr = reinterpret_cast<uint8_t*>(outImage->getBuffer()->getPointer());
-			for (auto y = 0; y < outExtent.height; ++y) for (auto x = 0; x < outExtent.width; ++x)
-			{
-				const uint64_t pixelIndex = (y * outExtent.width) + x;
-				const void* encodedPixel = bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(outImageFormat);
-				double decodedPixel[4];
-				asset::decodePixelsRuntime(outImageFormat, &encodedPixel, decodedPixel, dummy.x, dummy.y);
-
-				// figure out bucketIndex from alpha
-				const uint32_t bucketIndex = uint32_t(core::round<float>(core::clamp<float>(static_cast<float>(decodedPixel[3]), 0, 1) * float(AlphaBinCount)));
-				assert(bucketIndex < AlphaBinCount);
-				histogram[bucketIndex]++;
-			}
-
-			std::inclusive_scan(histogram, histogram + AlphaBinCount, cum_histogram);
-
-			const uint64_t outputPixelCount = outExtent.width * outExtent.height * outExtent.depth;
-			const uint64_t pixelsShouldPassCount = (passed_input_pixel_count * outputPixelCount)/(inExtent.width*inExtent.height*inExtent.depth);
-			const uint64_t pixelsShouldFailCount = outputPixelCount - pixelsShouldPassCount;
-
-			const auto bucketIndex = std::lower_bound(cum_histogram, cum_histogram+AlphaBinCount, pixelsShouldFailCount) - cum_histogram;
-
-			// compute alpha scale
-			const float newReferenceAlpha = min((bucketIndex - 0.5f) / float(AlphaBinCount- 1), 1.f);
-			const float alphaScale = referenceAlpha / newReferenceAlpha;
-
-			// scale by computed value
-			bytePtr = reinterpret_cast<uint8_t*>(outImage->getBuffer()->getPointer());
-			for (auto y = 0; y < outExtent.height; ++y) for (auto x = 0; x < outExtent.width; ++x)
-			{
-				const uint64_t pixelIndex = (y * outExtent.width) + x;
-				const void* encodedPixel = bytePtr + pixelIndex * asset::getTexelOrBlockBytesize(outImageFormat);
-				double decodedPixel[4];
-				asset::decodePixelsRuntime(outImageFormat, &encodedPixel, decodedPixel, dummy.x, dummy.y);
-
-				decodedPixel[3] *= alphaScale;
-
-				asset::encodePixelsRuntime(outImageFormat, const_cast<void*>(encodedPixel), decodedPixel);
-			}
-
-
-			const auto inAlphaCoverage = computeAlphaCoverage(referenceAlpha, inImage.get()); // 0.498645842, 0.498645842
-			const auto outAlphaCoverage = computeAlphaCoverage(referenceAlpha, outImage.get()); // 0.497376412, 0.533093989
-
-			__debugbreak();
-#endif
-
-			// const auto& inExtent = inImage->getCreationParameters().extent;
 			const auto layerCount = inImage->getCreationParameters().arrayLayers;
 			const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
 			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
-			// const float referenceAlpha = 0.5f;
+			const float referenceAlpha = 0.5f;
 
 			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
 			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
@@ -389,7 +260,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha);
 		}
 
-		if (false)
+		// if (false)
 		{
 			logger->log("Test #5");
 
@@ -414,7 +285,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		if (false)
+		// if (false)
 		{
 			const auto layerCount = 7;
 			logger->log("Test #6");
@@ -506,32 +377,6 @@ private:
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 				logger->log("CPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(referenceAlpha, outImageCPU.get()));
 
-#if 0
-			if (outImageCPU->getCreationParameters().type == asset::IImage::ET_2D)
-			{
-				const char* writePath = "alpha_test_input_32_output_with_no_scale.exr";
-				core::smart_refctd_ptr<asset::ICPUImageView> outImageView = nullptr;
-				{
-					ICPUImageView::SCreationParams viewParams;
-					viewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
-					viewParams.image = outImageCPU;
-					viewParams.format = viewParams.image->getCreationParameters().format;
-					viewParams.viewType = getImageViewTypeFromImageType_CPU(viewParams.image->getCreationParameters().type);
-					viewParams.subresourceRange.baseArrayLayer = 0u;
-					viewParams.subresourceRange.layerCount = outImageCPU->getCreationParameters().arrayLayers;
-					viewParams.subresourceRange.baseMipLevel = 0u;
-					viewParams.subresourceRange.levelCount = outImageCPU->getCreationParameters().mipLevels;
-
-					outImageView = ICPUImageView::create(std::move(viewParams));
-				}
-
-				asset::IAssetWriter::SAssetWriteParams wparams(outImageView.get());
-				wparams.logger = logger.get();
-				if (!assetManager->writeAsset(writePath, wparams))
-					logger->log("Failed to write cpu image at path %s\n", system::ILogger::ELL_ERROR, writePath);
-			}
-#endif
-
 			memcpy(cpuOutput.data(), outImageCPU->getBuffer()->getPointer(), cpuOutput.size());
 
 			_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
@@ -541,8 +386,7 @@ private:
 		core::vector<uint8_t> gpuOutput(static_cast<uint64_t>(outExtent[0]) * outExtent[1] * outExtent[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 		{
 			constexpr auto BlitWorkgroupSize = video::CComputeBlit::DefaultBlitWorkgroupSize;
-			// constexpr auto AlphaBinCount = video::CComputeBlit::DefaultAlphaBinCount;
-			constexpr auto AlphaBinCount = ALPHA_BIN_COUNT;
+			constexpr auto AlphaBinCount = video::CComputeBlit::DefaultAlphaBinCount;
 
 			assert(inImageCPU->getCreationParameters().mipLevels == 1);
 
@@ -676,7 +520,7 @@ private:
 			// create scratch buffer
 			core::smart_refctd_ptr<video::IGPUBuffer> coverageAdjustmentScratchBuffer = nullptr;
 			{
-				const size_t scratchSize = blitFilter->getCoverageAdjustmentScratchSize(alphaSemantic, AlphaBinCount, layersToBlit);
+				const size_t scratchSize = blitFilter->getCoverageAdjustmentScratchSize(alphaSemantic, inImageType, AlphaBinCount, layersToBlit);
 				if (scratchSize > 0)
 				{
 					video::IGPUBuffer::SCreationParams creationParams = {};
@@ -754,49 +598,14 @@ private:
 
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 			{
-				const auto defaultWorkGroupDims = video::CComputeBlit::getDefaultWorkgroupDims(inImageType);
-				auto alphaTestSpecShader = blitFilter->createAlphaTestSpecializedShader(inImage->getCreationParameters().type, defaultWorkGroupDims, AlphaBinCount);
-				alphaTestPipeline = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(blitPipelineLayout), std::move(alphaTestSpecShader));
-
-				auto normalizationSpecShader = blitFilter->createNormalizationSpecializedShader(normalizationInImage->getCreationParameters().type, outImageFormat, outImageViewFormat, defaultWorkGroupDims, AlphaBinCount);
-				normalizationPipeline = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(blitPipelineLayout), std::move(normalizationSpecShader));
+				alphaTestPipeline = blitFilter->getAlphaTestPipeline(AlphaBinCount, inImageType);
+				normalizationPipeline = blitFilter->getNormalizationPipeline(normalizationInImage->getCreationParameters().type, outImageFormat, outImageViewFormat, AlphaBinCount);
 
 				normalizationDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
 				blitFilter->updateDescriptorSet(normalizationDS.get(), nullptr, normalizationInImageView, outImageView, coverageAdjustmentScratchBuffer, nullptr);
 			}
 
-			core::vectorSIMDu32 outputTexelsPerWG;
-			core::smart_refctd_ptr<video::IGPUSpecializedShader> blitSpecShader = nullptr;
-			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-			{
-				blitFilter->getOutputTexelsPerWorkGroup(outputTexelsPerWG, inExtent, outExtent, normalizationInImage->getCreationParameters().format, inImageType, kernelX, kernelY, kernelZ);
-				blitSpecShader = blitFilter->createBlitSpecializedShader(
-					inImage->getCreationParameters().format,
-					normalizationInImage->getCreationParameters().format,
-					normalizationInImage->getCreationParameters().format,
-					inImageType,
-					inExtent,
-					outExtent,
-					alphaSemantic,
-					kernelX, kernelY, kernelZ,
-					outputTexelsPerWG, BlitWorkgroupSize, AlphaBinCount);
-			}
-			else
-			{
-				blitFilter->getOutputTexelsPerWorkGroup(outputTexelsPerWG, inExtent, outExtent, normalizationInImage->getCreationParameters().format, inImageType, kernelX, kernelY, kernelZ);
-				blitSpecShader = blitFilter->createBlitSpecializedShader(
-					inImage->getCreationParameters().format,
-					outImageFormat,
-					outImageViewFormat,
-					inImageType,
-					inExtent,
-					outExtent,
-					alphaSemantic,
-					kernelX, kernelY, kernelZ,
-					outputTexelsPerWG, BlitWorkgroupSize, AlphaBinCount);
-			}
-
-			blitPipeline = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(blitPipelineLayout), std::move(blitSpecShader));
+			blitPipeline = blitFilter->getBlitPipeline(inImageFormat, outImageFormat, outImageViewFormat, inImageType, inExtent, outExtent, alphaSemantic, kernelX, kernelY, kernelZ, BlitWorkgroupSize, AlphaBinCount);
 			blitDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
 			blitWeightsDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(kernelWeightsDSLayout));
 
@@ -808,7 +617,7 @@ private:
 				blitDS.get(), alphaTestPipeline.get(),
 				blitDS.get(), blitWeightsDS.get(), blitPipeline.get(),
 				normalizationDS.get(), normalizationPipeline.get(),
-				inExtent, inImageType, inImageFormat, normalizationInImage, kernelX, kernelY, kernelZ, outputTexelsPerWG,
+				inExtent, inImageType, inImageFormat, normalizationInImage, kernelX, kernelY, kernelZ,
 				layersToBlit,
 				coverageAdjustmentScratchBuffer, referenceAlpha,
 				AlphaBinCount, BlitWorkgroupSize);
@@ -833,11 +642,6 @@ private:
 
 					if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 						logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
-
-					const char* writePath = "gpu_out.exr";
-					asset::IAssetWriter::SAssetWriteParams writeParams(outCPUImageView.get());
-					if (!assetManager->writeAsset(writePath, writeParams))
-						logger->log("Failed to write image at path %s\n", system::ILogger::ELL_ERROR, writePath);
 				}
 			}
 
@@ -916,15 +720,6 @@ private:
 
 						double gpuDecodedPixel[4];
 						asset::decodePixelsRuntime(outImageFormat, &gpuEncodedPixel, gpuDecodedPixel, dummy.x, dummy.y);
-
-						
-						if (histogramIndex < ALPHA_BIN_COUNT)
-						{
-							if (histogram[histogramIndex] != static_cast<uint32_t>(gpuDecodedPixel[3]))
-								__debugbreak();
-
-							histogramIndex++;
-						}
 
 						for (uint32_t ch = 0u; ch < outChannelCount; ++ch)
 						{
