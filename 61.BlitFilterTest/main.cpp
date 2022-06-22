@@ -399,7 +399,7 @@ private:
 
 				video::IGPUCommandBuffer::SImageMemoryBarrier barrier = {};
 				barrier.oldLayout = asset::EIL_UNDEFINED;
-				barrier.newLayout = asset::EIL_GENERAL;
+				barrier.newLayout = finalLayout;
 				barrier.srcQueueFamilyIndex = ~0u;
 				barrier.dstQueueFamilyIndex = ~0u;
 				barrier.image = image;
