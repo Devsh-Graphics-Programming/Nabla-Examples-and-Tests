@@ -598,13 +598,13 @@ private:
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 			{
 				alphaTestPipeline = blitFilter->getAlphaTestPipeline(AlphaBinCount, inImageType);
-				normalizationPipeline = blitFilter->getNormalizationPipeline(normalizationInImage->getCreationParameters().type, outImageFormat, outImageViewFormat, AlphaBinCount);
+				normalizationPipeline = blitFilter->getNormalizationPipeline(normalizationInImage->getCreationParameters().type, outImageFormat, AlphaBinCount);
 
 				normalizationDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
 				blitFilter->updateDescriptorSet(normalizationDS.get(), nullptr, normalizationInImageView, outImageView, coverageAdjustmentScratchBuffer, nullptr);
 			}
 
-			blitPipeline = blitFilter->getBlitPipeline(inImageFormat, outImageFormat, outImageViewFormat, inImageType, inExtent, outExtent, alphaSemantic, kernelX, kernelY, kernelZ, BlitWorkgroupSize, AlphaBinCount);
+			blitPipeline = blitFilter->getBlitPipeline(inImageFormat, outImageFormat, inImageType, inExtent, outExtent, alphaSemantic, kernelX, kernelY, kernelZ, BlitWorkgroupSize, AlphaBinCount);
 			blitDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
 			blitWeightsDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(kernelWeightsDSLayout));
 
