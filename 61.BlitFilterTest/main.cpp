@@ -456,7 +456,7 @@ private:
 			}
 
 			// Create resources needed to do the blit
-			auto blitFilter = core::make_smart_refctd_ptr<video::CComputeBlit>(core::smart_refctd_ptr(logicalDevice));
+			auto blitFilter = video::CComputeBlit::create(core::smart_refctd_ptr(logicalDevice));
 
 			const asset::E_FORMAT outImageViewFormat = blitFilter->getOutImageViewFormat(outImageFormat);
 
