@@ -365,8 +365,7 @@ private:
 			blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 			blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
-			using blit_utils_t = asset::CBlitUtilities<KernelX, KernelY, KernelZ>;
-			if (!blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScaledKernelPhasedLUTByteOffset(&blitFilterState), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
+			if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScaledKernelPhasedLUTByteOffset(&blitFilterState), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
 				logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
 
 			logger->log("CPU begin..");
