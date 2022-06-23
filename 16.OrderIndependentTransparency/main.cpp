@@ -238,9 +238,9 @@ public:
         }
 
         {
-            auto layout = logicalDevice->createPipelineLayout(nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(ds2layout), nullptr);
-
             const auto& proto = oit.getResolveProtoPipeline();
+
+            auto layout = logicalDevice->createPipelineLayout(&proto.pushConstants, &proto.pushConstants + 1, nullptr, nullptr, core::smart_refctd_ptr(ds2layout), nullptr);
 
             video::IGPUSpecializedShader* shaders[2]{ proto.vs.get(), proto.fs.get() };
             auto rpindep = logicalDevice->createRenderpassIndependentPipeline(nullptr, std::move(layout), shaders, shaders + 2, proto.vtx, proto.blend, proto.primAsm, proto.raster);
