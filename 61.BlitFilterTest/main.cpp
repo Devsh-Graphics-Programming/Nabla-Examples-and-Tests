@@ -54,7 +54,7 @@ core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims
 	if (fillWithTestData)
 	{
 		double pixelValueUpperBound = 20.0;
-		if (asset::isNormalizedFormat(format))
+		if (asset::isNormalizedFormat(format) || format == asset::EF_B10G11R11_UFLOAT_PACK32)
 			pixelValueUpperBound = 1.00000000001;
 
 		std::uniform_real_distribution<double> dist(0.0, pixelValueUpperBound);
@@ -150,14 +150,13 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		// if (false)
 		{
 			logger->log("Test #1");
 
 			const auto layerCount = 10;
 			const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
 			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_1D;
-			const asset::E_FORMAT inImageFormat = asset::EF_R32G32B32A32_SFLOAT;
+			const asset::E_FORMAT inImageFormat = asset::EF_R32_SFLOAT;
 			auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
 
 			const core::vectorSIMDu32 outImageDim(800u, 1u, 1u, layerCount);
@@ -175,7 +174,6 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
 		{
 			logger->log("Test #2");
 
@@ -201,29 +199,21 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
 		{
 			logger->log("Test #3");
 
 			const auto layerCount = 1u;
 			const core::vectorSIMDu32 inImageDim(2u, 3u, 4u, layerCount);
-			// const core::vectorSIMDu32 inImageDim(5u, 4u, 1u, layerCount);
-			// const core::vectorSIMDu32 inImageDim(4u, 1u, 1u, layerCount);
 			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
 			const asset::E_FORMAT inImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 			auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
 
 			const core::vectorSIMDu32 outImageDim(3u, 4u, 2u, layerCount);
-			// const core::vectorSIMDu32 outImageDim(2u, 3u, 1u, layerCount);
-			// const core::vectorSIMDu32 outImageDim(5u, 1u, 1u, layerCount);
 			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
 
-			// const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
-			// const core::vectorSIMDf scaleY(1.f, 9.f/16.f, 1.f, 1.f);
-			// const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 0.5f, 1.f);
+			const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
+			const core::vectorSIMDf scaleY(1.f, 9.f/16.f, 1.f, 1.f);
+			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
 
 			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
 			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
@@ -233,7 +223,6 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
 		{
 			logger->log("Test #4");
 
@@ -260,7 +249,6 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha);
 		}
 
-		// if (false)
 		{
 			logger->log("Test #5");
 
@@ -285,7 +273,6 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
-		// if (false)
 		{
 			const auto layerCount = 7;
 			logger->log("Test #6");
@@ -699,7 +686,6 @@ private:
 		uint8_t* gpuBytePtr = gpuOutput.data();
 		const auto layerSize = outExtent[2]*outExtent[1]*outExtent[0]*asset::getTexelOrBlockBytesize(outImageFormat);
 
-		uint32_t histogramIndex = 0;
 		for (auto layer = 0; layer < layerCount; ++layer)
 		{
 			for (uint64_t k = 0u; k < outExtent[2]; ++k)
