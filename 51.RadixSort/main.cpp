@@ -1,8 +1,9 @@
 #define _NBL_STATIC_LIB_
+
 #include <nabla.h>
 
 #include "nbl/ext/RadixSort/RadixSort.h"
-#include "../../source/Nabla/COpenGLDriver.h"
+#include "../common/CommonAPI.h"
 
 #include <chrono>
 #include <random>
@@ -11,34 +12,30 @@ using namespace nbl;
 using namespace core;
 using namespace video;
 using namespace asset;
+using namespace system;
 
 using RadixSortClass = ext::RadixSort::RadixSort;
-using ScanClass = ext::RadixSort::ScanClass;
 
 #define WG_SIZE 256
 
-struct SortElement
-{
-	uint32_t key, data;
+struct SortElement {
+    uint32_t key, data;
 
-	bool operator!= (const SortElement& other)
-	{
-		return (key != other.key) || (data != other.data);
-	}
+    bool operator!=(const SortElement &other) {
+      return (key != other.key) || (data != other.data);
+    }
 };
 
-struct SortElementKeyAccessor
-{
-	_NBL_STATIC_INLINE_CONSTEXPR size_t key_bit_count = 32ull;
+struct SortElementKeyAccessor {
+    _NBL_STATIC_INLINE_CONSTEXPR size_t key_bit_count = 32ull;
 
-	template<auto bit_offset, auto radix_mask>
-	inline decltype(radix_mask) operator()(const SortElement& item) const
-	{
-		return static_cast<decltype(radix_mask)>(item.key >> static_cast<uint32_t>(bit_offset)) & radix_mask;
-	}
+    template<auto bit_offset, auto radix_mask>
+    inline decltype(radix_mask) operator()(const SortElement &item) const {
+      return static_cast<decltype(radix_mask)>(item.key >> static_cast<uint32_t>(bit_offset)) & radix_mask;
+    }
 };
 
-template <typename T>
+/*template <typename T>
 static T* DebugGPUBufferDownload(smart_refctd_ptr<IGPUBuffer> buffer_to_download, size_t buffer_size, IVideoDriver* driver)
 {
 	constexpr uint64_t timeout_ns = 15000000000u;
@@ -182,38 +179,38 @@ int main()
 		in[i].key = distribution(generator);
 		in[i].data = i;
 	}
-	
+
 	auto in_gpu = driver->createFilledDeviceLocalBufferOnDedMem(in_size, in);
-	
+
 	// Take (an almost) 64MB portion from it to sort
 	size_t begin = (1 << 23) + 112;
 	size_t end = (1 << 24) - 77;
-	
+
 	assert((begin & (driver->getRequiredSSBOAlignment() - 1ull)) == 0ull);
-	
+
 	SBufferRange<IGPUBuffer> in_gpu_range = { 0 };
 	in_gpu_range.offset = begin * sizeof(SortElement);
 	in_gpu_range.size = (end - begin) * sizeof(SortElement);
 	in_gpu_range.buffer = in_gpu;
-	
+
 	auto sorter = core::make_smart_refctd_ptr<RadixSortClass>(driver, WG_SIZE);
-	
+
 	const uint32_t ds_sort_count = 2u;
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> ds_sort[ds_sort_count];
 	for (uint32_t i = 0; i < ds_sort_count; ++i)
 		ds_sort[i] = driver->createDescriptorSet(core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(sorter->getDefaultSortDescriptorSetLayout()));
 	auto ds_scan = driver->createDescriptorSet(core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout>(sorter->getDefaultScanDescriptorSetLayout()));
 
-	auto histogram_pipeline = sorter->getDefaultHistogramPipeline();	
+	auto histogram_pipeline = sorter->getDefaultHistogramPipeline();
 	auto upsweep_pipeline = sorter->getDefaultUpsweepPipeline();
 	auto downsweep_pipeline = sorter->getDefaultDownsweepPipeline();
 	auto scatter_pipeline = sorter->getDefaultScatterPipeline();
-	
+
 	driver->beginScene(true);
 	RadixSort(driver, in_gpu_range, ds_sort, ds_sort_count, histogram_pipeline, scatter_pipeline, ds_scan.get(), upsweep_pipeline, downsweep_pipeline);
 	driver->endScene();
 
-	{	
+	{
 		std::cout << "CPU sort begin" << std::endl;
 
 		SortElement* in_data = new SortElement[in_count + (end - begin)];
@@ -236,4 +233,193 @@ int main()
 	delete[] in;
 
 	return 0;
-}
+}*/
+
+class RadixSortApp : public NonGraphicalApplicationBase {
+public:
+    smart_refctd_ptr <ISystem> system;
+
+    NON_GRAPHICAL_APP_CONSTRUCTOR(RadixSortApp)
+
+    void onAppInitialized_impl() override {
+      CommonAPI::InitOutput initOutput;
+      initOutput.system = core::smart_refctd_ptr(system);
+      CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "Radix Sort Test");
+      system = std::move(initOutput.system);
+      auto gl = std::move(initOutput.apiConnection);
+      auto logger = std::move(initOutput.logger);
+      auto gpuPhysicalDevice = std::move(initOutput.physicalDevice);
+      auto logicalDevice = std::move(initOutput.logicalDevice);
+      auto queues = std::move(initOutput.queues);
+      auto renderpass = std::move(initOutput.renderpass);
+      auto commandPools = std::move(initOutput.commandPools);
+      auto assetManager = std::move(initOutput.assetManager);
+      auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+      auto utilities = std::move(initOutput.utilities);
+
+      // Create (an almost) 256MB input buffer
+      const size_t in_count = (1 << 25) - 23;
+      const size_t in_size = in_count * sizeof(SortElement);
+
+      logger->log("Input element count: %d", system::ILogger::ELL_PERFORMANCE, in_count);
+      SortElement *in = new SortElement[in_count];
+      {
+        std::random_device random_device;
+        std::mt19937 generator(random_device());
+        std::uniform_int_distribution<uint32_t> distribution(0u, ~0u);
+        for (size_t i = 0u; i < in_count; ++i) {
+          in[i].key = distribution(generator);
+          in[i].data = i;
+        }
+      }
+
+      // Take (an almost) 64MB portion from it to sort
+      constexpr size_t begin = (1 << 23) + 112;
+      constexpr size_t end = (1 << 24) - 77;
+      assert(((begin * sizeof(SortElement)) & (gpuPhysicalDevice->getLimits().SSBOAlignment - 1u)) == 0u);
+      assert(((end * sizeof(SortElement)) & (gpuPhysicalDevice->getLimits().SSBOAlignment - 1u)) == 0u);
+      constexpr auto elementCount = end - begin;
+
+      RadixSortClass::Parameters_t a_sort_push_constants[RadixSortClass::PASS_COUNT];
+      RadixSortClass::DispatchInfo_t sort_dispatch_info;
+      const uint32_t histogramCount = RadixSortClass::buildParameters(elementCount, WG_SIZE, a_sort_push_constants, &sort_dispatch_info);
+
+      CScanner *scanner = utilities->getDefaultScanner();
+      core::smart_refctd_ptr<CScanner> smartscanner = core::smart_refctd_ptr<CScanner>(scanner);
+      CScanner::DefaultPushConstants scan_push_constants;
+      CScanner::DispatchInfo scan_dispatch_info;
+
+      scanner->buildParameters(histogramCount, scan_push_constants, scan_dispatch_info);
+      auto scan_pipeline
+          = core::smart_refctd_ptr<video::IGPUComputePipeline>( // if params are constants for radix sort then move this call inside the constructor
+              scanner->getDefaultPipeline(video::CScanner::EST_INCLUSIVE, CScanner::EDT_UINT, CScanner::EO_ADD));
+
+      core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> scanDSLayout
+          = core::smart_refctd_ptr<video::IGPUDescriptorSetLayout>(scanner->getDefaultDescriptorSetLayout());
+      auto radixSorter = new RadixSortClass(logicalDevice.get(), WG_SIZE, elementCount, scanDSLayout, scan_pipeline);
+      video::IGPUComputePipeline *histogramPipeline = radixSorter->getDefaultHistogramPipeline();
+      video::IGPUComputePipeline *scanPipeline = radixSorter->getDefaultScanPipeline();
+      video::IGPUComputePipeline *scatterPipeline = radixSorter->getDefaultScatterPipeline();
+
+      // we need to descriptor sets for ping ponging between each radix pass
+      // first DS uses the input buffer as input and second DS uses the scratch buffer as input
+      // this avoids copying scratch buffer to input buffer at the end of each radix pass
+      // TODO (Penta): Check if this should be done within the RadixSort class
+      const uint32_t sortDSCount = 2;
+      core::smart_refctd_ptr<video::IGPUDescriptorSet> a_pingPongSortDS[sortDSCount];
+      for (auto &i: a_pingPongSortDS) {
+        auto sortDSLayout = radixSorter->getDefaultSortDescriptorSetLayout();
+        auto sortDSPool = logicalDevice->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, &sortDSLayout, &sortDSLayout + 1);
+        auto sortDS = logicalDevice->createDescriptorSet(sortDSPool.get(), core::smart_refctd_ptr<IGPUDescriptorSetLayout>(sortDSLayout)); // TODO (Penta): Check if these go out of scope after method invocation...
+        i = sortDS;
+      }
+
+      auto scanDSPool = logicalDevice->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, &scanDSLayout.get(), &scanDSLayout.get() + 1u);
+      auto scanDS = logicalDevice->createDescriptorSet(scanDSPool.get(), scanDSLayout);
+
+      // SORT INPUT BUFFERS
+      SBufferRange <IGPUBuffer> input_gpu_range;
+      input_gpu_range.offset = begin * sizeof(SortElement);
+      input_gpu_range.size = elementCount * sizeof(SortElement);
+
+      IGPUBuffer::SCreationParams bufferParams = {};
+      bufferParams.size = in_size;
+      bufferParams.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT |
+                           IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+      input_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP],
+                                                                                std::move(bufferParams), in);
+
+      SBufferRange <IGPUBuffer> scratch_input_gpu_range;
+      {
+        scratch_input_gpu_range.offset = 0u;
+        scratch_input_gpu_range.size = input_gpu_range.size;
+
+        IGPUBuffer::SCreationParams params = {};
+        params.size = scratch_input_gpu_range.size;
+        params.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+        scratch_input_gpu_range.buffer = logicalDevice->createBuffer(params);
+        auto memReqs = scratch_input_gpu_range.buffer->getMemoryReqs();
+        memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+        auto scratchMem = logicalDevice->allocate(memReqs, scratch_input_gpu_range.buffer.get());
+      }
+
+      // Update sort and scatter descriptor sets
+      radixSorter->updateDescriptorSetsPingPong(a_pingPongSortDS, input_gpu_range, scratch_input_gpu_range, logicalDevice.get());
+
+      // SORT INPUT BUFFERS - END
+
+      // SCAN BUFFERS
+      SBufferRange <IGPUBuffer> histogram_gpu_range; // TODO (Penta): Should be the size of the histogram buffer
+      histogram_gpu_range.offset = begin * sizeof(SortElement);
+      histogram_gpu_range.size = elementCount * sizeof(SortElement);
+
+      IGPUBuffer::SCreationParams scanBufferParams = {};
+      scanBufferParams.size = in_size;
+      scanBufferParams.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT |
+                               IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+      histogram_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP],
+                                                                                    std::move(scanBufferParams), in);
+
+      SBufferRange <IGPUBuffer> scratch_scan_gpu_range;
+      {
+        scratch_scan_gpu_range.offset = 0u;
+        scratch_scan_gpu_range.size = histogram_gpu_range.size;
+
+        IGPUBuffer::SCreationParams params = {};
+        params.size = scratch_scan_gpu_range.size;
+        params.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+        scratch_scan_gpu_range.buffer = logicalDevice->createBuffer(params);
+        auto memReqs = scratch_scan_gpu_range.buffer->getMemoryReqs();
+        memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+        auto scratchMem = logicalDevice->allocate(memReqs, scratch_scan_gpu_range.buffer.get());
+      }
+
+      // Update scan descriptor sets
+      scanner->updateDescriptorSet(logicalDevice.get(), scanDS.get(), histogram_gpu_range, scratch_scan_gpu_range);
+
+      // SCAN BUFFERS - END
+
+      auto computeQueue = queues[CommonAPI::InitOutput::EQT_COMPUTE];
+      {
+        core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+        auto cmdPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+        logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+
+        cmdbuf->begin(video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
+
+        RadixSortClass::sort(logicalDevice.get(), cmdbuf.get(), scanner,
+                             histogramPipeline, scanPipeline, scatterPipeline,
+                             a_pingPongSortDS, &scanDS,
+                             a_sort_push_constants, &sort_dispatch_info,
+                             &scan_push_constants, &scan_dispatch_info,
+                             scratch_input_gpu_range,
+                             scratch_scan_gpu_range,
+                             asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT);
+        cmdbuf->end();
+
+        core::smart_refctd_ptr<IGPUFence> lastFence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
+        IGPUQueue::SSubmitInfo submit = {};
+        submit.commandBufferCount = 1u;
+        submit.commandBuffers = &cmdbuf.get();
+        computeQueue->startCapture();
+        computeQueue->submit(1u, &submit, lastFence.get());
+        computeQueue->endCapture();
+      }
+
+      logger->log("SUCCESS");
+    }
+
+    virtual void workLoopBody() override {
+
+    }
+
+    virtual bool keepRunning() override {
+      return false;
+    }
+
+    void setSystem(core::smart_refctd_ptr<nbl::system::ISystem> &&s) override {
+      system = std::move(s);
+    }
+};
+
+NBL_COMMON_API_MAIN(RadixSortApp)
