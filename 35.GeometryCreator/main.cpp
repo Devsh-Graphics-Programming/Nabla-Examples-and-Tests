@@ -248,7 +248,7 @@ public:
 
 		CommonAPI::Init(
 			initOutput,
-			video::EAT_VULKAN,
+			video::EAT_OPENGL,
 			"35.GeometryCreator",
 			requiredInstanceFeatures,
 			optionalInstanceFeatures,
@@ -471,7 +471,7 @@ public:
 		}));
 
 		core::vectorSIMDf cameraPosition(0, 5, -10);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.001, 1000);
+		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.001, 1000);
 		m_camera = std::make_unique<Camera>(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 10.f, 1.f);
 
 		oracle.reportBeginFrameRecord();
@@ -530,7 +530,10 @@ public:
 		m_camera->endInputProcessing(nextPresentationTimeStamp);
 
 		const auto& viewMatrix = m_camera->getViewMatrix();
-		const auto& viewProjectionMatrix = m_camera->getConcatenatedMatrix();
+		const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+			m_camera->getConcatenatedMatrix()
+		);
 
 		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
 		commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);

@@ -21,17 +21,9 @@ layout (set = 0, binding = 1, rgba8) uniform readonly image2D inImage;
 
 void main()
 {
-	const uint halfWidth = u_pushConstants.imgSize.x/2;
-	if (all(lessThan(gl_GlobalInvocationID.xy, u_pushConstants.imgSize)))
+	if (all(lessThan(gl_GlobalInvocationID.xy, nbl_glsl_swapchain_transform_preTransformExtents(u_pushConstants.swapchainTransform, ivec2(u_pushConstants.imgSize)))))
 	{
-		const vec3 inColor = imageLoad(inImage, ivec2(gl_GlobalInvocationID.xy)).rgb;
-		vec4 outColor = vec4(inColor, 1.f);
-		if (gl_GlobalInvocationID.x < halfWidth)
-		{
-			float grayscale = 0.2126 * inColor.r + 0.7152 * inColor.g + 0.0722 * inColor.b;
-			outColor = vec4(vec3(grayscale), 1.f);
-		}
-		
+		vec4 outColor = vec4(vec2(gl_GlobalInvocationID.xy) / vec2(u_pushConstants.imgSize), 0.0, 1.f);
 		imageStore(outImage, nbl_glsl_swapchain_transform_postTransform(u_pushConstants.swapchainTransform, ivec2(gl_GlobalInvocationID.xy), ivec2(u_pushConstants.imgSize)), outColor);
 	}
 }

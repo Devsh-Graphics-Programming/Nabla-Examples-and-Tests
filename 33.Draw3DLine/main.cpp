@@ -171,7 +171,10 @@ public:
 				});
 		}
 
-		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), float(WIN_W) / WIN_H, 0.01, 100);
+		matrix4SIMD proj = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::surfaceTransformForward(sc->getSurfaceTransform()),
+			matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), video::ISurface::surfaceTransformAspectRatio(sc->getSurfaceTransform(), WIN_W, WIN_H), 0.01, 100)
+		);
 		matrix3x4SIMD view = matrix3x4SIMD::buildCameraLookAtMatrixRH(core::vectorSIMDf(0, 0, -10), core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 1, 0));
 		auto viewProj = matrix4SIMD::concatenateBFollowedByA(proj, matrix4SIMD(view));
 		
