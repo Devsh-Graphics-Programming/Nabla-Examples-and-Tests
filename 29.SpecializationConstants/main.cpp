@@ -37,7 +37,7 @@ class SpecializationConstantsSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::system::ISystem> filesystem;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -120,7 +120,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return SC_IMG_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -160,7 +160,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			WIN_W, WIN_H, SC_IMG_COUNT,
+			FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
 			swapchainImageUsage,
 			surfaceFormat,
 			depthFormat);
@@ -404,10 +404,10 @@ public:
 		m_computeUBORange = { 0, gpuUboCompute->getSize(), gpuUboCompute };
 		m_graphicsUBORange = { 0, gpuUboGraphics->getSize(), gpuUboGraphics };
 
-		device->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, m_cmdbuf);
-
+		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 		{
+			device->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, m_cmdbuf+i);
 			m_imageAcquire[i] = device->createSemaphore();
 			m_renderFinished[i] = device->createSemaphore();
 		}

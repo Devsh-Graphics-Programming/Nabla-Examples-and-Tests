@@ -332,7 +332,7 @@ class LoDSystemApp : public ApplicationBase
         }
         uint32_t getSwapchainImageCount() override
         {
-            return FBO_COUNT;
+            return swapchain->getImageCount();;
         }
         virtual nbl::asset::E_FORMAT getDepthFormat() override
         {
@@ -347,7 +347,7 @@ class LoDSystemApp : public ApplicationBase
             const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
             const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-            CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "Level of Detail System", WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
+            CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "Level of Detail System", FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
             window = std::move(initOutput.window);
             gl = std::move(initOutput.apiConnection);
             surface = std::move(initOutput.surface);
@@ -661,7 +661,7 @@ class LoDSystemApp : public ApplicationBase
                         }
 
                         core::smart_refctd_ptr<video::IGPUCommandBuffer> tferCmdBuf;
-                        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
+                        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
                         auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
                         tferCmdBuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
                         {
@@ -719,7 +719,7 @@ class LoDSystemApp : public ApplicationBase
                 }
                 // prerecord the secondary cmdbuffer
                 {
-                    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
+                    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0].get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
                     bakedCommandBuffer->begin(core::bitflag(video::IGPUCommandBuffer::EU_RENDER_PASS_CONTINUE_BIT) | video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
                     // TODO: handle teh offsets
                     auto drawCountBlock = drawIndirectAllocator->getDrawCountMemoryBlock();
@@ -738,10 +738,10 @@ class LoDSystemApp : public ApplicationBase
             camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 2.f, 1.f);
 
             oracle.reportBeginFrameRecord();
-            logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, commandBuffers);
-
+            const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
             for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
             {
+                logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
                 imageAcquire[i] = logicalDevice->createSemaphore();
                 renderFinished[i] = logicalDevice->createSemaphore();
             }
@@ -905,7 +905,7 @@ class LoDSystemApp : public ApplicationBase
         nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
         std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
     
-        std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+        std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
         nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
         nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
         nbl::core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;

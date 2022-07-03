@@ -9,10 +9,9 @@ class ComputeShaderSampleApp : public ApplicationBase
 {
 	constexpr static uint32_t WIN_W = 768u;
 	constexpr static uint32_t WIN_H = 512u;
-	constexpr static uint32_t SC_IMG_COUNT = 3u;
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-	static_assert(FRAMES_IN_FLIGHT>SC_IMG_COUNT);
+	
 
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
@@ -26,7 +25,7 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::system::ISystem> system;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -91,7 +90,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return SC_IMG_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -111,7 +110,7 @@ public:
 			initOutput,
 			video::EAT_OPENGL,
 			"02.ComputeShader",
-			WIN_W, WIN_H, SC_IMG_COUNT,
+			FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
 			swapchainImageUsage,
 			surfaceFormat);
 
@@ -127,12 +126,12 @@ public:
 		swapchain = std::move(initOutput.swapchain);
 		renderpass = std::move(initOutput.renderpass);
 		fbo = std::move(initOutput.fbo);
-		commandPools = std::move(initOutput.commandPools);
 		assetManager = std::move(initOutput.assetManager);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
+		commandPools = std::move(initOutput.commandPools);
 		const auto& computeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
 #if 0
@@ -152,7 +151,7 @@ public:
 		m_swapchainImageViews.resize(swapchainImageCount);
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
-			auto img = swapchainImages.begin()[i];
+			auto& img = swapchainImages.begin()[i];
 			{
 				video::IGPUImageView::SCreationParams viewParams;
 				viewParams.format = img->getCreationParameters().format;
@@ -182,11 +181,16 @@ public:
 		}
 		assert(specializedShader);
 
-		logicalDevice->createCommandBuffers(
-			computeCommandPool.get(),
-			video::IGPUCommandBuffer::EL_PRIMARY,
-			FRAMES_IN_FLIGHT,
-			m_cmdbuf);
+		
+		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+		{
+			logicalDevice->createCommandBuffers(
+				computeCommandPool[i].get(),
+				video::IGPUCommandBuffer::EL_PRIMARY,
+				1,
+				m_cmdbuf+i);
+		}
+		
 
 		const uint32_t bindingCount = 2u;
 		video::IGPUDescriptorSetLayout::SBinding bindings[bindingCount];

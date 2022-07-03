@@ -124,8 +124,7 @@ int main()
 		optionalInstanceFeatures,
 		requiredDeviceFeatures,
 		optionalDeviceFeatures,
-		WIN_W, WIN_H,
-		FBO_COUNT,
+		FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT,
 		swapchainImageUsage, 
 		surfaceFormat,
 		asset::EF_D32_SFLOAT);
@@ -157,8 +156,9 @@ int main()
 	nbl::video::IGPUObjectFromAssetConverter CPU2GPU;
 	
 	core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
-	device->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, cmdbuf);
-	
+	for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+		device->createCommandBuffers(graphicsCommandPool[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);	
+
 	constexpr uint32_t maxDescriptorCount = 256u;
 	constexpr uint32_t PoolSizesCount = 5u;
 	nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[PoolSizesCount] = {
@@ -212,7 +212,7 @@ int main()
 		memcpy(info.m_backingBuffer->getPointer(),&kShaderParameters,sizeof(ShaderParameters));
 		info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 		for (uint32_t i=0; i<2; i++)
-			info.m_entries->operator[](i) = {i,i*sizeof(uint32_t),sizeof(uint32_t)};
+			info.m_entries->operator[](i) = {i,(uint32_t)(i*sizeof(uint32_t)),sizeof(uint32_t)};
 
 
 		cpuComputeSpecializedShader->setSpecializationInfo(std::move(info));
@@ -356,7 +356,7 @@ int main()
 	}
 	
 	// Create Out Image TODO
-	MAX_FBO_COUNT = 4u;
+	constexpr uint32_t MAX_FBO_COUNT = 4u;
 	smart_refctd_ptr<IGPUImageView> outHDRImageViews[MAX_FBO_COUNT] = {};
 	assert(MAX_FBO_COUNT >= swapChainimage->getSwapChainCount());
 	for(uint32_t i = 0; i < swapChainimage->getSwapChainCount(); ++i) {

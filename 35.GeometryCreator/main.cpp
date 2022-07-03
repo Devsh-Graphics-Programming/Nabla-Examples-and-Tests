@@ -152,7 +152,7 @@ class GeometryCreatorSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
 	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
@@ -214,7 +214,7 @@ public:
     }
     uint32_t getSwapchainImageCount() override
     {
-        return SC_IMG_COUNT;
+        return swapchain->getImageCount();
     }
     virtual nbl::asset::E_FORMAT getDepthFormat() override
     {
@@ -254,9 +254,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			WIN_W,
-			WIN_H,
-			SC_IMG_COUNT,
+			FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
 			swapchainImageUsage,
 			surfaceFormat,
 			nbl::asset::EF_D32_SFLOAT);
@@ -405,8 +403,8 @@ public:
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> transferCmdBuffer;
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> computeCmdBuffer;
 
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &transferCmdBuffer);
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &computeCmdBuffer);
+			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &transferCmdBuffer);
+			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &computeCmdBuffer);
 
 			cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_TRANSFER].cmdbuf = transferCmdBuffer;
 			cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_COMPUTE].cmdbuf = computeCmdBuffer;
@@ -476,10 +474,10 @@ public:
 
 		oracle.reportBeginFrameRecord();
 
-		logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, m_commandBuffers);
-
+		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 		{
+			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, m_commandBuffers+i);
 			m_imageAcquire[i] = logicalDevice->createSemaphore();
 			m_renderFinished[i] = logicalDevice->createSemaphore();
 		}

@@ -936,7 +936,7 @@ public:
 		const SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE>& optionalInstanceFeatures,
 		const SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE>& requiredDeviceFeatures,
 		const SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE>& optionalDeviceFeatures,
-		// here
+		uint32_t framesInFlight = 0u,
 		uint32_t window_width = 0u,
 		uint32_t window_height = 0u,
 		uint32_t sc_image_count = 0u,
@@ -1363,7 +1363,7 @@ public:
 		InitOutput& result,
 		nbl::video::E_API_TYPE api_type,
 		const std::string_view app_name,
-		// here
+		uint32_t framesInFlight = 0u,
 		uint32_t window_width = 0u,
 		uint32_t window_height = 0u,
 		uint32_t sc_image_count = 0u,
@@ -1394,7 +1394,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			window_width, window_height, sc_image_count,
+			framesInFlight, window_width, window_height, sc_image_count,
 			swapchainImageUsage, surfaceFormat, depthFormat);
 	}
 
@@ -1404,6 +1404,7 @@ public:
 		InitOutput& result,
 		nbl::video::E_API_TYPE api_type,
 		const std::string_view app_name,
+		uint32_t framesInFlight = 0u,
 		uint32_t window_width = 0u,
 		uint32_t window_height = 0u,
 		uint32_t sc_image_count = 0u,
@@ -1439,7 +1440,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			window_width, window_height, sc_image_count,
+			framesInFlight, window_width, window_height, sc_image_count,
 			swapchainImageUsage, surfaceFormat, depthFormat);
 	}
 
@@ -1481,7 +1482,7 @@ public:
 				const bool hasMatchingFormats = requestedSurfaceFormat.format == supportedFormat.format;
 				const bool hasMatchingColorspace = requestedSurfaceFormat.colorSpace.eotf == supportedFormat.colorSpace.eotf && requestedSurfaceFormat.colorSpace.primary == supportedFormat.colorSpace.primary;
 
-				const auto supportedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimal(supportedFormat.format);
+				const auto& supportedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimal(supportedFormat.format);
 				const bool supportedFormatSupportsFeatures = ((supportedFormatUsages & requiredFormatUsages) == requiredFormatUsages);
 
 				if(!supportedFormatSupportsFeatures)

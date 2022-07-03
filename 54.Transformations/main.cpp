@@ -190,7 +190,7 @@ class TransformationApp : public ApplicationBase
 			const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 			CommonAPI::InitWithDefaultExt(
 				initOutput, video::EAT_OPENGL, "Solar System Transformations",
-				WIN_W, WIN_H, 3u,
+				FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
 				swapchainImageUsage, surfaceFormat,
 				asset::EF_D32_SFLOAT);
 
@@ -461,7 +461,7 @@ class TransformationApp : public ApplicationBase
 						ttm->setupTransfers(req, transfers);
 					}
 
-					cmdbuf_nodes->begin(video::IGPUCommandBuffer::NONE);
+					cmdbuf_nodes->begin(video::IGPUCommandBuffer::EU_NONE);
 					utils->getDefaultPropertyPoolHandler()->transferProperties(
 						cmdbuf_nodes.get(), fence_nodes.get(), scratch, { 0ull,tmp_node_buf },
 						transfers, transfers + scene::ITransformTreeManager::TransferCount, initOutput.logger.get()
@@ -905,7 +905,7 @@ class TransformationApp : public ApplicationBase
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
 		nbl::core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
@@ -924,7 +924,7 @@ class TransformationApp : public ApplicationBase
 		scene::ITransformTreeManager::DescriptorSets ttmDescriptorSets;
 		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugDrawPipeline;
 
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> transferUpCommandPools[FRAMES_IN_FLIGHT];
+		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight> transferUpCommandPools;
 		core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
 		core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
 		core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };

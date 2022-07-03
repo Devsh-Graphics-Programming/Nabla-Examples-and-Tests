@@ -109,7 +109,7 @@ class RayQuerySampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::system::ISystem> system;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -194,7 +194,7 @@ public:
 			initOutput,
 			video::EAT_VULKAN,
 			"56.RayQuery",
-			WIN_W, WIN_H, FBO_COUNT,
+			FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT,
 			swapchainImageUsage,
 			surfaceFormat, asset::EF_D32_SFLOAT);
 
@@ -221,7 +221,9 @@ public:
 		auto computeCommandPool =  commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;	
-		logicalDevice->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, cmdbuf);
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+			logicalDevice->createCommandBuffers(graphicsCommandPool[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);
+
 	
 		constexpr uint32_t maxDescriptorCount = 256u;
 		constexpr uint32_t PoolSizesCount = 5u;
@@ -1141,7 +1143,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return FBO_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{

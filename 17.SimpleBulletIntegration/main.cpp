@@ -106,7 +106,7 @@ public:
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::system::ISystem> system;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -198,7 +198,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return SC_IMG_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -246,7 +246,7 @@ public:
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "Physics Simulation", WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
+		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "Physics Simulation", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
 
 		system = std::move(initOutput.system);
 		window = std::move(initOutput.window);
@@ -273,7 +273,8 @@ public:
 
 		// property transfer cmdbuffers
 		core::smart_refctd_ptr<video::IGPUCommandBuffer> propXferCmdbuf[FRAMES_IN_FLIGHT];
-		logicalDevice->createCommandBuffers(computeCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, propXferCmdbuf);
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+			logicalDevice->createCommandBuffers(computeCommandPool[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, propXferCmdbuf+i);
 
 		// Physics Setup
 		m_world = ext::Bullet3::CPhysicsWorld::create();
@@ -701,7 +702,8 @@ public:
 		core::matrix4SIMD proj = core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 500.0f);
 		m_cam = std::make_unique<Camera>(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 
-		logicalDevice->createCommandBuffers(graphicsCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, m_cmdbuf);
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+			logicalDevice->createCommandBuffers(graphicsCommandPool[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);	}
 	}
 
 	void onAppTerminated_impl() override

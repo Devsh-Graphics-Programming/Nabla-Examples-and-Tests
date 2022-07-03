@@ -357,7 +357,7 @@ Choose Graphics API:
 		assert(buffer);
 
 		core::smart_refctd_ptr<video::IGPUCommandBuffer> cb;
-		device->createCommandBuffers(cmdpool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cb);
+		device->createCommandBuffers(cmdpool[0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cb);
 		assert(cb);
 
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
@@ -398,7 +398,7 @@ Choose Graphics API:
 	}
 
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf[SC_IMG_COUNT];
-	device->createCommandBuffers(cmdpool.get(), video::IGPUCommandBuffer::EL_PRIMARY, SC_IMG_COUNT, cmdbuf);
+	device->createCommandBuffers(cmdpool[0].get(), video::IGPUCommandBuffer::EL_PRIMARY, SC_IMG_COUNT, cmdbuf);
 	for (uint32_t i = 0u; i < SC_IMG_COUNT; ++i)
 	{
 		auto& cb = cmdbuf[i];
