@@ -166,7 +166,9 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		system = std::move(initOutput.system);
 		windowCallback = std::move(initOutput.windowCb);
 		utilities = std::move(initOutput.utilities);
-
+		auto defaultComputeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0];
+		auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
+		
 		auto createDescriptorPool = [&](const uint32_t count, asset::E_DESCRIPTOR_TYPE type)
 		{
 			constexpr uint32_t maxItemCount = 256u;
@@ -202,11 +204,11 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 			cpu2gpuParams.finalQueueFamIx = queues[decltype(initOutput)::EQT_GRAPHICS]->getFamilyIndex();
 			cpu2gpuParams.sharingMode = nbl::asset::ESM_EXCLUSIVE;
 
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0].get(),video::IGPUCommandBuffer::EL_PRIMARY,1u,&cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_TRANSFER].cmdbuf);
+			logicalDevice->createCommandBuffers(defaultTransferUpCommandPool.get(),video::IGPUCommandBuffer::EL_PRIMARY,1u,&cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_TRANSFER].cmdbuf);
 			cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_TRANSFER].queue = queues[decltype(initOutput)::EQT_TRANSFER_UP];
 			cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_TRANSFER].semaphore = &gpuTransferSemaphore;
 			
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(),video::IGPUCommandBuffer::EL_PRIMARY,1u,&cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_COMPUTE].cmdbuf);
+			logicalDevice->createCommandBuffers(defaultComputeCommandPool.get(),video::IGPUCommandBuffer::EL_PRIMARY,1u,&cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_COMPUTE].cmdbuf);
 			cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_COMPUTE].queue = queues[decltype(initOutput)::EQT_COMPUTE];
 			cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_COMPUTE].semaphore = &gpuComputeSemaphore;
 

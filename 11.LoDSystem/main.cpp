@@ -367,6 +367,8 @@ class LoDSystemApp : public ApplicationBase
             utilities = std::move(initOutput.utilities);
 
             transferUpQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
+            auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
+            auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
 
             ttm = scene::ITransformTreeManager::create(utilities.get(),transferUpQueue);
             tt = scene::ITransformTreeWithNormalMatrices::create(logicalDevice.get(),MaxInstanceCount);
@@ -661,7 +663,7 @@ class LoDSystemApp : public ApplicationBase
                         }
 
                         core::smart_refctd_ptr<video::IGPUCommandBuffer> tferCmdBuf;
-                        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
+                        logicalDevice->createCommandBuffers(defaultTransferUpCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
                         auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
                         tferCmdBuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
                         {
@@ -724,7 +726,7 @@ class LoDSystemApp : public ApplicationBase
                 }
                 // prerecord the secondary cmdbuffer
                 {
-                    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0].get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
+                    logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
                     bakedCommandBuffer->begin(core::bitflag(video::IGPUCommandBuffer::EU_RENDER_PASS_CONTINUE_BIT) | video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
                     // TODO: handle teh offsets
                     auto drawCountBlock = drawIndirectAllocator->getDrawCountMemoryBlock();

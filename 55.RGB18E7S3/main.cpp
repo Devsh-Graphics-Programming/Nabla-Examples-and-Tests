@@ -56,6 +56,7 @@ int main()
     auto assetManager = std::move(initOutput.assetManager);
     auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
     auto utilities = std::move(initOutput.utilities);
+	auto defaultComputeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0];
 
     nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 
@@ -183,7 +184,7 @@ int main()
     auto gpuComputePipeline = logicalDevice->createComputePipeline(nullptr, std::move(gpuCPipelineLayout), std::move(gpuComputeShader));
 
     core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffer;
-    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
+    logicalDevice->createCommandBuffers(defaultComputeCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
     auto gpuFence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
     {
 

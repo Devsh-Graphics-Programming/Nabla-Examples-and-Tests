@@ -253,9 +253,10 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		inputSystem = std::move(initOutput.inputSystem);
 		windowCallback = std::move(initOutput.windowCb);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+		auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
 
 	
-		logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
+		logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
 		auto commandBuffer = commandBuffers[0];
 
 		auto createDescriptorPool = [&](const uint32_t itemCount, E_DESCRIPTOR_TYPE descriptorType)

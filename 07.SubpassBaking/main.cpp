@@ -164,7 +164,9 @@ public:
         windowCb = std::move(initOutput.windowCb);
         cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
         utilities = std::move(initOutput.utilities);
-        
+        auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
+        auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
+
         // Occlusion Query
         {
             video::IQueryPool::SCreationParams queryPoolCreationParams = {};
@@ -284,7 +286,8 @@ public:
             cpu2gpuParams.waitForCreationToComplete();
         }
 
-        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0].get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
+        
+        logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
         video::IGPUCommandBuffer::SInheritanceInfo inheritanceInfo = {};
         inheritanceInfo.renderpass = renderpass;
         inheritanceInfo.subpass = 0; // this should probably be kSubpassIx?
@@ -413,7 +416,7 @@ public:
                 auto upQueue = queues[decltype(initOutput)::EQT_TRANSFER_UP];
                 auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
                 core::smart_refctd_ptr<video::IGPUCommandBuffer> tferCmdBuf;
-                logicalDevice->createCommandBuffers(commandPools[decltype(initOutput)::EQT_TRANSFER_UP][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
+                logicalDevice->createCommandBuffers(defaultTransferUpCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
                 tferCmdBuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
                 {
                     auto* ppHandler = utilities->getDefaultPropertyPoolHandler();

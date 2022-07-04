@@ -108,7 +108,8 @@ class GLTFApp : public ApplicationBase
 			utilities = std::move(initOutput.utilities);
 
 			transferUpQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
-			
+			auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
+
 			transformTreeManager = scene::ITransformTreeManager::create(utilities.get(),transferUpQueue);
 			ttDebugDrawPipeline = transformTreeManager->createDebugPipeline<scene::ITransformTreeWithNormalMatrices>(core::smart_refctd_ptr(renderpass));
 			ttmDescriptorSets = transformTreeManager->createAllDescriptorSets(logicalDevice.get());
@@ -203,7 +204,7 @@ class GLTFApp : public ApplicationBase
 			nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> xferCmdbuf;
 			{
 				xferFence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
-				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &xferCmdbuf);
+				logicalDevice->createCommandBuffers(defaultTransferUpCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &xferCmdbuf);
 				xferCmdbuf->begin(IGPUCommandBuffer::EU_NONE);
 			}
 			auto xferQueue = logicalDevice->getQueue(xferCmdbuf->getQueueFamilyIndex(),0u);
