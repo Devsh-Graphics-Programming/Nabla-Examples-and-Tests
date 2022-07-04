@@ -704,16 +704,21 @@ class LoDSystemApp : public ApplicationBase
                         auto& drawCallOffsetsInDWORDs = lodLibraryData.drawCallOffsetsIn20ByteStrides;
                         for (auto i = 0u; i < cullingParams.drawcallCount; i++)
                             drawCallOffsetsInDWORDs[i] = lodLibraryData.drawCallOffsetsIn20ByteStrides[i] * sizeof(asset::DrawElementsIndirectCommand_t) / sizeof(uint32_t);
-                        video::IGPUBuffer::SCreationParams p1; p1.size = cullingParams.drawcallCount * sizeof(uint32_t);
-                        video::IGPUBuffer::SCreationParams p2; p2.size = lodLibraryData.drawCountOffsets.size() * sizeof(uint32_t);
+                        video::IGPUBuffer::SCreationParams drawsToScanBufferCreationParams; 
+                        drawsToScanBufferCreationParams.size = cullingParams.drawcallCount * sizeof(uint32_t);
+                        drawsToScanBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                        video::IGPUBuffer::SCreationParams drawsToCountBufferCreationParams; 
+                        drawsToCountBufferCreationParams.size = lodLibraryData.drawCountOffsets.size() * sizeof(uint32_t);
+                        drawsToCountBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+
                         cullingParams.transientInputDS = culling_system_t::createInputDescriptorSet(
                             logicalDevice.get(), cullingDSPool.get(),
                             culling_system_t::createInputDescriptorSetLayout(logicalDevice.get()),
                             cullingParams.indirectDispatchParams,
                             cullingParams.instanceList,
                             cullingParams.scratchBufferRanges,
-                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(p1), drawCallOffsetsInDWORDs.data()) },
-                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,std::move(p2),lodLibraryData.drawCountOffsets.data()) }
+                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(drawsToScanBufferCreationParams), drawCallOffsetsInDWORDs.data()) },
+                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,std::move(drawsToCountBufferCreationParams),lodLibraryData.drawCountOffsets.data()) }
                         );
                     }
                 }
