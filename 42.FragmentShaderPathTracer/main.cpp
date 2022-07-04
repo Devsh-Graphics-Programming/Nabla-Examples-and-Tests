@@ -148,8 +148,8 @@ int main()
 	auto logger = std::move(initOutput.logger);
 	auto inputSystem = std::move(initOutput.inputSystem);
 	auto utilities = std::move(initOutput.utilities);
-	auto graphicsCommandPool = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_GRAPHICS]);
-	auto computeCommandPool = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_COMPUTE]);
+	auto graphicsCommandPools = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_GRAPHICS]);
+	auto computeCommandPools = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_COMPUTE]);
 
 	auto graphicsCmdPoolQueueFamIdx = graphicsQueue->getFamilyIndex();
 
@@ -157,7 +157,7 @@ int main()
 	
 	core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
 	for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-		device->createCommandBuffers(graphicsCommandPool[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);	
+		device->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);	
 
 	constexpr uint32_t maxDescriptorCount = 256u;
 	constexpr uint32_t PoolSizesCount = 5u;

@@ -718,7 +718,7 @@ APP_CONSTRUCTOR(MegaTextureApp)
         auto commandBuffer = commandBuffers[0];
 
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
         asset::SViewport viewport;
         viewport.minDepth = 1.f;

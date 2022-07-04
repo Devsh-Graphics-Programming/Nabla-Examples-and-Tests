@@ -217,12 +217,12 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 		auto graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
 		auto computeQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
-		auto graphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-		auto computeCommandPool =  commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+		auto graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+		auto computeCommandPools =  commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;	
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-			logicalDevice->createCommandBuffers(graphicsCommandPool[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);
+			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);
 
 	
 		constexpr uint32_t maxDescriptorCount = 256u;

@@ -223,7 +223,7 @@ public:
 		else
 			fence = device->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		asset::SViewport vp;
 		vp.minDepth = 1.f;

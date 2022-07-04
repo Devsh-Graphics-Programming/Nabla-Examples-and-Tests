@@ -686,7 +686,7 @@ class TransformationApp : public ApplicationBase
 			timestamp++;
 
 			// safe to proceed
-			cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+			cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 			// we don't wait on anything because we do everything on the same queue
 			uint32_t waitSemaphoreCount = 0u;

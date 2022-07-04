@@ -360,7 +360,7 @@ Choose Graphics API:
 		device->createCommandBuffers(cmdpool[0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cb);
 		assert(cb);
 
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		asset::SViewport vp;
 		vp.minDepth = 1.f;

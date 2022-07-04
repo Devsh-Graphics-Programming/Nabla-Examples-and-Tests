@@ -438,7 +438,7 @@ public:
 		}
 
 		// safe to proceed
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		{
 			auto time = std::chrono::high_resolution_clock::now();

@@ -372,7 +372,7 @@ public:
 				// acquire image 
 				swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
 
-				cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+				cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 				asset::SViewport viewport;
 				viewport.minDepth = 1.f;

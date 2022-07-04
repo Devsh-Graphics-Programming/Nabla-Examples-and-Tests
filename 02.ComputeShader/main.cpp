@@ -132,7 +132,7 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 
 		commandPools = std::move(initOutput.commandPools);
-		const auto& computeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+		const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
 #if 0
 		// Todo(achal): Pending bug investigation, when both API connections are created at
@@ -185,7 +185,7 @@ public:
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			logicalDevice->createCommandBuffers(
-				computeCommandPool[i].get(),
+				computeCommandPools[i].get(),
 				video::IGPUCommandBuffer::EL_PRIMARY,
 				1,
 				m_cmdbuf+i);
@@ -408,7 +408,7 @@ public:
 		swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
 
 		// safe to proceed
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		{
 			asset::SViewport vp;
