@@ -426,7 +426,6 @@ public:
                         scratchParams.size = ppHandler->getMaxScratchSize();
                         auto scratchBuff = logicalDevice->createBuffer(scratchParams);
                         auto memReqs = scratchBuff->getMemoryReqs();
-                        memReqs.size = scratchParams.size;
                         logicalDevice->allocate(memReqs, scratchBuff.get());
                         scratch = { 0ull,scratchBuff };
                         scratch.buffer->setObjectDebugName("Scratch Buffer");

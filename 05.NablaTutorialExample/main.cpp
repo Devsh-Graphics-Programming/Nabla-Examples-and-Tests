@@ -297,15 +297,11 @@ public:
 				IGPUBuffer::SCreationParams creationParams = {};
 				creationParams.canUpdateSubRange = true;
 				creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
+				creationParams.size = sizeof(SBasicViewParameters);
 				auto gpuubobuffer = logicalDevice->createBuffer(creationParams);
 
 				IDeviceMemoryBacked::SDeviceMemoryRequirements memReq;
-				memReq.prefersDedicatedAllocation = true;
-				memReq.requiresDedicatedAllocation = true;
-				//memReq.alignmentLog2 = physicalDevice->getLimits().UBOAlignment;
-				memReq.size = sizeof(SBasicViewParameters);
-				memReq.memoryTypeBits = physicalDevice->getDeviceLocalMemoryTypeBits();
-
+				memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
 				logicalDevice->allocate(memReq, gpuubobuffer.get());
 			}
 
