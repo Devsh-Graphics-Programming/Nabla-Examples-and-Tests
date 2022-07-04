@@ -248,7 +248,7 @@ public:
             cameraUBO = logicalDevice->createBuffer(cameraUBOCreationParams);
 
             auto ubomemreq = cameraUBO->getMemoryReqs();
-            ubomemreq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+            ubomemreq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
             logicalDevice->allocate(ubomemreq, cameraUBO.get());
 
             perCameraDescSet = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
@@ -426,6 +426,7 @@ public:
                         scratchParams.size = ppHandler->getMaxScratchSize();
                         auto scratchBuff = logicalDevice->createBuffer(scratchParams);
                         auto memReqs = scratchBuff->getMemoryReqs();
+                        memReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
                         logicalDevice->allocate(memReqs, scratchBuff.get());
                         scratch = { 0ull,scratchBuff };
                         scratch.buffer->setObjectDebugName("Scratch Buffer");

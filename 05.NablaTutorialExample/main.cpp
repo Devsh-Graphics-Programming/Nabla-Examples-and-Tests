@@ -300,7 +300,7 @@ public:
 				creationParams.size = sizeof(SBasicViewParameters);
 				auto gpuubobuffer = logicalDevice->createBuffer(creationParams);
 
-				IDeviceMemoryBacked::SDeviceMemoryRequirements memReq;
+				IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuubobuffer->getMemoryReqs();
 				memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
 				logicalDevice->allocate(memReq, gpuubobuffer.get());
 			}
