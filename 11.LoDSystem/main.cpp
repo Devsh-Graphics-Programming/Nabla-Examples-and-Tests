@@ -706,10 +706,10 @@ class LoDSystemApp : public ApplicationBase
                         auto& drawCallOffsetsInDWORDs = lodLibraryData.drawCallOffsetsIn20ByteStrides;
                         for (auto i = 0u; i < cullingParams.drawcallCount; i++)
                             drawCallOffsetsInDWORDs[i] = lodLibraryData.drawCallOffsetsIn20ByteStrides[i] * sizeof(asset::DrawElementsIndirectCommand_t) / sizeof(uint32_t);
-                        video::IGPUBuffer::SCreationParams drawsToScanBufferCreationParams; 
+                        video::IGPUBuffer::SCreationParams drawsToScanBufferCreationParams = {}; 
                         drawsToScanBufferCreationParams.size = cullingParams.drawcallCount * sizeof(uint32_t);
                         drawsToScanBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-                        video::IGPUBuffer::SCreationParams drawsToCountBufferCreationParams; 
+                        video::IGPUBuffer::SCreationParams drawsToCountBufferCreationParams = {}; 
                         drawsToCountBufferCreationParams.size = lodLibraryData.drawCountOffsets.size() * sizeof(uint32_t);
                         drawsToCountBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
