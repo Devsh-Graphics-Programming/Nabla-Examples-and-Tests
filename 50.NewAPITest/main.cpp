@@ -44,6 +44,7 @@ static void debugCallback(video::E_DEBUG_MESSAGE_SEVERITY severity, video::E_DEB
 	std::cout << "OpenGL " << sev << ": " << msg << std::endl;
 }
 
+// [TODO] UPDATE THIS EXAMPLE TO USE APPLICATION FRAMEWORK and COMMONAPI
 int main()
 {
 	constexpr uint32_t WIN_W = 800u;
