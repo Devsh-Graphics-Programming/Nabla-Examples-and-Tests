@@ -339,7 +339,7 @@ int main()
 			params.size = size;
 			buffer = device->createBuffer(params);
 			auto bufferMemReqs = buffer->getMemoryReqs();
-			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			device->allocate(bufferMemReqs, buffer.get());
 			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data());
 		}
@@ -358,8 +358,8 @@ int main()
 	// Create Out Image TODO
 	constexpr uint32_t MAX_FBO_COUNT = 4u;
 	smart_refctd_ptr<IGPUImageView> outHDRImageViews[MAX_FBO_COUNT] = {};
-	assert(MAX_FBO_COUNT >= swapChainimage->getSwapChainCount());
-	for(uint32_t i = 0; i < swapChainimage->getSwapChainCount(); ++i) {
+	assert(MAX_FBO_COUNT >= swapchain->getImageCount());
+	for(uint32_t i = 0; i < swapchain->getImageCount(); ++i) {
 		outHDRImageViews[i] = createHDRImageView(device, asset::EF_R16G16B16A16_SFLOAT, WIN_W, WIN_H);
 	}
 
@@ -396,7 +396,6 @@ int main()
 	auto gpuuboMemReqs = gpuubo->getMemoryReqs();
 	gpuuboMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	device->allocate(gpuuboMemReqs, gpuubo.get());
-	device->allocate(gpuubo->getMemoryReqs(), gpuubo.get());
 
 	auto uboDescriptorSet1 = device->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout1));
 	{
