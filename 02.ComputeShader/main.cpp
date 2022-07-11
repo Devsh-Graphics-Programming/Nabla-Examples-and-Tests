@@ -104,19 +104,20 @@ public:
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-		CommonAPI::InitOutput initOutput;
-		initOutput.window = core::smart_refctd_ptr(window);
-		CommonAPI::InitWithDefaultExt(
-			initOutput,
-			video::EAT_OPENGL,
-			"02.ComputeShader",
-			FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
-			swapchainImageUsage,
-			surfaceFormat);
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_OPENGL;
+		initParams.appName = { "02.ComputeShader" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = WIN_W;
+		initParams.windowHeight = WIN_H;
+		initParams.scImageCount = 3u;
+		initParams.acceptableSurfaceFormats = { surfaceFormat };
+		auto initOutput = CommonAPI::Init(std::move(initParams));
 
 		system = std::move(initOutput.system);
-		window = std::move(initOutput.window);
-		windowCb = std::move(initOutput.windowCb);
+		window = std::move(initParams.window);
+		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		physicalDevice = std::move(initOutput.physicalDevice);
@@ -478,7 +479,6 @@ public:
 
 		CommonAPI::Submit(
 			logicalDevice.get(),
-			swapchain.get(),
 			cb.get(),
 			queues[CommonAPI::InitOutput::EQT_COMPUTE],
 			m_imageAcquire[m_resourceIx].get(),
