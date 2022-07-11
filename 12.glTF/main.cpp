@@ -359,6 +359,7 @@ class GLTFApp : public ApplicationBase
 				pivotNodesRange.offset += sizeof(uint32_t);
 				video::IGPUBuffer::SCreationParams params;
 				params.size = sizeof(scene::ITransformTree::node_t) * allNodes.size();
+				params.usage = core::bitflag<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT);
 				auto allNodesBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,std::move(params),allNodes.data());
 				transformTreeManager->updateRecomputeGlobalTransformsDescriptorSet(logicalDevice.get(),ttmDescriptorSets.recomputeGlobal.get(),{0ull,allNodesBuffer});
 				pivotNodesRange.buffer = std::move(allNodesBuffer);
@@ -455,16 +456,16 @@ class GLTFApp : public ApplicationBase
 			}
 			// transfer compressed aabbs to the GPU
 			{
-				IGPUBuffer::SCreationParams params1 = {};
-				params1.size = sizeof(CompressedAABB) * aabbPool.size();
-				params1.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				aabbBinding = {0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(params1), aabbPool.data())};
+				IGPUBuffer::SCreationParams aabbBufferParams = {};
+				aabbBufferParams.size = sizeof(CompressedAABB) * aabbPool.size();
+				aabbBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+				aabbBinding = {0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(aabbBufferParams), aabbPool.data())};
 				transformTreeManager->updateDebugDrawDescriptorSet(logicalDevice.get(),ttmDescriptorSets.debugDraw.get(),SBufferBinding(aabbBinding));
 				
-				IGPUBuffer::SCreationParams params2 = {};
-				params2.usage = core::bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)|IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
-				params2.size = pivotNodesRange.size / sizeof(scene::ITransformTree::node_t);
-				iotaBinding = {0ull,logicalDevice->createBuffer(params2)};
+				IGPUBuffer::SCreationParams iotaBufferParams = {};
+				iotaBufferParams.usage = core::bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)|IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
+				iotaBufferParams.size = pivotNodesRange.size / sizeof(scene::ITransformTree::node_t);
+				iotaBinding = {0ull,logicalDevice->createBuffer(iotaBufferParams)};
 				auto memReqs = iotaBinding.buffer->getMemoryReqs();
 				memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
 				logicalDevice->allocate(memReqs, iotaBinding.buffer.get());
@@ -590,18 +591,18 @@ class GLTFApp : public ApplicationBase
 					skinsToUpdate.insert(skinsToUpdate.begin(),skinsToUpdate.size());
 					std::inclusive_scan(jointCountInclusivePrefixSum.begin(),jointCountInclusivePrefixSum.end(),jointCountInclusivePrefixSum.begin());
 					{
-						IGPUBuffer::SCreationParams params1 = {};
-						params1.size = sizeof(scene::ISkinInstanceCache::skin_instance_t) * skinsToUpdate.size();
-						params1.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-						auto buffer1 = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(params1), skinsToUpdate.data());
-						IGPUBuffer::SCreationParams params2 = {};
-						params2.size = sizeof(uint32_t) * jointCountInclusivePrefixSum.size();
-						params2.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-						auto buffer2 = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(params2), jointCountInclusivePrefixSum.data());
+						IGPUBuffer::SCreationParams skinsToUpdateBufferParams = {};
+						skinsToUpdateBufferParams.size = sizeof(scene::ISkinInstanceCache::skin_instance_t) * skinsToUpdate.size();
+						skinsToUpdateBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto skinsToUpdateBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(skinsToUpdateBufferParams), skinsToUpdate.data());
+						IGPUBuffer::SCreationParams jointCountBufferParams = {};
+						jointCountBufferParams.size = sizeof(uint32_t) * jointCountInclusivePrefixSum.size();
+						jointCountBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto jointCountInclPrefixSumBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(jointCountBufferParams), jointCountInclusivePrefixSum.data());
 						sicManager->updateCacheUpdateDescriptorSet(
 							logicalDevice.get(), sicDescriptorSets.cacheUpdate.get(),
-							{ 0ull,buffer1 },
-							{ 0ull,buffer2 }
+							{ 0ull,skinsToUpdateBuffer },
+							{ 0ull,jointCountInclPrefixSumBuffer }
 						);
 					}
 				}
@@ -647,19 +648,19 @@ class GLTFApp : public ApplicationBase
 					std::inclusive_scan(jointCountInclPrefixSum.begin(),jointCountInclPrefixSum.end(),jointCountInclPrefixSum.begin());
 					totalJointInstances = jointCountInclPrefixSum.back();
 					{
-						IGPUBuffer::SCreationParams params1 = {};
-						params1.size = sizeof(scene::ISkinInstanceCacheManager::DebugDrawData) * debugData.size();
-						params1.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-						auto buffer1 = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(params1), debugData.data());
-						IGPUBuffer::SCreationParams params2 = {};
-						params2.size = sizeof(uint32_t) * jointCountInclPrefixSum.size();
-						params2.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-						auto buffer2 = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(params2), jointCountInclPrefixSum.data());
+						IGPUBuffer::SCreationParams skinInstanceDebugBufferParams = {};
+						skinInstanceDebugBufferParams.size = sizeof(scene::ISkinInstanceCacheManager::DebugDrawData) * debugData.size();
+						skinInstanceDebugBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto skinInstanceDebugBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(skinInstanceDebugBufferParams), debugData.data());
+						IGPUBuffer::SCreationParams skinInstanceJointCountInclPrefixSumBufferParams = {};
+						skinInstanceJointCountInclPrefixSumBufferParams.size = sizeof(uint32_t) * jointCountInclPrefixSum.size();
+						skinInstanceJointCountInclPrefixSumBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto skinInstanceJointCountInclPrefixSumBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(skinInstanceJointCountInclPrefixSumBufferParams), jointCountInclPrefixSum.data());
 						sicManager->updateDebugDrawDescriptorSet(
 							logicalDevice.get(), sicDescriptorSets.debugDraw.get(),
 							transformTree.get(), SBufferBinding(aabbBinding),
-							{ 0ull, buffer1 },
-							{ 0ull, buffer2 }
+							{ 0ull, skinInstanceDebugBuffer },
+							{ 0ull, skinInstanceJointCountInclPrefixSumBuffer }
 						);
 					}
 				}
