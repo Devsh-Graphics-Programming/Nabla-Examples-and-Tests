@@ -46,7 +46,7 @@ public:
     nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
     nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
     std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-    std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
+    std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
     nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
     nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
     nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -150,7 +150,7 @@ public:
     }
     uint32_t getSwapchainImageCount() override
     {
-        return SC_IMG_COUNT;
+        return swapchain->getImageCount();
     }
     virtual nbl::asset::E_FORMAT getDepthFormat() override
     {
@@ -179,7 +179,7 @@ public:
         CommonAPI::InitOutput initOutput;
         initOutput.window = core::smart_refctd_ptr(window);
         initOutput.system = core::smart_refctd_ptr(system);
-        CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "OITSample", WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
+        CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "OITSample", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
         window = std::move(initOutput.window);
         windowCb = std::move(initOutput.windowCb);
         apiConnection = std::move(initOutput.apiConnection);
@@ -366,8 +366,7 @@ public:
 
         descriptorPool = createDescriptorPool(1u);
 
-        ubomemreq = logicalDevice->getDeviceLocalGPUMemoryReqs();
-        ubomemreq.vulkanReqs.size = neededDS1UBOsz;
+   
 
         video::IGPUBuffer::SCreationParams gpuuboCreationParams;
         gpuuboCreationParams.canUpdateSubRange = true;
@@ -376,8 +375,13 @@ public:
         gpuuboCreationParams.queueFamilyIndexCount = 0u;
         gpuuboCreationParams.queueFamilyIndices = nullptr;
         gpuuboCreationParams.canUpdateSubRange = true;
+        gpuuboCreationParams.size = neededDS1UBOsz;
 
-        gpuubo = logicalDevice->createGPUBufferOnDedMem(gpuuboCreationParams, ubomemreq);
+        gpuubo = logicalDevice->createBuffer(gpuuboCreationParams);
+        auto gpuuboMemReqs = gpuubo->getMemoryReqs();
+        gpuuboMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+        logicalDevice->allocate(gpuuboMemReqs, gpuubo.get());
+
         gpuds1 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
         {
             video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -446,10 +450,10 @@ public:
         for (size_t i = 0ull; i < NBL_FRAMES_TO_AVERAGE; ++i)
             dtList[i] = 0.0;
 
-        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, commandBuffers);
-
-        for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-        {
+        const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+		{
+			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
             imageAcquire[i] = logicalDevice->createSemaphore();
             renderFinished[i] = logicalDevice->createSemaphore();
         }
@@ -524,7 +528,7 @@ public:
         const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
 
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
         asset::SViewport viewport;
         viewport.minDepth = 1.f;

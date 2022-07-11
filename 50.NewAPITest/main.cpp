@@ -44,6 +44,7 @@ static void debugCallback(video::E_DEBUG_MESSAGE_SEVERITY severity, video::E_DEB
 	std::cout << "OpenGL " << sev << ": " << msg << std::endl;
 }
 
+// [TODO] UPDATE THIS EXAMPLE TO USE APPLICATION FRAMEWORK and COMMONAPI
 int main()
 {
 	constexpr uint32_t WIN_W = 800u;
@@ -357,10 +358,10 @@ Choose Graphics API:
 		assert(buffer);
 
 		core::smart_refctd_ptr<video::IGPUCommandBuffer> cb;
-		device->createCommandBuffers(cmdpool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cb);
+		device->createCommandBuffers(cmdpool[0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cb);
 		assert(cb);
 
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		asset::SViewport vp;
 		vp.minDepth = 1.f;
@@ -398,7 +399,7 @@ Choose Graphics API:
 	}
 
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf[SC_IMG_COUNT];
-	device->createCommandBuffers(cmdpool.get(), video::IGPUCommandBuffer::EL_PRIMARY, SC_IMG_COUNT, cmdbuf);
+	device->createCommandBuffers(cmdpool[0].get(), video::IGPUCommandBuffer::EL_PRIMARY, SC_IMG_COUNT, cmdbuf);
 	for (uint32_t i = 0u; i < SC_IMG_COUNT; ++i)
 	{
 		auto& cb = cmdbuf[i];
