@@ -806,6 +806,9 @@ public:
 		FeatureType* features = nullptr;
 	};
 
+	struct InitArgs {
+	};
+
 	struct InitOutput
 	{
 		enum E_QUEUE_TYPE
