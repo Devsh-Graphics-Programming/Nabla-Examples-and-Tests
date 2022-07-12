@@ -242,9 +242,10 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 	//
 	auto* _globalBackendDataDS = m_globalMeta ->m_global.m_ds0.get();
 
+	using instance_data_t = ext::MitsubaLoader::CMitsubaLoader::instance_data_t;
 	auto* instanceDataDescPtr = _globalBackendDataDS->getDescriptors(5u).begin();
 	assert(instanceDataDescPtr->desc->getTypeCategory()==IDescriptor::EC_BUFFER);
-	auto* origInstanceData = reinterpret_cast<const ext::MitsubaLoader::instance_data_t*>(static_cast<ICPUBuffer*>(instanceDataDescPtr->desc.get())->getPointer());
+	auto* origInstanceData = reinterpret_cast<const instance_data_t*>(static_cast<ICPUBuffer*>(instanceDataDescPtr->desc.get())->getPointer());
 
 	IGPUDescriptorSet::SDescriptorInfo infos[4];
 	auto recordInfoBuffer = [](IGPUDescriptorSet::SDescriptorInfo& info, core::smart_refctd_ptr<IGPUBuffer>&& buf) -> void
@@ -382,7 +383,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 					pmbd.resize(meshBuffersToProcess.size());
 					cullData.reserve(batchInstanceBoundTotal);
 
-					newInstanceDataBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(ext::MitsubaLoader::instance_data_t)*batchInstanceBoundTotal);
+					newInstanceDataBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(instance_data_t)*batchInstanceBoundTotal);
 				}
 				// actually commit the physical memory, compute batches and set up instance data
 				{
@@ -391,7 +392,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 					auto* indexPtr = reinterpret_cast<const uint16_t*>(cpump->getPackerDataStore().indexBuffer->getPointer());
 					auto* vertexPtr = reinterpret_cast<const float*>(cpump->getPackerDataStore().vertexBuffer->getPointer());
 					auto* mdiPtr = reinterpret_cast<DrawElementsIndirectCommand_t*>(cpump->getPackerDataStore().MDIDataBuffer->getPointer());
-					auto* newInstanceData = reinterpret_cast<ext::MitsubaLoader::instance_data_t*>(newInstanceDataBuffer->getPointer());
+					auto* newInstanceData = reinterpret_cast<instance_data_t*>(newInstanceDataBuffer->getPointer());
 
 					constexpr uint32_t kIndicesPerTriangle = 3u;
 					core::vector<CPUMeshPacker::CombinedDataOffsetTable> cdot(mdiBoundMax);
@@ -529,7 +530,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 					m_sceneBound.MaxEdge.Y,
 					m_sceneBound.MaxEdge.Z
 				);
-				instanceDataDescPtr->buffer = {0u,cullData.size()*sizeof(ext::MitsubaLoader::instance_data_t)};
+				instanceDataDescPtr->buffer = {0u,cullData.size()*sizeof(instance_data_t)};
 				instanceDataDescPtr->desc = std::move(newInstanceDataBuffer); // TODO: trim the buffer
 				{
 					auto gpump = core::make_smart_refctd_ptr<GPUMeshPacker>(m_driver,cpump.get());
