@@ -789,6 +789,7 @@ int main(int argc, char** argv)
 		uint32_t itr = 0u;
 		bool takenEnoughSamples = false;
 		bool renderFailed = false;
+		auto lastTimeLoggedProgress = std::chrono::steady_clock::now();
 		while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
 		{
 			if(itr >= maxNeededIterations)
@@ -796,10 +797,11 @@ int main(int argc, char** argv)
 
 			// Handle Inputs
 			{
-				if(receiver.isLogProgressKeyPressed())
+				if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
 				{
 					int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
 					printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
+					lastTimeLoggedProgress = std::chrono::steady_clock::now();
 				}
 				receiver.resetKeys();
 			}
