@@ -779,7 +779,7 @@ public:
 		}
 
 		// Matching behaviour to InitWithRaytracingExt
-		void withDefaultExt()
+		void withRaytracingExt()
 		{
 #ifndef _NBL_PLATFORM_ANDROID_
 			nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
@@ -1383,7 +1383,7 @@ public:
 		else
 		{
 			// Temporary path until OpenGL reports properly!
-			surfaceFormat = { acceptableSurfaceFormats[0], { acceptableColorPrimaries[0], acceptableEotfs[0] } };
+			surfaceFormat = nbl::video::ISurface::SFormat(acceptableSurfaceFormats[0], acceptableColorPrimaries[0], acceptableEotfs[0]);
 			presentMode = nbl::video::ISurface::EPM_IMMEDIATE;
 			surfaceTransform = nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT;
 		}

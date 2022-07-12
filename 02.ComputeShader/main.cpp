@@ -102,17 +102,16 @@ public:
 	void onAppInitialized_impl() override
 	{
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
 		CommonAPI::InitParams initParams;
 		initParams.window = core::smart_refctd_ptr(window);
-		initParams.apiType = video::EAT_OPENGL;
+		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "02.ComputeShader" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = WIN_W;
 		initParams.windowHeight = WIN_H;
 		initParams.scImageCount = 3u;
-		initParams.acceptableSurfaceFormats = { surfaceFormat };
+		initParams.acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 		auto initOutput = CommonAPI::Init(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -124,13 +123,12 @@ public:
 		logicalDevice = std::move(initOutput.logicalDevice);
 		utilities = std::move(initOutput.utilities);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
-		renderpass = std::move(initOutput.renderpass);
-		fbo = std::move(initOutput.fbo);
 		assetManager = std::move(initOutput.assetManager);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+
+		assert(CommonAPI::createSwapchain(logicalDevice, initOutput.swapchainCreationParams, WIN_W, WIN_H, swapchain));
 
 		commandPools = std::move(initOutput.commandPools);
 		const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
