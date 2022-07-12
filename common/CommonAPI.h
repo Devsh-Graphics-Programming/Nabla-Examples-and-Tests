@@ -1326,8 +1326,8 @@ public:
 			imageSharingMode = asset::ESM_CONCURRENT;
 
 		nbl::video::ISurface::SFormat surfaceFormat;
-		nbl::video::ISurface::E_PRESENT_MODE presentMode;
-		nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS surfaceTransform;
+		nbl::video::ISurface::E_PRESENT_MODE presentMode = nbl::video::ISurface::EPM_UNKNOWN;
+		nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS surfaceTransform = nbl::video::ISurface::EST_FLAG_BITS_MAX_ENUM;
 
 		if(device->getAPIType() == nbl::video::EAT_VULKAN)
 		{
@@ -1348,6 +1348,7 @@ public:
 					break;
 				}
 			}
+			assert(surfaceTransform != nbl::video::ISurface::EST_FLAG_BITS_MAX_ENUM);
 
 			auto availablePresentModes = surface->getAvailablePresentModesForPhysicalDevice(device->getPhysicalDevice());
 			for (uint32_t i = 0; i < acceptablePresentModes.size(); i++)
@@ -1359,6 +1360,7 @@ public:
 					break;
 				}
 			}
+			assert(presentMode != nbl::video::ISurface::EST_FLAG_BITS_MAX_ENUM);
 
 			uint32_t availableFormatCount;
 			nbl::video::ISurface::SFormat* availableFormats;
