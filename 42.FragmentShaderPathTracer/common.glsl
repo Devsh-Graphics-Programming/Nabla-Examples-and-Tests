@@ -682,6 +682,8 @@ void main()
 {
     const ivec2 imageExtents = nbl_glsl_swapchain_transform_preTransformExtents(cameraData.swapchainTransform, imageSize(outImage));
     const ivec2 coords = getCoordinates();
+    // In an example that renders vertices to screen you apply transform it to the projection matrix (given triangle vertices you map them to screen). Remember rasterization is a scatter op.
+    // However in an example such as this, where you're casting rays, you're finding out worldspace positions for screenspace pixels so transform needs to be applied in reverse. Raycasting/post process is a gather op.
     vec2 texCoord = (vec2(nbl_glsl_swapchain_transform_preTransform(cameraData.swapchainTransform, coords, imageSize(outImage))) / vec2(imageExtents));
     texCoord.y = 1.0 - texCoord.y;
 
