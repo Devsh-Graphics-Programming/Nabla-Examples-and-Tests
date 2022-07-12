@@ -192,9 +192,12 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 		m_cameraPosition = core::vectorSIMDf(0, 0, -10);
-		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), float(WIN_W) / WIN_H, 0.01, 100);
+		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.01, 100);
 		matrix3x4SIMD view = matrix3x4SIMD::buildCameraLookAtMatrixRH(m_cameraPosition, core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 1, 0));
-		m_viewProj = matrix4SIMD::concatenateBFollowedByA(proj, matrix4SIMD(view));
+		m_viewProj = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+			matrix4SIMD::concatenateBFollowedByA(proj, matrix4SIMD(view))
+		);
 		m_camFront = view[2];
 
 		// auto glslExts = device->getSupportedGLSLExtensions();
@@ -264,31 +267,36 @@ public:
 		auto* ds0layoutCompute = computeLayout->getDescriptorSetLayout(0);
 		core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> gpuDs0layoutCompute = CPU2GPU.getGPUObjectsFromAssets(&ds0layoutCompute, &ds0layoutCompute + 1, cpu2gpuParams)->front();
 
-		core::vector<core::vector3df_SIMD> particlePos;
-		particlePos.reserve(PARTICLE_COUNT);
+		core::vector<core::vector3df_SIMD> particlePosAndVel;
+		particlePosAndVel.reserve(PARTICLE_COUNT * 2);
 		for (int32_t i = 0; i < PARTICLE_COUNT_PER_AXIS; ++i)
 			for (int32_t j = 0; j < PARTICLE_COUNT_PER_AXIS; ++j)
 				for (int32_t k = 0; k < PARTICLE_COUNT_PER_AXIS; ++k)
-					particlePos.push_back(core::vector3df_SIMD(i, j, k) * 0.5f);
+					particlePosAndVel.push_back(core::vector3df_SIMD(i, j, k) * 0.5f);
+
+		for (int32_t i = 0; i < PARTICLE_COUNT; ++i)
+			particlePosAndVel.push_back(core::vector3df_SIMD(0.0f));
 
 		constexpr size_t BUF_SZ = 4ull * sizeof(float) * PARTICLE_COUNT;
 		video::IGPUBuffer::SCreationParams bufferCreationParams = {};
 		bufferCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_VERTEX_BUFFER_BIT);
 		bufferCreationParams.size = 2ull * BUF_SZ;
 		m_gpuParticleBuf = device->createBuffer(bufferCreationParams);
+		m_gpuParticleBuf->setObjectDebugName("m_gpuParticleBuf");
 		auto particleBufMemReqs = m_gpuParticleBuf->getMemoryReqs();
 		particleBufMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 		device->allocate(particleBufMemReqs, m_gpuParticleBuf.get());
 		asset::SBufferRange<video::IGPUBuffer> range;
 		range.buffer = m_gpuParticleBuf;
-		range.offset = POS_BUF_IX * BUF_SZ;
-		range.size = BUF_SZ;
-		utils->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_GRAPHICS], range, particlePos.data());
-		particlePos.clear();
+		range.offset = 0ull;
+		range.size = BUF_SZ * 2ull;
+		utils->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_GRAPHICS], range, particlePosAndVel.data());
+		particlePosAndVel.clear();
 
 		video::IGPUBuffer::SCreationParams uboComputeCreationParams = {};
 		uboComputeCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
 		uboComputeCreationParams.size = core::roundUp(sizeof(UBOCompute), 64ull);
+		uboComputeCreationParams.canUpdateSubRange = true;
 		auto gpuUboCompute = device->createBuffer(uboComputeCreationParams);
 		auto gpuUboComputeMemReqs = gpuUboCompute->getMemoryReqs();
 		gpuUboComputeMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
@@ -377,6 +385,7 @@ public:
 		video::IGPUBuffer::SCreationParams gfxUboCreationParams = {};
 		gfxUboCreationParams.usage = static_cast<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT);
 		gfxUboCreationParams.size = sizeof(m_viewParams);
+		gfxUboCreationParams.canUpdateSubRange = true;
 		auto gpuUboGraphics = device->createBuffer(gfxUboCreationParams);
 		auto gpuUboGraphicsMemReqs = gpuUboGraphics->getMemoryReqs();
 		gpuUboGraphicsMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
