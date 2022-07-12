@@ -734,23 +734,68 @@ public:
 		uint32_t windowWidth = 800u;
 		uint32_t windowHeight = 600u;
 		uint32_t scImageCount = 3u;
-		
+
 		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
 		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
 		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
 		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
 		
-		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE;
-		nbl::core::vector<nbl::video::ISurface::SFormat> acceptableSurfaceFormats = {
-			nbl::video::ISurface::SFormat(nbl::asset::EF_R8G8B8A8_SRGB, nbl::asset::ECP_SRGB, nbl::asset::EOTF_sRGB),
-			nbl::video::ISurface::SFormat(nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::ECP_SRGB, nbl::asset::EOTF_sRGB)
+		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
+		nbl::core::vector<nbl::asset::E_FORMAT> acceptableSurfaceFormats = {
+			nbl::asset::EF_R8G8B8A8_SRGB,
+			nbl::asset::EF_R8G8B8A8_UNORM,
+			nbl::asset::EF_B8G8R8A8_SRGB,
+			nbl::asset::EF_B8G8R8A8_UNORM
 		};
+		nbl::core::vector<nbl::asset::E_COLOR_PRIMARIES> acceptableColorPrimaries = { nbl::asset::ECP_SRGB };
+		nbl::core::vector<nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION> acceptableEotfs = { nbl::asset::EOTF_sRGB };
+		nbl::core::vector<nbl::video::ISurface::E_PRESENT_MODE> acceptablePresentModes = { nbl::video::ISurface::EPM_FIFO_RELAXED };
+		nbl::core::vector<nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS> acceptableSurfaceTransforms = { 
+			nbl::video::ISurface::EST_IDENTITY_BIT,  
+			// (Flip vertical, used for OpenGL)
+			nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT
+		};
+
 		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
 
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindow> window = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager = nullptr;
 		nbl::core::smart_refctd_ptr<CommonAPIEventCallback> windowCb = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger = nullptr;
+
+		bool headlessCompute = false;
+
+		// Matching behaviour to InitWithDefaultExt
+		void withDefaultExt()
+		{
+#ifndef _NBL_PLATFORM_ANDROID_
+			nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
+			requiredInstanceFeatures.features = requiredFeatures_Instance;
+			requiredInstanceFeatures.count = 1u;
+			nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
+			requiredDeviceFeatures.features = requiredFeatures_Device;
+			requiredDeviceFeatures.count = 1u;
+#endif
+		}
+
+		// Matching behaviour to InitWithRaytracingExt
+		void withDefaultExt()
+		{
+#ifndef _NBL_PLATFORM_ANDROID_
+			nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
+			requiredInstanceFeatures.features = requiredFeatures_Instance;
+			requiredInstanceFeatures.count = 1u;
+
+			nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
+			{
+				nbl::video::ILogicalDevice::EF_SWAPCHAIN,
+				nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
+				nbl::video::ILogicalDevice::EF_RAY_QUERY
+			};
+			requiredDeviceFeatures.features = requiredFeatures_Device;
+			requiredDeviceFeatures.count = 3u;
+#endif
+		}
 	};
 
 	struct InitOutput
@@ -776,14 +821,13 @@ public:
 		nbl::video::IPhysicalDevice* physicalDevice;
 		std::array<nbl::video::IGPUQueue*, MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
 		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxFramesInFlight>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
-		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, MaxSwapChainImageCount> fbo;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderToSwapchainRenderpass;
 		nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
 		nbl::core::smart_refctd_ptr<InputSystem> inputSystem;
+		nbl::video::ISwapchain::SCreationParams swapchainCreationParams;
 	};
 
 	template<typename AppClassName>
@@ -880,8 +924,7 @@ public:
 
 		InitOutput result;
 
-		// TODO
-		bool headlessCompute = false;// (params.swapchainImageUsage == nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE || params.scImageCount <= 0u || params.windowWidth <= 0u || params.windowHeight <= 0u);
+		bool headlessCompute = params.headlessCompute;
 
 		auto logLevelMask = nbl::core::bitflag(system::ILogger::ELL_DEBUG) | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_WARNING | system::ILogger::ELL_ERROR | system::ILogger::ELL_INFO;
 
@@ -1183,27 +1226,22 @@ public:
 #endif
 			if (!headlessCompute)
 			{
-				nbl::video::ISurface::SFormat surfaceFormat;
-				for (uint32_t i = 0; i < params.acceptableSurfaceFormats.size(); i++)
-				{
-					auto format = params.acceptableSurfaceFormats[i];
-					// TODO check if format is supported
-					if (true)
-					{
-						surfaceFormat = format;
-						break;
-					}
-				}
-				assert(surfaceFormat.format != nbl::asset::EF_UNKNOWN); // None of the requested formats are supported
 
-				// TODO: Swapcahin shouldn't be created in Init at all!
-				result.swapchain = createSwapchain(params.apiType, gpuInfo, params.scImageCount, params.windowWidth, params.windowHeight, result.logicalDevice, result.surface, params.swapchainImageUsage, nbl::video::ISurface::EPM_FIFO_RELAXED, surfaceFormat);
-				assert(result.swapchain);
+				result.swapchainCreationParams = computeSwapchainCreationParams(
+					gpuInfo, 
+					params.scImageCount, 
+					result.logicalDevice, 
+					result.surface, 
+					params.swapchainImageUsage,
+					params.acceptableSurfaceFormats,
+					params.acceptableColorPrimaries,
+					params.acceptableEotfs,
+					params.acceptablePresentModes,
+					params.acceptableSurfaceTransforms
+				);
 
-				nbl::asset::E_FORMAT swapChainFormat = result.swapchain->getCreationParameters().surfaceFormat.format;
-				result.renderpass = createRenderpass(result.logicalDevice, swapChainFormat, params.depthFormat);
-
-				result.fbo = createFBOWithSwapchainImages(result.swapchain->getImageCount(), params.windowWidth, params.windowHeight, result.logicalDevice, result.swapchain, result.renderpass, params.depthFormat);
+				nbl::asset::E_FORMAT swapChainFormat = result.swapchainCreationParams.surfaceFormat.format;
+				result.renderToSwapchainRenderpass = createRenderpass(result.logicalDevice, swapChainFormat, params.depthFormat);
 			}
 
 			for (uint32_t i = 0; i < InitOutput::EQT_COUNT; ++i)
@@ -1266,124 +1304,18 @@ public:
 		return result;
 	}
 	
-	// Usefull Abstraction for initializing with no extension
-	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback>
-	static void InitWithNoExt(
-		InitOutput& result,
-		nbl::video::E_API_TYPE api_type,
-		const std::string_view app_name)
-	{
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-
-		Init<gpuInit, EventCallback>(
-			result,
-			api_type,
-			app_name,
-			requiredInstanceFeatures,
-			optionalInstanceFeatures,
-			requiredDeviceFeatures,
-			optionalDeviceFeatures);
-	}
-
-	// Usefull Abstraction for most examples that only need to init with default swapchain and surface extension and nothing more.
-	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback>
-	static void InitWithDefaultExt(
-		InitOutput& result,
-		nbl::video::E_API_TYPE api_type,
-		const std::string_view app_name,
-		uint32_t framesInFlight = 0u,
-		uint32_t window_width = 0u,
-		uint32_t window_height = 0u,
-		uint32_t sc_image_count = 0u,
-		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE,
-		nbl::video::ISurface::SFormat surfaceFormat = nbl::video::ISurface::SFormat(nbl::asset::EF_UNKNOWN, nbl::asset::ECP_COUNT, nbl::asset::EOTF_UNKNOWN),
-		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN)
-	{
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-
-#ifndef _NBL_PLATFORM_ANDROID_
-		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
-		requiredInstanceFeatures.features = requiredFeatures_Instance;
-		requiredInstanceFeatures.count = 1u;
-		
-		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
-		requiredDeviceFeatures.features = requiredFeatures_Device;
-		requiredDeviceFeatures.count = 1u;
-#endif
-
-		Init<gpuInit, EventCallback>(
-			result,
-			api_type,
-			app_name,
-			requiredInstanceFeatures,
-			optionalInstanceFeatures,
-			requiredDeviceFeatures,
-			optionalDeviceFeatures,
-			framesInFlight, window_width, window_height, sc_image_count,
-			swapchainImageUsage, surfaceFormat, depthFormat);
-	}
-
-	// Usefull Abstraction for Raytracing Examples
-	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback>
-	static void InitWithRaytracingExt(
-		InitOutput& result,
-		nbl::video::E_API_TYPE api_type,
-		const std::string_view app_name,
-		uint32_t framesInFlight = 0u,
-		uint32_t window_width = 0u,
-		uint32_t window_height = 0u,
-		uint32_t sc_image_count = 0u,
-		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE,
-		nbl::video::ISurface::SFormat surfaceFormat = nbl::video::ISurface::SFormat(nbl::asset::EF_UNKNOWN, nbl::asset::ECP_COUNT, nbl::asset::EOTF_UNKNOWN),
-		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN)
-	{
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-
-#ifndef _NBL_PLATFORM_ANDROID_
-		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
-		requiredInstanceFeatures.features = requiredFeatures_Instance;
-		requiredInstanceFeatures.count = 1u;
-		
-		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = 
-		{ 
-			nbl::video::ILogicalDevice::EF_SWAPCHAIN,
-			nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
-			nbl::video::ILogicalDevice::EF_RAY_QUERY
-		};
-		requiredDeviceFeatures.features = requiredFeatures_Device;
-		requiredDeviceFeatures.count = 3u;
-#endif
-
-		Init<gpuInit, EventCallback>(
-			result,
-			api_type,
-			app_name,
-			requiredInstanceFeatures,
-			optionalInstanceFeatures,
-			requiredDeviceFeatures,
-			optionalDeviceFeatures,
-			framesInFlight, window_width, window_height, sc_image_count,
-			swapchainImageUsage, surfaceFormat, depthFormat);
-	}
-
-	static nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> createSwapchain(
-		nbl::video::E_API_TYPE api_type,
-		const GPUInfo& gpuInfo,
-		uint32_t& imageCount, uint32_t width, uint32_t height,
+	static nbl::video::ISwapchain::SCreationParams computeSwapchainCreationParams(
+		const GPUInfo& gpuInfo, uint32_t& imageCount,
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 		const nbl::core::smart_refctd_ptr<nbl::video::ISurface>& surface,
-		nbl::asset::IImage::E_USAGE_FLAGS imageUsage, 
-		nbl::video::ISurface::E_PRESENT_MODE requestedPresentMode = nbl::video::ISurface::EPM_FIFO_RELAXED,
-		nbl::video::ISurface::SFormat requestedSurfaceFormat = nbl::video::ISurface::SFormat(nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::ECP_SRGB, nbl::asset::EOTF_sRGB))
+		nbl::asset::IImage::E_USAGE_FLAGS imageUsage,
+		// Acceptable settings, ordered by preference.
+		nbl::core::vector<nbl::asset::E_FORMAT>& acceptableSurfaceFormats,
+		nbl::core::vector<nbl::asset::E_COLOR_PRIMARIES>& acceptableColorPrimaries,
+		nbl::core::vector<nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION>& acceptableEotfs,
+		nbl::core::vector<nbl::video::ISurface::E_PRESENT_MODE>& acceptablePresentModes,
+		nbl::core::vector<nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS>& acceptableSurfaceTransforms
+	)
 	{
 		using namespace nbl;
 
@@ -1392,124 +1324,111 @@ public:
 			imageSharingMode = asset::ESM_EXCLUSIVE;
 		else
 			imageSharingMode = asset::ESM_CONCURRENT;
-		
-		nbl::video::ISurface::SFormat surfaceFormat;
 
-		if(api_type == nbl::video::EAT_VULKAN)
+		nbl::video::ISurface::SFormat surfaceFormat;
+		nbl::video::ISurface::E_PRESENT_MODE presentMode;
+		nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS surfaceTransform;
+
+		if(device->getAPIType() == nbl::video::EAT_VULKAN)
 		{
 			// Deduce format features from imageUsage param
 			nbl::video::IPhysicalDevice::SFormatImageUsage requiredFormatUsages = {};
 			if (imageUsage & asset::IImage::EUF_STORAGE_BIT)
 				requiredFormatUsages.storageImage = 1;
-			
-			_NBL_DEBUG_BREAK_IF((device->getPhysicalDevice()->getImageFormatUsagesOptimal(requestedSurfaceFormat.format) & requiredFormatUsages) != requiredFormatUsages); // requested format doesn't support requiredFormatFeatures for TILING_OPTIMAL
 
-			uint32_t found_format_and_colorspace = ~0u;
-			uint32_t found_format = ~0u;
-			uint32_t found_colorspace = ~0u;
-			for(uint32_t i = 0; i < gpuInfo.availableSurfaceFormats.size(); ++i)
+			nbl::video::ISurface::SCapabilities capabilities;
+			surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), capabilities);
+
+			for (uint32_t i = 0; i < acceptableSurfaceTransforms.size(); i++)
 			{
-				const auto& supportedFormat = gpuInfo.availableSurfaceFormats[i];
-				const bool hasMatchingFormats = requestedSurfaceFormat.format == supportedFormat.format;
-				const bool hasMatchingColorspace = requestedSurfaceFormat.colorSpace.eotf == supportedFormat.colorSpace.eotf && requestedSurfaceFormat.colorSpace.primary == supportedFormat.colorSpace.primary;
-
-				const auto& supportedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimal(supportedFormat.format);
-				const bool supportedFormatSupportsFeatures = ((supportedFormatUsages & requiredFormatUsages) == requiredFormatUsages);
-
-				if(!supportedFormatSupportsFeatures)
-					continue;
-
-				if(hasMatchingFormats)
+				auto testSurfaceTransform = acceptableSurfaceTransforms[i];
+				if ((capabilities.supportedTransforms.value & testSurfaceTransform) == testSurfaceTransform)
 				{
-					if(found_format == ~0u)
-						found_format = i;
-					if(hasMatchingColorspace)
-					{
-						found_format_and_colorspace = i;
-						break;
-					}
-				}
-				else if (hasMatchingColorspace)
-				{
-					// format with matching eotf and colorspace, but with wider bitdepth is an acceptable substitute
-					uint32_t supportedFormatChannelCount = getFormatChannelCount(supportedFormat.format);
-					uint32_t requestedFormatChannelCount = getFormatChannelCount(requestedSurfaceFormat.format);
-					if(supportedFormatChannelCount >= requestedFormatChannelCount)
-					{
-						bool channelsMatch = true;
-						for(uint32_t c = 0; c < requestedFormatChannelCount; ++c)
-						{
-							float requestedFormatChannelPrecision = getFormatPrecision<float>(requestedSurfaceFormat.format, c, 0.0f);
-							float supportedFormatChannelPrecision = getFormatPrecision<float>(supportedFormat.format, c, 0.0f);
-							if(supportedFormatChannelPrecision < requestedFormatChannelPrecision)
-							{
-								channelsMatch = false;
-								break;
-							}
-						}
-
-						if(channelsMatch)
-							found_colorspace = i;
-					}
+					surfaceTransform = testSurfaceTransform;
+					break;
 				}
 			}
-		
-			if(found_format_and_colorspace != ~0u)
+
+			auto availablePresentModes = surface->getAvailablePresentModesForPhysicalDevice(device->getPhysicalDevice());
+			for (uint32_t i = 0; i < acceptablePresentModes.size(); i++)
 			{
-				surfaceFormat = gpuInfo.availableSurfaceFormats[found_format_and_colorspace];
-			}
-			else if(found_format != ~0u) // fallback
-			{
-				_NBL_DEBUG_BREAK_IF(true); // "Fallback: requested 'colorspace' is not supported."
-				surfaceFormat = gpuInfo.availableSurfaceFormats[found_format];
-			}
-			else if(found_colorspace != ~0u) // fallback
-			{
-				_NBL_DEBUG_BREAK_IF(true); // "Fallback: requested 'format' was not supported, but same colorspace and wider bitdepth was chosen."
-				surfaceFormat = gpuInfo.availableSurfaceFormats[found_colorspace];
-			}
-			else
-			{
-				_NBL_DEBUG_BREAK_IF(true); // "Fallback: requested 'format' and 'colorspace' is not supported."
-				surfaceFormat = gpuInfo.availableSurfaceFormats[0];
+				auto testPresentMode = acceptablePresentModes[i];
+				if ((availablePresentModes & testPresentMode) == testPresentMode)
+				{
+					presentMode = testPresentMode;
+					break;
+				}
 			}
 
-			bool presentModeSupported = (gpuInfo.availablePresentModes & requestedPresentMode) != 0;
-			if(!presentModeSupported) // fallback 
+			uint32_t availableFormatCount;
+			nbl::video::ISurface::SFormat* availableFormats;
+			surface->getAvailableFormatsForPhysicalDevice(device->getPhysicalDevice(), availableFormatCount, availableFormats);
+
+			for (uint32_t i = 0; i < availableFormatCount; ++i)
 			{
-				requestedPresentMode = nbl::video::ISurface::E_PRESENT_MODE::EPM_FIFO;
-				_NBL_DEBUG_BREAK_IF(true); // "Fallback: requested 'present mode' is not supported."
+				// TODO verify if acceptableSurfaceFormats, acceptableColorPrimaries & acceptableEotfs
+				// allow for supportedFormat
+				const auto& supportedFormat = availableFormats[i];
+				if (true)
+				{
+					surfaceFormat = supportedFormat;
+					break;
+				}
 			}
+			// Require at least one of the acceptable options to be present
+			assert(surfaceFormat.format != nbl::asset::EF_UNKNOWN &&
+				surfaceFormat.colorSpace.primary != nbl::asset::ECP_COUNT &&
+				surfaceFormat.colorSpace.eotf != nbl::asset::EOTF_UNKNOWN);
 		}
 		else
 		{
-			surfaceFormat = requestedSurfaceFormat;
+			// Temporary path until OpenGL reports properly!
+			surfaceFormat = { acceptableSurfaceFormats[0], { acceptableColorPrimaries[0], acceptableEotfs[0] } };
+			presentMode = nbl::video::ISurface::EPM_IMMEDIATE;
+			surfaceTransform = nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT;
 		}
 
 		nbl::video::ISwapchain::SCreationParams sc_params = {};
-		sc_params.width = width;
-		sc_params.height = height;
 		sc_params.arrayLayers = 1u;
 		sc_params.minImageCount = imageCount;
-		sc_params.presentMode = requestedPresentMode;
+		sc_params.presentMode = presentMode;
 		sc_params.imageUsage = imageUsage;
 		sc_params.surface = surface;
 		sc_params.imageSharingMode = imageSharingMode;
-		sc_params.preTransform = nbl::video::ISurface::EST_IDENTITY_BIT;
+		sc_params.preTransform = surfaceTransform;
 		sc_params.compositeAlpha = nbl::video::ISurface::ECA_OPAQUE_BIT;
 		sc_params.surfaceFormat = surfaceFormat;
 
-		auto swapchain = device->createSwapchain(std::move(sc_params));
-		imageCount = swapchain->getImageCount();
-
-		return swapchain;
+		return sc_params;
 	}
 
-	static nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT depthFormat)
+	static bool createSwapchain(
+		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
+		nbl::video::ISwapchain::SCreationParams& params,
+		uint32_t width, uint32_t height,
+		// nullptr for initial creation, old swapchain for eventual resizes
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchain
+	)
+	{
+		nbl::video::ISwapchain::SCreationParams paramsCp = params;
+		paramsCp.width = width;
+		paramsCp.height = height;
+		paramsCp.oldSwapchain = swapchain;
+		swapchain = device->createSwapchain(std::move(paramsCp));
+		assert(swapchain);
+
+		return true;
+	}
+
+	static nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat)
 	{
 		using namespace nbl;
 
-		bool useDepth = asset::isDepthOrStencilFormat(depthFormat);
+		auto depthFormat = device->getPhysicalDevice()->promoteImageFormat(
+			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
+			nbl::asset::IImage::ET_OPTIMAL
+		);
+		bool useDepth = depthFormat != nbl::asset::EF_UNKNOWN;
 
 		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
 		attachments[0].initialLayout = asset::EIL_UNDEFINED;
@@ -1566,10 +1485,17 @@ public:
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain,
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass, 
-		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN)->std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, InitOutput::MaxSwapChainImageCount>
+		nbl::asset::E_FORMAT baseDepthFormat = nbl::asset::EF_UNKNOWN
+	) -> std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, InitOutput::MaxSwapChainImageCount>
 	{
 		using namespace nbl;
-		bool useDepth = asset::isDepthOrStencilFormat(depthFormat);
+
+		auto depthFormat = device->getPhysicalDevice()->promoteImageFormat(
+			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
+			nbl::asset::IImage::ET_OPTIMAL
+		);
+		bool useDepth = depthFormat != nbl::asset::EF_UNKNOWN;
+
 		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, InitOutput::MaxSwapChainImageCount> fbo;
 		auto sc_images = swapchain->getImages();
 		assert(sc_images.size() == imageCount);
@@ -1686,11 +1612,12 @@ public:
 			queue->present(present);
 		}
 	}
+
 	static std::pair<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView>> createEmpty2DTexture(
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 		uint32_t width,
 		uint32_t height,
-		nbl::asset::E_FORMAT format = nbl::asset::E_FORMAT::EF_R8G8B8A8_UNORM)
+		nbl::asset::E_FORMAT format)
 	{
 		nbl::video::IGPUImage::SCreationParams gpu_image_params;
 		gpu_image_params.mipLevels = 1;
@@ -1715,13 +1642,13 @@ public:
 		return std::pair(image, image_view);
 	}
 
-	static int getQueueFamilyIndex(const nbl::video::IPhysicalDevice* gpu, uint32_t requiredQueueFlags)
+	static int getQueueFamilyIndex(const nbl::video::IPhysicalDevice* gpu, nbl::core::bitflag<nbl::video::IPhysicalDevice::E_QUEUE_FLAGS> requiredQueueFlags)
 	{
 		auto props = gpu->getQueueFamilyProperties();
 		int currentIndex = 0;
 		for (const auto& property : props)
 		{
-			if ((property.queueFlags.value & requiredQueueFlags) == requiredQueueFlags)
+			if ((property.queueFlags.value & requiredQueueFlags.value) == requiredQueueFlags.value)
 			{
 				return currentIndex;
 			}
