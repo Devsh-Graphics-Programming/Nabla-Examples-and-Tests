@@ -235,6 +235,64 @@ int main()
 	return 0;
 }*/
 
+void test_result(SortElement *in, uint32_t count) {
+  uint32_t prev = 0;
+  for (int i = 0; i < count; i++) {
+    if ((in + i)->key < prev) {
+      std::cout << "Failed at index " << i << std::endl;
+    }
+    prev = (in + i)->key;
+  }
+}
+
+uint32_t* debug_download(core::smart_refctd_ptr<ILogicalDevice>& logicalDevice,
+                    nbl::video::IPhysicalDevice* gpuPhysicalDevice,
+                    nbl::video::IGPUQueue* computeQueue,
+                    SBufferRange<IGPUBuffer>& histogram_gpu_range) {
+  // DOWNLOAD DEVICE BUFFER TO HOST
+  IGPUBuffer::SCreationParams params = {};
+  params.size = histogram_gpu_range.size;
+  params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
+
+  auto downloaded_buffer = logicalDevice->createBuffer(params);
+  auto memReqs = downloaded_buffer->getMemoryReqs();
+  memReqs.memoryTypeBits &= gpuPhysicalDevice->getDownStreamingMemoryTypeBits();
+  auto queriesMem = logicalDevice->allocate(memReqs, downloaded_buffer.get());
+  {
+    core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+    {
+      auto cmdPool = logicalDevice->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::ECF_NONE);
+      logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+    }
+    cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+    asset::SBufferCopy region;
+    region.srcOffset = histogram_gpu_range.offset;
+    region.dstOffset = 0u;
+    region.size = histogram_gpu_range.size;
+    cmdbuf->copyBuffer(histogram_gpu_range.buffer.get(), downloaded_buffer.get(), 1u, &region);
+    cmdbuf->end();
+    core::smart_refctd_ptr<IGPUFence> download_fence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
+    IGPUQueue::SSubmitInfo submit = {};
+    submit.commandBufferCount = 1u;
+    submit.commandBuffers = &cmdbuf.get();
+    computeQueue->submit(1u, &submit, download_fence.get());
+    logicalDevice->blockForFences(1u, &download_fence.get());
+  }
+
+  auto mem = const_cast<video::IDeviceMemoryAllocation*>(downloaded_buffer->getBoundMemory());
+  {
+    video::IDeviceMemoryAllocation::MappedMemoryRange range;
+    {
+      range.memory = mem;
+      range.offset = 0u;
+      range.length = histogram_gpu_range.size;
+    }
+    logicalDevice->mapMemory(range, video::IDeviceMemoryAllocation::EMCAF_READ);
+  }
+  uint32_t* gpu_begin = reinterpret_cast<uint32_t*>(mem->getMappedPointer());
+  return gpu_begin;
+}
+
 class RadixSortApp : public NonGraphicalApplicationBase {
 public:
     smart_refctd_ptr <ISystem> system;
@@ -244,6 +302,13 @@ public:
     void onAppInitialized_impl() override {
       CommonAPI::InitOutput initOutput;
       initOutput.system = core::smart_refctd_ptr(system);
+      //CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "Radix Sort Test");
+
+      /*const CommonAPI::SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE>& requiredInstanceFeatures;
+          const CommonAPI::SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE>& optionalInstanceFeatures;
+          const CommonAPI::SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE>& requiredDeviceFeatures;
+          const CommonAPI::SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE>& optionalDeviceFeatures;*/
+
       CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "Radix Sort Test");
       system = std::move(initOutput.system);
       auto gl = std::move(initOutput.apiConnection);
@@ -282,17 +347,17 @@ public:
 
       RadixSortClass::Parameters_t a_sort_push_constants[RadixSortClass::PASS_COUNT];
       RadixSortClass::DispatchInfo_t sort_dispatch_info;
-      const uint32_t histogramCount = RadixSortClass::buildParameters(elementCount, WG_SIZE, a_sort_push_constants, &sort_dispatch_info);
+      const uint32_t histogram_buckets_count = RadixSortClass::buildParameters(elementCount, WG_SIZE, a_sort_push_constants, &sort_dispatch_info);
 
       CScanner *scanner = utilities->getDefaultScanner();
       core::smart_refctd_ptr<CScanner> smartscanner = core::smart_refctd_ptr<CScanner>(scanner);
       CScanner::DefaultPushConstants scan_push_constants;
       CScanner::DispatchInfo scan_dispatch_info;
 
-      scanner->buildParameters(histogramCount, scan_push_constants, scan_dispatch_info);
+      scanner->buildParameters(histogram_buckets_count, scan_push_constants, scan_dispatch_info);
       auto scan_pipeline
           = core::smart_refctd_ptr<video::IGPUComputePipeline>( // if params are constants for radix sort then move this call inside the constructor
-              scanner->getDefaultPipeline(video::CScanner::EST_INCLUSIVE, CScanner::EDT_UINT, CScanner::EO_ADD));
+              scanner->getDefaultPipeline(video::CScanner::EST_EXCLUSIVE, CScanner::EDT_UINT, CScanner::EO_ADD));
 
       core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> scanDSLayout
           = core::smart_refctd_ptr<video::IGPUDescriptorSetLayout>(scanner->getDefaultDescriptorSetLayout());
@@ -319,15 +384,17 @@ public:
 
       // SORT INPUT BUFFERS
       SBufferRange <IGPUBuffer> input_gpu_range;
-      input_gpu_range.offset = begin * sizeof(SortElement);
-      input_gpu_range.size = elementCount * sizeof(SortElement);
+      {
+        input_gpu_range.offset = begin * sizeof(SortElement);
+        input_gpu_range.size = elementCount * sizeof(SortElement);
 
-      IGPUBuffer::SCreationParams bufferParams = {};
-      bufferParams.size = in_size;
-      bufferParams.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT |
-                           IGPUBuffer::EUF_TRANSFER_SRC_BIT;
-      input_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP],
-                                                                                std::move(bufferParams), in);
+        IGPUBuffer::SCreationParams bufferParams = {};
+        bufferParams.size = in_size;
+        bufferParams.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT |
+                             IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+        input_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP],
+                                                                                  std::move(bufferParams), in);
+      }
 
       SBufferRange <IGPUBuffer> scratch_input_gpu_range;
       {
@@ -348,18 +415,21 @@ public:
 
       // SORT INPUT BUFFERS - END
 
-      // SCAN BUFFERS
-      SBufferRange <IGPUBuffer> histogram_gpu_range; // TODO (Penta): Should be the size of the histogram buffer
-      histogram_gpu_range.offset = begin * sizeof(SortElement);
-      histogram_gpu_range.size = elementCount * sizeof(SortElement);
+      // HISTOGRAM BUFFER
+      SBufferRange<IGPUBuffer> histogram_gpu_range = { 0 };
+      {
+        histogram_gpu_range.size = histogram_buckets_count * sizeof(uint32_t);
+        IGPUBuffer::SCreationParams histogram_buffer_params = {};
+        histogram_buffer_params.size = histogram_gpu_range.size;
+        histogram_buffer_params.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT |
+                                   IGPUBuffer::EUF_TRANSFER_SRC_BIT;
+        histogram_gpu_range.buffer = logicalDevice->createBuffer(histogram_buffer_params);
+        auto memReqs = histogram_gpu_range.buffer->getMemoryReqs();
+        memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+        auto histMem = logicalDevice->allocate(memReqs, histogram_gpu_range.buffer.get());
+      }
 
-      IGPUBuffer::SCreationParams scanBufferParams = {};
-      scanBufferParams.size = in_size;
-      scanBufferParams.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT |
-                               IGPUBuffer::EUF_TRANSFER_SRC_BIT;
-      histogram_gpu_range.buffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP],
-                                                                                    std::move(scanBufferParams), in);
-
+      // SCAN SCRATCH BUFFER
       SBufferRange <IGPUBuffer> scratch_scan_gpu_range;
       {
         scratch_scan_gpu_range.offset = 0u;
@@ -393,6 +463,7 @@ public:
                              a_sort_push_constants, &sort_dispatch_info,
                              &scan_push_constants, &scan_dispatch_info,
                              scratch_input_gpu_range,
+                             histogram_gpu_range,
                              scratch_scan_gpu_range,
                              asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT);
         cmdbuf->end();
@@ -404,9 +475,81 @@ public:
         computeQueue->startCapture();
         computeQueue->submit(1u, &submit, lastFence.get());
         computeQueue->endCapture();
+        logicalDevice->waitForFences(1, &lastFence.get(), true, 1e10);
+
+        uint32_t* debug = debug_download(logicalDevice, gpuPhysicalDevice, computeQueue, histogram_gpu_range);
+
+        // DOWNLOAD DEVICE BUFFER TO HOST
+        IGPUBuffer::SCreationParams params = {};
+        params.size = input_gpu_range.size;
+        params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
+
+        auto downloaded_buffer = logicalDevice->createBuffer(params);
+        auto memReqs = downloaded_buffer->getMemoryReqs();
+        memReqs.memoryTypeBits &= gpuPhysicalDevice->getDownStreamingMemoryTypeBits();
+        auto queriesMem = logicalDevice->allocate(memReqs, downloaded_buffer.get());
+        {
+          core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+          {
+            auto cmdPool = logicalDevice->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::ECF_NONE);
+            logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+          }
+          cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+          asset::SBufferCopy region;
+          region.srcOffset = input_gpu_range.offset;
+          region.dstOffset = 0u;
+          region.size = input_gpu_range.size;
+          cmdbuf->copyBuffer(input_gpu_range.buffer.get(), downloaded_buffer.get(), 1u, &region);
+          cmdbuf->end();
+          lastFence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
+          IGPUQueue::SSubmitInfo submit = {};
+          submit.commandBufferCount = 1u;
+          submit.commandBuffers = &cmdbuf.get();
+          computeQueue->submit(1u, &submit, lastFence.get());
+          logicalDevice->blockForFences(1u, &lastFence.get());
+        }
+
+        auto mem = const_cast<video::IDeviceMemoryAllocation*>(downloaded_buffer->getBoundMemory());
+        {
+          video::IDeviceMemoryAllocation::MappedMemoryRange range;
+          {
+            range.memory = mem;
+            range.offset = 0u;
+            range.length = input_gpu_range.size;
+          }
+          logicalDevice->mapMemory(range, video::IDeviceMemoryAllocation::EMCAF_READ);
+        }
+        auto gpu_begin = reinterpret_cast<SortElement*>(mem->getMappedPointer());
+//        test_result(gpu_begin, elementCount);
+//        logger->log("Result Comparison Test Passed", system::ILogger::ELL_PERFORMANCE);
       }
 
       logger->log("SUCCESS");
+
+//      {
+//        std::cout << "CPU sort begin" << std::endl;
+//
+//        SortElement *in_data = new SortElement[in_count + (end - begin)];
+//        memcpy(in_data, in, sizeof(SortElement) * in_count);
+//
+//        auto start = std::chrono::high_resolution_clock::now();
+//        SortElement *sorted_data = core::radix_sort(in_data + begin, in_data + in_count, end - begin, SortElementKeyAccessor());
+//        auto stop = std::chrono::high_resolution_clock::now();
+//
+//        memcpy(in_data + begin, sorted_data, (end - begin) * sizeof(SortElement));
+//
+//        std::cout << "CPU sort end\nTime taken: " << std::chrono::duration_cast<std::chrono::milliseconds>(stop - start).count() << " ms"
+//                  << std::endl;
+//
+//        std::cout << "Testing: ";
+//        test_result(in_data + in_count, end - begin);
+//        std::cout << "END" << std::endl;
+////        DebugCompareGPUvsCPU<SortElement>(in_gpu, in_data, in_size, driver);
+//
+//        delete[] in_data;
+//      }
+
+      delete[] in;
     }
 
     virtual void workLoopBody() override {
