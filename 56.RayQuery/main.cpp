@@ -740,7 +740,7 @@ public:
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::ESCF_1_BIT;
 			imgParams.usage = core::bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_TRANSFER_DST_BIT;
-			imgParams.initialLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+			imgParams.initialLayout = asset::EIL_UNDEFINED;
 
 			IGPUImage::SBufferCopy region = {};
 			region.bufferOffset = 0u;
