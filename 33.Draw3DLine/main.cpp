@@ -32,7 +32,7 @@ class Draw3DLineSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::video::ISwapchain> sc;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	core::smart_refctd_ptr<nbl::system::ISystem> filesystem;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -91,7 +91,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return SC_IMG_COUNT;
+		return sc->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -133,7 +133,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			WIN_W, WIN_H, SC_IMG_COUNT,
+			FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
 			swapchainImageUsage,
 			surfaceFormat,
 			depthFormat);
@@ -194,10 +194,10 @@ public:
 			m_pipeline = device->createGraphicsPipeline(nullptr, std::move(gp_params));
 		}
 
-		device->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, m_cmdbufs);
-
+		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 		{
+			device->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, m_cmdbufs+i);
 			m_imageAcquired[i] = device->createSemaphore();
 			m_renderFinished[i] = device->createSemaphore();
 		}
@@ -226,7 +226,7 @@ public:
 		else
 			fence = device->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
-		cb->begin(video::IGPUCommandBuffer::EU_NONE);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		asset::SViewport vp;
 		vp.minDepth = 1.f;

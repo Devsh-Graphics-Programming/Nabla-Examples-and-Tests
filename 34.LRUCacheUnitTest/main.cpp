@@ -21,7 +21,7 @@ int main()
 	assert(returned == 'c');
 
 #ifdef _NBL_DEBUG
-	cache.print();
+	cache.print(std::cout);
 #endif
 	//non const, const
 	int i = 0;
