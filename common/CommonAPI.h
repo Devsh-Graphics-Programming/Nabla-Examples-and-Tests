@@ -825,7 +825,6 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
 		nbl::core::smart_refctd_ptr<InputSystem> inputSystem;
 		nbl::video::ISwapchain::SCreationParams swapchainCreationParams;
 	};
@@ -930,18 +929,15 @@ public:
 
 #ifdef _NBL_PLATFORM_WINDOWS_
 		result.system = createSystem();
-		result.logger = nbl::core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(logLevelMask); // we should let user choose it?
-#elif defined(_NBL_PLATFORM_ANDROID_)
-		result.logger = nbl::core::make_smart_refctd_ptr<system::CStdoutLoggerAndroid>(logLevelMask); // we should let user choose it?
 #endif
-		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
+		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(params.logger)));
 		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system)); // we should let user choose it?
 
 		if (!headlessCompute)
 		{
 #ifndef _NBL_PLATFORM_ANDROID_
 			auto windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // should we store it in result?
-			params.windowCb = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
+			params.windowCb = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(params.logger)));
 
 			nbl::ui::IWindow::SCreationParams windowsCreationParams;
 			windowsCreationParams.width = params.windowWidth;
@@ -973,7 +969,7 @@ public:
 					params.requiredInstanceFeatures.features,
 					params.optionalInstanceFeatures.count,
 					params.optionalInstanceFeatures.features,
-					nbl::core::smart_refctd_ptr(result.logger),
+					nbl::core::smart_refctd_ptr(params.logger),
 					true);
 
 				if (!headlessCompute)
@@ -988,7 +984,7 @@ public:
 			}
 			else if (params.apiType == EAT_OPENGL)
 			{
-				auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
+				auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(params.logger)));
 
 				if (!headlessCompute)
 				{
@@ -1003,7 +999,7 @@ public:
 			}
 			else if (params.apiType	 == EAT_OPENGL_ES)
 			{
-				auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
+				auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(params.logger)));
 
 				if (!headlessCompute)
 				{
