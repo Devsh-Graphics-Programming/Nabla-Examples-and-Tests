@@ -1,0 +1,4 @@
+*.exe
+*.pdb
+*.sse
+*/bin/*

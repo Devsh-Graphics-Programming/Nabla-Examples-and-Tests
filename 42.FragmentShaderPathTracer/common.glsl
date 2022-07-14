@@ -181,6 +181,14 @@ Rectangle Rectangle_Rectangle(in vec3 offset, in vec3 edge0, in vec3 edge1, in u
     return rect;
 }
 
+void Rectangle_getNormalBasis(in Rectangle rect, out mat3 basis, out vec2 extents)
+{
+    extents = vec2(length(rect.edge0), length(rect.edge1));
+    basis[0] = rect.edge0/extents[0];
+    basis[1] = rect.edge1/extents[1];
+    basis[2] = normalize(cross(basis[0],basis[1]));
+}        
+
 // return intersection distance if found, nbl_glsl_FLT_NAN otherwise
 float Rectangle_intersect(in Rectangle rect, in vec3 origin, in vec3 direction)
 {

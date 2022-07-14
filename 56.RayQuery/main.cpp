@@ -109,7 +109,7 @@ class RayQuerySampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::system::ISystem> system;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -185,7 +185,7 @@ public:
 	
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
+		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_SRGB, asset::EOTF_sRGB);
 
 		CommonAPI::InitOutput initOutput;
@@ -194,7 +194,7 @@ public:
 			initOutput,
 			video::EAT_VULKAN,
 			"56.RayQuery",
-			WIN_W, WIN_H, FBO_COUNT,
+			FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT,
 			swapchainImageUsage,
 			surfaceFormat, asset::EF_D32_SFLOAT);
 
@@ -217,11 +217,13 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 		auto graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
 		auto computeQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
-		auto graphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-		auto computeCommandPool =  commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+		auto graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+		auto computeCommandPools =  commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;	
-		logicalDevice->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, cmdbuf);
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);
+
 	
 		constexpr uint32_t maxDescriptorCount = 256u;
 		constexpr uint32_t PoolSizesCount = 5u;
@@ -738,7 +740,7 @@ public:
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::ESCF_1_BIT;
 			imgParams.usage = core::bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_TRANSFER_DST_BIT;
-			imgParams.initialLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+			imgParams.initialLayout = asset::EIL_UNDEFINED;
 
 			IGPUImage::SBufferCopy region = {};
 			region.bufferOffset = 0u;
@@ -1141,7 +1143,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return FBO_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{

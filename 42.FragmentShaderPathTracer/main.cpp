@@ -36,7 +36,10 @@ smart_refctd_ptr<IGPUImageView> createHDRImageView(nbl::core::smart_refctd_ptr<n
 		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 		imgInfo.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_SRC_BIT;
 
-		auto image = device->createGPUImageOnDedMem(std::move(imgInfo),device->getDeviceLocalGPUMemoryReqs());
+		auto image = device->createImage(std::move(imgInfo));
+		auto imageMemReqs = image->getMemoryReqs();
+		imageMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		device->allocate(imageMemReqs, image.get());
 
 		IGPUImageView::SCreationParams imgViewInfo;
 		imgViewInfo.image = std::move(image);
@@ -89,6 +92,7 @@ int main()
 	constexpr uint32_t WIN_H = 720;
 	constexpr uint32_t FBO_COUNT = 2u;
 	constexpr uint32_t FRAMES_IN_FLIGHT = 5u;
+	constexpr bool LOG_TIMESTAMP = false;
 	static_assert(FRAMES_IN_FLIGHT>FBO_COUNT);
 	
 	CommonAPI::SFeatureRequest<video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
@@ -120,8 +124,7 @@ int main()
 		optionalInstanceFeatures,
 		requiredDeviceFeatures,
 		optionalDeviceFeatures,
-		WIN_W, WIN_H,
-		FBO_COUNT,
+		FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT,
 		swapchainImageUsage, 
 		surfaceFormat,
 		asset::EF_D32_SFLOAT);
@@ -145,16 +148,17 @@ int main()
 	auto logger = std::move(initOutput.logger);
 	auto inputSystem = std::move(initOutput.inputSystem);
 	auto utilities = std::move(initOutput.utilities);
-	auto graphicsCommandPool = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_GRAPHICS]);
-	auto computeCommandPool = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_COMPUTE]);
+	auto graphicsCommandPools = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_GRAPHICS]);
+	auto computeCommandPools = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_COMPUTE]);
 
 	auto graphicsCmdPoolQueueFamIdx = graphicsQueue->getFamilyIndex();
 
 	nbl::video::IGPUObjectFromAssetConverter CPU2GPU;
 	
 	core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
-	device->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, cmdbuf);
-	
+	for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+		device->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);	
+
 	constexpr uint32_t maxDescriptorCount = 256u;
 	constexpr uint32_t PoolSizesCount = 5u;
 	nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[PoolSizesCount] = {
@@ -166,6 +170,11 @@ int main()
 	};
 
 	auto descriptorPool = device->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxDescriptorCount, PoolSizesCount, poolSizes);
+
+	const auto timestampQueryPool = device->createQueryPool({
+		.queryType = video::IQueryPool::EQT_TIMESTAMP,
+		.queryCount = 2u
+	});
 
 	// Camera 
 	core::vectorSIMDf cameraPosition(0, 5, -10);
@@ -203,7 +212,7 @@ int main()
 		memcpy(info.m_backingBuffer->getPointer(),&kShaderParameters,sizeof(ShaderParameters));
 		info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 		for (uint32_t i=0; i<2; i++)
-			info.m_entries->operator[](i) = {i,i*sizeof(uint32_t),sizeof(uint32_t)};
+			info.m_entries->operator[](i) = {i,(uint32_t)(i*sizeof(uint32_t)),sizeof(uint32_t)};
 
 
 		cpuComputeSpecializedShader->setSpecializationInfo(std::move(info));
@@ -279,7 +288,11 @@ int main()
 			IGPUBuffer::SCreationParams params = {};
 			const size_t size = sampleSequence->getSize();
 			params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT; 
-			gpuSequenceBuffer = device->createDeviceLocalGPUBufferOnDedMem(params, size);
+			params.size = size;
+			gpuSequenceBuffer = device->createBuffer(params);
+			auto gpuSequenceBufferMemReqs = gpuSequenceBuffer->getMemoryReqs();
+			gpuSequenceBufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			device->allocate(gpuSequenceBufferMemReqs, gpuSequenceBuffer.get());
 			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer());
 		}
 		gpuSequenceBufferView = device->createBufferView(gpuSequenceBuffer.get(), asset::EF_R32G32B32_UINT);
@@ -323,7 +336,11 @@ int main()
 			IGPUBuffer::SCreationParams params = {};
 			const size_t size = random.size() * sizeof(uint32_t);
 			params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_TRANSFER_SRC_BIT; 
-			buffer = device->createDeviceLocalGPUBufferOnDedMem(params, size);
+			params.size = size;
+			buffer = device->createBuffer(params);
+			auto bufferMemReqs = buffer->getMemoryReqs();
+			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			device->allocate(bufferMemReqs, buffer.get());
 			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data());
 		}
 
@@ -339,8 +356,10 @@ int main()
 	}
 	
 	// Create Out Image TODO
-	smart_refctd_ptr<IGPUImageView> outHDRImageViews[FBO_COUNT] = {};
-	for(uint32_t i = 0; i < FBO_COUNT; ++i) {
+	constexpr uint32_t MAX_FBO_COUNT = 4u;
+	smart_refctd_ptr<IGPUImageView> outHDRImageViews[MAX_FBO_COUNT] = {};
+	assert(MAX_FBO_COUNT >= swapchain->getImageCount());
+	for(uint32_t i = 0; i < swapchain->getImageCount(); ++i) {
 		outHDRImageViews[i] = createHDRImageView(device, asset::EF_R16G16B16A16_SFLOAT, WIN_W, WIN_H);
 	}
 
@@ -371,9 +390,13 @@ int main()
 	};
 
 	IGPUBuffer::SCreationParams gpuuboParams = {};
-	const size_t gpuuboParamsSize = sizeof(SBasicViewParametersAligned);
 	gpuuboParams.usage = core::bitflag(IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	auto gpuubo = device->createDeviceLocalGPUBufferOnDedMem(gpuuboParams, gpuuboParamsSize);
+	gpuuboParams.size = sizeof(SBasicViewParametersAligned);
+	auto gpuubo = device->createBuffer(gpuuboParams);
+	auto gpuuboMemReqs = gpuubo->getMemoryReqs();
+	gpuuboMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+	device->allocate(gpuuboMemReqs, gpuubo.get());
+
 	auto uboDescriptorSet1 = device->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout1));
 	{
 		video::IGPUDescriptorSet::SWriteDescriptorSet uboWriteDescriptorSet;
@@ -486,6 +509,7 @@ int main()
 				
 		// safe to proceed
 		cb->begin(IGPUCommandBuffer::EU_NONE);
+		cb->resetQueryPool(timestampQueryPool.get(), 0u, 2u);
 
 		// renderpass 
 		uint32_t imgnum = 0u;
@@ -555,11 +579,13 @@ int main()
 
 		// cube envmap handle
 		{
+			cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, timestampQueryPool.get(), 0u);
 			cb->bindComputePipeline(gpuComputePipeline.get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0u, 1u, &descriptorSets0[imgnum].get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 1u, 1u, &uboDescriptorSet1.get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 2u, 1u, &descriptorSet2.get());
 			cb->dispatch(dispatchInfo.workGroupCount[0], dispatchInfo.workGroupCount[1], dispatchInfo.workGroupCount[2]);
+			cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT, timestampQueryPool.get(), 1u);
 		}
 		// TODO: tone mapping and stuff
 
@@ -645,6 +671,16 @@ int main()
 		device->resetFences(1, &fence.get());
 		CommonAPI::Submit(device.get(), swapchain.get(), cb.get(), graphicsQueue, imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
 		CommonAPI::Present(device.get(), swapchain.get(), graphicsQueue, renderFinished[resourceIx].get(), imgnum);
+		
+		if (LOG_TIMESTAMP)
+		{
+			std::array<uint64_t, 4> timestamps{};
+			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT) | video::IQueryPool::EQRF_WITH_AVAILABILITY_BIT | video::IQueryPool::EQRF_64_BIT;
+			device->getQueryPoolResults(timestampQueryPool.get(), 0u, 2u, sizeof(timestamps), timestamps.data(), sizeof(uint64_t) * 2ull, queryResultFlags);
+			const float timePassed = (timestamps[2] - timestamps[0]) * device->getPhysicalDevice()->getLimits().timestampPeriodInNanoSeconds;
+			logger->log("Time Passed (Seconds) = %f", system::ILogger::ELL_INFO, (timePassed * 1e-9));
+			logger->log("Timestamps availablity: %d, %d", system::ILogger::ELL_INFO, timestamps[1], timestamps[3]);
+		}
 	}
 	
 	const auto& fboCreationParams = fbo[0]->getCreationParameters();

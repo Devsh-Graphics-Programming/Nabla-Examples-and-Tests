@@ -124,9 +124,7 @@ class TransformationApp : public ApplicationBase
 {
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280;
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_H = 720;
-		_NBL_STATIC_INLINE_CONSTEXPR uint32_t FBO_COUNT = 1u;
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t FRAMES_IN_FLIGHT = 5u;
-		static_assert(FRAMES_IN_FLIGHT > FBO_COUNT);
 
 		_NBL_STATIC_INLINE_CONSTEXPR uint32_t ObjectCount = 11u;
 
@@ -177,7 +175,7 @@ class TransformationApp : public ApplicationBase
 		}
 		uint32_t getSwapchainImageCount() override
 		{
-			return FBO_COUNT;
+			return swapchain->getImageCount();
 		}
 		virtual nbl::asset::E_FORMAT getDepthFormat() override
 		{
@@ -192,7 +190,7 @@ class TransformationApp : public ApplicationBase
 			const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 			CommonAPI::InitWithDefaultExt(
 				initOutput, video::EAT_OPENGL, "Solar System Transformations",
-				WIN_W, WIN_H, FBO_COUNT,
+				FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
 				swapchainImageUsage, surfaceFormat,
 				asset::EF_D32_SFLOAT);
 
@@ -209,14 +207,24 @@ class TransformationApp : public ApplicationBase
 			renderpass = std::move(initOutput.renderpass);
 			fbos = std::move(initOutput.fbo);
 			auto fbo = fbos[0];
-			commandPools = std::move(initOutput.commandPools);
+
 			assetManager = std::move(initOutput.assetManager);
 			cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 			utils = std::move(initOutput.utilities);
-			auto graphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-			auto computeCommandPool =  commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
-			device->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, cmdbuf);
+			auto commandPools = std::move(initOutput.commandPools);
+			transferUpCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
+
+
+			//create one command buffer for every pool
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+			{
+				device->createCommandBuffers(transferUpCommandPools[i].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf[i]);
+			}
+			
+			//warning! frames in flight is lower than needed
+			_NBL_DEBUG_BREAK_IF(FRAMES_IN_FLIGHT < swapchain->getImageCount())
+				
 
 			nbl::video::IGPUObjectFromAssetConverter CPU2GPU;
 
@@ -245,8 +253,10 @@ class TransformationApp : public ApplicationBase
 			ssboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			ssboCreationParams.queueFamilyIndexCount = 0u;
 			ssboCreationParams.queueFamilyIndices = nullptr;
+			ssboCreationParams.size = ssboSz;
 
-			auto ssbo_buf = device->createDeviceLocalGPUBufferOnDedMem(ssboCreationParams, ssboSz);
+			auto ssbo_buf = device->createBuffer(ssboCreationParams);
+			device->allocate(ssbo_buf->getMemoryReqs(), ssbo_buf.get());
 
 			asset::SBufferRange<video::IGPUBuffer> propBufs[transform_tree_t::property_pool_t::PropertyCount];
 			for (uint32_t i=0u; i<transform_tree_t::property_pool_t::PropertyCount; ++i)
@@ -399,10 +409,10 @@ class TransformationApp : public ApplicationBase
 
 			// upload data
 			{
-				auto* q = device->getQueue(graphicsCommandPool->getQueueFamilyIndex(), 0u);
+				auto* q = device->getQueue(transferUpCommandPools[0]->getQueueFamilyIndex(), 0u);
 
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf_nodes;
-				device->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf_nodes);
+				device->createCommandBuffers(transferUpCommandPools[0].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf_nodes);
 
 				auto fence_nodes = device->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 
@@ -413,18 +423,31 @@ class TransformationApp : public ApplicationBase
 					tmp_parents[i] = solarSystemObjectsData[i].parentIndex;
 					tmp_transforms[i] = solarSystemObjectsData[i].getTform();
 				}
-				auto tmp_node_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, sizeof(scene::ITransformTree::node_t) * NumInstances, tmp_nodes.data());
+				video::IGPUBuffer::SCreationParams nodebufParams;
+				nodebufParams.size = sizeof(scene::ITransformTree::node_t) * NumInstances;
+				nodebufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				auto tmp_node_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(nodebufParams), tmp_nodes.data());
 				tmp_node_buf->setObjectDebugName("Temporary Nodes");
-				auto tmp_parent_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, sizeof(scene::ITransformTree::parent_t) * NumInstances, tmp_parents.data());
+
+				video::IGPUBuffer::SCreationParams parentbufParams;
+				parentbufParams.size = sizeof(scene::ITransformTree::parent_t) * NumInstances;
+				parentbufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				auto tmp_parent_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(parentbufParams), tmp_parents.data());
 				tmp_parent_buf->setObjectDebugName("Temporary Parents");
-				auto tmp_transform_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, sizeof(scene::ITransformTree::relative_transform_t) * NumInstances, tmp_transforms.data());
+
+				video::IGPUBuffer::SCreationParams transformbufParams;
+				transformbufParams.size = sizeof(scene::ITransformTree::relative_transform_t) * NumInstances;
+				transformbufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				auto tmp_transform_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(transformbufParams), tmp_transforms.data());
 				tmp_transform_buf->setObjectDebugName("Temporary Transforms");
 
 				//
 				video::IGPUBuffer::SCreationParams scratchParams = {};
 				scratchParams.canUpdateSubRange = true;
 				scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createDeviceLocalGPUBufferOnDedMem(scratchParams,utils->getDefaultPropertyPoolHandler()->getMaxScratchSize()) };
+				scratchParams.size = utils->getDefaultPropertyPoolHandler()->getMaxScratchSize();
+				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createBuffer(scratchParams) };
+				device->allocate(scratch.buffer->getMemoryReqs(), scratch.buffer.get());
 				scratch.buffer->setObjectDebugName("Scratch Buffer");
 				{
 					video::CPropertyPoolHandler::TransferRequest transfers[scene::ITransformTreeManager::TransferCount];
@@ -438,7 +461,7 @@ class TransformationApp : public ApplicationBase
 						ttm->setupTransfers(req, transfers);
 					}
 
-					cmdbuf_nodes->begin(IGPUCommandBuffer::EU_NONE);
+					cmdbuf_nodes->begin(video::IGPUCommandBuffer::EU_NONE);
 					utils->getDefaultPropertyPoolHandler()->transferProperties(
 						cmdbuf_nodes.get(), fence_nodes.get(), scratch, { 0ull,tmp_node_buf },
 						transfers, transfers + scene::ITransformTreeManager::TransferCount, initOutput.logger.get()
@@ -495,8 +518,10 @@ class TransformationApp : public ApplicationBase
 			colorBufCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			colorBufCreationParams.queueFamilyIndexCount = 0u;
 			colorBufCreationParams.queueFamilyIndices = nullptr;
+			colorBufCreationParams.size = ColorBufSz;
 
-			auto gpuColorBuf = device->createDeviceLocalGPUBufferOnDedMem(colorBufCreationParams, ColorBufSz);
+			auto gpuColorBuf = device->createBuffer(colorBufCreationParams );
+			device->allocate(gpuColorBuf->getMemoryReqs(), gpuColorBuf.get());
 			core::vectorSIMDf colors[ObjectCount]{
 				core::vectorSIMDf(0.f, 0.f, 1.f),
 				core::vectorSIMDf(0.f, 1.f, 0.f),
@@ -589,12 +614,19 @@ class TransformationApp : public ApplicationBase
 			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			creationParams.queueFamilyIndexCount = 0u;
 			creationParams.queueFamilyIndices = nullptr;
+			creationParams.size= ModsRangesBufSz;
 
 
 
-			modRangesBuf = device->createDeviceLocalGPUBufferOnDedMem(creationParams, ModsRangesBufSz);
-			relTformModsBuf = device->createDeviceLocalGPUBufferOnDedMem(creationParams, sizeof(scene::nbl_glsl_transform_tree_relative_transform_modification_t) * ObjectCount);
-			nodeIdsBuf = device->createDeviceLocalGPUBufferOnDedMem(creationParams, std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull));
+			modRangesBuf = device->createBuffer(creationParams);
+			creationParams.size = sizeof(scene::nbl_glsl_transform_tree_relative_transform_modification_t) * ObjectCount;
+			relTformModsBuf = device->createBuffer(creationParams);
+			creationParams.size = std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull);
+			nodeIdsBuf = device->createBuffer(creationParams);
+
+			device->allocate(modRangesBuf->getMemoryReqs(), modRangesBuf.get());
+			device->allocate(relTformModsBuf->getMemoryReqs(), relTformModsBuf.get());
+			device->allocate(nodeIdsBuf->getMemoryReqs(), nodeIdsBuf.get());
 			{
 				//update `nodeIdsBuf`
 				uint32_t countAndIds[1u + ObjectCount];
@@ -620,7 +652,11 @@ class TransformationApp : public ApplicationBase
 				aabb.MaxEdge *= obj.scale;
 				aabbs.emplace_back() = aabb;
 			}
-			ttm->updateDebugDrawDescriptorSet(device.get(),ttmDescriptorSets.debugDraw.get(),{0ull,utils->createFilledDeviceLocalBufferOnDedMem(device->getQueue(0,0),sizeof(core::CompressedAABB)*aabbs.size(),aabbs.data())});
+			video::IGPUBuffer::SCreationParams params;
+			params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
+			params.size = sizeof(core::CompressedAABB)* aabbs.size();
+			ttm->updateDebugDrawDescriptorSet(device.get(),ttmDescriptorSets.debugDraw.get(),{0ull,utils->createFilledDeviceLocalBufferOnDedMem(device->getQueue(0,0),std::move(params),aabbs.data())});
 		}
 
 		void onAppTerminated_impl() override
@@ -635,6 +671,8 @@ class TransformationApp : public ApplicationBase
 				resourceIx = 0;
 
 			auto& cb = cmdbuf[resourceIx];
+			auto& transferCommandPool = transferUpCommandPools[resourceIx]; // these shuold be different for each resourceIx because each cmdBuf was allocated from a different command pool
+			// assert graphicsCommandPool is the same as cb->getPool
 			auto& fence = frameComplete[resourceIx];
 			if (fence)
 				device->blockForFences(1u, &fence.get());
@@ -648,7 +686,7 @@ class TransformationApp : public ApplicationBase
 			timestamp++;
 
 			// safe to proceed
-			cb->begin(IGPUCommandBuffer::EU_NONE);
+			cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 			// we don't wait on anything because we do everything on the same queue
 			uint32_t waitSemaphoreCount = 0u;
@@ -867,7 +905,7 @@ class TransformationApp : public ApplicationBase
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
 		nbl::core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
@@ -886,6 +924,7 @@ class TransformationApp : public ApplicationBase
 		scene::ITransformTreeManager::DescriptorSets ttmDescriptorSets;
 		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugDrawPipeline;
 
+		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight> transferUpCommandPools;
 		core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
 		core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
 		core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };

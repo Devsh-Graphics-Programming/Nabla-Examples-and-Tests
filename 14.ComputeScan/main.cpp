@@ -104,7 +104,7 @@ public:
 			core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 			{
 				auto cmdPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
-				logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+				logicalDevice->createCommandBuffers(cmdPool[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 
 				// TODO: begin and end query
 				cmdbuf->begin(IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
@@ -174,7 +174,7 @@ public:
 					auto cmdPool = logicalDevice->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::ECF_NONE);
 					logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 				}
-				cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+				cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 				asset::SBufferCopy region;
 				region.srcOffset = in_gpu_range.offset;
 				region.dstOffset = 0u;
@@ -376,7 +376,7 @@ NBL_COMMON_API_MAIN(ComputeScanApp)
 //				auto cmdPool = logicalDevice->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::ECF_NONE);
 //				logicalDevice->createCommandBuffers(cmdPool.get(),IGPUCommandBuffer::EL_PRIMARY,1u,&cmdbuf);
 //			}
-//			cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+//			cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 //			asset::SBufferCopy region;
 //			region.srcOffset = in_gpu_range.offset;
 //			region.dstOffset = 0u;

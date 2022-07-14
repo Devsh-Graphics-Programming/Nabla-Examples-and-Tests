@@ -113,10 +113,8 @@ class HelloWorldSampleApp : public system::IApplicationFramework, public ui::IGr
 {
 	constexpr static uint32_t WIN_W = 800u;
 	constexpr static uint32_t WIN_H = 600u;
-	constexpr static uint32_t SC_IMG_COUNT = 3u;
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
 
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<DemoEventCallback> windowCb;
@@ -184,7 +182,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return SC_IMG_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -503,11 +501,14 @@ Choose Graphics API:
 			m_renderFinished[i] = device->createSemaphore();
 		}
 
-		core::smart_refctd_ptr<video::IGPUCommandPool> commandPool =
-			device->createCommandPool(graphicsFamilyIndex, video::IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
+		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+		{
+			auto cmdPool = device->createCommandPool(graphicsFamilyIndex, video::IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
+			device->createCommandBuffers(cmdPool.get(), video::IGPUCommandBuffer::EL_PRIMARY,
+				1, m_cmdbuf + i);
 
-		device->createCommandBuffers(commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY,
-			FRAMES_IN_FLIGHT, m_cmdbuf);
+		}
+
 	}
 
 	void onAppTerminated_impl() override
@@ -532,7 +533,7 @@ Choose Graphics API:
 		else
 			fence = device->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
-		commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+		commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, &m_acquiredNextFBO);
 

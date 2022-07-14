@@ -50,7 +50,7 @@ public:
     nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
     nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
     std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-    std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+    std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
     nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
     nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
     nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -163,7 +163,7 @@ public:
     }
     uint32_t getSwapchainImageCount() override
     {
-        return SC_IMG_COUNT;
+        return swapchain->getImageCount();
     }
     virtual nbl::asset::E_FORMAT getDepthFormat() override
     {
@@ -183,7 +183,7 @@ public:
             initOutput,
             video::EAT_OPENGL,
             "DynamicTextureIndexing",
-            WIN_W, WIN_H, SC_IMG_COUNT,
+            FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
             swapchainImageUsage,
             surfaceFormat,
             nbl::asset::EF_D32_SFLOAT);
@@ -351,14 +351,23 @@ public:
             assert(pmbData.mdiParameterCount == meshBuffersInRangeCnt);
 
             //create draw call inputs
-            mdiCallParams[i].indexBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], packedMeshBuffer[i].indexBuffer.buffer->getSize(), packedMeshBuffer[i].indexBuffer.buffer->getPointer());
+            video::IGPUBuffer::SCreationParams indexbufferCreationParams;
+            indexbufferCreationParams.size = packedMeshBuffer[i].indexBuffer.buffer->getSize();
+            indexbufferCreationParams.usage = video::IGPUBuffer::EUF_INDEX_BUFFER_BIT;
+            mdiCallParams[i].indexBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(indexbufferCreationParams), packedMeshBuffer[i].indexBuffer.buffer->getPointer());
 
             auto& cpuVtxBuff = packedMeshBuffer[i].vertexBufferBindings[0].buffer;
 
-            gpuIndirectDrawBuffer[i] = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], sizeof(CustomIndirectCommand) * pmbData.mdiParameterCount, packedMeshBuffer[i].MDIDataBuffer->getPointer());
+            video::IGPUBuffer::SCreationParams indirectbufferCreationParams;
+            indirectbufferCreationParams.size = sizeof(CustomIndirectCommand) * pmbData.mdiParameterCount;
+            indirectbufferCreationParams.usage = video::IGPUBuffer::EUF_INDIRECT_BUFFER_BIT;
+            gpuIndirectDrawBuffer[i] = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(indirectbufferCreationParams), packedMeshBuffer[i].MDIDataBuffer->getPointer());
             mdiCallParams[i].indirectDrawBuff = core::smart_refctd_ptr(gpuIndirectDrawBuffer[i]);
 
-            auto gpuVtxBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], cpuVtxBuff->getSize(), cpuVtxBuff->getPointer());
+            video::IGPUBuffer::SCreationParams vertexbufferCreationParams;
+            vertexbufferCreationParams.size = cpuVtxBuff->getSize();
+            vertexbufferCreationParams.usage = video::IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
+            auto gpuVtxBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(vertexbufferCreationParams), cpuVtxBuff->getPointer());
 
             for (uint32_t j = 0u; j < video::IGPUMeshBuffer::MAX_ATTR_BUF_BINDING_COUNT; j++)
             {
@@ -499,10 +508,11 @@ public:
         for (size_t i = 0ull; i < NBL_FRAMES_TO_AVERAGE; ++i)
             dtList[i] = 0.0;
 
-        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, commandBuffers);
 
-        for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+        const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
         {
+			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
             imageAcquire[i] = logicalDevice->createSemaphore();
             renderFinished[i] = logicalDevice->createSemaphore();
         }

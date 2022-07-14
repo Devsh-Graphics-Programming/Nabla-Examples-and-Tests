@@ -74,7 +74,7 @@ class GLTFApp : public ApplicationBase
 		}
 		uint32_t getSwapchainImageCount() override
 		{
-			return SC_IMG_COUNT;
+			return swapchain->getImageCount();
 		}
 		nbl::asset::E_FORMAT getDepthFormat() override
 		{
@@ -88,7 +88,7 @@ class GLTFApp : public ApplicationBase
 			
 			const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 			const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
-			CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "glTF", WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
+			CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "glTF", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
 			window = std::move(initOutput.window);
 			gl = std::move(initOutput.apiConnection);
 			surface = std::move(initOutput.surface);
@@ -108,7 +108,8 @@ class GLTFApp : public ApplicationBase
 			utilities = std::move(initOutput.utilities);
 
 			transferUpQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
-			
+			auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
+
 			transformTreeManager = scene::ITransformTreeManager::create(utilities.get(),transferUpQueue);
 			ttDebugDrawPipeline = transformTreeManager->createDebugPipeline<scene::ITransformTreeWithNormalMatrices>(core::smart_refctd_ptr(renderpass));
 			ttmDescriptorSets = transformTreeManager->createAllDescriptorSets(logicalDevice.get());
@@ -203,17 +204,22 @@ class GLTFApp : public ApplicationBase
 			nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> xferCmdbuf;
 			{
 				xferFence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
-				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP].get(),nbl::video::IGPUCommandBuffer::EL_PRIMARY,1u,&xferCmdbuf);
+				logicalDevice->createCommandBuffers(defaultTransferUpCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &xferCmdbuf);
 				xferCmdbuf->begin(IGPUCommandBuffer::EU_NONE);
 			}
 			auto xferQueue = logicalDevice->getQueue(xferCmdbuf->getQueueFamilyIndex(),0u);
 			asset::SBufferBinding<video::IGPUBuffer> xferScratch;
 			{
-				video::IGPUBuffer::SCreationParams scratchParams = {};
+				video::IGPUBuffer::SCreationParams scratchParams;
 				scratchParams.canUpdateSubRange = true;
 				scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT)|video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				xferScratch = {0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(scratchParams,ppHandler->getMaxScratchSize())};
+				scratchParams.size = ppHandler->getMaxScratchSize();
+				xferScratch = {0ull,logicalDevice->createBuffer(scratchParams)};
 				xferScratch.buffer->setObjectDebugName("PropertyPoolHandler Scratch Buffer");
+				auto xferScratchMemReqs = xferScratch.buffer->getMemoryReqs();
+				xferScratchMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				logicalDevice->allocate(xferScratchMemReqs, xferScratch.buffer.get());
+				
 			}
 
 
@@ -351,8 +357,10 @@ class GLTFApp : public ApplicationBase
 				// first uint needs to be the count
 				allNodes.insert(allNodes.begin(),allNodes.size());
 				pivotNodesRange.offset += sizeof(uint32_t);
-
-				auto allNodesBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(scene::ITransformTree::node_t)*allNodes.size(),allNodes.data());
+				video::IGPUBuffer::SCreationParams params;
+				params.size = sizeof(scene::ITransformTree::node_t) * allNodes.size();
+				params.usage = core::bitflag<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT);
+				auto allNodesBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,std::move(params),allNodes.data());
 				transformTreeManager->updateRecomputeGlobalTransformsDescriptorSet(logicalDevice.get(),ttmDescriptorSets.recomputeGlobal.get(),{0ull,allNodesBuffer});
 				pivotNodesRange.buffer = std::move(allNodesBuffer);
 			}
@@ -448,12 +456,19 @@ class GLTFApp : public ApplicationBase
 			}
 			// transfer compressed aabbs to the GPU
 			{
-				aabbBinding = {0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(CompressedAABB)*aabbPool.size(),aabbPool.data())};
+				IGPUBuffer::SCreationParams aabbBufferParams = {};
+				aabbBufferParams.size = sizeof(CompressedAABB) * aabbPool.size();
+				aabbBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+				aabbBinding = {0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(aabbBufferParams), aabbPool.data())};
 				transformTreeManager->updateDebugDrawDescriptorSet(logicalDevice.get(),ttmDescriptorSets.debugDraw.get(),SBufferBinding(aabbBinding));
 				
-				IGPUBuffer::SCreationParams params = {};
-				params.usage = core::bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)|IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
-				iotaBinding = {0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(params,pivotNodesRange.size/sizeof(scene::ITransformTree::node_t))};
+				IGPUBuffer::SCreationParams iotaBufferParams = {};
+				iotaBufferParams.usage = core::bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)|IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
+				iotaBufferParams.size = pivotNodesRange.size / sizeof(scene::ITransformTree::node_t);
+				iotaBinding = {0ull,logicalDevice->createBuffer(iotaBufferParams)};
+				auto memReqs = iotaBinding.buffer->getMemoryReqs();
+				memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+				logicalDevice->allocate(memReqs, iotaBinding.buffer.get());
 			}
 			// allocate an inverse bind pose for every inverseBindPose
 			{
@@ -575,11 +590,21 @@ class GLTFApp : public ApplicationBase
 					// first uint needs to be the count
 					skinsToUpdate.insert(skinsToUpdate.begin(),skinsToUpdate.size());
 					std::inclusive_scan(jointCountInclusivePrefixSum.begin(),jointCountInclusivePrefixSum.end(),jointCountInclusivePrefixSum.begin());
-					sicManager->updateCacheUpdateDescriptorSet(
-						logicalDevice.get(),sicDescriptorSets.cacheUpdate.get(),
-						{0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(scene::ISkinInstanceCache::skin_instance_t)*skinsToUpdate.size(),skinsToUpdate.data())},
-						{0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(uint32_t)*jointCountInclusivePrefixSum.size(),jointCountInclusivePrefixSum.data())}
-					);
+					{
+						IGPUBuffer::SCreationParams skinsToUpdateBufferParams = {};
+						skinsToUpdateBufferParams.size = sizeof(scene::ISkinInstanceCache::skin_instance_t) * skinsToUpdate.size();
+						skinsToUpdateBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto skinsToUpdateBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(skinsToUpdateBufferParams), skinsToUpdate.data());
+						IGPUBuffer::SCreationParams jointCountBufferParams = {};
+						jointCountBufferParams.size = sizeof(uint32_t) * jointCountInclusivePrefixSum.size();
+						jointCountBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto jointCountInclPrefixSumBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(jointCountBufferParams), jointCountInclusivePrefixSum.data());
+						sicManager->updateCacheUpdateDescriptorSet(
+							logicalDevice.get(), sicDescriptorSets.cacheUpdate.get(),
+							{ 0ull,skinsToUpdateBuffer },
+							{ 0ull,jointCountInclPrefixSumBuffer }
+						);
+					}
 				}
 				// debug draw skin instances
 				{
@@ -622,13 +647,22 @@ class GLTFApp : public ApplicationBase
 					totalDrawInstances = debugData.size();
 					std::inclusive_scan(jointCountInclPrefixSum.begin(),jointCountInclPrefixSum.end(),jointCountInclPrefixSum.begin());
 					totalJointInstances = jointCountInclPrefixSum.back();
-
-					sicManager->updateDebugDrawDescriptorSet(
-						logicalDevice.get(),sicDescriptorSets.debugDraw.get(),
-						transformTree.get(),SBufferBinding(aabbBinding),
-						{0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(scene::ISkinInstanceCacheManager::DebugDrawData)*debugData.size(),debugData.data())},
-						{0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,sizeof(uint32_t)*jointCountInclPrefixSum.size(),jointCountInclPrefixSum.data())}
-					);
+					{
+						IGPUBuffer::SCreationParams skinInstanceDebugBufferParams = {};
+						skinInstanceDebugBufferParams.size = sizeof(scene::ISkinInstanceCacheManager::DebugDrawData) * debugData.size();
+						skinInstanceDebugBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto skinInstanceDebugBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(skinInstanceDebugBufferParams), debugData.data());
+						IGPUBuffer::SCreationParams skinInstanceJointCountInclPrefixSumBufferParams = {};
+						skinInstanceJointCountInclPrefixSumBufferParams.size = sizeof(uint32_t) * jointCountInclPrefixSum.size();
+						skinInstanceJointCountInclPrefixSumBufferParams.usage = core::bitflag(IGPUBuffer::EUF_TRANSFER_DST_BIT) | IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+						auto skinInstanceJointCountInclPrefixSumBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(skinInstanceJointCountInclPrefixSumBufferParams), jointCountInclPrefixSum.data());
+						sicManager->updateDebugDrawDescriptorSet(
+							logicalDevice.get(), sicDescriptorSets.debugDraw.get(),
+							transformTree.get(), SBufferBinding(aabbBinding),
+							{ 0ull, skinInstanceDebugBuffer },
+							{ 0ull, skinInstanceJointCountInclPrefixSumBuffer }
+						);
+					}
 				}
 			}
 
@@ -752,12 +786,13 @@ class GLTFApp : public ApplicationBase
 			camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 0.4f, 1.f);
 			auto lastTime = std::chrono::system_clock::now();
 
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(),video::IGPUCommandBuffer::EL_PRIMARY,FRAMES_IN_FLIGHT,commandBuffers);
+			
 
-			//
 			oracle.reportBeginFrameRecord();
+			const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 			for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 			{
+				logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
 				imageAcquire[i] = logicalDevice->createSemaphore();
 				renderFinished[i] = logicalDevice->createSemaphore();
 			}
@@ -1007,7 +1042,7 @@ class GLTFApp : public ApplicationBase
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
 		nbl::core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;

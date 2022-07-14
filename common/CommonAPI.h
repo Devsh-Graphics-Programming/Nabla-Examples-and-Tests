@@ -818,6 +818,7 @@ public:
 		};
 		
 		static constexpr uint32_t MaxQueuesInFamily = 32;
+		static constexpr uint32_t MaxFramesInFlight = 10u;
 		static constexpr uint32_t MaxQueuesCount = EQT_COUNT;
 		static constexpr uint32_t MaxSwapChainImageCount = 4;
 
@@ -829,7 +830,7 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
 		nbl::video::IPhysicalDevice* physicalDevice;
 		std::array<nbl::video::IGPUQueue*, MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
+		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxFramesInFlight>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, MaxSwapChainImageCount> fbo;
@@ -935,6 +936,7 @@ public:
 		const SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE>& optionalInstanceFeatures,
 		const SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE>& requiredDeviceFeatures,
 		const SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE>& optionalDeviceFeatures,
+		uint32_t framesInFlight = 0u,
 		uint32_t window_width = 0u,
 		uint32_t window_height = 0u,
 		uint32_t sc_image_count = 0u,
@@ -1280,8 +1282,11 @@ public:
 				const IGPUQueue* queue = result.queues[i];
 				if(queue != nullptr)
 				{
-					result.commandPools[i] = result.logicalDevice->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
-					assert(result.commandPools[i]);
+					for (size_t j = 0; j < framesInFlight; j++)
+					{
+						result.commandPools[i][j] = result.logicalDevice->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
+						assert(result.commandPools[i][j]);
+					}
 				}
 			}
 
@@ -1358,6 +1363,7 @@ public:
 		InitOutput& result,
 		nbl::video::E_API_TYPE api_type,
 		const std::string_view app_name,
+		uint32_t framesInFlight = 0u,
 		uint32_t window_width = 0u,
 		uint32_t window_height = 0u,
 		uint32_t sc_image_count = 0u,
@@ -1388,7 +1394,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			window_width, window_height, sc_image_count,
+			framesInFlight, window_width, window_height, sc_image_count,
 			swapchainImageUsage, surfaceFormat, depthFormat);
 	}
 
@@ -1398,6 +1404,7 @@ public:
 		InitOutput& result,
 		nbl::video::E_API_TYPE api_type,
 		const std::string_view app_name,
+		uint32_t framesInFlight = 0u,
 		uint32_t window_width = 0u,
 		uint32_t window_height = 0u,
 		uint32_t sc_image_count = 0u,
@@ -1433,7 +1440,7 @@ public:
 			optionalInstanceFeatures,
 			requiredDeviceFeatures,
 			optionalDeviceFeatures,
-			window_width, window_height, sc_image_count,
+			framesInFlight, window_width, window_height, sc_image_count,
 			swapchainImageUsage, surfaceFormat, depthFormat);
 	}
 
@@ -1475,7 +1482,7 @@ public:
 				const bool hasMatchingFormats = requestedSurfaceFormat.format == supportedFormat.format;
 				const bool hasMatchingColorspace = requestedSurfaceFormat.colorSpace.eotf == supportedFormat.colorSpace.eotf && requestedSurfaceFormat.colorSpace.primary == supportedFormat.colorSpace.primary;
 
-				const auto supportedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimal(supportedFormat.format);
+				const auto& supportedFormatUsages = device->getPhysicalDevice()->getImageFormatUsagesOptimal(supportedFormat.format);
 				const bool supportedFormatSupportsFeatures = ((supportedFormatUsages & requiredFormatUsages) == requiredFormatUsages);
 
 				if(!supportedFormatSupportsFeatures)

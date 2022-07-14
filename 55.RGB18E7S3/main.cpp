@@ -56,6 +56,7 @@ int main()
     auto assetManager = std::move(initOutput.assetManager);
     auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
     auto utilities = std::move(initOutput.utilities);
+	auto defaultComputeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0];
 
     nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 
@@ -123,18 +124,18 @@ int main()
         }
     }
 
-    auto ssboMemoryReqs = logicalDevice->getDeviceLocalGPUMemoryReqs();
-    ssboMemoryReqs.vulkanReqs.size = sizeof(SShaderStorageBufferObject);
-    ssboMemoryReqs.mappingCapability = video::IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE;
-
     video::IGPUBuffer::SCreationParams ssboCreationParams;
     ssboCreationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
     ssboCreationParams.canUpdateSubRange = true;
     ssboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
     ssboCreationParams.queueFamilyIndexCount = 0u;
     ssboCreationParams.queueFamilyIndices = nullptr;
+    ssboCreationParams.size = sizeof(SShaderStorageBufferObject);
 
-    auto gpuDownloadSSBOmapped = logicalDevice->createGPUBufferOnDedMem(ssboCreationParams,ssboMemoryReqs);
+    auto gpuDownloadSSBOmapped = logicalDevice->createBuffer(ssboCreationParams);
+    auto downloadSSBOmemreqs = gpuDownloadSSBOmapped->getMemoryReqs();
+    downloadSSBOmemreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+    logicalDevice->allocate(downloadSSBOmemreqs, gpuDownloadSSBOmapped.get());
 
     video::IGPUDescriptorSetLayout::SBinding gpuBindingsLayout[ES_COUNT] =
     {
@@ -183,11 +184,11 @@ int main()
     auto gpuComputePipeline = logicalDevice->createComputePipeline(nullptr, std::move(gpuCPipelineLayout), std::move(gpuComputeShader));
 
     core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffer;
-    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
+    logicalDevice->createCommandBuffers(defaultComputeCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
     auto gpuFence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
     {
 
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
         commandBuffer->bindComputePipeline(gpuComputePipeline.get());
         commandBuffer->bindDescriptorSets(asset::EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0, 1, &gpuCDescriptorSet.get());
