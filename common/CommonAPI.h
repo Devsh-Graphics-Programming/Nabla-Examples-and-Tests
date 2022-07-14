@@ -770,6 +770,8 @@ public:
 			return swapchainImageUsage == nbl::asset::IImage::E_USAGE_FLAGS(0);
 		}
 
+		// TODO functions below don't work because requiredXFeatures.features will point to dropped array memory
+
 		// Matching behaviour to InitWithDefaultExt
 		void withDefaultExt()
 		{
@@ -1369,8 +1371,9 @@ public:
 			}
 			assert(presentMode != nbl::video::ISurface::EST_FLAG_BITS_MAX_ENUM);
 
+			constexpr uint32_t MAX_SURFACE_FORMAT_COUNT = 1000u;
 			uint32_t availableFormatCount;
-			nbl::video::ISurface::SFormat* availableFormats;
+			nbl::video::ISurface::SFormat availableFormats[MAX_SURFACE_FORMAT_COUNT];
 			surface->getAvailableFormatsForPhysicalDevice(device->getPhysicalDevice(), availableFormatCount, availableFormats);
 
 			for (uint32_t i = 0; i < availableFormatCount; ++i)
@@ -1434,12 +1437,16 @@ public:
 		using namespace nbl;
 
 		bool useDepth = baseDepthFormat != nbl::asset::EF_UNKNOWN;
-		auto depthFormat = device->getPhysicalDevice()->promoteImageFormat(
-			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
-			nbl::asset::IImage::ET_OPTIMAL
-		);
-		// TODO error reporting
-		assert(depthFormat != nbl::asset::EF_UNKNOWN);
+		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
+		if (useDepth)
+		{
+			depthFormat = device->getPhysicalDevice()->promoteImageFormat(
+				{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
+				nbl::asset::IImage::ET_OPTIMAL
+			);
+			// TODO error reporting
+			assert(depthFormat != nbl::asset::EF_UNKNOWN);
+		}
 
 		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
 		attachments[0].initialLayout = asset::EIL_UNDEFINED;

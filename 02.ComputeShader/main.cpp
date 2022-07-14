@@ -104,6 +104,14 @@ public:
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
 
 		CommonAPI::InitParams initParams;
+		
+		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
+		initParams.requiredInstanceFeatures.features = requiredFeatures_Instance;
+		initParams.requiredInstanceFeatures.count = 1u;
+		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
+		initParams.requiredDeviceFeatures.features = requiredFeatures_Device;
+		initParams.requiredDeviceFeatures.count = 1u;
+
 		initParams.window = core::smart_refctd_ptr(window);
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "02.ComputeShader" };
@@ -111,6 +119,7 @@ public:
 		initParams.windowWidth = WIN_W;
 		initParams.windowHeight = WIN_H;
 		initParams.scImageCount = 3u;
+		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 		auto initOutput = CommonAPI::Init(std::move(initParams));
 
