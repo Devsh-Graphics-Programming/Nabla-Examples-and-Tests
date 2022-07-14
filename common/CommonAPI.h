@@ -762,7 +762,8 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindow> window = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager = nullptr;
 		nbl::core::smart_refctd_ptr<CommonAPIEventCallback> windowCb = nullptr;
-		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger = nullptr;
+		nbl::core::bitflag<nbl::system::ILogger::E_LOG_LEVEL> logLevel =
+			nbl::core::bitflag(nbl::system::ILogger::ELL_DEBUG) | nbl::system::ILogger::ELL_PERFORMANCE | nbl::system::ILogger::ELL_WARNING | nbl::system::ILogger::ELL_ERROR | nbl::system::ILogger::ELL_INFO;
 
 		constexpr bool isHeadlessCompute()
 		{
@@ -831,6 +832,7 @@ public:
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
 		nbl::core::smart_refctd_ptr<InputSystem> inputSystem;
 		nbl::video::ISwapchain::SCreationParams swapchainCreationParams;
+		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
 	};
 
 	template<typename AppClassName>
@@ -918,7 +920,7 @@ public:
 		framework->setFBOs(fbo);
 	}
 #endif
-	
+
 	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback>
 	static InitOutput Init(InitParams&& params)
 	{
@@ -929,19 +931,24 @@ public:
 
 		bool headlessCompute = params.isHeadlessCompute();
 
-		auto logLevelMask = nbl::core::bitflag(system::ILogger::ELL_DEBUG) | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_WARNING | system::ILogger::ELL_ERROR | system::ILogger::ELL_INFO;
-
 #ifdef _NBL_PLATFORM_WINDOWS_
 		result.system = createSystem();
 #endif
-		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(params.logger)));
+
+#ifdef _NBL_PLATFORM_WINDOWS_
+		result.logger = nbl::core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(params.logLevel);
+#elif defined(_NBL_PLATFORM_ANDROID_)
+		result.logger = nbl::core::make_smart_refctd_ptr<system::CStdoutLoggerAndroid>(params.logLevel);
+#endif
+
+		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
 		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system)); // we should let user choose it?
 
 		if (!headlessCompute)
 		{
 #ifndef _NBL_PLATFORM_ANDROID_
 			auto windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // should we store it in result?
-			params.windowCb = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(params.logger)));
+			params.windowCb = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
 
 			nbl::ui::IWindow::SCreationParams windowsCreationParams;
 			windowsCreationParams.width = params.windowWidth;
@@ -973,7 +980,7 @@ public:
 					params.requiredInstanceFeatures.features,
 					params.optionalInstanceFeatures.count,
 					params.optionalInstanceFeatures.features,
-					nbl::core::smart_refctd_ptr(params.logger),
+					nbl::core::smart_refctd_ptr(result.logger),
 					true);
 
 				if (!headlessCompute)
@@ -988,7 +995,7 @@ public:
 			}
 			else if (params.apiType == EAT_OPENGL)
 			{
-				auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(params.logger)));
+				auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
 
 				if (!headlessCompute)
 				{
@@ -1003,7 +1010,7 @@ public:
 			}
 			else if (params.apiType	 == EAT_OPENGL_ES)
 			{
-				auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(params.logger)));
+				auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
 
 				if (!headlessCompute)
 				{
