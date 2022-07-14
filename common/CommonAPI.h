@@ -1277,12 +1277,13 @@ public:
 				result.fbo = createFBOWithSwapchainImages(result.swapchain->getImageCount(), window_width, window_height, result.logicalDevice, result.swapchain, result.renderpass, depthFormat);
 			}
 
+			uint32_t commandPoolsToCreate = core::max(framesInFlight, 1u);
 			for(uint32_t i = 0; i < InitOutput::EQT_COUNT; ++i)
 			{
 				const IGPUQueue* queue = result.queues[i];
 				if(queue != nullptr)
 				{
-					for (size_t j = 0; j < framesInFlight; j++)
+					for (size_t j = 0; j < commandPoolsToCreate; j++)
 					{
 						result.commandPools[i][j] = result.logicalDevice->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
 						assert(result.commandPools[i][j]);
@@ -1340,7 +1341,8 @@ public:
 	static void InitWithNoExt(
 		InitOutput& result,
 		nbl::video::E_API_TYPE api_type,
-		const std::string_view app_name)
+		const std::string_view app_name,
+		uint32_t framesInFlight = 0u)
 	{
 		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
 		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
