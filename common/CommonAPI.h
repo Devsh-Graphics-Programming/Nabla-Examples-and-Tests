@@ -741,6 +741,7 @@ public:
 		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
 		
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
+		
 		nbl::core::vector<nbl::asset::E_FORMAT> acceptableSurfaceFormats = {
 			nbl::asset::EF_R8G8B8A8_SRGB,
 			nbl::asset::EF_R8G8B8A8_UNORM,
@@ -763,7 +764,10 @@ public:
 		nbl::core::smart_refctd_ptr<CommonAPIEventCallback> windowCb = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger = nullptr;
 
-		bool headlessCompute = false;
+		constexpr bool isHeadlessCompute()
+		{
+			return swapchainImageUsage == nbl::asset::IImage::E_USAGE_FLAGS(0);
+		}
 
 		// Matching behaviour to InitWithDefaultExt
 		void withDefaultExt()
@@ -923,7 +927,7 @@ public:
 
 		InitOutput result;
 
-		bool headlessCompute = params.headlessCompute;
+		bool headlessCompute = params.isHeadlessCompute();
 
 		auto logLevelMask = nbl::core::bitflag(system::ILogger::ELL_DEBUG) | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_WARNING | system::ILogger::ELL_ERROR | system::ILogger::ELL_INFO;
 
@@ -1422,11 +1426,13 @@ public:
 	{
 		using namespace nbl;
 
+		bool useDepth = baseDepthFormat != nbl::asset::EF_UNKNOWN;
 		auto depthFormat = device->getPhysicalDevice()->promoteImageFormat(
 			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
 			nbl::asset::IImage::ET_OPTIMAL
 		);
-		bool useDepth = depthFormat != nbl::asset::EF_UNKNOWN;
+		// TODO error reporting
+		assert(depthFormat != nbl::asset::EF_UNKNOWN);
 
 		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
 		attachments[0].initialLayout = asset::EIL_UNDEFINED;
