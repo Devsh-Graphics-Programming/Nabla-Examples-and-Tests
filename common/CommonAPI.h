@@ -769,40 +769,6 @@ public:
 		{
 			return swapchainImageUsage == nbl::asset::IImage::E_USAGE_FLAGS(0);
 		}
-
-		// TODO functions below don't work because requiredXFeatures.features will point to dropped array memory
-
-		// Matching behaviour to InitWithDefaultExt
-		void withDefaultExt()
-		{
-#ifndef _NBL_PLATFORM_ANDROID_
-			nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
-			requiredInstanceFeatures.features = requiredFeatures_Instance;
-			requiredInstanceFeatures.count = 1u;
-			nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
-			requiredDeviceFeatures.features = requiredFeatures_Device;
-			requiredDeviceFeatures.count = 1u;
-#endif
-		}
-
-		// Matching behaviour to InitWithRaytracingExt
-		void withRaytracingExt()
-		{
-#ifndef _NBL_PLATFORM_ANDROID_
-			nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
-			requiredInstanceFeatures.features = requiredFeatures_Instance;
-			requiredInstanceFeatures.count = 1u;
-
-			nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
-			{
-				nbl::video::ILogicalDevice::EF_SWAPCHAIN,
-				nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
-				nbl::video::ILogicalDevice::EF_RAY_QUERY
-			};
-			requiredDeviceFeatures.features = requiredFeatures_Device;
-			requiredDeviceFeatures.count = 3u;
-#endif
-		}
 	};
 
 	struct InitOutput
@@ -1430,6 +1396,40 @@ public:
 		assert(swapchain);
 
 		return true;
+	}
+
+	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback>
+	static InitOutput InitWithDefaultExt(InitParams&& params)
+	{
+#ifndef _NBL_PLATFORM_ANDROID_
+		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
+		params.requiredInstanceFeatures.features = requiredFeatures_Instance;
+		params.requiredInstanceFeatures.count = 1u;
+		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
+		params.requiredDeviceFeatures.features = requiredFeatures_Device;
+		params.requiredDeviceFeatures.count = 1u;
+#endif
+		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
+	}
+
+	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback>
+	static InitOutput InitWithRaytracingExt(InitParams&& params)
+	{
+#ifndef _NBL_PLATFORM_ANDROID_
+		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
+		params.requiredInstanceFeatures.features = requiredFeatures_Instance;
+		params.requiredInstanceFeatures.count = 1u;
+
+		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
+		{
+			nbl::video::ILogicalDevice::EF_SWAPCHAIN,
+			nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
+			nbl::video::ILogicalDevice::EF_RAY_QUERY
+		};
+		params.requiredDeviceFeatures.features = requiredFeatures_Device;
+		params.requiredDeviceFeatures.count = 3u;
+#endif
+		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
 	}
 
 	static nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat)
