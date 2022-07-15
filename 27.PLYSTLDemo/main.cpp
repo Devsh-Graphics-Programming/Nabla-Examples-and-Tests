@@ -149,7 +149,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL/*Vulkan doesn't work yet*/, "plystldemo", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
+		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "plystldemo", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
 		window = std::move(initOutput.window);
 		gl = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
