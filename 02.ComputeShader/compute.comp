@@ -21,9 +21,10 @@ layout (set = 0, binding = 1, rgba8) uniform readonly image2D inImage;
 
 void main()
 {
-	if (all(lessThan(gl_GlobalInvocationID.xy, nbl_glsl_swapchain_transform_preTransformExtents(u_pushConstants.swapchainTransform, ivec2(u_pushConstants.imgSize)))))
+	if (all(lessThan(gl_GlobalInvocationID.xy, u_pushConstants.imgSize)))
 	{
-		vec4 outColor = vec4(vec2(gl_GlobalInvocationID.xy) / vec2(u_pushConstants.imgSize), 0.0, 1.f);
-		imageStore(outImage, nbl_glsl_swapchain_transform_postTransform(u_pushConstants.swapchainTransform, ivec2(gl_GlobalInvocationID.xy), ivec2(u_pushConstants.imgSize)), outColor);
+		ivec2 postTransformUv = nbl_glsl_swapchain_transform_postTransform(u_pushConstants.swapchainTransform, ivec2(gl_GlobalInvocationID.xy), ivec2(u_pushConstants.imgSize));
+		vec4 outColor = vec4(vec2(postTransformUv) / vec2(u_pushConstants.imgSize), 0.0, 1.f);
+		imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), outColor);
 	}
 }

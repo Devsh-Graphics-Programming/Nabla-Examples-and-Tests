@@ -108,7 +108,7 @@ public:
 		initOutput.window = core::smart_refctd_ptr(window);
 		CommonAPI::InitWithDefaultExt(
 			initOutput,
-			video::EAT_OPENGL,
+			video::EAT_VULKAN,
 			"02.ComputeShader",
 			FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
 			swapchainImageUsage,
