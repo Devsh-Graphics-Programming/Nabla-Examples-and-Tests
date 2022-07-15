@@ -680,11 +680,9 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 
 void main()
 {
-    const ivec2 imageExtents = nbl_glsl_swapchain_transform_preTransformExtents(cameraData.swapchainTransform, imageSize(outImage));
+    const ivec2 imageExtents = imageSize(outImage);
     const ivec2 coords = getCoordinates();
-    // In an example that renders vertices to screen you apply transform it to the projection matrix (given triangle vertices you map them to screen). Remember rasterization is a scatter op.
-    // However in an example such as this, where you're casting rays, you're finding out worldspace positions for screenspace pixels so transform needs to be applied in reverse. Raycasting/post process is a gather op.
-    vec2 texCoord = (vec2(nbl_glsl_swapchain_transform_preTransform(cameraData.swapchainTransform, coords, imageSize(outImage))) / vec2(imageExtents));
+    vec2 texCoord = vec2(coords) / vec2(imageExtents);
     texCoord.y = 1.0 - texCoord.y;
 
     if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageExtents,coords)))) {
