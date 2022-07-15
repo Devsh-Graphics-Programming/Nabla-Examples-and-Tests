@@ -128,6 +128,7 @@ class MeshLoadersApp : public ApplicationBase
 	static constexpr uint32_t WIN_W = 1280;
 	static constexpr uint32_t WIN_H = 720;
 	static constexpr uint32_t FBO_COUNT = 2u;
+	static constexpr uint32_t FRAMES_IN_FLIGHT = 1u;
 	static constexpr size_t NBL_FRAMES_TO_AVERAGE = 100ull;
 
 public:
@@ -143,7 +144,7 @@ public:
 	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
 	nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -218,7 +219,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return FBO_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -236,7 +237,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "ComputeShaders", WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
+		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "ComputeShaders", FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
 		window = std::move(initOutput.window);
 		gl = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
@@ -252,8 +253,10 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		inputSystem = std::move(initOutput.inputSystem);
 		windowCallback = std::move(initOutput.windowCb);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+		auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
 
-		logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
+	
+		logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
 		auto commandBuffer = commandBuffers[0];
 
 		auto createDescriptorPool = [&](const uint32_t itemCount, E_DESCRIPTOR_TYPE descriptorType)
@@ -578,7 +581,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 		auto& commandBuffer = commandBuffers[0];
 		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		commandBuffer->begin(video::IGPUCommandBuffer::EU_NONE);
+		commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		asset::SViewport viewport;
 		viewport.minDepth = 1.f;
