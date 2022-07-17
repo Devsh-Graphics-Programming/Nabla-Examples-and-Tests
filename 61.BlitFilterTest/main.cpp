@@ -236,6 +236,7 @@ public:
 			const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
 			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
 			const float referenceAlpha = 0.5f;
+			const auto alphaBinCount = 1024;
 
 			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
 			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
@@ -246,7 +247,7 @@ public:
 			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 			using LutDataType = float;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha);
+			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
 		}
 
 		{
@@ -284,6 +285,7 @@ public:
 			const core::vectorSIMDu32 outImageDim(512u, 257u, 1u, layerCount);
 			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
 			const float referenceAlpha = 0.5f;
+			const auto alphaBinCount = 4096;
 
 			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
 			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
@@ -294,7 +296,7 @@ public:
 			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 			using LutDataType = float;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha);
+			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
 		}
 	}
 
@@ -314,7 +316,7 @@ public:
 
 private:
 	template<typename LutDataType, typename KernelX, typename KernelY, typename KernelZ>
-	void blitTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImageCPU, const core::vectorSIMDu32& outExtent, const KernelX& kernelX, const KernelY& kernelY, const KernelZ& kernelZ, const asset::IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic, const float referenceAlpha = 0.f)
+	void blitTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImageCPU, const core::vectorSIMDu32& outExtent, const KernelX& kernelX, const KernelY& kernelY, const KernelZ& kernelZ, const asset::IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic, const float referenceAlpha = 0.f, const uint32_t alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
 	{
 		using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, KernelX, KernelY, KernelZ, LutDataType>;
 
@@ -348,11 +350,12 @@ private:
 			blitFilterState.borderColor = asset::ISampler::E_TEXTURE_BORDER_COLOR::ETBC_FLOAT_OPAQUE_WHITE;
 
 			blitFilterState.alphaSemantic = alphaSemantic;
+			blitFilterState.alphaBinCount = alphaBinCount;
 
 			blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 			blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
-			if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScaledKernelPhasedLUTByteOffset(&blitFilterState), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
+			if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
 				logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
 
 			logger->log("CPU begin..");
@@ -372,7 +375,6 @@ private:
 		core::vector<uint8_t> gpuOutput(static_cast<uint64_t>(outExtent[0]) * outExtent[1] * outExtent[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 		{
 			constexpr auto BlitWorkgroupSize = video::CComputeBlit::DefaultBlitWorkgroupSize;
-			constexpr auto AlphaBinCount = video::CComputeBlit::DefaultAlphaBinCount;
 
 			assert(inImageCPU->getCreationParameters().mipLevels == 1);
 
@@ -473,7 +475,7 @@ private:
 			auto normalizationInFormat = outImageFormat;
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 			{
-				normalizationInFormat = video::CComputeBlit::getIntermediateFormat(outImageFormat);
+				normalizationInFormat = video::CComputeBlit::getCoverageAdjustmentIntermediateFormat(outImageFormat);
 
 				if (normalizationInFormat != outImageFormat)
 				{
@@ -506,7 +508,7 @@ private:
 			// create scratch buffer
 			core::smart_refctd_ptr<video::IGPUBuffer> coverageAdjustmentScratchBuffer = nullptr;
 			{
-				const size_t scratchSize = blitFilter->getCoverageAdjustmentScratchSize(alphaSemantic, inImageType, AlphaBinCount, layersToBlit);
+				const size_t scratchSize = blitFilter->getCoverageAdjustmentScratchSize(alphaSemantic, inImageType, alphaBinCount, layersToBlit);
 				if (scratchSize > 0)
 				{
 					video::IGPUBuffer::SCreationParams creationParams = {};
@@ -584,14 +586,14 @@ private:
 
 			if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 			{
-				alphaTestPipeline = blitFilter->getAlphaTestPipeline(AlphaBinCount, inImageType);
-				normalizationPipeline = blitFilter->getNormalizationPipeline(normalizationInImage->getCreationParameters().type, outImageFormat, AlphaBinCount);
+				alphaTestPipeline = blitFilter->getAlphaTestPipeline(alphaBinCount, inImageType);
+				normalizationPipeline = blitFilter->getNormalizationPipeline(normalizationInImage->getCreationParameters().type, outImageFormat, alphaBinCount);
 
 				normalizationDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
 				blitFilter->updateDescriptorSet(normalizationDS.get(), nullptr, normalizationInImageView, outImageView, coverageAdjustmentScratchBuffer, nullptr);
 			}
 
-			blitPipeline = blitFilter->getBlitPipeline(inImageFormat, outImageFormat, inImageType, inExtent, outExtent, alphaSemantic, kernelX, kernelY, kernelZ, BlitWorkgroupSize, AlphaBinCount);
+			blitPipeline = blitFilter->getBlitPipeline(outImageFormat, inImageType, inExtent, outExtent, alphaSemantic, kernelX, kernelY, kernelZ, BlitWorkgroupSize, alphaBinCount);
 			blitDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
 			blitWeightsDS = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(kernelWeightsDSLayout));
 
@@ -606,7 +608,7 @@ private:
 				inExtent, inImageType, inImageFormat, normalizationInImage, kernelX, kernelY, kernelZ,
 				layersToBlit,
 				coverageAdjustmentScratchBuffer, referenceAlpha,
-				AlphaBinCount, BlitWorkgroupSize);
+				alphaBinCount, BlitWorkgroupSize);
 			logger->log("GPU end..");
 
 			if (outImage->getCreationParameters().type == asset::IImage::ET_2D)
