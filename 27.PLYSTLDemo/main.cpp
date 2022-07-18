@@ -379,7 +379,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		}
 
 		core::vectorSIMDf cameraPosition(0, 5, -10);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.001, 1000);
+		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.001, 1000);
 		camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 0.01f, 1.f);
 		lastTime = std::chrono::system_clock::now();
 
@@ -462,7 +462,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 
 		const auto& viewMatrix = camera.getViewMatrix();
 		const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-			video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
 			camera.getConcatenatedMatrix()
 		);
 

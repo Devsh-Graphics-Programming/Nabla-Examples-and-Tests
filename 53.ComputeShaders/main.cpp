@@ -518,7 +518,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		window->setCaption(captionData);
 
 		core::vectorSIMDf cameraPosition(0, 0, 0);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.001, 1000);
+		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.001, 1000);
 		camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, -1), projectionMatrix, 10.f, 1.f);
 		lastTime = std::chrono::system_clock::now();
 		for (size_t i = 0ull; i < NBL_FRAMES_TO_AVERAGE; ++i)
@@ -575,7 +575,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 		const auto& viewMatrix = camera.getViewMatrix();
 		const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-			video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
 			camera.getConcatenatedMatrix()
 		);
 

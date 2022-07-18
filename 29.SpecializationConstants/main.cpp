@@ -192,10 +192,10 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 		m_cameraPosition = core::vectorSIMDf(0, 0, -10);
-		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.01, 100);
+		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.01, 100);
 		matrix3x4SIMD view = matrix3x4SIMD::buildCameraLookAtMatrixRH(m_cameraPosition, core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 1, 0));
 		m_viewProj = matrix4SIMD::concatenateBFollowedByAPrecisely(
-			video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
 			matrix4SIMD::concatenateBFollowedByA(proj, matrix4SIMD(view))
 		);
 		m_camFront = view[2];

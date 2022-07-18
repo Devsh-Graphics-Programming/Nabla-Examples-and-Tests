@@ -435,7 +435,7 @@ public:
 		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
 		layoutTransBarrier.subresourceRange.layerCount = 1u;
 
-		const uint32_t pushConstants[3] = { window->getWidth(), window->getHeight(), swapchain->getSurfaceTransform() };
+		const uint32_t pushConstants[3] = { window->getWidth(), window->getHeight(), swapchain->getPreTransform() };
 
 		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;

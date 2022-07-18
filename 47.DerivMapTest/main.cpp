@@ -414,7 +414,7 @@ public:
 
 			commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 			commandBuffer->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &gpuSamplerDescriptorSet3.get(), 0u);
-			ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0, swapchain->getSurfaceTransform(), commandBuffer.get());
+			ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0, swapchain->getPreTransform(), commandBuffer.get());
 			commandBuffer->endRenderPass();
 			commandBuffer->end();
 

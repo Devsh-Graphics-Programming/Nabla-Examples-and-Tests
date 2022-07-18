@@ -410,7 +410,7 @@ public:
 				cb->beginRenderPass(&beginInfo, nbl::asset::ESC_INLINE);
 				cb->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 				cb->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
-				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getSurfaceTransform(), cb.get());
+				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
 				cb->endRenderPass();
 				cb->end();
 

@@ -178,7 +178,7 @@ int main()
 
 	// Camera 
 	core::vectorSIMDf cameraPosition(0, 5, -10);
-	matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.01f, 500.0f);
+	matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.01f, 500.0f);
 	Camera cam = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 
 	IGPUDescriptorSetLayout::SBinding descriptorSet0Bindings[] = {
@@ -507,7 +507,7 @@ int main()
 		
 		const auto viewMatrix = cam.getViewMatrix();
 		const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-			video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
 			cam.getConcatenatedMatrix()
 		);
 				
@@ -528,7 +528,7 @@ int main()
 			memcpy(viewParams.uboData.MV, mv.pointer(), sizeof(mv));
 			memcpy(viewParams.uboData.MVP, mvp.pointer(), sizeof(mvp));
 			memcpy(viewParams.uboData.NormalMat, normalMat.pointer(), sizeof(normalMat));
-			viewParams.surfaceTransform = swapchain->getSurfaceTransform();
+			viewParams.surfaceTransform = swapchain->getPreTransform();
 			
 			asset::SBufferRange<video::IGPUBuffer> range;
 			range.buffer = gpuubo;

@@ -507,7 +507,7 @@ public:
         cpu2gpuParams.waitForCreationToComplete();
 
         core::vectorSIMDf cameraPosition(-4, 0, 0);
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::surfaceTransformAspectRatio(swapchain->getSurfaceTransform(), WIN_W, WIN_H), 0.1, 100000);
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.1, 100000);
         camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 1.f, 1.f);
 
         uint64_t lastFPSTime = 0;
@@ -581,7 +581,7 @@ public:
 
         const auto& viewMatrix = camera.getViewMatrix();
         const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-            video::ISurface::surfaceTransformForward(swapchain->getSurfaceTransform()),
+            video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
             camera.getConcatenatedMatrix()
         );
 

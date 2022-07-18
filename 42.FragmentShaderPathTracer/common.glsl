@@ -35,7 +35,7 @@ vec2 getTexCoords() {
 #include <nbl/builtin/glsl/limits/numeric.glsl>
 #include <nbl/builtin/glsl/math/constants.glsl>
 #include <nbl/builtin/glsl/utils/common.glsl>
-#include <nbl/builtin/glsl/utils/swapchain_transform.glsl>
+#include <nbl/builtin/glsl/utils/surface_transform.glsl>
 
 #include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 

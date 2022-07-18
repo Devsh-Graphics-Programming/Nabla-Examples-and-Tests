@@ -8,7 +8,7 @@
 
 layout (local_size_x = 16, local_size_y = 16) in;
 
-#include <nbl/builtin/glsl/utils/swapchain_transform.glsl>
+#include <nbl/builtin/glsl/utils/surface_transform.glsl>
 
 layout (push_constant) uniform pushConstants
 {
@@ -23,7 +23,7 @@ void main()
 {
 	if (all(lessThan(gl_GlobalInvocationID.xy, u_pushConstants.imgSize)))
 	{
-		ivec2 postTransformUv = nbl_glsl_swapchain_transform_postTransform(u_pushConstants.swapchainTransform, ivec2(gl_GlobalInvocationID.xy), ivec2(u_pushConstants.imgSize));
+		ivec2 postTransformUv = nbl_glsl_surface_transform_applyToScreenSpaceCoordinate(u_pushConstants.swapchainTransform, ivec2(gl_GlobalInvocationID.xy), ivec2(u_pushConstants.imgSize));
 		vec4 outColor = vec4(vec2(postTransformUv) / vec2(u_pushConstants.imgSize), 0.0, 1.f);
 		imageStore(outImage, ivec2(gl_GlobalInvocationID.xy), outColor);
 	}
