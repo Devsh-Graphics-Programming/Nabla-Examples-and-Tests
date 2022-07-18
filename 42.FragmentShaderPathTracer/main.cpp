@@ -387,7 +387,6 @@ int main()
 	struct SBasicViewParametersAligned
 	{
 		SBasicViewParameters uboData;
-		uint32_t surfaceTransform;
 	};
 
 	IGPUBuffer::SCreationParams gpuuboParams = {};
@@ -528,7 +527,6 @@ int main()
 			memcpy(viewParams.uboData.MV, mv.pointer(), sizeof(mv));
 			memcpy(viewParams.uboData.MVP, mvp.pointer(), sizeof(mvp));
 			memcpy(viewParams.uboData.NormalMat, normalMat.pointer(), sizeof(normalMat));
-			viewParams.surfaceTransform = swapchain->getPreTransform();
 			
 			asset::SBufferRange<video::IGPUBuffer> range;
 			range.buffer = gpuubo;

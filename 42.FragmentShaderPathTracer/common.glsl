@@ -42,7 +42,6 @@ vec2 getTexCoords() {
 layout(set = 1, binding = 0, row_major, std140) uniform UBO
 {
 	nbl_glsl_SBasicViewParameters params;
-    uint swapchainTransform;
 } cameraData;
 
 
