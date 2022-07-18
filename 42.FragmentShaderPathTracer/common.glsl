@@ -35,6 +35,7 @@ vec2 getTexCoords() {
 #include <nbl/builtin/glsl/limits/numeric.glsl>
 #include <nbl/builtin/glsl/math/constants.glsl>
 #include <nbl/builtin/glsl/utils/common.glsl>
+#include <nbl/builtin/glsl/utils/surface_transform.glsl>
 
 #include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
@@ -686,10 +687,12 @@ bool closestHitProgram(in uint depth, in uint _sample, inout Ray_t ray, inout nb
 
 void main()
 {
+    const ivec2 imageExtents = imageSize(outImage);
     const ivec2 coords = getCoordinates();
-    const vec2 texCoord = getTexCoords();
+    vec2 texCoord = vec2(coords) / vec2(imageExtents);
+    texCoord.y = 1.0 - texCoord.y;
 
-    if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageSize(outImage),coords)))) {
+    if (false == (all(lessThanEqual(ivec2(0),coords)) && all(greaterThan(imageExtents,coords)))) {
         return;
     }
 
