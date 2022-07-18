@@ -108,7 +108,7 @@ public:
 		initOutput.window = core::smart_refctd_ptr(window);
 		CommonAPI::InitWithDefaultExt(
 			initOutput,
-			video::EAT_OPENGL,
+			video::EAT_VULKAN,
 			"02.ComputeShader",
 			FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
 			swapchainImageUsage,
@@ -366,7 +366,7 @@ public:
 		asset::SPushConstantRange pcRange = {};
 		pcRange.stageFlags = asset::IShader::ESS_COMPUTE;
 		pcRange.offset = 0u;
-		pcRange.size = 2 * sizeof(uint32_t);
+		pcRange.size = 3 * sizeof(uint32_t);
 		core::smart_refctd_ptr<video::IGPUPipelineLayout> pipelineLayout =
 			logicalDevice->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(dsLayout));
 
@@ -435,7 +435,7 @@ public:
 		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
 		layoutTransBarrier.subresourceRange.layerCount = 1u;
 
-		const uint32_t windowDim[2] = { window->getWidth(), window->getHeight() };
+		const uint32_t pushConstants[3] = { window->getWidth(), window->getHeight(), swapchain->getPreTransform() };
 
 		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
@@ -457,7 +457,7 @@ public:
 		cb->bindComputePipeline(m_pipeline.get());
 		
 		const asset::SPushConstantRange& pcRange = m_pipeline->getLayout()->getPushConstantRanges().begin()[0];
-		cb->pushConstants(m_pipeline->getLayout(), pcRange.stageFlags, pcRange.offset, pcRange.size, windowDim);
+		cb->pushConstants(m_pipeline->getLayout(), pcRange.stageFlags, pcRange.offset, pcRange.size, pushConstants);
 
 		cb->dispatch((WIN_W + 15u) / 16u, (WIN_H + 15u) / 16u, 1u);
 
