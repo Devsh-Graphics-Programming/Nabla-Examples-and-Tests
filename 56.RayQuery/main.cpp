@@ -185,7 +185,7 @@ public:
 	
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
+		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_SRGB, asset::EOTF_sRGB);
 
 		CommonAPI::InitOutput initOutput;
@@ -611,7 +611,7 @@ public:
 
 		// Camera 
 		core::vectorSIMDf cameraPosition(0, 5, -10);
-		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 500.0f);
+		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.01f, 500.0f);
 		cam = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 
 		IGPUDescriptorSetLayout::SBinding descriptorSet0Bindings[] = {
@@ -740,7 +740,7 @@ public:
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::ESCF_1_BIT;
 			imgParams.usage = core::bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_TRANSFER_DST_BIT;
-			imgParams.initialLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+			imgParams.initialLayout = asset::EIL_UNDEFINED;
 
 			IGPUImage::SBufferCopy region = {};
 			region.bufferOffset = 0u;
@@ -944,7 +944,10 @@ public:
 			fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 		
 		const auto viewMatrix = cam.getViewMatrix();
-		const auto viewProjectionMatrix = cam.getConcatenatedMatrix();
+		const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+			cam.getConcatenatedMatrix()
+		);
 				
 		// safe to proceed
 		cb->begin(IGPUCommandBuffer::EU_NONE);
