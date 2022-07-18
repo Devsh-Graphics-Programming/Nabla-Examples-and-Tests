@@ -414,7 +414,7 @@ public:
 
 			commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 			commandBuffer->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &gpuSamplerDescriptorSet3.get(), 0u);
-			ext::FullScreenTriangle::recordDrawCalls(commandBuffer.get());
+			ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0, swapchain->getPreTransform(), commandBuffer.get());
 			commandBuffer->endRenderPass();
 			commandBuffer->end();
 
@@ -499,7 +499,7 @@ public:
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "MeshLoaders", NBL_WINDOW_WIDTH, NBL_WINDOW_HEIGHT, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat);
+		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "DerivMapTest", NBL_WINDOW_WIDTH, NBL_WINDOW_HEIGHT, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat);
 		window = std::move(initOutput.window);
 		gl = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
@@ -527,7 +527,7 @@ public:
 		nbl::video::IGPUDescriptorSetLayout::SBinding binding{ 0u, nbl::asset::EDT_COMBINED_IMAGE_SAMPLER, 1u, nbl::video::IGPUShader::ESS_FRAGMENT, nullptr };
 		gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
 		gpuDescriptorPool = createDescriptorPool(1u); // per single texture
-		auto fstProtoPipeline = nbl::ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams);
+		auto fstProtoPipeline = nbl::ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0);
 		{
 			gpuTransferFence = std::move(logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0)));
 			gpuTransferSemaphore = std::move(logicalDevice->createSemaphore());
@@ -573,7 +573,8 @@ public:
 				gpuFragmentShader = (*gpu_array)[0];
 			}
 
-			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+			auto constants = std::get<asset::SPushConstantRange>(fstProtoPipeline);
+			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(&constants, &constants + 1, nullptr, nullptr, nullptr, core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 			return ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fstProtoPipeline, std::move(gpuFragmentShader), std::move(gpuPipelineLayout));
 		};
 

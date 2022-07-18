@@ -464,7 +464,7 @@ public:
         bakedCommandBuffer->end();
 
         core::vectorSIMDf cameraPosition(0, 5, -10);
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 2.f, 4000.f);
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 2.f, 4000.f);
         camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 10.f, 1.f);
 
         oracle.reportBeginFrameRecord();
@@ -533,7 +533,10 @@ public:
         // update camera
         {
             const auto& viewMatrix = camera.getViewMatrix();
-            const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
+            const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+                video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()), 
+                camera.getConcatenatedMatrix()
+            );
 
             const size_t camUboSize = cameraUBO->getSize();
             core::vector<uint8_t> uboData(camUboSize);
