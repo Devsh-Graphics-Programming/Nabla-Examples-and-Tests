@@ -1221,12 +1221,13 @@ public:
 				result.renderToSwapchainRenderpass = createRenderpass(result.logicalDevice, swapChainFormat, params.depthFormat);
 			}
 
-			for (uint32_t i = 0; i < InitOutput::EQT_COUNT; ++i)
+			uint32_t commandPoolsToCreate = core::max(params.framesInFlight, 1u);
+			for(uint32_t i = 0; i < InitOutput::EQT_COUNT; ++i)
 			{
 				const IGPUQueue* queue = result.queues[i];
 				if (queue != nullptr)
 				{
-					for (size_t j = 0; j < params.framesInFlight; j++)
+					for (size_t j = 0; j < commandPoolsToCreate; j++)
 					{
 						result.commandPools[i][j] = result.logicalDevice->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
 						assert(result.commandPools[i][j]);
