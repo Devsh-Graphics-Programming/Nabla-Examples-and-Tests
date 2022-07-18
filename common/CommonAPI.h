@@ -1506,7 +1506,7 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain,
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass, 
 		nbl::asset::E_FORMAT baseDepthFormat = nbl::asset::EF_UNKNOWN
-	) -> std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, InitOutput::MaxSwapChainImageCount>
+	) -> nbl::core::smart_refctd_dynamic_array <nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>>
 	{
 		using namespace nbl;
 
@@ -1516,9 +1516,9 @@ public:
 		);
 		bool useDepth = depthFormat != nbl::asset::EF_UNKNOWN;
 
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, InitOutput::MaxSwapChainImageCount> fbo;
 		auto sc_images = swapchain->getImages();
 		assert(sc_images.size() == imageCount);
+		auto fbo = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>>>(imageCount);
 		for (uint32_t i = 0u; i < imageCount; ++i)
 		{
 			nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> view[2] = {};
@@ -1578,8 +1578,8 @@ public:
 			fb_params.attachmentCount = (useDepth) ? 2u : 1u;
 			fb_params.attachments = view;
 
-			fbo[i] = device->createFramebuffer(std::move(fb_params));
-			assert(fbo[i]);
+			fbo->begin()[i] = device->createFramebuffer(std::move(fb_params));
+			assert(fbo->begin()[i]);
 		}
 		return fbo;
 	}
