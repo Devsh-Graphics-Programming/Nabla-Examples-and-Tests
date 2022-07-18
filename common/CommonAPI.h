@@ -741,21 +741,23 @@ public:
 		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
 		
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
-		
-		nbl::core::vector<nbl::asset::E_FORMAT> acceptableSurfaceFormats = {
-			nbl::asset::EF_R8G8B8A8_SRGB,
-			nbl::asset::EF_R8G8B8A8_UNORM,
-			nbl::asset::EF_B8G8R8A8_SRGB,
-			nbl::asset::EF_B8G8R8A8_UNORM
-		};
-		nbl::core::vector<nbl::asset::E_COLOR_PRIMARIES> acceptableColorPrimaries = { nbl::asset::ECP_SRGB };
-		nbl::core::vector<nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION> acceptableEotfs = { nbl::asset::EOTF_sRGB };
-		nbl::core::vector<nbl::video::ISurface::E_PRESENT_MODE> acceptablePresentModes = { nbl::video::ISurface::EPM_FIFO_RELAXED };
-		nbl::core::vector<nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS> acceptableSurfaceTransforms = { 
-			nbl::video::ISurface::EST_IDENTITY_BIT,  
-			// (Flip vertical, used for OpenGL)
-			nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT
-		};
+
+		constexpr static inline std::array<nbl::asset::E_FORMAT, 4> defaultAcceptableSurfaceFormats = { nbl::asset::EF_R8G8B8A8_SRGB, nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::EF_B8G8R8A8_UNORM };
+		constexpr static inline std::array<nbl::asset::E_COLOR_PRIMARIES, 1> defaultAcceptableColorPrimaries = { nbl::asset::ECP_SRGB };
+		constexpr static inline std::array<nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION, 1> defaultAcceptableEotfs = { nbl::asset::EOTF_sRGB };
+		constexpr static inline std::array<nbl::video::ISurface::E_PRESENT_MODE, 1> defaultAcceptablePresentModes = { nbl::video::ISurface::EPM_FIFO_RELAXED };
+		constexpr static inline std::array<nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS, 2> defaultAcceptableSurfaceTransforms = { nbl::video::ISurface::EST_IDENTITY_BIT, nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT };
+
+		const nbl::asset::E_FORMAT* acceptableSurfaceFormats = &defaultAcceptableSurfaceFormats[0];
+		uint32_t acceptableSurfaceFormatCount = defaultAcceptableSurfaceFormats.size();
+		const nbl::asset::E_COLOR_PRIMARIES* acceptableColorPrimaries = &defaultAcceptableColorPrimaries[0];
+		uint32_t acceptableColorPrimaryCount = defaultAcceptableColorPrimaries.size();
+		const nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION* acceptableEotfs = &defaultAcceptableEotfs[0];
+		uint32_t acceptableEotfCount = defaultAcceptableEotfs.size();
+		const nbl::video::ISurface::E_PRESENT_MODE* acceptablePresentModes = &defaultAcceptablePresentModes[0];
+		uint32_t acceptablePresentModeCount = defaultAcceptablePresentModes.size();
+		const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms = &defaultAcceptableSurfaceTransforms[0];
+		uint32_t acceptableSurfaceTransformCount = defaultAcceptableSurfaceTransforms.size();
 
 		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
 
@@ -1208,11 +1210,11 @@ public:
 					result.logicalDevice, 
 					result.surface, 
 					params.swapchainImageUsage,
-					params.acceptableSurfaceFormats,
-					params.acceptableColorPrimaries,
-					params.acceptableEotfs,
-					params.acceptablePresentModes,
-					params.acceptableSurfaceTransforms
+					params.acceptableSurfaceFormats, params.acceptableSurfaceFormatCount,
+					params.acceptableColorPrimaries, params.acceptableColorPrimaryCount,
+					params.acceptableEotfs, params.acceptableEotfCount,
+					params.acceptablePresentModes, params.acceptablePresentModeCount,
+					params.acceptableSurfaceTransforms, params.acceptableSurfaceTransformCount
 				);
 
 				nbl::asset::E_FORMAT swapChainFormat = result.swapchainCreationParams.surfaceFormat.format;
@@ -1285,11 +1287,11 @@ public:
 		const nbl::core::smart_refctd_ptr<nbl::video::ISurface>& surface,
 		nbl::asset::IImage::E_USAGE_FLAGS imageUsage,
 		// Acceptable settings, ordered by preference.
-		nbl::core::vector<nbl::asset::E_FORMAT>& acceptableSurfaceFormats,
-		nbl::core::vector<nbl::asset::E_COLOR_PRIMARIES>& acceptableColorPrimaries,
-		nbl::core::vector<nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION>& acceptableEotfs,
-		nbl::core::vector<nbl::video::ISurface::E_PRESENT_MODE>& acceptablePresentModes,
-		nbl::core::vector<nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS>& acceptableSurfaceTransforms
+		const nbl::asset::E_FORMAT* acceptableSurfaceFormats, uint32_t acceptableSurfaceFormatCount,
+		const nbl::asset::E_COLOR_PRIMARIES* acceptableColorPrimaries, uint32_t acceptableColorPrimaryCount,
+		const nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION* acceptableEotfs, uint32_t acceptableEotfCount,
+		const nbl::video::ISurface::E_PRESENT_MODE* acceptablePresentModes, uint32_t acceptablePresentModeCount,
+		const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms, uint32_t acceptableSurfaceTransformsCount
 	)
 	{
 		using namespace nbl;
@@ -1314,19 +1316,19 @@ public:
 			nbl::video::ISurface::SCapabilities capabilities;
 			surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), capabilities);
 
-			for (uint32_t i = 0; i < acceptableSurfaceTransforms.size(); i++)
+			for (uint32_t i = 0; i < acceptableSurfaceFormatCount; i++)
 			{
 				auto testSurfaceTransform = acceptableSurfaceTransforms[i];
-				if ((capabilities.supportedTransforms.value & testSurfaceTransform) == testSurfaceTransform)
+				if (capabilities.currentTransform == testSurfaceTransform)
 				{
 					surfaceTransform = testSurfaceTransform;
 					break;
 				}
 			}
-			assert(surfaceTransform != nbl::video::ISurface::EST_FLAG_BITS_MAX_ENUM);
+			assert(surfaceTransform != nbl::video::ISurface::EST_FLAG_BITS_MAX_ENUM); // currentTransform must be supported in acceptableSurfaceTransforms
 
 			auto availablePresentModes = surface->getAvailablePresentModesForPhysicalDevice(device->getPhysicalDevice());
-			for (uint32_t i = 0; i < acceptablePresentModes.size(); i++)
+			for (uint32_t i = 0; i < acceptablePresentModeCount; i++)
 			{
 				auto testPresentMode = acceptablePresentModes[i];
 				if ((availablePresentModes & testPresentMode) == testPresentMode)
