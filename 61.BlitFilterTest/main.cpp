@@ -381,7 +381,7 @@ private:
 			auto transitionImageLayout = [this](core::smart_refctd_ptr<video::IGPUImage>&& image, const asset::E_IMAGE_LAYOUT finalLayout)
 			{
 				core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
-				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 
 				auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
 
@@ -647,7 +647,7 @@ private:
 				logicalDevice->allocate(memReqs, downloadBuffer.get());
 
 				core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
-				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 				auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
 
 				cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
@@ -804,7 +804,7 @@ private:
 	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<video::IGPURenderpass> renderpass = nullptr;
 	std::array<nbl::core::smart_refctd_ptr<video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::system::ISystem> system;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
