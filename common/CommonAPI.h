@@ -882,6 +882,16 @@ public:
 		const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms, uint32_t acceptableSurfaceTransformsCount
 	);
 
+
+	struct IRetiredSwapchainResources
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain;
+		uint64_t retiredFrameId;
+	};
+
+	void dropRetiredSwapchainResources(const uint64_t completedFrameId);
+	void retireSwapchainResources(std::unique_ptr<IRetiredSwapchainResources> retired);
+
 	static bool createSwapchain(
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 		nbl::video::ISwapchain::SCreationParams& params,
@@ -890,10 +900,12 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchain
 	)
 	{
+		auto oldSwapchain = swapchain;
+
 		nbl::video::ISwapchain::SCreationParams paramsCp = params;
 		paramsCp.width = width;
 		paramsCp.height = height;
-		paramsCp.oldSwapchain = swapchain;
+		paramsCp.oldSwapchain = oldSwapchain;
 		swapchain = device->createSwapchain(std::move(paramsCp));
 		assert(swapchain);
 
@@ -1036,6 +1048,8 @@ public:
 		}
 		return -1;
 	}
+protected:
+	std::queue<std::unique_ptr<IRetiredSwapchainResources>> m_qRetiredSwapchainResources;
 };
 
 
