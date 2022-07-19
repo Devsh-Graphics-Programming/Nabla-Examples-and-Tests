@@ -883,8 +883,9 @@ public:
 	);
 
 
-	struct IRetiredSwapchainResources
+	class IRetiredSwapchainResources
 	{
+	public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain;
 		uint64_t retiredFrameId;
 	};
@@ -1049,7 +1050,7 @@ public:
 		return -1;
 	}
 protected:
-	std::queue<std::unique_ptr<IRetiredSwapchainResources>> m_qRetiredSwapchainResources;
+	nbl::core::deque<IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
 };
 
 

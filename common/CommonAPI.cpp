@@ -498,14 +498,13 @@ void CommonAPI::dropRetiredSwapchainResources(const uint64_t completedFrameId)
 {
 	while (!m_qRetiredSwapchainResources.empty() && m_qRetiredSwapchainResources.front()->retiredFrameId < completedFrameId)
 	{
-		// RAII ref drops
-		m_qRetiredSwapchainResources.pop();
+		m_qRetiredSwapchainResources.pop_front();
 	}
 }
 
 void CommonAPI::retireSwapchainResources(std::unique_ptr<IRetiredSwapchainResources> retired)
 {
-	m_qRetiredSwapchainResources.push(retired);
+	m_qRetiredSwapchainResources.push_back(retired.release());
 }
 
 nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> CommonAPI::createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat)
