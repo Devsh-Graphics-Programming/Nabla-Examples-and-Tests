@@ -149,7 +149,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL/*Vulkan doesn't work yet*/, "plystldemo", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
+		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "plystldemo", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
 		window = std::move(initOutput.window);
 		gl = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
@@ -379,7 +379,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		}
 
 		core::vectorSIMDf cameraPosition(0, 5, -10);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.001, 1000);
+		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.001, 1000);
 		camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 0.01f, 1.f);
 		lastTime = std::chrono::system_clock::now();
 
@@ -461,7 +461,10 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		camera.endInputProcessing(nextPresentationTimeStamp);
 
 		const auto& viewMatrix = camera.getViewMatrix();
-		const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
+		const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+			camera.getConcatenatedMatrix()
+		);
 
 		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
 		commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
@@ -556,7 +559,8 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 
 				if (gpuds3_ptr)
 					commandBuffer->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuRenderpassIndependentPipeline->getLayout(), 3u, 1u, &gpuds3_ptr, 0u);
-				commandBuffer->pushConstants(gpuRenderpassIndependentPipeline->getLayout(), video::IGPUShader::ESS_FRAGMENT, 0u, gpuMeshBuffer->MAX_PUSH_CONSTANT_BYTESIZE, gpuMeshBuffer->getPushConstantsDataPtr());
+				if (gpuRenderpassIndependentPipeline->getLayout()->m_pushConstantRanges)
+					commandBuffer->pushConstants(gpuRenderpassIndependentPipeline->getLayout(), video::IGPUShader::ESS_FRAGMENT, 0u, gpuMeshBuffer->MAX_PUSH_CONSTANT_BYTESIZE, gpuMeshBuffer->getPushConstantsDataPtr());
 
 				commandBuffer->drawMeshBuffer(gpuMeshBuffer);
 			}
