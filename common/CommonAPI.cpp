@@ -4,7 +4,7 @@
 std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 	nbl::core::SRange<nbl::video::IPhysicalDevice* const> gpus,
 	nbl::core::smart_refctd_ptr<nbl::video::ISurface> surface,
-	const bool headlessCompute = false)
+	const bool headlessCompute)
 {
 	using namespace nbl;
 	using namespace nbl::video;
@@ -376,7 +376,7 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 	const nbl::asset::E_COLOR_PRIMARIES* acceptableColorPrimaries, uint32_t acceptableColorPrimaryCount,
 	const nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION* acceptableEotfs, uint32_t acceptableEotfCount,
 	const nbl::video::ISurface::E_PRESENT_MODE* acceptablePresentModes, uint32_t acceptablePresentModeCount,
-	const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms, uint32_t acceptableSurfaceTransformsCount
+	const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms, uint32_t acceptableSurfaceTransformCount
 )
 {
 	using namespace nbl;
@@ -401,7 +401,7 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 		nbl::video::ISurface::SCapabilities capabilities;
 		surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), capabilities);
 
-		for (uint32_t i = 0; i < acceptableSurfaceFormatCount; i++)
+		for (uint32_t i = 0; i < acceptableSurfaceTransformCount; i++)
 		{
 			auto testSurfaceTransform = acceptableSurfaceTransforms[i];
 			if (capabilities.currentTransform == testSurfaceTransform)
@@ -431,12 +431,39 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 
 		for (uint32_t i = 0; i < availableFormatCount; ++i)
 		{
-			// TODO verify if acceptableSurfaceFormats, acceptableColorPrimaries & acceptableEotfs
-			// allow for supportedFormat
-			const auto& supportedFormat = availableFormats[i];
-			if (true)
+			auto testsformat = availableFormats[i];
+			bool supportsFormat = false;
+			bool supportsEotf = false;
+			bool supportsPrimary = false;
+
+			for (uint32_t i = 0; i < acceptableSurfaceFormatCount; i++)
 			{
-				surfaceFormat = supportedFormat;
+				if (testsformat.format == acceptableSurfaceFormats[i])
+				{
+					supportsFormat = true;
+					break;
+				}
+			}
+			for (uint32_t i = 0; i < acceptableEotfCount; i++)
+			{
+				if (testsformat.colorSpace.eotf == acceptableEotfs[i])
+				{
+					supportsEotf = true;
+					break;
+				}
+			}
+			for (uint32_t i = 0; i < acceptableColorPrimaryCount; i++)
+			{
+				if (testsformat.colorSpace.primary == acceptableColorPrimaries[i])
+				{
+					supportsPrimary = true;
+					break;
+				}
+			}
+
+			if (supportsFormat && supportsEotf && supportsPrimary)
+			{
+				surfaceFormat = testsformat;
 				break;
 			}
 		}
