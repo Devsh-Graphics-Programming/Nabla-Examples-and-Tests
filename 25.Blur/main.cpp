@@ -4,14 +4,17 @@
 
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
+
+#include "../common/CommonAPI.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
-#include "nbl/ext/CentralLimitBoxBlur/CBlurPerformer.h"
+// #include "nbl/ext/CentralLimitBoxBlur/CBlurPerformer.h"
 
 using namespace nbl;
 using namespace nbl::core;
 using namespace nbl::asset;
 using namespace nbl::video;
 
+#if 0
 using BlurClass = ext::CentralLimitBoxBlur::CBlurPerformer;
 
 class MouseEventReceiver : public IEventReceiver
@@ -344,3 +347,157 @@ int main()
 
     return 0;
 }
+#endif
+
+class BlurTestApp : public ApplicationBase
+{
+    constexpr static inline uint32_t FRAMES_IN_FLIGHT = 5u;
+	constexpr static inline uint32_t SC_IMG_COUNT = 3u;
+	constexpr static inline uint64_t MAX_TIMEOUT = 99999999999999ull;
+
+public:
+	void onAppInitialized_impl() override
+	{
+		CommonAPI::InitOutput initOutput;
+        CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "Blur", FRAMES_IN_FLIGHT, 1024, 1024, SC_IMG_COUNT, asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
+
+		system = std::move(initOutput.system);
+		window = std::move(initOutput.window);
+		windowCb = std::move(initOutput.windowCb);
+		apiConnection = std::move(initOutput.apiConnection);
+		surface = std::move(initOutput.surface);
+		physicalDevice = std::move(initOutput.physicalDevice);
+		logicalDevice = std::move(initOutput.logicalDevice);
+		utilities = std::move(initOutput.utilities);
+		queues = std::move(initOutput.queues);
+		swapchain = std::move(initOutput.swapchain);
+		commandPools = std::move(initOutput.commandPools);
+		assetManager = std::move(initOutput.assetManager);
+		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+		logger = std::move(initOutput.logger);
+		inputSystem = std::move(initOutput.inputSystem);
+
+	}
+
+	void onAppTerminated_impl() override
+	{
+		logicalDevice->waitIdle();
+	}
+
+	void workLoopBody() override
+	{
+        inputSystem->getDefaultKeyboard(&keyboard);
+        keyboard.consumeEvents(
+            [this](const ui::IKeyboardEventChannel::range_t& events)
+            {
+                for (auto eventIt = events.begin(); eventIt != events.end(); ++eventIt)
+                {
+                    const auto& ev = *eventIt;
+                    if ((ev.keyCode == ui::EKC_Q) && (ev.action == ui::SKeyboardEvent::ECA_RELEASED))
+                    {
+                        m_appRunning = false;
+                    }
+                }
+            },
+            logger.get());
+
+        inputSystem->getDefaultMouse(&mouse);
+        mouse.consumeEvents([this](const ui::IMouseEventChannel::range_t& events)
+            {
+                for (auto eventIt = events.begin(); eventIt != events.end(); ++eventIt)
+                {
+                    const auto& ev = *eventIt;
+                    if (ev.type == ui::SMouseEvent::EET_SCROLL)
+                    {
+                        logger->log("Mouse vertical scroll event detected: %d\n", system::ILogger::ELL_DEBUG, ev.scrollEvent.verticalScroll);
+                    }
+                }
+            }, logger.get());
+	}
+
+	bool keepRunning() override
+	{
+		return m_appRunning && windowCb->isWindowOpen();
+	}
+
+private:
+	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
+	core::smart_refctd_ptr<nbl::ui::IWindow> window;
+	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
+	core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
+	core::smart_refctd_ptr<nbl::video::ISurface> surface;
+	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
+	core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
+	video::IPhysicalDevice* physicalDevice;
+	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
+	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
+	core::smart_refctd_ptr<video::IGPURenderpass> renderpass = nullptr;
+	std::array<nbl::core::smart_refctd_ptr<video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	core::smart_refctd_ptr<nbl::system::ISystem> system;
+	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
+	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
+	core::smart_refctd_ptr<nbl::system::ILogger> logger;
+	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
+	video::IGPUObjectFromAssetConverter cpu2gpu;
+
+    CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> keyboard;
+    CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> mouse;
+
+    bool m_appRunning = true;
+
+public:
+	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
+	{
+		window = std::move(wnd);
+	}
+	void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& s) override
+	{
+		system = std::move(s);
+	}
+	nbl::ui::IWindow* getWindow() override
+	{
+		return window.get();
+	}
+	video::IAPIConnection* getAPIConnection() override
+	{
+		return apiConnection.get();
+	}
+	video::ILogicalDevice* getLogicalDevice()  override
+	{
+		return logicalDevice.get();
+	}
+	video::IGPURenderpass* getRenderpass() override
+	{
+		return renderpass.get();
+	}
+	void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
+	{
+		surface = std::move(s);
+	}
+	void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
+	{
+		for (int i = 0; i < f.size(); i++)
+		{
+			fbos[i] = core::smart_refctd_ptr(f[i]);
+		}
+	}
+	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
+	{
+		swapchain = std::move(s);
+	}
+	uint32_t getSwapchainImageCount() override
+	{
+		return SC_IMG_COUNT;
+	}
+	virtual nbl::asset::E_FORMAT getDepthFormat() override
+	{
+		return nbl::asset::EF_D32_SFLOAT;
+	}
+
+	APP_CONSTRUCTOR(BlurTestApp);
+};
+
+NBL_COMMON_API_MAIN(BlurTestApp)
+
+extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
