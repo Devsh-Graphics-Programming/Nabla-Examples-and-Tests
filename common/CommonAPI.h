@@ -14,6 +14,7 @@
 #include "nbl/system/CSystemAndroid.h"
 #include "nbl/system/CSystemLinux.h"
 #include "nbl/system/CSystemWin32.h"
+#include "nbl/video/CVulkanSwapchain.h"
 // TODO: make these include themselves via `nabla.h`
 
 
@@ -907,7 +908,15 @@ public:
 		paramsCp.width = width;
 		paramsCp.height = height;
 		paramsCp.oldSwapchain = oldSwapchain;
-		swapchain = device->createSwapchain(std::move(paramsCp));
+
+		if (device->getAPIType() == nbl::video::EAT_VULKAN)
+		{
+			swapchain = nbl::video::CVulkanSwapchain::create(device, std::move(paramsCp));
+		}
+		else {
+			// TODO
+		}
+
 		assert(swapchain);
 
 		return true;
@@ -993,16 +1002,13 @@ public:
 		uint32_t imageNum)
 	{
 		using namespace nbl;
-		nbl::video::IGPUQueue::SPresentInfo present;
+		nbl::video::ISwapchain::SPresentInfo present;
 		{
-			present.swapchainCount = 1u;
-			present.imgIndices = &imageNum;
-			nbl::video::ISwapchain* swapchain = sc;
-			present.swapchains = &swapchain;
+			present.imgIndex = imageNum;
 			present.waitSemaphoreCount = waitSemaphore ? 1u:0u;
 			present.waitSemaphores = &waitSemaphore;
-
-			queue->present(present);
+			
+			sc->present(queue, present);
 		}
 	}
 
