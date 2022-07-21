@@ -113,7 +113,7 @@ public:
 		initParams.windowHeight = WIN_H;
 		initParams.scImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
-		initParams.acceptableSurfaceFormats = &acceptableSurfaceFormats.data()[0];
+		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
