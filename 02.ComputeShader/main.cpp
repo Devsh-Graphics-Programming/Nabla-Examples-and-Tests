@@ -102,7 +102,7 @@ public:
 	void onAppInitialized_impl() override
 	{
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-		std::vector<asset::E_FORMAT> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
+		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
 		CommonAPI::InitParams initParams;
 		initParams.window = core::smart_refctd_ptr(window);
@@ -113,7 +113,7 @@ public:
 		initParams.windowHeight = WIN_H;
 		initParams.scImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
-		initParams.acceptableSurfaceFormats = &acceptableSurfaceFormats[0];
+		initParams.acceptableSurfaceFormats = &acceptableSurfaceFormats.data()[0];
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
