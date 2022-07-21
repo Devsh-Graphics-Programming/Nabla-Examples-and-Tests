@@ -32,36 +32,36 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
 
-	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
-	core::smart_refctd_ptr<nbl::ui::IWindow> window;
+	core::smart_refctd_ptr<ui::IWindowManager> windowManager;
+	core::smart_refctd_ptr<ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
-	core::smart_refctd_ptr<nbl::video::ISurface> surface;
-	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
+	core::smart_refctd_ptr<video::IAPIConnection> apiConnection;
+	core::smart_refctd_ptr<video::ISurface> surface;
+	core::smart_refctd_ptr<video::IUtilities> utilities;
+	core::smart_refctd_ptr<video::ILogicalDevice> logicalDevice;
 	video::IPhysicalDevice* physicalDevice;
 	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
-	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<nbl::system::ISystem> system;
-	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
+	core::smart_refctd_ptr<video::ISwapchain> swapchain;
+	core::smart_refctd_ptr<video::IGPURenderpass> renderpass;
+	std::array<core::smart_refctd_ptr<video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
+	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	core::smart_refctd_ptr<system::ISystem> system;
+	core::smart_refctd_ptr<asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<nbl::system::ILogger> logger;
+	core::smart_refctd_ptr<system::ILogger> logger;
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
 
 public:
-	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
+	void setWindow(core::smart_refctd_ptr<ui::IWindow>&& wnd) override
 	{
 		window = std::move(wnd);
 	}
-	nbl::ui::IWindow* getWindow() override
+	ui::IWindow* getWindow() override
 	{
 		return window.get();
 	}
-	void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& system) override
+	void setSystem(core::smart_refctd_ptr<system::ISystem>&& system) override
 	{
 		system = std::move(system);
 	}
@@ -107,32 +107,32 @@ public:
 		{
 			constexpr uint32_t maxItemCount = 256u;
 			{
-				nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
+				video::IDescriptorPool::SDescriptorPoolSize poolSize;
 				poolSize.count = textureCount;
-				poolSize.type = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
-				return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
+				poolSize.type = asset::EDT_COMBINED_IMAGE_SAMPLER;
+				return logicalDevice->createDescriptorPool(static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
 			}
 		};
 
-		nbl::asset::ISampler::SParams samplerParams = { nbl::asset::ISampler::ETC_CLAMP_TO_EDGE, nbl::asset::ISampler::ETC_CLAMP_TO_EDGE, nbl::asset::ISampler::ETC_CLAMP_TO_EDGE, nbl::asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, nbl::asset::ISampler::ETF_LINEAR, nbl::asset::ISampler::ETF_LINEAR, nbl::asset::ISampler::ESMM_LINEAR, 0u, false, nbl::asset::ECO_ALWAYS };
+		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
 		auto immutableSampler = logicalDevice->createSampler(samplerParams);
 
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, nbl::asset::EDT_COMBINED_IMAGE_SAMPLER, 1u, nbl::video::IGPUShader::ESS_FRAGMENT, &immutableSampler };
+		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::EDT_COMBINED_IMAGE_SAMPLER, 1u, video::IGPUShader::ESS_FRAGMENT, &immutableSampler };
 		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
 		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
-		auto fstProtoPipeline = nbl::ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
+		auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
 
-		auto createGPUPipeline = [&](asset::IImageView<nbl::asset::ICPUImage>::E_TYPE typeOfImage) -> core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>
+		auto createGPUPipeline = [&](asset::IImageView<asset::ICPUImage>::E_TYPE typeOfImage) -> core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>
 		{
 			auto getPathToFragmentShader = [&]() -> std::string
 			{
 				switch (typeOfImage)
 				{
-				case nbl::asset::IImageView<nbl::asset::ICPUImage>::ET_2D:
+				case asset::IImageView<asset::ICPUImage>::ET_2D:
 					return "../present2D.frag";
-				case nbl::asset::IImageView<nbl::asset::ICPUImage>::ET_2D_ARRAY:
+				case asset::IImageView<asset::ICPUImage>::ET_2D_ARRAY:
 					return "../present2DArray.frag";
-				case nbl::asset::IImageView<nbl::asset::ICPUImage>::ET_CUBE_MAP:
+				case asset::IImageView<asset::ICPUImage>::ET_CUBE_MAP:
 					return "../presentCubemap.frag";
 				default:
 					assert(false);
@@ -163,11 +163,11 @@ public:
 			return ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fstProtoPipeline, std::move(gpuFragmentShader), std::move(gpuPipelineLayout));
 		};
 
-		auto gpuPipelineFor2D = createGPUPipeline(nbl::asset::IImageView<nbl::asset::ICPUImage>::E_TYPE::ET_2D);
-		auto gpuPipelineFor2DArrays = createGPUPipeline(nbl::asset::IImageView<nbl::asset::ICPUImage>::E_TYPE::ET_2D_ARRAY);
-		auto gpuPipelineForCubemaps = createGPUPipeline(nbl::asset::IImageView<nbl::asset::ICPUImage>::E_TYPE::ET_CUBE_MAP);
+		auto gpuPipelineFor2D = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D);
+		auto gpuPipelineFor2DArrays = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D_ARRAY);
+		auto gpuPipelineForCubemaps = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_CUBE_MAP);
 
-		core::vector<nbl::core::smart_refctd_ptr<nbl::asset::ICPUImageView>> cpuImageViews;
+		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> cpuImageViews;
 		core::vector<NBL_CAPTION_DATA_TO_DISPLAY> captionTexturesData;
 		{
 			std::ifstream list(testingImagePathsFile.data());
@@ -181,8 +181,8 @@ public:
 						auto& pathToTexture = line;
 						auto& newCpuImageViewTexture = cpuImageViews.emplace_back();
 
-						constexpr auto cachingFlags = static_cast<nbl::asset::IAssetLoader::E_CACHING_FLAGS>(nbl::asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & nbl::asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-						nbl::asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
+						constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+						asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
 						auto cpuTextureBundle = assetManager->getAsset(pathToTexture, loadParams);
 						auto cpuTextureContents = cpuTextureBundle.getContents();
 						{
@@ -198,9 +198,9 @@ public:
 						auto asset = *cpuTextureContents.begin();
 						switch (asset->getAssetType())
 						{
-						case nbl::asset::IAsset::ET_IMAGE:
+						case asset::IAsset::ET_IMAGE:
 						{
-							nbl::asset::ICPUImageView::SCreationParams viewParams = {};
+							asset::ICPUImageView::SCreationParams viewParams = {};
 							viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
 							viewParams.image = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset);
 							viewParams.format = viewParams.image->getCreationParameters().format;
@@ -211,10 +211,10 @@ public:
 							viewParams.subresourceRange.baseMipLevel = 0u;
 							viewParams.subresourceRange.levelCount = 1u;
 
-							newCpuImageViewTexture = nbl::asset::ICPUImageView::create(std::move(viewParams));
+							newCpuImageViewTexture = asset::ICPUImageView::create(std::move(viewParams));
 						} break;
 
-						case nbl::asset::IAsset::ET_IMAGE_VIEW:
+						case asset::IAsset::ET_IMAGE_VIEW:
 						{
 							newCpuImageViewTexture = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset);
 						} break;
@@ -237,11 +237,11 @@ public:
 						{
 							const auto& viewType = newCpuImageViewTexture->getCreationParameters().viewType;
 
-							if (viewType == nbl::asset::IImageView<nbl::video::IGPUImage>::ET_2D)
+							if (viewType == asset::IImageView<video::IGPUImage>::ET_2D)
 								return std::string("ET_2D");
-							else if (viewType == nbl::asset::IImageView<nbl::video::IGPUImage>::ET_2D_ARRAY)
+							else if (viewType == asset::IImageView<video::IGPUImage>::ET_2D_ARRAY)
 								return std::string("ET_2D_ARRAY");
-							else if (viewType == nbl::asset::IImageView<nbl::video::IGPUImage>::ET_CUBE_MAP)
+							else if (viewType == asset::IImageView<video::IGPUImage>::ET_CUBE_MAP)
 								return std::string("ET_CUBE_MAP");
 							else
 								assert(false);
@@ -268,25 +268,54 @@ public:
 		cpu2gpuParams.beginCommandBuffers();
 		auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(cpuImageViews.data(), cpuImageViews.data() + cpuImageViews.size(), cpu2gpuParams);
 		cpu2gpuParams.waitForCreationToComplete(false);
+		
+		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
+		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
+		{
+			// Create GPU Images based on cpuImageViews
+			for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
+			{
+				auto& cpuImageView = cpuImageViews[i];
+				auto imageviewCreateParams = cpuImageView->getCreationParameters();
+				auto& cpuImage = imageviewCreateParams.image;
+				auto imageCreateParams = cpuImage->getCreationParameters();
+				
+				video::IGPUImage::SCreationParams gpuImageCreateInfo = {};
+				//gpuImageCreateInfo.flags;
+				//gpuImageCreateInfo.type;
+				//gpuImageCreateInfo.format;
+				//gpuImageCreateInfo.extent;
+				//gpuImageCreateInfo.mipLevels;
+				//gpuImageCreateInfo.arrayLayers;
+				//gpuImageCreateInfo.samples;
+				//gpuImageCreateInfo.tiling = asset::IImage::ET_OPTIMAL;
+				//gpuImageCreateInfo.usage = ;
+				//gpuImageCreateInfo.sharingMode = asset::ESM_EXCLUSIVE;
+				//gpuImageCreateInfo.queueFamilyIndexCount = 0u;
+				//gpuImageCreateInfo.queueFamilyIndices = nullptr;
+				//gpuImageCreateInfo.initialLayout = asset::EIL_UNDEFINED;
+				logicalDevice->createImage();
+			}
+		}
 
 		if (!gpuImageViews || gpuImageViews->size() < cpuImageViews.size())
 			assert(false);
 
-		auto getCurrentGPURenderpassIndependentPipeline = [&](nbl::video::IGPUImageView* gpuImageView)
+		auto getCurrentGPURenderpassIndependentPipeline = [&](video::IGPUImageView* gpuImageView)
 		{
 			switch (gpuImageView->getCreationParameters().viewType)
 			{
-			case nbl::asset::IImageView<nbl::video::IGPUImage>::ET_2D:
+			case asset::IImageView<video::IGPUImage>::ET_2D:
 			{
 				return gpuPipelineFor2D;
 			}
 
-			case nbl::asset::IImageView<nbl::video::IGPUImage>::ET_2D_ARRAY:
+			case asset::IImageView<video::IGPUImage>::ET_2D_ARRAY:
 			{
 				return gpuPipelineFor2DArrays;
 			}
 
-			case nbl::asset::IImageView<nbl::video::IGPUImage>::ET_CUBE_MAP:
+			case asset::IImageView<video::IGPUImage>::ET_CUBE_MAP:
 			{
 				return gpuPipelineForCubemaps;
 			}
@@ -296,32 +325,32 @@ public:
 			}
 		};
 
-		auto presentImageOnTheScreen = [&](nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
+		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
-			auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), nbl::core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+			auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 
-			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+			video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
 				info.desc = gpuImageView;
 				info.image.sampler = nullptr;
-				info.image.imageLayout = nbl::asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+				info.image.imageLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
 			}
 
-			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
+			video::IGPUDescriptorSet::SWriteDescriptorSet write;
 			write.dstSet = ds.get();
 			write.binding = 0u;
 			write.arrayElement = 0u;
 			write.count = 1u;
-			write.descriptorType = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
+			write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
 			write.info = &info;
 
 			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 
 			auto currentGpuRenderpassIndependentPipeline = getCurrentGPURenderpassIndependentPipeline(gpuImageView.get());
-			core::smart_refctd_ptr<nbl::video::IGPUGraphicsPipeline> gpuGraphicsPipeline;
+			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> gpuGraphicsPipeline;
 			{
-				nbl::video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams = {};
-				graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline>(const_cast<video::IGPURenderpassIndependentPipeline*>(currentGpuRenderpassIndependentPipeline.get()));
+				video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams = {};
+				graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>(const_cast<video::IGPURenderpassIndependentPipeline*>(currentGpuRenderpassIndependentPipeline.get()));
 				graphicsPipelineParams.renderpass = core::smart_refctd_ptr(renderpass);
 
 				gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
@@ -407,7 +436,7 @@ public:
 					beginInfo.clearValues = &clear;
 				}
 
-				cb->beginRenderPass(&beginInfo, nbl::asset::ESC_INLINE);
+				cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 				cb->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 				cb->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
 				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
@@ -456,7 +485,21 @@ public:
 			{
 				auto& captionData = captionTexturesData[i];
 
-				bool status = presentImageOnTheScreen(nbl::core::smart_refctd_ptr(gpuImageView), captionData);
+				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
+				assert(status);
+			}
+		}
+
+
+		// Now present weird images (sub-region copies)
+		for (size_t i = 0; i < weirdGPUImages.size(); ++i)
+		{
+			auto gpuImageView = weirdGPUImages[i];
+			if (gpuImageView)
+			{
+				NBL_CAPTION_DATA_TO_DISPLAY captionData = {};
+				captionData.name = "Weird Region";
+				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
 				assert(status);
 			}
 		}
@@ -508,9 +551,9 @@ public:
 	{
 		return swapchain->getImageCount();
 	}
-	virtual nbl::asset::E_FORMAT getDepthFormat() override
+	virtual asset::E_FORMAT getDepthFormat() override
 	{
-		return nbl::asset::EF_D32_SFLOAT;
+		return asset::EF_D32_SFLOAT;
 	}
 };
 
