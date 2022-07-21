@@ -280,21 +280,41 @@ public:
 				auto& cpuImage = imageviewCreateParams.image;
 				auto imageCreateParams = cpuImage->getCreationParameters();
 				
+				if(imageviewCreateParams.format == asset::EF_R8G8B8_SRGB)
+					continue; // skip for now that we don't use format promotion
+
 				video::IGPUImage::SCreationParams gpuImageCreateInfo = {};
-				//gpuImageCreateInfo.flags;
-				//gpuImageCreateInfo.type;
-				//gpuImageCreateInfo.format;
-				//gpuImageCreateInfo.extent;
-				//gpuImageCreateInfo.mipLevels;
-				//gpuImageCreateInfo.arrayLayers;
-				//gpuImageCreateInfo.samples;
-				//gpuImageCreateInfo.tiling = asset::IImage::ET_OPTIMAL;
-				//gpuImageCreateInfo.usage = ;
-				//gpuImageCreateInfo.sharingMode = asset::ESM_EXCLUSIVE;
-				//gpuImageCreateInfo.queueFamilyIndexCount = 0u;
-				//gpuImageCreateInfo.queueFamilyIndices = nullptr;
-				//gpuImageCreateInfo.initialLayout = asset::EIL_UNDEFINED;
-				logicalDevice->createImage();
+				gpuImageCreateInfo.flags = imageCreateParams.flags;
+				gpuImageCreateInfo.type = imageCreateParams.type;
+				gpuImageCreateInfo.format = imageCreateParams.format;
+				gpuImageCreateInfo.extent = imageCreateParams.extent;
+				gpuImageCreateInfo.mipLevels = imageCreateParams.mipLevels;
+				gpuImageCreateInfo.arrayLayers = imageCreateParams.arrayLayers;
+				gpuImageCreateInfo.samples = imageCreateParams.samples;
+				gpuImageCreateInfo.tiling = asset::IImage::ET_OPTIMAL;
+				gpuImageCreateInfo.usage = imageCreateParams.usage | asset::IImage::EUF_TRANSFER_DST_BIT;
+				gpuImageCreateInfo.sharingMode = asset::ESM_EXCLUSIVE;
+				gpuImageCreateInfo.queueFamilyIndexCount = 0u;
+				gpuImageCreateInfo.queueFamilyIndices = nullptr;
+				gpuImageCreateInfo.initialLayout = asset::EIL_UNDEFINED;
+				auto gpuImage = logicalDevice->createImage(std::move(gpuImageCreateInfo));
+				
+				auto gpuImageMemReqs = gpuImage->getMemoryReqs();
+				gpuImageMemReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+				logicalDevice->allocate(gpuImageMemReqs, gpuImage.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
+
+				video::IGPUImageView::SCreationParams gpuImageViewCreateInfo = {};
+				gpuImageViewCreateInfo.flags = static_cast<video::IGPUImageView::E_CREATE_FLAGS>(imageviewCreateParams.flags);
+				gpuImageViewCreateInfo.image = gpuImage;
+				gpuImageViewCreateInfo.viewType = static_cast<video::IGPUImageView::E_TYPE>(imageviewCreateParams.viewType);
+				gpuImageViewCreateInfo.format = imageCreateParams.format;
+				memcpy(&gpuImageViewCreateInfo.components, &imageviewCreateParams.components, sizeof(imageviewCreateParams.components));
+				gpuImageViewCreateInfo.subresourceRange = imageviewCreateParams.subresourceRange;
+				gpuImageViewCreateInfo.subresourceRange.levelCount = imageCreateParams.mipLevels - imageviewCreateParams.subresourceRange.baseMipLevel;
+				
+				auto gpuImageView = logicalDevice->createImageView(std::move(gpuImageViewCreateInfo));
+
+				weirdGPUImages.push_back(gpuImageView);
 			}
 		}
 
@@ -404,6 +424,19 @@ public:
 
 				cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
+
+				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
+				layoutTransition.barrier.srcAccessMask = core::bitflag<asset::E_ACCESS_FLAGS>(0u);
+				layoutTransition.barrier.dstAccessMask = asset::EAF_SHADER_READ_BIT;
+				layoutTransition.oldLayout = asset::EIL_UNDEFINED;
+				layoutTransition.newLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+				layoutTransition.srcQueueFamilyIndex = ~0u;
+				layoutTransition.dstQueueFamilyIndex = ~0u;
+				layoutTransition.image = gpuImageView->getCreationParameters().image;
+				layoutTransition.subresourceRange = gpuImageView->getCreationParameters().subresourceRange;
+
+				cb->pipelineBarrier(asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EPSF_COMPUTE_SHADER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &layoutTransition);
+
 				asset::SViewport viewport;
 				viewport.minDepth = 1.f;
 				viewport.maxDepth = 0.f;
@@ -478,17 +511,17 @@ public:
 				static_cast<asset::E_ACCESS_FLAGS>(0u));
 		};
 
-		for (size_t i = 0; i < gpuImageViews->size(); ++i)
-		{
-			auto gpuImageView = (*gpuImageViews)[i];
-			if (gpuImageView)
-			{
-				auto& captionData = captionTexturesData[i];
+		//for (size_t i = 0; i < gpuImageViews->size(); ++i)
+		//{
+		//	auto gpuImageView = (*gpuImageViews)[i];
+		//	if (gpuImageView)
+		//	{
+		//		auto& captionData = captionTexturesData[i];
 
-				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
-				assert(status);
-			}
-		}
+		//		bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
+		//		assert(status);
+		//	}
+		//}
 
 
 		// Now present weird images (sub-region copies)
