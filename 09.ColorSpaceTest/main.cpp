@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+﻿// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -13,7 +13,7 @@
 
 using namespace nbl;
 
-#define SWITCH_IMAGES_PER_X_MILISECONDS 500
+#define SWITCH_IMAGES_PER_X_MILISECONDS 1500
 constexpr std::string_view testingImagePathsFile = "../imagesTestList.txt";
 
 struct NBL_CAPTION_DATA_TO_DISPLAY
@@ -287,6 +287,54 @@ public:
 				
 				if(imageviewCreateParams.format == asset::EF_R8G8B8_SRGB)
 					continue; // skip for now that we don't use format promotion
+				
+				auto regions = cpuImage->getRegions();
+				std::vector<asset::IImage::SBufferCopy> newRegions;
+				// Make new regions weird
+				for(uint32_t r = 0; r < regions.size(); ++r)
+				{
+					auto & region = regions[0];
+					
+					const auto quarterWidth = core::max(region.imageExtent.width / 4, 1u);
+					const auto quarterHeight = core::max(region.imageExtent.height / 4, 1u);
+					const auto texelBlockInfo = asset::TexelBlockInfo(imageCreateParams.format);
+					const auto imageExtentsInBlocks = texelBlockInfo.convertTexelsToBlocks(core::vector3du32_SIMD(region.imageExtent.width, region.imageExtent.height, region.imageExtent.depth));
+
+					// Pattern we're trying to achieve (Copy only the regions marked by X)
+					// +----+----+
+					// |  xx|    |
+					// +----+----+
+					// |    |xx  |
+					// +----+----+
+					{
+						asset::IImage::SBufferCopy newRegion = region;
+						newRegion.imageExtent.width = quarterWidth;
+						newRegion.imageExtent.height = quarterHeight;
+						newRegion.imageExtent.depth = region.imageExtent.depth;
+						newRegion.imageOffset.x = quarterWidth;
+						newRegion.imageOffset.y = quarterHeight;
+						newRegion.imageOffset.z = 0u;
+						auto offsetInBlocks = texelBlockInfo.convertTexelsToBlocks(core::vector3du32_SIMD(newRegion.imageOffset.x, newRegion.imageOffset.y, newRegion.imageOffset.z));
+						newRegion.bufferOffset =  (offsetInBlocks.y * imageExtentsInBlocks.x + offsetInBlocks.x) * texelBlockInfo.getBlockByteSize();
+						newRegion.bufferRowLength = region.imageExtent.width;
+						newRegion.bufferImageHeight = region.imageExtent.height;
+						newRegions.push_back(newRegion);
+					}
+					{
+						asset::IImage::SBufferCopy newRegion = region;
+						newRegion.imageExtent.width = quarterWidth;
+						newRegion.imageExtent.height = quarterHeight;
+						newRegion.imageExtent.depth = 1u;
+						newRegion.imageOffset.x = quarterWidth * 2;
+						newRegion.imageOffset.y = quarterHeight * 2;
+						newRegion.imageOffset.z = 0u;
+						auto offsetInBlocks = texelBlockInfo.convertTexelsToBlocks(core::vector3du32_SIMD(newRegion.imageOffset.x, newRegion.imageOffset.y, newRegion.imageOffset.z));
+						newRegion.bufferOffset =  (offsetInBlocks.y * imageExtentsInBlocks.x + offsetInBlocks.x) * texelBlockInfo.getBlockByteSize();
+						newRegion.bufferRowLength = region.imageExtent.width;
+						newRegion.bufferImageHeight = region.imageExtent.height;
+						newRegions.push_back(newRegion);
+					}
+				}
 
 				video::IGPUImage::SCreationParams gpuImageCreateInfo = {};
 				gpuImageCreateInfo.flags = imageCreateParams.flags;
@@ -341,12 +389,11 @@ public:
 				layoutTransition.subresourceRange = gpuImageView->getCreationParameters().subresourceRange;
 				transferCmd->pipelineBarrier(asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EPSF_TRANSFER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &layoutTransition);
 				
-				auto regions = cpuImage->getRegions();
-				auto regionsCount = regions.size();
 				uint32_t waitSemaphoreCount = 0u;
 				video::IGPUSemaphore*const * semaphoresToWaitBeforeOverwrite = nullptr;
 				const asset::E_PIPELINE_STAGE_FLAGS* stagesToWaitForPerSemaphore = nullptr;
-				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), regions, gpuImage.get(), asset::EIL_TRANSFER_DST_OPTIMAL, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
+				core::SRange<const asset::IImage::SBufferCopy> copyRegions(newRegions.data(), newRegions.data() + newRegions.size());
+				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), copyRegions, gpuImage.get(), asset::EIL_TRANSFER_DST_OPTIMAL, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
 
 				transferCmd->end();
 
@@ -560,7 +607,7 @@ public:
 			{
 				auto& captionData = captionTexturesData[i];
 
-				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
+				// bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
 				assert(status);
 			}
 		}
