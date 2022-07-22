@@ -1,3 +1,6 @@
+#ifndef __NBL_COMMON_API_H_INCLUDED__
+#define __NBL_COMMON_API_H_INCLUDED__
+
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
@@ -914,6 +917,7 @@ public:
 			swapchain = nbl::video::CVulkanSwapchain::create(device, std::move(paramsCp));
 		}
 		else {
+			//swapchain = nbl::video::COpenGLSwapchain::create(device, std::move(paramsCp));
 			// TODO
 		}
 
@@ -1128,3 +1132,4 @@ CommonAPI::main<app_class>(argc, argv);\
 #endif
 //***** Application framework macros ******
 
+#endif
