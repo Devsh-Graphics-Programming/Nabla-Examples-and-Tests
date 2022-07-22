@@ -570,7 +570,7 @@ public:
 	void retireSwapchainResources(std::unique_ptr<IRetiredSwapchainResources> retired);
 
 	static bool createSwapchain(
-		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
+		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>&& device,
 		nbl::video::ISwapchain::SCreationParams& params,
 		uint32_t width, uint32_t height,
 		// nullptr for initial creation, old swapchain for eventual resizes

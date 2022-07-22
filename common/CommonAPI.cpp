@@ -668,7 +668,7 @@ auto createFBOWithSwapchainImages(
 }
 
 bool CommonAPI::createSwapchain(
-	const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
+	const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>&& device,
 	nbl::video::ISwapchain::SCreationParams& params,
 	uint32_t width, uint32_t height,
 	// nullptr for initial creation, old swapchain for eventual resizes
@@ -684,7 +684,7 @@ bool CommonAPI::createSwapchain(
 
 	if (device->getAPIType() == nbl::video::EAT_VULKAN)
 	{
-		swapchain = nbl::video::CVulkanSwapchain::create(device, std::move(paramsCp));
+		swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(paramsCp));
 	}
 	else if (device->getAPIType() == nbl::video::EAT_OPENGL)
 	{

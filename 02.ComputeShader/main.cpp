@@ -131,7 +131,7 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		CommonAPI::createSwapchain(logicalDevice, initOutput.swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		CommonAPI::createSwapchain(std::move(logicalDevice), initOutput.swapchainCreationParams, WIN_W, WIN_H, swapchain);
 		assert(swapchain);
 
 		commandPools = std::move(initOutput.commandPools);
