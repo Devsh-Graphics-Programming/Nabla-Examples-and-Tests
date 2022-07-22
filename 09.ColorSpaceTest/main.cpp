@@ -264,10 +264,15 @@ public:
 				}
 			}
 		}
+		
+		// we clone because we need these cpuimages later for directly using upload utilitiy
+		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> clonedCpuImageViews(cpuImageViews.size());
+		for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
+			clonedCpuImageViews[i] = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(cpuImageViews[i]->clone());
 
-		cpu2gpuParams.beginCommandBuffers();
-		auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(cpuImageViews.data(), cpuImageViews.data() + cpuImageViews.size(), cpu2gpuParams);
-		cpu2gpuParams.waitForCreationToComplete(false);
+		 cpu2gpuParams.beginCommandBuffers();
+		 auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(clonedCpuImageViews.data(), clonedCpuImageViews.data() + clonedCpuImageViews.size(), cpu2gpuParams);
+		 cpu2gpuParams.waitForCreationToComplete(false);
 		
 		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
 		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
@@ -315,6 +320,43 @@ public:
 				auto gpuImageView = logicalDevice->createImageView(std::move(gpuImageViewCreateInfo));
 
 				weirdGPUImages.push_back(gpuImageView);
+
+				auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
+				auto transferQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
+				core::smart_refctd_ptr<video::IGPUCommandBuffer> transferCmd;
+				logicalDevice->createCommandBuffers(transferCommandPools[0u].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &transferCmd);
+				
+				auto transferFence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
+
+				transferCmd->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+				
+				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
+				layoutTransition.barrier.srcAccessMask = core::bitflag<asset::E_ACCESS_FLAGS>(0u);
+				layoutTransition.barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
+				layoutTransition.oldLayout = asset::EIL_UNDEFINED;
+				layoutTransition.newLayout = asset::EIL_TRANSFER_DST_OPTIMAL;
+				layoutTransition.srcQueueFamilyIndex = ~0u;
+				layoutTransition.dstQueueFamilyIndex = ~0u;
+				layoutTransition.image = gpuImageView->getCreationParameters().image;
+				layoutTransition.subresourceRange = gpuImageView->getCreationParameters().subresourceRange;
+				transferCmd->pipelineBarrier(asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EPSF_TRANSFER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &layoutTransition);
+				
+				auto regions = cpuImage->getRegions();
+				auto regionsCount = regions.size();
+				uint32_t waitSemaphoreCount = 0u;
+				video::IGPUSemaphore*const * semaphoresToWaitBeforeOverwrite = nullptr;
+				const asset::E_PIPELINE_STAGE_FLAGS* stagesToWaitForPerSemaphore = nullptr;
+				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), regions, gpuImage.get(), asset::EIL_TRANSFER_DST_OPTIMAL, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
+
+				transferCmd->end();
+
+				video::IGPUQueue::SSubmitInfo submit = {};
+				submit.commandBufferCount = 1u;
+				submit.commandBuffers = &transferCmd.get();
+
+				transferQueue->submit(1u, &submit, transferFence.get());
+				
+				logicalDevice->blockForFences(1u, &transferFence.get());
 			}
 		}
 
@@ -511,18 +553,17 @@ public:
 				static_cast<asset::E_ACCESS_FLAGS>(0u));
 		};
 
-		//for (size_t i = 0; i < gpuImageViews->size(); ++i)
-		//{
-		//	auto gpuImageView = (*gpuImageViews)[i];
-		//	if (gpuImageView)
-		//	{
-		//		auto& captionData = captionTexturesData[i];
+		for (size_t i = 0; i < gpuImageViews->size(); ++i)
+		{
+			auto gpuImageView = (*gpuImageViews)[i];
+			if (gpuImageView)
+			{
+				auto& captionData = captionTexturesData[i];
 
-		//		bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
-		//		assert(status);
-		//	}
-		//}
-
+				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
+				assert(status);
+			}
+		}
 
 		// Now present weird images (sub-region copies)
 		for (size_t i = 0; i < weirdGPUImages.size(); ++i)
