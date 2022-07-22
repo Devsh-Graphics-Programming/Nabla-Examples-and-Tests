@@ -608,7 +608,7 @@ public:
 				auto& captionData = captionTexturesData[i];
 
 				// bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
-				assert(status);
+				// assert(status);
 			}
 		}
 
