@@ -26,6 +26,9 @@ class BlurTestApp : public ApplicationBase
     constexpr static inline uint32_t WIN_W = 1024u;
     constexpr static inline uint32_t WIN_H = 1024u;
 
+    constexpr static inline float BlurRadiusMin = 0.f;
+    constexpr static inline float BlurRadiusMax = 0.5f;
+
 public:
 	void onAppInitialized_impl() override
 	{
@@ -378,21 +381,6 @@ public:
         if (m_resourceIx >= FRAMES_IN_FLIGHT)
             m_resourceIx = 0;
 
-        inputSystem->getDefaultKeyboard(&m_keyboard);
-        m_keyboard.consumeEvents(
-            [this](const ui::IKeyboardEventChannel::range_t& events)
-            {
-                for (auto eventIt = events.begin(); eventIt != events.end(); ++eventIt)
-                {
-                    const auto& ev = *eventIt;
-                    if ((ev.keyCode == ui::EKC_Q) && (ev.action == ui::SKeyboardEvent::ECA_RELEASED))
-                    {
-                        m_appRunning = false;
-                    }
-                }
-            },
-            logger.get());
-
         inputSystem->getDefaultMouse(&m_mouse);
         m_mouse.consumeEvents([this](const ui::IMouseEventChannel::range_t& events)
             {
@@ -401,7 +389,11 @@ public:
                     const auto& ev = *eventIt;
                     if (ev.type == ui::SMouseEvent::EET_SCROLL)
                     {
-                        logger->log("Mouse vertical scroll event detected: %d\n", system::ILogger::ELL_DEBUG, ev.scrollEvent.verticalScroll);
+                        for (uint32_t i = 0; i < 2u; ++i)
+                        {
+                            const float r = m_pushConstants[i].radius + ev.scrollEvent.verticalScroll / 5000.f;
+                            m_pushConstants[i].radius = core::max(BlurRadiusMin, core::min(r, BlurRadiusMax));
+                        }
                     }
                 }
             }, logger.get());
@@ -521,7 +513,7 @@ public:
 
 	bool keepRunning() override
 	{
-		return m_appRunning && windowCb->isWindowOpen();
+		return windowCb->isWindowOpen();
 	}
 
 private:
@@ -545,11 +537,9 @@ private:
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
 
-    CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> m_keyboard;
     CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> m_mouse;
 
     int32_t m_resourceIx = -1;
-    bool m_appRunning = true;
 
     core::smart_refctd_ptr<IGPUCommandBuffer> m_cmdbufs[FRAMES_IN_FLIGHT] = {nullptr};
     core::smart_refctd_ptr<IGPUFence> m_frameCompleteFences[FRAMES_IN_FLIGHT] = {nullptr};
