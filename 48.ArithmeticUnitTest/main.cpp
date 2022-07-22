@@ -420,9 +420,9 @@ public:
 		const auto ds = descriptorSet.get();
 		auto computeQueue = initOutput.queues[CommonAPI::InitOutput::EQT_COMPUTE];
 		auto fence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
-		auto cmdPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+		auto cmdPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
-		logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
 		for (uint32_t workgroupSize=45u; workgroupSize<=1024u; workgroupSize++)
 		{
