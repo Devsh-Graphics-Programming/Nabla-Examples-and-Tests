@@ -238,13 +238,13 @@ class TransformationApp : public ApplicationBase
 
 			constexpr uint32_t GlobalTformPropNum = 3u;
 
-			const size_t SSBOAlignment = gpuPhysicalDevice->getLimits().SSBOAlignment;
+			const size_t minSSBOAlignment = gpuPhysicalDevice->getLimits().minSSBOAlignment;
 			const size_t offset_parent = 0u;
-			const size_t offset_relTform = core::alignUp(offset_parent + parentPropSz * ObjectCount, SSBOAlignment);
-			const size_t offset_modifStamp = core::alignUp(offset_relTform + relTformPropSz * ObjectCount, SSBOAlignment);
-			const size_t offset_globalTform = core::alignUp(offset_modifStamp + modifStampPropSz * ObjectCount, SSBOAlignment);
-			const size_t offset_recompStamp = core::alignUp(offset_globalTform + globalTformPropSz * ObjectCount, SSBOAlignment);
-			const size_t offset_normalMatrix = core::alignUp(offset_recompStamp + recompStampPropSz * ObjectCount, SSBOAlignment);
+			const size_t offset_relTform = core::alignUp(offset_parent + parentPropSz * ObjectCount, minSSBOAlignment);
+			const size_t offset_modifStamp = core::alignUp(offset_relTform + relTformPropSz * ObjectCount, minSSBOAlignment);
+			const size_t offset_globalTform = core::alignUp(offset_modifStamp + modifStampPropSz * ObjectCount, minSSBOAlignment);
+			const size_t offset_recompStamp = core::alignUp(offset_globalTform + globalTformPropSz * ObjectCount, minSSBOAlignment);
+			const size_t offset_normalMatrix = core::alignUp(offset_recompStamp + recompStampPropSz * ObjectCount, minSSBOAlignment);
 
 			const size_t ssboSz = offset_normalMatrix + normalMatrixPropSz * ObjectCount;
 
