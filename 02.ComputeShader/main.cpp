@@ -102,34 +102,37 @@ public:
 	void onAppInitialized_impl() override
 	{
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
+		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
-		CommonAPI::InitOutput initOutput;
-		initOutput.window = core::smart_refctd_ptr(window);
-		CommonAPI::InitWithDefaultExt(
-			initOutput,
-			video::EAT_VULKAN,
-			"02.ComputeShader",
-			FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
-			swapchainImageUsage,
-			surfaceFormat);
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "02.ComputeShader" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = WIN_W;
+		initParams.windowHeight = WIN_H;
+		initParams.scImageCount = 3u;
+		initParams.swapchainImageUsage = swapchainImageUsage;
+		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
+		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
-		window = std::move(initOutput.window);
-		windowCb = std::move(initOutput.windowCb);
+		window = std::move(initParams.window);
+		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		physicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		utilities = std::move(initOutput.utilities);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
-		renderpass = std::move(initOutput.renderpass);
-		fbo = std::move(initOutput.fbo);
 		assetManager = std::move(initOutput.assetManager);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+
+		CommonAPI::createSwapchain(std::move(logicalDevice), initOutput.swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		assert(swapchain);
 
 		commandPools = std::move(initOutput.commandPools);
 		const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
@@ -478,7 +481,6 @@ public:
 
 		CommonAPI::Submit(
 			logicalDevice.get(),
-			swapchain.get(),
 			cb.get(),
 			queues[CommonAPI::InitOutput::EQT_COMPUTE],
 			m_imageAcquire[m_resourceIx].get(),
