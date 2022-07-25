@@ -36,7 +36,7 @@ if (NBL_BUILD_MITSUBA_LOADER)
 endif()
 # add_subdirectory(23.Autoexposure EXCLUDE_FROM_ALL)
 # add_subdirectory(24.REUSE EXCLUDE_FROM_ALL) # TODO: @Anastazluk or @Hazardu
-# add_subdirectory(25.Blur EXCLUDE_FROM_ALL)
+add_subdirectory(25.Blur EXCLUDE_FROM_ALL)
 # add_subdirectory(26.MultidrawIndirectVSCPUCull EXCLUDE_FROM_ALL)
 add_subdirectory(27.PLYSTLDemo EXCLUDE_FROM_ALL)
 # add_subdirectory(28.REUSE EXCLUDE_FROM_ALL)
