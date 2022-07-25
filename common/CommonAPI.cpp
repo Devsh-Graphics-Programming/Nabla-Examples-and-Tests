@@ -1,6 +1,5 @@
 
 #include "CommonAPI.h"
-#include "nbl/video/CVulkanSwapchain.h"
 
 std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 	nbl::core::SRange<nbl::video::IPhysicalDevice* const> gpus,
@@ -688,11 +687,11 @@ bool CommonAPI::createSwapchain(
 	}
 	else if (device->getAPIType() == nbl::video::EAT_OPENGL)
 	{
-		//swapchain = nbl::video::COpenGLSwapchain::create(device, std::move(paramsCp));
+		//swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(paramsCp));
 	}
 	else if (device->getAPIType() == nbl::video::EAT_OPENGL_ES)
 	{
-		//swapchain = nbl::video::COpenGLESSwapchain::create(device, std::move(paramsCp));
+		//swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(paramsCp));
 	}
 	else
 	{
