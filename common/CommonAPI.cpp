@@ -598,14 +598,12 @@ auto createFBOWithSwapchainImages(
 		assert(depthFormat != nbl::asset::EF_UNKNOWN);
 	}
 
-	auto sc_images = swapchain->getImages();
-	assert(sc_images.size() == imageCount);
 	auto fbo = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>>>(imageCount);
 	for (uint32_t i = 0u; i < imageCount; ++i)
 	{
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> view[2] = {};
 
-		auto img = sc_images.begin()[i];
+		auto img = swapchain->createImage(i);
 		{
 			nbl::video::IGPUImageView::SCreationParams view_params;
 			view_params.format = img->getCreationParameters().format;

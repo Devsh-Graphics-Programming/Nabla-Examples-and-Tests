@@ -32,6 +32,7 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::system::ILogger> logger;
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
+	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>> m_swapchainImages;
 
 	int32_t m_resourceIx = -1;
 
@@ -148,13 +149,13 @@ public:
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
 #endif
 
-		const auto swapchainImages = swapchain->getImages();
 		const uint32_t swapchainImageCount = swapchain->getImageCount();
-
+		m_swapchainImages = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>>>(swapchainImageCount);
 		m_swapchainImageViews.resize(swapchainImageCount);
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
-			auto& img = swapchainImages.begin()[i];
+			auto & img = m_swapchainImages->begin()[i];
+			img = swapchain->createImage(i);
 			{
 				video::IGPUImageView::SCreationParams viewParams;
 				viewParams.format = img->getCreationParameters().format;
@@ -164,7 +165,7 @@ public:
 				viewParams.subresourceRange.levelCount = 1u;
 				viewParams.subresourceRange.baseArrayLayer = 0u;
 				viewParams.subresourceRange.layerCount = 1u;
-				viewParams.image = core::smart_refctd_ptr<video::IGPUImage>(img);
+				viewParams.image = img;
 
 				m_swapchainImageViews[i] = logicalDevice->createImageView(std::move(viewParams));
 				assert(m_swapchainImageViews[i]);
@@ -444,7 +445,7 @@ public:
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier.oldLayout = asset::EIL_UNDEFINED;
 		layoutTransBarrier.newLayout = asset::EIL_GENERAL;
-		layoutTransBarrier.image = *(swapchain->getImages().begin() + imgnum);
+		layoutTransBarrier.image = *(m_swapchainImages->begin() + imgnum);
 
 		cb->pipelineBarrier(
 			asset::EPSF_TOP_OF_PIPE_BIT,
