@@ -269,10 +269,20 @@ public:
 		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> clonedCpuImageViews(cpuImageViews.size());
 		for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
 			clonedCpuImageViews[i] = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(cpuImageViews[i]->clone());
+		
+		// Allocate and Leave 1MB for image uploads, to test image copy with not so large memory 
+		{
+			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
+			uint32_t maxFreeBlock = utilities->getDefaultUpStreamingBuffer()->max_size(); 
+			const uint32_t allocationAlignment = 64u;
+			const uint32_t allocationSize = maxFreeBlock - 0x00F0000u;
+			// cannot use `multi_place` because of the extra padding size we could have added
+			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now()+std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
+		}
 
-		 cpu2gpuParams.beginCommandBuffers();
-		 auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(clonedCpuImageViews.data(), clonedCpuImageViews.data() + clonedCpuImageViews.size(), cpu2gpuParams);
-		 cpu2gpuParams.waitForCreationToComplete(false);
+		cpu2gpuParams.beginCommandBuffers();
+		auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(clonedCpuImageViews.data(), clonedCpuImageViews.data() + clonedCpuImageViews.size(), cpu2gpuParams);
+		cpu2gpuParams.waitForCreationToComplete(false);
 		
 		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
 		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
