@@ -256,7 +256,6 @@ public:
 		std::array<IGPUSpecializedShader*, 2> gpuShaders = { gpuVertexShader.get(), gpuFragmentShader.get() };
 
 		size_t ds0SamplerBinding = 0, ds1UboBinding = 0;
-		auto createAndGetUsefullData = [&](asset::IGeometryCreator::return_type& geometryObject)
 		{
 			/*
 				SBinding for the texture (sampler).
@@ -295,14 +294,13 @@ public:
 			*/
 			{
 				IGPUBuffer::SCreationParams creationParams = {};
-				creationParams.canUpdateSubRange = true;
-				creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
+				creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT|asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
 				creationParams.size = sizeof(SBasicViewParameters);
-				auto gpuubobuffer = logicalDevice->createBuffer(creationParams);
+				gpuubo = logicalDevice->createBuffer(std::move(creationParams));
 
-				IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuubobuffer->getMemoryReqs();
+				IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuubo->getMemoryReqs();
 				memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
-				logicalDevice->allocate(memReq, gpuubobuffer.get());
+				logicalDevice->allocate(memReq, gpuubo.get());
 			}
 
 			/*
@@ -314,7 +312,7 @@ public:
 
 			auto descriptorPool = createDescriptorPool(1u);
 
-			auto gpuDescriptorSet3 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs3Layout);
+			gpuDescriptorSet3 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs3Layout);
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuDescriptorSet3.get();
@@ -326,13 +324,13 @@ public:
 				{
 					info.desc = std::move(gpuImageView);
 					ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETBC_FLOAT_OPAQUE_BLACK,ISampler::ETF_LINEAR,ISampler::ETF_LINEAR,ISampler::ESMM_LINEAR,0u,false,ECO_ALWAYS };
-					info.image = { logicalDevice->createSampler(samplerParams),EIL_SHADER_READ_ONLY_OPTIMAL };
+					info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
 				}
 				write.info = &info;
 				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 			}
 
-			auto gpuDescriptorSet1 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs1Layout);
+			gpuDescriptorSet1 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs1Layout);
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuDescriptorSet1.get();
@@ -367,12 +365,12 @@ public:
 				Attaching vertex shader and fragment shaders.
 			*/
 
-			auto gpuPipeline = logicalDevice->createRenderpassIndependentPipeline(nullptr, std::move(gpuPipelineLayout), gpuShaders.data(), gpuShaders.data() + gpuShaders.size(), geometryObject.inputParams, blendParams, geometryObject.assemblyParams, rasterParams);
+			gpuRenderpassIndependentPipeline = logicalDevice->createRenderpassIndependentPipeline(nullptr, std::move(gpuPipelineLayout), gpuShaders.data(), gpuShaders.data() + gpuShaders.size(), rectangleGeometry.inputParams, blendParams, rectangleGeometry.assemblyParams, rasterParams);
 
 			nbl::video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams;
-			graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline>(gpuPipeline.get());
+			graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline>(gpuRenderpassIndependentPipeline.get());
 			graphicsPipelineParams.renderpass = core::smart_refctd_ptr(renderpass);
-			auto gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
+			gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
 
 			core::vectorSIMDf cameraPosition(-5, 0, 0);
 			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.01, 1000);
@@ -388,11 +386,11 @@ public:
 			cpubuffers.reserve(MAX_DATA_BUFFERS);
 			for (auto i = 0; i < MAX_ATTR_BUF_BINDING_COUNT; i++)
 			{
-				auto buf = geometryObject.bindings[i].buffer.get();
+				auto buf = rectangleGeometry.bindings[i].buffer.get();
 				if (buf)
 					cpubuffers.push_back(buf);
 			}
-			auto cpuindexbuffer = geometryObject.indexBuffer.buffer.get();
+			auto cpuindexbuffer = rectangleGeometry.indexBuffer.buffer.get();
 			if (cpuindexbuffer)
 				cpubuffers.push_back(cpuindexbuffer);
 
@@ -403,7 +401,7 @@ public:
 			asset::SBufferBinding<video::IGPUBuffer> bindings[MAX_DATA_BUFFERS];
 			for (auto i = 0, j = 0; i < MAX_ATTR_BUF_BINDING_COUNT; i++)
 			{
-				if (!geometryObject.bindings[i].buffer)
+				if (!rectangleGeometry.bindings[i].buffer)
 					continue;
 				auto buffPair = gpubuffers->operator[](j++);
 				bindings[i].offset = buffPair->getOffset();
@@ -416,23 +414,14 @@ public:
 				bindings[MAX_ATTR_BUF_BINDING_COUNT].buffer = core::smart_refctd_ptr<video::IGPUBuffer>(buffPair->getBuffer());
 			}
 
-			auto mb = core::make_smart_refctd_ptr<video::IGPUMeshBuffer>(core::smart_refctd_ptr(gpuPipeline), nullptr, bindings, std::move(bindings[MAX_ATTR_BUF_BINDING_COUNT]));
+			gpuMeshBuffer = core::make_smart_refctd_ptr<video::IGPUMeshBuffer>(core::smart_refctd_ptr(gpuRenderpassIndependentPipeline), nullptr, bindings, std::move(bindings[MAX_ATTR_BUF_BINDING_COUNT]));
 			{
-				mb->setIndexType(geometryObject.indexType);
-				mb->setIndexCount(geometryObject.indexCount);
-				mb->setBoundingBox(geometryObject.bbox);
+				gpuMeshBuffer->setIndexType(rectangleGeometry.indexType);
+				gpuMeshBuffer->setIndexCount(rectangleGeometry.indexCount);
+				gpuMeshBuffer->setBoundingBox(rectangleGeometry.bbox);
 			}
+		}
 
-			return std::make_tuple(mb, gpuPipeline, gpuubo, gpuDescriptorSet1, gpuDescriptorSet3, gpuGraphicsPipeline);
-		};
-
-		auto gpuRectangle = createAndGetUsefullData(rectangleGeometry);
-		gpuMeshBuffer = std::get<0>(gpuRectangle);
-		gpuRenderpassIndependentPipeline = std::get<1>(gpuRectangle);
-		gpuubo = std::get<2>(gpuRectangle);
-		gpuDescriptorSet1 = std::get<3>(gpuRectangle);
-		gpuDescriptorSet3 = std::get<4>(gpuRectangle);
-		gpuGraphicsPipeline = std::get<5>(gpuRectangle);
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 		{
