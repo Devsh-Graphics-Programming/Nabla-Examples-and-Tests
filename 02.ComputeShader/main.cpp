@@ -267,7 +267,7 @@ public:
 
 		core::smart_refctd_ptr<asset::ICPUImage> inImage_CPU = nullptr;
 		{
-			asset::ICPUImage::SCreationParams creationParams = {};
+			video::IGPUImage::SCreationParams creationParams = {};
 			creationParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 			creationParams.type = asset::IImage::ET_2D;
 			creationParams.format = asset::EF_R8G8B8A8_UNORM;
@@ -275,7 +275,7 @@ public:
 			creationParams.mipLevels = mipLevels;
 			creationParams.arrayLayers = 1u;
 			creationParams.samples = asset::IImage::ESCF_1_BIT;
-			creationParams.tiling = asset::IImage::ET_OPTIMAL;
+			creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
 			if (apiConnection->getAPIType() == video::EAT_VULKAN ||
 				apiConnection->getAPIType() == video::EAT_OPENGL_ES)
 			{
@@ -285,10 +285,9 @@ public:
 				assert(asset::isFloatingPointFormat(creationParams.format) || asset::isNormalizedFormat(creationParams.format));
 			}
 			creationParams.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_DST_BIT;
-			creationParams.sharingMode = asset::ESM_EXCLUSIVE;
-			creationParams.queueFamilyIndexCount = 1u;
+			creationParams.queueFamilyIndexCount = 0u;
 			creationParams.queueFamilyIndices = nullptr;
-			creationParams.initialLayout = asset::EIL_UNDEFINED;
+			creationParams.initialLayout = asset::IImage::EL_UNDEFINED;
 
 			auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::ICPUImage::SBufferCopy>>(1ull);
 			imageRegions->begin()->bufferOffset = 0ull;
@@ -334,7 +333,7 @@ public:
 
 			// image2D -- swapchain image
 			{
-				descriptorInfos[0].image.imageLayout = asset::EIL_GENERAL;
+				descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
 				descriptorInfos[0].image.sampler = nullptr;
 				descriptorInfos[0].desc = m_swapchainImageViews[i]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
 
@@ -348,7 +347,7 @@ public:
 
 			// image2D -- my input
 			{
-				descriptorInfos[1].image.imageLayout = asset::EIL_GENERAL;
+				descriptorInfos[1].image.imageLayout = asset::IImage::EL_GENERAL;
 				descriptorInfos[1].image.sampler = nullptr;
 				descriptorInfos[1].desc = m_inImageView;
 
@@ -439,8 +438,8 @@ public:
 
 		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier.oldLayout = asset::EIL_UNDEFINED;
-		layoutTransBarrier.newLayout = asset::EIL_GENERAL;
+		layoutTransBarrier.oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier.newLayout = asset::IImage::EL_GENERAL;
 		layoutTransBarrier.image = *(swapchain->getImages().begin() + imgnum);
 
 		cb->pipelineBarrier(
@@ -463,8 +462,8 @@ public:
 
 		layoutTransBarrier.barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier.barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier.oldLayout = asset::EIL_GENERAL;
-		layoutTransBarrier.newLayout = asset::EIL_PRESENT_SRC;
+		layoutTransBarrier.oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier.newLayout = asset::IImage::EL_PRESENT_SRC;
 
 		cb->pipelineBarrier(
 			asset::EPSF_COMPUTE_SHADER_BIT,

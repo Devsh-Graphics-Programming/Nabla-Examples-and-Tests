@@ -1299,7 +1299,6 @@ public:
 			result.cpu2gpuParams.finalQueueFamIx = mainQueueFamilyIndex;
 			result.cpu2gpuParams.limits = result.physicalDevice->getLimits();
 			result.cpu2gpuParams.pipelineCache = nullptr;
-			result.cpu2gpuParams.sharingMode = nbl::asset::ESM_EXCLUSIVE;
 			result.cpu2gpuParams.utilities = result.utilities.get();
 
 			result.cpu2gpuParams.perQueue[nbl::video::IGPUObjectFromAssetConverter::EQU_TRANSFER].queue = result.queues[InitOutput::EQT_TRANSFER_UP];
@@ -1331,7 +1330,6 @@ public:
 			result.cpu2gpuParams.finalQueueFamIx = 0u;
 			result.cpu2gpuParams.limits = {};
 			result.cpu2gpuParams.pipelineCache = nullptr;
-			result.cpu2gpuParams.sharingMode = nbl::asset::ESM_EXCLUSIVE;
 			result.cpu2gpuParams.utilities = nullptr;
 		}
 	}
@@ -1457,12 +1455,6 @@ public:
 		nbl::video::ISurface::SFormat requestedSurfaceFormat = nbl::video::ISurface::SFormat(nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::ECP_SRGB, nbl::asset::EOTF_sRGB))
 	{
 		using namespace nbl;
-
-		asset::E_SHARING_MODE imageSharingMode;
-		if (gpuInfo.queueFamilyProps.graphics.index == gpuInfo.queueFamilyProps.present.index)
-			imageSharingMode = asset::ESM_EXCLUSIVE;
-		else
-			imageSharingMode = asset::ESM_CONCURRENT;
 		
 		nbl::video::ISurface::SFormat surfaceFormat;
 
@@ -1565,7 +1557,6 @@ public:
 		sc_params.presentMode = requestedPresentMode;
 		sc_params.imageUsage = imageUsage;
 		sc_params.surface = surface;
-		sc_params.imageSharingMode = imageSharingMode;
 		sc_params.preTransform = gpuInfo.hasSurfaceCapabilities ? gpuInfo.surfaceCapabilities.currentTransform : nbl::video::ISurface::EST_IDENTITY_BIT;
 		sc_params.compositeAlpha = nbl::video::ISurface::ECA_OPAQUE_BIT;
 		sc_params.surfaceFormat = surfaceFormat;
@@ -1583,15 +1574,15 @@ public:
 		bool useDepth = asset::isDepthOrStencilFormat(depthFormat);
 
 		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
-		attachments[0].initialLayout = asset::EIL_UNDEFINED;
-		attachments[0].finalLayout = asset::EIL_PRESENT_SRC;
+		attachments[0].initialLayout = asset::IImage::EL_UNDEFINED;
+		attachments[0].finalLayout = asset::IImage::EL_PRESENT_SRC;
 		attachments[0].format = colorAttachmentFormat;
 		attachments[0].samples = asset::IImage::ESCF_1_BIT;
 		attachments[0].loadOp = nbl::video::IGPURenderpass::ELO_CLEAR;
 		attachments[0].storeOp = nbl::video::IGPURenderpass::ESO_STORE;
 
-		attachments[1].initialLayout = asset::EIL_UNDEFINED;
-		attachments[1].finalLayout = asset::EIL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		attachments[1].initialLayout = asset::IImage::EL_UNDEFINED;
+		attachments[1].finalLayout = asset::IImage::EL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 		attachments[1].format = depthFormat;
 		attachments[1].samples = asset::IImage::ESCF_1_BIT;
 		attachments[1].loadOp = nbl::video::IGPURenderpass::ELO_CLEAR;
@@ -1599,11 +1590,11 @@ public:
 
 		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef colorAttRef;
 		colorAttRef.attachment = 0u;
-		colorAttRef.layout = asset::EIL_COLOR_ATTACHMENT_OPTIMAL;
+		colorAttRef.layout = asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
 
 		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef depthStencilAttRef;
 		depthStencilAttRef.attachment = 1u;
-		depthStencilAttRef.layout = asset::EIL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		depthStencilAttRef.layout = asset::IImage::EL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 
 		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription sp;
 		sp.pipelineBindPoint = asset::EPBP_GRAPHICS;
