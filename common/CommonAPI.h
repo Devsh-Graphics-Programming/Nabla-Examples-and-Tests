@@ -562,12 +562,12 @@ public:
 	class IRetiredSwapchainResources
 	{
 	public:
-		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain;
-		uint64_t retiredFrameId;
+		// nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain = nullptr; // this gets dropped along with the images
+		uint64_t retiredFrameId = 0;
 	};
 
-	void dropRetiredSwapchainResources(const uint64_t completedFrameId);
-	void retireSwapchainResources(std::unique_ptr<IRetiredSwapchainResources> retired);
+	static void dropRetiredSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, const uint64_t completedFrameId);
+	static void retireSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, IRetiredSwapchainResources* retired);
 
 	static bool createSwapchain(
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>&& device,
@@ -711,8 +711,6 @@ public:
 		return -1;
 	}
 protected:
-	nbl::core::deque<IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
-
 	static void performGpuInit(InitParams& params, InitOutput& result);
 };
 

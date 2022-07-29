@@ -494,17 +494,18 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 	return sc_params;
 }
 
-void CommonAPI::dropRetiredSwapchainResources(const uint64_t completedFrameId)
+void CommonAPI::dropRetiredSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, const uint64_t completedFrameId)
 {
-	while (!m_qRetiredSwapchainResources.empty() && m_qRetiredSwapchainResources.front()->retiredFrameId < completedFrameId)
+	while (!qRetiredSwapchainResources.empty() && qRetiredSwapchainResources.front()->retiredFrameId < completedFrameId)
 	{
-		m_qRetiredSwapchainResources.pop_front();
+		std::cout << "Dropping resource scheduled at " << qRetiredSwapchainResources.front()->retiredFrameId << " with completedFrameId " << completedFrameId << "\n";
+		qRetiredSwapchainResources.pop_front();
 	}
 }
 
-void CommonAPI::retireSwapchainResources(std::unique_ptr<IRetiredSwapchainResources> retired)
+void CommonAPI::retireSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, IRetiredSwapchainResources* retired)
 {
-	m_qRetiredSwapchainResources.push_back(retired.release());
+	qRetiredSwapchainResources.push_back(retired);
 }
 
 nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> CommonAPI::createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat)
