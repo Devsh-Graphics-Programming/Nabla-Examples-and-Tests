@@ -54,9 +54,9 @@ public:
 
 		// Take (an almost) 64MB portion from it to scan
 		constexpr auto begin = in_count / 4 + 118;
-		assert(((begin * sizeof(uint32_t)) & (gpuPhysicalDevice->getLimits().SSBOAlignment - 1u)) == 0u);
+		assert(((begin * sizeof(uint32_t)) & (gpuPhysicalDevice->getLimits().minSSBOAlignment - 1u)) == 0u);
 		constexpr auto end = in_count * 3 / 4 - 78;
-		assert(((end * sizeof(uint32_t)) & (gpuPhysicalDevice->getLimits().SSBOAlignment - 1u)) == 0u);
+		assert(((end * sizeof(uint32_t)) & (gpuPhysicalDevice->getLimits().minSSBOAlignment - 1u)) == 0u);
 		constexpr auto elementCount = end - begin;
 
 		SBufferRange<IGPUBuffer> in_gpu_range;
@@ -267,9 +267,9 @@ NBL_COMMON_API_MAIN(ComputeScanApp)
 //	
 //	// Take (an almost) 64MB portion from it to scan
 //	constexpr auto begin = in_count/4+110;
-//	assert(((begin*sizeof(uint32_t))&(gpuPhysicalDevice->getLimits().SSBOAlignment-1u))==0u);
+//	assert(((begin*sizeof(uint32_t))&(gpuPhysicalDevice->getLimits().minSSBOAlignment-1u))==0u);
 //	constexpr auto end = in_count*3/4-78;
-//	assert(((end*sizeof(uint32_t))&(gpuPhysicalDevice->getLimits().SSBOAlignment-1u))==0u);
+//	assert(((end*sizeof(uint32_t))&(gpuPhysicalDevice->getLimits().minSSBOAlignment-1u))==0u);
 //	constexpr auto elementCount = end-begin;
 //	
 //	SBufferRange<IGPUBuffer> in_gpu_range;

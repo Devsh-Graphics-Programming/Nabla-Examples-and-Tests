@@ -538,7 +538,6 @@ public:
 			result.cpu2gpuParams.finalQueueFamIx = 0u;
 			result.cpu2gpuParams.limits = {};
 			result.cpu2gpuParams.pipelineCache = nullptr;
-			result.cpu2gpuParams.sharingMode = nbl::asset::ESM_EXCLUSIVE;
 			result.cpu2gpuParams.utilities = nullptr;
 		}
 

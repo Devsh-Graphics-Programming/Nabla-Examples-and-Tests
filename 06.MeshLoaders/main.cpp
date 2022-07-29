@@ -233,13 +233,11 @@ public:
             const size_t queriesSize = sizeof(uint32_t) * 4;
             video::IGPUBuffer::SCreationParams gpuuboCreationParams;
             gpuuboCreationParams.size = queriesSize;
-            gpuuboCreationParams.canUpdateSubRange = true;
-            gpuuboCreationParams.usage = core::bitflag<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
-            gpuuboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
+            gpuuboCreationParams.usage = core::bitflag<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT|asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
             gpuuboCreationParams.queueFamilyIndexCount = 0u;
             gpuuboCreationParams.queueFamilyIndices = nullptr;
 
-            queryResultsBuffer = logicalDevice->createBuffer(gpuuboCreationParams);
+            queryResultsBuffer = logicalDevice->createBuffer(std::move(gpuuboCreationParams));
             auto memReqs = queryResultsBuffer->getMemoryReqs();
             memReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
             auto queriesMem = logicalDevice->allocate(memReqs, queryResultsBuffer.get());
