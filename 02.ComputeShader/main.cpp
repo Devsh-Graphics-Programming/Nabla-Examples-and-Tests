@@ -63,6 +63,8 @@ class ComputeShaderSampleApp : public ApplicationBase
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> oldDescriptorSet = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> oldImageView = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImage> oldImage = nullptr;
+
+		~CSwapchainResources() override {}
 	};
 
 public:
@@ -184,7 +186,7 @@ public:
 		}
 
 		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
-		m_imageSwapchainIterations[i] = m_frameIx;
+		m_imageSwapchainIterations[i] = m_swapchainIteration;
 	}
 
 	void onResize(uint32_t w, uint32_t h)
@@ -228,6 +230,7 @@ public:
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+		windowManager = std::move(initOutput.windowManager);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
 		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, windowWidth, windowHeight, swapchain);
@@ -441,28 +444,25 @@ public:
 		// 	uint32_t f = m_frameIx;
 		// 	m_descriptorSets[f] = nullptr;
 		// 	m_swapchainImageViews[f] = nullptr;
+		// 	// TODO mysterious extra reference to every image after the 1st in opengl
 		// 	m_swapchainImages->begin()[f] = nullptr;
 		// 	createSwapchainImage(f);
 		// }
 
+		if (m_frameIx > 100 && m_frameIx < 200)
+		{
+			bool allow = windowManager->setWindowSize(window.get(), 1000 + m_frameIx, 1000 + m_frameIx);
+			assert(allow);
+			onResize(window->getWidth(), window->getHeight());
+		}
+
 		// acquire image 
 		uint32_t imgnum = 0u;
 		{
-			video::ISwapchain::E_ACQUIRE_IMAGE_RESULT res = video::ISwapchain::EAIR_ERROR; 
-			while (res != video::ISwapchain::EAIR_SUCCESS)
-			{
-				{
-					std::unique_lock guard(m_resizeLock);
-					res = swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
-				}
-				if (res != video::ISwapchain::EAIR_SUCCESS)
-				{
-					std::cout << "Res = " << res << " resize to " << window->getWidth() << "x" << window->getHeight();
-					onResize(window->getWidth(), window->getHeight());
-				}
-			}
+			std::unique_lock guard(m_resizeLock);
+			swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
 
-			if (m_imageSwapchainIterations[imgnum] < m_swapchainIteration)
+			if (m_swapchainIteration > m_imageSwapchainIterations[imgnum])
 			{
 				CSwapchainResources* retiredResources(new CSwapchainResources{});
 				retiredResources->oldDescriptorSet = m_descriptorSets[imgnum];
@@ -503,7 +503,7 @@ public:
 		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
 		layoutTransBarrier.subresourceRange.layerCount = 1u;
 
-		const uint32_t pushConstants[3] = { window->getWidth(), window->getHeight(), swapchain->getPreTransform() };
+		const uint32_t pushConstants[3] = { windowWidth, windowHeight, swapchain->getPreTransform() };
 
 		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
@@ -567,6 +567,9 @@ public:
 	}
 };
 
-NBL_COMMON_API_MAIN(ComputeShaderSampleApp)
+//NBL_COMMON_API_MAIN(ComputeShaderSampleApp)
+int main(int argc, char** argv){
+    CommonAPI::main<ComputeShaderSampleApp>(argc, argv);
+}
 
 extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }

@@ -6,6 +6,7 @@
 
 // TODO: get these all included by the appropriate namespace headers!
 #include "nbl/system/IApplicationFramework.h"
+#include "nbl/video/IDeviceMemoryBacked.h"
 #include "nbl/ui/CGraphicalApplicationAndroid.h"
 #include "nbl/ui/CWindowManagerAndroid.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
@@ -18,8 +19,6 @@
 #include "nbl/system/CSystemLinux.h"
 #include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
-
-
 
 
 class CommonAPI
@@ -448,6 +447,7 @@ public:
 		nbl::core::smart_refctd_ptr<InputSystem> inputSystem;
 		nbl::video::ISwapchain::SCreationParams swapchainCreationParams;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
+		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	};
 
 	template<typename AppClassName>
@@ -506,26 +506,25 @@ public:
 
 		if (!headlessCompute)
 		{
-#ifndef _NBL_PLATFORM_ANDROID_
-			auto windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // should we store it in result?
-			params.windowCb = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
+			if (!params.window)
+			{
+				nbl::core::smart_refctd_ptr<EventCallback> windowCallback = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
+				result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
 
-			nbl::ui::IWindow::SCreationParams windowsCreationParams;
-			windowsCreationParams.width = params.windowWidth;
-			windowsCreationParams.height = params.windowHeight;
-			windowsCreationParams.x = 64u;
-			windowsCreationParams.y = 64u;
-			windowsCreationParams.system = nbl::core::smart_refctd_ptr(result.system);
-			windowsCreationParams.flags = nbl::ui::IWindow::ECF_NONE;
-			windowsCreationParams.windowCaption = params.appName.data();
-			windowsCreationParams.callback = params.windowCb;
+				nbl::ui::IWindow::SCreationParams windowsCreationParams;
+				windowsCreationParams.width = params.windowWidth;
+				windowsCreationParams.height = params.windowHeight;
+				windowsCreationParams.x = 64u;
+				windowsCreationParams.y = 64u;
+				windowsCreationParams.system = nbl::core::smart_refctd_ptr(result.system);
+				windowsCreationParams.flags = nbl::ui::IWindow::ECF_RESIZABLE;
+				windowsCreationParams.windowCaption = params.appName.data();
+				windowsCreationParams.callback = windowCallback;
 
-			params.window = windowManager->createWindow(std::move(windowsCreationParams));
+				params.window = result.windowManager->createWindow(std::move(windowsCreationParams));
+			}
+			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*) params.window->getEventCallback());
 			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
-#else
-			params.windowCb = nbl::core::smart_refctd_ptr<EventCallback>((CommonAPIEventCallback*)params.window->getEventCallback());
-			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
-#endif
 		}
 
 		if constexpr (gpuInit)
@@ -558,7 +557,7 @@ public:
 	);
 
 
-	class IRetiredSwapchainResources
+	class IRetiredSwapchainResources: public nbl::video::ICleanup
 	{
 	public:
 		// nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain = nullptr; // this gets dropped along with the images

@@ -492,6 +492,7 @@ void CommonAPI::dropRetiredSwapchainResources(nbl::core::deque<IRetiredSwapchain
 	while (!qRetiredSwapchainResources.empty() && qRetiredSwapchainResources.front()->retiredFrameId < completedFrameId)
 	{
 		std::cout << "Dropping resource scheduled at " << qRetiredSwapchainResources.front()->retiredFrameId << " with completedFrameId " << completedFrameId << "\n";
+		delete(qRetiredSwapchainResources.front());
 		qRetiredSwapchainResources.pop_front();
 	}
 }
@@ -691,6 +692,7 @@ bool CommonAPI::createSwapchain(
 	}
 
 	assert(swapchain);
+	assert(swapchain != oldSwapchain);
 
 	return true;
 }
