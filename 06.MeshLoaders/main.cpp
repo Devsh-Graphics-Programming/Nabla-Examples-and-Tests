@@ -42,7 +42,7 @@ public:
     std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
     nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
     nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-    std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
+    nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
     std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
     nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
     nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
@@ -77,6 +77,7 @@ public:
     core::smart_refctd_ptr<video::IGPUMesh> gpumesh;
     const asset::ICPUMeshBuffer* firstMeshBuffer;
     const nbl::asset::COBJMetadata::CRenderpassIndependentPipeline* pipelineMetadata;
+    nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
     uint32_t ds1UboBinding = 0;
     int resourceIx;
@@ -134,7 +135,7 @@ public:
     {
         for (int i = 0; i < f.size(); i++)
         {
-            fbo[i] = core::smart_refctd_ptr(f[i]);
+            fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
         }
     }
     void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -185,31 +186,43 @@ public:
     APP_CONSTRUCTOR(MeshLoadersApp)
     void onAppInitialized_impl() override
     {
-        CommonAPI::InitOutput initOutput;
-        initOutput.window = core::smart_refctd_ptr(window);
-        initOutput.system = core::smart_refctd_ptr(system);
-
         const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT);
-        const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_SRGB, asset::EOTF_sRGB);
+        CommonAPI::InitParams initParams;
+        initParams.window = core::smart_refctd_ptr(window);
+        initParams.apiType = video::EAT_VULKAN;
+        initParams.appName = { "03.MeshLoaders" };
+        initParams.framesInFlight = FRAMES_IN_FLIGHT;
+        initParams.windowWidth = WIN_W;
+        initParams.windowHeight = WIN_H;
+        initParams.scImageCount = SC_IMG_COUNT;
+        initParams.swapchainImageUsage = swapchainImageUsage;
+        initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
+        auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
-        CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "MeshLoaders", FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
-        window = std::move(initOutput.window);
-        windowCb = std::move(initOutput.windowCb);
+        window = std::move(initParams.window);
+        windowCb = std::move(initParams.windowCb);
         apiConnection = std::move(initOutput.apiConnection);
         surface = std::move(initOutput.surface);
         utilities = std::move(initOutput.utilities);
         logicalDevice = std::move(initOutput.logicalDevice);
         physicalDevice = initOutput.physicalDevice;
         queues = std::move(initOutput.queues);
-        swapchain = std::move(initOutput.swapchain);
-        renderpass = std::move(initOutput.renderpass);
-        fbo = std::move(initOutput.fbo);
+        renderpass = std::move(initOutput.renderToSwapchainRenderpass);
         commandPools = std::move(initOutput.commandPools);
         system = std::move(initOutput.system);
         assetManager = std::move(initOutput.assetManager);
         cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
         logger = std::move(initOutput.logger);
         inputSystem = std::move(initOutput.inputSystem);
+        m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+        CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+        assert(swapchain);
+        fbo = CommonAPI::createFBOWithSwapchainImages(
+            swapchain->getImageCount(), WIN_W, WIN_H,
+            logicalDevice, swapchain, renderpass,
+            nbl::asset::EF_D32_SFLOAT
+        );
         
         // Occlusion Query
         {
@@ -309,13 +322,11 @@ public:
 
         video::IGPUBuffer::SCreationParams gpuuboCreationParams;
         gpuuboCreationParams.size = neededDS1UBOsz;
-        gpuuboCreationParams.canUpdateSubRange = true;
-        gpuuboCreationParams.usage = core::bitflag<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
-        gpuuboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
+        gpuuboCreationParams.usage = core::bitflag<asset::IBuffer::E_USAGE_FLAGS>(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
         gpuuboCreationParams.queueFamilyIndexCount = 0u;
         gpuuboCreationParams.queueFamilyIndices = nullptr;
 
-        gpuubo = logicalDevice->createBuffer(gpuuboCreationParams);
+        gpuubo = logicalDevice->createBuffer(std::move(gpuuboCreationParams));
         auto gpuuboMemReqs = gpuubo->getMemoryReqs();
         gpuuboMemReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
         auto uboMemoryOffset = logicalDevice->allocate(gpuuboMemReqs, gpuubo.get(), video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
@@ -390,7 +401,7 @@ public:
     }
     void onAppTerminated_impl() override
     {
-        const auto& fboCreationParams = fbo[acquiredNextFBO]->getCreationParameters();
+        const auto& fboCreationParams = fbo->begin()[acquiredNextFBO]->getCreationParameters();
         auto gpuSourceImageView = fboCreationParams.attachments[0];
 
         bool status = ext::ScreenShot::createScreenShot(
@@ -400,7 +411,7 @@ public:
             gpuSourceImageView.get(),
             assetManager.get(),
             "ScreenShot.png",
-            asset::EIL_PRESENT_SRC,
+            asset::IImage::EL_PRESENT_SRC,
             static_cast<asset::E_ACCESS_FLAGS>(0u));
 
         assert(status);
@@ -497,7 +508,7 @@ public:
             clear[1].depthStencil.depth = 0.f;
 
             beginInfo.clearValueCount = 2u;
-            beginInfo.framebuffer = fbo[acquiredNextFBO];
+            beginInfo.framebuffer = fbo->begin()[acquiredNextFBO];
             beginInfo.renderpass = renderpass;
             beginInfo.renderArea = area;
             beginInfo.clearValues = clear;
@@ -542,10 +553,10 @@ public:
         commandBuffer->end();
         
         logicalDevice->resetFences(1, &fence.get());
-        CommonAPI::Submit(logicalDevice.get(),
-            swapchain.get(), 
+        CommonAPI::Submit(
+            logicalDevice.get(),
             commandBuffer.get(),
-            queues[CommonAPI::InitOutput::EQT_GRAPHICS],
+            queues[CommonAPI::InitOutput::EQT_COMPUTE],
             imageAcquire[resourceIx].get(),
             renderFinished[resourceIx].get(),
             fence.get());

@@ -49,7 +49,7 @@ public:
     std::array<nbl::video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
     nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
     nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-    std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
+    nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
     std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
     nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
     nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
@@ -101,6 +101,7 @@ public:
     core::vector<MeshPacker::PackerDataStore> packedMeshBuffer;
     core::vector<DrawIndexedIndirectInput> mdiCallParams;
     core::vector<core::smart_refctd_ptr<IGPUBuffer>> gpuIndirectDrawBuffer;
+    nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
     uint32_t ds1UboBinding = 0;
     int resourceIx;
@@ -154,7 +155,7 @@ public:
     {
         for (int i = 0; i < f.size(); i++)
         {
-            fbo[i] = core::smart_refctd_ptr(f[i]);
+            fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
         }
     }
     void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -175,36 +176,42 @@ public:
     void onAppInitialized_impl() override
     {
         const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-        const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
+        CommonAPI::InitParams initParams;
+        initParams.window = core::smart_refctd_ptr(window);
+        initParams.apiType = video::EAT_VULKAN;
+        initParams.appName = { "21.DynamicTextureIndexing" };
+        initParams.framesInFlight = FRAMES_IN_FLIGHT;
+        initParams.windowWidth = WIN_W;
+        initParams.windowHeight = WIN_H;
+        initParams.scImageCount = SC_IMG_COUNT;
+        initParams.swapchainImageUsage = swapchainImageUsage;
+        initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
+        auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
-        CommonAPI::InitOutput initOutput;
-        initOutput.window = core::smart_refctd_ptr(window);
-        CommonAPI::InitWithDefaultExt(
-            initOutput,
-            video::EAT_OPENGL,
-            "DynamicTextureIndexing",
-            FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
-            swapchainImageUsage,
-            surfaceFormat,
-            nbl::asset::EF_D32_SFLOAT);
-
-        window = std::move(initOutput.window);
-        windowCb = std::move(initOutput.windowCb);
+        window = std::move(initParams.window);
+        windowCb = std::move(initParams.windowCb);
         gl = std::move(initOutput.apiConnection);
         surface = std::move(initOutput.surface);
         utilities = std::move(initOutput.utilities);
         logicalDevice = std::move(initOutput.logicalDevice);
         gpuPhysicalDevice = initOutput.physicalDevice;
         queues = std::move(initOutput.queues);
-        swapchain = std::move(initOutput.swapchain);
-        renderpass = std::move(initOutput.renderpass);
-        fbo = std::move(initOutput.fbo);
+        renderpass = std::move(initOutput.renderToSwapchainRenderpass);
         commandPools = std::move(initOutput.commandPools);
         system = std::move(initOutput.system);
         assetManager = std::move(initOutput.assetManager);
         cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
         logger = std::move(initOutput.logger);
         inputSystem = std::move(initOutput.inputSystem);
+        m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+        CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+        assert(swapchain);
+        fbo = CommonAPI::createFBOWithSwapchainImages(
+            swapchain->getImageCount(), WIN_W, WIN_H,
+            logicalDevice, swapchain, renderpass,
+            nbl::asset::EF_D32_SFLOAT
+        );
 
         descriptorPool = createDescriptorPool(1u);
 
@@ -473,7 +480,7 @@ public:
                     }
                 }
 
-                info[bind].image.imageLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+                info[bind].image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
                 info[bind].image.sampler = core::smart_refctd_ptr(sampler);
                 info[bind].desc = core::smart_refctd_ptr(gpuTexture);
 
@@ -617,7 +624,7 @@ public:
             clear[1].depthStencil.depth = 0.f;
 
             beginInfo.clearValueCount = 2u;
-            beginInfo.framebuffer = fbo[acquiredNextFBO];
+            beginInfo.framebuffer = fbo->begin()[acquiredNextFBO];
             beginInfo.renderpass = renderpass;
             beginInfo.renderArea = area;
             beginInfo.clearValues = clear;
@@ -646,7 +653,6 @@ public:
         commandBuffer->end();
 
         CommonAPI::Submit(logicalDevice.get(),
-            swapchain.get(),
             commandBuffer.get(),
             queues[CommonAPI::InitOutput::EQT_GRAPHICS],
             imageAcquire[resourceIx].get(),
@@ -659,7 +665,7 @@ public:
 
     void onAppTerminated_impl() override
     {
-        const auto& fboCreationParams = fbo[acquiredNextFBO]->getCreationParameters();
+        const auto& fboCreationParams = fbo->begin()[acquiredNextFBO]->getCreationParameters();
         auto gpuSourceImageView = fboCreationParams.attachments[0];
 
         bool status = ext::ScreenShot::createScreenShot(
@@ -669,7 +675,7 @@ public:
             gpuSourceImageView.get(),
             assetManager.get(),
             "ScreenShot.png",
-            asset::EIL_PRESENT_SRC,
+            asset::IImage::EL_PRESENT_SRC,
             static_cast<asset::E_ACCESS_FLAGS>(0u));
 
         assert(status);

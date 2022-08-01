@@ -31,7 +31,7 @@ class Draw3DLineSampleApp : public ApplicationBase
 	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
 	core::smart_refctd_ptr<nbl::video::ISwapchain> sc;
 	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
+	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
 	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	core::smart_refctd_ptr<nbl::system::ISystem> filesystem;
@@ -47,6 +47,8 @@ class Draw3DLineSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquired[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
+
+	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 public:
 
@@ -82,7 +84,7 @@ public:
 	{
 		for (int i = 0; i < f.size(); i++)
 		{
-			fbo[i] = core::smart_refctd_ptr(f[i]);
+			fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
 		}
 	}
 	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -102,57 +104,43 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::SFeatureRequest<video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
-		requiredInstanceFeatures.count = 1u;
-		video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { video::IAPIConnection::EF_SURFACE };
-		requiredInstanceFeatures.features = requiredFeatures_Instance;
-
-		CommonAPI::SFeatureRequest<video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
-
-		CommonAPI::SFeatureRequest<video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
-		requiredDeviceFeatures.count = 1u;
-		video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { video::ILogicalDevice::EF_SWAPCHAIN };
-		requiredDeviceFeatures.features = requiredFeatures_Device;
-
-		CommonAPI::SFeatureRequest< video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
 		const asset::E_FORMAT depthFormat = asset::EF_UNKNOWN;
 
-		CommonAPI::InitOutput initOutp;
-		
-		initOutp.window = window;
-		initOutp.system = system;
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "33.Draw3DLine" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = WIN_W;
+		initParams.windowHeight = WIN_H;
+		initParams.scImageCount = SC_IMG_COUNT;
+		initParams.swapchainImageUsage = swapchainImageUsage;
+		initParams.depthFormat = depthFormat;
+		auto initOutp = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
-		CommonAPI::Init(
-			initOutp,
-			video::EAT_VULKAN,
-			"33.Draw3DLine",
-			requiredInstanceFeatures,
-			optionalInstanceFeatures,
-			requiredDeviceFeatures,
-			optionalDeviceFeatures,
-			FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
-			swapchainImageUsage,
-			surfaceFormat,
-			depthFormat);
-
-		window = std::move(initOutp.window);
-		windowCb = std::move(initOutp.windowCb);
+		window = std::move(initParams.window);
+		windowCb = std::move(initParams.windowCb);
 		api = std::move(initOutp.apiConnection);
 		surface = std::move(initOutp.surface);
 		device = std::move(initOutp.logicalDevice);
 		gpu = std::move(initOutp.physicalDevice);
 		queues = std::move(initOutp.queues);
-		sc = std::move(initOutp.swapchain);
-		renderpass = std::move(initOutp.renderpass);
-		fbo = std::move(initOutp.fbo);
+		renderpass = std::move(initOutp.renderToSwapchainRenderpass);
 		commandPools = std::move(initOutp.commandPools);
 		assetManager = std::move(initOutp.assetManager);
 		filesystem = std::move(initOutp.system);
 		cpu2gpuParams = std::move(initOutp.cpu2gpuParams);
 		utils = std::move(initOutp.utilities);
+		m_swapchainCreationParams = std::move(initOutp.swapchainCreationParams);
+
+		CommonAPI::createSwapchain(std::move(device), m_swapchainCreationParams, WIN_W, WIN_H, sc);
+		assert(sc);
+		fbo = CommonAPI::createFBOWithSwapchainImages(
+			sc->getImageCount(), WIN_W, WIN_H,
+			device, sc, renderpass,
+			depthFormat
+		);
 
 		m_draw3DLine = ext::DebugDraw::CDraw3DLine::create(device);
 
@@ -186,7 +174,7 @@ public:
 		{
 			auto* rpIndependentPipeline = m_draw3DLine->getRenderpassIndependentPipeline();
 			video::IGPUGraphicsPipeline::SCreationParams gp_params;
-			gp_params.rasterizationSamplesHint = asset::IImage::ESCF_1_BIT;
+			gp_params.rasterizationSamples = asset::IImage::ESCF_1_BIT;
 			gp_params.renderpass = core::smart_refctd_ptr<video::IGPURenderpass>(renderpass);
 			gp_params.renderpassIndependent = core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>(rpIndependentPipeline);
 			gp_params.subpassIx = 0u;
@@ -257,7 +245,7 @@ public:
 		clear.color.float32[2] = 1.f;
 		clear.color.float32[3] = 1.f;
 		info.renderpass = renderpass;
-		info.framebuffer = fbo[imgnum];
+		info.framebuffer = fbo->begin()[imgnum];
 		info.clearValueCount = 1u;
 		info.clearValues = &clear;
 		info.renderArea = area;
@@ -269,7 +257,6 @@ public:
 
 		CommonAPI::Submit(
 			device.get(),
-			sc.get(),
 			m_cmdbufs[m_resourceIx].get(),
 			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
 			m_imageAcquired[m_resourceIx].get(),

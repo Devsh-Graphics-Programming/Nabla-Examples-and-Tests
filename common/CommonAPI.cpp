@@ -510,12 +510,10 @@ nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> CommonAPI::createRenderp
 	nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
 	if (useDepth)
 	{
-		depthFormat = baseDepthFormat;
-		//depthFormat = device->getPhysicalDevice()->promoteImageFormat(
-		//	{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
-		//	nbl::asset::IImage::ET_OPTIMAL
-		//);
-		// TODO error reporting
+		depthFormat = device->getPhysicalDevice()->promoteImageFormat(
+			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
+			nbl::video::IGPUImage::ET_OPTIMAL
+		);
 		assert(depthFormat != nbl::asset::EF_UNKNOWN);
 	}
 
@@ -570,14 +568,13 @@ nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> CommonAPI::createRenderp
 	return device->createRenderpass(rp_params);
 }
 
-auto createFBOWithSwapchainImages(
+nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> CommonAPI::createFBOWithSwapchainImages(
 	size_t imageCount, uint32_t width, uint32_t height,
 	const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain,
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass,
-	nbl::asset::E_FORMAT baseDepthFormat = nbl::asset::EF_UNKNOWN
-) -> nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>>
-{
+	nbl::asset::E_FORMAT baseDepthFormat
+) {
 	using namespace nbl;
 
 	bool useDepth = baseDepthFormat != nbl::asset::EF_UNKNOWN;
