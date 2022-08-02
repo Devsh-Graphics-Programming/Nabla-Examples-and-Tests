@@ -211,7 +211,7 @@ public:
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = windowWidth;
 		initParams.windowHeight = windowHeight;
-		initParams.scImageCount = 3u;
+		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();

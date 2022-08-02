@@ -502,7 +502,7 @@ public:
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = NBL_WINDOW_WIDTH;
 		initParams.windowHeight = NBL_WINDOW_HEIGHT;
-		initParams.scImageCount = SC_IMG_COUNT;
+		initParams.swapchainImageCount = SC_IMG_COUNT;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 

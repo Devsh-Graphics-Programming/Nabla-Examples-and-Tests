@@ -141,7 +141,7 @@ public:
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = WIN_W;
 		initParams.windowHeight = WIN_H;
-		initParams.scImageCount = SC_IMG_COUNT;
+		initParams.swapchainImageCount = SC_IMG_COUNT;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.depthFormat = depthFormat;
 		auto initOutp = CommonAPI::InitWithDefaultExt(std::move(initParams));

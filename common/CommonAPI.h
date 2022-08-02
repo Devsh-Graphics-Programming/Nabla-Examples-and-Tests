@@ -377,7 +377,7 @@ public:
 		uint32_t framesInFlight = 5u;
 		uint32_t windowWidth = 800u;
 		uint32_t windowHeight = 600u;
-		uint32_t scImageCount = 3u;
+		uint32_t swapchainImageCount = 3u;
 
 		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
 		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};

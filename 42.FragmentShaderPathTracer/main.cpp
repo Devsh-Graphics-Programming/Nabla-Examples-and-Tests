@@ -107,7 +107,7 @@ int main()
 	initParams.framesInFlight = FRAMES_IN_FLIGHT;
 	initParams.windowWidth = WIN_W;
 	initParams.windowHeight = WIN_H;
-	initParams.scImageCount = FBO_COUNT;
+	initParams.swapchainImageCount = FBO_COUNT;
 	initParams.swapchainImageUsage = swapchainImageUsage;
 	initParams.optionalDeviceFeatures = optionalDeviceFeatures;
 	initParams.depthFormat = asset::EF_D32_SFLOAT;

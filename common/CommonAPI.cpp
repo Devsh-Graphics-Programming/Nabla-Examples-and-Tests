@@ -967,7 +967,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 
 		result.swapchainCreationParams = computeSwapchainCreationParams(
 			gpuInfo,
-			params.scImageCount,
+			params.swapchainImageCount,
 			result.logicalDevice,
 			result.surface,
 			params.swapchainImageUsage,

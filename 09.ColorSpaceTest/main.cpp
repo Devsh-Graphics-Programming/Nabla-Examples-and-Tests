@@ -80,7 +80,7 @@ public:
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = WIN_W;
 		initParams.windowHeight = WIN_H;
-		initParams.scImageCount = 3u;
+		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
