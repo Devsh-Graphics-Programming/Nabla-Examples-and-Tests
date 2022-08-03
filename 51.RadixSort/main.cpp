@@ -4,7 +4,7 @@
 
 #include "nbl/ext/RadixSort/RadixSort.h"
 #include "../common/CommonAPI.h"
-
+#include <cstdlib>
 #include <chrono>
 #include <random>
 
@@ -240,6 +240,7 @@ void test_result(SortElement *in, uint32_t count) {
   for (int i = 0; i < count; i++) {
     if ((in + i)->key < prev) {
       std::cout << "Failed at index " << i << std::endl;
+      return;
     }
     prev = (in + i)->key;
   }
@@ -323,7 +324,9 @@ public:
       auto utilities = std::move(initOutput.utilities);
 
       // Create (an almost) 256MB input buffer
-      const size_t in_count = (1 << 25) - 23;
+      //const size_t in_count = (1 << 8) - 23;
+      //const size_t in_count = (1 << 25) - 23;
+      const size_t in_count = (1 << 22);
       const size_t in_size = in_count * sizeof(SortElement);
 
       logger->log("Input element count: %d", system::ILogger::ELL_PERFORMANCE, in_count);
@@ -333,14 +336,22 @@ public:
         std::mt19937 generator(random_device());
         std::uniform_int_distribution<uint32_t> distribution(0u, ~0u);
         for (size_t i = 0u; i < in_count; ++i) {
-          in[i].key = distribution(generator);
+          //in[i].key = distribution(generator);
+          in[i].key = i % 16;
           in[i].data = i;
         }
       }
 
       // Take (an almost) 64MB portion from it to sort
-      constexpr size_t begin = (1 << 23) + 112;
-      constexpr size_t end = (1 << 24) - 77;
+      /*constexpr size_t begin = (1 << 6) + 11;
+      constexpr size_t end = (1 << 7) - 7;*/
+
+      /*constexpr size_t begin = (1 << 23) + 112;
+      constexpr size_t end = (1 << 24) - 77;*/
+
+      constexpr size_t begin = 0;
+      constexpr size_t end = in_count;
+
       assert(((begin * sizeof(SortElement)) & (gpuPhysicalDevice->getLimits().SSBOAlignment - 1u)) == 0u);
       assert(((end * sizeof(SortElement)) & (gpuPhysicalDevice->getLimits().SSBOAlignment - 1u)) == 0u);
       constexpr auto elementCount = end - begin;
@@ -457,15 +468,16 @@ public:
 
         cmdbuf->begin(video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
 
-        RadixSortClass::sort(logicalDevice.get(), cmdbuf.get(), scanner,
-                             histogramPipeline, scanPipeline, scatterPipeline,
-                             a_pingPongSortDS, &scanDS,
-                             a_sort_push_constants, &sort_dispatch_info,
-                             &scan_push_constants, &scan_dispatch_info,
-                             scratch_input_gpu_range,
-                             histogram_gpu_range,
-                             scratch_scan_gpu_range,
-                             asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT);
+		RadixSortClass::sort(logicalDevice.get(), cmdbuf.get(), scanner,
+			histogramPipeline, scanPipeline, scatterPipeline,
+			a_pingPongSortDS, &scanDS,
+			a_sort_push_constants, &sort_dispatch_info,
+			&scan_push_constants, &scan_dispatch_info,
+			input_gpu_range,
+			scratch_input_gpu_range,
+			histogram_gpu_range,
+			scratch_scan_gpu_range,
+			asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT);
         cmdbuf->end();
 
         core::smart_refctd_ptr<IGPUFence> lastFence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
@@ -480,8 +492,9 @@ public:
         uint32_t* debug = debug_download(logicalDevice, gpuPhysicalDevice, computeQueue, histogram_gpu_range);
 
         // DOWNLOAD DEVICE BUFFER TO HOST
+        SBufferRange <IGPUBuffer>& downloaded_gpu_range = input_gpu_range;
         IGPUBuffer::SCreationParams params = {};
-        params.size = input_gpu_range.size;
+        params.size = downloaded_gpu_range.size;
         params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
 
         auto downloaded_buffer = logicalDevice->createBuffer(params);
@@ -496,10 +509,10 @@ public:
           }
           cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
           asset::SBufferCopy region;
-          region.srcOffset = input_gpu_range.offset;
+          region.srcOffset = downloaded_gpu_range.offset;
           region.dstOffset = 0u;
-          region.size = input_gpu_range.size;
-          cmdbuf->copyBuffer(input_gpu_range.buffer.get(), downloaded_buffer.get(), 1u, &region);
+          region.size = downloaded_gpu_range.size;
+          cmdbuf->copyBuffer(downloaded_gpu_range.buffer.get(), downloaded_buffer.get(), 1u, &region);
           cmdbuf->end();
           lastFence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
           IGPUQueue::SSubmitInfo submit = {};
@@ -515,12 +528,12 @@ public:
           {
             range.memory = mem;
             range.offset = 0u;
-            range.length = input_gpu_range.size;
+            range.length = downloaded_gpu_range.size;
           }
           logicalDevice->mapMemory(range, video::IDeviceMemoryAllocation::EMCAF_READ);
         }
         auto gpu_begin = reinterpret_cast<SortElement*>(mem->getMappedPointer());
-//        test_result(gpu_begin, elementCount);
+        test_result(gpu_begin, elementCount);
 //        logger->log("Result Comparison Test Passed", system::ILogger::ELL_PERFORMANCE);
       }
 
@@ -550,6 +563,7 @@ public:
 //      }
 
       delete[] in;
+      std::system("pause");
     }
 
     virtual void workLoopBody() override {
