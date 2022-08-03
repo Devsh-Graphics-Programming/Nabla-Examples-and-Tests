@@ -481,8 +481,8 @@ public:
 		}
 
 		// safe to proceed
-		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); 
+		// cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 
 		{
 			asset::SViewport vp;
