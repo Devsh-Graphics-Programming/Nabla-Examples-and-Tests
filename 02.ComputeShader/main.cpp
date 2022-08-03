@@ -53,6 +53,7 @@ class ComputeShaderSampleApp : public ApplicationBase
 
 	core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
 	std::mutex m_resizeLock;
+	std::condition_variable m_resizeWaitForFrame;
 
 	uint32_t m_swapchainIteration = 0;
 	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
@@ -168,6 +169,7 @@ public:
 		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, w, h, swapchain);
 		assert(swapchain);
 		m_swapchainIteration++;
+		m_resizeWaitForFrame.wait(guard);
 	}
 
 	void onAppInitialized_impl() override
@@ -452,6 +454,7 @@ public:
 			m_resourceIx = 0;
 
 		auto& cb = m_cmdbuf[m_resourceIx];
+		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 		if (fence)
 		{
@@ -478,7 +481,8 @@ public:
 		}
 
 		// safe to proceed
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
+		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); 
 
 		{
 			asset::SViewport vp;
@@ -561,6 +565,7 @@ public:
 			m_renderFinished[m_resourceIx].get(),
 			imgnum);
 		m_frameIx++;
+		m_resizeWaitForFrame.notify_all();
 	}
 
 	bool keepRunning() override
