@@ -5,12 +5,7 @@
 
 using namespace nbl;
 
-// TODO better way of handling this
-struct OnResize {
-	virtual void onResize(uint32_t w, uint32_t h) = 0;
-};
-
-class ComputeShaderSampleApp : public ApplicationBase, public OnResize
+class ComputeShaderSampleApp : public ApplicationBase
 {
 	uint32_t windowWidth = 768u;
 	uint32_t windowHeight = 512u;
@@ -69,19 +64,6 @@ class ComputeShaderSampleApp : public ApplicationBase, public OnResize
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImage> oldImage = nullptr;
 
 		~CSwapchainResources() override {}
-	};
-
-	struct ResizeEventHandler : public CommonAPI::CommonAPIEventCallback
-	{
-		OnResize* callback = nullptr;
-
-		ResizeEventHandler(nbl::core::smart_refctd_ptr<CommonAPI::InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : CommonAPI::CommonAPIEventCallback(std::move(inputSystem), std::move(logger)) {}
-
-		bool onWindowResized_impl(uint32_t w, uint32_t h) override
-		{
-			if (callback) callback->onResize(w, h);
-			return true;
-		}
 	};
 
 public:
@@ -204,8 +186,8 @@ public:
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
-		auto initOutput = CommonAPI::InitWithDefaultExt<true, ResizeEventHandler>(std::move(initParams));
-		((ResizeEventHandler*) initParams.windowCb.get())->callback = this;
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+		initParams.windowCb->setApplicationFramework(this);
 
 		system = std::move(initOutput.system);
 		window = std::move(initParams.window);

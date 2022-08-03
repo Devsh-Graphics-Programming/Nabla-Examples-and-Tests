@@ -224,7 +224,12 @@ public:
 		{
 			m_inputSystem = std::move(inputSystem);
 		}
+		void setApplicationFramework(nbl::system::IApplicationFramework* inputSystem)
+		{
+			m_framework = std::move(inputSystem);
+		}
 	private:
+		nbl::system::IApplicationFramework* m_framework = nullptr;
 		bool onWindowShown_impl() override
 		{
 			m_logger.log("Window Shown");
@@ -242,6 +247,7 @@ public:
 		}
 		bool onWindowResized_impl(uint32_t w, uint32_t h) override
 		{
+			if (m_framework) m_framework->onResize(w, h);
 			m_logger.log("Window resized to { %u, %u }", nbl::system::ILogger::ELL_DEBUG, w, h);
 			return true;
 		}
