@@ -63,6 +63,7 @@ class ComputeShaderSampleApp : public ApplicationBase
 	{
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> oldImageView = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImage> oldImage = nullptr;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet = nullptr;
 
 		~CSwapchainResources() override {}
 	};
@@ -138,23 +139,52 @@ public:
 			assert(m_swapchainImageViews[i]);
 		}
 
-		const uint32_t writeDescriptorCount = 1u;
+		const uint32_t descriptorPoolSizeCount = 1u;
+		video::IDescriptorPool::SDescriptorPoolSize poolSizes[descriptorPoolSizeCount];
+		poolSizes[0].type = asset::EDT_STORAGE_IMAGE;
+		poolSizes[0].count = 2u;
+
+		video::IDescriptorPool::E_CREATE_FLAGS descriptorPoolFlags =
+			static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0);
+
+		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool
+			= logicalDevice->createDescriptorPool(descriptorPoolFlags, 1,
+				descriptorPoolSizeCount, poolSizes);
+
+		m_descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(),
+			core::smart_refctd_ptr(m_descriptorSetLayout));
+
+		const uint32_t writeDescriptorCount = 2u;
 
 		video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[writeDescriptorCount];
 		video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[writeDescriptorCount] = {};
 
-		// image2D -- swapchain image
+		// image2D -- my input
 		{
 			descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
 			descriptorInfos[0].image.sampler = nullptr;
-			descriptorInfos[0].desc = m_swapchainImageViews[i]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
+			descriptorInfos[0].desc = m_inImageView;
 
 			writeDescriptorSets[0].dstSet = m_descriptorSets[i].get();
-			writeDescriptorSets[0].binding = 0u;
+			writeDescriptorSets[0].binding = 1u;
 			writeDescriptorSets[0].arrayElement = 0u;
 			writeDescriptorSets[0].count = 1u;
 			writeDescriptorSets[0].descriptorType = asset::EDT_STORAGE_IMAGE;
 			writeDescriptorSets[0].info = &descriptorInfos[0];
+		}
+
+		// image2D -- swapchain image
+		{
+			descriptorInfos[1].image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[1].image.sampler = nullptr;
+			descriptorInfos[1].desc = m_swapchainImageViews[i]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
+
+			writeDescriptorSets[1].dstSet = m_descriptorSets[i].get();
+			writeDescriptorSets[1].binding = 0u;
+			writeDescriptorSets[1].arrayElement = 0u;
+			writeDescriptorSets[1].count = 1u;
+			writeDescriptorSets[1].descriptorType = asset::EDT_STORAGE_IMAGE;
+			writeDescriptorSets[1].info = &descriptorInfos[1];
 		}
 
 		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
@@ -270,25 +300,6 @@ public:
 		m_descriptorSetLayout =
 			logicalDevice->createDescriptorSetLayout(bindings, bindings + bindingCount);
 
-		const uint32_t descriptorPoolSizeCount = 1u;
-		video::IDescriptorPool::SDescriptorPoolSize poolSizes[descriptorPoolSizeCount];
-		poolSizes[0].type = asset::EDT_STORAGE_IMAGE;
-		poolSizes[0].count = swapchainImageCount + 1u;
-
-		video::IDescriptorPool::E_CREATE_FLAGS descriptorPoolFlags =
-			static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0);
-
-		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool
-			= logicalDevice->createDescriptorPool(descriptorPoolFlags, swapchainImageCount,
-				descriptorPoolSizeCount, poolSizes);
-
-		m_descriptorSets.resize(swapchainImageCount);
-		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
-		{
-			m_descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(),
-				core::smart_refctd_ptr(m_descriptorSetLayout));
-		}
-
 		// Todo(achal): Uncomment once the KTX loader works
 #if 0
 		constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(
@@ -384,31 +395,7 @@ public:
 		}
 		assert(m_inImageView);
 
-		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
-		{
-			const uint32_t writeDescriptorCount = 1u;
-
-			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[writeDescriptorCount];
-			video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[writeDescriptorCount] = {};
-
-
-			// image2D -- my input
-			{
-				descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
-				descriptorInfos[0].image.sampler = nullptr;
-				descriptorInfos[0].desc = m_inImageView;
-
-				writeDescriptorSets[0].dstSet = m_descriptorSets[i].get();
-				writeDescriptorSets[0].binding = 1u;
-				writeDescriptorSets[0].arrayElement = 0u;
-				writeDescriptorSets[0].count = 1u;
-				writeDescriptorSets[0].descriptorType = asset::EDT_STORAGE_IMAGE;
-				writeDescriptorSets[0].info = &descriptorInfos[0];
-			}
-
-			logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
-		}
-
+		m_descriptorSets.resize(swapchainImageCount);
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
 			createSwapchainImage(i);
@@ -474,6 +461,7 @@ public:
 			CSwapchainResources* retiredResources(new CSwapchainResources{});
 			retiredResources->oldImageView = m_swapchainImageViews[imgnum];
 			retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
+			retiredResources->descriptorSet = m_descriptorSets[imgnum];
 			retiredResources->retiredFrameId = m_frameIx;
 
 			CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
