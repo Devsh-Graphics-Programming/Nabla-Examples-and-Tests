@@ -20,6 +20,44 @@
 #include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
+#ifndef _NBL_PLATFORM_ANDROID_
+class GraphicalApplication : public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
+{
+protected:
+	~GraphicalApplication() {}
+public:
+	GraphicalApplication(
+		const std::filesystem::path& _localInputCWD,
+		const std::filesystem::path& _localOutputCWD,
+		const std::filesystem::path& _sharedInputCWD,
+		const std::filesystem::path& _sharedOutputCWD
+	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+	void recreateSurface() override
+	{
+	}
+	void onResize(uint32_t w, uint32_t h) override
+	{
+	}
+};
+#else
+class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
+{
+protected:
+	~GraphicalApplication() {}
+public:
+	GraphicalApplication(
+		android_app* app, JNIEnv* env,
+		const std::filesystem::path& _localInputCWD,
+		const std::filesystem::path& _localOutputCWD,
+		const std::filesystem::path& _sharedInputCWD,
+		const std::filesystem::path& _sharedOutputCWD
+	) : nbl::ui::CGraphicalApplicationAndroid(app, env, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+	void recreateSurface() override
+	{
+		CommonAPI::recreateSurface(this);
+	}
+};
+#endif
 
 class CommonAPI
 {
@@ -224,12 +262,12 @@ public:
 		{
 			m_inputSystem = std::move(inputSystem);
 		}
-		void setApplicationFramework(nbl::system::IApplicationFramework* inputSystem)
+		void setApplication(GraphicalApplication* app)
 		{
-			m_framework = std::move(inputSystem);
+			m_app = std::move(app);
 		}
 	private:
-		nbl::system::IApplicationFramework* m_framework = nullptr;
+		GraphicalApplication* m_app = nullptr;
 		bool onWindowShown_impl() override
 		{
 			m_logger.log("Window Shown");
@@ -247,8 +285,8 @@ public:
 		}
 		bool onWindowResized_impl(uint32_t w, uint32_t h) override
 		{
-			if (m_framework) m_framework->onResize(w, h);
 			m_logger.log("Window resized to { %u, %u }", nbl::system::ILogger::ELL_DEBUG, w, h);
+			if (m_app) m_app->onResize(w, h);
 			return true;
 		}
 		bool onWindowMinimized_impl() override
@@ -719,41 +757,6 @@ protected:
 };
 
 
-#ifndef _NBL_PLATFORM_ANDROID_
-class GraphicalApplication : public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
-{
-protected:
-	~GraphicalApplication() {}
-public:
-	GraphicalApplication(
-		const std::filesystem::path& _localInputCWD,
-		const std::filesystem::path& _localOutputCWD,
-		const std::filesystem::path& _sharedInputCWD,
-		const std::filesystem::path& _sharedOutputCWD
-	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-	void recreateSurface() override
-	{
-	}
-};
-#else
-class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
-{
-protected:
-	~GraphicalApplication() {}
-public:
-	GraphicalApplication(
-		android_app* app, JNIEnv* env,
-		const std::filesystem::path& _localInputCWD,
-		const std::filesystem::path& _localOutputCWD,
-		const std::filesystem::path& _sharedInputCWD,
-		const std::filesystem::path& _sharedOutputCWD
-	) : nbl::ui::CGraphicalApplicationAndroid(app, env, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-	void recreateSurface() override
-	{
-		CommonAPI::recreateSurface(this);
-	}
-};
-#endif
 //***** Application framework macros ******
 #ifdef _NBL_PLATFORM_ANDROID_
 using ApplicationBase = GraphicalApplication;

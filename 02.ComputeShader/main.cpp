@@ -219,7 +219,7 @@ public:
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-		initParams.windowCb->setApplicationFramework(this);
+		initParams.windowCb->setApplication(this);
 
 		system = std::move(initOutput.system);
 		window = std::move(initParams.window);
