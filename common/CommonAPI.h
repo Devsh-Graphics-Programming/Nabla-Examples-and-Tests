@@ -20,45 +20,6 @@
 #include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
-#ifndef _NBL_PLATFORM_ANDROID_
-class GraphicalApplication : public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
-{
-protected:
-	~GraphicalApplication() {}
-public:
-	GraphicalApplication(
-		const std::filesystem::path& _localInputCWD,
-		const std::filesystem::path& _localOutputCWD,
-		const std::filesystem::path& _sharedInputCWD,
-		const std::filesystem::path& _sharedOutputCWD
-	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-	void recreateSurface() override
-	{
-	}
-	void onResize(uint32_t w, uint32_t h) override
-	{
-	}
-};
-#else
-class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
-{
-protected:
-	~GraphicalApplication() {}
-public:
-	GraphicalApplication(
-		android_app* app, JNIEnv* env,
-		const std::filesystem::path& _localInputCWD,
-		const std::filesystem::path& _localOutputCWD,
-		const std::filesystem::path& _sharedInputCWD,
-		const std::filesystem::path& _sharedOutputCWD
-	) : nbl::ui::CGraphicalApplicationAndroid(app, env, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-	void recreateSurface() override
-	{
-		CommonAPI::recreateSurface(this);
-	}
-};
-#endif
-
 class CommonAPI
 {
 	CommonAPI() = delete;
@@ -247,7 +208,15 @@ public:
 	{
 	public:
 		virtual void setLogger(nbl::system::logger_opt_smart_ptr& logger) = 0;
+
+		void setApplication(nbl::ui::IGraphicalApplicationFramework* app)
+		{
+			m_app = std::move(app);
+		}
+	protected:
+		nbl::ui::IGraphicalApplicationFramework* m_app = nullptr;
 	};
+
 	class CommonAPIEventCallback : public ICommonAPIEventCallback
 	{
 	public:
@@ -262,12 +231,7 @@ public:
 		{
 			m_inputSystem = std::move(inputSystem);
 		}
-		void setApplication(GraphicalApplication* app)
-		{
-			m_app = std::move(app);
-		}
 	private:
-		GraphicalApplication* m_app = nullptr;
 		bool onWindowShown_impl() override
 		{
 			m_logger.log("Window Shown");
@@ -414,7 +378,8 @@ public:
 		FeatureType* features = nullptr;
 	};
 
-	struct InitParams {
+	struct InitParams
+	{
 		std::string_view appName;
 		nbl::video::E_API_TYPE apiType = nbl::video::EAT_VULKAN;
 		
@@ -756,7 +721,44 @@ protected:
 	static void performGpuInit(InitParams& params, InitOutput& result);
 };
 
-
+#ifndef _NBL_PLATFORM_ANDROID_
+class GraphicalApplication : public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
+{
+protected:
+	~GraphicalApplication() {}
+public:
+	GraphicalApplication(
+		const std::filesystem::path& _localInputCWD,
+		const std::filesystem::path& _localOutputCWD,
+		const std::filesystem::path& _sharedInputCWD,
+		const std::filesystem::path& _sharedOutputCWD
+	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+	void recreateSurface() override
+	{
+	}
+	void onResize(uint32_t w, uint32_t h) override
+	{
+	}
+};
+#else
+class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
+{
+protected:
+	~GraphicalApplication() {}
+public:
+	GraphicalApplication(
+		android_app* app, JNIEnv* env,
+		const std::filesystem::path& _localInputCWD,
+		const std::filesystem::path& _localOutputCWD,
+		const std::filesystem::path& _sharedInputCWD,
+		const std::filesystem::path& _sharedOutputCWD
+	) : nbl::ui::CGraphicalApplicationAndroid(app, env, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+	void recreateSurface() override
+	{
+		CommonAPI::recreateSurface(this);
+	}
+};
+#endif
 //***** Application framework macros ******
 #ifdef _NBL_PLATFORM_ANDROID_
 using ApplicationBase = GraphicalApplication;
