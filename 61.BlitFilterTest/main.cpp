@@ -131,19 +131,21 @@ class BlitFilterTestApp : public ApplicationBase
 public:
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::InitOutput initOutput;
-		CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "BlitFilterTest");
+		CommonAPI::InitParams initParams;
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "BlitFilterTest" };
+		initParams.swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS(0);
+		auto initOutput = CommonAPI::Init(std::move(initParams));
 
 		system = std::move(initOutput.system);
-		window = std::move(initOutput.window);
-		windowCb = std::move(initOutput.windowCb);
+		window = std::move(initParams.window);
+		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		physicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		utilities = std::move(initOutput.utilities);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
 		commandPools = std::move(initOutput.commandPools);
 		assetManager = std::move(initOutput.assetManager);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
@@ -378,7 +380,7 @@ private:
 
 			assert(inImageCPU->getCreationParameters().mipLevels == 1);
 
-			auto transitionImageLayout = [this](core::smart_refctd_ptr<video::IGPUImage>&& image, const asset::E_IMAGE_LAYOUT finalLayout)
+			auto transitionImageLayout = [this](core::smart_refctd_ptr<video::IGPUImage>&& image, const asset::IImage::E_LAYOUT finalLayout)
 			{
 				core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
 				logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
@@ -386,7 +388,7 @@ private:
 				auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
 
 				video::IGPUCommandBuffer::SImageMemoryBarrier barrier = {};
-				barrier.oldLayout = asset::EIL_UNDEFINED;
+				barrier.oldLayout = asset::IImage::EL_UNDEFINED;
 				barrier.newLayout = finalLayout;
 				barrier.srcQueueFamilyIndex = ~0u;
 				barrier.dstQueueFamilyIndex = ~0u;
@@ -419,7 +421,7 @@ private:
 				// Do layout transition to SHADER_READ_ONLY_OPTIMAL 
 				// I think it might be a good idea to allow the user to change asset::ICPUImage's initialLayout and have the asset converter
 				// do the layout transition for them.
-				transitionImageLayout(core::smart_refctd_ptr(inImage), asset::EIL_SHADER_READ_ONLY_OPTIMAL);
+				transitionImageLayout(core::smart_refctd_ptr(inImage), asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL);
 			}
 
 			core::smart_refctd_ptr<video::IGPUImage> outImage = nullptr;
@@ -440,7 +442,7 @@ private:
 				memReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 				logicalDevice->allocate(memReqs, outImage.get());
 
-				transitionImageLayout(core::smart_refctd_ptr(outImage), asset::EIL_GENERAL);
+				transitionImageLayout(core::smart_refctd_ptr(outImage), asset::IImage::EL_GENERAL);
 			}
 
 			// Create resources needed to do the blit
@@ -479,14 +481,15 @@ private:
 
 				if (normalizationInFormat != outImageFormat)
 				{
-					video::IGPUImage::SCreationParams creationParams = outImage->getCreationParameters();
+					video::IGPUImage::SCreationParams creationParams;
+					creationParams = outImage->getCreationParameters();
 					creationParams.format = normalizationInFormat;
 					creationParams.usage = static_cast<video::IGPUImage::E_USAGE_FLAGS>(video::IGPUImage::EUF_STORAGE_BIT | video::IGPUImage::EUF_SAMPLED_BIT);
 					normalizationInImage = logicalDevice->createImage(std::move(creationParams));
 					auto memReqs = normalizationInImage->getMemoryReqs();
 					memReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 					logicalDevice->allocate(memReqs, normalizationInImage.get());
-					transitionImageLayout(core::smart_refctd_ptr(normalizationInImage), asset::EIL_GENERAL); // First we do the blit which requires storage image so starting layout is GENERAL
+					transitionImageLayout(core::smart_refctd_ptr(normalizationInImage), asset::IImage::EL_GENERAL); // First we do the blit which requires storage image so starting layout is GENERAL
 
 					video::IGPUImageView::SCreationParams viewCreationParams = {};
 					viewCreationParams.image = normalizationInImage;
@@ -515,7 +518,7 @@ private:
 					creationParams.size = scratchSize;
 					creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT);
 
-					coverageAdjustmentScratchBuffer = logicalDevice->createBuffer(creationParams);
+					coverageAdjustmentScratchBuffer = logicalDevice->createBuffer(std::move(creationParams));
 					auto memReqs = coverageAdjustmentScratchBuffer->getMemoryReqs();
 					memReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
 					logicalDevice->allocate(memReqs, coverageAdjustmentScratchBuffer.get());
@@ -543,7 +546,7 @@ private:
 				video::IGPUBuffer::SCreationParams creationParams = {};
 				creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT);
 				creationParams.size = lutSize;
-				auto scaledKernelPhasedLUT = logicalDevice->createBuffer(creationParams);
+				auto scaledKernelPhasedLUT = logicalDevice->createBuffer(std::move(creationParams));
 				auto memReqs = scaledKernelPhasedLUT->getMemoryReqs();
 				memReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
 				logicalDevice->allocate(memReqs, scaledKernelPhasedLUT.get());
@@ -626,7 +629,7 @@ private:
 						nullptr,
 						outImageView.get(),
 						static_cast<asset::E_ACCESS_FLAGS>(0u),
-						asset::EIL_GENERAL);
+						asset::IImage::EL_GENERAL);
 
 					if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 						logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
@@ -640,7 +643,7 @@ private:
 				video::IGPUBuffer::SCreationParams creationParams = {};
 				creationParams.usage = video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 				creationParams.size = downloadSize;
-				core::smart_refctd_ptr<video::IGPUBuffer> downloadBuffer = logicalDevice->createBuffer(creationParams);
+				core::smart_refctd_ptr<video::IGPUBuffer> downloadBuffer = logicalDevice->createBuffer(std::move(creationParams));
 
 				auto memReqs = downloadBuffer->getMemoryReqs();
 				memReqs.memoryTypeBits &= physicalDevice->getDownStreamingMemoryTypeBits();
@@ -658,7 +661,7 @@ private:
 				downloadRegion.imageExtent = outImage->getCreationParameters().extent;
 
 				// Todo(achal): Transition layout to TRANSFER_SRC_OPTIMAL
-				cmdbuf->copyImageToBuffer(outImage.get(), asset::EIL_GENERAL, downloadBuffer.get(), 1u, &downloadRegion);
+				cmdbuf->copyImageToBuffer(outImage.get(), asset::IImage::EL_GENERAL, downloadBuffer.get(), 1u, &downloadRegion);
 
 				cmdbuf->end();
 
