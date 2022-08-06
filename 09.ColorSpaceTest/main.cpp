@@ -43,7 +43,7 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
 	core::smart_refctd_ptr<video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<video::IGPURenderpass> renderpass;
-	nbl::core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
+	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
 	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<system::ISystem> system;
 	core::smart_refctd_ptr<asset::IAssetManager> assetManager;
@@ -51,7 +51,7 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<system::ILogger> logger;
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
-	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
+	video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 public:
 	void setWindow(core::smart_refctd_ptr<ui::IWindow>&& wnd) override
@@ -106,7 +106,7 @@ public:
 		fbos = CommonAPI::createFBOWithSwapchainImages(
 			swapchain->getImageCount(), WIN_W, WIN_H,
 			logicalDevice, swapchain, renderpass,
-			nbl::asset::EF_UNKNOWN
+			asset::EF_UNKNOWN
 		);
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;
@@ -460,7 +460,7 @@ public:
 			{
 				info.desc = gpuImageView;
 				info.image.sampler = nullptr;
-				info.image.imageLayout = nbl::asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
+				info.image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 			}
 
 			video::IGPUDescriptorSet::SWriteDescriptorSet write;
