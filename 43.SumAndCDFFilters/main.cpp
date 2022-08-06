@@ -77,11 +77,10 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::InitOutput initOutput;
-		
-		initOutput.system = core::smart_refctd_ptr(system);
-
-		CommonAPI::InitWithNoExt<false>(initOutput, EAT_OPENGL, "SumAndCDFFilter");
+		CommonAPI::InitParams initParams;
+		initParams.apiType = video::EAT_OPENGL;
+		initParams.appName = { "43.SumAndCDFFilter" };
+		auto initOutput = CommonAPI::Init(std::move(initParams));
 		
 		system = std::move(initOutput.system);
 		assetManager = std::move(initOutput.assetManager);

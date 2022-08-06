@@ -7,11 +7,11 @@ using namespace nbl;
 
 class ComputeShaderSampleApp : public ApplicationBase
 {
-	constexpr static uint32_t WIN_W = 768u;
-	constexpr static uint32_t WIN_H = 512u;
+	uint32_t windowWidth = 768u;
+	uint32_t windowHeight = 512u;
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-	
+
 
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
@@ -32,8 +32,10 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::system::ILogger> logger;
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
+	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>> m_swapchainImages;
 
 	int32_t m_resourceIx = -1;
+	int32_t m_frameIx = 0;
 
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
@@ -43,10 +45,28 @@ class ComputeShaderSampleApp : public ApplicationBase
 
 	core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline = nullptr;
 	core::vector<core::smart_refctd_ptr<video::IGPUDescriptorSet>> m_descriptorSets;
+	core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> m_descriptorSetLayout;
 
 	// These can be removed after descriptor lifetime tracking
 	core::vector<core::smart_refctd_ptr<video::IGPUImageView>> m_swapchainImageViews;
 	core::smart_refctd_ptr<video::IGPUImageView> m_inImageView;
+
+	core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
+	std::mutex m_resizeLock;
+	std::condition_variable m_resizeWaitForFrame;
+
+	uint32_t m_swapchainIteration = 0;
+	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
+	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
+
+	struct CSwapchainResources : public CommonAPI::IRetiredSwapchainResources
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> oldImageView = nullptr;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImage> oldImage = nullptr;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet = nullptr;
+
+		~CSwapchainResources() override {}
+	};
 
 public:
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
@@ -99,37 +119,126 @@ public:
 
 	APP_CONSTRUCTOR(ComputeShaderSampleApp);
 
+	void createSwapchainImage(uint32_t i)
+	{
+		auto& img = m_swapchainImages->begin()[i];
+		img = swapchain->createImage(i);
+		assert(img);
+		{
+			video::IGPUImageView::SCreationParams viewParams;
+			viewParams.format = img->getCreationParameters().format;
+			viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
+			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			viewParams.subresourceRange.baseMipLevel = 0u;
+			viewParams.subresourceRange.levelCount = 1u;
+			viewParams.subresourceRange.baseArrayLayer = 0u;
+			viewParams.subresourceRange.layerCount = 1u;
+			viewParams.image = img;
+
+			m_swapchainImageViews[i] = logicalDevice->createImageView(std::move(viewParams));
+			assert(m_swapchainImageViews[i]);
+		}
+
+		const uint32_t descriptorPoolSizeCount = 1u;
+		video::IDescriptorPool::SDescriptorPoolSize poolSizes[descriptorPoolSizeCount];
+		poolSizes[0].type = asset::EDT_STORAGE_IMAGE;
+		poolSizes[0].count = 2u;
+
+		video::IDescriptorPool::E_CREATE_FLAGS descriptorPoolFlags =
+			static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0);
+
+		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool
+			= logicalDevice->createDescriptorPool(descriptorPoolFlags, 1,
+				descriptorPoolSizeCount, poolSizes);
+
+		m_descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(),
+			core::smart_refctd_ptr(m_descriptorSetLayout));
+
+		const uint32_t writeDescriptorCount = 2u;
+
+		video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[writeDescriptorCount];
+		video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[writeDescriptorCount] = {};
+
+		// image2D -- my input
+		{
+			descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[0].image.sampler = nullptr;
+			descriptorInfos[0].desc = m_inImageView;
+
+			writeDescriptorSets[0].dstSet = m_descriptorSets[i].get();
+			writeDescriptorSets[0].binding = 1u;
+			writeDescriptorSets[0].arrayElement = 0u;
+			writeDescriptorSets[0].count = 1u;
+			writeDescriptorSets[0].descriptorType = asset::EDT_STORAGE_IMAGE;
+			writeDescriptorSets[0].info = &descriptorInfos[0];
+		}
+
+		// image2D -- swapchain image
+		{
+			descriptorInfos[1].image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[1].image.sampler = nullptr;
+			descriptorInfos[1].desc = m_swapchainImageViews[i]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
+
+			writeDescriptorSets[1].dstSet = m_descriptorSets[i].get();
+			writeDescriptorSets[1].binding = 0u;
+			writeDescriptorSets[1].arrayElement = 0u;
+			writeDescriptorSets[1].count = 1u;
+			writeDescriptorSets[1].descriptorType = asset::EDT_STORAGE_IMAGE;
+			writeDescriptorSets[1].info = &descriptorInfos[1];
+		}
+
+		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
+		m_imageSwapchainIterations[i] = m_swapchainIteration;
+	}
+
+	void onResize(uint32_t w, uint32_t h) override
+	{
+		std::unique_lock guard(m_resizeLock);
+		windowWidth = w;
+		windowHeight = h;
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, w, h, swapchain);
+		assert(swapchain);
+		m_swapchainIteration++;
+		m_resizeWaitForFrame.wait(guard);
+	}
+
 	void onAppInitialized_impl() override
 	{
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
+		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
-		CommonAPI::InitOutput initOutput;
-		initOutput.window = core::smart_refctd_ptr(window);
-		CommonAPI::InitWithDefaultExt(
-			initOutput,
-			video::EAT_VULKAN,
-			"02.ComputeShader",
-			FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
-			swapchainImageUsage,
-			surfaceFormat);
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "02.ComputeShader" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = windowWidth;
+		initParams.windowHeight = windowHeight;
+		initParams.swapchainImageCount = 3u;
+		initParams.swapchainImageUsage = swapchainImageUsage;
+		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
+		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+		initParams.windowCb->setApplication(this);
 
 		system = std::move(initOutput.system);
-		window = std::move(initOutput.window);
-		windowCb = std::move(initOutput.windowCb);
+		window = std::move(initParams.window);
+		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		physicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		utilities = std::move(initOutput.utilities);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
-		renderpass = std::move(initOutput.renderpass);
-		fbo = std::move(initOutput.fbo);
 		assetManager = std::move(initOutput.assetManager);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+		windowManager = std::move(initOutput.windowManager);
+		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, windowWidth, windowHeight, swapchain);
+		assert(swapchain);
 
 		commandPools = std::move(initOutput.commandPools);
 		const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
@@ -145,28 +254,9 @@ public:
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
 #endif
 
-		const auto swapchainImages = swapchain->getImages();
 		const uint32_t swapchainImageCount = swapchain->getImageCount();
-
+		m_swapchainImages = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>>>(swapchainImageCount);
 		m_swapchainImageViews.resize(swapchainImageCount);
-		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
-		{
-			auto& img = swapchainImages.begin()[i];
-			{
-				video::IGPUImageView::SCreationParams viewParams;
-				viewParams.format = img->getCreationParameters().format;
-				viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
-				viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-				viewParams.subresourceRange.baseMipLevel = 0u;
-				viewParams.subresourceRange.levelCount = 1u;
-				viewParams.subresourceRange.baseArrayLayer = 0u;
-				viewParams.subresourceRange.layerCount = 1u;
-				viewParams.image = core::smart_refctd_ptr<video::IGPUImage>(img);
-
-				m_swapchainImageViews[i] = logicalDevice->createImageView(std::move(viewParams));
-				assert(m_swapchainImageViews[i]);
-			}
-		}
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
@@ -181,16 +271,16 @@ public:
 		}
 		assert(specializedShader);
 
-		
+
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			logicalDevice->createCommandBuffers(
 				computeCommandPools[i].get(),
 				video::IGPUCommandBuffer::EL_PRIMARY,
 				1,
-				m_cmdbuf+i);
+				m_cmdbuf + i);
 		}
-		
+
 
 		const uint32_t bindingCount = 2u;
 		video::IGPUDescriptorSetLayout::SBinding bindings[bindingCount];
@@ -207,28 +297,9 @@ public:
 			bindings[1].stageFlags = asset::IShader::ESS_COMPUTE;
 			bindings[1].samplers = nullptr;
 		}
-		core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> dsLayout =
+		m_descriptorSetLayout =
 			logicalDevice->createDescriptorSetLayout(bindings, bindings + bindingCount);
 
-		const uint32_t descriptorPoolSizeCount = 1u;
-		video::IDescriptorPool::SDescriptorPoolSize poolSizes[descriptorPoolSizeCount];
-		poolSizes[0].type = asset::EDT_STORAGE_IMAGE;
-		poolSizes[0].count = swapchainImageCount + 1u;
-
-		video::IDescriptorPool::E_CREATE_FLAGS descriptorPoolFlags =
-			static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0);
-
-		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool
-			= logicalDevice->createDescriptorPool(descriptorPoolFlags, swapchainImageCount,
-				descriptorPoolSizeCount, poolSizes);
-
-		m_descriptorSets.resize(swapchainImageCount);
-		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
-		{
-			m_descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(),
-				core::smart_refctd_ptr(dsLayout));
-		}
-		
 		// Todo(achal): Uncomment once the KTX loader works
 #if 0
 		constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(
@@ -248,8 +319,8 @@ public:
 		__debugbreak();
 #endif
 
-		const uint32_t imageWidth = WIN_W;
-		const uint32_t imageHeight = WIN_H;
+		const uint32_t imageWidth = windowWidth;
+		const uint32_t imageHeight = windowHeight;
 		const uint32_t imageChannelCount = 4u;
 		const uint32_t mipLevels = 1u; // WILL NOT WORK FOR MORE THAN 1 MIPS, but doesn't matter since it is temporary until KTX loading works
 		const size_t imageSize = imageWidth * imageHeight * imageChannelCount * sizeof(uint8_t);
@@ -267,7 +338,7 @@ public:
 
 		core::smart_refctd_ptr<asset::ICPUImage> inImage_CPU = nullptr;
 		{
-			asset::ICPUImage::SCreationParams creationParams = {};
+			video::IGPUImage::SCreationParams creationParams = {};
 			creationParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 			creationParams.type = asset::IImage::ET_2D;
 			creationParams.format = asset::EF_R8G8B8A8_UNORM;
@@ -275,7 +346,7 @@ public:
 			creationParams.mipLevels = mipLevels;
 			creationParams.arrayLayers = 1u;
 			creationParams.samples = asset::IImage::ESCF_1_BIT;
-			creationParams.tiling = asset::IImage::ET_OPTIMAL;
+			creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
 			if (apiConnection->getAPIType() == video::EAT_VULKAN ||
 				apiConnection->getAPIType() == video::EAT_OPENGL_ES)
 			{
@@ -285,10 +356,9 @@ public:
 				assert(asset::isFloatingPointFormat(creationParams.format) || asset::isNormalizedFormat(creationParams.format));
 			}
 			creationParams.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_DST_BIT;
-			creationParams.sharingMode = asset::ESM_EXCLUSIVE;
-			creationParams.queueFamilyIndexCount = 1u;
+			creationParams.queueFamilyIndexCount = 0u;
 			creationParams.queueFamilyIndices = nullptr;
-			creationParams.initialLayout = asset::EIL_UNDEFINED;
+			creationParams.initialLayout = asset::IImage::EL_UNDEFINED;
 
 			auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::ICPUImage::SBufferCopy>>(1ull);
 			imageRegions->begin()->bufferOffset = 0ull;
@@ -325,42 +395,10 @@ public:
 		}
 		assert(m_inImageView);
 
+		m_descriptorSets.resize(swapchainImageCount);
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
-			const uint32_t writeDescriptorCount = 2u;
-
-			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[writeDescriptorCount];
-			video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[writeDescriptorCount] = {};
-
-			// image2D -- swapchain image
-			{
-				descriptorInfos[0].image.imageLayout = asset::EIL_GENERAL;
-				descriptorInfos[0].image.sampler = nullptr;
-				descriptorInfos[0].desc = m_swapchainImageViews[i]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
-
-				writeDescriptorSets[0].dstSet = m_descriptorSets[i].get();
-				writeDescriptorSets[0].binding = 0u;
-				writeDescriptorSets[0].arrayElement = 0u;
-				writeDescriptorSets[0].count = 1u;
-				writeDescriptorSets[0].descriptorType = asset::EDT_STORAGE_IMAGE;
-				writeDescriptorSets[0].info = &descriptorInfos[0];
-			}
-
-			// image2D -- my input
-			{
-				descriptorInfos[1].image.imageLayout = asset::EIL_GENERAL;
-				descriptorInfos[1].image.sampler = nullptr;
-				descriptorInfos[1].desc = m_inImageView;
-
-				writeDescriptorSets[1].dstSet = m_descriptorSets[i].get();
-				writeDescriptorSets[1].binding = 1u;
-				writeDescriptorSets[1].arrayElement = 0u;
-				writeDescriptorSets[1].count = 1u;
-				writeDescriptorSets[1].descriptorType = asset::EDT_STORAGE_IMAGE;
-				writeDescriptorSets[1].info = &descriptorInfos[1];
-			}
-
-			logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
+			createSwapchainImage(i);
 		}
 
 		asset::SPushConstantRange pcRange = {};
@@ -368,7 +406,7 @@ public:
 		pcRange.offset = 0u;
 		pcRange.size = 3 * sizeof(uint32_t);
 		core::smart_refctd_ptr<video::IGPUPipelineLayout> pipelineLayout =
-			logicalDevice->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(dsLayout));
+			logicalDevice->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(m_descriptorSetLayout));
 
 		m_pipeline = logicalDevice->createComputePipeline(nullptr,
 			core::smart_refctd_ptr(pipelineLayout), core::smart_refctd_ptr(specializedShader));
@@ -385,6 +423,17 @@ public:
 		logicalDevice->waitIdle();
 	}
 
+	std::unique_lock<std::mutex> acquireImage(uint32_t* imgnum)
+	{
+		while (true)
+		{
+			std::unique_lock guard(m_resizeLock);
+			if (swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS) {
+				return guard;
+			}
+		}
+	}
+
 	void workLoopBody() override
 	{
 		m_resourceIx++;
@@ -392,23 +441,36 @@ public:
 			m_resourceIx = 0;
 
 		auto& cb = m_cmdbuf[m_resourceIx];
+		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 		if (fence)
 		{
-			while (logicalDevice->waitForFences(1u, &fence.get(), false, MAX_TIMEOUT) == video::IGPUFence::ES_TIMEOUT)
-			{
-			}
+			logicalDevice->blockForFences(1u, &fence.get());
 			logicalDevice->resetFences(1u, &fence.get());
+			if (m_frameIx >= FRAMES_IN_FLIGHT) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - FRAMES_IN_FLIGHT);
 		}
 		else
 			fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
 		// acquire image 
 		uint32_t imgnum = 0u;
-		swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
+		std::unique_lock guard = acquireImage(&imgnum);
+
+		if (m_swapchainIteration > m_imageSwapchainIterations[imgnum])
+		{
+			CSwapchainResources* retiredResources(new CSwapchainResources{});
+			retiredResources->oldImageView = m_swapchainImageViews[imgnum];
+			retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
+			retiredResources->descriptorSet = m_descriptorSets[imgnum];
+			retiredResources->retiredFrameId = m_frameIx;
+
+			CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
+			createSwapchainImage(imgnum);
+		}
 
 		// safe to proceed
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
+		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 
 		{
 			asset::SViewport vp;
@@ -416,12 +478,12 @@ public:
 			vp.maxDepth = 0.f;
 			vp.x = 0u;
 			vp.y = 0u;
-			vp.width = WIN_W;
-			vp.height = WIN_H;
+			vp.width = windowWidth;
+			vp.height = windowHeight;
 			cb->setViewport(0u, 1u, &vp);
 
 			VkRect2D scissor;
-			scissor.extent = { WIN_W, WIN_H };
+			scissor.extent = { windowWidth, windowHeight };
 			scissor.offset = { 0, 0 };
 			cb->setScissor(0u, 1u, &scissor);
 		}
@@ -435,13 +497,13 @@ public:
 		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
 		layoutTransBarrier.subresourceRange.layerCount = 1u;
 
-		const uint32_t pushConstants[3] = { window->getWidth(), window->getHeight(), swapchain->getPreTransform() };
+		const uint32_t pushConstants[3] = { windowWidth, windowHeight, swapchain->getPreTransform() };
 
 		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier.oldLayout = asset::EIL_UNDEFINED;
-		layoutTransBarrier.newLayout = asset::EIL_GENERAL;
-		layoutTransBarrier.image = *(swapchain->getImages().begin() + imgnum);
+		layoutTransBarrier.oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier.newLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier.image = *(m_swapchainImages->begin() + imgnum);
 
 		cb->pipelineBarrier(
 			asset::EPSF_TOP_OF_PIPE_BIT,
@@ -455,16 +517,16 @@ public:
 		cb->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, tmp);
 
 		cb->bindComputePipeline(m_pipeline.get());
-		
+
 		const asset::SPushConstantRange& pcRange = m_pipeline->getLayout()->getPushConstantRanges().begin()[0];
 		cb->pushConstants(m_pipeline->getLayout(), pcRange.stageFlags, pcRange.offset, pcRange.size, pushConstants);
 
-		cb->dispatch((WIN_W + 15u) / 16u, (WIN_H + 15u) / 16u, 1u);
+		cb->dispatch((windowWidth + 15u) / 16u, (windowHeight + 15u) / 16u, 1u);
 
 		layoutTransBarrier.barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier.barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier.oldLayout = asset::EIL_GENERAL;
-		layoutTransBarrier.newLayout = asset::EIL_PRESENT_SRC;
+		layoutTransBarrier.oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier.newLayout = asset::IImage::EL_PRESENT_SRC;
 
 		cb->pipelineBarrier(
 			asset::EPSF_COMPUTE_SHADER_BIT,
@@ -478,7 +540,6 @@ public:
 
 		CommonAPI::Submit(
 			logicalDevice.get(),
-			swapchain.get(),
 			cb.get(),
 			queues[CommonAPI::InitOutput::EQT_COMPUTE],
 			m_imageAcquire[m_resourceIx].get(),
@@ -491,6 +552,8 @@ public:
 			queues[CommonAPI::InitOutput::EQT_COMPUTE],
 			m_renderFinished[m_resourceIx].get(),
 			imgnum);
+		m_frameIx++;
+		m_resizeWaitForFrame.notify_all();
 	}
 
 	bool keepRunning() override
@@ -499,6 +562,9 @@ public:
 	}
 };
 
-NBL_COMMON_API_MAIN(ComputeShaderSampleApp)
+//NBL_COMMON_API_MAIN(ComputeShaderSampleApp)
+int main(int argc, char** argv) {
+	CommonAPI::main<ComputeShaderSampleApp>(argc, argv);
+}
 
 extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }

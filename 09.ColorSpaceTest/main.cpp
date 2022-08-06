@@ -43,7 +43,7 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
 	core::smart_refctd_ptr<video::ISwapchain> swapchain;
 	core::smart_refctd_ptr<video::IGPURenderpass> renderpass;
-	std::array<core::smart_refctd_ptr<video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
+	nbl::core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
 	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<system::ISystem> system;
 	core::smart_refctd_ptr<asset::IAssetManager> assetManager;
@@ -51,6 +51,7 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<system::ILogger> logger;
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
+	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 public:
 	void setWindow(core::smart_refctd_ptr<ui::IWindow>&& wnd) override
@@ -71,35 +72,42 @@ public:
 	void onAppInitialized_impl() override
 	{
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_SRGB, asset::EOTF_sRGB);
 
-		CommonAPI::InitOutput initOutput;
-		initOutput.window = core::smart_refctd_ptr(window);
-		CommonAPI::InitWithDefaultExt(
-			initOutput,
-			video::EAT_VULKAN,
-			"09.ColorSpaceTest",
-			FRAMES_IN_FLIGHT, WIN_W, WIN_H, SC_IMG_COUNT,
-			swapchainImageUsage,
-			surfaceFormat);
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "09.ColorSpaceTest" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = WIN_W;
+		initParams.windowHeight = WIN_H;
+		initParams.swapchainImageCount = 3u;
+		initParams.swapchainImageUsage = swapchainImageUsage;
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
-		window = std::move(initOutput.window);
-		windowCb = std::move(initOutput.windowCb);
+		window = std::move(initParams.window);
+		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		physicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		utilities = std::move(initOutput.utilities);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
-		renderpass = std::move(initOutput.renderpass);
-		fbos = std::move(initOutput.fbo);
+		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		commandPools = std::move(initOutput.commandPools);
 		assetManager = std::move(initOutput.assetManager);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		assert(swapchain);
+		fbos = CommonAPI::createFBOWithSwapchainImages(
+			swapchain->getImageCount(), WIN_W, WIN_H,
+			logicalDevice, swapchain, renderpass,
+			nbl::asset::EF_UNKNOWN
+		);
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;
 
@@ -452,7 +460,7 @@ public:
 			{
 				info.desc = gpuImageView;
 				info.image.sampler = nullptr;
-				info.image.imageLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+				info.image.imageLayout = nbl::asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 			}
 
 			video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -562,7 +570,7 @@ public:
 					clear.color.float32[2] = 1.f;
 					clear.color.float32[3] = 1.f;
 					beginInfo.clearValueCount = 1u;
-					beginInfo.framebuffer = fbos[imgnum];
+					beginInfo.framebuffer = fbos->begin()[imgnum];
 					beginInfo.renderpass = renderpass;
 					beginInfo.renderArea = area;
 					beginInfo.clearValues = &clear;
@@ -577,7 +585,6 @@ public:
 
 				CommonAPI::Submit(
 					logicalDevice.get(),
-					swapchain.get(),
 					cb.get(),
 					queues[CommonAPI::InitOutput::EQT_GRAPHICS],
 					imageAcquire[resourceIx].get(),
@@ -594,7 +601,7 @@ public:
 
 			logicalDevice->waitIdle();
 
-			const auto& fboCreationParams = fbos[imgnum]->getCreationParameters();
+			const auto& fboCreationParams = fbos->begin()[imgnum]->getCreationParameters();
 			auto gpuSourceImageView = fboCreationParams.attachments[0];
 
 			const std::string writePath = "screenShot_" + captionData.name + ".png";
@@ -606,7 +613,7 @@ public:
 				gpuSourceImageView.get(),
 				assetManager.get(),
 				writePath,
-				asset::EIL_PRESENT_SRC,
+				asset::IImage::EL_PRESENT_SRC,
 				static_cast<asset::E_ACCESS_FLAGS>(0u));
 		};
 
@@ -671,7 +678,7 @@ public:
 	{
 		for (int i = 0; i < f.size(); i++)
 		{
-			fbos[i] = core::smart_refctd_ptr(f[i]);
+			fbos->begin()[i] = core::smart_refctd_ptr(f[i]);
 		}
 	}
 	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override

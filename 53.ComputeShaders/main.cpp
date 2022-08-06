@@ -143,7 +143,7 @@ public:
 	std::array<nbl::video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
 	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
+	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
 	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
 	nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
@@ -177,6 +177,7 @@ public:
 	nbl::core::smart_refctd_ptr<video::IGPUMeshBuffer> gpuMeshBuffer2;
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> gpuGDescriptorSet1;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUSemaphore> render_finished_sem;
+	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
 	{
@@ -210,7 +211,7 @@ public:
 	{
 		for (int i = 0; i < f.size(); i++)
 		{
-			fbo[i] = core::smart_refctd_ptr(f[i]);
+			fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
 		}
 	}
 	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -230,32 +231,43 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::InitOutput initOutput;
-		initOutput.window = core::smart_refctd_ptr(window);
-		initOutput.system = core::smart_refctd_ptr(system);
+	const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "53.ComputeShaders" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = WIN_W;
+		initParams.windowHeight = WIN_H;
+		initParams.swapchainImageCount = FBO_COUNT;
+		initParams.swapchainImageUsage = swapchainImageUsage;
+		initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
-
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "ComputeShaders", FRAMES_IN_FLIGHT, WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
-		window = std::move(initOutput.window);
+		window = std::move(initParams.window);
 		gl = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		gpuPhysicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
-		renderpass = std::move(initOutput.renderpass);
-		fbo[0] = std::move(initOutput.fbo[0]);
+		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		commandPools = std::move(initOutput.commandPools);
 		assetManager = std::move(initOutput.assetManager);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
-		windowCallback = std::move(initOutput.windowCb);
+		windowCallback = std::move(initParams.windowCb);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 		auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
 
-	
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		assert(swapchain);
+		fbo = CommonAPI::createFBOWithSwapchainImages(
+			swapchain->getImageCount(), WIN_W, WIN_H,
+			logicalDevice, swapchain, renderpass,
+			nbl::asset::EF_D32_SFLOAT
+		);
+
 		logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
 		auto commandBuffer = commandBuffers[0];
 
@@ -389,14 +401,12 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 		video::IGPUBuffer::SCreationParams gpuUBOCreationParams;
 		//gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
-		gpuUBOCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT;
-		gpuUBOCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
+		gpuUBOCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF);
 		gpuUBOCreationParams.queueFamilyIndexCount = 0u;
 		gpuUBOCreationParams.queueFamilyIndices = nullptr;
 		gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
-		gpuUBOCreationParams.canUpdateSubRange = true;
 
-		gpuUBO = logicalDevice->createBuffer(gpuUBOCreationParams);
+		gpuUBO = logicalDevice->createBuffer(std::move(gpuUBOCreationParams));
 		auto gpuUBOmemreqs = gpuUBO->getMemoryReqs();
 		gpuUBOmemreqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
 		logicalDevice->allocate(gpuUBOmemreqs, gpuUBO.get());
@@ -527,7 +537,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 	void onAppTerminated_impl() override
 	{
-		const auto& fboCreationParams = fbo[0]->getCreationParameters();
+		const auto& fboCreationParams = fbo->begin()[0]->getCreationParameters();
 		auto gpuSourceImageView = fboCreationParams.attachments[0];
 
 		bool status = ext::ScreenShot::createScreenShot(logicalDevice.get(),
@@ -536,7 +546,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 			gpuSourceImageView.get(),
 			assetManager.get(),
 			"ScreenShot.png",
-			asset::EIL_PRESENT_SRC,
+			asset::IImage::EL_PRESENT_SRC,
 			static_cast<asset::E_ACCESS_FLAGS>(0u));
 
 		assert(status);
@@ -604,7 +614,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		clear[1].depthStencil.depth = 0.f;
 
 		beginInfo.clearValueCount = 2u;
-		beginInfo.framebuffer = fbo[0];
+		beginInfo.framebuffer = fbo->begin()[0];
 		beginInfo.renderpass = renderpass;
 		beginInfo.renderArea = area;
 		beginInfo.clearValues = clear;
@@ -671,7 +681,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		constexpr uint64_t MAX_TIMEOUT = 99999999999999ull; // ns
 		swapchain->acquireNextImage(MAX_TIMEOUT, img_acq_sem.get(), nullptr, &imgnum);
 
-		CommonAPI::Submit(logicalDevice.get(), swapchain.get(), commandBuffer.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], img_acq_sem.get(), render_finished_sem.get());
+		CommonAPI::Submit(logicalDevice.get(), commandBuffer.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], img_acq_sem.get(), render_finished_sem.get());
 		CommonAPI::Present(logicalDevice.get(), swapchain.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], render_finished_sem.get(), imgnum);
 	}
 

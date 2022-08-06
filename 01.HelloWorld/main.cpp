@@ -294,7 +294,6 @@ Choose Graphics API:
 		uint32_t minSwapchainImageCount(~0u);
 		video::ISurface::SFormat surfaceFormat;
 		video::ISurface::E_PRESENT_MODE presentMode;
-		asset::E_SHARING_MODE imageSharingMode;
 		VkExtent2D swapchainExtent;
 
 		// Todo(achal): Look at this:
@@ -372,12 +371,10 @@ Choose Graphics API:
 		if (graphicsFamilyIndex == presentFamilyIndex)
 		{
 			deviceCreationParams.queueParamsCount = 1u;
-			imageSharingMode = asset::ESM_EXCLUSIVE;
 		}
 		else
 		{
 			deviceCreationParams.queueParamsCount = 2u;
-			imageSharingMode = asset::ESM_CONCURRENT;
 		}
 
 		std::vector<uint32_t> queueFamilyIndices(deviceCreationParams.queueParamsCount);
@@ -402,6 +399,9 @@ Choose Graphics API:
 		deviceCreationParams.requiredFeatures = requiredFeatures_Device;
 
 		device = gpu->createLogicalDevice(std::move(deviceCreationParams));
+		// no point concurrent sharing mode if only using one queue
+		if (queueFamilyIndices.size()<2)
+			queueFamilyIndices.clear();
 
 		graphicsQueue = device->getQueue(graphicsFamilyIndex, 0u);
 		presentQueue = device->getQueue(presentFamilyIndex, 0u);
@@ -415,7 +415,6 @@ Choose Graphics API:
 		sc_params.height = WIN_H;
 		sc_params.queueFamilyIndexCount = static_cast<uint32_t>(queueFamilyIndices.size());
 		sc_params.queueFamilyIndices = queueFamilyIndices.data();
-		sc_params.imageSharingMode = imageSharingMode;
 		sc_params.preTransform = video::ISurface::EST_IDENTITY_BIT;
 		sc_params.compositeAlpha = video::ISurface::ECA_OPAQUE_BIT;
 		sc_params.imageUsage = asset::IImage::EUF_COLOR_ATTACHMENT_BIT;
@@ -429,8 +428,8 @@ Choose Graphics API:
 		attachmentDescription.samples = asset::IImage::ESCF_1_BIT;
 		attachmentDescription.loadOp = video::IGPURenderpass::ELO_CLEAR; // when the first subpass begins with this attachment, clear its color and depth components
 		attachmentDescription.storeOp = video::IGPURenderpass::ESO_STORE; // when the last subpass ends with this attachment, store its results
-		attachmentDescription.initialLayout = asset::EIL_UNDEFINED;
-		attachmentDescription.finalLayout = asset::EIL_PRESENT_SRC;
+		attachmentDescription.initialLayout = asset::IImage::EL_UNDEFINED;
+		attachmentDescription.finalLayout = asset::IImage::EL_PRESENT_SRC;
 
 		video::IGPURenderpass::SCreationParams::SSubpassDescription subpassDescription = {};
 		subpassDescription.flags = video::IGPURenderpass::ESDF_NONE;
@@ -441,7 +440,7 @@ Choose Graphics API:
 		video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef colorAttRef;
 		{
 			colorAttRef.attachment = 0u;
-			colorAttRef.layout = asset::EIL_COLOR_ATTACHMENT_OPTIMAL;
+			colorAttRef.layout = asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
 		}
 		subpassDescription.colorAttachmentCount = 1u;
 		subpassDescription.colorAttachments = &colorAttRef;

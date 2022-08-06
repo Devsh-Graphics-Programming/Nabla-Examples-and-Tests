@@ -20,16 +20,19 @@ public:
 	NON_GRAPHICAL_APP_CONSTRUCTOR(ComputeScanApp)
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::InitOutput initOutput;
-		initOutput.system = core::smart_refctd_ptr(system);
-		CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "Subgroup Arithmetic Test");
+		CommonAPI::InitParams initParams;
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "14.Subgroup Arithmetic Test" };
+		initParams.swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS(0);
+		auto initOutput = CommonAPI::Init(std::move(initParams));
+
 		system = std::move(initOutput.system);
 		auto gl = std::move(initOutput.apiConnection);
 		auto logger = std::move(initOutput.logger);
 		auto gpuPhysicalDevice = std::move(initOutput.physicalDevice);
 		auto logicalDevice = std::move(initOutput.logicalDevice);
 		auto queues = std::move(initOutput.queues);
-		auto renderpass = std::move(initOutput.renderpass);
+		auto renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		auto commandPools = std::move(initOutput.commandPools);
 		auto assetManager = std::move(initOutput.assetManager);
 		auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
@@ -83,7 +86,7 @@ public:
 			params.size = scratch_gpu_range.size;
 			params.usage = core::bitflag<IGPUBuffer::E_USAGE_FLAGS>(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			
-			scratch_gpu_range.buffer = logicalDevice->createBuffer(params);
+			scratch_gpu_range.buffer = logicalDevice->createBuffer(std::move(params));
 			auto memReqs = scratch_gpu_range.buffer->getMemoryReqs();
 			memReqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
 			auto scratchMem = logicalDevice->allocate(memReqs, scratch_gpu_range.buffer.get());
@@ -164,7 +167,7 @@ public:
 			params.size = in_gpu_range.size;
 			params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
 
-			auto downloaded_buffer = logicalDevice->createBuffer(params);
+			auto downloaded_buffer = logicalDevice->createBuffer(std::move(params));
 			auto memReqs = downloaded_buffer->getMemoryReqs();
 			memReqs.memoryTypeBits &= gpuPhysicalDevice->getDownStreamingMemoryTypeBits();
 			auto queriesMem = logicalDevice->allocate(memReqs, downloaded_buffer.get());
