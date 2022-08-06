@@ -362,12 +362,11 @@ public:
 				gpuImageCreateInfo.mipLevels = imageCreateParams.mipLevels;
 				gpuImageCreateInfo.arrayLayers = imageCreateParams.arrayLayers;
 				gpuImageCreateInfo.samples = imageCreateParams.samples;
-				gpuImageCreateInfo.tiling = asset::IImage::ET_OPTIMAL;
+				gpuImageCreateInfo.tiling = video::IGPUImage::ET_OPTIMAL;
 				gpuImageCreateInfo.usage = imageCreateParams.usage | asset::IImage::EUF_TRANSFER_DST_BIT;
-				gpuImageCreateInfo.sharingMode = asset::ESM_EXCLUSIVE;
 				gpuImageCreateInfo.queueFamilyIndexCount = 0u;
 				gpuImageCreateInfo.queueFamilyIndices = nullptr;
-				gpuImageCreateInfo.initialLayout = asset::EIL_UNDEFINED;
+				gpuImageCreateInfo.initialLayout = asset::IImage::EL_UNDEFINED;
 				auto gpuImage = logicalDevice->createImage(std::move(gpuImageCreateInfo));
 				
 				auto gpuImageMemReqs = gpuImage->getMemoryReqs();
@@ -399,8 +398,8 @@ public:
 				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
 				layoutTransition.barrier.srcAccessMask = core::bitflag<asset::E_ACCESS_FLAGS>(0u);
 				layoutTransition.barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-				layoutTransition.oldLayout = asset::EIL_UNDEFINED;
-				layoutTransition.newLayout = asset::EIL_TRANSFER_DST_OPTIMAL;
+				layoutTransition.oldLayout = asset::IImage::EL_UNDEFINED;
+				layoutTransition.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 				layoutTransition.srcQueueFamilyIndex = ~0u;
 				layoutTransition.dstQueueFamilyIndex = ~0u;
 				layoutTransition.image = gpuImageView->getCreationParameters().image;
@@ -411,7 +410,7 @@ public:
 				video::IGPUSemaphore*const * semaphoresToWaitBeforeOverwrite = nullptr;
 				const asset::E_PIPELINE_STAGE_FLAGS* stagesToWaitForPerSemaphore = nullptr;
 				core::SRange<const asset::IImage::SBufferCopy> copyRegions(newRegions.data(), newRegions.data() + newRegions.size());
-				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), copyRegions, gpuImage.get(), asset::EIL_TRANSFER_DST_OPTIMAL, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
+				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), copyRegions, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
 
 				transferCmd->end();
 
@@ -535,8 +534,8 @@ public:
 				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
 				layoutTransition.barrier.srcAccessMask = core::bitflag<asset::E_ACCESS_FLAGS>(0u);
 				layoutTransition.barrier.dstAccessMask = asset::EAF_SHADER_READ_BIT;
-				layoutTransition.oldLayout = asset::EIL_UNDEFINED;
-				layoutTransition.newLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+				layoutTransition.oldLayout = asset::IImage::EL_UNDEFINED;
+				layoutTransition.newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 				layoutTransition.srcQueueFamilyIndex = ~0u;
 				layoutTransition.dstQueueFamilyIndex = ~0u;
 				layoutTransition.image = gpuImageView->getCreationParameters().image;
