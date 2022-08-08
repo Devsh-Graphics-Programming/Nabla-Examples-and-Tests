@@ -278,13 +278,12 @@ public:
 		for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
 			clonedCpuImageViews[i] = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(cpuImageViews[i]->clone());
 		
-		// Allocate and Leave 1MB for image uploads, to test image copy with not so large memory 
+		// Allocate and Leave 1MB for image uploads, to test image copy with small memory remaining 
 		{
 			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
 			uint32_t maxFreeBlock = utilities->getDefaultUpStreamingBuffer()->max_size(); 
 			const uint32_t allocationAlignment = 64u;
 			const uint32_t allocationSize = maxFreeBlock - 0x00F0000u;
-			// cannot use `multi_place` because of the extra padding size we could have added
 			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now()+std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
 		}
 
@@ -305,9 +304,6 @@ public:
 				auto imageviewCreateParams = cpuImageView->getCreationParameters();
 				auto& cpuImage = imageviewCreateParams.image;
 				auto imageCreateParams = cpuImage->getCreationParameters();
-				
-				if(imageviewCreateParams.format == asset::EF_R8G8B8_SRGB)
-					continue; // skip for now that we don't use format promotion
 				
 				auto regions = cpuImage->getRegions();
 				std::vector<asset::IImage::SBufferCopy> newRegions;
@@ -356,11 +352,16 @@ public:
 						newRegions.push_back(newRegion);
 					}
 				}
+				
+				video::IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
+				promotionRequest.originalFormat = imageCreateParams.format;
+				promotionRequest.usages = imageCreateParams.usage | asset::IImage::EUF_TRANSFER_DST_BIT;
+				auto newFormat = physicalDevice->promoteImageFormat(promotionRequest, video::IGPUImage::ET_OPTIMAL);
 
 				video::IGPUImage::SCreationParams gpuImageCreateInfo = {};
 				gpuImageCreateInfo.flags = imageCreateParams.flags;
 				gpuImageCreateInfo.type = imageCreateParams.type;
-				gpuImageCreateInfo.format = imageCreateParams.format;
+				gpuImageCreateInfo.format = newFormat;
 				gpuImageCreateInfo.extent = imageCreateParams.extent;
 				gpuImageCreateInfo.mipLevels = imageCreateParams.mipLevels;
 				gpuImageCreateInfo.arrayLayers = imageCreateParams.arrayLayers;
@@ -380,7 +381,7 @@ public:
 				gpuImageViewCreateInfo.flags = static_cast<video::IGPUImageView::E_CREATE_FLAGS>(imageviewCreateParams.flags);
 				gpuImageViewCreateInfo.image = gpuImage;
 				gpuImageViewCreateInfo.viewType = static_cast<video::IGPUImageView::E_TYPE>(imageviewCreateParams.viewType);
-				gpuImageViewCreateInfo.format = imageCreateParams.format;
+				gpuImageViewCreateInfo.format = gpuImageCreateInfo.format;
 				memcpy(&gpuImageViewCreateInfo.components, &imageviewCreateParams.components, sizeof(imageviewCreateParams.components));
 				gpuImageViewCreateInfo.subresourceRange = imageviewCreateParams.subresourceRange;
 				gpuImageViewCreateInfo.subresourceRange.levelCount = imageCreateParams.mipLevels - imageviewCreateParams.subresourceRange.baseMipLevel;
@@ -413,7 +414,7 @@ public:
 				video::IGPUSemaphore*const * semaphoresToWaitBeforeOverwrite = nullptr;
 				const asset::E_PIPELINE_STAGE_FLAGS* stagesToWaitForPerSemaphore = nullptr;
 				core::SRange<const asset::IImage::SBufferCopy> copyRegions(newRegions.data(), newRegions.data() + newRegions.size());
-				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), asset::EF_UNKNOWN, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, copyRegions, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
+				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), imageCreateParams.format, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, copyRegions, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
 
 				transferCmd->end();
 
