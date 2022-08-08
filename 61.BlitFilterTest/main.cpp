@@ -42,6 +42,7 @@ core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims
 	region.bufferRowLength = dims[0];
 	region.imageExtent = { dims[0], dims[1], dims[2] };
 	region.imageOffset = { 0u, 0u, 0u };
+	region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 	region.imageSubresource.baseArrayLayer = 0u;
 	region.imageSubresource.layerCount = imageParams.arrayLayers;
 	region.imageSubresource.mipLevel = 0;
