@@ -292,6 +292,9 @@ public:
 		auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(clonedCpuImageViews.data(), clonedCpuImageViews.data() + clonedCpuImageViews.size(), cpu2gpuParams);
 		cpu2gpuParams.waitForCreationToComplete(false);
 		
+		if (!gpuImageViews || gpuImageViews->size() < cpuImageViews.size())
+			assert(false);
+
 		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
 		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
 		{
@@ -410,7 +413,7 @@ public:
 				video::IGPUSemaphore*const * semaphoresToWaitBeforeOverwrite = nullptr;
 				const asset::E_PIPELINE_STAGE_FLAGS* stagesToWaitForPerSemaphore = nullptr;
 				core::SRange<const asset::IImage::SBufferCopy> copyRegions(newRegions.data(), newRegions.data() + newRegions.size());
-				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), copyRegions, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
+				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), asset::EF_UNKNOWN, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, copyRegions, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
 
 				transferCmd->end();
 
@@ -423,9 +426,6 @@ public:
 				logicalDevice->blockForFences(1u, &transferFence.get());
 			}
 		}
-
-		if (!gpuImageViews || gpuImageViews->size() < cpuImageViews.size())
-			assert(false);
 
 		auto getCurrentGPURenderpassIndependentPipeline = [&](video::IGPUImageView* gpuImageView)
 		{
@@ -622,9 +622,9 @@ public:
 			if (gpuImageView)
 			{
 				auto& captionData = captionTexturesData[i];
-
-				// bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
-				// assert(status);
+		
+				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
+				assert(status);
 			}
 		}
 
