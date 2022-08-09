@@ -445,14 +445,8 @@ public:
 		auto& cb = m_cmdbuf[m_resourceIx];
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
-		if (fence)
-		{
-			logicalDevice->blockForFences(1u, &fence.get());
-			logicalDevice->resetFences(1u, &fence.get());
-			if (m_frameIx >= FRAMES_IN_FLIGHT) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - FRAMES_IN_FLIGHT);
-		}
-		else
-			fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
+
+		CommonAPI::waitForFrame(m_frameIx, FRAMES_IN_FLIGHT, m_qRetiredSwapchainResources, logicalDevice, fence);
 
 		// acquire image 
 		uint32_t imgnum = 0u;

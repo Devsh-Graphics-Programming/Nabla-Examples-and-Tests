@@ -667,6 +667,22 @@ public:
 		}
 	}
 
+	static void waitForFrame(
+		uint32_t frameIx, uint32_t framesInFlight,
+		nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources,
+		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& logicalDevice,
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence)
+	{
+		if (fence)
+		{
+			logicalDevice->blockForFences(1u, &fence.get());
+			logicalDevice->resetFences(1u, &fence.get());
+			if (frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(qRetiredSwapchainResources, frameIx - framesInFlight);
+		}
+		else
+			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
+	}
+
 	static std::pair<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView>> createEmpty2DTexture(
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 		uint32_t width,
