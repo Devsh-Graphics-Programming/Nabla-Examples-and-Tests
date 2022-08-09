@@ -191,7 +191,7 @@ public:
 		m_imageSwapchainIterations[i] = m_swapchainIteration;
 	}
 
-	void onResize(uint32_t w, uint32_t h) override
+	bool onWindowResized_impl(uint32_t w, uint32_t h) override
 	{
 		std::unique_lock guard(m_resizeLock);
 		windowWidth = w;
@@ -200,6 +200,8 @@ public:
 		assert(swapchain);
 		m_swapchainIteration++;
 		m_resizeWaitForFrame.wait(guard);
+
+		return true;
 	}
 
 	void onAppInitialized_impl() override
@@ -208,6 +210,7 @@ public:
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
 		CommonAPI::InitParams initParams;
+		initParams.windowCb = core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback>(this);
 		initParams.window = core::smart_refctd_ptr(window);
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "02.ComputeShader" };
@@ -219,7 +222,6 @@ public:
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-		initParams.windowCb->setApplication(this);
 
 		system = std::move(initOutput.system);
 		window = std::move(initParams.window);
