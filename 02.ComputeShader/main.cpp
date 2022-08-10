@@ -113,20 +113,6 @@ public:
 
 	APP_CONSTRUCTOR(ComputeShaderSampleApp);
 
-
-	std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imgnum)
-	{
-		logger->log("onCreateResourcesWithSwapchain(%i)\n", system::ILogger::ELL_INFO, imgnum);
-		CSwapchainResources* retiredResources(new CSwapchainResources{});
-		retiredResources->oldImageView = m_swapchainImageViews[imgnum];
-		retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
-		retiredResources->descriptorSet = m_descriptorSets[imgnum];
-		retiredResources->retiredFrameId = m_frameIx;
-		createSwapchainImage(imgnum);
-
-		return std::unique_ptr<CommonAPI::IRetiredSwapchainResources>(retiredResources);
-	}
-
 	void createSwapchainImage(uint32_t i)
 	{
 		auto& img = m_swapchainImages->begin()[i];
@@ -196,18 +182,6 @@ public:
 		}
 
 		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
-		m_imageSwapchainIterations[i] = m_swapchainIteration;
-	}
-
-	bool onWindowResized_impl(uint32_t w, uint32_t h) override
-	{
-		std::unique_lock guard(m_swapchainPtrMutex);
-		CommonAPI::createSwapchain(nbl::core::smart_refctd_ptr(logicalDevice), m_swapchainCreationParams, w, h, swapchain);
-		assert(swapchain);
-		m_swapchainIteration++;
-		m_resizeWaitForFrame.wait(guard);
-
-		return true;
 	}
 
 	void onAppInitialized_impl() override
@@ -424,6 +398,27 @@ public:
 			m_imageAcquire[i] = logicalDevice->createSemaphore();
 			m_renderFinished[i] = logicalDevice->createSemaphore();
 		}
+	}
+
+	std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imgnum)
+	{
+		logger->log("onCreateResourcesWithSwapchain(%i)\n", system::ILogger::ELL_INFO, imgnum);
+		CSwapchainResources* retiredResources(new CSwapchainResources{});
+		retiredResources->oldImageView = m_swapchainImageViews[imgnum];
+		retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
+		retiredResources->descriptorSet = m_descriptorSets[imgnum];
+		retiredResources->retiredFrameId = m_frameIx;
+		createSwapchainImage(imgnum);
+
+		return std::unique_ptr<CommonAPI::IRetiredSwapchainResources>(retiredResources);
+	}
+
+	bool onWindowResized_impl(uint32_t w, uint32_t h) override
+	{
+		std::unique_lock guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
+		m_resizeWaitForFrame.wait(guard);
+
+		return true;
 	}
 
 	void onAppTerminated_impl() override
