@@ -729,6 +729,22 @@ protected:
 	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
 	std::mutex m_swapchainPtrMutex;
 
+	bool tryAcquireImage(nbl::video::ISwapchain* swapchain, nbl::video::IGPUSemaphore* waitSemaphore, uint32_t* imgnum)
+	{
+		if (swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS)
+		{
+			if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
+			{
+				auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
+				m_imageSwapchainIterations[*imgnum] = m_swapchainIteration;
+				if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
+			}
+
+			return true;
+		}
+		return false;
+	}
+
 #ifdef ANTI_FLICKER
 	uint32_t m_presentedFrameIx;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
@@ -736,7 +752,7 @@ protected:
 	nbl::video::IGPUImage* getTripleBufferTarget(
 		uint32_t frameIx, uint32_t w, uint32_t h, 
 		nbl::asset::E_FORMAT surfaceFormat, 
-		core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
+		nbl::core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
 	{
 		uint32_t bufferIx = frameIx % 2;
 		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
@@ -819,22 +835,15 @@ public:
 		{
 			std::unique_lock guard(m_swapchainPtrMutex);
 			swapchain = swapchainRef;
-			if (swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS)
+			if (tryAcquireImage(swapchain.get(), waitSemaphore, imgnum))
 			{
-				if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
-				{
-					auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
-					m_imageSwapchainIterations[*imgnum] = m_swapchainIteration;
-					if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
-				}
-
 				return guard;
 			}
 		}
 	}
 
 #ifdef ANTI_FLICKER
-	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, uint32_t frameIx)
+	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx)
 	{
 		uint32_t bufferIx = frameIx % 2;
 		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
@@ -842,15 +851,43 @@ public:
 
 		// acquires image, allocates one shot fences, commandpool and commandbuffer to do a blit, submits and presents
 		uint32_t imgnum = 0;
-		swapchain->acquireNextImage(MAX_TIMEOUT, nullptr, nullptr, &imgnum);
+		bool acquireResult = tryAcquireImage(swapchain, nullptr, &imgnum);
+		assert(acquireResult);
 
+		auto& swapchainImage = swapchainImages[imgnum]; // tryAcquireImage will have this image be recreated
 		auto fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));;
 		auto commandPool = logicalDevice->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_NONE);
+		auto semaphore = logicalDevice->createSemaphore();
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> commandBuffer;
 		logicalDevice->createCommandBuffers(commandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
 
 		commandBuffer->begin(nbl::video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-		//commandBuffer->blitImage(image.get(), nbl::asset::IImage::EL_GENERAL, )
+		nbl::asset::SImageBlit blit;
+		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.dstSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+
+		commandBuffer->blitImage(
+			image.get(), nbl::asset::IImage::EL_GENERAL, 
+			swapchainImage.get(), nbl::asset::IImage::EL_GENERAL, 
+			1, &blit, nbl::asset::ISampler::ETF_NEAREST
+		);
+
+		nbl::video::IGPUQueue::SSubmitInfo submit;
+		submit.commandBufferCount = 1u;
+		submit.commandBuffers = &commandBuffer.get();
+		submit.signalSemaphoreCount = 1u;
+		submit.pSignalSemaphores = &semaphore.get();
+		queue->submit(1u, &submit, fence.get());
+
+		nbl::video::ISwapchain::SPresentInfo present;
+		present.imgIndex = imgnum;
+		present.waitSemaphoreCount = 1u;
+		present.waitSemaphores = &semaphore.get();
+		swapchain->present(queue, present);
+
+		logicalDevice->blockForFences(1u, &fence.get());
 	}
 #endif
 };
