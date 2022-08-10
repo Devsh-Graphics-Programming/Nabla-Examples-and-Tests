@@ -728,6 +728,37 @@ protected:
 	uint32_t m_swapchainIteration = 0;
 	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
 	std::mutex m_swapchainPtrMutex;
+
+#ifdef ANTI_FLICKER
+	uint32_t m_presentedFrameIx;
+	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
+
+	nbl::video::IGPUImage* getTripleBufferTarget(
+		uint32_t frameIx, uint32_t w, uint32_t h, 
+		nbl::asset::E_FORMAT surfaceFormat, 
+		core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
+	{
+		uint32_t bufferIx = frameIx % 2;
+		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
+
+		if (!image || image->getCreationParameters().extent.width < w || image->getCreationParameters().extent.height < h)
+		{
+			auto logicalDevice = getLogicalDevice();
+			nbl::video::IGPUImage::SCreationParams creationParams;
+			creationParams.type = nbl::asset::IImage::ET_2D;
+			creationParams.samples = nbl::asset::IImage::ESCF_1_BIT;
+			creationParams.format = surfaceFormat;
+			creationParams.extent = { w, h };
+			creationParams.mipLevels = 1;
+			creationParams.arrayLayers = 1;
+			creationParams.usage = imageUsageFlags;
+
+			image = logicalDevice->createImage(std::move(creationParams));
+		}
+
+		return image.get();
+	}
+#endif
 public:
 	GraphicalApplication(
 		const std::filesystem::path& _localInputCWD,
@@ -766,7 +797,9 @@ public:
 	std::unique_lock<std::mutex> waitForFrame(
 		uint32_t framesInFlight,
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence,
+		// a reference to the example's swapchain, which should only be accessed under the mutex lock
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
+		// a reference to a local swapchain ptr that should be used for this frame
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchain,
 		nbl::video::IGPUSemaphore* waitSemaphore,
 		uint32_t* imgnum)
@@ -799,6 +832,27 @@ public:
 			}
 		}
 	}
+
+#ifdef ANTI_FLICKER
+	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, uint32_t frameIx)
+	{
+		uint32_t bufferIx = frameIx % 2;
+		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
+		auto logicalDevice = getLogicalDevice();
+
+		// acquires image, allocates one shot fences, commandpool and commandbuffer to do a blit, submits and presents
+		uint32_t imgnum = 0;
+		swapchain->acquireNextImage(MAX_TIMEOUT, nullptr, nullptr, &imgnum);
+
+		auto fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));;
+		auto commandPool = logicalDevice->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_NONE);
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> commandBuffer;
+		logicalDevice->createCommandBuffers(commandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
+
+		commandBuffer->begin(nbl::video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		//commandBuffer->blitImage(image.get(), nbl::asset::IImage::EL_GENERAL, )
+	}
+#endif
 };
 #else
 class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
