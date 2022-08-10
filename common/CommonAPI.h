@@ -763,14 +763,14 @@ public:
 		return guard;
 	}
 
-	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> waitForFrame(
+	std::unique_lock<std::mutex> waitForFrame(
 		uint32_t framesInFlight,
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence,
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchain,
 		nbl::video::IGPUSemaphore* waitSemaphore,
 		uint32_t* imgnum)
 	{
-		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain = swapchainRef;
 		auto logicalDevice = getLogicalDevice();
 		if (fence)
 		{
@@ -782,16 +782,22 @@ public:
 			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 		m_frameIx++;
 
-		swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum);
-
-		if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
+		while (true)
 		{
-			auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
-			m_imageSwapchainIterations[*imgnum] = m_swapchainIteration;
-			if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
-		}
+			std::unique_lock guard(m_swapchainPtrMutex);
+			swapchain = swapchainRef;
+			if (swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS)
+			{
+				if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
+				{
+					auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
+					m_imageSwapchainIterations[*imgnum] = m_swapchainIteration;
+					if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
+				}
 
-		return swapchain;
+				return guard;
+			}
+		}
 	}
 };
 #else

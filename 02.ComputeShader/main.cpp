@@ -437,8 +437,8 @@ public:
 		auto& fence = m_frameComplete[m_resourceIx];
 
 		uint32_t imgnum = 0u;
-		std::unique_lock guard(m_swapchainPtrMutex);
-		core::smart_refctd_ptr<video::ISwapchain> sw = waitForFrame(FRAMES_IN_FLIGHT, fence, swapchain, m_imageAcquire[m_resourceIx].get(), &imgnum);
+		core::smart_refctd_ptr<video::ISwapchain> sw;
+		auto guard = waitForFrame(FRAMES_IN_FLIGHT, fence, swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
 		const auto windowWidth = sw->getCreationParameters().width;
 		const auto windowHeight = sw->getCreationParameters().height;
 
