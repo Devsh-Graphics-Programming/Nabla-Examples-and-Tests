@@ -7,8 +7,6 @@ using namespace nbl;
 
 class ComputeShaderSampleApp : public ApplicationBase
 {
-	uint32_t windowWidth = 768u;
-	uint32_t windowHeight = 512u;
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
@@ -204,8 +202,6 @@ public:
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override
 	{
 		std::unique_lock guard(m_swapchainPtrMutex);
-		windowWidth = w;
-		windowHeight = h;
 		CommonAPI::createSwapchain(nbl::core::smart_refctd_ptr(logicalDevice), m_swapchainCreationParams, w, h, swapchain);
 		assert(swapchain);
 		m_swapchainIteration++;
@@ -225,8 +221,8 @@ public:
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "02.ComputeShader" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = windowWidth;
-		initParams.windowHeight = windowHeight;
+		initParams.windowWidth = 768u;
+		initParams.windowHeight = 512u;
 		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
@@ -249,7 +245,7 @@ public:
 		windowManager = std::move(initOutput.windowManager);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, windowWidth, windowHeight, swapchain);
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, initParams.windowWidth, initParams.windowHeight, swapchain);
 		assert(swapchain);
 
 		commandPools = std::move(initOutput.commandPools);
@@ -331,8 +327,8 @@ public:
 		__debugbreak();
 #endif
 
-		const uint32_t imageWidth = windowWidth;
-		const uint32_t imageHeight = windowHeight;
+		const uint32_t imageWidth = initParams.windowWidth;
+		const uint32_t imageHeight = initParams.windowHeight;
 		const uint32_t imageChannelCount = 4u;
 		const uint32_t mipLevels = 1u; // WILL NOT WORK FOR MORE THAN 1 MIPS, but doesn't matter since it is temporary until KTX loading works
 		const size_t imageSize = imageWidth * imageHeight * imageChannelCount * sizeof(uint8_t);
@@ -448,6 +444,8 @@ public:
 		uint32_t imgnum = 0u;
 		std::unique_lock guard(m_swapchainPtrMutex);
 		core::smart_refctd_ptr<video::ISwapchain> sw = waitForFrame(FRAMES_IN_FLIGHT, fence, swapchain, m_imageAcquire[m_resourceIx].get(), &imgnum);
+		const auto windowWidth = sw->getCreationParameters().width;
+		const auto windowHeight = sw->getCreationParameters().height;
 
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
