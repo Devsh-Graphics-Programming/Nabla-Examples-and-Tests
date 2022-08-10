@@ -347,6 +347,7 @@ public:
 
 	void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx)
 	{
+		// TODO: figure out better way of handling triple buffer target resources
 		logger->log("onCreateResourcesWithTripleBufferTarget()\n", system::ILogger::ELL_INFO);
 		{
 			video::IGPUImageView::SCreationParams viewParams;
@@ -418,8 +419,12 @@ public:
 	{
 		std::unique_lock guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
 		waitForFrame(FRAMES_IN_FLIGHT, m_frameComplete[m_lastPresentResourceIx]);
-
-		immediateImagePresent(queues[CommonAPI::InitOutput::EQT_COMPUTE], swapchain.get(), m_swapchainImages->begin(), m_lastPresentFrameIx, m_lastPresentFrameWidth, m_lastPresentFrameHeight);
+		immediateImagePresent(
+			queues[CommonAPI::InitOutput::EQT_COMPUTE], 
+			swapchain.get(),
+			m_swapchainImages->begin(), 
+			m_lastPresentFrameIx,
+			m_lastPresentFrameWidth, m_lastPresentFrameHeight);
 
 		return true;
 	}
@@ -444,6 +449,8 @@ public:
 
 		uint32_t imgnum = 0u;
 		core::smart_refctd_ptr<video::ISwapchain> sw;
+		// TODO: figure out why having this guard for only the scope of acquire
+		// has a segfault on the present function
 		auto guard = acquire(swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
 
 		const auto windowWidth = sw->getCreationParameters().width;
@@ -523,6 +530,7 @@ public:
 		blit.dstOffsets[0] = { 0, 0, 0 };
 		blit.dstOffsets[1] = { windowWidth, windowHeight, 1 };
 
+		// TODO this causes performance warnings, make image source use TRANSFER_SRC and swapchain image use TRANSFER_DST
 		cb->blitImage(
 			outputImage, nbl::asset::IImage::EL_GENERAL,
 			(m_swapchainImages->begin() + imgnum)->get(), nbl::asset::IImage::EL_GENERAL,

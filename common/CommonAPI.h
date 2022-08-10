@@ -884,6 +884,7 @@ public:
 		blit.dstOffsets[0] = { 0, 0, 0 };
 		blit.dstOffsets[1] = { swapchain->getCreationParameters().width, swapchain->getCreationParameters().height, 1 };
 
+		// TODO: this causes some validation errors with the layouts of the swapchain img & output img
 		commandBuffer->blitImage(
 			image.get(), nbl::asset::IImage::EL_GENERAL,
 			swapchainImage.get(), nbl::asset::IImage::EL_GENERAL,
