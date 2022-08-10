@@ -121,7 +121,7 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
+		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
 		CommonAPI::InitParams initParams;
@@ -463,22 +463,30 @@ public:
 			cb->setScissor(0u, 1u, &scissor);
 		}
 
-		video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarrier = {};
-		layoutTransBarrier.srcQueueFamilyIndex = ~0u;
-		layoutTransBarrier.dstQueueFamilyIndex = ~0u;
-		layoutTransBarrier.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-		layoutTransBarrier.subresourceRange.baseMipLevel = 0u;
-		layoutTransBarrier.subresourceRange.levelCount = 1u;
-		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
-		layoutTransBarrier.subresourceRange.layerCount = 1u;
+		const uint32_t numBarriers = 2;
+		video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarrier[numBarriers] = {};
+		for (uint32_t i = 0; i < numBarriers; i++) {
+			layoutTransBarrier[i].srcQueueFamilyIndex = ~0u;
+			layoutTransBarrier[i].dstQueueFamilyIndex = ~0u;
+			layoutTransBarrier[i].subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			layoutTransBarrier[i].subresourceRange.baseMipLevel = 0u;
+			layoutTransBarrier[i].subresourceRange.levelCount = 1u;
+			layoutTransBarrier[i].subresourceRange.baseArrayLayer = 0u;
+			layoutTransBarrier[i].subresourceRange.layerCount = 1u;
+		}
 
 		const uint32_t pushConstants[3] = { windowWidth, windowHeight, sw->getPreTransform() };
 
-		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier.oldLayout = asset::IImage::EL_UNDEFINED;
-		layoutTransBarrier.newLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier.image = core::smart_refctd_ptr<video::IGPUImage>(outputImage);
+		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[0].image = *(m_swapchainImages->begin() + imgnum);
+		layoutTransBarrier[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[1].image = core::smart_refctd_ptr<video::IGPUImage>(outputImage);
 
 		cb->pipelineBarrier(
 			asset::EPSF_TOP_OF_PIPE_BIT,
@@ -486,7 +494,7 @@ public:
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			0u, nullptr,
 			0u, nullptr,
-			1u, &layoutTransBarrier);
+			numBarriers, &layoutTransBarrier[0]);
 
 		const video::IGPUDescriptorSet* tmp[] = { m_outputTargetDescriptorSet[m_frameIx % 2].get() };
 		cb->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, tmp);
@@ -497,19 +505,6 @@ public:
 		cb->pushConstants(m_pipeline->getLayout(), pcRange.stageFlags, pcRange.offset, pcRange.size, pushConstants);
 
 		cb->dispatch((windowWidth + 15u) / 16u, (windowHeight + 15u) / 16u, 1u);
-
-		layoutTransBarrier.barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier.barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier.oldLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
-
-		cb->pipelineBarrier(
-			asset::EPSF_COMPUTE_SHADER_BIT,
-			asset::EPSF_BOTTOM_OF_PIPE_BIT,
-			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
-			0u, nullptr,
-			0u, nullptr,
-			1u, &layoutTransBarrier);
 
 		nbl::asset::SImageBlit blit;
 		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
@@ -522,10 +517,24 @@ public:
 		blit.dstOffsets[1] = { windowWidth, windowHeight, 1 };
 
 		cb->blitImage(
-			outputImage, nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			outputImage, nbl::asset::IImage::EL_GENERAL,
 			(m_swapchainImages->begin() + imgnum)->get(), nbl::asset::IImage::EL_GENERAL,
 			1, &blit, nbl::asset::ISampler::ETF_NEAREST
 		);
+
+		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
+		layoutTransBarrier[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_PRESENT_SRC;
+
+		cb->pipelineBarrier(
+			asset::EPSF_COMPUTE_SHADER_BIT,
+			asset::EPSF_BOTTOM_OF_PIPE_BIT,
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			0u, nullptr,
+			0u, nullptr,
+			1u, &layoutTransBarrier[0]);
+
 
 		cb->end();
 

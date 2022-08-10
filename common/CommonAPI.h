@@ -760,7 +760,7 @@ protected:
 		nbl::core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
 	{
 		uint32_t bufferIx = frameIx % 2;
-		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
+		auto& image = m_tripleBufferRenderTargets.begin()[bufferIx];
 
 		if (!image || image->getCreationParameters().extent.width < w || image->getCreationParameters().extent.height < h)
 		{
@@ -769,10 +769,10 @@ protected:
 			creationParams.type = nbl::asset::IImage::ET_2D;
 			creationParams.samples = nbl::asset::IImage::ESCF_1_BIT;
 			creationParams.format = surfaceFormat;
-			creationParams.extent = { w, h };
+			creationParams.extent = { w, h, 1 };
 			creationParams.mipLevels = 1;
 			creationParams.arrayLayers = 1;
-			creationParams.usage = imageUsageFlags;
+			creationParams.usage = imageUsageFlags | nbl::asset::IImage::EUF_TRANSFER_SRC_BIT;
 
 			image = logicalDevice->createImage(std::move(creationParams));
 			auto memReqs = image->getMemoryReqs();
