@@ -34,6 +34,10 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>> m_swapchainImages;
 
 	int32_t m_resourceIx = -1;
+	uint32_t m_lastPresentResourceIx = 0;
+	uint32_t m_lastPresentFrameIx = 0;
+	uint32_t m_lastPresentFrameWidth = 0;
+	uint32_t m_lastPresentFrameHeight = 0;
 
 	std::array<core::smart_refctd_ptr<video::IGPUDescriptorSet>, 2> m_outputTargetDescriptorSet;
 	std::array<core::smart_refctd_ptr<video::IGPUImageView>, 2> m_outputTargetImageView;
@@ -48,9 +52,6 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> m_descriptorSetLayout;
 
 	core::smart_refctd_ptr<video::IGPUImageView> m_inImageView;
-
-	core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
-	std::condition_variable m_resizeWaitForFrame;
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
@@ -416,7 +417,9 @@ public:
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override
 	{
 		std::unique_lock guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
-		m_resizeWaitForFrame.wait(guard);
+		waitForFrame(FRAMES_IN_FLIGHT, m_frameComplete[m_lastPresentResourceIx]);
+
+		immediateImagePresent(queues[CommonAPI::InitOutput::EQT_COMPUTE], swapchain.get(), m_swapchainImages->begin(), m_lastPresentFrameIx, m_lastPresentFrameWidth, m_lastPresentFrameHeight);
 
 		return true;
 	}
@@ -436,9 +439,13 @@ public:
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 
+		waitForFrame(FRAMES_IN_FLIGHT, fence);
+		logicalDevice->resetFences(1u, &fence.get());
+
 		uint32_t imgnum = 0u;
 		core::smart_refctd_ptr<video::ISwapchain> sw;
-		auto guard = waitForFrame(FRAMES_IN_FLIGHT, fence, swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
+		auto guard = acquire(swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
+
 		const auto windowWidth = sw->getCreationParameters().width;
 		const auto windowHeight = sw->getCreationParameters().height;
 		auto outputImage = getTripleBufferTarget(m_frameIx, windowWidth, windowHeight, sw->getCreationParameters().surfaceFormat.format, sw->getCreationParameters().imageUsage);
@@ -552,7 +559,11 @@ public:
 			queues[CommonAPI::InitOutput::EQT_COMPUTE],
 			m_renderFinished[m_resourceIx].get(),
 			imgnum);
-		m_resizeWaitForFrame.notify_all();
+
+		m_lastPresentResourceIx = m_resourceIx;
+		m_lastPresentFrameIx = m_frameIx;
+		m_lastPresentFrameWidth = windowWidth;
+		m_lastPresentFrameHeight = windowHeight;
 	}
 
 	bool keepRunning() override

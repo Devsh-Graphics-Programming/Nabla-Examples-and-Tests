@@ -815,9 +815,22 @@ public:
 		return guard;
 	}
 
-	std::unique_lock<std::mutex> waitForFrame(
+	void waitForFrame(
 		uint32_t framesInFlight,
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence,
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence)
+	{
+		auto logicalDevice = getLogicalDevice();
+		if (fence)
+		{
+			logicalDevice->blockForFences(1u, &fence.get());
+			if (m_frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - framesInFlight);
+		}
+		else
+			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
+		m_frameIx++;
+	}
+
+	std::unique_lock<std::mutex> acquire(
 		// a reference to the example's swapchain, which should only be accessed under the mutex lock
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
 		// a reference to a local swapchain ptr that should be used for this frame
@@ -825,17 +838,6 @@ public:
 		nbl::video::IGPUSemaphore* waitSemaphore,
 		uint32_t* imgnum)
 	{
-		auto logicalDevice = getLogicalDevice();
-		if (fence)
-		{
-			logicalDevice->blockForFences(1u, &fence.get());
-			logicalDevice->resetFences(1u, &fence.get());
-			if (m_frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - framesInFlight);
-		}
-		else
-			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
-		m_frameIx++;
-
 		while (true)
 		{
 			std::unique_lock guard(m_swapchainPtrMutex);
@@ -848,21 +850,25 @@ public:
 	}
 
 #ifdef ANTI_FLICKER
-	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx)
+	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx, uint32_t lastRenderW, uint32_t lastRenderH)
 	{
+		using namespace nbl;
+
 		uint32_t bufferIx = frameIx % 2;
 		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
 		auto logicalDevice = getLogicalDevice();
 
+		auto imageAcqToSubmit = logicalDevice->createSemaphore();
+		auto submitToPresent = logicalDevice->createSemaphore();
+
 		// acquires image, allocates one shot fences, commandpool and commandbuffer to do a blit, submits and presents
 		uint32_t imgnum = 0;
-		bool acquireResult = tryAcquireImage(swapchain, nullptr, &imgnum);
+		bool acquireResult = tryAcquireImage(swapchain, imageAcqToSubmit.get(), &imgnum);
 		assert(acquireResult);
 
 		auto& swapchainImage = swapchainImages[imgnum]; // tryAcquireImage will have this image be recreated
 		auto fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));;
 		auto commandPool = logicalDevice->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_NONE);
-		auto semaphore = logicalDevice->createSemaphore();
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> commandBuffer;
 		logicalDevice->createCommandBuffers(commandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
 
@@ -870,31 +876,33 @@ public:
 
 		nbl::asset::SImageBlit blit;
 		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
 		blit.srcOffsets[0] = { 0, 0, 0 };
-		// TODO want this to be "last rendered frame resolution"
-		blit.srcOffsets[1] = { image->getCreationParameters().extent.width, image->getCreationParameters().extent.height, 1 };
+		blit.srcOffsets[1] = { lastRenderW, lastRenderH, 1 };
 		blit.dstSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
 		blit.dstOffsets[0] = { 0, 0, 0 };
 		blit.dstOffsets[1] = { swapchain->getCreationParameters().width, swapchain->getCreationParameters().height, 1 };
 
 		commandBuffer->blitImage(
-			image.get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			image.get(), nbl::asset::IImage::EL_GENERAL,
 			swapchainImage.get(), nbl::asset::IImage::EL_GENERAL,
 			1, &blit, nbl::asset::ISampler::ETF_LINEAR
 		);
 
-		nbl::video::IGPUQueue::SSubmitInfo submit;
-		submit.commandBufferCount = 1u;
-		submit.commandBuffers = &commandBuffer.get();
-		submit.signalSemaphoreCount = 1u;
-		submit.pSignalSemaphores = &semaphore.get();
-		queue->submit(1u, &submit, fence.get());
+		commandBuffer->end();
 
-		nbl::video::ISwapchain::SPresentInfo present;
-		present.imgIndex = imgnum;
-		present.waitSemaphoreCount = 1u;
-		present.waitSemaphores = &semaphore.get();
-		swapchain->present(queue, present);
+		CommonAPI::Submit(
+			logicalDevice, commandBuffer.get(), queue,
+			imageAcqToSubmit.get(),
+			submitToPresent.get(),
+			fence.get());
+		CommonAPI::Present(
+			logicalDevice,
+			swapchain,
+			queue,
+			submitToPresent.get(),
+			imgnum);
 
 		logicalDevice->blockForFences(1u, &fence.get());
 	}
