@@ -35,7 +35,6 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>> m_swapchainImages;
 
 	int32_t m_resourceIx = -1;
-	int32_t m_frameIx = 0;
 
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
@@ -52,11 +51,8 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUImageView> m_inImageView;
 
 	core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
-	std::mutex m_resizeLock;
 	std::condition_variable m_resizeWaitForFrame;
 
-	uint32_t m_swapchainIteration = 0;
-	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 	struct CSwapchainResources : public CommonAPI::IRetiredSwapchainResources
@@ -118,6 +114,20 @@ public:
 	}
 
 	APP_CONSTRUCTOR(ComputeShaderSampleApp);
+
+
+	std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imgnum)
+	{
+		logger->log("onCreateResourcesWithSwapchain(%i)\n", system::ILogger::ELL_INFO, imgnum);
+		CSwapchainResources* retiredResources(new CSwapchainResources{});
+		retiredResources->oldImageView = m_swapchainImageViews[imgnum];
+		retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
+		retiredResources->descriptorSet = m_descriptorSets[imgnum];
+		retiredResources->retiredFrameId = m_frameIx;
+		createSwapchainImage(imgnum);
+
+		return std::unique_ptr<CommonAPI::IRetiredSwapchainResources>(retiredResources);
+	}
 
 	void createSwapchainImage(uint32_t i)
 	{
@@ -193,10 +203,10 @@ public:
 
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override
 	{
-		std::unique_lock guard(m_resizeLock);
+		std::unique_lock guard(m_swapchainPtrMutex);
 		windowWidth = w;
 		windowHeight = h;
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, w, h, swapchain);
+		CommonAPI::createSwapchain(nbl::core::smart_refctd_ptr(logicalDevice), m_swapchainCreationParams, w, h, swapchain);
 		assert(swapchain);
 		m_swapchainIteration++;
 		m_resizeWaitForFrame.wait(guard);
@@ -425,17 +435,6 @@ public:
 		logicalDevice->waitIdle();
 	}
 
-	std::unique_lock<std::mutex> acquireImage(uint32_t* imgnum)
-	{
-		while (true)
-		{
-			std::unique_lock guard(m_resizeLock);
-			if (swapchain->acquireNextImage(MAX_TIMEOUT, m_imageAcquire[m_resourceIx].get(), nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS) {
-				return guard;
-			}
-		}
-	}
-
 	void workLoopBody() override
 	{
 		m_resourceIx++;
@@ -446,23 +445,9 @@ public:
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 
-		CommonAPI::waitForFrame(m_frameIx, FRAMES_IN_FLIGHT, m_qRetiredSwapchainResources, logicalDevice, fence);
-
-		// acquire image 
 		uint32_t imgnum = 0u;
-		std::unique_lock guard = acquireImage(&imgnum);
-
-		if (m_swapchainIteration > m_imageSwapchainIterations[imgnum])
-		{
-			CSwapchainResources* retiredResources(new CSwapchainResources{});
-			retiredResources->oldImageView = m_swapchainImageViews[imgnum];
-			retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
-			retiredResources->descriptorSet = m_descriptorSets[imgnum];
-			retiredResources->retiredFrameId = m_frameIx;
-
-			CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
-			createSwapchainImage(imgnum);
-		}
+		std::unique_lock guard(m_swapchainPtrMutex);
+		core::smart_refctd_ptr<video::ISwapchain> sw = waitForFrame(FRAMES_IN_FLIGHT, fence, swapchain, m_imageAcquire[m_resourceIx].get(), &imgnum);
 
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
@@ -493,7 +478,7 @@ public:
 		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
 		layoutTransBarrier.subresourceRange.layerCount = 1u;
 
-		const uint32_t pushConstants[3] = { windowWidth, windowHeight, swapchain->getPreTransform() };
+		const uint32_t pushConstants[3] = { windowWidth, windowHeight, sw->getPreTransform() };
 
 		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
@@ -544,11 +529,10 @@ public:
 
 		CommonAPI::Present(
 			logicalDevice.get(),
-			swapchain.get(),
+			sw.get(),
 			queues[CommonAPI::InitOutput::EQT_COMPUTE],
 			m_renderFinished[m_resourceIx].get(),
 			imgnum);
-		m_frameIx++;
 		m_resizeWaitForFrame.notify_all();
 	}
 

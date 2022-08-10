@@ -660,27 +660,11 @@ public:
 		nbl::video::ISwapchain::SPresentInfo present;
 		{
 			present.imgIndex = imageNum;
-			present.waitSemaphoreCount = waitSemaphore ? 1u:0u;
+			present.waitSemaphoreCount = waitSemaphore ? 1u : 0u;
 			present.waitSemaphores = &waitSemaphore;
-			
+
 			sc->present(queue, present);
 		}
-	}
-
-	static void waitForFrame(
-		uint32_t frameIx, uint32_t framesInFlight,
-		nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources,
-		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& logicalDevice,
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence)
-	{
-		if (fence)
-		{
-			logicalDevice->blockForFences(1u, &fence.get());
-			logicalDevice->resetFences(1u, &fence.get());
-			if (frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(qRetiredSwapchainResources, frameIx - framesInFlight);
-		}
-		else
-			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 	}
 
 	static std::pair<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView>> createEmpty2DTexture(
@@ -736,6 +720,14 @@ class GraphicalApplication : public CommonAPI::CommonAPIEventCallback, public nb
 {
 protected:
 	~GraphicalApplication() {}
+
+	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
+
+	uint32_t m_frameIx = 0;
+	nbl::core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
+	uint32_t m_swapchainIteration;
+	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
+	std::mutex m_swapchainPtrMutex;
 public:
 	GraphicalApplication(
 		const std::filesystem::path& _localInputCWD,
@@ -743,8 +735,44 @@ public:
 		const std::filesystem::path& _sharedInputCWD,
 		const std::filesystem::path& _sharedOutputCWD
 	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-		CommonAPI::CommonAPIEventCallback(nullptr, nullptr) 
+		CommonAPI::CommonAPIEventCallback(nullptr, nullptr),
+		m_qRetiredSwapchainResources()
 	{}
+
+	virtual std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imageIndex)
+	{
+		return nullptr;
+	}
+
+	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> waitForFrame(
+		uint32_t framesInFlight,
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence,
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
+		nbl::video::IGPUSemaphore* waitSemaphore,
+		uint32_t* imgnum)
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain = swapchainRef;
+		auto logicalDevice = getLogicalDevice();
+		if (fence)
+		{
+			logicalDevice->blockForFences(1u, &fence.get());
+			logicalDevice->resetFences(1u, &fence.get());
+			if (m_frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - framesInFlight);
+		}
+		else
+			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
+		m_frameIx++;
+
+		swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum);
+
+		if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
+		{
+			auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
+			if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
+		}
+
+		return swapchain;
+	}
 };
 #else
 class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
