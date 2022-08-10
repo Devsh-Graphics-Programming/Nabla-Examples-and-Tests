@@ -729,6 +729,9 @@ protected:
 	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
 	std::mutex m_swapchainPtrMutex;
 
+	// Returns retired resources
+	virtual std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imageIndex) { return nullptr; }
+
 	bool tryAcquireImage(nbl::video::ISwapchain* swapchain, nbl::video::IGPUSemaphore* waitSemaphore, uint32_t* imgnum)
 	{
 		if (swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS)
@@ -748,6 +751,8 @@ protected:
 #ifdef ANTI_FLICKER
 	uint32_t m_presentedFrameIx;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
+
+	virtual void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx) {}
 
 	nbl::video::IGPUImage* getTripleBufferTarget(
 		uint32_t frameIx, uint32_t w, uint32_t h, 
@@ -770,6 +775,11 @@ protected:
 			creationParams.usage = imageUsageFlags;
 
 			image = logicalDevice->createImage(std::move(creationParams));
+			auto memReqs = image->getMemoryReqs();
+			memReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			logicalDevice->allocate(memReqs, image.get());
+
+			onCreateResourcesWithTripleBufferTarget(image, bufferIx);
 		}
 
 		return image.get();
@@ -786,11 +796,6 @@ public:
 		m_qRetiredSwapchainResources(),
 		m_imageSwapchainIterations{}
 	{}
-
-	virtual std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imageIndex)
-	{
-		return nullptr;
-	}
 
 	std::unique_lock<std::mutex> recreateSwapchain(
 		uint32_t w, uint32_t h, 
@@ -862,16 +867,20 @@ public:
 		logicalDevice->createCommandBuffers(commandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
 
 		commandBuffer->begin(nbl::video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+
 		nbl::asset::SImageBlit blit;
 		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
 		blit.srcOffsets[0] = { 0, 0, 0 };
+		// TODO want this to be "last rendered frame resolution"
+		blit.srcOffsets[1] = { image->getCreationParameters().extent.width, image->getCreationParameters().extent.height, 1 };
 		blit.dstSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
 		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { swapchain->getCreationParameters().width, swapchain->getCreationParameters().height, 1 };
 
 		commandBuffer->blitImage(
-			image.get(), nbl::asset::IImage::EL_GENERAL, 
-			swapchainImage.get(), nbl::asset::IImage::EL_GENERAL, 
-			1, &blit, nbl::asset::ISampler::ETF_NEAREST
+			image.get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			swapchainImage.get(), nbl::asset::IImage::EL_GENERAL,
+			1, &blit, nbl::asset::ISampler::ETF_LINEAR
 		);
 
 		nbl::video::IGPUQueue::SSubmitInfo submit;

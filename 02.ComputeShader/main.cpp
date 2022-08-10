@@ -35,6 +35,9 @@ class ComputeShaderSampleApp : public ApplicationBase
 
 	int32_t m_resourceIx = -1;
 
+	std::array<core::smart_refctd_ptr<video::IGPUDescriptorSet>, 2> m_outputTargetDescriptorSet;
+	std::array<core::smart_refctd_ptr<video::IGPUImageView>, 2> m_outputTargetImageView;
+
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
@@ -42,11 +45,8 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf[FRAMES_IN_FLIGHT] = { nullptr };
 
 	core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline = nullptr;
-	core::vector<core::smart_refctd_ptr<video::IGPUDescriptorSet>> m_descriptorSets;
 	core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> m_descriptorSetLayout;
 
-	// These can be removed after descriptor lifetime tracking
-	core::vector<core::smart_refctd_ptr<video::IGPUImageView>> m_swapchainImageViews;
 	core::smart_refctd_ptr<video::IGPUImageView> m_inImageView;
 
 	core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
@@ -56,9 +56,7 @@ class ComputeShaderSampleApp : public ApplicationBase
 
 	struct CSwapchainResources : public CommonAPI::IRetiredSwapchainResources
 	{
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> oldImageView = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImage> oldImage = nullptr;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet = nullptr;
 
 		~CSwapchainResources() override {}
 	};
@@ -119,70 +117,6 @@ public:
 		auto& img = m_swapchainImages->begin()[i];
 		img = swapchain->createImage(i);
 		assert(img);
-		{
-			video::IGPUImageView::SCreationParams viewParams;
-			viewParams.format = img->getCreationParameters().format;
-			viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
-			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			viewParams.subresourceRange.baseMipLevel = 0u;
-			viewParams.subresourceRange.levelCount = 1u;
-			viewParams.subresourceRange.baseArrayLayer = 0u;
-			viewParams.subresourceRange.layerCount = 1u;
-			viewParams.image = img;
-
-			m_swapchainImageViews[i] = logicalDevice->createImageView(std::move(viewParams));
-			assert(m_swapchainImageViews[i]);
-		}
-
-		const uint32_t descriptorPoolSizeCount = 1u;
-		video::IDescriptorPool::SDescriptorPoolSize poolSizes[descriptorPoolSizeCount];
-		poolSizes[0].type = asset::EDT_STORAGE_IMAGE;
-		poolSizes[0].count = 2u;
-
-		video::IDescriptorPool::E_CREATE_FLAGS descriptorPoolFlags =
-			static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0);
-
-		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool
-			= logicalDevice->createDescriptorPool(descriptorPoolFlags, 1,
-				descriptorPoolSizeCount, poolSizes);
-
-		m_descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(),
-			core::smart_refctd_ptr(m_descriptorSetLayout));
-
-		const uint32_t writeDescriptorCount = 2u;
-
-		video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[writeDescriptorCount];
-		video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[writeDescriptorCount] = {};
-
-		// image2D -- my input
-		{
-			descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
-			descriptorInfos[0].image.sampler = nullptr;
-			descriptorInfos[0].desc = m_inImageView;
-
-			writeDescriptorSets[0].dstSet = m_descriptorSets[i].get();
-			writeDescriptorSets[0].binding = 1u;
-			writeDescriptorSets[0].arrayElement = 0u;
-			writeDescriptorSets[0].count = 1u;
-			writeDescriptorSets[0].descriptorType = asset::EDT_STORAGE_IMAGE;
-			writeDescriptorSets[0].info = &descriptorInfos[0];
-		}
-
-		// image2D -- swapchain image
-		{
-			descriptorInfos[1].image.imageLayout = asset::IImage::EL_GENERAL;
-			descriptorInfos[1].image.sampler = nullptr;
-			descriptorInfos[1].desc = m_swapchainImageViews[i]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
-
-			writeDescriptorSets[1].dstSet = m_descriptorSets[i].get();
-			writeDescriptorSets[1].binding = 0u;
-			writeDescriptorSets[1].arrayElement = 0u;
-			writeDescriptorSets[1].count = 1u;
-			writeDescriptorSets[1].descriptorType = asset::EDT_STORAGE_IMAGE;
-			writeDescriptorSets[1].info = &descriptorInfos[1];
-		}
-
-		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
 	}
 
 	void onAppInitialized_impl() override
@@ -239,7 +173,6 @@ public:
 
 		const uint32_t swapchainImageCount = swapchain->getImageCount();
 		m_swapchainImages = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>>>(swapchainImageCount);
-		m_swapchainImageViews.resize(swapchainImageCount);
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
@@ -378,7 +311,6 @@ public:
 		}
 		assert(m_inImageView);
 
-		m_descriptorSets.resize(swapchainImageCount);
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
 			createSwapchainImage(i);
@@ -405,13 +337,80 @@ public:
 	{
 		logger->log("onCreateResourcesWithSwapchain(%i)\n", system::ILogger::ELL_INFO, imgnum);
 		CSwapchainResources* retiredResources(new CSwapchainResources{});
-		retiredResources->oldImageView = m_swapchainImageViews[imgnum];
 		retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
-		retiredResources->descriptorSet = m_descriptorSets[imgnum];
 		retiredResources->retiredFrameId = m_frameIx;
 		createSwapchainImage(imgnum);
 
 		return std::unique_ptr<CommonAPI::IRetiredSwapchainResources>(retiredResources);
+	}
+
+	void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx)
+	{
+		logger->log("onCreateResourcesWithTripleBufferTarget()\n", system::ILogger::ELL_INFO);
+		{
+			video::IGPUImageView::SCreationParams viewParams;
+			viewParams.format = image->getCreationParameters().format;
+			viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
+			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			viewParams.subresourceRange.baseMipLevel = 0u;
+			viewParams.subresourceRange.levelCount = 1u;
+			viewParams.subresourceRange.baseArrayLayer = 0u;
+			viewParams.subresourceRange.layerCount = 1u;
+			viewParams.image = image;
+
+			m_outputTargetImageView[bufferIx] = logicalDevice->createImageView(std::move(viewParams));
+			assert(m_outputTargetImageView[bufferIx]);
+		}
+
+		const uint32_t descriptorPoolSizeCount = 1u;
+		video::IDescriptorPool::SDescriptorPoolSize poolSizes[descriptorPoolSizeCount];
+		poolSizes[0].type = asset::EDT_STORAGE_IMAGE;
+		poolSizes[0].count = 2u;
+
+		video::IDescriptorPool::E_CREATE_FLAGS descriptorPoolFlags =
+			static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0);
+
+		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool
+			= logicalDevice->createDescriptorPool(descriptorPoolFlags, 1,
+				descriptorPoolSizeCount, poolSizes);
+
+		m_outputTargetDescriptorSet[bufferIx] = logicalDevice->createDescriptorSet(descriptorPool.get(),
+			core::smart_refctd_ptr(m_descriptorSetLayout));
+
+		const uint32_t writeDescriptorCount = 2u;
+
+		video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[writeDescriptorCount];
+		video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[writeDescriptorCount] = {};
+
+		// image2D -- my input
+		{
+			descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[0].image.sampler = nullptr;
+			descriptorInfos[0].desc = m_inImageView;
+
+			writeDescriptorSets[0].dstSet = m_outputTargetDescriptorSet[bufferIx].get();
+			writeDescriptorSets[0].binding = 1u;
+			writeDescriptorSets[0].arrayElement = 0u;
+			writeDescriptorSets[0].count = 1u;
+			writeDescriptorSets[0].descriptorType = asset::EDT_STORAGE_IMAGE;
+			writeDescriptorSets[0].info = &descriptorInfos[0];
+		}
+
+		// image2D -- swapchain image
+		{
+			descriptorInfos[1].image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[1].image.sampler = nullptr;
+			descriptorInfos[1].desc = m_outputTargetImageView[bufferIx]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
+
+			writeDescriptorSets[1].dstSet = m_outputTargetDescriptorSet[bufferIx].get();
+			writeDescriptorSets[1].binding = 0u;
+			writeDescriptorSets[1].arrayElement = 0u;
+			writeDescriptorSets[1].count = 1u;
+			writeDescriptorSets[1].descriptorType = asset::EDT_STORAGE_IMAGE;
+			writeDescriptorSets[1].info = &descriptorInfos[1];
+		}
+
+		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
 	}
 
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override
@@ -442,6 +441,7 @@ public:
 		auto guard = waitForFrame(FRAMES_IN_FLIGHT, fence, swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
 		const auto windowWidth = sw->getCreationParameters().width;
 		const auto windowHeight = sw->getCreationParameters().height;
+		auto outputImage = getTripleBufferTarget(m_frameIx, windowWidth, windowHeight, sw->getCreationParameters().surfaceFormat.format, sw->getCreationParameters().imageUsage);
 
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
@@ -478,7 +478,7 @@ public:
 		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier.oldLayout = asset::IImage::EL_UNDEFINED;
 		layoutTransBarrier.newLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier.image = *(m_swapchainImages->begin() + imgnum);
+		layoutTransBarrier.image = core::smart_refctd_ptr<video::IGPUImage>(outputImage);
 
 		cb->pipelineBarrier(
 			asset::EPSF_TOP_OF_PIPE_BIT,
@@ -488,7 +488,7 @@ public:
 			0u, nullptr,
 			1u, &layoutTransBarrier);
 
-		const video::IGPUDescriptorSet* tmp[] = { m_descriptorSets[imgnum].get() };
+		const video::IGPUDescriptorSet* tmp[] = { m_outputTargetDescriptorSet[m_frameIx % 2].get() };
 		cb->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, tmp);
 
 		cb->bindComputePipeline(m_pipeline.get());
@@ -501,7 +501,7 @@ public:
 		layoutTransBarrier.barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier.barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier.oldLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier.newLayout = asset::IImage::EL_PRESENT_SRC;
+		layoutTransBarrier.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
 
 		cb->pipelineBarrier(
 			asset::EPSF_COMPUTE_SHADER_BIT,
@@ -510,6 +510,22 @@ public:
 			0u, nullptr,
 			0u, nullptr,
 			1u, &layoutTransBarrier);
+
+		nbl::asset::SImageBlit blit;
+		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { windowWidth, windowHeight, 1 };
+		blit.dstSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { windowWidth, windowHeight, 1 };
+
+		cb->blitImage(
+			outputImage, nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			(m_swapchainImages->begin() + imgnum)->get(), nbl::asset::IImage::EL_GENERAL,
+			1, &blit, nbl::asset::ISampler::ETF_NEAREST
+		);
 
 		cb->end();
 
