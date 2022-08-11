@@ -869,28 +869,37 @@ public:
 
 		commandBuffer->begin(nbl::video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 
-		video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarrier = {};
-		layoutTransBarrier.srcQueueFamilyIndex = ~0u;
-		layoutTransBarrier.dstQueueFamilyIndex = ~0u;
-		layoutTransBarrier.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-		layoutTransBarrier.subresourceRange.baseMipLevel = 0u;
-		layoutTransBarrier.subresourceRange.levelCount = 1u;
-		layoutTransBarrier.subresourceRange.baseArrayLayer = 0u;
-		layoutTransBarrier.subresourceRange.layerCount = 1u;
+		const uint32_t numBarriers = 2;
+		video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarrier[numBarriers] = {};
+		for (uint32_t i = 0; i < numBarriers; i++) {
+			layoutTransBarrier[i].srcQueueFamilyIndex = ~0u;
+			layoutTransBarrier[i].dstQueueFamilyIndex = ~0u;
+			layoutTransBarrier[i].subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			layoutTransBarrier[i].subresourceRange.baseMipLevel = 0u;
+			layoutTransBarrier[i].subresourceRange.levelCount = 1u;
+			layoutTransBarrier[i].subresourceRange.baseArrayLayer = 0u;
+			layoutTransBarrier[i].subresourceRange.layerCount = 1u;
+		}
 
-		layoutTransBarrier.barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier.barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier.oldLayout = asset::IImage::EL_UNDEFINED;
-		layoutTransBarrier.newLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier.image = swapchainImage;
+		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
+		layoutTransBarrier[0].image = swapchainImage;
+
+		layoutTransBarrier[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_TRANSFER_READ_BIT;
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+		layoutTransBarrier[1].image = image;
 
 		commandBuffer->pipelineBarrier(
 			asset::EPSF_TOP_OF_PIPE_BIT,
-			asset::EPSF_COMPUTE_SHADER_BIT,
+			asset::EPSF_TRANSFER_BIT,
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			0u, nullptr,
 			0u, nullptr,
-			1u, &layoutTransBarrier);
+			numBarriers, &layoutTransBarrier[0]);
 
 		nbl::asset::SImageBlit blit;
 		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
@@ -903,23 +912,28 @@ public:
 		blit.dstOffsets[1] = { swapchain->getCreationParameters().width, swapchain->getCreationParameters().height, 1 };
 
 		commandBuffer->blitImage(
-			image.get(), nbl::asset::IImage::EL_GENERAL,
-			swapchainImage.get(), nbl::asset::IImage::EL_GENERAL,
+			image.get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			swapchainImage.get(), nbl::asset::IImage::EL_TRANSFER_DST_OPTIMAL,
 			1, &blit, nbl::asset::ISampler::ETF_LINEAR
 		);
 
-		layoutTransBarrier.barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier.barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier.oldLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier.newLayout = asset::IImage::EL_PRESENT_SRC;
+		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
+		layoutTransBarrier[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_PRESENT_SRC;
+
+		layoutTransBarrier[1].barrier.srcAccessMask = asset::EAF_TRANSFER_READ_BIT;
+		layoutTransBarrier[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_GENERAL;
 
 		commandBuffer->pipelineBarrier(
-			asset::EPSF_COMPUTE_SHADER_BIT,
+			asset::EPSF_TRANSFER_BIT,
 			asset::EPSF_BOTTOM_OF_PIPE_BIT,
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			0u, nullptr,
 			0u, nullptr,
-			1u, &layoutTransBarrier);
+			numBarriers, &layoutTransBarrier[0]);
 
 		commandBuffer->end();
 

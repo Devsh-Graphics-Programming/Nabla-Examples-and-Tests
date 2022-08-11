@@ -53,6 +53,7 @@ class ComputeShaderSampleApp : public ApplicationBase
 
 	core::smart_refctd_ptr<video::IGPUImageView> m_inImageView;
 
+	bool hasPresentedWithBlit = false;
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 	struct CSwapchainResources : public CommonAPI::IRetiredSwapchainResources
@@ -336,7 +337,7 @@ public:
 
 	std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imgnum)
 	{
-		logger->log("onCreateResourcesWithSwapchain(%i)\n", system::ILogger::ELL_INFO, imgnum);
+		logger->log("onCreateResourcesWithSwapchain(%i)", system::ILogger::ELL_INFO, imgnum);
 		CSwapchainResources* retiredResources(new CSwapchainResources{});
 		retiredResources->oldImage = m_swapchainImages->begin()[imgnum];
 		retiredResources->retiredFrameId = m_frameIx;
@@ -348,7 +349,7 @@ public:
 	void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx)
 	{
 		// TODO: figure out better way of handling triple buffer target resources
-		logger->log("onCreateResourcesWithTripleBufferTarget()\n", system::ILogger::ELL_INFO);
+		logger->log("onCreateResourcesWithTripleBufferTarget()", system::ILogger::ELL_INFO);
 		{
 			video::IGPUImageView::SCreationParams viewParams;
 			viewParams.format = image->getCreationParameters().format;
@@ -418,6 +419,7 @@ public:
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override
 	{
 		std::unique_lock guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
+		logger->log("acquired guard onWindowResized_impl(%i, %i)", system::ILogger::ELL_INFO, w, h);
 		waitForFrame(FRAMES_IN_FLIGHT, m_frameComplete[m_lastPresentResourceIx]);
 		immediateImagePresent(
 			queues[CommonAPI::InitOutput::EQT_COMPUTE], 
@@ -425,6 +427,8 @@ public:
 			m_swapchainImages->begin(), 
 			m_lastPresentFrameIx,
 			m_lastPresentFrameWidth, m_lastPresentFrameHeight);
+		hasPresentedWithBlit = true;
+		logger->log("Done immediateImagePresent", system::ILogger::ELL_INFO);
 
 		return true;
 	}
@@ -449,9 +453,11 @@ public:
 
 		uint32_t imgnum = 0u;
 		core::smart_refctd_ptr<video::ISwapchain> sw;
-		// TODO: figure out why having this guard for only the scope of acquire
-		// has a segfault on the present function
-		auto guard = acquire(swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
+		core::smart_refctd_ptr<video::IGPUImage> swapchainImg;
+		{
+			auto guard = acquire(swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
+			swapchainImg = *(m_swapchainImages->begin() + imgnum);
+		}
 
 		const auto windowWidth = sw->getCreationParameters().width;
 		const auto windowHeight = sw->getCreationParameters().height;
@@ -488,14 +494,12 @@ public:
 			layoutTransBarrier[i].subresourceRange.baseArrayLayer = 0u;
 			layoutTransBarrier[i].subresourceRange.layerCount = 1u;
 		}
-
-		const uint32_t pushConstants[3] = { windowWidth, windowHeight, sw->getPreTransform() };
-
+		
 		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
 		layoutTransBarrier[0].newLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier[0].image = *(m_swapchainImages->begin() + imgnum);
+		layoutTransBarrier[0].image = swapchainImg;
 		layoutTransBarrier[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier[1].oldLayout = asset::IImage::EL_UNDEFINED;
@@ -509,6 +513,8 @@ public:
 			0u, nullptr,
 			0u, nullptr,
 			numBarriers, &layoutTransBarrier[0]);
+
+		const uint32_t pushConstants[3] = { windowWidth, windowHeight, sw->getPreTransform() };
 
 		const video::IGPUDescriptorSet* tmp[] = { m_outputTargetDescriptorSet[m_frameIx % 2].get() };
 		cb->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, tmp);
@@ -533,7 +539,7 @@ public:
 		// TODO this causes performance warnings, make image source use TRANSFER_SRC and swapchain image use TRANSFER_DST
 		cb->blitImage(
 			outputImage, nbl::asset::IImage::EL_GENERAL,
-			(m_swapchainImages->begin() + imgnum)->get(), nbl::asset::IImage::EL_GENERAL,
+			swapchainImg.get(), nbl::asset::IImage::EL_GENERAL,
 			1, &blit, nbl::asset::ISampler::ETF_NEAREST
 		);
 
@@ -550,7 +556,6 @@ public:
 			0u, nullptr,
 			1u, &layoutTransBarrier[0]);
 
-
 		cb->end();
 
 		CommonAPI::Submit(
@@ -561,17 +566,31 @@ public:
 			m_renderFinished[m_resourceIx].get(),
 			fence.get());
 
-		CommonAPI::Present(
-			logicalDevice.get(),
-			sw.get(),
-			queues[CommonAPI::InitOutput::EQT_COMPUTE],
-			m_renderFinished[m_resourceIx].get(),
-			imgnum);
+		{
+			// TODO possible race conditions here
+			m_lastPresentResourceIx = m_resourceIx;
+			m_lastPresentFrameIx = m_frameIx;
+			m_lastPresentFrameWidth = windowWidth;
+			m_lastPresentFrameHeight = windowHeight;
 
-		m_lastPresentResourceIx = m_resourceIx;
-		m_lastPresentFrameIx = m_frameIx;
-		m_lastPresentFrameWidth = windowWidth;
-		m_lastPresentFrameHeight = windowHeight;
+			logger->log("Updating last presented image", system::ILogger::ELL_INFO);
+			// Hold the lock here even though this is potentially the old swapchain, as presenting to
+			// an old and new swapchain at the same time, or presenting to old swapchain after new one
+			// causes a crash (despite what the spec says)
+			std::unique_lock guard(m_swapchainPtrMutex);
+			if (!hasPresentedWithBlit)
+			{
+				logger->log("Presenting", system::ILogger::ELL_INFO);
+				CommonAPI::Present(
+					logicalDevice.get(),
+					sw.get(),
+					queues[CommonAPI::InitOutput::EQT_COMPUTE],
+					m_renderFinished[m_resourceIx].get(),
+					imgnum);
+			}
+			// TODO path where we don't call present has m_renderFinished be unused, causing validation error as well
+			hasPresentedWithBlit = false;
+		} 
 	}
 
 	bool keepRunning() override
