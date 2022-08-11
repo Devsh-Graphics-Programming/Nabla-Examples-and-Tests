@@ -204,18 +204,13 @@ public:
 			Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
 	};
 
-	class ICommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
-	{
-	public:
-		virtual void setLogger(nbl::system::logger_opt_smart_ptr& logger) = 0;
-	};
-	class CommonAPIEventCallback : public ICommonAPIEventCallback
+	class CommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
 	{
 	public:
 		CommonAPIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false){}
 		CommonAPIEventCallback() {}
 		bool isWindowOpen() const {return !m_gotWindowClosedMsg;}
-		void setLogger(nbl::system::logger_opt_smart_ptr& logger) override
+		void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 		{
 			m_logger = logger;
 		}
@@ -369,7 +364,8 @@ public:
 		FeatureType* features = nullptr;
 	};
 
-	struct InitParams {
+	struct InitParams
+	{
 		std::string_view appName;
 		nbl::video::E_API_TYPE apiType = nbl::video::EAT_VULKAN;
 		
@@ -713,7 +709,6 @@ public:
 protected:
 	static void performGpuInit(InitParams& params, InitOutput& result);
 };
-
 
 #ifndef _NBL_PLATFORM_ANDROID_
 class GraphicalApplication : public CommonAPI::CommonAPIEventCallback, public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
