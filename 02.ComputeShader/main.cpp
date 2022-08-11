@@ -34,10 +34,6 @@ class ComputeShaderSampleApp : public ApplicationBase
 	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>> m_swapchainImages;
 
 	int32_t m_resourceIx = -1;
-	uint32_t m_lastPresentResourceIx = 0;
-	uint32_t m_lastPresentFrameIx = 0;
-	uint32_t m_lastPresentFrameWidth = 0;
-	uint32_t m_lastPresentFrameHeight = 0;
 
 	std::array<core::smart_refctd_ptr<video::IGPUDescriptorSet>, 2> m_outputTargetDescriptorSet;
 	std::array<core::smart_refctd_ptr<video::IGPUImageView>, 2> m_outputTargetImageView;
@@ -420,13 +416,14 @@ public:
 	{
 		std::unique_lock guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
 		logger->log("acquired guard onWindowResized_impl(%i, %i)", system::ILogger::ELL_INFO, w, h);
-		waitForFrame(FRAMES_IN_FLIGHT, m_frameComplete[m_lastPresentResourceIx]);
+		PresentedFrameInfo frame = getLastPresentedFrame();
+		waitForFrame(FRAMES_IN_FLIGHT, m_frameComplete[frame.resourceIx]);
 		immediateImagePresent(
 			queues[CommonAPI::InitOutput::EQT_COMPUTE], 
 			swapchain.get(),
 			m_swapchainImages->begin(), 
-			m_lastPresentFrameIx,
-			m_lastPresentFrameWidth, m_lastPresentFrameHeight);
+			frame.frameIx,
+			frame.width, frame.height);
 		hasPresentedWithBlit = true;
 		logger->log("Done immediateImagePresent", system::ILogger::ELL_INFO);
 
@@ -586,11 +583,14 @@ public:
 			fence.get());
 
 		{
-			// TODO possible race conditions here
-			m_lastPresentResourceIx = m_resourceIx;
-			m_lastPresentFrameIx = m_frameIx;
-			m_lastPresentFrameWidth = windowWidth;
-			m_lastPresentFrameHeight = windowHeight;
+			// Resize-blit will only happen with frames that have submitted with
+			// this new resolution, which is what we want
+			PresentedFrameInfo frame;
+			frame.resourceIx = m_resourceIx;
+			frame.frameIx = m_frameIx;
+			frame.width = windowWidth;
+			frame.height = windowHeight;
+			setLastPresentedFrame(frame);
 
 			logger->log("Updating last presented image", system::ILogger::ELL_INFO);
 			// Hold the lock here even though this is potentially the old swapchain, as presenting to

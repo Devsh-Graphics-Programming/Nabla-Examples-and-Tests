@@ -744,8 +744,39 @@ protected:
 	}
 
 #ifdef ANTI_FLICKER
-	uint32_t m_presentedFrameIx;
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
+
+	struct PresentedFrameInfo
+	{
+		uint64_t width : 14;
+		uint64_t height : 14;
+		uint64_t resourceIx : 8; // (Frame in flight)
+		uint64_t frameIx : 28; // (Total amount of frames rendered so far / frame index)
+	};
+
+	std::atomic_uint64_t m_lastPresentedFrame;
+
+	PresentedFrameInfo getLastPresentedFrame()
+	{
+		uint64_t value = m_lastPresentedFrame.load();
+		PresentedFrameInfo frame;
+		frame.width = value >> 50;
+		frame.height = (value >> 36) & ((1 << 14) - 1);
+		frame.resourceIx = (value >> 28) & ((1 << 8) - 1);
+		frame.frameIx = value & ((1 << 28) - 1);
+
+		return frame;
+	}
+
+	void setLastPresentedFrame(PresentedFrameInfo frame)
+	{
+		uint64_t value = 0;
+		value |= frame.width << 50;
+		value |= frame.height << 36;
+		value |= frame.resourceIx << 28;
+		value |= frame.frameIx;
+		m_lastPresentedFrame.store(value);
+	}
 
 	virtual void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx) {}
 
