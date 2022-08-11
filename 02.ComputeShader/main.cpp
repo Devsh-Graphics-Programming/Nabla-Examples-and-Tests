@@ -494,12 +494,7 @@ public:
 			layoutTransBarrier[i].subresourceRange.baseArrayLayer = 0u;
 			layoutTransBarrier[i].subresourceRange.layerCount = 1u;
 		}
-		
-		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
-		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
-		layoutTransBarrier[0].newLayout = asset::IImage::EL_GENERAL;
-		layoutTransBarrier[0].image = swapchainImg;
+
 		layoutTransBarrier[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
 		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_SHADER_WRITE_BIT;
 		layoutTransBarrier[1].oldLayout = asset::IImage::EL_UNDEFINED;
@@ -512,7 +507,7 @@ public:
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			0u, nullptr,
 			0u, nullptr,
-			numBarriers, &layoutTransBarrier[0]);
+			1u, &layoutTransBarrier[1]);
 
 		const uint32_t pushConstants[3] = { windowWidth, windowHeight, sw->getPreTransform() };
 
@@ -526,6 +521,25 @@ public:
 
 		cb->dispatch((windowWidth + 15u) / 16u, (windowHeight + 15u) / 16u, 1u);
 
+		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
+		layoutTransBarrier[0].image = swapchainImg;
+
+		layoutTransBarrier[1].barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
+		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_TRANSFER_READ_BIT;
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+
+		cb->pipelineBarrier(
+			asset::EPSF_COMPUTE_SHADER_BIT,
+			asset::EPSF_TRANSFER_BIT,
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			0u, nullptr,
+			0u, nullptr,
+			numBarriers, &layoutTransBarrier[0]);
+
 		nbl::asset::SImageBlit blit;
 		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
 		blit.srcSubresource.layerCount = 1;
@@ -538,23 +552,28 @@ public:
 
 		// TODO this causes performance warnings, make image source use TRANSFER_SRC and swapchain image use TRANSFER_DST
 		cb->blitImage(
-			outputImage, nbl::asset::IImage::EL_GENERAL,
-			swapchainImg.get(), nbl::asset::IImage::EL_GENERAL,
+			outputImage, nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			swapchainImg.get(), nbl::asset::IImage::EL_TRANSFER_DST_OPTIMAL,
 			1, &blit, nbl::asset::ISampler::ETF_NEAREST
 		);
 
-		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_SHADER_WRITE_BIT;
+		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 		layoutTransBarrier[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
-		layoutTransBarrier[0].oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 		layoutTransBarrier[0].newLayout = asset::IImage::EL_PRESENT_SRC;
 
+		layoutTransBarrier[1].barrier.srcAccessMask = asset::EAF_TRANSFER_READ_BIT;
+		layoutTransBarrier[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_GENERAL;
+
 		cb->pipelineBarrier(
-			asset::EPSF_COMPUTE_SHADER_BIT,
+			asset::EPSF_TRANSFER_BIT,
 			asset::EPSF_BOTTOM_OF_PIPE_BIT,
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			0u, nullptr,
 			0u, nullptr,
-			1u, &layoutTransBarrier[0]);
+			numBarriers, &layoutTransBarrier[0]);
 
 		cb->end();
 
