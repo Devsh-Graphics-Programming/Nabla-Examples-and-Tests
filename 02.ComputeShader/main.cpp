@@ -345,7 +345,7 @@ public:
 	void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx)
 	{
 		// TODO: figure out better way of handling triple buffer target resources
-		logger->log("onCreateResourcesWithTripleBufferTarget()", system::ILogger::ELL_INFO);
+		logger->log("onCreateResourcesWithTripleBufferTarget(%i) || %ix%i", system::ILogger::ELL_INFO, bufferIx, image->getCreationParameters().extent.width, image->getCreationParameters().extent.height);
 		{
 			video::IGPUImageView::SCreationParams viewParams;
 			viewParams.format = image->getCreationParameters().format;
@@ -414,9 +414,9 @@ public:
 
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override
 	{
-		std::unique_lock guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
-		logger->log("acquired guard onWindowResized_impl(%i, %i)", system::ILogger::ELL_INFO, w, h);
+		auto guard = recreateSwapchain(w, h, m_swapchainCreationParams, swapchain);
 		PresentedFrameInfo frame = getLastPresentedFrame();
+		logger->log("acquired guard onWindowResized_impl(%i, %i) -- last presented frame: %i", system::ILogger::ELL_INFO, w, h, frame.frameIx);
 		waitForFrame(FRAMES_IN_FLIGHT, m_frameComplete[frame.resourceIx]);
 		immediateImagePresent(
 			queues[CommonAPI::InitOutput::EQT_COMPUTE], 
@@ -451,14 +451,16 @@ public:
 		uint32_t imgnum = 0u;
 		core::smart_refctd_ptr<video::ISwapchain> sw;
 		core::smart_refctd_ptr<video::IGPUImage> swapchainImg;
+		video::IGPUImage* outputImage;
+		uint32_t windowWidth, windowHeight;
 		{
 			auto guard = acquire(swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
 			swapchainImg = *(m_swapchainImages->begin() + imgnum);
+			windowWidth = sw->getCreationParameters().width;
+			windowHeight = sw->getCreationParameters().height;
+			// this may recreate the output image, do it with the lock
+			outputImage = getTripleBufferTarget(m_frameIx, windowWidth, windowHeight, sw->getCreationParameters().surfaceFormat.format, sw->getCreationParameters().imageUsage);
 		}
-
-		const auto windowWidth = sw->getCreationParameters().width;
-		const auto windowHeight = sw->getCreationParameters().height;
-		auto outputImage = getTripleBufferTarget(m_frameIx, windowWidth, windowHeight, sw->getCreationParameters().surfaceFormat.format, sw->getCreationParameters().imageUsage);
 
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
@@ -582,24 +584,22 @@ public:
 			m_renderFinished[m_resourceIx].get(),
 			fence.get());
 
-		{
-			// Resize-blit will only happen with frames that have submitted with
-			// this new resolution, which is what we want
-			PresentedFrameInfo frame;
-			frame.resourceIx = m_resourceIx;
-			frame.frameIx = m_frameIx;
-			frame.width = windowWidth;
-			frame.height = windowHeight;
-			setLastPresentedFrame(frame);
+		// Resize-blit will only happen with frames that have submitted with
+		// this new resolution, which is what we want
+		PresentedFrameInfo frame;
+		frame.resourceIx = m_resourceIx;
+		frame.frameIx = m_frameIx;
+		frame.width = windowWidth;
+		frame.height = windowHeight;
+		setLastPresentedFrame(frame);
 
-			logger->log("Updating last presented image", system::ILogger::ELL_INFO);
+		{
 			// Hold the lock here even though this is potentially the old swapchain, as presenting to
 			// an old and new swapchain at the same time, or presenting to old swapchain after new one
 			// causes a crash (despite what the spec says)
 			std::unique_lock guard(m_swapchainPtrMutex);
 			if (!hasPresentedWithBlit)
 			{
-				logger->log("Presenting", system::ILogger::ELL_INFO);
 				CommonAPI::Present(
 					logicalDevice.get(),
 					sw.get(),
@@ -609,7 +609,8 @@ public:
 			}
 			// TODO path where we don't call present has m_renderFinished be unused, causing validation error as well
 			hasPresentedWithBlit = false;
-		} 
+		}
+		m_frameIx++;
 	}
 
 	bool keepRunning() override

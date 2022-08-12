@@ -853,7 +853,6 @@ public:
 		}
 		else
 			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
-		m_frameIx++;
 	}
 
 	std::unique_lock<std::mutex> acquire(
@@ -942,6 +941,12 @@ public:
 		blit.dstOffsets[0] = { 0, 0, 0 };
 		blit.dstOffsets[1] = { swapchain->getCreationParameters().width, swapchain->getCreationParameters().height, 1 };
 
+		printf(
+			"Blitting from frame %i buffer %i with last render dimensions %ix%i and output %ix%i\n",
+			frameIx, bufferIx, 
+			lastRenderW, lastRenderH,
+			image->getCreationParameters().extent.width, image->getCreationParameters().extent.height
+		);
 		commandBuffer->blitImage(
 			image.get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
 			swapchainImage.get(), nbl::asset::IImage::EL_TRANSFER_DST_OPTIMAL,
