@@ -449,18 +449,12 @@ public:
 		logicalDevice->resetFences(1u, &fence.get());
 
 		uint32_t imgnum = 0u;
-		core::smart_refctd_ptr<video::ISwapchain> sw;
-		core::smart_refctd_ptr<video::IGPUImage> swapchainImg;
-		video::IGPUImage* outputImage;
-		uint32_t windowWidth, windowHeight;
-		{
-			auto guard = acquire(swapchain, sw, m_imageAcquire[m_resourceIx].get(), &imgnum);
-			swapchainImg = *(m_swapchainImages->begin() + imgnum);
-			windowWidth = sw->getCreationParameters().width;
-			windowHeight = sw->getCreationParameters().height;
-			// this may recreate the output image, do it with the lock
-			outputImage = getTripleBufferTarget(m_frameIx, windowWidth, windowHeight, sw->getCreationParameters().surfaceFormat.format, sw->getCreationParameters().imageUsage);
-		}
+		core::smart_refctd_ptr<video::ISwapchain> sw = acquire(swapchain, m_imageAcquire[m_resourceIx].get(), &imgnum);
+		// these are safe to access now that we went through the acquire
+		core::smart_refctd_ptr<video::IGPUImage> swapchainImg = *(m_swapchainImages->begin() + imgnum);
+		uint32_t windowWidth = sw->getCreationParameters().width;
+		uint32_t windowHeight = sw->getCreationParameters().height;
+		video::IGPUImage* outputImage = getTripleBufferTarget(m_frameIx, windowWidth, windowHeight, sw->getCreationParameters().surfaceFormat.format, sw->getCreationParameters().imageUsage);
 
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped

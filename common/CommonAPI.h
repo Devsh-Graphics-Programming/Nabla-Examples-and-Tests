@@ -855,21 +855,19 @@ public:
 			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 	}
 
-	std::unique_lock<std::mutex> acquire(
-		// a reference to the example's swapchain, which should only be accessed under the mutex lock
+	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> acquire(
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
-		// a reference to a local swapchain ptr that should be used for this frame
-		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchain,
 		nbl::video::IGPUSemaphore* waitSemaphore,
 		uint32_t* imgnum)
 	{
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 		while (true)
 		{
 			std::unique_lock guard(m_swapchainPtrMutex);
 			swapchain = swapchainRef;
 			if (tryAcquireImage(swapchain.get(), waitSemaphore, imgnum))
 			{
-				return guard;
+				return swapchain;
 			}
 		}
 	}
