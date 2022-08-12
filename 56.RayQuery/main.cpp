@@ -607,7 +607,7 @@ public:
 			IGPUAccelerationStructure::BuildRangeInfo* pRangeInfos[1u];
 			pRangeInfos[0] = firstBuildRangeInfos;
 
-			// Build BLAS 
+			// Build TLAS 
 			{
 				utilities->buildAccelerationStructures(computeQueue, core::SRange<IGPUAccelerationStructure::DeviceBuildGeometryInfo>(&tlasBuildInfo, &tlasBuildInfo + 1u), pRangeInfos);
 			}
