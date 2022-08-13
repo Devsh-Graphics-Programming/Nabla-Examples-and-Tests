@@ -388,8 +388,8 @@ public:
 		uint32_t windowHeight = 600u;
 		uint32_t swapchainImageCount = 3u;
 
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
-		SFeatureRequest<nbl::video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
+		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		// TODO: Remove these and do nbl::video::IPhysicalDevice::SFeatures deviceFeaturesToEnable and nbl::video::IPhysicalDevice::SLimits requiredDeviceLimits
 		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
 		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
 		
@@ -588,9 +588,13 @@ public:
 	static InitOutput InitWithDefaultExt(InitParams&& params)
 	{
 #ifndef _NBL_PLATFORM_ANDROID_
-		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
-		params.requiredInstanceFeatures.features = requiredFeatures_Instance;
-		params.requiredInstanceFeatures.count = 1u;
+		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
+		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		apiFeaturesToEnable.swapchainMode = swapChainMode;
+		apiFeaturesToEnable.validations = true;
+		apiFeaturesToEnable.debugUtils = true;
+		params.apiFeaturesToEnable = apiFeaturesToEnable;
+
 		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
 		params.requiredDeviceFeatures.features = requiredFeatures_Device;
 		params.requiredDeviceFeatures.count = 1u;
@@ -602,9 +606,12 @@ public:
 	static InitOutput InitWithRaytracingExt(InitParams&& params)
 	{
 #ifndef _NBL_PLATFORM_ANDROID_
-		nbl::video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { nbl::video::IAPIConnection::EF_SURFACE };
-		params.requiredInstanceFeatures.features = requiredFeatures_Instance;
-		params.requiredInstanceFeatures.count = 1u;
+		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
+		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		apiFeaturesToEnable.swapchainMode = swapChainMode;
+		apiFeaturesToEnable.validations = true;
+		apiFeaturesToEnable.debugUtils = true;
+		params.apiFeaturesToEnable = apiFeaturesToEnable;
 
 		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
 		{

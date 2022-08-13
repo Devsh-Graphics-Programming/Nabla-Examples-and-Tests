@@ -707,12 +707,8 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 			nbl::core::smart_refctd_ptr(result.system),
 			0,
 			params.appName.data(),
-			params.requiredInstanceFeatures.count,
-			params.requiredInstanceFeatures.features,
-			params.optionalInstanceFeatures.count,
-			params.optionalInstanceFeatures.features,
 			nbl::core::smart_refctd_ptr(result.logger),
-			true);
+			params.apiFeaturesToEnable);
 
 		if (!headlessCompute)
 		{
@@ -934,6 +930,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	nbl::video::ILogicalDevice::SCreationParams dev_params;
 	dev_params.queueParamsCount = actualQueueParamsCount;
 	dev_params.queueParams = qcp;
+	// TODO dev_params.featuresToEnable;
 	dev_params.requiredFeatureCount = params.requiredDeviceFeatures.count;
 	dev_params.requiredFeatures = params.requiredDeviceFeatures.features;
 	dev_params.optionalFeatureCount = params.optionalDeviceFeatures.count;
