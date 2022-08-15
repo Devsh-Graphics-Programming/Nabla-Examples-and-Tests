@@ -935,7 +935,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	dev_params.requiredFeatures = params.requiredDeviceFeatures.features;
 	dev_params.optionalFeatureCount = params.optionalDeviceFeatures.count;
 	dev_params.optionalFeatures = params.optionalDeviceFeatures.features;
-	result.logicalDevice = gpu->createLogicalDevice(dev_params);
+	result.logicalDevice = gpu->createLogicalDevice(std::move(dev_params));
 
 	result.utilities = nbl::core::make_smart_refctd_ptr<nbl::video::IUtilities>(nbl::core::smart_refctd_ptr(result.logicalDevice));
 
