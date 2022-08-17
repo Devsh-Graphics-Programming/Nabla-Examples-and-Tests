@@ -204,26 +204,13 @@ public:
 			Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
 	};
 
-	class ICommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
-	{
-	public:
-		virtual void setLogger(nbl::system::logger_opt_smart_ptr& logger) = 0;
-
-		void setApplication(nbl::ui::IGraphicalApplicationFramework* app)
-		{
-			m_app = std::move(app);
-		}
-	protected:
-		nbl::ui::IGraphicalApplicationFramework* m_app = nullptr;
-	};
-
-	class CommonAPIEventCallback : public ICommonAPIEventCallback
+	class CommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
 	{
 	public:
 		CommonAPIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false){}
 		CommonAPIEventCallback() {}
 		bool isWindowOpen() const {return !m_gotWindowClosedMsg;}
-		void setLogger(nbl::system::logger_opt_smart_ptr& logger) override
+		void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 		{
 			m_logger = logger;
 		}
@@ -250,7 +237,6 @@ public:
 		bool onWindowResized_impl(uint32_t w, uint32_t h) override
 		{
 			m_logger.log("Window resized to { %u, %u }", nbl::system::ILogger::ELL_DEBUG, w, h);
-			if (m_app) m_app->onResize(w, h);
 			return true;
 		}
 		bool onWindowMinimized_impl() override
@@ -515,9 +501,13 @@ public:
 
 		if (!headlessCompute)
 		{
+			if (!params.windowCb)
+			{
+				params.windowCb = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
+			}
+			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
 			if (!params.window)
 			{
-				nbl::core::smart_refctd_ptr<EventCallback> windowCallback = nbl::core::make_smart_refctd_ptr<EventCallback>(nbl::core::smart_refctd_ptr(result.inputSystem), system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
 				result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
 
 				nbl::ui::IWindow::SCreationParams windowsCreationParams;
@@ -528,12 +518,11 @@ public:
 				windowsCreationParams.system = nbl::core::smart_refctd_ptr(result.system);
 				windowsCreationParams.flags = nbl::ui::IWindow::ECF_RESIZABLE;
 				windowsCreationParams.windowCaption = params.appName.data();
-				windowsCreationParams.callback = windowCallback;
+				windowsCreationParams.callback = params.windowCb;
 
 				params.window = result.windowManager->createWindow(std::move(windowsCreationParams));
 			}
 			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*) params.window->getEventCallback());
-			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
 		}
 
 		if constexpr (gpuInit)
@@ -667,9 +656,9 @@ public:
 		nbl::video::ISwapchain::SPresentInfo present;
 		{
 			present.imgIndex = imageNum;
-			present.waitSemaphoreCount = waitSemaphore ? 1u:0u;
+			present.waitSemaphoreCount = waitSemaphore ? 1u : 0u;
 			present.waitSemaphores = &waitSemaphore;
-			
+
 			sc->present(queue, present);
 		}
 	}
@@ -722,23 +711,281 @@ protected:
 };
 
 #ifndef _NBL_PLATFORM_ANDROID_
-class GraphicalApplication : public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
+class GraphicalApplication : public CommonAPI::CommonAPIEventCallback, public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
 {
 protected:
 	~GraphicalApplication() {}
+
+	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
+
+	uint32_t m_frameIx = 0;
+	nbl::core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
+	uint32_t m_swapchainIteration = 0;
+	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
+	std::mutex m_swapchainPtrMutex;
+
+	// Returns retired resources
+	virtual std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imageIndex) { return nullptr; }
+
+	bool tryAcquireImage(nbl::video::ISwapchain* swapchain, nbl::video::IGPUSemaphore* waitSemaphore, uint32_t* imgnum)
+	{
+		if (swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS)
+		{
+			if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
+			{
+				auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
+				m_imageSwapchainIterations[*imgnum] = m_swapchainIteration;
+				if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
+			}
+
+			return true;
+		}
+		return false;
+	}
+
+#ifdef ANTI_FLICKER
+	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
+
+	struct PresentedFrameInfo
+	{
+		uint64_t width : 14;
+		uint64_t height : 14;
+		uint64_t resourceIx : 8; // (Frame in flight)
+		uint64_t frameIx : 28; // (Total amount of frames rendered so far / frame index)
+	};
+
+	std::atomic_uint64_t m_lastPresentedFrame;
+
+	PresentedFrameInfo getLastPresentedFrame()
+	{
+		uint64_t value = m_lastPresentedFrame.load();
+		PresentedFrameInfo frame;
+		frame.width = value >> 50;
+		frame.height = (value >> 36) & ((1 << 14) - 1);
+		frame.resourceIx = (value >> 28) & ((1 << 8) - 1);
+		frame.frameIx = value & ((1 << 28) - 1);
+
+		return frame;
+	}
+
+	void setLastPresentedFrame(PresentedFrameInfo frame)
+	{
+		uint64_t value = 0;
+		value |= frame.width << 50;
+		value |= frame.height << 36;
+		value |= frame.resourceIx << 28;
+		value |= frame.frameIx;
+		m_lastPresentedFrame.store(value);
+	}
+
+	virtual void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx) {}
+
+	nbl::video::IGPUImage* getTripleBufferTarget(
+		uint32_t frameIx, uint32_t w, uint32_t h, 
+		nbl::asset::E_FORMAT surfaceFormat, 
+		nbl::core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
+	{
+		uint32_t bufferIx = frameIx % 2;
+		auto& image = m_tripleBufferRenderTargets.begin()[bufferIx];
+
+		if (!image || image->getCreationParameters().extent.width < w || image->getCreationParameters().extent.height < h)
+		{
+			auto logicalDevice = getLogicalDevice();
+			nbl::video::IGPUImage::SCreationParams creationParams;
+			creationParams.type = nbl::asset::IImage::ET_2D;
+			creationParams.samples = nbl::asset::IImage::ESCF_1_BIT;
+			creationParams.format = surfaceFormat;
+			creationParams.extent = { w, h, 1 };
+			creationParams.mipLevels = 1;
+			creationParams.arrayLayers = 1;
+			creationParams.usage = imageUsageFlags | nbl::asset::IImage::EUF_TRANSFER_SRC_BIT;
+
+			image = logicalDevice->createImage(std::move(creationParams));
+			auto memReqs = image->getMemoryReqs();
+			memReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			logicalDevice->allocate(memReqs, image.get());
+
+			onCreateResourcesWithTripleBufferTarget(image, bufferIx);
+		}
+
+		return image.get();
+	}
+#endif
 public:
 	GraphicalApplication(
 		const std::filesystem::path& _localInputCWD,
 		const std::filesystem::path& _localOutputCWD,
 		const std::filesystem::path& _sharedInputCWD,
 		const std::filesystem::path& _sharedOutputCWD
-	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-	void recreateSurface() override
+	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
+		CommonAPI::CommonAPIEventCallback(nullptr, nullptr),
+		m_qRetiredSwapchainResources(),
+		m_imageSwapchainIterations{}
+	{}
+
+	std::unique_lock<std::mutex> recreateSwapchain(
+		uint32_t w, uint32_t h, 
+		nbl::video::ISwapchain::SCreationParams& swapchainCreationParams, 
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef)
 	{
+		auto logicalDevice = getLogicalDevice();
+		std::unique_lock guard(m_swapchainPtrMutex);
+		CommonAPI::createSwapchain(
+			nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>(logicalDevice),
+			swapchainCreationParams, 
+			w, h, 
+			swapchainRef);
+		assert(swapchainRef);
+		m_swapchainIteration++;
+
+		return guard;
 	}
-	void onResize(uint32_t w, uint32_t h) override
+
+	void waitForFrame(
+		uint32_t framesInFlight,
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence)
 	{
+		auto logicalDevice = getLogicalDevice();
+		if (fence)
+		{
+			logicalDevice->blockForFences(1u, &fence.get());
+			if (m_frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - framesInFlight);
+		}
+		else
+			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 	}
+
+	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> acquire(
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
+		nbl::video::IGPUSemaphore* waitSemaphore,
+		uint32_t* imgnum)
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
+		while (true)
+		{
+			std::unique_lock guard(m_swapchainPtrMutex);
+			swapchain = swapchainRef;
+			if (tryAcquireImage(swapchain.get(), waitSemaphore, imgnum))
+			{
+				return swapchain;
+			}
+		}
+	}
+
+#ifdef ANTI_FLICKER
+	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx, uint32_t lastRenderW, uint32_t lastRenderH)
+	{
+		using namespace nbl;
+
+		uint32_t bufferIx = frameIx % 2;
+		auto image = m_tripleBufferRenderTargets.begin()[bufferIx];
+		auto logicalDevice = getLogicalDevice();
+
+		auto imageAcqToSubmit = logicalDevice->createSemaphore();
+		auto submitToPresent = logicalDevice->createSemaphore();
+
+		// acquires image, allocates one shot fences, commandpool and commandbuffer to do a blit, submits and presents
+		uint32_t imgnum = 0;
+		bool acquireResult = tryAcquireImage(swapchain, imageAcqToSubmit.get(), &imgnum);
+		assert(acquireResult);
+
+		auto& swapchainImage = swapchainImages[imgnum]; // tryAcquireImage will have this image be recreated
+		auto fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));;
+		auto commandPool = logicalDevice->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_NONE);
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> commandBuffer;
+		logicalDevice->createCommandBuffers(commandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
+
+		commandBuffer->begin(nbl::video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+
+		const uint32_t numBarriers = 2;
+		video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarrier[numBarriers] = {};
+		for (uint32_t i = 0; i < numBarriers; i++) {
+			layoutTransBarrier[i].srcQueueFamilyIndex = ~0u;
+			layoutTransBarrier[i].dstQueueFamilyIndex = ~0u;
+			layoutTransBarrier[i].subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			layoutTransBarrier[i].subresourceRange.baseMipLevel = 0u;
+			layoutTransBarrier[i].subresourceRange.levelCount = 1u;
+			layoutTransBarrier[i].subresourceRange.baseArrayLayer = 0u;
+			layoutTransBarrier[i].subresourceRange.layerCount = 1u;
+		}
+
+		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
+		layoutTransBarrier[0].image = swapchainImage;
+
+		layoutTransBarrier[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_TRANSFER_READ_BIT;
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_GENERAL;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+		layoutTransBarrier[1].image = image;
+
+		commandBuffer->pipelineBarrier(
+			asset::EPSF_TOP_OF_PIPE_BIT,
+			asset::EPSF_TRANSFER_BIT,
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			0u, nullptr,
+			0u, nullptr,
+			numBarriers, &layoutTransBarrier[0]);
+
+		nbl::asset::SImageBlit blit;
+		blit.srcSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.srcSubresource.layerCount = 1;
+		blit.srcOffsets[0] = { 0, 0, 0 };
+		blit.srcOffsets[1] = { lastRenderW, lastRenderH, 1 };
+		blit.dstSubresource.aspectMask = nbl::video::IGPUImage::EAF_COLOR_BIT;
+		blit.dstSubresource.layerCount = 1;
+		blit.dstOffsets[0] = { 0, 0, 0 };
+		blit.dstOffsets[1] = { swapchain->getCreationParameters().width, swapchain->getCreationParameters().height, 1 };
+
+		printf(
+			"Blitting from frame %i buffer %i with last render dimensions %ix%i and output %ix%i\n",
+			frameIx, bufferIx, 
+			lastRenderW, lastRenderH,
+			image->getCreationParameters().extent.width, image->getCreationParameters().extent.height
+		);
+		commandBuffer->blitImage(
+			image.get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+			swapchainImage.get(), nbl::asset::IImage::EL_TRANSFER_DST_OPTIMAL,
+			1, &blit, nbl::asset::ISampler::ETF_LINEAR
+		);
+
+		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
+		layoutTransBarrier[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
+		layoutTransBarrier[0].newLayout = asset::IImage::EL_PRESENT_SRC;
+
+		layoutTransBarrier[1].barrier.srcAccessMask = asset::EAF_TRANSFER_READ_BIT;
+		layoutTransBarrier[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].oldLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+		layoutTransBarrier[1].newLayout = asset::IImage::EL_GENERAL;
+
+		commandBuffer->pipelineBarrier(
+			asset::EPSF_TRANSFER_BIT,
+			asset::EPSF_BOTTOM_OF_PIPE_BIT,
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			0u, nullptr,
+			0u, nullptr,
+			numBarriers, &layoutTransBarrier[0]);
+
+		commandBuffer->end();
+
+		CommonAPI::Submit(
+			logicalDevice, commandBuffer.get(), queue,
+			imageAcqToSubmit.get(),
+			submitToPresent.get(),
+			fence.get());
+		CommonAPI::Present(
+			logicalDevice,
+			swapchain,
+			queue,
+			submitToPresent.get(),
+			imgnum);
+
+		logicalDevice->blockForFences(1u, &fence.get());
+	}
+#endif
 };
 #else
 class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
@@ -753,12 +1000,10 @@ public:
 		const std::filesystem::path& _sharedInputCWD,
 		const std::filesystem::path& _sharedOutputCWD
 	) : nbl::ui::CGraphicalApplicationAndroid(app, env, _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-	void recreateSurface() override
-	{
-		CommonAPI::recreateSurface(this);
-	}
 };
 #endif
+
+
 //***** Application framework macros ******
 #ifdef _NBL_PLATFORM_ANDROID_
 using ApplicationBase = GraphicalApplication;
