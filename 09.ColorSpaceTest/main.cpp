@@ -467,7 +467,7 @@ public:
 				didResize = windowManager->setWindowSize(window.get(), windowExtent.width, windowExtent.height);
 				assert(didResize);
 			}
-			// can't just use windowExtent as it may have been capped by windows
+			// can't just use windowExtent as the actual window size may have been capped by windows
 			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
 
 			if (didResize)
