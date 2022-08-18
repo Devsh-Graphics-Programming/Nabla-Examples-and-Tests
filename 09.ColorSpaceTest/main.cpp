@@ -53,6 +53,9 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	video::IGPUObjectFromAssetConverter cpu2gpu;
 	video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
+	uint32_t lastWidth = WIN_W;
+	uint32_t lastHeight = WIN_H;
+
 public:
 	void setWindow(core::smart_refctd_ptr<ui::IWindow>&& wnd) override
 	{
@@ -86,6 +89,7 @@ public:
 
 		system = std::move(initOutput.system);
 		window = std::move(initParams.window);
+		windowManager = std::move(initOutput.windowManager);
 		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
@@ -454,7 +458,31 @@ public:
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
+			auto windowExtent = gpuImageView->getCreationParameters().image->getCreationParameters().extent;
 			auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+
+			bool didResize = false;
+			if (windowExtent.width != lastWidth || windowExtent.height != lastHeight)
+			{
+				didResize = windowManager->setWindowSize(window.get(), windowExtent.width, windowExtent.height);
+				assert(didResize);
+			}
+			// can't just use windowExtent as the actual window size may have been capped by windows
+			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
+
+			if (didResize)
+			{
+				CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, imgExtents.width, imgExtents.height, swapchain);
+				assert(swapchain);
+				fbos = CommonAPI::createFBOWithSwapchainImages(
+					swapchain->getImageCount(), imgExtents.width, imgExtents.height,
+					logicalDevice, swapchain, renderpass,
+					asset::EF_UNKNOWN
+				);
+
+				lastWidth = imgExtents.width;
+				lastHeight = imgExtents.height;
+			}
 
 			video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
@@ -549,13 +577,13 @@ public:
 				viewport.maxDepth = 0.f;
 				viewport.x = 0u;
 				viewport.y = 0u;
-				viewport.width = WIN_W;
-				viewport.height = WIN_H;
+				viewport.width = imgExtents.width;
+				viewport.height = imgExtents.height;
 				cb->setViewport(0u, 1u, &viewport);
 
 				VkRect2D scissor;
 				scissor.offset = { 0, 0 };
-				scissor.extent = { WIN_W, WIN_H };
+				scissor.extent = { imgExtents.width, imgExtents.height };
 
 				cb->setScissor(0u, 1u, &scissor);
 
@@ -563,7 +591,7 @@ public:
 				{
 					VkRect2D area;
 					area.offset = { 0,0 };
-					area.extent = { WIN_W, WIN_H };
+					area.extent = { imgExtents.width, imgExtents.height };
 					asset::SClearValue clear;
 					clear.color.float32[0] = 1.f;
 					clear.color.float32[1] = 1.f;
