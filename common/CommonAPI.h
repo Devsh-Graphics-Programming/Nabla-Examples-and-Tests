@@ -363,6 +363,27 @@ public:
 		uint32_t count = 0u;
 		FeatureType* features = nullptr;
 	};
+	
+	// DRAFT:
+	struct SPhysicalDeviceRequirements
+	{
+		nbl::video::IPhysicalDevice::APIVersion  apiVersion;
+		nbl::core::bitflag<nbl::video::IPhysicalDevice::E_TYPE>      deviceTypeMask;
+		nbl::core::bitflag<nbl::video::IPhysicalDevice::E_DRIVER_ID> driverIDMask;
+		// VkConformanceVersion conformanceVersion; Do we need this in addition to apiVersion?
+		nbl::video::IPhysicalDevice::SLimits minimumLimits; // minimum required limits to be satisfied
+		nbl::video::IPhysicalDevice::SFeatures features;
+		// TODO: BufferFormatUsages
+		// TODO: ImageFormatUsages
+		// TODO: Figure out the best way to ask for memory requirements, maybe an array of pair::<bitflag<E_MEMORY_PROPERTY_FLAGS>, size> ?! Or just a simple minVRAMSize?
+		// TODO: Figure out the best way to ask for queue requirements?
+			/*
+			core::bitflag<E_QUEUE_FLAGS> queueFlags;
+			uint32_t minQueueCount;
+			uint32_t minTimestampValidBits;
+			asset::VkExtent3D maxImageTransferGranularity; ??? max instead of min?
+			*/
+	};
 
 	struct InitParams
 	{
@@ -375,10 +396,7 @@ public:
 		uint32_t swapchainImageCount = 3u;
 
 		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
-		// TODO: Remove these and do nbl::video::IPhysicalDevice::SFeatures deviceFeaturesToEnable and nbl::video::IPhysicalDevice::SLimits requiredDeviceLimits
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
-		SFeatureRequest<nbl::video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-		
+
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
 
 		constexpr static inline std::array<nbl::asset::E_FORMAT, 4> defaultAcceptableSurfaceFormats = { nbl::asset::EF_R8G8B8A8_SRGB, nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::EF_B8G8R8A8_UNORM };
@@ -584,9 +602,9 @@ public:
 		apiFeaturesToEnable.debugUtils = true;
 		params.apiFeaturesToEnable = apiFeaturesToEnable;
 
-		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
-		params.requiredDeviceFeatures.features = requiredFeatures_Device;
-		params.requiredDeviceFeatures.count = 1u;
+		//nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
+		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
+		//params.requiredDeviceFeatures.count = 1u;
 #endif
 		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
 	}
@@ -602,14 +620,14 @@ public:
 		apiFeaturesToEnable.debugUtils = true;
 		params.apiFeaturesToEnable = apiFeaturesToEnable;
 
-		nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
-		{
-			nbl::video::ILogicalDevice::EF_SWAPCHAIN,
-			nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
-			nbl::video::ILogicalDevice::EF_RAY_QUERY
-		};
-		params.requiredDeviceFeatures.features = requiredFeatures_Device;
-		params.requiredDeviceFeatures.count = 3u;
+		//nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
+		//{
+		//	nbl::video::ILogicalDevice::EF_SWAPCHAIN,
+		//	nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
+		//	nbl::video::ILogicalDevice::EF_RAY_QUERY
+		//};
+		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
+		//params.requiredDeviceFeatures.count = 3u;
 #endif
 		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
 	}

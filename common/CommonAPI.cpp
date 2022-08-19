@@ -298,7 +298,7 @@ std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 			assert(extractedInfo.queueFamilyProps.compute.supportsTransfer && "This shouldn't happen");
 		}
 
-		extractedInfo.isSwapChainSupported = gpu->isSwapchainSupported();
+		extractedInfo.isSwapChainSupported = gpu->getFeatures().swapchainMode.hasFlags(nbl::video::ESM_SURFACE);;
 
 		// Check if the surface is adequate
 		if (surface)
@@ -930,11 +930,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	nbl::video::ILogicalDevice::SCreationParams dev_params;
 	dev_params.queueParamsCount = actualQueueParamsCount;
 	dev_params.queueParams = qcp;
-	// TODO dev_params.featuresToEnable;
-	dev_params.requiredFeatureCount = params.requiredDeviceFeatures.count;
-	dev_params.requiredFeatures = params.requiredDeviceFeatures.features;
-	dev_params.optionalFeatureCount = params.optionalDeviceFeatures.count;
-	dev_params.optionalFeatures = params.optionalDeviceFeatures.features;
+	// dev_params.featuresToEnable = 
 	result.logicalDevice = gpu->createLogicalDevice(std::move(dev_params));
 
 	result.utilities = nbl::core::make_smart_refctd_ptr<nbl::video::IUtilities>(nbl::core::smart_refctd_ptr(result.logicalDevice));
