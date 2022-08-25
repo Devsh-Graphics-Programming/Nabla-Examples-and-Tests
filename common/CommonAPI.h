@@ -20,6 +20,8 @@
 #include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
+#include "nbl/video/utilities/SDefaultPhysicalDeviceFilter.h"
+
 class CommonAPI
 {
 	CommonAPI() = delete;
@@ -364,28 +366,6 @@ public:
 		FeatureType* features = nullptr;
 	};
 	
-	// DRAFT:
-	struct SPhysicalDeviceRequirements
-	{
-		nbl::video::IPhysicalDevice::APIVersion  apiVersion;
-		nbl::core::bitflag<nbl::video::IPhysicalDevice::E_TYPE>      deviceTypeMask;
-		nbl::core::bitflag<nbl::video::IPhysicalDevice::E_DRIVER_ID> driverIDMask;
-		// VkConformanceVersion conformanceVersion; Do we need this in addition to apiVersion?
-		nbl::video::IPhysicalDevice::SLimits minimumLimits; // minimum required limits to be satisfied
-		nbl::video::IPhysicalDevice::SFeatures features;
-		// TODO: BufferFormatUsages
-		// TODO: ImageFormatUsages
-		// TODO: Figure out the best way to ask for memory requirements, maybe an array of pair::<bitflag<E_MEMORY_PROPERTY_FLAGS>, size_t> ?! Or just a simple minVRAMSize?
-		// TODO: Figure out the best way to ask for queue requirements?
-			/*
-			core::bitflag<E_QUEUE_FLAGS> queueFlags;
-			uint32_t minQueueCount;
-			!! NO minTimestampValidBits; -> This is also weird to include in requirement
-			!! NO minImageTransferGranularity -> it's more than a info than requirement, user should always workaround that, like we do in imageuploadutilities, considering the granularity that we copy from/to images
-			// Seems like we can have a pair::<core::bitflag<E_QUEUE_FLAGS>, uint32_t> 
-			*/
-	};
-
 	struct InitParams
 	{
 		std::string_view appName;

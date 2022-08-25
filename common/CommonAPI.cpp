@@ -1,6 +1,23 @@
 
 #include "CommonAPI.h"
 
+// TODO: find better name than Filtered!
+nbl::core::vector<nbl::video::IPhysicalDevice* const> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SDefaultPhysicalDeviceFilter& filter)
+{
+	using namespace nbl;
+	using namespace nbl::video;
+
+	core::vector<IPhysicalDevice* const> ret;
+
+	for (size_t i = 0ull; i < physicalDevices.size(); ++i)
+	{
+		auto physDev = physicalDevices[i];
+		if(filter.meetsRequirements(physDev))
+			ret.push_back(physDev);
+	}
+	return ret;
+}
+
 std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 	nbl::core::SRange<nbl::video::IPhysicalDevice* const> gpus,
 	nbl::core::smart_refctd_ptr<nbl::video::ISurface> surface,
@@ -15,7 +32,7 @@ std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 	{
 		auto& extractedInfo = extractedInfos[i];
 		extractedInfo = {};
-		auto gpu = gpus.begin()[i];
+		auto gpu = gpus[i];
 
 		// Find queue family indices
 		{
@@ -757,6 +774,11 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 
 	auto gpus = result.apiConnection->getPhysicalDevices();
 	assert(!gpus.empty());
+	SDefaultPhysicalDeviceFilter defaultFilter = {};
+	defaultFilter.minApiVersion.major = 1u; 
+	defaultFilter.minApiVersion.minor = 1u; 
+	defaultFilter.minApiVersion.patch = 0u; 
+	auto filteredPhysicalDevices = getFilteredPhysicalDevices(gpus, defaultFilter);
 	auto extractedInfos = extractGPUInfos(gpus, result.surface, headlessCompute);
 	auto suitableGPUIndex = findSuitableGPU(extractedInfos, headlessCompute);
 	auto gpu = gpus.begin()[suitableGPUIndex];
