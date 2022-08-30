@@ -404,11 +404,6 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 
 	if (device->getAPIType() == nbl::video::EAT_VULKAN)
 	{
-		// Deduce format features from imageUsage param
-		nbl::video::IPhysicalDevice::SFormatImageUsage requiredFormatUsages = {};
-		if (imageUsage & asset::IImage::EUF_STORAGE_BIT)
-			requiredFormatUsages.storageImage = 1;
-
 		nbl::video::ISurface::SCapabilities capabilities;
 		surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), capabilities);
 
@@ -528,7 +523,7 @@ nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> CommonAPI::createRenderp
 	if (useDepth)
 	{
 		depthFormat = device->getPhysicalDevice()->promoteImageFormat(
-			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
+			{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsages::SUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
 			nbl::video::IGPUImage::ET_OPTIMAL
 		);
 		assert(depthFormat != nbl::asset::EF_UNKNOWN);
@@ -600,7 +595,7 @@ nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IG
 	{
 		depthFormat = baseDepthFormat;
 		//depthFormat = device->getPhysicalDevice()->promoteImageFormat(
-		//	{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
+		//	{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsages::SUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
 		//	nbl::asset::IImage::ET_OPTIMAL
 		//);
 		// TODO error reporting
