@@ -455,12 +455,14 @@ void generate_next_rays(
 	// TODO: investigate workgroup reductions here
 	const uint baseOutputID = atomicAdd(rayCount[pc.cummon.rayCountWriteIx],raysToAllocate);
 
+
 	// the 1.03125f adjusts for the fact that the normal might be too short (inversesqrt precision)
 	const float inversesqrt_precision = 1.03125f;
 	// TODO: investigate why we can't use `normalizedN` here
 	const vec3 ray_offset_vector = normalize(cross(dPdBary[0],dPdBary[1]))*inversesqrt_precision;
-	float origin_offset = nbl_glsl_numeric_limits_float_epsilon(44u); // I pulled the constants out of my @$$
-	origin_offset += dot(abs(ray_offset_vector),abs(origin))*nbl_glsl_numeric_limits_float_epsilon(32u);
+    float origin_offset = 0.109375f; // I pulled the constants out of my @$$
+    origin_offset += dot(abs(ray_offset_vector),abs(origin))*0.0001220703125f;
+
 	// TODO: in the future run backward error analysis of
 	// dot(mat3(WorldToObj)*(origin+offset*geomNormal/length(geomNormal))+(WorldToObj-vx_pos[1]),geomNormal)
 	// where
