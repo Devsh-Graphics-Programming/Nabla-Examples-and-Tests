@@ -915,13 +915,13 @@ public:
 			layoutTransBarrier[i].subresourceRange.layerCount = 1u;
 		}
 
-		layoutTransBarrier[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_NONE;
 		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 		layoutTransBarrier[0].oldLayout = asset::IImage::EL_UNDEFINED;
 		layoutTransBarrier[0].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 		layoutTransBarrier[0].image = swapchainImage;
 
-		layoutTransBarrier[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].barrier.srcAccessMask = asset::EAF_NONE;
 		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_TRANSFER_READ_BIT;
 		layoutTransBarrier[1].oldLayout = asset::IImage::EL_GENERAL;
 		layoutTransBarrier[1].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
@@ -958,12 +958,12 @@ public:
 		);
 
 		layoutTransBarrier[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-		layoutTransBarrier[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[0].barrier.dstAccessMask = asset::EAF_NONE;
 		layoutTransBarrier[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 		layoutTransBarrier[0].newLayout = asset::IImage::EL_PRESENT_SRC;
 
 		layoutTransBarrier[1].barrier.srcAccessMask = asset::EAF_TRANSFER_READ_BIT;
-		layoutTransBarrier[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0);
+		layoutTransBarrier[1].barrier.dstAccessMask = asset::EAF_NONE;
 		layoutTransBarrier[1].oldLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
 		layoutTransBarrier[1].newLayout = asset::IImage::EL_GENERAL;
 

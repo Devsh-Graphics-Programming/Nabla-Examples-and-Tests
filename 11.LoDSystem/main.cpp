@@ -781,7 +781,7 @@ class LoDSystemApp : public ApplicationBase
                 assetManager.get(),
                 "ScreenShot.png",
                 asset::IImage::EL_PRESENT_SRC,
-                static_cast<asset::E_ACCESS_FLAGS>(0u));
+                asset::EAF_NONE);
 
             assert(status);
         }

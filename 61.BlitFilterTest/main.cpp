@@ -629,7 +629,7 @@ private:
 						queues[CommonAPI::InitOutput::EQT_COMPUTE],
 						nullptr,
 						outImageView.get(),
-						static_cast<asset::E_ACCESS_FLAGS>(0u),
+						asset::EAF_NONE,
 						asset::IImage::EL_GENERAL);
 
 					if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)

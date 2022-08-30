@@ -530,7 +530,7 @@ int main()
 		// TRANSITION outHDRImageViews[imgnum] to EIL_GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[3u] = {};
-			imageBarriers[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_WRITE_BIT);
 			imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[0].newLayout = asset::IImage::EL_GENERAL;
@@ -543,7 +543,7 @@ int main()
 			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[0].subresourceRange.layerCount = 1;
 
-			imageBarriers[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
 			imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[1].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
@@ -556,7 +556,7 @@ int main()
 			imageBarriers[1].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[1].subresourceRange.layerCount = 1;
 
-			 imageBarriers[2].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			 imageBarriers[2].barrier.srcAccessMask = asset::EAF_NONE;
 			 imageBarriers[2].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
 			 imageBarriers[2].oldLayout = asset::IImage::EL_UNDEFINED;
 			 imageBarriers[2].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
@@ -593,7 +593,7 @@ int main()
 		// TRANSITION `fbo[imgnum]->getCreationParameters().attachments[0]` to EIL_TRANSFER_DST_OPTIMAL
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[2u] = {};
-			imageBarriers[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 			imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[0].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
@@ -606,7 +606,7 @@ int main()
 			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[0].subresourceRange.layerCount = 1;
 
-			imageBarriers[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[1].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 			imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[1].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
@@ -648,7 +648,7 @@ int main()
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
 			imageBarriers[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-			imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.dstAccessMask = asset::EAF_NONE;
 			imageBarriers[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 			imageBarriers[0].newLayout = asset::IImage::EL_PRESENT_SRC;
 			imageBarriers[0].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
