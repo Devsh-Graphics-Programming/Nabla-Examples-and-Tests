@@ -377,6 +377,7 @@ public:
 		uint32_t swapchainImageCount = 3u;
 
 		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		nbl::video::SDefaultPhysicalDeviceFilter physicalDeviceFilter = {};
 
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
 
