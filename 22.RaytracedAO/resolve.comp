@@ -1,4 +1,6 @@
 #version 430 core
+#extension GL_EXT_shader_integer_mix : require
+
 #include "raytraceCommon.h"
 layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
 
@@ -13,9 +15,14 @@ layout(set = 0, binding = 4, rgba16f) restrict uniform image2D framebuffer;
 layout(set = 0, binding = 5, r32ui) restrict uniform uimage2D albedo;
 layout(set = 0, binding = 6, rgba16f) restrict uniform image2D normals;
 
+
+#define NBL_GLSL_RWMC_LUMA_DEFINED
+#define NBL_GLSL_RWMC_SAMPLE_CASCADE_TEXEL_DEFINED
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
 layout(push_constant, row_major) uniform PushConstants
 {
 	mat4x3 viewMatrix;
+	nbl_glsl_RWMC_ReweightingParameters rwmcReweightingParams;
 } pc;
 
 #include <nbl/builtin/glsl/format/decode.glsl>
@@ -26,11 +33,30 @@ vec3 fetchAccumulation(in uvec2 coord, in uint subsample)
 	return nbl_glsl_decodeRGB19E7(data);
 }
 
+
+#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
+float nbl_glsl_RWMC_luma(in vec3 val)
+{
+	return dot(val,transpose(nbl_glsl_sRGBtoXYZ)[1]);
+}
+
+vec3 nbl_glsl_RWMC_sampleCascadeTexel(ivec2 coord, in ivec2 offset, in uint cascadeIndex)
+{
+	// weird mirror-like wraps but not quite exactly
+	coord = mix(coord,-coord,greaterThan(ivec2(0,0),coord));
+	coord = mix(ivec2(staticViewData.imageDimensions<<2)-ivec2(1),coord,lessThan(coord,staticViewData.imageDimensions));
+
+	return vec3(-9.f);
+}
+
+
 void main()
 {
 	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
 	if (all(lessThan(pixelCoord,staticViewData.imageDimensions)))
 	{
+		//vec3 acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
+
 		vec3 acc = fetchAccumulation(gl_GlobalInvocationID.xy,0u);
 		vec3 alb = texelFetch(albedoSamples,ivec3(pixelCoord,0),0).rgb;
 		vec3 nml = nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,0),0).r).xyz;

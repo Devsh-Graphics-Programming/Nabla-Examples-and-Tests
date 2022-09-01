@@ -519,4 +519,8 @@ void Contribution_normalizeAoV(inout Contribution contrib)
 	contrib.albedo = contrib.albedo/max(max(contrib.albedo.r,contrib.albedo.g),max(contrib.albedo.b,1.f));
 	contrib.worldspaceNormal *= inversesqrt(max(dot(contrib.worldspaceNormal,contrib.worldspaceNormal),1.f));
 }
+
+
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/splatting.glsl>
+//const nbl_glsl_RWMC_CascadeParameters rwmcCascadeParams = nbl_glsl_RWMC_computeCascadeParameters(6u,8.f,1.f);
 #endif
