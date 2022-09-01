@@ -77,7 +77,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		}
 		uint64_t getTotalSamplesComputed() const
 		{
-			const auto samplesPerDispatch = getSamplesPerPixelPerDispatch()*static_cast<uint64_t>(m_staticViewData.imageDimensions.x*m_staticViewData.imageDimensions.y);
+			const auto samplesPerDispatch = static_cast<uint64_t>(getSamplesPerPixelPerDispatch()*m_staticViewData.imageDimensions[1])*m_staticViewData.imageDimensions[0];
 			const auto framesDispatched = static_cast<uint64_t>(m_framesDispatched);
 			return framesDispatched*samplesPerDispatch;
 		}
@@ -172,6 +172,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		
 		// semi persistent data
 		nbl::io::path sampleSequenceCachePath;
+		// TODO: reoder, 3d>strategy>depth>sample
 		struct SampleSequence
 		{
 			public:

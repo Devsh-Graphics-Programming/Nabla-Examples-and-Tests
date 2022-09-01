@@ -25,6 +25,7 @@ layout(set = 2, binding = 0, row_major) uniform StaticViewData
 {
 	StaticViewData_t staticViewData;
 };
+
 // rng
 layout(set = 2, binding = 1) uniform usamplerBuffer quantizedSampleSequence;
 // accumulation
@@ -263,11 +264,10 @@ mat2x3 rand6d(in uvec3 scramble_keys[2], in int _sample, int depth)
 	// decrement depth because first vertex is rasterized and picked with a different sample sequence
 	--depth;
 	//
-	int offset = int(_sample)*SAMPLE_SEQUENCE_STRIDE+depth;
-	int eachStrategyStride = SAMPLE_SEQUENCE_STRIDE/SAMPLING_STRATEGY_COUNT;
+	const int offset = int(_sample*staticViewData.sampleSequenceStride)+depth;
 
 	const nbl_glsl_sampling_quantized3D quant1 = texelFetch(quantizedSampleSequence, offset).xy;
-	const nbl_glsl_sampling_quantized3D quant2 = texelFetch(quantizedSampleSequence, offset + eachStrategyStride).xy;
+	const nbl_glsl_sampling_quantized3D quant2 = texelFetch(quantizedSampleSequence, offset+int(staticViewData.strategySequenceStride)).xy;
     retVal[0] = nbl_glsl_sampling_decodeSample3Dimensions(quant1,scramble_keys[0]);
     retVal[1] = nbl_glsl_sampling_decodeSample3Dimensions(quant2,scramble_keys[1]);
 	return retVal;

@@ -858,7 +858,7 @@ core::smart_refctd_ptr<IGPUImageView> Renderer::createTexture(uint32_t width, ui
 
 core::smart_refctd_ptr<IGPUImageView> Renderer::createScreenSizedTexture(E_FORMAT format, uint32_t layers)
 {
-	return createTexture(m_staticViewData.imageDimensions.x, m_staticViewData.imageDimensions.y, format, 1u, layers);
+	return createTexture(m_staticViewData.imageDimensions[0], m_staticViewData.imageDimensions[1], format, 1u, layers);
 }
 
 core::smart_refctd_ptr<asset::ICPUBuffer> Renderer::SampleSequence::createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount)
@@ -1147,14 +1147,15 @@ uint32_t cascadeCount = 6u;
 float cascadeLuminanceBase = 8.f;
 float cascadeLuminanceStart = 1.f;
 	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
-	m_staticViewData.imageDimensions = {width, height};
-	m_rcpPixelSize = { 2.f/float(m_staticViewData.imageDimensions.x),-2.f/float(m_staticViewData.imageDimensions.y) };
+	m_staticViewData.imageDimensions[0] = width;
+	m_staticViewData.imageDimensions[1] = height;
+	m_rcpPixelSize = { 2.f/float(m_staticViewData.imageDimensions[0]),-2.f/float(m_staticViewData.imageDimensions[1]) };
 
 	// figure out dispatch sizes
-	m_raygenWorkGroups[0] = (m_staticViewData.imageDimensions.x-1u)/WORKGROUP_DIM+1u;
-	m_raygenWorkGroups[1] = (m_staticViewData.imageDimensions.y-1u)/WORKGROUP_DIM+1u;
+	m_raygenWorkGroups[0] = (m_staticViewData.imageDimensions[0]-1u)/WORKGROUP_DIM+1u;
+	m_raygenWorkGroups[1] = (m_staticViewData.imageDimensions[1]-1u)/WORKGROUP_DIM+1u;
 
-	const auto renderPixelCount = m_staticViewData.imageDimensions.x*m_staticViewData.imageDimensions.y;
+	const auto renderPixelCount = m_staticViewData.imageDimensions[0]*m_staticViewData.imageDimensions[1];
 	// figure out how much Samples Per Pixel Per Dispatch we can afford
 	size_t scrambleBufferSize=0u;
 	size_t raygenBufferSize=0u,intersectionBufferSize=0u;
@@ -1185,12 +1186,12 @@ float cascadeLuminanceStart = 1.f;
 			printf("[INFO] Using %d samples (per pixel) per dispatch\n",getSamplesPerPixelPerDispatch());
 		}
 	}
-	// write a SAMPLE_SEQUENCE_STRIDE_EACH_STRATEGY + STRATEGY_COUNT for clarity(??) 
+	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(pathDepth);
+	m_staticViewData.strategySequenceStride = m_staticViewData.sampleSequenceStride/SAMPLING_STRATEGY_COUNT;
 	auto stream = std::ofstream("runtime_defines.glsl");
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
 		<< m_globalMeta->m_global.m_materialCompilerGLSL_declarations
-		<< "#define SAMPLE_SEQUENCE_STRIDE " << SampleSequence::computeQuantizedDimensions(pathDepth) << "\n"
 		<< "#ifndef MAX_RAYS_GENERATED\n"
 		<< "#	define MAX_RAYS_GENERATED " << getSamplesPerPixelPerDispatch() << "\n"
 		<< "#endif\n";
@@ -1384,7 +1385,7 @@ float cascadeLuminanceStart = 1.f;
 			//region.imageSubresource.aspectMask = ;
 			region.imageSubresource.baseArrayLayer = 0u;
 			region.imageSubresource.layerCount = 1u;
-			region.imageExtent = {m_staticViewData.imageDimensions.x,m_staticViewData.imageDimensions.y,1u};
+			region.imageExtent = {m_staticViewData.imageDimensions[0],m_staticViewData.imageDimensions[1],1u};
 			auto scrambleKeys = createScreenSizedTexture(EF_R32G32_UINT);
 			m_driver->copyBufferToImage(tmpBuff.get(),scrambleKeys->getCreationParameters().image.get(),1u,&region);
 			setImageInfo(infos+0,asset::EIL_SHADER_READ_ONLY_OPTIMAL,std::move(scrambleKeys));
@@ -1516,7 +1517,8 @@ void Renderer::deinitScreenSizedResources()
 	m_closestHitPipeline = nullptr;
 	m_resolvePipeline = nullptr;
 
-	m_staticViewData.imageDimensions = {0u, 0u};
+	m_staticViewData.imageDimensions[0] = 0u;
+	m_staticViewData.imageDimensions[1] = 0u;
 	m_staticViewData.pathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;

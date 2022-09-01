@@ -42,7 +42,8 @@ vec3 nbl_glsl_RWMC_sampleCascadeTexel(ivec2 coord, in ivec2 offset, in uint casc
 {
 	// weird mirror-like wraps but not quite exactly
 	coord = mix(coord,-coord,greaterThan(ivec2(0,0),coord));
-	coord = mix(ivec2(staticViewData.imageDimensions<<2)-ivec2(1),coord,lessThan(coord,staticViewData.imageDimensions));
+	const ivec2 imgSz = ivec2(getImageDimensions(staticViewData));
+	coord = mix(imgSz*2-ivec2(1),coord,lessThan(coord,imgSz));
 
 	return vec3(-9.f);
 }
@@ -51,7 +52,7 @@ vec3 nbl_glsl_RWMC_sampleCascadeTexel(ivec2 coord, in ivec2 offset, in uint casc
 void main()
 {
 	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
-	if (all(lessThan(pixelCoord,staticViewData.imageDimensions)))
+	if (all(lessThan(pixelCoord,getImageDimensions(staticViewData))))
 	{
 		//vec3 acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
 

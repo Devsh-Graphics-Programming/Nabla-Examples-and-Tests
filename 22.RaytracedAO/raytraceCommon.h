@@ -87,17 +87,29 @@ struct SLight
 #include <nbl/builtin/glsl/re_weighted_monte_carlo/splatting.glsl>
 struct StaticViewData_t
 {
-	uvec2   imageDimensions;
 #ifdef __cplusplus
+	uint16_t imageDimensions[2];
 	uint8_t pathDepth;
 	uint8_t noRussianRouletteDepth;
 	uint16_t samplesPerPixelPerDispatch;
 #else
-	uint    pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
+	uint imageDimensions;
+	uint pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
 #endif
-	uint	lightCount;
+	uint sampleSequenceStride; // this is a very small number actually, probably 20 bits left to play with
+	uint lightCount;
+	uint strategySequenceStride; // TODO: remove
 	nbl_glsl_RWMC_CascadeParameters cascadeParams;
 };
+#ifndef __cplusplus
+uvec2 getImageDimensions(in StaticViewData_t data)
+{
+	return uvec2(
+		bitfieldExtract(data.imageDimensions, 0,16),
+		bitfieldExtract(data.imageDimensions,16,16)
+	);
+}
+#endif
 
 struct RaytraceShaderCommonData_t
 {
