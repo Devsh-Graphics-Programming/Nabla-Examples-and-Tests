@@ -735,7 +735,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		m_finalEnvmap = m_driver->createGPUImageView(std::move(imgViewInfo));
 
 		finalEnvFramebuffer = m_driver->addFrameBuffer();
-		finalEnvFramebuffer->attach(video::EFAP_COLOR_ATTACHMENT0, std::move(m_finalEnvmap));
+		finalEnvFramebuffer->attach(video::EFAP_COLOR_ATTACHMENT0,core::smart_refctd_ptr(m_finalEnvmap));
 	}
 
 	auto blendToFinalEnvMap = [&](nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> gpuImageView) -> void
