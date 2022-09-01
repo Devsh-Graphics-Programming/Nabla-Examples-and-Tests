@@ -84,6 +84,7 @@ struct SLight
 
 
 //
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/splatting.glsl>
 struct StaticViewData_t
 {
 	uvec2   imageDimensions;
@@ -95,6 +96,7 @@ struct StaticViewData_t
 	uint    pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
 #endif
 	uint	lightCount;
+	nbl_glsl_RWMC_CascadeParameters cascadeParams;
 };
 
 struct RaytraceShaderCommonData_t
@@ -108,4 +110,5 @@ struct RaytraceShaderCommonData_t
 	float	textureFootprintFactor;
 };
 
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
 #endif
