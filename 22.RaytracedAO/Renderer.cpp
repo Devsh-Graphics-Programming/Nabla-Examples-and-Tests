@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-		m_staticViewData{{0u,0u},0u,0u}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
+		m_staticViewData{{0u,0u},0u,0u,{}}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -1120,7 +1120,7 @@ void Renderer::deinitSceneResources()
 	
 	m_finalEnvmap = nullptr;
 	m_envMapImportanceSampling.deinitResources();
-	m_staticViewData = {{0u,0u},0u,0u};
+	m_staticViewData = {{0u,0u},0u,0u,{}};
 
 	auto rr = m_rrManager->getRadeonRaysAPI();
 	rr->DetachAll();
@@ -1142,7 +1142,11 @@ void Renderer::deinitSceneResources()
 void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float envMapRegularizationFactor)
 {
 	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
-
+	
+uint32_t cascadeCount = 6u;
+float cascadeLuminanceBase = 8.f;
+float cascadeLuminanceStart = 1.f;
+	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
 	m_staticViewData.imageDimensions = {width, height};
 	m_rcpPixelSize = { 2.f/float(m_staticViewData.imageDimensions.x),-2.f/float(m_staticViewData.imageDimensions.y) };
 
@@ -1181,7 +1185,6 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float e
 			printf("[INFO] Using %d samples (per pixel) per dispatch\n",getSamplesPerPixelPerDispatch());
 		}
 	}
-	
 	// write a SAMPLE_SEQUENCE_STRIDE_EACH_STRATEGY + STRATEGY_COUNT for clarity(??) 
 	auto stream = std::ofstream("runtime_defines.glsl");
 
@@ -1517,6 +1520,7 @@ void Renderer::deinitScreenSizedResources()
 	m_staticViewData.pathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;
+	m_staticViewData.cascadeParams = {};
 	m_totalRaysCast = 0ull;
 	m_rcpPixelSize = {0.f,0.f};
 	m_framesDispatched = 0u;
@@ -1844,6 +1848,8 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 	// resolve pseudo-MSAA
 	if (beauty)
 	{
+		m_raytraceCommonData.samplesComputed = (m_raytraceCommonData.samplesComputed+getSamplesPerPixelPerDispatch())%maxSensorSamples;
+
 		m_driver->bindDescriptorSets(EPBP_COMPUTE,m_resolvePipeline->getLayout(),0u,1u,&m_resolveDS.get(),nullptr);
 		m_driver->bindComputePipeline(m_resolvePipeline.get());
 		if (transformNormals)
@@ -1853,12 +1859,21 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			decltype(m_prevView) identity;
 			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,0u,sizeof(identity),&identity);
 		}
+		{
+			const float minReliableLuma = 0.01f;
+			const float kappa = 0.f;
+			const auto reweightingParams = nbl_glsl_RWMC_computeReweightingParameters(
+				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
+				m_staticViewData.cascadeParams.base,
+				m_raytraceCommonData.samplesComputed,minReliableLuma,kappa
+			);
+			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,sizeof(m_prevView),sizeof(reweightingParams),&reweightingParams);
+		}
 		m_driver->dispatch(m_raygenWorkGroups[0],m_raygenWorkGroups[1],1);
 		COpenGLExtensionHandler::pGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
 			// because of direct to screen resolve
 			|GL_FRAMEBUFFER_BARRIER_BIT|GL_TEXTURE_UPDATE_BARRIER_BIT
 		);
-		m_raytraceCommonData.samplesComputed = (m_raytraceCommonData.samplesComputed+getSamplesPerPixelPerDispatch())%maxSensorSamples;
 	}
 
 	// TODO: autoexpose properly

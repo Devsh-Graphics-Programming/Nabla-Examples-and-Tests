@@ -1,6 +1,8 @@
 #version 430 core
 #extension GL_EXT_shader_integer_mix : require
 
+#define NBL_GLSL_RWMC_LUMA_DEFINED
+#define NBL_GLSL_RWMC_SAMPLE_CASCADE_TEXEL_DEFINED
 #include "raytraceCommon.h"
 layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
 
@@ -15,10 +17,6 @@ layout(set = 0, binding = 4, rgba16f) restrict uniform image2D framebuffer;
 layout(set = 0, binding = 5, r32ui) restrict uniform uimage2D albedo;
 layout(set = 0, binding = 6, rgba16f) restrict uniform image2D normals;
 
-
-#define NBL_GLSL_RWMC_LUMA_DEFINED
-#define NBL_GLSL_RWMC_SAMPLE_CASCADE_TEXEL_DEFINED
-#include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
 layout(push_constant, row_major) uniform PushConstants
 {
 	mat4x3 viewMatrix;
