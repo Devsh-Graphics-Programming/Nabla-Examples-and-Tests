@@ -98,7 +98,6 @@ struct StaticViewData_t
 #endif
 	uint sampleSequenceStride; // this is a very small number actually, probably 20 bits left to play with
 	uint lightCount;
-	uint strategySequenceStride; // TODO: remove
 	nbl_glsl_RWMC_CascadeParameters cascadeParams;
 };
 #ifndef __cplusplus

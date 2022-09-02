@@ -172,7 +172,6 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		
 		// semi persistent data
 		nbl::io::path sampleSequenceCachePath;
-		// TODO: reoder, 3d>strategy>depth>sample
 		struct SampleSequence
 		{
 			public:

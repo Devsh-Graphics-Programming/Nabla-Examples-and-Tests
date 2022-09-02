@@ -883,7 +883,7 @@ core::smart_refctd_ptr<ICPUBuffer> Renderer::SampleSequence::createBufferView(IV
 	// Memory Order: 3 Dimensions, then multiple of sampling stragies per vertex, then depth, then sample ID
 	auto buff = createCPUBuffer(quantizedDimensions,sampleCount);
 	uint32_t(&pout)[][2] = *reinterpret_cast<uint32_t(*)[][2]>(buff->getPointer());
-	// the horrible order of iteration over output memory is caused by the fact that certain samplers like the 
+	// the horrible locality of iteration over output memory is caused by the fact that certain samplers like the 
 	// Owen Scramble sampler, have a large cache which needs to be generated separately for each dimension.
 	for (auto metadim=0u; metadim<quantizedDimensions; metadim++)
 	{
@@ -1064,7 +1064,7 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 			// Mantissa is only 23 bits, and primary sample space low discrepancy sequence will start to produce duplicates
 			// near 1.0 with exponent -1 after the sample count passes 2^24 elements.
 			// Another limiting factor is our encoding of sample sequences, we only use 21bits per channel, so no duplicates till 2^21 samples.
-			maxSensorSamples = core::min(0x1<<21,maxSensorSamples);
+			maxSensorSamples = core::min(0x1u<<21u,maxSensorSamples);
 			if (cachedQuantizedDimensions>=quantizedDimensions && cachedSampleCount>=maxSensorSamples)
 				sampleSequence.createBufferView(m_driver,std::move(cachebuff));
 			else
@@ -1187,7 +1187,6 @@ float cascadeLuminanceStart = 1.f;
 		}
 	}
 	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(pathDepth);
-	m_staticViewData.strategySequenceStride = m_staticViewData.sampleSequenceStride/SAMPLING_STRATEGY_COUNT;
 	auto stream = std::ofstream("runtime_defines.glsl");
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
