@@ -542,7 +542,7 @@ public:
 	}
 	
 	static nbl::video::ISwapchain::SCreationParams computeSwapchainCreationParams(
-		const GPUInfo& gpuInfo, uint32_t& imageCount,
+		uint32_t& imageCount,
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 		const nbl::core::smart_refctd_ptr<nbl::video::ISurface>& surface,
 		nbl::asset::IImage::E_USAGE_FLAGS imageUsage,

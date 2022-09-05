@@ -42,7 +42,7 @@ std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 
 			for (uint32_t familyIndex = 0u; familyIndex < queueFamilyProperties.size(); ++familyIndex)
 			{
-				const auto& familyProperty = queueFamilyProperties.begin()[familyIndex];
+				const auto& familyProperty = queueFamilyProperties[familyIndex];
 				remainingQueueCounts[familyIndex] = familyProperty.queueCount;
 			}
 
@@ -52,7 +52,7 @@ std::vector<CommonAPI::GPUInfo> CommonAPI::extractGPUInfos(
 				// Select Graphics Queue Family Index
 				for (uint32_t familyIndex = 0u; familyIndex < queueFamilyProperties.size(); ++familyIndex)
 				{
-					const auto& familyProperty = queueFamilyProperties.begin()[familyIndex];
+					const auto& familyProperty = queueFamilyProperties[familyIndex];
 					auto& outFamilyProp = extractedInfo.queueFamilyProps;
 
 					const uint32_t currentFamilyQueueCount = familyProperty.queueCount;
@@ -384,7 +384,7 @@ uint32_t CommonAPI::findSuitableGPU(const std::vector<GPUInfo>& extractedInfos, 
 }
 
 nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParams(
-	const GPUInfo& gpuInfo, uint32_t& imageCount,
+	uint32_t& imageCount,
 	const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
 	const nbl::core::smart_refctd_ptr<nbl::video::ISurface>& surface,
 	nbl::asset::IImage::E_USAGE_FLAGS imageUsage,
@@ -976,7 +976,6 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	{
 
 		result.swapchainCreationParams = computeSwapchainCreationParams(
-			gpuInfo,
 			params.swapchainImageCount,
 			result.logicalDevice,
 			result.surface,
