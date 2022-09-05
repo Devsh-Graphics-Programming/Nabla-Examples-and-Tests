@@ -376,7 +376,7 @@ public:
 		uint32_t windowHeight = 600u;
 		uint32_t swapchainImageCount = 3u;
 
-		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
 		nbl::video::SDefaultPhysicalDeviceFilter physicalDeviceFilter = {};
 
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
@@ -578,7 +578,7 @@ public:
 	{
 #ifndef _NBL_PLATFORM_ANDROID_
 		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
 		apiFeaturesToEnable.swapchainMode = swapChainMode;
 		apiFeaturesToEnable.validations = true;
 		apiFeaturesToEnable.debugUtils = true;
@@ -588,6 +588,7 @@ public:
 		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
 		//params.requiredDeviceFeatures.count = 1u;
 #endif
+
 		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
 	}
 
@@ -596,7 +597,7 @@ public:
 	{
 #ifndef _NBL_PLATFORM_ANDROID_
 		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-		nbl::video::IAPIConnection::Features apiFeaturesToEnable;
+		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
 		apiFeaturesToEnable.swapchainMode = swapChainMode;
 		apiFeaturesToEnable.validations = true;
 		apiFeaturesToEnable.debugUtils = true;
@@ -610,6 +611,8 @@ public:
 		//};
 		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
 		//params.requiredDeviceFeatures.count = 3u;
+#elif
+		return {};
 #endif
 		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
 	}
