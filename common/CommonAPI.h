@@ -317,47 +317,19 @@ public:
 
 	}
 	
-	// Used to help with queue selection
-	struct QueueFamilyProps
+	class IPhysicalDeviceSelector
 	{
-		static constexpr uint32_t InvalidIndex = ~0u;
-		uint32_t index					= InvalidIndex;
-		uint32_t dedicatedQueueCount	= 0u;
-		uint32_t score					= 0u;
-		bool supportsGraphics			: 1;
-		bool supportsCompute			: 1;
-		bool supportsTransfer			: 1;
-		bool supportsSparseBinding		: 1;
-		bool supportsPresent			: 1;
-		bool supportsProtected			: 1;
-	};
-
-	struct GPUInfo
-	{
-		std::vector<nbl::video::ISurface::SFormat> availableSurfaceFormats;
-		nbl::video::ISurface::E_PRESENT_MODE availablePresentModes;
-		nbl::video::ISurface::SCapabilities surfaceCapabilities;
-
-		struct
-		{
-			QueueFamilyProps graphics;
-			QueueFamilyProps compute;
-			QueueFamilyProps transfer;
-			QueueFamilyProps present;
-		} queueFamilyProps;
-
-		bool hasSurfaceCapabilities = false;
-		bool isSwapChainSupported = false;
+	public:
+		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDeviceFilter`
+		virtual nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) = 0;
 	};
 	
-	static std::vector<GPUInfo> extractGPUInfos(
-		nbl::core::SRange<nbl::video::IPhysicalDevice* const> gpus,
-		nbl::core::smart_refctd_ptr<nbl::video::ISurface> surface,
-		const bool headlessCompute = false);
-	
-	// TODO: also implement a function:findBestGPU
-	// Returns an index into gpus info vector
-	static uint32_t findSuitableGPU(const std::vector<GPUInfo>& extractedInfos, const bool headlessCompute);
+	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
+	{
+	public:
+		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
+		nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) override;
+	};
 
 	template <typename FeatureType>
 	struct SFeatureRequest
@@ -376,8 +348,11 @@ public:
 		uint32_t windowHeight = 600u;
 		uint32_t swapchainImageCount = 3u;
 
-		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
+		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
+		//! Optional: Physical Device Requirements include features, limits, memory size, queue count, etc. requirements
 		nbl::video::SDefaultPhysicalDeviceFilter physicalDeviceFilter = {};
+		//! Optional: PhysicalDevices that meet all the requirements of `physicalDeviceFilter` will go through `physicalDeviceSelector` to select one from the suitable physical devices
+		IPhysicalDeviceSelector* physicalDeviceSelector = nullptr;
 
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
 
