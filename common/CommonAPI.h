@@ -558,6 +558,8 @@ public:
 		apiFeaturesToEnable.validations = true;
 		apiFeaturesToEnable.debugUtils = true;
 		params.apiFeaturesToEnable = apiFeaturesToEnable;
+		
+		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
 
 		//nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
 		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
@@ -577,6 +579,10 @@ public:
 		apiFeaturesToEnable.validations = true;
 		apiFeaturesToEnable.debugUtils = true;
 		params.apiFeaturesToEnable = apiFeaturesToEnable;
+
+		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
+		params.physicalDeviceFilter.requiredFeatures.rayQuery = true;
+		params.physicalDeviceFilter.requiredFeatures.accelerationStructure = true;
 
 		//nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
 		//{
