@@ -469,9 +469,21 @@ public:
 			}
 			// can't just use windowExtent as the actual window size may have been capped by windows
 			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
-
+				
 			if (didResize)
 			{
+				video::ISurface::SCapabilities surfaceCapabilities;
+				bool didGetCaps = surface->getSurfaceCapabilitiesForPhysicalDevice(physicalDevice, surfaceCapabilities);
+				assert(didGetCaps);
+
+				double aspectRatio = imgExtents.width / double(imgExtents.height);
+				imgExtents.width = std::min(imgExtents.width, surfaceCapabilities.maxImageExtent.width);
+				imgExtents.height = std::min(imgExtents.height, surfaceCapabilities.maxImageExtent.height);
+				imgExtents.width = uint32_t(aspectRatio * imgExtents.height);
+				imgExtents.height = uint32_t((1.0 / aspectRatio) * imgExtents.width);
+				imgExtents.width = std::max(imgExtents.width, surfaceCapabilities.minImageExtent.width);
+				imgExtents.height = std::max(imgExtents.height, surfaceCapabilities.minImageExtent.height);
+
 				CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, imgExtents.width, imgExtents.height, swapchain);
 				assert(swapchain);
 				fbos = CommonAPI::createFBOWithSwapchainImages(
@@ -555,7 +567,8 @@ public:
 					break;
 
 				// acquire image 
-				swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
+				auto res = swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
+				if (res != 0) assert(false);
 
 				cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
