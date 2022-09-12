@@ -9,7 +9,7 @@ nbl::video::IPhysicalDevice* const CommonAPI::CDefaultPhysicalDeviceSelector::se
 	return firstPhysDev;
 }
 
-nbl::core::set<nbl::video::IPhysicalDevice* const> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SDefaultPhysicalDeviceFilter& filter)
+nbl::core::set<nbl::video::IPhysicalDevice* const> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
 {
 	using namespace nbl;
 	using namespace nbl::video;
@@ -724,7 +724,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 
 	auto gpus = result.apiConnection->getPhysicalDevices();
 	assert(!gpus.empty());
-	SDefaultPhysicalDeviceFilter defaultFilter = {};
+	SPhysicalDeviceFilter defaultFilter = {};
 	defaultFilter.minApiVersion.major = 1u; 
 	defaultFilter.minApiVersion.minor = 1u; 
 	defaultFilter.minApiVersion.patch = 0u; 

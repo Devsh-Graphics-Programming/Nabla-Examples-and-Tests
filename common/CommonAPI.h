@@ -20,7 +20,7 @@
 #include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
-#include "nbl/video/utilities/SDefaultPhysicalDeviceFilter.h"
+#include "nbl/video/utilities/SPhysicalDeviceFilter.h"
 
 class CommonAPI
 {
@@ -350,7 +350,7 @@ public:
 
 		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
 		//! Optional: Physical Device Requirements include features, limits, memory size, queue count, etc. requirements
-		nbl::video::SDefaultPhysicalDeviceFilter physicalDeviceFilter = {};
+		nbl::video::SPhysicalDeviceFilter physicalDeviceFilter = {};
 		//! Optional: PhysicalDevices that meet all the requirements of `physicalDeviceFilter` will go through `physicalDeviceSelector` to select one from the suitable physical devices
 		IPhysicalDeviceSelector* physicalDeviceSelector = nullptr;
 
