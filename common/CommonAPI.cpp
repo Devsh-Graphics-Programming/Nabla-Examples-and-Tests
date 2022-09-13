@@ -724,11 +724,9 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 
 	auto gpus = result.apiConnection->getPhysicalDevices();
 	assert(!gpus.empty());
-	SPhysicalDeviceFilter defaultFilter = {};
-	defaultFilter.minApiVersion.major = 1u; 
-	defaultFilter.minApiVersion.minor = 1u; 
-	defaultFilter.minApiVersion.patch = 0u; 
 	auto filteredPhysicalDevices = getFilteredPhysicalDevices(gpus, params.physicalDeviceFilter);
+
+	assert(!filteredPhysicalDevices.empty()); // no physical device met the requirements in params.physicalDeviceFilter
 
 	CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector = {};
 	if(params.physicalDeviceSelector == nullptr)
