@@ -1145,7 +1145,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float e
 	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
 	
 uint32_t cascadeCount = core::max(6u,2u);
-float cascadeLuminanceBase = 8.f;
+float cascadeLuminanceBase = 2.f;
 float cascadeLuminanceStart = 1.f;
 	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
 	m_staticViewData.imageDimensions[0] = width;
@@ -1863,7 +1863,7 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 		}
 		{
 			const float minReliableLuma = 0.01f;
-			const float kappa = 1.f;
+			const float kappa = 0.f;
 			const auto reweightingParams = nbl_glsl_RWMC_computeReweightingParameters(
 				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
 				m_staticViewData.cascadeParams.base,
