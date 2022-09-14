@@ -962,7 +962,8 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 
 			// resolve
 			{
-				m_resolvePipelineLayout = m_driver->createGPUPipelineLayout(nullptr,nullptr,core::smart_refctd_ptr(m_resolveDSLayout));
+				SPushConstantRange range{ISpecializedShader::ESS_COMPUTE,0u,sizeof(core::matrix3x4SIMD)+sizeof(nbl_glsl_RWMC_ReweightingParameters)};
+				m_resolvePipelineLayout = m_driver->createGPUPipelineLayout(&range,&range+1,core::smart_refctd_ptr(m_resolveDSLayout));
 				m_resolveDS = m_driver->createGPUDescriptorSet(core::smart_refctd_ptr(m_resolveDSLayout));
 			}
 			
@@ -1143,7 +1144,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float e
 {
 	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
 	
-uint32_t cascadeCount = 6u;
+uint32_t cascadeCount = core::max(6u,2u);
 float cascadeLuminanceBase = 8.f;
 float cascadeLuminanceStart = 1.f;
 	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
@@ -1275,7 +1276,7 @@ float cascadeLuminanceStart = 1.f;
 	};
 
 	// create out screen-sized textures
-	m_accumulation = createScreenSizedTexture(EF_R32G32_UINT,m_staticViewData.samplesPerPixelPerDispatch);
+	m_accumulation = createScreenSizedTexture(EF_R32G32_UINT,(cascadeCount+1u)*m_staticViewData.samplesPerPixelPerDispatch); // one more (first) layer because of accumulation metadata for a path
 	m_albedoAcc = createScreenSizedTexture(EF_R32_UINT,m_staticViewData.samplesPerPixelPerDispatch);
 	m_normalAcc = createScreenSizedTexture(EF_R32_UINT,m_staticViewData.samplesPerPixelPerDispatch);
 	m_tonemapOutput = createScreenSizedTexture(EF_R16G16B16A16_SFLOAT);
