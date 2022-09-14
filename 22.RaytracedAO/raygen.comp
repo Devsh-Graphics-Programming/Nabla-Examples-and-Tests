@@ -135,33 +135,29 @@ void main()
 					storeAccumulation(contrib.color*pc.cummon.rcpFramesDispatched,coord);
 					splat.cascadeWeights = vec2(0.f,0.f);
 				}
+				const uint higherCascade = splat.lowerCascade+1u;
+				const uint cascadeCount = staticViewData.cascadeParams.penultimateCascadeIx+2u;
+				for (uint cascadeIx=0u; cascadeIx<cascadeCount; cascadeIx++)
+				{
+					float weight = 0.f;
+					if (cascadeIx==splat.lowerCascade)
+						weight = splat.cascadeWeights[0];
+					else if (cascadeIx==higherCascade)
+						weight = splat.cascadeWeights[1];
+					nextSampleAccumulationCascade(
+						contrib.color*weight,coord,samplesPerPixelPerDispatch,
+						cascadeIx,pc.cummon.rcpFramesDispatched
+					);
+				}
 
 				// clear accumulations totally if beginning a new frame
 				if (firstFrame)
 				{
-					const uint higherCascade = splat.lowerCascade+1u;
-					const uint cascadeCount = staticViewData.cascadeParams.penultimateCascadeIx+2u;
-					for (uint cascadeIx=0u; cascadeIx<cascadeCount; cascadeIx++)
-					{
-						float weight = 0.f;
-						if (cascadeIx==splat.lowerCascade)
-							weight = splat.cascadeWeights[0];
-						else if (cascadeIx==higherCascade)
-							weight = splat.cascadeWeights[1];
-						storeAccumulationCascade(contrib.color*weight,coord,samplesPerPixelPerDispatch,cascadeIx);
-					}
 					storeAlbedo(contrib.albedo,coord);
 					storeWorldspaceNormal(contrib.worldspaceNormal,coord);
 				}
 				else
 				{
-					for (uint j=0u; j<2u; j++)
-						addAccumulationCascade(
-							contrib.color*(pc.cummon.rcpFramesDispatched*splat.cascadeWeights[j]),
-							coord,samplesPerPixelPerDispatch,splat.lowerCascade+j,
-							pc.cummon.rcpFramesDispatched
-						);
-
 					addAlbedo(contrib.albedo,coord,pc.cummon.rcpFramesDispatched);
 					addWorldspaceNormal(contrib.worldspaceNormal,coord,pc.cummon.rcpFramesDispatched);
 				}

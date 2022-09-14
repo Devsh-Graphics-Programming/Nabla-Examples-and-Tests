@@ -96,22 +96,32 @@ void addAccumulation(in vec3 delta, in uvec3 coord)
 	}
 }
 
-void storeAccumulationCascade(in vec3 weightedColor, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex)
-{
-	// but leave first index in the array for the ray accumulation metadata, hence the +1
-	coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
-	storeAccumulation(weightedColor,coord);
-}
-void addAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex, in float rcpN)
+// TODO: use a R17G17B17_UNORM format matched to cascade range, then use 13 bits to store last spp count (max 8k spp renders)
+// This way we can avoid writing every cascade every path storage
+void nextSampleAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex, in float rcpN)
 {
 	// but leave first index in the array for the ray accumulation metadata, hence the +1
 	coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
 	const vec3 prev = fetchAccumulation(coord);
-	const vec3 newVal = prev*(1.f-rcpN)+weightedDelta;
+	const vec3 newVal = prev+(weightedDelta-prev)*rcpN;
 	// TODO: do a better check, compare actually encoded values for difference
 	const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
 	if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
 		storeAccumulation(newVal,coord);
+}
+void addAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex)
+{
+	if (any(greaterThan(weightedDelta,vec3(exp2(-19.f)))))
+	{
+		// but leave first index in the array for the ray accumulation metadata, hence the +1
+		coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
+		const vec3 prev = fetchAccumulation(coord);
+		const vec3 newVal = prev+weightedDelta;
+		// TODO: do a better check, compare actually encoded values for difference
+		const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
+		if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
+			storeAccumulation(newVal,coord);
+	}
 }
 
 void storeAlbedo(in vec3 color, in uvec3 coord)
