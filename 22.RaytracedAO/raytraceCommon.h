@@ -85,7 +85,11 @@ struct SLight
 
 //
 #include <nbl/builtin/glsl/re_weighted_monte_carlo/splatting.glsl>
+#ifdef __cplusplus
+struct alignas(16) StaticViewData_t
+#else
 struct StaticViewData_t
+#endif
 {
 #ifdef __cplusplus
 	uint16_t imageDimensions[2];
