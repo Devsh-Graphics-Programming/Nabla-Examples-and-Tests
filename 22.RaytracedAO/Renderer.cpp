@@ -1716,7 +1716,7 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			return true;
 		};
 		auto tform = camera->getRelativeTransformationMatrix();
-		if (true)//!properEquals(tform,m_prevCamTform))
+		if (!properEquals(tform,m_prevCamTform))
 		{
 			m_framesDispatched = 0u;		
 			m_prevView = camera->getViewMatrix();
@@ -1863,7 +1863,7 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 		}
 		{
 			const float minReliableLuma = 0.01f;
-			const float kappa = 0.f;
+			const float kappa = 1.f;
 			const auto reweightingParams = nbl_glsl_RWMC_computeReweightingParameters(
 				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
 				m_staticViewData.cascadeParams.base,

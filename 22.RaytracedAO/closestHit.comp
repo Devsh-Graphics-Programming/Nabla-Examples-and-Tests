@@ -130,7 +130,7 @@ void main()
 			for (uint j=0u; j<2u; j++)
 				addAccumulationCascade(
 					contrib.color*splat.cascadeWeights[j],accumulationLocation,
-					samplesPerPixelPerDispatch,splat.lowerCascade+j,pc.cummon.rcpFramesDispatched
+					samplesPerPixelPerDispatch,splat.lowerCascade+j
 				);
 		}
 		//
