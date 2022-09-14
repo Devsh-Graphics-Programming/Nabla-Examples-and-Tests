@@ -1716,7 +1716,7 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			return true;
 		};
 		auto tform = camera->getRelativeTransformationMatrix();
-		if (!properEquals(tform,m_prevCamTform))
+		if (true)//!properEquals(tform,m_prevCamTform))
 		{
 			m_framesDispatched = 0u;		
 			m_prevView = camera->getViewMatrix();

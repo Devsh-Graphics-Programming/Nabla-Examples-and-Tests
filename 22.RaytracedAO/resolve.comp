@@ -25,9 +25,9 @@ layout(push_constant, row_major) uniform PushConstants
 
 #include <nbl/builtin/glsl/format/decode.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
-vec3 fetchAccumulation(in uvec2 coord, in uint subsample)
+vec3 fetchAccumulation(in uvec3 coord)
 {
-	const uvec2 data = texelFetch(colorSamples,ivec3(coord,subsample),0).rg;
+	const uvec2 data = texelFetch(colorSamples,ivec3(coord),0).rg;
 	return nbl_glsl_decodeRGB19E7(data);
 }
 
@@ -38,14 +38,26 @@ float nbl_glsl_RWMC_luma(in vec3 val)
 	return dot(val,transpose(nbl_glsl_sRGBtoXYZ)[1]);
 }
 
+
+uint samplesPerPixelPerDispatch;
+
+
 vec3 nbl_glsl_RWMC_sampleCascadeTexel(ivec2 coord, in ivec2 offset, in uint cascadeIndex)
 {
+	coord += offset;
 	// weird mirror-like wraps but not quite exactly
 	coord = mix(coord,-coord,greaterThan(ivec2(0,0),coord));
 	const ivec2 imgSz = ivec2(getImageDimensions(staticViewData));
 	coord = mix(imgSz*2-ivec2(1),coord,lessThan(coord,imgSz));
 
-	return vec3(-9.f);
+	uvec3 sampleCoord = uvec3(coord,cascadeIndex*samplesPerPixelPerDispatch+samplesPerPixelPerDispatch);
+	vec3 value = fetchAccumulation(sampleCoord);
+	for (uint i=1u; i<samplesPerPixelPerDispatch; i++)
+	{
+		sampleCoord.z++;
+		value += fetchAccumulation(sampleCoord);
+	}
+	return value/float(samplesPerPixelPerDispatch);
 }
 
 
@@ -54,20 +66,17 @@ void main()
 	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
 	if (all(lessThan(pixelCoord,getImageDimensions(staticViewData))))
 	{
-		//vec3 acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
+		samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 
-		vec3 acc = fetchAccumulation(gl_GlobalInvocationID.xy,0u);
+		vec3 acc = nbl_glsl_RWMC_reweight(pc.rwmcReweightingParams,pixelCoord);
 		vec3 alb = texelFetch(albedoSamples,ivec3(pixelCoord,0),0).rgb;
 		vec3 nml = nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,0),0).r).xyz;
 
-		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 		for (uint i=1u; i<samplesPerPixelPerDispatch; i++)
 		{
-			acc += fetchAccumulation(gl_GlobalInvocationID.xy,i);
 			alb += texelFetch(albedoSamples,ivec3(pixelCoord,i),0).rgb;
 			nml += nbl_glsl_decodeRGB10A2_SNORM(texelFetch(normalSamples,ivec3(pixelCoord,i),0).r).xyz;
 		}
-		acc /= float(samplesPerPixelPerDispatch);
 		alb /= float(samplesPerPixelPerDispatch);
 		nml /= float(samplesPerPixelPerDispatch);
 

@@ -32,6 +32,8 @@ bool get_sample_job()
 void main()
 {
 	clear_raycount();
+
+	uint rayMask = 0u;
 	if (get_sample_job())
 	{
 		// basic reads
@@ -113,13 +115,26 @@ void main()
 		
 		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 		const uvec3 accumulationLocation = uvec3(outPixelLocation,sampleID%samplesPerPixelPerDispatch);
-		const vec3 acc_emissive = fetchAccumulation(accumulationLocation);
-		const vec3 acc_albedo = fetchAlbedo(accumulationLocation);
-		const vec3 acc_worldspaceNormal = fetchWorldspaceNormal(accumulationLocation);
 		// TODO: finish MIS
-		storeAccumulation(acc_emissive,contrib.color*throughput,accumulationLocation);
+		contrib.color *= throughput;
 		const vec3 aovThroughput = throughput*aovThroughputScale;
-		storeAlbedo(acc_albedo,contrib.albedo*aovThroughput,accumulationLocation);
-		storeWorldspaceNormal(acc_worldspaceNormal,contrib.worldspaceNormal*nbl_glsl_MC_colorToScalar(aovThroughput),accumulationLocation);
+		//
+		const bool pathToBeContinued = bool(rayMask);
+		if (pathToBeContinued)
+			addAccumulation(contrib.color,accumulationLocation);
+		else
+		{
+			// need whole path throughput when splatting
+			contrib.color += fetchAccumulation(accumulationLocation);
+			const nbl_glsl_RWMC_SplattingParameters splat = nbl_glsl_RWMC_getCascade(staticViewData.cascadeParams,nbl_glsl_MC_colorToScalar(contrib.color)/pc.cummon.rcpFramesDispatched);
+			for (uint j=0u; j<2u; j++)
+				addAccumulationCascade(
+					contrib.color*splat.cascadeWeights[j],accumulationLocation,
+					samplesPerPixelPerDispatch,splat.lowerCascade+j,pc.cummon.rcpFramesDispatched
+				);
+		}
+		//
+		addAlbedo(contrib.albedo*aovThroughput,accumulationLocation);
+		addWorldspaceNormal(contrib.worldspaceNormal*nbl_glsl_MC_colorToScalar(aovThroughput),accumulationLocation);
 	}
 }

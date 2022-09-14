@@ -72,6 +72,7 @@ uvec3 get_triangle_indices(in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchI
 
 #include <nbl/builtin/glsl/format/decode.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
+
 vec3 fetchAccumulation(in uvec3 coord)
 {
 	const uvec2 data = imageLoad(accumulation,ivec3(coord)).rg;
@@ -82,44 +83,85 @@ void storeAccumulation(in vec3 color, in uvec3 coord)
 	const uvec2 data = nbl_glsl_encodeRGB19E7(color);
 	imageStore(accumulation,ivec3(coord),uvec4(data,0u,0u));
 }
-void storeAccumulation(in vec3 prev, in vec3 delta, in uvec3 coord)
+void addAccumulation(in vec3 delta, in uvec3 coord)
 {
-	const vec3 newVal = prev+delta;
+	if (any(greaterThan(delta,vec3(exp2(-19.f)))))
+	{
+		const vec3 prev = fetchAccumulation(coord);
+		const vec3 newVal = prev+delta;
+		// TODO: do a better check, compare actually encoded values for difference
+		const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
+		if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
+			storeAccumulation(newVal,coord);
+	}
+}
+
+void storeAccumulationCascade(in vec3 weightedColor, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex)
+{
+	// but leave first index in the array for the ray accumulation metadata, hence the +1
+	coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
+	storeAccumulation(weightedColor,coord);
+}
+void addAccumulationCascade(in vec3 weightedDelta, uvec3 coord, in uint samplesPerPixelPerDispatch, in uint cascadeIndex, in float rcpN)
+{
+	// but leave first index in the array for the ray accumulation metadata, hence the +1
+	coord.z += (cascadeIndex+1u)*samplesPerPixelPerDispatch;
+	const vec3 prev = fetchAccumulation(coord);
+	const vec3 newVal = prev*(1.f-rcpN)+weightedDelta;
+	// TODO: do a better check, compare actually encoded values for difference
 	const uvec3 diff = floatBitsToUint(newVal)^floatBitsToUint(prev);
 	if (bool((diff.x|diff.y|diff.z)&0x7ffffff0u))
 		storeAccumulation(newVal,coord);
 }
 
-vec3 fetchAlbedo(in uvec3 coord)
-{
-	const uint data = imageLoad(albedoAOV,ivec3(coord)).r;
-	return nbl_glsl_decodeRGB10A2_UNORM(data).rgb;
-}
 void storeAlbedo(in vec3 color, in uvec3 coord)
 {
 	const uint data = nbl_glsl_encodeRGB10A2_UNORM(vec4(color,1.f));
 	imageStore(albedoAOV,ivec3(coord),uvec4(data,0u,0u,0u));
 }
-void storeAlbedo(in vec3 prev, in vec3 delta, in uvec3 coord)
+void impl_addAlbedo(vec3 delta, in uvec3 coord, in float rcpN, in bool newSample)
 {
+	const uint data = imageLoad(albedoAOV,ivec3(coord)).r;
+	const vec3 prev = nbl_glsl_decodeRGB10A2_UNORM(data).rgb;
+	if (newSample)
+		delta = (delta-prev)*rcpN;
 	if (any(greaterThan(abs(delta),vec3(1.f/1024.f))))
 		storeAlbedo(prev+delta,coord);
 }
-
-vec3 fetchWorldspaceNormal(in uvec3 coord)
+// for starting a new sample
+void addAlbedo(vec3 delta, in uvec3 coord, in float rcpN)
 {
-	const uint data = imageLoad(normalAOV,ivec3(coord)).r;
-	return nbl_glsl_decodeRGB10A2_SNORM(data).xyz;
+	impl_addAlbedo(delta,coord,rcpN,true);
 }
+// for adding to the last sample
+void addAlbedo(vec3 delta, in uvec3 coord)
+{
+	impl_addAlbedo(delta,coord,0.f,false);
+}
+
 void storeWorldspaceNormal(in vec3 normal, in uvec3 coord)
 {
 	const uint data = nbl_glsl_encodeRGB10A2_SNORM(vec4(normal,1.f));
 	imageStore(normalAOV,ivec3(coord),uvec4(data,0u,0u,0u));
 }
-void storeWorldspaceNormal(in vec3 prev, in vec3 delta, in uvec3 coord)
+void impl_addWorldspaceNormal(vec3 delta, in uvec3 coord, in float rcpN, in bool newSample)
 {
+	const uint data = imageLoad(normalAOV,ivec3(coord)).r;
+	const vec3 prev = nbl_glsl_decodeRGB10A2_SNORM(data).rgb;
+	if (newSample)
+		delta = (delta-prev)*rcpN;
 	if (any(greaterThan(abs(delta),vec3(1.f/512.f))))
 		storeWorldspaceNormal(prev+delta,coord);
+}
+// for starting a new sample
+void addWorldspaceNormal(vec3 delta, in uvec3 coord, in float rcpN)
+{
+	impl_addWorldspaceNormal(delta,coord,rcpN,true);
+}
+// for adding to the last sample
+void addWorldspaceNormal(vec3 delta, in uvec3 coord)
+{
+	impl_addWorldspaceNormal(delta,coord,0.f,false);
 }
 
 // due to memory limitations we can only do 6k renders
@@ -404,7 +446,7 @@ nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 	return result;
 }
 
-void generate_next_rays(
+uint generate_next_rays(
 	in uint maxRaysToGen, in nbl_glsl_MC_oriented_material_t material, in bool frontfacing, in uint vertex_depth,
 	nbl_glsl_xoroshiro64star_state_t scramble_state, in uint sampleID, in uvec2 outPixelLocation,
 	in vec3 origin, in vec3 prevThroughput, in float prevAoVThroughputScale, inout vec3 albedo, out vec3 worldspaceNormal)
@@ -455,6 +497,8 @@ void generate_next_rays(
 	// TODO: investigate workgroup reductions here
 	const uint baseOutputID = atomicAdd(rayCount[pc.cummon.rayCountWriteIx],raysToAllocate);
 
+	// set to 1 if ray generated
+	uint rayMask = 0u;
 
 	// the 1.03125f adjusts for the fact that the normal might be too short (inversesqrt precision)
 	const float inversesqrt_precision = 1.03125f;
@@ -493,7 +537,10 @@ void generate_next_rays(
 		newRay.useless_padding[1] = bitfieldInsert(packHalf2x16(nextThroughput[i].bb),sampleID+i,16,16);
 		const uint outputID = baseOutputID+(offset++);
 		sinkRays[outputID] = newRay;
+
+		rayMask |= 0x1u<<i;
 	}
+	return rayMask;
 }
 
 struct Contribution
