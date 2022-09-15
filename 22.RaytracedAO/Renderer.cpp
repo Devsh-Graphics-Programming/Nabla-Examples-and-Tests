@@ -1850,7 +1850,7 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 	// resolve pseudo-MSAA
 	if (beauty)
 	{
-		m_raytraceCommonData.samplesComputed = (m_raytraceCommonData.samplesComputed+getSamplesPerPixelPerDispatch())%maxSensorSamples;
+		m_raytraceCommonData.frameLowDiscrepancySequenceShift = (m_raytraceCommonData.frameLowDiscrepancySequenceShift+getSamplesPerPixelPerDispatch())%maxSensorSamples;
 
 		m_driver->bindDescriptorSets(EPBP_COMPUTE,m_resolvePipeline->getLayout(),0u,1u,&m_resolveDS.get(),nullptr);
 		m_driver->bindComputePipeline(m_resolvePipeline.get());
@@ -1867,7 +1867,8 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			const auto reweightingParams = nbl_glsl_RWMC_computeReweightingParameters(
 				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
 				m_staticViewData.cascadeParams.base,
-				m_raytraceCommonData.samplesComputed,minReliableLuma,kappa
+				m_framesDispatched*m_staticViewData.samplesPerPixelPerDispatch,
+				minReliableLuma,kappa
 			);
 			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,sizeof(m_prevView),sizeof(reweightingParams),&reweightingParams);
 		}

@@ -119,7 +119,7 @@ struct RaytraceShaderCommonData_t
 	mat4 	viewProjMatrixInverse;
 	vec3	camPos;
 	float   rcpFramesDispatched;
-	uint	samplesComputed;
+	uint	frameLowDiscrepancySequenceShift;
 	uint	depth; // 0 if path tracing disabled
 	uint	rayCountWriteIx;
 	float	textureFootprintFactor;

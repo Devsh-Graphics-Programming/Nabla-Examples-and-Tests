@@ -107,7 +107,7 @@ void main()
 				const uint vertex_depth = 1u;
 				rayMask = generate_next_rays(
 					samplesPerPixelPerDispatch,material,frontfacing,vertex_depth,
-					scramble_start_state,pc.cummon.samplesComputed,outPixelLocation,origin,
+					scramble_start_state,pc.cummon.frameLowDiscrepancySequenceShift,outPixelLocation,origin,
 					vec3(pc.cummon.rcpFramesDispatched),1.f,contrib.albedo,contrib.worldspaceNormal
 				);
 			}
