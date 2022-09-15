@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-		m_staticViewData{{0u,0u},0u,0u}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
+		m_staticViewData{{0u,0u},0u,0u,{}}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -858,7 +858,7 @@ core::smart_refctd_ptr<IGPUImageView> Renderer::createTexture(uint32_t width, ui
 
 core::smart_refctd_ptr<IGPUImageView> Renderer::createScreenSizedTexture(E_FORMAT format, uint32_t layers)
 {
-	return createTexture(m_staticViewData.imageDimensions.x, m_staticViewData.imageDimensions.y, format, 1u, layers);
+	return createTexture(m_staticViewData.imageDimensions[0], m_staticViewData.imageDimensions[1], format, 1u, layers);
 }
 
 core::smart_refctd_ptr<asset::ICPUBuffer> Renderer::SampleSequence::createCPUBuffer(uint32_t quantizedDimensions, uint32_t sampleCount)
@@ -883,7 +883,7 @@ core::smart_refctd_ptr<ICPUBuffer> Renderer::SampleSequence::createBufferView(IV
 	// Memory Order: 3 Dimensions, then multiple of sampling stragies per vertex, then depth, then sample ID
 	auto buff = createCPUBuffer(quantizedDimensions,sampleCount);
 	uint32_t(&pout)[][2] = *reinterpret_cast<uint32_t(*)[][2]>(buff->getPointer());
-	// the horrible order of iteration over output memory is caused by the fact that certain samplers like the 
+	// the horrible locality of iteration over output memory is caused by the fact that certain samplers like the 
 	// Owen Scramble sampler, have a large cache which needs to be generated separately for each dimension.
 	for (auto metadim=0u; metadim<quantizedDimensions; metadim++)
 	{
@@ -962,7 +962,8 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 
 			// resolve
 			{
-				m_resolvePipelineLayout = m_driver->createGPUPipelineLayout(nullptr,nullptr,core::smart_refctd_ptr(m_resolveDSLayout));
+				SPushConstantRange range{ISpecializedShader::ESS_COMPUTE,0u,sizeof(core::matrix3x4SIMD)+sizeof(nbl_glsl_RWMC_ReweightingParameters)};
+				m_resolvePipelineLayout = m_driver->createGPUPipelineLayout(&range,&range+1,core::smart_refctd_ptr(m_resolveDSLayout));
 				m_resolveDS = m_driver->createGPUDescriptorSet(core::smart_refctd_ptr(m_resolveDSLayout));
 			}
 			
@@ -1064,7 +1065,7 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 			// Mantissa is only 23 bits, and primary sample space low discrepancy sequence will start to produce duplicates
 			// near 1.0 with exponent -1 after the sample count passes 2^24 elements.
 			// Another limiting factor is our encoding of sample sequences, we only use 21bits per channel, so no duplicates till 2^21 samples.
-			maxSensorSamples = core::min(0x1<<21,maxSensorSamples);
+			maxSensorSamples = core::min(0x1u<<21u,maxSensorSamples);
 			if (cachedQuantizedDimensions>=quantizedDimensions && cachedSampleCount>=maxSensorSamples)
 				sampleSequence.createBufferView(m_driver,std::move(cachebuff));
 			else
@@ -1120,7 +1121,7 @@ void Renderer::deinitSceneResources()
 	
 	m_finalEnvmap = nullptr;
 	m_envMapImportanceSampling.deinitResources();
-	m_staticViewData = {{0u,0u},0u,0u};
+	m_staticViewData = {{0u,0u},0u,0u,{}};
 
 	auto rr = m_rrManager->getRadeonRaysAPI();
 	rr->DetachAll();
@@ -1139,18 +1140,36 @@ void Renderer::deinitSceneResources()
 	maxSensorSamples = MaxFreeviewSamples;
 }
 
-void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float envMapRegularizationFactor)
+void Renderer::initScreenSizedResources(
+	const uint32_t width, const uint32_t height,
+	const float envMapRegularizationFactor,
+	int32_t cascadeCount, const float cascadeLuminanceBase,
+	float cascadeLuminanceStart
+)
 {
 	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
-
-	m_staticViewData.imageDimensions = {width, height};
-	m_rcpPixelSize = { 2.f/float(m_staticViewData.imageDimensions.x),-2.f/float(m_staticViewData.imageDimensions.y) };
+	
+	
+	if (cascadeCount<2) // rwmc OFF, store everything to cascade 0
+		cascadeLuminanceStart = exp2(63.f); // RGB19E7 max
+	else if(core::isnan<float>(cascadeLuminanceStart))
+	{
+		// TODO: derive from Max emitter lumiance
+		//cascadeLuminanceStart = maxEmitterRadiosityLuminance*std::pow<float>(cascadeLuminanceBase,1-cascadeCount);
+	}
+	constexpr int32_t MinCascades = 2; // due to impl details
+	constexpr int32_t MaxCascades = 32; // sane limit
+	cascadeCount = core::clamp(cascadeCount,MinCascades,MaxCascades);
+	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
+	m_staticViewData.imageDimensions[0] = width;
+	m_staticViewData.imageDimensions[1] = height;
+	m_rcpPixelSize = { 2.f/float(m_staticViewData.imageDimensions[0]),-2.f/float(m_staticViewData.imageDimensions[1]) };
 
 	// figure out dispatch sizes
-	m_raygenWorkGroups[0] = (m_staticViewData.imageDimensions.x-1u)/WORKGROUP_DIM+1u;
-	m_raygenWorkGroups[1] = (m_staticViewData.imageDimensions.y-1u)/WORKGROUP_DIM+1u;
+	m_raygenWorkGroups[0] = (m_staticViewData.imageDimensions[0]-1u)/WORKGROUP_DIM+1u;
+	m_raygenWorkGroups[1] = (m_staticViewData.imageDimensions[1]-1u)/WORKGROUP_DIM+1u;
 
-	const auto renderPixelCount = m_staticViewData.imageDimensions.x*m_staticViewData.imageDimensions.y;
+	const auto renderPixelCount = m_staticViewData.imageDimensions[0]*m_staticViewData.imageDimensions[1];
 	// figure out how much Samples Per Pixel Per Dispatch we can afford
 	size_t scrambleBufferSize=0u;
 	size_t raygenBufferSize=0u,intersectionBufferSize=0u;
@@ -1181,13 +1200,11 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float e
 			printf("[INFO] Using %d samples (per pixel) per dispatch\n",getSamplesPerPixelPerDispatch());
 		}
 	}
-	
-	// write a SAMPLE_SEQUENCE_STRIDE_EACH_STRATEGY + STRATEGY_COUNT for clarity(??) 
+	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(pathDepth);
 	auto stream = std::ofstream("runtime_defines.glsl");
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
 		<< m_globalMeta->m_global.m_materialCompilerGLSL_declarations
-		<< "#define SAMPLE_SEQUENCE_STRIDE " << SampleSequence::computeQuantizedDimensions(pathDepth) << "\n"
 		<< "#ifndef MAX_RAYS_GENERATED\n"
 		<< "#	define MAX_RAYS_GENERATED " << getSamplesPerPixelPerDispatch() << "\n"
 		<< "#endif\n";
@@ -1272,7 +1289,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float e
 	};
 
 	// create out screen-sized textures
-	m_accumulation = createScreenSizedTexture(EF_R32G32_UINT,m_staticViewData.samplesPerPixelPerDispatch);
+	m_accumulation = createScreenSizedTexture(EF_R32G32_UINT,(cascadeCount+1u)*m_staticViewData.samplesPerPixelPerDispatch); // one more (first) layer because of accumulation metadata for a path
 	m_albedoAcc = createScreenSizedTexture(EF_R32_UINT,m_staticViewData.samplesPerPixelPerDispatch);
 	m_normalAcc = createScreenSizedTexture(EF_R32_UINT,m_staticViewData.samplesPerPixelPerDispatch);
 	m_tonemapOutput = createScreenSizedTexture(EF_R16G16B16A16_SFLOAT);
@@ -1381,7 +1398,7 @@ void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float e
 			//region.imageSubresource.aspectMask = ;
 			region.imageSubresource.baseArrayLayer = 0u;
 			region.imageSubresource.layerCount = 1u;
-			region.imageExtent = {m_staticViewData.imageDimensions.x,m_staticViewData.imageDimensions.y,1u};
+			region.imageExtent = {m_staticViewData.imageDimensions[0],m_staticViewData.imageDimensions[1],1u};
 			auto scrambleKeys = createScreenSizedTexture(EF_R32G32_UINT);
 			m_driver->copyBufferToImage(tmpBuff.get(),scrambleKeys->getCreationParameters().image.get(),1u,&region);
 			setImageInfo(infos+0,asset::EIL_SHADER_READ_ONLY_OPTIMAL,std::move(scrambleKeys));
@@ -1513,10 +1530,12 @@ void Renderer::deinitScreenSizedResources()
 	m_closestHitPipeline = nullptr;
 	m_resolvePipeline = nullptr;
 
-	m_staticViewData.imageDimensions = {0u, 0u};
+	m_staticViewData.imageDimensions[0] = 0u;
+	m_staticViewData.imageDimensions[1] = 0u;
 	m_staticViewData.pathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;
+	m_staticViewData.cascadeParams = {};
 	m_totalRaysCast = 0ull;
 	m_rcpPixelSize = {0.f,0.f};
 	m_framesDispatched = 0u;
@@ -1681,7 +1700,7 @@ void Renderer::denoiseCubemapFaces(
 // one day it will just work like that
 //#include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
-bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const bool beauty)
+bool Renderer::render(nbl::ITimer* timer, const float kappa, const float EMinRelative, const bool transformNormals, const bool beauty)
 {
 	if (m_cullPushConstants.maxGlobalInstanceCount==0u)
 		return true;
@@ -1844,6 +1863,8 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 	// resolve pseudo-MSAA
 	if (beauty)
 	{
+		m_raytraceCommonData.frameLowDiscrepancySequenceShift = (m_raytraceCommonData.frameLowDiscrepancySequenceShift+getSamplesPerPixelPerDispatch())%maxSensorSamples;
+
 		m_driver->bindDescriptorSets(EPBP_COMPUTE,m_resolvePipeline->getLayout(),0u,1u,&m_resolveDS.get(),nullptr);
 		m_driver->bindComputePipeline(m_resolvePipeline.get());
 		if (transformNormals)
@@ -1853,12 +1874,20 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			decltype(m_prevView) identity;
 			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,0u,sizeof(identity),&identity);
 		}
+		{
+			const auto reweightingParams = nbl_glsl_RWMC_computeReweightingParameters(
+				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
+				m_staticViewData.cascadeParams.base,
+				m_framesDispatched*m_staticViewData.samplesPerPixelPerDispatch,
+				EMinRelative*exp2(m_staticViewData.cascadeParams.log2_start),kappa
+			);
+			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,sizeof(m_prevView),sizeof(reweightingParams),&reweightingParams);
+		}
 		m_driver->dispatch(m_raygenWorkGroups[0],m_raygenWorkGroups[1],1);
 		COpenGLExtensionHandler::pGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT
 			// because of direct to screen resolve
 			|GL_FRAMEBUFFER_BARRIER_BIT|GL_TEXTURE_UPDATE_BARRIER_BIT
 		);
-		m_raytraceCommonData.samplesComputed = (m_raytraceCommonData.samplesComputed+getSamplesPerPixelPerDispatch())%maxSensorSamples;
 	}
 
 	// TODO: autoexpose properly

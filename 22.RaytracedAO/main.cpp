@@ -314,6 +314,11 @@ int main(int argc, char** argv)
 		ext::MitsubaLoader::CElementSensor::Type type;
 		ext::MitsubaLoader::CElementFilm::FileFormat fileFormat;
 		Renderer::DenoiserArgs denoiserInfo = {};
+		int32_t cascadeCount = 1;
+		float cascadeLuminanceBase = 8.f;
+		float cascadeLuminanceStart = 1.f;
+		float kappa = 0.f;
+		float EminRelative = 0.05f;
 		bool envmap = false;
 		float envmapRegFactor = 0.0f;
 
@@ -414,6 +419,11 @@ int main(int argc, char** argv)
 		mainSensorData.denoiserInfo.bloomIntensity = film.denoiserBloomIntensity;
 		mainSensorData.denoiserInfo.tonemapperArgs = std::string(film.denoiserTonemapperArgs);
 		mainSensorData.fileFormat = film.fileFormat;
+		mainSensorData.cascadeCount = film.cascadeCount;
+		mainSensorData.cascadeLuminanceBase = film.cascadeLuminanceBase;
+		mainSensorData.cascadeLuminanceStart = film.cascadeLuminanceStart;
+		mainSensorData.kappa = mainSensorData.cascadeCount<2 ? 0.f:film.rfilter.kappa;
+		mainSensorData.EminRelative = film.rfilter.EminRelative;
 		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
 		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
 		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
@@ -759,6 +769,7 @@ int main(int argc, char** argv)
 	// Render To file
 	int32_t prevWidth = 0;
 	int32_t prevHeight = 0;
+	int32_t prevCascadeCount = 0;
 	float prevRegFactor = 0.0f;
 	for(uint32_t s = 0u; s < sensors.size(); ++s)
 	{
@@ -769,16 +780,17 @@ int main(int argc, char** argv)
 		
 		printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
 
-		bool needsReinit = (prevWidth != sensorData.width) || (prevHeight != sensorData.height) || (prevRegFactor != sensorData.envmapRegFactor); // >= or !=
+		bool needsReinit = prevWidth!=sensorData.width || prevHeight!=sensorData.height || prevCascadeCount!=sensorData.cascadeCount || prevRegFactor!=sensorData.envmapRegFactor;
 		prevWidth = sensorData.width;
 		prevHeight = sensorData.height;
+		prevCascadeCount = sensorData.cascadeCount;
 		prevRegFactor = sensorData.envmapRegFactor;
 		
 		renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
 		if(needsReinit) 
 		{
 			renderer->deinitScreenSizedResources();
-			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor);
+			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart);
 		}
 		
 		smgr->setActiveCamera(sensorData.staticCamera);
@@ -809,7 +821,7 @@ int main(int argc, char** argv)
 
 			driver->beginScene(false, false);
 
-			if(!renderer->render(device->getTimer(),!sensorData.envmap))
+			if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.EminRelative,!sensorData.envmap))
 			{
 				renderFailed = true;
 				driver->endScene();
@@ -876,14 +888,26 @@ int main(int argc, char** argv)
 		{
 			if(index >= 0 && index < sensors.size())
 			{
-				bool needsReinit = (activeSensor == -1) || (sensors[activeSensor].width != sensors[index].width) || (sensors[activeSensor].height != sensors[index].height) || (sensors[activeSensor].envmapRegFactor != sensors[index].envmapRegFactor); // should be >= or != ?
+				bool needsReinit;
+				if (activeSensor != -1)
+				{
+					const auto& activeSensorData = sensors[activeSensor];
+					const auto& nextSensorData = sensors[index];
+					needsReinit = activeSensorData.width!=nextSensorData.width ||
+						activeSensorData.height!=nextSensorData.height ||
+						activeSensorData.cascadeCount!=nextSensorData.cascadeCount ||
+						activeSensorData.envmapRegFactor!=nextSensorData.envmapRegFactor;
+				}
+				else
+					needsReinit = true;
 				activeSensor = index;
 
 				renderer->resetSampleAndFrameCounters();
 				if(needsReinit)
 				{
 					renderer->deinitScreenSizedResources();
-					renderer->initScreenSizedResources(sensors[activeSensor].width,sensors[activeSensor].height,sensors[activeSensor].envmapRegFactor);
+					const auto& sensorData = sensors[activeSensor];
+					renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart);
 				}
 
 				smgr->setActiveCamera(sensors[activeSensor].interactiveCamera);
@@ -953,7 +977,12 @@ int main(int argc, char** argv)
 			}
 
 			driver->beginScene(false, false);
-			if(!renderer->render(device->getTimer(),true,receiver.isRenderingBeauty()))
+			if(!renderer->render(
+					device->getTimer(),
+					activeSensor!=-1 ? sensors[activeSensor].kappa:0.f,
+					activeSensor!=-1 ? sensors[activeSensor].EminRelative:0.f,
+					true,receiver.isRenderingBeauty()
+			))
 			{
 				renderFailed = true;
 				driver->endScene();

@@ -46,7 +46,12 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		void deinitSceneResources();
 		
-		void initScreenSizedResources(uint32_t width, uint32_t height, float envMapRegularizationFactor);
+		void initScreenSizedResources(
+			const uint32_t width, const uint32_t height,
+			const float envMapRegularizationFactor,
+			int32_t cascadeCount, const float cascadeLuminanceBase,
+			float cascadeLuminanceStart
+		);
 
 		void deinitScreenSizedResources();
 
@@ -60,7 +65,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			int32_t cropOffsetX, int32_t cropOffsetY, int32_t cropWidth, int32_t cropHeight,
 			const DenoiserArgs& denoiserArgs = {});
 
-		bool render(nbl::ITimer* timer, const bool transformNormals, const bool beauty=true);
+		bool render(nbl::ITimer* timer, const float kappa, const float EMinRelative, const bool transformNormals, const bool beauty=true);
 
 		auto* getColorBuffer() { return m_colorBuffer; }
 
@@ -77,7 +82,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		}
 		uint64_t getTotalSamplesComputed() const
 		{
-			const auto samplesPerDispatch = getSamplesPerPixelPerDispatch()*static_cast<uint64_t>(m_staticViewData.imageDimensions.x*m_staticViewData.imageDimensions.y);
+			const auto samplesPerDispatch = static_cast<uint64_t>(getSamplesPerPixelPerDispatch()*m_staticViewData.imageDimensions[1])*m_staticViewData.imageDimensions[0];
 			const auto framesDispatched = static_cast<uint64_t>(m_framesDispatched);
 			return framesDispatched*samplesPerDispatch;
 		}

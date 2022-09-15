@@ -84,28 +84,46 @@ struct SLight
 
 
 //
-struct StaticViewData_t
-{
-	uvec2   imageDimensions;
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/splatting.glsl>
 #ifdef __cplusplus
+struct alignas(16) StaticViewData_t
+#else
+struct StaticViewData_t
+#endif
+{
+#ifdef __cplusplus
+	uint16_t imageDimensions[2];
 	uint8_t pathDepth;
 	uint8_t noRussianRouletteDepth;
 	uint16_t samplesPerPixelPerDispatch;
 #else
-	uint    pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
+	uint imageDimensions;
+	uint pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
 #endif
-	uint	lightCount;
+	uint sampleSequenceStride; // this is a very small number actually, probably 20 bits left to play with
+	uint lightCount;
+	nbl_glsl_RWMC_CascadeParameters cascadeParams;
 };
+#ifndef __cplusplus
+uvec2 getImageDimensions(in StaticViewData_t data)
+{
+	return uvec2(
+		bitfieldExtract(data.imageDimensions, 0,16),
+		bitfieldExtract(data.imageDimensions,16,16)
+	);
+}
+#endif
 
 struct RaytraceShaderCommonData_t
 {
 	mat4 	viewProjMatrixInverse;
 	vec3	camPos;
 	float   rcpFramesDispatched;
-	uint	samplesComputed;
+	uint	frameLowDiscrepancySequenceShift;
 	uint	depth; // 0 if path tracing disabled
 	uint	rayCountWriteIx;
 	float	textureFootprintFactor;
 };
 
+#include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
 #endif
