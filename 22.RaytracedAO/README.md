@@ -65,10 +65,10 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 
 
 ### Properties added to \<film\>
-| Property Name | Description                                                                                                    | Type  | Default Value |
-|---------------|----------------------------------------------------------------------------------------------------------------|-------|---------------|
-|     kappa     | Parameter from Re-weighting Monte Carlo 2018 paper where its an integer, high values reject more aggressively  | float | 0.0 (disable) |
-|     Emin      | Threshold of luminance below which a sample is always considered reliable, default value is same as in RWMC2018| float | 0.05          |
+| Property Name | Description                                                                                                   | Type  | Default Value |
+|---------------|---------------------------------------------------------------------------------------------------------------|-------|---------------|
+|     kappa     | Parameter from Re-weighting Monte Carlo 2018 paper where its an integer, high values reject more aggressively | float | 0.0 (disable) |
+| EminRelative  | Threshold of luminance below which a sample is always considered reliable, relative to `cascadeLuminanceBase` | float | 0.05          |
 
 ### Example of a sensor using all new properties described above.
 ```xml
@@ -100,7 +100,7 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 		<string name="tonemapper" value="ACES=0.4,0.8" />
 		<rfilter type="tent" >
 			<float name="kappa" value="1.0" />
-			<float name="Emin" value="0.05" />
+			<float name="EminRelative" value="0.05" />
 		</rfilter>
 	</film>
 </sensor>
