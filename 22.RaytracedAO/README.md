@@ -51,14 +51,24 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 ### Properties added to \<film\>
 | Property Name  | Description                                                                            | Type   | Default Value                                                                                                                                                            |
 |----------------|----------------------------------------------------------------------------------------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| outputFilePath | Final Render Output Path;<br>Denoised Render will have "_denoised" suffix added to it. | string | Render_{SceneName}_Sensor_{SensorIdx}.exr<br>{SceneName} is the filename of the xml or zip loaded.<br>{SensorIdx} is the index of the Sensor in xml used for the render. |
-|   bloomScale   | Denoiser Bloom Scale                                                                   | float  | 0.1                                                                                                                                                                      |
-| bloomIntensity | Denoiser Bloom Intensity                                                               | float  | 0.1                                                                                                                                                                      |
-|  bloomFilePath | Lens Flare File Path                                                                   | string | "../../media/kernels/physical_flare_512.exr"                                                                                                                             |
-|   tonemapper   | Tonemapper Settings for Denoiser                                                       | string | "ACES=0.4,0.8"
+|      outputFilePath      | Final Render Output Path;<br>Denoised Render will have "_denoised" suffix added to it. | string | Render_{SceneName}_Sensor_{SensorIdx}.exr<br>{SceneName} is the filename of the xml or zip loaded.<br>{SensorIdx} is the index of the Sensor in xml used for the render. |
+|       cascadeCount       | The number of Luminance Cascades to use for the Re-Weighting Monte Carlo 2018 paper, 6 was the paper's default, **cannot be less than 2 due to implementation details.** | integer| 2                                                                                                                                                                      |
+|   cascadeLuminanceBase   | The scale difference between subsequent Luminance Cascades, 8 was the paper's default. | float  | 8.0                                                                                                                                                                      |
+|  cascadeLuminanceStart   | The Luminance value of the first Cascade, if NaN gets replaced by `MaxEmitterRadiance` `cascadeLuminanceBase^(1-cascadeCount)`| float  | NaN                                                                                                                                                                      |
+|        bloomScale        | Denoiser Bloom Scale                                                                   | float  | 0.1                                                                                                                                                                      |
+|      bloomIntensity      | Denoiser Bloom Intensity                                                               | float  | 0.1                                                                                                                                                                      |
+|       bloomFilePath      | Lens Flare File Path                                                                   | string | "../../media/kernels/physical_flare_512.exr"                                                                                                                             |
+|        tonemapper        | Tonemapper Settings for Denoiser                                                       | string | "ACES=0.4,0.8"
 | cropOffsetX, cropOffsetY | Used to control the offset for cropping cubemap renders (instead of highQualityEdges)  | int    | 0                                                                                                                                                                        |
-| cropWidth, cropHeight    | Used to control the size for cropping cubemap renders (instead of highQualityEdges)    | int    | width-cropOffsetX, height-cropOffsetY                                                                      
-| envmapRegularizationFactor | Fractional blend between guiding paths based on just the BxDF (0.0) or the product of the BxDF and the Environment Map (1.0)<br>Valid parameter ranges are between 0.0 and 0.8 as guiding fully by the product produces extreme fireflies from indirect light or local lights. | float  | 0.5                                                                                                                                                                      |      
+|  cropWidth, cropHeight   | Used to control the size for cropping cubemap renders (instead of highQualityEdges)    | int    | width-cropOffsetX, height-cropOffsetY                                                                      
+|envmapRegularizationFactor| Fractional blend between guiding paths based on just the BxDF (0.0) or the product of the BxDF and the Environment Map (1.0)<br>Valid parameter ranges are between 0.0 and 0.8 as guiding fully by the product produces extreme fireflies from indirect light or local lights. | float  | 0.5                                                                                                                                                                      |      
+
+
+### Properties added to \<film\>
+| Property Name | Description                                                                                                    | Type  | Default Value |
+|---------------|----------------------------------------------------------------------------------------------------------------|-------|---------------|
+|     kappa     | Parameter from Re-weighting Monte Carlo 2018 paper where its an integer, high values reject more aggressively  | float | 0.0 (disable) |
+|     Emin      | Threshold of luminance below which a sample is always considered reliable, default value is same as in RWMC2018| float | 0.05          |
 
 ### Example of a sensor using all new properties described above.
 ```xml
@@ -81,11 +91,17 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 		<string name="pixelFormat" value="rgb" />
 		<float name="gamma" value="2.2" />
 		<boolean name="banner" value="false" />
+		<integer name="cascadeCount" value="6" />
+		<float name="cascadeLuminanceBase" value="2.0" />
+		<float name="cascadeLuminanceStart" value="0.5" />
 		<float name="bloomScale" value="0.1" />
 		<float name="bloomIntensity" value="0.1" />
 		<string name="bloomFilePath" value="../../media/kernels/physical_flare_512.exr" />
 		<string name="tonemapper" value="ACES=0.4,0.8" />
-		<rfilter type="tent" />
+		<rfilter type="tent" >
+			<float name="kappa" value="1.0" />
+			<float name="Emin" value="0.05" />
+		</rfilter>
 	</film>
 </sensor>
 ```
