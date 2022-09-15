@@ -1140,13 +1140,26 @@ void Renderer::deinitSceneResources()
 	maxSensorSamples = MaxFreeviewSamples;
 }
 
-void Renderer::initScreenSizedResources(uint32_t width, uint32_t height, float envMapRegularizationFactor)
+void Renderer::initScreenSizedResources(
+	const uint32_t width, const uint32_t height,
+	const float envMapRegularizationFactor,
+	int32_t cascadeCount, const float cascadeLuminanceBase,
+	float cascadeLuminanceStart
+)
 {
 	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
 	
-uint32_t cascadeCount = core::max(6u,2u);
-float cascadeLuminanceBase = 2.f;
-float cascadeLuminanceStart = 1.f;
+	
+	if (cascadeCount<2) // rwmc OFF, store everything to cascade 0
+		cascadeLuminanceStart = exp2(63.f); // RGB19E7 max
+	else if(core::isnan<float>(cascadeLuminanceStart))
+	{
+		// TODO: derive from Max emitter lumiance
+		//cascadeLuminanceStart = maxEmitterRadiosityLuminance*std::pow<float>(cascadeLuminanceBase,1-cascadeCount);
+	}
+	constexpr int32_t MinCascades = 2; // due to impl details
+	constexpr int32_t MaxCascades = 32; // sane limit
+	cascadeCount = core::clamp(cascadeCount,MinCascades,MaxCascades);
 	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
 	m_staticViewData.imageDimensions[0] = width;
 	m_staticViewData.imageDimensions[1] = height;
@@ -1687,7 +1700,7 @@ void Renderer::denoiseCubemapFaces(
 // one day it will just work like that
 //#include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
-bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const bool beauty)
+bool Renderer::render(nbl::ITimer* timer, const float kappa, const float EMinRelative, const bool transformNormals, const bool beauty)
 {
 	if (m_cullPushConstants.maxGlobalInstanceCount==0u)
 		return true;
@@ -1862,13 +1875,11 @@ bool Renderer::render(nbl::ITimer* timer, const bool transformNormals, const boo
 			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,0u,sizeof(identity),&identity);
 		}
 		{
-			const float minReliableLuma = 0.01f;
-			const float kappa = 0.f;
 			const auto reweightingParams = nbl_glsl_RWMC_computeReweightingParameters(
 				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
 				m_staticViewData.cascadeParams.base,
 				m_framesDispatched*m_staticViewData.samplesPerPixelPerDispatch,
-				minReliableLuma,kappa
+				EMinRelative*exp2(m_staticViewData.cascadeParams.log2_start),kappa
 			);
 			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,sizeof(m_prevView),sizeof(reweightingParams),&reweightingParams);
 		}
