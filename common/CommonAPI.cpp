@@ -633,9 +633,16 @@ bool CommonAPI::createSwapchain(
 {
 	auto oldSwapchain = swapchain;
 
+	nbl::video::ISurface::SCapabilities surfaceCapabilities;
+	bool didGetCaps = params.surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), surfaceCapabilities);
+	assert(didGetCaps);
+
+	uint32_t w = std::max(std::min(width, surfaceCapabilities.maxImageExtent.width), surfaceCapabilities.minImageExtent.width);
+	uint32_t h = std::max(std::min(width, surfaceCapabilities.maxImageExtent.height), surfaceCapabilities.minImageExtent.height);
+
 	nbl::video::ISwapchain::SCreationParams paramsCp = params;
-	paramsCp.width = width;
-	paramsCp.height = height;
+	paramsCp.width = w;
+	paramsCp.height = h;
 	paramsCp.oldSwapchain = oldSwapchain;
 
 	if (device->getAPIType() == nbl::video::EAT_VULKAN)
