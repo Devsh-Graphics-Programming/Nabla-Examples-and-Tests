@@ -100,7 +100,7 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 		<string name="tonemapper" value="ACES=0.4,0.8" />
 		<rfilter type="tent" >
 			<float name="kappa" value="1.0" />
-			<float name="EminRelative" value="0.05" />
+			<float name="Emin" value="0.025" />
 		</rfilter>
 	</film>
 </sensor>
