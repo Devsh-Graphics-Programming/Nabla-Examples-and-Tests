@@ -794,10 +794,11 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	}
 
 	// Compute Queue
+	// if our chosen family index for COMPUTE already exists in the SQueueCreationParams array then we don't need to add to the array, we just need to increment the `count`
 	bool foundComputeInOtherFamily = false;
 	for (uint32_t i = 0; i < actualQueueParamsCount; ++i)
 	{
-		auto& otherQcp = qcp[i];
+		auto& otherQcp = qcp[i]; 
 		uint32_t dedicatedQueuesInFamily = gpuInfo.queueFamilyProps.compute.dedicatedQueueCount;
 		if (otherQcp.familyIndex == gpuInfo.queueFamilyProps.compute.index)
 		{
@@ -830,6 +831,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	}
 
 	// Transfer Queue
+	// if our chosen family index for TRANSFER already exists in the SQueueCreationParams array then we don't need to add to the array, we just need to increment the `count`
 	bool foundTransferInOtherFamily = false;
 	for (uint32_t i = 0; i < actualQueueParamsCount; ++i)
 	{
@@ -888,6 +890,7 @@ void CommonAPI::performGpuInit(InitParams& params, InitOutput& result)
 	// Present Queue
 	if (!headlessCompute)
 	{
+		// if our chosen family index for PRESENT already exists in the SQueueCreationParams array then we don't need to add to the array, we just need to increment the `count`
 		bool foundPresentInOtherFamily = false;
 		for (uint32_t i = 0; i < actualQueueParamsCount; ++i)
 		{
