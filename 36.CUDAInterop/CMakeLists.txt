@@ -13,4 +13,5 @@ nbl_create_executable_project(
 	""
 	"${CUDA_INTEROP_EXAMPLE_INCLUDE_DIRS}"
 	""
+	"${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}"
 )

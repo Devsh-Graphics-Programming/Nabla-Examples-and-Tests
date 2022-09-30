@@ -8,4 +8,5 @@ nbl_create_executable_project(
 	""
 	""
 	""
+	"${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}"
 )

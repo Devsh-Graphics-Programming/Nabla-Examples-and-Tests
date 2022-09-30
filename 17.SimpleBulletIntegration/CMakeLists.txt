@@ -9,4 +9,5 @@ nbl_create_executable_project(
 	"" 
 	"${NBL_EXT_BULLET_INCLUDE_DIRS}" 
 	"${NBL_EXT_BULLET_LIB}"
+	"${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}"
 )
