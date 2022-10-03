@@ -211,6 +211,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::matrix4x3 m_prevCamTform;
 		nbl::core::aabbox3df m_sceneBound;
 		uint32_t m_framesDispatched;
+		float m_maxAreaLightLuma;
 		vec2 m_rcpPixelSize;
 		uint64_t m_totalRaysCast;
 		StaticViewData_t m_staticViewData;

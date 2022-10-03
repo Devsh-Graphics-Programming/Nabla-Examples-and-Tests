@@ -60,15 +60,20 @@ struct SLight
 	}
 
 	// also known as an upper bound on lumens put into the scene
-	inline float computeFluxBound(const nbl::core::vectorSIMDf& radiance) const
+	inline float computeLuma(const nbl::core::vectorSIMDf& radiance) const
 	{
 		const nbl::core::vectorSIMDf rec709LumaCoeffs(0.2126f, 0.7152f, 0.0722f, 0.f);
+		return nbl::core::dot(radiance, rec709LumaCoeffs).x;
+	}
+	// also known as an upper bound on lumens put into the scene
+	inline float computeFluxBound(const float luma) const
+	{
 		const auto unitHemisphereArea = 2.f * nbl::core::PI<float>();
 
 		const auto unitBoxScale = obb.getScale();
 		const float obbArea = 2.f * (unitBoxScale.x * unitBoxScale.y + unitBoxScale.x * unitBoxScale.z + unitBoxScale.y * unitBoxScale.z);
 
-		return nbl::core::dot(radiance, rec709LumaCoeffs).x * unitHemisphereArea * obbArea;
+		return luma * unitHemisphereArea * obbArea;
 	}
 #endif
 
