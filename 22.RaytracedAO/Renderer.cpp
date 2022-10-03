@@ -49,7 +49,7 @@ auto fillIotaDescriptorBindingDeclarations = [](auto* outBindings, uint32_t acce
 Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::ISceneManager* _smgr, bool useDenoiser) :
 		m_useDenoiser(useDenoiser),	m_driver(_driver), m_smgr(_smgr), m_assetManager(_assetManager),
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
-		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX),
+		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
 		m_staticViewData{{0u,0u},0u,0u,{}}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
@@ -189,7 +189,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 	using GPUMeshPacker = CGPUMeshPackerV2<DrawElementsIndirectCommand_t>;
 
 	// get primary (texture and material) global DS
-	InitializationData retval;
+	InitializationData retval = {};
 	m_globalMeta  = meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>();
 	assert(m_globalMeta );
 
@@ -492,9 +492,12 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 											SLight newLight(aabbMesh,newInstanceData->tform); // TODO: should be an OBB
 
-											const float weight = newLight.computeFluxBound(emitter.area.radiance)*emitter.area.samplingWeight;
+											const float luma = newLight.computeLuma(emitter.area.radiance);
+											const float weight = newLight.computeFluxBound(luma)*emitter.area.samplingWeight;
 											if (weight<=FLT_MIN)
 												continue;
+											if (m_maxAreaLightLuma < luma)
+												m_maxAreaLightLuma = luma;
 
 											retval.lights.emplace_back(std::move(newLight));
 											retval.lightPDF.push_back(weight);
@@ -1118,6 +1121,7 @@ void Renderer::deinitSceneResources()
 
 	m_raytraceCommonData = {core::matrix4SIMD(),vec3(),0.f,0,0,0,0.f};
 	m_sceneBound = core::aabbox3df(FLT_MAX, FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
+	m_maxAreaLightLuma = 0.f;
 	
 	m_finalEnvmap = nullptr;
 	m_envMapImportanceSampling.deinitResources();
@@ -1151,6 +1155,8 @@ void Renderer::initScreenSizedResources(
 {
 	float maxEmitterRadianceLuma;
 	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor,maxEmitterRadianceLuma);
+	if (maxEmitterRadianceLuma<m_maxAreaLightLuma)
+		maxEmitterRadianceLuma = m_maxAreaLightLuma;
 	if (maxEmitterRadianceLuma<Emin)
 		maxEmitterRadianceLuma = Emin+0.1234567f;
 
@@ -1162,6 +1168,7 @@ void Renderer::initScreenSizedResources(
 		cascadeCount = MinCascades;
 		cascadeLuminanceBase = std::exp2(16.f); // just some constant to space the cascades apart
 		cascadeLuminanceStart = RGB19E7_MaxLuma;
+		std::cout << "Re-Weighting Monte Carlo = DISABLED" << std::endl;
 	}
 	else
 	{
@@ -1173,6 +1180,7 @@ void Renderer::initScreenSizedResources(
 			cascadeLuminanceStart = baseIsKnown ? (maxEmitterRadianceLuma*std::pow(cascadeLuminanceBase,-cascadeSegmentCount)):Emin;
 		if (!baseIsKnown)
 			cascadeLuminanceBase = core::max(std::pow(maxEmitterRadianceLuma/cascadeLuminanceStart,1.f/cascadeSegmentCount),1.0625f);
+		std::cout << "Re-Weighting Monte Carlo = ENABLED [cascadeCount: "<<cascadeCount<<", start: "<<cascadeLuminanceStart<<", base: "<<cascadeLuminanceBase<<"]" << std::endl;
 	}
 
 	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
