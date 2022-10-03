@@ -315,10 +315,10 @@ int main(int argc, char** argv)
 		ext::MitsubaLoader::CElementFilm::FileFormat fileFormat;
 		Renderer::DenoiserArgs denoiserInfo = {};
 		int32_t cascadeCount = 1;
-		float cascadeLuminanceBase = 8.f;
-		float cascadeLuminanceStart = 1.f;
+		float cascadeLuminanceBase = core::nan<float>();
+		float cascadeLuminanceStart = core::nan<float>();
 		float kappa = 0.f;
-		float EminRelative = 0.05f;
+		float Emin = 0.05f;
 		bool envmap = false;
 		float envmapRegFactor = 0.0f;
 
@@ -423,7 +423,7 @@ int main(int argc, char** argv)
 		mainSensorData.cascadeLuminanceBase = film.cascadeLuminanceBase;
 		mainSensorData.cascadeLuminanceStart = film.cascadeLuminanceStart;
 		mainSensorData.kappa = mainSensorData.cascadeCount<2 ? 0.f:film.rfilter.kappa;
-		mainSensorData.EminRelative = film.rfilter.EminRelative;
+		mainSensorData.Emin = film.rfilter.Emin;
 		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
 		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
 		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
@@ -790,7 +790,7 @@ int main(int argc, char** argv)
 		if(needsReinit) 
 		{
 			renderer->deinitScreenSizedResources();
-			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart);
+			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
 		}
 		
 		smgr->setActiveCamera(sensorData.staticCamera);
@@ -821,7 +821,7 @@ int main(int argc, char** argv)
 
 			driver->beginScene(false, false);
 
-			if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.EminRelative,!sensorData.envmap))
+			if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.Emin,!sensorData.envmap))
 			{
 				renderFailed = true;
 				driver->endScene();
@@ -907,7 +907,7 @@ int main(int argc, char** argv)
 				{
 					renderer->deinitScreenSizedResources();
 					const auto& sensorData = sensors[activeSensor];
-					renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart);
+					renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
 				}
 
 				smgr->setActiveCamera(sensors[activeSensor].interactiveCamera);
@@ -980,7 +980,7 @@ int main(int argc, char** argv)
 			if(!renderer->render(
 					device->getTimer(),
 					activeSensor!=-1 ? sensors[activeSensor].kappa:0.f,
-					activeSensor!=-1 ? sensors[activeSensor].EminRelative:0.f,
+					activeSensor!=-1 ? sensors[activeSensor].Emin:0.f,
 					true,receiver.isRenderingBeauty()
 			))
 			{
