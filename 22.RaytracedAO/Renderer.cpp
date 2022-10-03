@@ -1143,23 +1143,38 @@ void Renderer::deinitSceneResources()
 void Renderer::initScreenSizedResources(
 	const uint32_t width, const uint32_t height,
 	const float envMapRegularizationFactor,
-	int32_t cascadeCount, const float cascadeLuminanceBase,
-	float cascadeLuminanceStart
+	int32_t cascadeCount,
+	float cascadeLuminanceBase,
+	float cascadeLuminanceStart,
+	const float Emin
 )
 {
-	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor);
-	
-	
-	if (cascadeCount<2) // rwmc OFF, store everything to cascade 0
-		cascadeLuminanceStart = exp2(63.f); // RGB19E7 max
-	else if(core::isnan<float>(cascadeLuminanceStart))
-	{
-		// TODO: derive from Max emitter lumiance
-		//cascadeLuminanceStart = maxEmitterRadiosityLuminance*std::pow<float>(cascadeLuminanceBase,1-cascadeCount);
-	}
+	float maxEmitterRadianceLuma;
+	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor,maxEmitterRadianceLuma);
+	if (maxEmitterRadianceLuma<Emin)
+		maxEmitterRadianceLuma = Emin+0.1234567f;
+
 	constexpr int32_t MinCascades = 2; // due to impl details
 	constexpr int32_t MaxCascades = 32; // sane limit
-	cascadeCount = core::clamp(cascadeCount,MinCascades,MaxCascades);
+	const float RGB19E7_MaxLuma = std::exp2(63.f);
+	if (cascadeCount<MinCascades) // rwmc OFF, store everything to cascade 0
+	{
+		cascadeCount = MinCascades;
+		cascadeLuminanceBase = std::exp2(16.f); // just some constant to space the cascades apart
+		cascadeLuminanceStart = RGB19E7_MaxLuma;
+	}
+	else
+	{
+		cascadeCount = core::min(cascadeCount,MaxCascades);
+		const float cascadeSegmentCount = cascadeCount-1;
+
+		const bool baseIsKnown = cascadeLuminanceBase>std::numeric_limits<float>::min();
+		if (core::isnan<float>(cascadeLuminanceStart))
+			cascadeLuminanceStart = baseIsKnown ? (maxEmitterRadianceLuma*std::pow(cascadeLuminanceBase,-cascadeSegmentCount)):Emin;
+		if (!baseIsKnown)
+			cascadeLuminanceBase = core::max(std::pow(maxEmitterRadianceLuma/cascadeLuminanceStart,1.f/cascadeSegmentCount),1.0625f);
+	}
+
 	m_staticViewData.cascadeParams = nbl_glsl_RWMC_computeCascadeParameters(cascadeCount,cascadeLuminanceStart,cascadeLuminanceBase);
 	m_staticViewData.imageDimensions[0] = width;
 	m_staticViewData.imageDimensions[1] = height;
@@ -1700,7 +1715,7 @@ void Renderer::denoiseCubemapFaces(
 // one day it will just work like that
 //#include <nbl/builtin/glsl/sampling/box_muller_transform.glsl>
 
-bool Renderer::render(nbl::ITimer* timer, const float kappa, const float EMinRelative, const bool transformNormals, const bool beauty)
+bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, const bool transformNormals, const bool beauty)
 {
 	if (m_cullPushConstants.maxGlobalInstanceCount==0u)
 		return true;
@@ -1879,7 +1894,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float EMinRel
 				m_staticViewData.cascadeParams.penultimateCascadeIx+2u,
 				m_staticViewData.cascadeParams.base,
 				m_framesDispatched*m_staticViewData.samplesPerPixelPerDispatch,
-				EMinRelative*exp2(m_staticViewData.cascadeParams.log2_start),kappa
+				Emin,kappa
 			);
 			m_driver->pushConstants(m_resolvePipeline->getLayout(),ICPUSpecializedShader::ESS_COMPUTE,sizeof(m_prevView),sizeof(reweightingParams),&reweightingParams);
 		}
