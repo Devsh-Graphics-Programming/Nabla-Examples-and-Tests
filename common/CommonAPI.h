@@ -560,10 +560,6 @@ public:
 		params.apiFeaturesToEnable = apiFeaturesToEnable;
 		
 		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
-
-		//nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { nbl::video::ILogicalDevice::EF_SWAPCHAIN };
-		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
-		//params.requiredDeviceFeatures.count = 1u;
 #endif
 
 		return CommonAPI::Init<gpuInit, EventCallback>(std::move(params));
@@ -583,15 +579,6 @@ public:
 		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
 		params.physicalDeviceFilter.requiredFeatures.rayQuery = true;
 		params.physicalDeviceFilter.requiredFeatures.accelerationStructure = true;
-
-		//nbl::video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] =
-		//{
-		//	nbl::video::ILogicalDevice::EF_SWAPCHAIN,
-		//	nbl::video::ILogicalDevice::EF_ACCELERATION_STRUCTURE,
-		//	nbl::video::ILogicalDevice::EF_RAY_QUERY
-		//};
-		//params.requiredDeviceFeatures.features = requiredFeatures_Device;
-		//params.requiredDeviceFeatures.count = 3u;
 #elif
 		return {};
 #endif
