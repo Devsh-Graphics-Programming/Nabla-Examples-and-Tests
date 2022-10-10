@@ -95,11 +95,6 @@ int main()
 	constexpr bool LOG_TIMESTAMP = false;
 	static_assert(FRAMES_IN_FLIGHT>FBO_COUNT);
 	
-	CommonAPI::SFeatureRequest< video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-	optionalDeviceFeatures.count = 2u;
-	video::ILogicalDevice::E_FEATURE optionalFeatures_Device[] = { video::ILogicalDevice::EF_RAY_TRACING_PIPELINE, video::ILogicalDevice::EF_RAY_QUERY };
-	optionalDeviceFeatures.features = optionalFeatures_Device;
-
 	const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
 	CommonAPI::InitParams initParams;
 	initParams.apiType = video::EAT_VULKAN;
@@ -109,9 +104,8 @@ int main()
 	initParams.windowHeight = WIN_H;
 	initParams.swapchainImageCount = FBO_COUNT;
 	initParams.swapchainImageUsage = swapchainImageUsage;
-	initParams.optionalDeviceFeatures = optionalDeviceFeatures;
 	initParams.depthFormat = asset::EF_D32_SFLOAT;
-	auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+	auto initOutput = CommonAPI::InitWithRaytracingExt(std::move(initParams));
 
 	auto system = std::move(initOutput.system);
 	auto window = std::move(initParams.window);
