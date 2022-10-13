@@ -153,7 +153,7 @@ public:
         initParams.swapchainImageCount = SC_IMG_COUNT;
         initParams.swapchainImageUsage = swapchainImageUsage;
         initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
-        auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+        auto initOutput = CommonAPI::InitWithDefaultExt<CommonAPI::CommonAPIEventCallback, nbl::video::CSubpassKiln, nbl::video::CDrawIndirectAllocator<>>(std::move(initParams));
 
         window = std::move(initParams.window);
         windowCb = std::move(initParams.windowCb);
