@@ -30,13 +30,13 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 
 	if (device->getAPIType() == nbl::video::EAT_VULKAN)
 	{
-		nbl::video::ISurface::SCapabilities capabilities;
-		surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), capabilities);
+		nbl::video::ISurface::SCapabilities surfaceCapabilities;
+		surface->getSurfaceCapabilitiesForPhysicalDevice(device->getPhysicalDevice(), surfaceCapabilities);
 
 		for (uint32_t i = 0; i < acceptableSurfaceTransformCount; i++)
 		{
 			auto testSurfaceTransform = acceptableSurfaceTransforms[i];
-			if (capabilities.currentTransform == testSurfaceTransform)
+			if (surfaceCapabilities.currentTransform == testSurfaceTransform)
 			{
 				surfaceTransform = testSurfaceTransform;
 				break;
@@ -103,6 +103,8 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 		assert(surfaceFormat.format != nbl::asset::EF_UNKNOWN &&
 			surfaceFormat.colorSpace.primary != nbl::asset::ECP_COUNT &&
 			surfaceFormat.colorSpace.eotf != nbl::asset::EOTF_UNKNOWN);
+
+		imageCount = std::max(surfaceCapabilities.minImageCount, std::min(surfaceCapabilities.maxImageCount, imageCount));
 	}
 	else
 	{
@@ -111,7 +113,6 @@ nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParam
 		presentMode = nbl::video::ISurface::EPM_IMMEDIATE;
 		surfaceTransform = nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT;
 	}
-
 	nbl::video::ISwapchain::SCreationParams sc_params = {};
 	sc_params.arrayLayers = 1u;
 	sc_params.minImageCount = imageCount;
