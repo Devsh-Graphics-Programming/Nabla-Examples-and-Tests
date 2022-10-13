@@ -404,7 +404,7 @@ public:
 				transferCmd->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 				
 				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
-				layoutTransition.barrier.srcAccessMask = core::bitflag<asset::E_ACCESS_FLAGS>(0u);
+				layoutTransition.barrier.srcAccessMask = asset::EAF_NONE;
 				layoutTransition.barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 				layoutTransition.oldLayout = asset::IImage::EL_UNDEFINED;
 				layoutTransition.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
@@ -561,7 +561,7 @@ public:
 
 
 				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
-				layoutTransition.barrier.srcAccessMask = core::bitflag<asset::E_ACCESS_FLAGS>(0u);
+				layoutTransition.barrier.srcAccessMask = asset::EAF_NONE;
 				layoutTransition.barrier.dstAccessMask = asset::EAF_SHADER_READ_BIT;
 				layoutTransition.oldLayout = asset::IImage::EL_UNDEFINED;
 				layoutTransition.newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
@@ -642,7 +642,7 @@ public:
 				assetManager.get(),
 				writePath,
 				asset::IImage::EL_PRESENT_SRC,
-				static_cast<asset::E_ACCESS_FLAGS>(0u));
+				asset::EAF_NONE);
 		};
 
 		for (size_t i = 0; i < gpuImageViews->size(); ++i)

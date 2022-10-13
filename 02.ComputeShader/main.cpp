@@ -264,7 +264,7 @@ public:
 			if (apiConnection->getAPIType() == video::EAT_VULKAN ||
 				apiConnection->getAPIType() == video::EAT_OPENGL_ES)
 			{
-				const auto& formatUsages = physicalDevice->getImageFormatUsagesOptimal(creationParams.format);
+				const auto& formatUsages = physicalDevice->getImageFormatUsagesOptimalTiling()[creationParams.format];
 				assert(formatUsages.storageImage);
 				assert(formatUsages.sampledImage);
 				assert(asset::isFloatingPointFormat(creationParams.format) || asset::isNormalizedFormat(creationParams.format));
