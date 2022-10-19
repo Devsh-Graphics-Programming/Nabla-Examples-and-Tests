@@ -49,14 +49,14 @@ layout(location = 1) in vec3 Normal;
 layout(location = 0) out vec4 pixelColor;
 void main()
 {
-    vec3 normal = normalize(Normal);
-    float ambient = 0.2;
-    float diffuse = 0.8;
-    float cos_theta_term = max(dot(normal,vec3(3.0,5.0,-4.0)),0.0);
-    float fresnel = 0.0; //not going to implement yet, not important
-    float specular = 0.0;///pow(max(dot(halfVector,normal),0.0),shininess);
-    const float sunPower = 3.14156*0.3;
-    pixelColor = vec4(Color, 1)*sunPower*(ambient+mix(diffuse,specular,fresnel)*cos_theta_term/3.14159);
+	vec3 normal = normalize(Normal);
+	float ambient = 0.2;
+	float diffuse = 0.8;
+	float cos_theta_term = max(dot(normal,vec3(3.0,5.0,-4.0)),0.0);
+	float fresnel = 0.0; //not going to implement yet, not important
+	float specular = 0.0;///pow(max(dot(halfVector,normal),0.0),shininess);
+	const float sunPower = 3.14156*0.3;
+	pixelColor = vec4(Color, 1)*sunPower*(ambient+mix(diffuse,specular,fresnel)*cos_theta_term/3.14159);
 }
 )===";
 
@@ -166,7 +166,7 @@ class TransformationApp : public ApplicationBase
 		{
 			for (int i = 0; i < f.size(); i++)
 			{
-				fbos[i] = core::smart_refctd_ptr(f[i]);
+				fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
 			}
 		}
 		void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -184,37 +184,50 @@ class TransformationApp : public ApplicationBase
 		APP_CONSTRUCTOR(TransformationApp)
 		void onAppInitialized_impl() override
 		{
-			initOutput.window = core::smart_refctd_ptr(window);
-			
 			const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-			const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
-			CommonAPI::InitWithDefaultExt(
-				initOutput, video::EAT_OPENGL, "Solar System Transformations",
-				FRAMES_IN_FLIGHT, WIN_W, WIN_H, 3u,
-				swapchainImageUsage, surfaceFormat,
-				asset::EF_D32_SFLOAT);
+			std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_SRGB };
 
-			system = std::move(initOutput.system);
-			window = std::move(initOutput.window);
-			windowCb = std::move(initOutput.windowCb);
-			gl = std::move(initOutput.apiConnection);
+			CommonAPI::InitParams initParams;
+			initParams.window = core::smart_refctd_ptr(window);
+			initParams.apiType = video::EAT_VULKAN;
+			initParams.appName = { "Solar System Transformations" };
+			initParams.framesInFlight = FRAMES_IN_FLIGHT;
+			initParams.windowWidth = WIN_W;
+			initParams.windowHeight = WIN_H;
+			initParams.swapchainImageCount = 3u;
+			initParams.swapchainImageUsage = swapchainImageUsage;
+			initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
+			initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
+			initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
+			auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+
+			window = std::move(initParams.window);
+			windowCb = std::move(initParams.windowCb);
 			surface = std::move(initOutput.surface);
-			gpuPhysicalDevice = std::move(initOutput.physicalDevice);
+			utils = std::move(initOutput.utilities);
 			device = std::move(initOutput.logicalDevice);
+			physicalDevice = initOutput.physicalDevice;
 			queues = std::move(initOutput.queues);
-			auto* transferUpQueue = queues[decltype(initOutput)::EQT_TRANSFER_UP];
-			swapchain = std::move(initOutput.swapchain);
-			renderpass = std::move(initOutput.renderpass);
-			fbos = std::move(initOutput.fbo);
-			auto fbo = fbos[0];
-
+			renderpass = std::move(initOutput.renderToSwapchainRenderpass);
+			commandPools = std::move(initOutput.commandPools);
+			system = std::move(initOutput.system);
 			assetManager = std::move(initOutput.assetManager);
 			cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-			utils = std::move(initOutput.utilities);
+			logger = std::move(initOutput.logger);
+			inputSystem = std::move(initOutput.inputSystem);
+			m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+			
+			auto* transferUpQueue = queues[decltype(initOutput)::EQT_TRANSFER_UP];
 
-			auto commandPools = std::move(initOutput.commandPools);
+			CommonAPI::createSwapchain(std::move(device), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+			assert(swapchain);
+			fbo = CommonAPI::createFBOWithSwapchainImages(
+				swapchain->getImageCount(), WIN_W, WIN_H,
+				device, swapchain, renderpass,
+				nbl::asset::EF_D32_SFLOAT
+			);
+
 			transferUpCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
-
 
 			//create one command buffer for every pool
 			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
@@ -238,7 +251,7 @@ class TransformationApp : public ApplicationBase
 
 			constexpr uint32_t GlobalTformPropNum = 3u;
 
-			const size_t minSSBOAlignment = gpuPhysicalDevice->getLimits().minSSBOAlignment;
+			const size_t minSSBOAlignment = physicalDevice->getLimits().minSSBOAlignment;
 			const size_t offset_parent = 0u;
 			const size_t offset_relTform = core::alignUp(offset_parent + parentPropSz * ObjectCount, minSSBOAlignment);
 			const size_t offset_modifStamp = core::alignUp(offset_relTform + relTformPropSz * ObjectCount, minSSBOAlignment);
@@ -250,12 +263,11 @@ class TransformationApp : public ApplicationBase
 
 			video::IGPUBuffer::SCreationParams ssboCreationParams;
 			ssboCreationParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
-			ssboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
 			ssboCreationParams.queueFamilyIndexCount = 0u;
 			ssboCreationParams.queueFamilyIndices = nullptr;
 			ssboCreationParams.size = ssboSz;
 
-			auto ssbo_buf = device->createBuffer(ssboCreationParams);
+			auto ssbo_buf = device->createBuffer(std::move(ssboCreationParams));
 			device->allocate(ssbo_buf->getMemoryReqs(), ssbo_buf.get());
 
 			asset::SBufferRange<video::IGPUBuffer> propBufs[transform_tree_t::property_pool_t::PropertyCount];
@@ -425,28 +437,27 @@ class TransformationApp : public ApplicationBase
 				}
 				video::IGPUBuffer::SCreationParams nodebufParams;
 				nodebufParams.size = sizeof(scene::ITransformTree::node_t) * NumInstances;
-				nodebufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				nodebufParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
 				auto tmp_node_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(nodebufParams), tmp_nodes.data());
 				tmp_node_buf->setObjectDebugName("Temporary Nodes");
 
 				video::IGPUBuffer::SCreationParams parentbufParams;
 				parentbufParams.size = sizeof(scene::ITransformTree::parent_t) * NumInstances;
-				parentbufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				parentbufParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
 				auto tmp_parent_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(parentbufParams), tmp_parents.data());
 				tmp_parent_buf->setObjectDebugName("Temporary Parents");
 
 				video::IGPUBuffer::SCreationParams transformbufParams;
 				transformbufParams.size = sizeof(scene::ITransformTree::relative_transform_t) * NumInstances;
-				transformbufParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+				transformbufParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
 				auto tmp_transform_buf = utils->createFilledDeviceLocalBufferOnDedMem(q, std::move(transformbufParams), tmp_transforms.data());
 				tmp_transform_buf->setObjectDebugName("Temporary Transforms");
 
 				//
 				video::IGPUBuffer::SCreationParams scratchParams = {};
-				scratchParams.canUpdateSubRange = true;
 				scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 				scratchParams.size = utils->getDefaultPropertyPoolHandler()->getMaxScratchSize();
-				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createBuffer(scratchParams) };
+				asset::SBufferBinding<video::IGPUBuffer> scratch = { 0ull,device->createBuffer(std::move(scratchParams)) };
 				device->allocate(scratch.buffer->getMemoryReqs(), scratch.buffer.get());
 				scratch.buffer->setObjectDebugName("Scratch Buffer");
 				{
@@ -514,13 +525,12 @@ class TransformationApp : public ApplicationBase
 
 			constexpr size_t ColorBufSz = sizeof(core::vectorSIMDf) * ObjectCount;
 			video::IGPUBuffer::SCreationParams colorBufCreationParams;
-			colorBufCreationParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
-			colorBufCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
+			colorBufCreationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_VERTEX_BUFFER_BIT;
 			colorBufCreationParams.queueFamilyIndexCount = 0u;
 			colorBufCreationParams.queueFamilyIndices = nullptr;
 			colorBufCreationParams.size = ColorBufSz;
 
-			auto gpuColorBuf = device->createBuffer(colorBufCreationParams );
+			auto gpuColorBuf = device->createBuffer(std::move(colorBufCreationParams));
 			device->allocate(gpuColorBuf->getMemoryReqs(), gpuColorBuf.get());
 			core::vectorSIMDf colors[ObjectCount]{
 				core::vectorSIMDf(0.f, 0.f, 1.f),
@@ -537,7 +547,7 @@ class TransformationApp : public ApplicationBase
 			};
 			for (uint32_t i = 0u; i < ObjectCount; ++i)
 				colors[i].w = solarSystemObjectsData[i].scale;
-			utils->updateBufferRangeViaStagingBuffer(device->getQueue(0, 0), { 0ull, ColorBufSz, gpuColorBuf }, colors);
+			utils->updateBufferRangeViaStagingBufferAutoSubmit({ 0ull, ColorBufSz, gpuColorBuf }, colors, device->getQueue(0, 0));
 
 			// Create GPU Objects (IGPUMeshBuffer + GraphicsPipeline)
 			auto createGPUObject = [&](
@@ -588,7 +598,7 @@ class TransformationApp : public ApplicationBase
 
 
 					video::IGPUGraphicsPipeline::SCreationParams gp_params;
-					gp_params.rasterizationSamplesHint = asset::IImage::ESCF_1_BIT;
+					gp_params.rasterizationSamples = asset::IImage::ESCF_1_BIT;
 					gp_params.renderpass = core::smart_refctd_ptr<video::IGPURenderpass>(renderpass);
 					gp_params.renderpassIndependent = rpIndependentPipeline; // TODO: fix use gpuMesh->getPipeline instead
 					gp_params.subpassIx = 0u;
@@ -609,20 +619,22 @@ class TransformationApp : public ApplicationBase
 			}
 
 			constexpr size_t ModsRangesBufSz = 2u * sizeof(uint32_t) + sizeof(scene::nbl_glsl_transform_tree_modification_request_range_t) * ObjectCount;
-			video::IGPUBuffer::SCreationParams creationParams;
-			creationParams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
-			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
-			creationParams.queueFamilyIndexCount = 0u;
-			creationParams.queueFamilyIndices = nullptr;
-			creationParams.size= ModsRangesBufSz;
 
-
-
-			modRangesBuf = device->createBuffer(creationParams);
-			creationParams.size = sizeof(scene::nbl_glsl_transform_tree_relative_transform_modification_t) * ObjectCount;
-			relTformModsBuf = device->createBuffer(creationParams);
-			creationParams.size = std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull);
-			nodeIdsBuf = device->createBuffer(creationParams);
+			video::IGPUBuffer::SCreationParams modRangesBufParams = {};
+			modRangesBufParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+			modRangesBufParams.size = ModsRangesBufSz;
+			modRangesBuf = device->createBuffer(std::move(modRangesBufParams));
+			
+			video::IGPUBuffer::SCreationParams relTformModsBufParams = {};
+			relTformModsBufParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+			relTformModsBufParams.size = sizeof(scene::nbl_glsl_transform_tree_relative_transform_modification_t) * ObjectCount;
+			relTformModsBuf = device->createBuffer(std::move(relTformModsBufParams));
+			
+			video::IGPUBuffer::SCreationParams nodeIdsBufParams = {};
+			// TODO: To TTM developers and designers, some buffers need extra usages EUF_VERTEX_BUFFER_BIT, you might consider adding functions to get those.
+			nodeIdsBufParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_VERTEX_BUFFER_BIT;
+			nodeIdsBufParams.size = std::max(sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * ObjectCount, 128ull);
+			nodeIdsBuf = device->createBuffer(std::move(nodeIdsBufParams));
 
 			device->allocate(modRangesBuf->getMemoryReqs(), modRangesBuf.get());
 			device->allocate(relTformModsBuf->getMemoryReqs(), relTformModsBuf.get());
@@ -638,7 +650,7 @@ class TransformationApp : public ApplicationBase
 				bufrng.buffer = nodeIdsBuf;
 				bufrng.offset = 0;
 				bufrng.size = nodeIdsBuf->getSize();
-				utils->updateBufferRangeViaStagingBuffer(device->getQueue(0, 0), bufrng, countAndIds);
+				utils->updateBufferRangeViaStagingBufferAutoSubmit(bufrng, countAndIds, device->getQueue(0, 0));
 			}
 
 			ttmDescriptorSets = ttm->createAllDescriptorSets(device.get());
@@ -653,8 +665,7 @@ class TransformationApp : public ApplicationBase
 				aabbs.emplace_back() = aabb;
 			}
 			video::IGPUBuffer::SCreationParams params;
-			params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
-			creationParams.sharingMode = asset::E_SHARING_MODE::ESM_CONCURRENT;
+			params.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
 			params.size = sizeof(core::CompressedAABB)* aabbs.size();
 			ttm->updateDebugDrawDescriptorSet(device.get(),ttmDescriptorSets.debugDraw.get(),{0ull,utils->createFilledDeviceLocalBufferOnDedMem(device->getQueue(0,0),std::move(params),aabbs.data())});
 		}
@@ -684,14 +695,20 @@ class TransformationApp : public ApplicationBase
 			lastTime = now;
 
 			timestamp++;
+			
+			nbl::video::IGPUQueue::SSubmitInfo submit;
+			submit.commandBufferCount = 1u;
+			submit.commandBuffers = &cb.get();
+			submit.signalSemaphoreCount = 1u;
+			submit.pSignalSemaphores = &renderFinished[resourceIx].get();
+			asset::E_PIPELINE_STAGE_FLAGS dstWait = nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT;
+			submit.waitSemaphoreCount = 1u;
+			submit.pWaitSemaphores = &imageAcquire[resourceIx].get();
+			submit.pWaitDstStageMask = &dstWait;
 
 			// safe to proceed
 			cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
-			// we don't wait on anything because we do everything on the same queue
-			uint32_t waitSemaphoreCount = 0u;
-			const asset::E_PIPELINE_STAGE_FLAGS* waitStages = nullptr;
-			video::IGPUSemaphore* const* waitSems = nullptr;
 
 			// queue update to `modRangesBuf`
 			{
@@ -721,7 +738,7 @@ class TransformationApp : public ApplicationBase
 				bufrng.buffer = modRangesBuf;
 				bufrng.offset = 0;
 				bufrng.size = modRangesBuf->getSize();
-				utils->updateBufferRangeViaStagingBuffer(cb.get(), fence.get(), queues[decltype(initOutput)::EQT_GRAPHICS], bufrng, &requestRanges, waitSemaphoreCount, waitSems, waitStages);
+				submit = utils->updateBufferRangeViaStagingBuffer( bufrng, &requestRanges, queues[decltype(initOutput)::EQT_GRAPHICS], fence.get(), submit);
 			}
 
 			// update `relTformModsBuf`
@@ -753,7 +770,7 @@ class TransformationApp : public ApplicationBase
 				bufrng.offset = 0;
 				bufrng.size = relTformModsBuf->getSize();
 
-				utils->updateBufferRangeViaStagingBuffer(cb.get(), fence.get(), queues[decltype(initOutput)::EQT_GRAPHICS], bufrng, reqs.data(), waitSemaphoreCount, waitSems, waitStages);
+				submit = utils->updateBufferRangeViaStagingBuffer( bufrng, reqs.data(), queues[decltype(initOutput)::EQT_GRAPHICS], fence.get(), submit);
 			}
 
 			// Update instances transforms 
@@ -835,6 +852,13 @@ class TransformationApp : public ApplicationBase
 				vp.height = WIN_H;
 				cb->setViewport(0u, 1u, &vp);
 			}
+			{
+				VkRect2D scissor = {};
+				scissor.offset = { 0, 0 };
+				scissor.extent = { WIN_W, WIN_H };
+				cb->setScissor(0u, 1u, &scissor);
+			}
+
 			// begin renderpass
 			{
 				video::IGPUCommandBuffer::SRenderpassBeginInfo info;
@@ -849,7 +873,7 @@ class TransformationApp : public ApplicationBase
 				clearValues[1].depthStencil.stencil = 0.0f;
 
 				info.renderpass = renderpass;
-				info.framebuffer = fbos[0];
+				info.framebuffer = fbo->begin()[0];
 				info.clearValueCount = 2u;
 				info.clearValues = clearValues;
 				info.renderArea.offset = { 0, 0 };
@@ -885,7 +909,9 @@ class TransformationApp : public ApplicationBase
 			// acquires and presents 
 			uint32_t imgnum = 0u;
 			swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
-			CommonAPI::Submit(device.get(), swapchain.get(), cb.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
+			
+			queues[CommonAPI::InitOutput::EQT_GRAPHICS]->submit(1u,&submit,fence.get());
+
 			CommonAPI::Present(device.get(), swapchain.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], renderFinished[resourceIx].get(), imgnum);
 		}
 
@@ -899,12 +925,13 @@ class TransformationApp : public ApplicationBase
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindow> window;
 		nbl::core::smart_refctd_ptr<nbl::video::IAPIConnection> gl;
 		nbl::core::smart_refctd_ptr<nbl::video::ISurface> surface;
-		nbl::video::IPhysicalDevice* gpuPhysicalDevice;
+		nbl::video::IPhysicalDevice* physicalDevice;
 		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> device;
 		std::array<nbl::video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
+		nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-		std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
+		nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
 		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;

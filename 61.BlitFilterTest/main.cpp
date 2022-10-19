@@ -530,7 +530,7 @@ private:
 					bufferRange.buffer = coverageAdjustmentScratchBuffer;
 
 					core::vector<uint32_t> fillValues(scratchSize / sizeof(uint32_t), 0u);
-					utilities->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_COMPUTE], bufferRange, fillValues.data());
+					utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, fillValues.data(), queues[CommonAPI::InitOutput::EQT_COMPUTE]);
 				}
 			}
 
@@ -557,7 +557,7 @@ private:
 				bufferRange.offset = 0ull;
 				bufferRange.size = lutSize;
 				bufferRange.buffer = scaledKernelPhasedLUT;
-				utilities->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_COMPUTE], bufferRange, lutMemory);
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, lutMemory, queues[CommonAPI::InitOutput::EQT_COMPUTE]);
 
 				asset::E_FORMAT bufferViewFormat;
 				if constexpr (std::is_same_v<LutDataType, uint16_t>)

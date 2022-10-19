@@ -124,9 +124,11 @@ class RayQuerySampleApp : public ApplicationBase
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	
+	core::smart_refctd_ptr<video::IGPUFence> frameUploadDataCompleteFence[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
+	core::smart_refctd_ptr<video::IGPUSemaphore> frameUploadDataCompleteSemaphore[FRAMES_IN_FLIGHT] = { nullptr };
 
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT]; // from graphics
 
@@ -330,7 +332,7 @@ public:
 			auto bufferReqs = spheresBuffer->getMemoryReqs();
 			bufferReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits(); // (Erfan->Cyprian) I used `getDeviceLocalMemoryTypeBits` because of previous createDeviceLocalGPUBufferOnDedMem (Focus on DeviceLocal Part)
 			auto spheresBufferMem = logicalDevice->allocate(bufferReqs, spheresBuffer.get());
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,spheresBufferSize,spheresBuffer}, spheres);
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,spheresBufferSize,spheresBuffer}, spheres, graphicsQueue);
 		}
 
 #define TEST_CPU_2_GPU_BLAS
@@ -421,7 +423,7 @@ public:
 				auto aabbBufferMem = logicalDevice->allocate(bufferReqs, aabbsBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 				// (Erfan->Cyprian) -> I passed `IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT` as a third parameter to the allocate function because the buffer needs the usage `EUF_SHADER_DEVICE_ADDRESS_BIT`
 				//		You don't have to worry about it, it's only used in this example
-				utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,aabbsBufferSize,aabbsBuffer}, aabbs);
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,aabbsBufferSize,aabbsBuffer}, aabbs, graphicsQueue);
 			}
 
 			using DeviceGeom = IGPUAccelerationStructure::DeviceBuildGeometryInfo::Geometry;
@@ -533,7 +535,7 @@ public:
 				auto bufferReqs = instancesBuffer->getMemoryReqs();
 				bufferReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 				auto instancesBufferMem = logicalDevice->allocate(bufferReqs, instancesBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-				utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,instancesBufferSize,instancesBuffer}, instances);
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,instancesBufferSize,instancesBuffer}, instances, graphicsQueue);
 			}
 		
 			using DeviceGeom = IGPUAccelerationStructure::DeviceBuildGeometryInfo::Geometry;
@@ -731,7 +733,7 @@ public:
 				auto bufferReqs = gpuSequenceBuffer->getMemoryReqs();
 				bufferReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 				auto gpuSequenceBufferMem = logicalDevice->allocate(bufferReqs, gpuSequenceBuffer.get());
-				utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,bufferSize,gpuSequenceBuffer},sampleSequence->getPointer());
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,bufferSize,gpuSequenceBuffer},sampleSequence->getPointer(), graphicsQueue);
 			}
 			gpuSequenceBufferView = logicalDevice->createBufferView(gpuSequenceBuffer.get(), asset::EF_R32G32B32_UINT);
 		}
@@ -778,7 +780,7 @@ public:
 				auto bufferReqs = buffer->getMemoryReqs();
 				bufferReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 				auto bufferMem = logicalDevice->allocate(bufferReqs, buffer.get());
-				utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,bufferSize,buffer},random.data());
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,bufferSize,buffer},random.data(),graphicsQueue);
 			}
 
 			IGPUImageView::SCreationParams viewParams;
@@ -896,6 +898,9 @@ public:
 		{
 			imageAcquire[i] = logicalDevice->createSemaphore();
 			renderFinished[i] = logicalDevice->createSemaphore();
+			frameComplete[i] = logicalDevice->createFence(video::IGPUFence::ECF_SIGNALED_BIT);
+			frameUploadDataCompleteSemaphore[i] = logicalDevice->createSemaphore();
+			frameUploadDataCompleteFence[i] = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
 		}
 		
 		oracle.reportBeginFrameRecord();
@@ -922,6 +927,8 @@ public:
 
 	void workLoopBody() override
 	{
+		auto& graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
+
 		m_resourceIx++;
 		if(m_resourceIx >= FRAMES_IN_FLIGHT) {
 			m_resourceIx = 0;
@@ -943,12 +950,9 @@ public:
 		
 		auto& cb = cmdbuf[m_resourceIx];
 		auto& fence = frameComplete[m_resourceIx];
-		if (fence)
 		while (logicalDevice->waitForFences(1u,&fence.get(),false,MAX_TIMEOUT)==video::IGPUFence::ES_TIMEOUT)
 		{
 		}
-		else
-			fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 		
 		const auto viewMatrix = cam.getViewMatrix();
 		const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
@@ -976,7 +980,16 @@ public:
 			range.buffer = gpuubo;
 			range.offset = 0ull;
 			range.size = sizeof(viewParams);
-			utilities->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_GRAPHICS], range, &viewParams);
+
+			video::IGPUQueue::SSubmitInfo uploadImageSubmit;
+			uploadImageSubmit.pSignalSemaphores = &frameUploadDataCompleteSemaphore[m_resourceIx].get();
+			uploadImageSubmit.signalSemaphoreCount = 1u;
+			
+			// We know the fence is already signal because of how we structured our execution -> frameUploadDataCompleteSemaphore -> signals to Render Frame -> wait for frameComplete fence to finish -> then we know frameUploadCompleteFence is signalled
+			logicalDevice->resetFences(1, &frameUploadDataCompleteFence[m_resourceIx].get());
+
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue, frameUploadDataCompleteFence[m_resourceIx].get(), uploadImageSubmit);
+			// No need to wait for frameUploadDataCompleteFence in CPU, we'll use semaphores to singal the next stage the upload is complete.
 		}
 				
 		auto graphicsCmdQueueFamIdx = queues[CommonAPI::InitOutput::EQT_GRAPHICS]->getFamilyIndex();
@@ -1115,13 +1128,20 @@ public:
 
 		cb->end();
 		logicalDevice->resetFences(1, &fence.get());
-		CommonAPI::Submit(
-			logicalDevice.get(),
-			cb.get(),
-			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			imageAcquire[m_resourceIx].get(),
-			renderFinished[m_resourceIx].get(),
-			fence.get());
+
+		nbl::video::IGPUQueue::SSubmitInfo submit;
+		submit.commandBufferCount = 1u;
+		submit.commandBuffers = &cb.get();
+		submit.signalSemaphoreCount = 1u;
+		submit.pSignalSemaphores = &renderFinished[m_resourceIx].get();
+		nbl::video::IGPUSemaphore* waitSemaphores[2u] = { imageAcquire[m_resourceIx].get(), frameUploadDataCompleteSemaphore[m_resourceIx].get() };
+		asset::E_PIPELINE_STAGE_FLAGS waitStages[2u] = { nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT, nbl::asset::EPSF_RAY_TRACING_SHADER_BIT_KHR} ;
+		submit.waitSemaphoreCount = 2u;
+		submit.pWaitSemaphores = waitSemaphores;
+		submit.pWaitDstStageMask = waitStages;
+
+		graphicsQueue->submit(1u,&submit,fence.get());
+
 		CommonAPI::Present(logicalDevice.get(), swapchain.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], renderFinished[m_resourceIx].get(), m_acquiredNextFBO);
 	}
 

@@ -148,6 +148,7 @@ public:
 					return "../presentCubemap.frag";
 				default:
 					assert(false);
+					return "";
 				}
 			};
 
@@ -414,20 +415,17 @@ public:
 				layoutTransition.subresourceRange = gpuImageView->getCreationParameters().subresourceRange;
 				transferCmd->pipelineBarrier(asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EPSF_TRANSFER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &layoutTransition);
 				
-				uint32_t waitSemaphoreCount = 0u;
-				video::IGPUSemaphore*const * semaphoresToWaitBeforeOverwrite = nullptr;
-				const asset::E_PIPELINE_STAGE_FLAGS* stagesToWaitForPerSemaphore = nullptr;
-				core::SRange<const asset::IImage::SBufferCopy> copyRegions(newRegions.data(), newRegions.data() + newRegions.size());
-				utilities->updateImageViaStagingBuffer(transferCmd.get(), transferFence.get(), transferQueue, cpuImage->getBuffer(), imageCreateParams.format, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, copyRegions, waitSemaphoreCount, semaphoresToWaitBeforeOverwrite, stagesToWaitForPerSemaphore);
-
-				transferCmd->end();
-
 				video::IGPUQueue::SSubmitInfo submit = {};
 				submit.commandBufferCount = 1u;
 				submit.commandBuffers = &transferCmd.get();
-
-				transferQueue->submit(1u, &submit, transferFence.get());
+				submit.waitSemaphoreCount = 0u;
+				submit.pWaitSemaphores = nullptr;
+				submit.pWaitDstStageMask = nullptr;
+				core::SRange<const asset::IImage::SBufferCopy> copyRegions(newRegions.data(), newRegions.data() + newRegions.size());
 				
+				utilities->updateImageViaStagingBufferAutoSubmit( cpuImage->getBuffer(), imageCreateParams.format, gpuImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, copyRegions, transferQueue, transferFence.get(), submit);
+				// transferCmd->end();
+
 				logicalDevice->blockForFences(1u, &transferFence.get());
 			}
 		}

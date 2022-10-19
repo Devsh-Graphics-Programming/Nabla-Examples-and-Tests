@@ -617,8 +617,9 @@ class LoDSystemApp : public ApplicationBase
                     {
                         tt->allocateNodes({instanceGUIDs.data(),instanceGUIDs.data()+objectCount});
 
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue,{0u,sizeof(uint32_t),nodeList.buffer},&objectCount);
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue,{sizeof(uint32_t),objectCount*sizeof(scene::ITransformTree::node_t),nodeList.buffer},instanceGUIDs.data());
+                        video::IGPUQueue::SSubmitInfo emptySubmit = {};
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({0u,sizeof(uint32_t),nodeList.buffer},&objectCount,transferUpQueue);
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({sizeof(uint32_t),objectCount*sizeof(scene::ITransformTree::node_t),nodeList.buffer},instanceGUIDs.data(), transferUpQueue);
 
                         scene::ITransformTreeManager::UpstreamRequest request;
                         request.tree = tt.get();
@@ -636,7 +637,7 @@ class LoDSystemApp : public ApplicationBase
                             instance.instanceGUID = instanceGUID;
                             instance.lodTableUvec4Offset = lodTables[typeDist(mt)];
                         }
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue, { 0u,instanceList.size()*sizeof(culling_system_t::InstanceToCull),cullingParams.instanceList.buffer }, instanceList.data());
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({ 0u,instanceList.size()*sizeof(culling_system_t::InstanceToCull),cullingParams.instanceList.buffer }, instanceList.data(), transferUpQueue);
 
                         cullPushConstants.instanceCount += instanceList.size();
                     }

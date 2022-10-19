@@ -279,7 +279,7 @@ int main()
 			auto gpuSequenceBufferMemReqs = gpuSequenceBuffer->getMemoryReqs();
 			gpuSequenceBufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			device->allocate(gpuSequenceBufferMemReqs, gpuSequenceBuffer.get());
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer());
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer(), graphicsQueue);
 		}
 		gpuSequenceBufferView = device->createBufferView(gpuSequenceBuffer.get(), asset::EF_R32G32B32_UINT);
 	}
@@ -327,7 +327,7 @@ int main()
 			auto bufferMemReqs = buffer->getMemoryReqs();
 			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			device->allocate(bufferMemReqs, buffer.get());
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data());
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data(),graphicsQueue);
 		}
 
 		IGPUImageView::SCreationParams viewParams;
@@ -518,7 +518,7 @@ int main()
 			range.buffer = gpuubo;
 			range.offset = 0ull;
 			range.size = sizeof(viewParams);
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, range, &viewParams);
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue);
 		}
 				
 		// TRANSITION outHDRImageViews[imgnum] to EIL_GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
