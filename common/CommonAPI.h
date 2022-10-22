@@ -1289,10 +1289,11 @@ protected:
 		result.queues[InitOutput::EQT_COMPUTE] = result.logicalDevice->getQueue(queuesInfo.compute.index, queuesIndexInFamily[InitOutput::EQT_COMPUTE]);
 
 		// TEMP_FIX
-	#ifdef EXAMPLES_CAN_HANDLE_TRANSFER_WITHOUT_GRAPHICS 
+	#ifdef EXAMPLES_CAN_LIVE_WITHOUT_GRAPHICS_QUEUE
 		result.queues[InitOutput::EQT_TRANSFER_UP] = result.logicalDevice->getQueue(queuesInfo.transfer.index, queuesIndexInFamily[EQT_TRANSFER_UP]);
 		result.queues[InitOutput::EQT_TRANSFER_DOWN] = result.logicalDevice->getQueue(queuesInfo.transfer.index, queuesIndexInFamily[EQT_TRANSFER_DOWN]);
 	#else
+		result.queues[InitOutput::EQT_COMPUTE] = result.logicalDevice->getQueue(queuesInfo.graphics.index, 0u);
 		if (!headlessCompute)
 		{
 			result.queues[InitOutput::EQT_TRANSFER_UP] = result.logicalDevice->getQueue(queuesInfo.graphics.index, 0u);
