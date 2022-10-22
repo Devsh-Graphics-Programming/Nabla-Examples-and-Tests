@@ -354,7 +354,7 @@ public:
 		//! Optional: PhysicalDevices that meet all the requirements of `physicalDeviceFilter` will go through `physicalDeviceSelector` to select one from the suitable physical devices
 		IPhysicalDeviceSelector* physicalDeviceSelector = nullptr;
 
-		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_COLOR_ATTACHMENT_BIT;
+		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE;
 
 		constexpr static inline std::array<nbl::asset::E_FORMAT, 4> defaultAcceptableSurfaceFormats = { nbl::asset::EF_R8G8B8A8_SRGB, nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::EF_B8G8R8A8_UNORM };
 		constexpr static inline std::array<nbl::asset::E_COLOR_PRIMARIES, 1> defaultAcceptableColorPrimaries = { nbl::asset::ECP_SRGB };
@@ -383,7 +383,7 @@ public:
 
 		constexpr bool isHeadlessCompute()
 		{
-			return swapchainImageUsage == nbl::asset::IImage::EUF_NONE || (!window);
+			return swapchainImageUsage == nbl::asset::IImage::EUF_NONE;
 		}
 	};
 
