@@ -1,4 +1,5 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -986,6 +987,7 @@ public:
 			uploadImageSubmit.signalSemaphoreCount = 1u;
 			
 			// We know the fence is already signal because of how we structured our execution -> frameUploadDataCompleteSemaphore -> signals to Render Frame -> wait for frameComplete fence to finish -> then we know frameUploadCompleteFence is signalled
+			utilities->getDefaultUpStreamingBuffer()->cull_frees(); // need to cull_frees after fence signalled and before fence is reset again
 			logicalDevice->resetFences(1, &frameUploadDataCompleteFence[m_resourceIx].get());
 
 			utilities->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue, frameUploadDataCompleteFence[m_resourceIx].get(), uploadImageSubmit);
