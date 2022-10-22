@@ -383,7 +383,7 @@ public:
 
 		constexpr bool isHeadlessCompute()
 		{
-			return swapchainImageUsage == nbl::asset::IImage::E_USAGE_FLAGS(0);
+			return swapchainImageUsage == nbl::asset::IImage::EUF_NONE || (!window);
 		}
 	};
 
@@ -429,6 +429,7 @@ public:
 		nbl::system::path sharedOutputCWD = CWD / "../../tmp/";;
 		nbl::system::path localInputCWD = CWD / "../assets";
 		nbl::system::path localOutputCWD = CWD;
+		// TODO: make NonGraphicalApplicationBase(IApplicationFramework inherit from nbl::core::IReferenceCounted?)
 		auto app = nbl::core::make_smart_refctd_ptr<AppClassName>(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD);
 
 		for (size_t i = 0; i < argc; ++i)
