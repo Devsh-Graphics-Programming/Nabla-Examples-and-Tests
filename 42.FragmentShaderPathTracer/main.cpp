@@ -332,7 +332,8 @@ int main()
 
 		IGPUImageView::SCreationParams viewParams;
 		viewParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(graphicsQueue, std::move(imgParams), buffer.get(), 1u, &region);
+		// TODO: Replace this IGPUBuffer -> IGPUImage to using image upload utility
+		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(std::move(imgParams), buffer.get(), 1u, &region, graphicsQueue);
 		viewParams.viewType = IGPUImageView::ET_2D;
 		viewParams.format = EF_R32G32_UINT;
 		viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
