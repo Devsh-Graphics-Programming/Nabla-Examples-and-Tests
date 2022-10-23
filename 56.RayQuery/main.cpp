@@ -723,8 +723,6 @@ public:
 				out[i*MaxDimensions+dim] = sampler.sample(dim,i);
 			}
 		
-			// TODO: Temp Fix because createFilledDeviceLocalBufferOnDedMem doesn't take in params
-			// auto gpuSequenceBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(graphicsQueue, sampleSequence->getSize(), sampleSequence->getPointer());
 			{
 				const auto bufferSize = sampleSequence->getSize();
 				IGPUBuffer::SCreationParams params = {};
@@ -769,24 +767,22 @@ public:
 					pixel = rng.nextSample();
 			}
 
-			// TODO: Temp Fix because createFilledDeviceLocalBufferOnDedMem doesn't take in params
-			// auto buffer = utilities->createFilledDeviceLocalBufferOnDedMem(graphicsQueue, random.size()*sizeof(uint32_t), random.data());
-			core::smart_refctd_ptr<IGPUBuffer> buffer;
+			core::smart_refctd_ptr<IGPUBuffer> scrambleImageBuffer;
 			{
 				const auto bufferSize = random.size() * sizeof(uint32_t);
 				IGPUBuffer::SCreationParams params = {};
 				params.size = bufferSize;
 				params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_TRANSFER_SRC_BIT; 
-				buffer = logicalDevice->createBuffer(std::move(params));
-				auto bufferReqs = buffer->getMemoryReqs();
+				scrambleImageBuffer = logicalDevice->createBuffer(std::move(params));
+				auto bufferReqs = scrambleImageBuffer->getMemoryReqs();
 				bufferReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-				auto bufferMem = logicalDevice->allocate(bufferReqs, buffer.get());
-				utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,bufferSize,buffer},random.data(),graphicsQueue);
+				auto bufferMem = logicalDevice->allocate(bufferReqs, scrambleImageBuffer.get());
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,bufferSize,scrambleImageBuffer},random.data(),graphicsQueue);
 			}
 
 			IGPUImageView::SCreationParams viewParams;
 			viewParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-			viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(graphicsQueue, std::move(imgParams), buffer.get(), 1u, &region);
+			viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(graphicsQueue, std::move(imgParams), scrambleImageBuffer.get(), 1u, &region);
 			viewParams.viewType = IGPUImageView::ET_2D;
 			viewParams.format = EF_R32G32_UINT;
 			viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -795,7 +791,7 @@ public:
 			gpuScrambleImageView = logicalDevice->createImageView(std::move(viewParams));
 		}
 	
-		// Create Out Image TODO
+		// Create Out Image
 		for(uint32_t i = 0; i < swapchain->getImageCount(); ++i) {
 			outHDRImageViews[i] = createHDRImageView(logicalDevice, asset::EF_R16G16B16A16_SFLOAT, WIN_W, WIN_H);
 		}
