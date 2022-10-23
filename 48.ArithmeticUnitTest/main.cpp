@@ -192,7 +192,7 @@ bool validateResults(ILogicalDevice* device, IUtilities* utilities, IGPUQueue* t
 	bool success = true;
 
 	SBufferRange<IGPUBuffer> bufferRange = {0u, kBufferSize, core::smart_refctd_ptr<IGPUBuffer>(bufferToRead)};
-	utilities->downloadBufferRangeViaStagingBuffer(transferDownQueue, bufferRange, resultsBuffer->getPointer());
+	utilities->downloadBufferRangeViaStagingBufferAutoSubmit(bufferRange, resultsBuffer->getPointer(), transferDownQueue);
 
 	auto dataFromBuffer = reinterpret_cast<uint32_t*>(resultsBuffer->getPointer());
 	const uint32_t subgroupSize = (*dataFromBuffer++);
