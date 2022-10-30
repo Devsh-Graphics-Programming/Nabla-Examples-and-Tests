@@ -726,6 +726,7 @@ protected:
 		QueueFamilyProps present;
 	};
 
+	// TODO: (Erfan) no need to extract or hold any memory, we can construct the queue info while scoring and selecting queues; then code will be much more readable
 	static PhysicalDeviceQueuesInfo extractPhysicalDeviceQueueInfos(
 		nbl::video::IPhysicalDevice* const physicalDevice,
 		nbl::core::smart_refctd_ptr<nbl::video::ISurface> surface,
