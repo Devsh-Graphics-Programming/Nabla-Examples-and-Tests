@@ -3,13 +3,12 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #define _NBL_STATIC_LIB_
-#include <iostream>
-#include <cstdio>
-#include <nabla.h>
-
-#include "../common/CommonAPI.h"
+#include <CommonAPI.h>
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
+#include <iostream>
+#include <cstdio>
 
 using namespace nbl;
 

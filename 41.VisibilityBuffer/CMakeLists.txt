@@ -10,4 +10,4 @@ set(EXT_SOURCE_FILES
 )
 	
 
-nbl_create_executable_project("${EXT_SOURCE_FILES}" "" "" "")
+nbl_create_executable_project("${EXT_SOURCE_FILES}" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

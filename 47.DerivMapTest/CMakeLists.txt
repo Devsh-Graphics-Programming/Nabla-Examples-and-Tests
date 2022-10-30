@@ -8,4 +8,5 @@ nbl_create_executable_project(
 	""
 	"${DENOISER_TONEMAPPER_EXAMPLE_INCLUDE_DIRS}"
 	""
+	"${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}"
 )
