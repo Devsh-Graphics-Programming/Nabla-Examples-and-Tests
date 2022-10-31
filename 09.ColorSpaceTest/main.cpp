@@ -282,13 +282,13 @@ public:
 		for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
 			clonedCpuImageViews[i] = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(cpuImageViews[i]->clone());
 		
-		// Allocate and Leave 1MB for image uploads, to test image copy with small memory remaining 
+		// Allocate and Leave 8MB for image uploads, to test image copy with small memory remaining 
 		{
 			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
-			uint32_t maxFreeBlock = utilities->getDefaultUpStreamingBuffer()->max_size(); 
+			uint32_t maxFreeBlock = utilities->getDefaultUpStreamingBuffer()->max_size();
 			const uint32_t allocationAlignment = 64u;
-			const uint32_t allocationSize = maxFreeBlock - 0x00F0000u;
-			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now()+std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
+			const uint32_t allocationSize = maxFreeBlock - (0x00F0000u * 4u);
+			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
 		}
 
 		cpu2gpuParams.beginCommandBuffers();
