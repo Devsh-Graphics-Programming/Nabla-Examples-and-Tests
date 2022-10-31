@@ -12,7 +12,7 @@
 
 using namespace nbl;
 
-#define SWITCH_IMAGES_PER_X_MILISECONDS 1500
+#define SWITCH_IMAGES_PER_X_MILISECONDS 750
 constexpr std::string_view testingImagePathsFile = "../imagesTestList.txt";
 
 struct NBL_CAPTION_DATA_TO_DISPLAY
@@ -453,10 +453,11 @@ public:
 			}
 		};
 
+		auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
 			auto windowExtent = gpuImageView->getCreationParameters().image->getCreationParameters().extent;
-			auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 
 			bool didResize = false;
 			if (windowExtent.width != lastWidth || windowExtent.height != lastHeight)
