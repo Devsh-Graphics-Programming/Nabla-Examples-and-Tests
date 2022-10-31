@@ -285,7 +285,7 @@ bool runTest(
 	return passed;
 }
 
-class ArythmeticUnitTestApp : public NonGraphicalApplicationBase, public nbl::core::IReferenceCounted
+class ArythmeticUnitTestApp : public NonGraphicalApplicationBase
 {
 
 public:
