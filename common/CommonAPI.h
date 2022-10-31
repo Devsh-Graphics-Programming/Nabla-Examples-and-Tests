@@ -326,7 +326,15 @@ public:
 	
 	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
 	{
+	protected:
+		const nbl::video::IPhysicalDevice::E_DRIVER_ID preferredDriver = nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY;
+
 	public:
+
+		CDefaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::E_DRIVER_ID preferredDriver)
+			: preferredDriver(preferredDriver)
+		{}
+
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
 		nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) override;
 	};
@@ -1094,7 +1102,7 @@ protected:
 			return;
 		}
 
-		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector = {};
+		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
 		if(params.physicalDeviceSelector == nullptr)
 			params.physicalDeviceSelector = &defaultPhysicalDeviceSelector;
 

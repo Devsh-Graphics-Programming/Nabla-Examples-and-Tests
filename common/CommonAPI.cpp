@@ -3,10 +3,18 @@
 
 nbl::video::IPhysicalDevice* const CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices)
 {
-	if(suitablePhysicalDevices.empty())
+
+	if (suitablePhysicalDevices.empty())
 		return nullptr;
-	auto firstPhysDev = *suitablePhysicalDevices.begin();
-	return firstPhysDev;
+
+	for (auto itr = suitablePhysicalDevices.begin(); itr != suitablePhysicalDevices.end(); ++itr)
+	{
+		nbl::video::IPhysicalDevice* const physdev = *itr;
+		if (physdev->getProperties().driverID == preferredDriver)
+			return physdev;
+	}
+
+	return *suitablePhysicalDevices.begin();
 }
 
 nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParams(
