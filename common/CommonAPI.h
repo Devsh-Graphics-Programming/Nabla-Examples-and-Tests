@@ -1102,7 +1102,7 @@ protected:
 			return;
 		}
 
-		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
+		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_AMD_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
 		if(params.physicalDeviceSelector == nullptr)
 			params.physicalDeviceSelector = &defaultPhysicalDeviceSelector;
 
@@ -1692,7 +1692,12 @@ const nbl::system::path& _sharedOutputCWD) : NonGraphicalApplicationBase(app, en
 #define NBL_COMMON_API_MAIN(android_app_class) NBL_ANDROID_MAIN_FUNC(android_app_class, CommonAPI::CommonAPIEventCallback)
 #else
 using ApplicationBase = GraphicalApplication;
-using NonGraphicalApplicationBase = nbl::system::IApplicationFramework;
+class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework, public nbl::core::IReferenceCounted
+{
+public:
+	using Base = nbl::system::IApplicationFramework;
+	using Base::Base;
+};
 #define APP_CONSTRUCTOR(type) type(const nbl::system::path& _localInputCWD,\
 const nbl::system::path& _localOutputCWD,\
 const nbl::system::path& _sharedInputCWD,\
