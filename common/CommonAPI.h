@@ -1102,7 +1102,7 @@ protected:
 			return;
 		}
 
-		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_AMD_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
+		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
 		if(params.physicalDeviceSelector == nullptr)
 			params.physicalDeviceSelector = &defaultPhysicalDeviceSelector;
 
