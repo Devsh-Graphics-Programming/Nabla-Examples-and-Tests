@@ -202,7 +202,7 @@ public:
 			asset::ICPUSpecializedShader* csSpec = static_cast<nbl::asset::ICPUSpecializedShader*>(csContents.begin()->get());
 			computeUnspec = core::smart_refctd_ptr<asset::ICPUShader>(csSpec->getUnspecialized());
 			computeUnspec = assetManager->getGLSLCompiler()->resolveIncludeDirectives(
-				(const char*)computeUnspec->getSPVorGLSL()->getPointer(), asset::IShader::ESS_COMPUTE, pathToCompShader);
+				(const char*)computeUnspec->getContent()->getPointer(), asset::IShader::ESS_COMPUTE, pathToCompShader);
 		}
 
 		const asset::CIntrospectionData* introspection = nullptr;

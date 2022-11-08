@@ -288,7 +288,7 @@ public:
 		auto createSpecializedShaderFromSourceWithIncludes = [&](const char* source, asset::IShader::E_SHADER_STAGE stage, const char* origFilepath)
 		{
 			auto resolved_includes = assetManager->getGLSLCompiler()->resolveIncludeDirectives(source, stage, origFilepath);
-			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getSPVorGLSL()->getPointer()), stage);
+			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getContent()->getPointer()), stage);
 		};
 
 		core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuShaders[2] =

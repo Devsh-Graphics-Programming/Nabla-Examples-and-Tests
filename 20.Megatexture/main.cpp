@@ -204,8 +204,8 @@ core::smart_refctd_ptr<asset::ICPUSpecializedShader> createModifiedFragShader(co
     const asset::ICPUShader* unspec = _fs->getUnspecialized();
     assert(unspec->containsGLSL());
 
-    auto begin = reinterpret_cast<const char*>(unspec->getSPVorGLSL()->getPointer());
-    auto end = begin+unspec->getSPVorGLSL()->getSize();
+    auto begin = reinterpret_cast<const char*>(unspec->getContent()->getPointer());
+    auto end = begin+unspec->getContent()->getSize();
     std::string glsl(begin,end);
 
     std::string prelude(strlen(SHADER_OVERRIDES)+500u,'\0');

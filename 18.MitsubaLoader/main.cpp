@@ -129,7 +129,7 @@ static core::smart_refctd_ptr<asset::ICPUSpecializedShader> createModifiedFragSh
 	const asset::ICPUShader* unspec = _fs->getUnspecialized();
 	assert(unspec->containsGLSL());
 
-	std::string glsl = reinterpret_cast<const char*>(unspec->getSPVorGLSL()->getPointer());
+	std::string glsl = reinterpret_cast<const char*>(unspec->getContent()->getPointer());
 	std::string extra = "\n#define VIEWPORT_SZ vec2(" + std::to_string(viewport_w) + "," + std::to_string(viewport_h) + ")" +
 		"\n#define LIGHT_COUNT " + std::to_string(lightCnt) +
 		"\n#define SAMPLE_COUNT " + std::to_string(smplCnt) +
