@@ -277,6 +277,7 @@ public:
 
 		auto createSpecializedShaderFromSource = [=](const char* source, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUSpecializedShader>
 		{
+			// TODO: Update: should use the compiler set from asset manager
 			auto spirv = assetManager->getGLSLCompiler()->createSPIRVFromGLSL(source, stage, "main", "runtimeID", nullptr, true, nullptr, logger.get());
 			if (!spirv)
 				return nullptr;

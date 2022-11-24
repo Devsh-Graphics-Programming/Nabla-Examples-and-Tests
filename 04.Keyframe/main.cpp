@@ -144,6 +144,7 @@ int main()
 
 		auto createSpecializedShaderFromSource = [=](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage)
 		{
+			// TODO: Update: should use the compiler set from asset manager
 			auto spirv = device->getAssetManager()->getGLSLCompiler()->createSPIRVFromGLSL(source, stage, "main", "runtimeID");
 			return core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(spirv),asset::ICPUSpecializedShader::SInfo{ nullptr,nullptr,"main",stage });
 		};
