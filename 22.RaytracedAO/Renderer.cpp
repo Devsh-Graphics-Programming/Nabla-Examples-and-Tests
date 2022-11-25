@@ -1704,14 +1704,8 @@ void Renderer::denoiseCubemapFaces(
 		extractImagesCmd << "call ../extractCubemap.bat ";
 		extractImagesCmd << " " << std::to_string(cropOffsetX);
 		extractImagesCmd << " " << std::to_string(cropOffsetY);
-		extractImagesCmd << " " << std::to_string(cropWidth);
-		extractImagesCmd << " " << std::to_string(cropHeight);
 		extractImagesCmd << " " << mergedDenoisedWithoutExtension + extension;
-		for(uint32_t i = 0; i < 6; ++i)
-		{
-			auto renderFilePathWithoutExtension = std::filesystem::path(renderFilePaths[i]).replace_extension().string();
-			extractImagesCmd << " " << renderFilePathWithoutExtension + "_denoised" + extension;
-		}
+		extractImagesCmd << " " << mergedDenoisedWithoutExtension + "_stripe" + extension;
 		std::system(extractImagesCmd.str().c_str());
 	};
 
