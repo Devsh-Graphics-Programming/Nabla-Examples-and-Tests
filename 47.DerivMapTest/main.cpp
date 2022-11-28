@@ -203,6 +203,7 @@ static core::smart_refctd_ptr<asset::ICPUImage> createDerivMapFromHeightMap(asse
 	asset::ICPUImage::SBufferCopy region;
 	region.imageOffset = { 0,0,0 };
 	region.imageExtent = outParams.extent;
+	region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 	region.imageSubresource.baseArrayLayer = 0u;
 	region.imageSubresource.layerCount = 1u;
 	region.imageSubresource.mipLevel = 0u;
@@ -437,7 +438,7 @@ public:
 			assetManager.get(),
 			writePath, 
 			asset::IImage::EL_PRESENT_SRC,
-			static_cast<asset::E_ACCESS_FLAGS>(0u));
+			asset::EAF_NONE);
 
 		return status;
 	};

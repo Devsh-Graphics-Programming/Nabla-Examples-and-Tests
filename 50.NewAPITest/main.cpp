@@ -148,7 +148,7 @@ Choose Graphics API:
 	bufrng.offset = 0;
 	bufrng.size = somebuffer->getSize();
 	bufrng.buffer = somebuffer;
-	device->updateBufferRangeViaStagingBuffer(queue, bufrng, stackmem);
+	device->updateBufferRangeViaStagingBufferAutoSubmit(bufrng, stackmem, queue);
 	*/
 
 	// those shouldnt be like that (filesystem is already created in IAPIConnection but also temporarily i think -- we're going to have system::ISystem instead anyway)

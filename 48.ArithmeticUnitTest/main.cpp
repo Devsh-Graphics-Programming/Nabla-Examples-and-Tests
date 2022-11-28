@@ -192,7 +192,7 @@ bool validateResults(ILogicalDevice* device, IUtilities* utilities, IGPUQueue* t
 	bool success = true;
 
 	SBufferRange<IGPUBuffer> bufferRange = {0u, kBufferSize, core::smart_refctd_ptr<IGPUBuffer>(bufferToRead)};
-	utilities->downloadBufferRangeViaStagingBuffer(transferDownQueue, bufferRange, resultsBuffer->getPointer());
+	utilities->downloadBufferRangeViaStagingBufferAutoSubmit(bufferRange, resultsBuffer->getPointer(), transferDownQueue);
 
 	auto dataFromBuffer = reinterpret_cast<uint32_t*>(resultsBuffer->getPointer());
 	const uint32_t subgroupSize = (*dataFromBuffer++);
@@ -297,13 +297,15 @@ public:
 	NON_GRAPHICAL_APP_CONSTRUCTOR(ArythmeticUnitTestApp)
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::InitOutput initOutput;
-		CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, "Subgroup Arithmetic Test");
-		gl = std::move(initOutput.apiConnection);
+		CommonAPI::InitParams initParams;
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "Subgroup Arithmetic Test" };
+		auto initOutput = CommonAPI::Init(std::move(initParams));
+
+		apiConnection = std::move(initOutput.apiConnection);
 		gpuPhysicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		queues = std::move(initOutput.queues);
-		renderpass = std::move(initOutput.renderpass);
 		commandPools = std::move(initOutput.commandPools);
 		assetManager = std::move(initOutput.assetManager);
 		logger = std::move(initOutput.logger);
@@ -338,10 +340,9 @@ public:
 			params.size = kBufferSize;
 			params.queueFamilyIndexCount = 0;
 			params.queueFamilyIndices = nullptr;
-			params.sharingMode = ESM_EXCLUSIVE;
 			params.usage = core::bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT)|IGPUBuffer::EUF_TRANSFER_SRC_BIT;
 			
-			buffers[i] = logicalDevice->createBuffer(params);
+			buffers[i] = logicalDevice->createBuffer(std::move(params));
 			auto mreq = buffers[i]->getMemoryReqs();
 			mreq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 
@@ -420,9 +421,9 @@ public:
 		const auto ds = descriptorSet.get();
 		auto computeQueue = initOutput.queues[CommonAPI::InitOutput::EQT_COMPUTE];
 		auto fence = logicalDevice->createFence(IGPUFence::ECF_UNSIGNALED);
-		auto cmdPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+		auto cmdPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
-		logicalDevice->createCommandBuffers(cmdPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
 		for (uint32_t workgroupSize=45u; workgroupSize<=1024u; workgroupSize++)
 		{
@@ -468,7 +469,7 @@ public:
 
 	private:
 
-		nbl::core::smart_refctd_ptr<nbl::video::IAPIConnection> gl;
+		nbl::core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
 		nbl::core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
 		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
 		nbl::video::IPhysicalDevice* gpuPhysicalDevice;

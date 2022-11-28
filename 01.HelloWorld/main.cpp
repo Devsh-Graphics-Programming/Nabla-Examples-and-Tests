@@ -109,7 +109,7 @@ static core::smart_refctd_ptr<system::ISystem> createSystem()
 	return nullptr;
 }
 
-class HelloWorldSampleApp : public system::IApplicationFramework, public ui::IGraphicalApplicationFramework
+class HelloWorldSampleApp : public system::IApplicationFramework, public ui::IGraphicalApplicationFramework, public core::IReferenceCounted
 {
 	constexpr static uint32_t WIN_W = 800u;
 	constexpr static uint32_t WIN_H = 600u;
@@ -189,10 +189,6 @@ public:
 		return nbl::asset::EF_D32_SFLOAT;
 	}
 
-	void recreateSurface() override
-	{
-	}
-
 	HelloWorldSampleApp(
 		const std::filesystem::path& _localInputCWD,
 		const std::filesystem::path& _localOutputCWD,
@@ -226,8 +222,11 @@ public:
 		assert(window);
 		window->setEventCallback(core::smart_refctd_ptr(windowCb));
 #endif
-
-		video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { video::IAPIConnection::EF_SURFACE };
+		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
+		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
+		apiFeaturesToEnable.swapchainMode = swapChainMode;
+		apiFeaturesToEnable.validations = true;
+		apiFeaturesToEnable.debugUtils = true;
 
 		std::cout <<
 			R"(
@@ -237,28 +236,29 @@ Choose Graphics API:
 2) OpenGL ES
 )" << std::endl;
 
-		int apiType;
-		std::cin >> apiType;
+		int apiTypeInput;
+		std::cin >> apiTypeInput;
+
+		video::E_API_TYPE apiType;
+		if(apiTypeInput == 0) apiType = video::EAT_VULKAN;
+		if(apiTypeInput == 1) apiType = video::EAT_OPENGL;
+		if(apiTypeInput == 2) apiType = video::EAT_OPENGL_ES;
 
 		switch (apiType)
 		{
-		case 0:
+		case video::EAT_VULKAN:
 		{
 			apiConnection = video::CVulkanConnection::create(
 				core::smart_refctd_ptr(system),
-				0,
-				APP_NAME,
-				1u, requiredFeatures_Instance,
-				0u, nullptr,
-				core::smart_refctd_ptr(logger),
-				true);
+				0, APP_NAME,
+				core::smart_refctd_ptr(logger), apiFeaturesToEnable);
 
 			surface = video::CSurfaceVulkanWin32::create(
 				core::smart_refctd_ptr<video::CVulkanConnection>(static_cast<video::CVulkanConnection*>(apiConnection.get())),
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
 		} break;
 
-		case 1:
+		case video::EAT_OPENGL:
 		{
 			apiConnection = video::COpenGLConnection::create(core::smart_refctd_ptr(system), 0, APP_NAME, video::COpenGLDebugCallback(core::smart_refctd_ptr(logger)));
 
@@ -267,7 +267,7 @@ Choose Graphics API:
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
 		} break;
 
-		case 2:
+		case video::EAT_OPENGL_ES:
 		{
 			apiConnection = video::COpenGLESConnection::create(core::smart_refctd_ptr(system), 0, APP_NAME, video::COpenGLDebugCallback(core::smart_refctd_ptr(logger)));
 
@@ -328,7 +328,7 @@ Choose Graphics API:
 			}
 
 			// Since our workload is not headless compute, a swapchain is mandatory
-			if (!gpu->isSwapchainSupported())
+			if (!gpu->getFeatures().swapchainMode.hasFlags(swapChainMode))
 				isGPUSuitable = false;
 
 			// Todo(achal): Abstract it out
@@ -394,9 +394,9 @@ Choose Graphics API:
 			queueCreationParams[i].priorities = &priority;
 		}
 		deviceCreationParams.queueParams = queueCreationParams.data();
-		deviceCreationParams.requiredFeatureCount = 1u;
-		video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { video::ILogicalDevice::EF_SWAPCHAIN };
-		deviceCreationParams.requiredFeatures = requiredFeatures_Device;
+		video::IPhysicalDevice::SFeatures requiredFeatures = {};
+		requiredFeatures.swapchainMode = swapChainMode;
+		deviceCreationParams.featuresToEnable = requiredFeatures;
 
 		device = gpu->createLogicalDevice(std::move(deviceCreationParams));
 		// no point concurrent sharing mode if only using one queue
@@ -419,8 +419,27 @@ Choose Graphics API:
 		sc_params.compositeAlpha = video::ISurface::ECA_OPAQUE_BIT;
 		sc_params.imageUsage = asset::IImage::EUF_COLOR_ATTACHMENT_BIT;
 		sc_params.oldSwapchain = nullptr;
+		
+		switch (apiType)
+		{
+		case video::EAT_VULKAN:
+		{
+			swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(sc_params));
+		} break;
 
-		swapchain = device->createSwapchain(std::move(sc_params));
+		case video::EAT_OPENGL:
+		{
+			swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(sc_params));
+		} break;
+
+		case video::EAT_OPENGL_ES:
+		{
+			swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(sc_params));
+		} break;
+
+		default:
+			assert(false);
+		}
 
 		// Create render pass
 		video::IGPURenderpass::SCreationParams::SAttachmentDescription attachmentDescription = {};
@@ -458,28 +477,27 @@ Choose Graphics API:
 		renderPassParams.subpassCount = 1u;
 
 		renderpass = device->createRenderpass(renderPassParams);
-
-		const auto swapchainImages = swapchain->getImages();
-		const uint32_t swapchainImageCount = swapchain->getImageCount();
-
+		
+		const auto swapchainImageCount = swapchain->getImageCount();
 		fbos.resize(swapchainImageCount);
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
-			auto img = swapchainImages.begin()[i];
-			core::smart_refctd_ptr<video::IGPUImageView> imageView;
-			{
-				video::IGPUImageView::SCreationParams viewParams;
-				viewParams.format = img->getCreationParameters().format;
-				viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
-				viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-				viewParams.subresourceRange.baseMipLevel = 0u;
-				viewParams.subresourceRange.levelCount = 1u;
-				viewParams.subresourceRange.baseArrayLayer = 0u;
-				viewParams.subresourceRange.layerCount = 1u;
-				viewParams.image = std::move(img);
+			nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> view = {};
 
-				imageView = device->createImageView(std::move(viewParams));
-				assert(imageView);
+			auto img = swapchain->createImage(i);
+			{
+				nbl::video::IGPUImageView::SCreationParams view_params;
+				view_params.format = img->getCreationParameters().format;
+				view_params.viewType = asset::IImageView<nbl::video::IGPUImage>::ET_2D;
+				view_params.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+				view_params.subresourceRange.baseMipLevel = 0u;
+				view_params.subresourceRange.levelCount = 1u;
+				view_params.subresourceRange.baseArrayLayer = 0u;
+				view_params.subresourceRange.layerCount = 1u;
+				view_params.image = std::move(img);
+
+				view = device->createImageView(std::move(view_params));
+				assert(view);
 			}
 
 			video::IGPUFramebuffer::SCreationParams fbParams;
@@ -489,7 +507,7 @@ Choose Graphics API:
 			fbParams.renderpass = renderpass;
 			fbParams.flags = static_cast<video::IGPUFramebuffer::E_CREATE_FLAGS>(0);
 			fbParams.attachmentCount = renderpass->getAttachments().size();
-			fbParams.attachments = &imageView;
+			fbParams.attachments = &view;
 
 			fbos[i] = device->createFramebuffer(std::move(fbParams));
 		}
@@ -573,13 +591,11 @@ Choose Graphics API:
 		submitInfo.commandBuffers = &commandBuffer.get();
 		graphicsQueue->submit(1u, &submitInfo, fence.get());
 
-		video::IGPUQueue::SPresentInfo presentInfo;
+		video::ISwapchain::SPresentInfo presentInfo;
 		presentInfo.waitSemaphoreCount = 1u;
 		presentInfo.waitSemaphores = &m_renderFinished[m_resourceIx].get();
-		presentInfo.swapchainCount = 1u;
-		presentInfo.swapchains = &swapchain.get();
-		presentInfo.imgIndices = &m_acquiredNextFBO;
-		presentQueue->present(presentInfo);
+		presentInfo.imgIndex = m_acquiredNextFBO;
+		swapchain->present(presentQueue, presentInfo);
 	}
 
 	bool keepRunning() override

@@ -353,7 +353,10 @@ class LoDSystemApp : public ApplicationBase
             initParams.swapchainImageUsage = swapchainImageUsage;
             initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
 
+            auto initOutput = CommonAPI::InitWithDefaultExt<CommonAPI::CommonAPIEventCallback, culling_system_t, video::CSubpassKiln, video::CDrawIndirectAllocator<>>(std::move(initParams));
+
             window = std::move(initParams.window);
+            windowCallback = std::move(initParams.windowCb);
             gl = std::move(initOutput.apiConnection);
             surface = std::move(initOutput.surface);
             gpuPhysicalDevice = std::move(initOutput.physicalDevice);
@@ -365,7 +368,6 @@ class LoDSystemApp : public ApplicationBase
             logger = std::move(initOutput.logger);
             inputSystem = std::move(initOutput.inputSystem);
             system = std::move(initOutput.system);
-            windowCallback = std::move(initParams.windowCb);
             cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
             utilities = std::move(initOutput.utilities);
             m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
@@ -438,7 +440,7 @@ class LoDSystemApp : public ApplicationBase
                 cullingParams.indirectDispatchParams = { 0ull,culling_system_t::createDispatchIndirectBuffer(utilities.get(),transferUpQueue) };
                 {
                     video::IGPUBuffer::SCreationParams params;
-                    params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+                    params.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
                     params.size = sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * MaxInstanceCount;
                    
                     nodeList = {0ull,~0ull, logicalDevice->createBuffer(std::move(params))};
@@ -448,7 +450,7 @@ class LoDSystemApp : public ApplicationBase
                     logicalDevice->allocate(nodeListMemReqs, nodeList.buffer.get());
 
                     video::IGPUBuffer::SCreationParams cullparams;
-                    cullparams.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
+                    cullparams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
                     cullparams.size = sizeof(culling_system_t::InstanceToCull) * MaxInstanceCount;
                     cullingParams.instanceList = {0ull,~0ull,logicalDevice->createBuffer(std::move(cullparams)) };
 
@@ -615,8 +617,9 @@ class LoDSystemApp : public ApplicationBase
                     {
                         tt->allocateNodes({instanceGUIDs.data(),instanceGUIDs.data()+objectCount});
 
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue,{0u,sizeof(uint32_t),nodeList.buffer},&objectCount);
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue,{sizeof(uint32_t),objectCount*sizeof(scene::ITransformTree::node_t),nodeList.buffer},instanceGUIDs.data());
+                        video::IGPUQueue::SSubmitInfo emptySubmit = {};
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({0u,sizeof(uint32_t),nodeList.buffer},&objectCount,transferUpQueue);
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({sizeof(uint32_t),objectCount*sizeof(scene::ITransformTree::node_t),nodeList.buffer},instanceGUIDs.data(), transferUpQueue);
 
                         scene::ITransformTreeManager::UpstreamRequest request;
                         request.tree = tt.get();
@@ -634,7 +637,7 @@ class LoDSystemApp : public ApplicationBase
                             instance.instanceGUID = instanceGUID;
                             instance.lodTableUvec4Offset = lodTables[typeDist(mt)];
                         }
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue, { 0u,instanceList.size()*sizeof(culling_system_t::InstanceToCull),cullingParams.instanceList.buffer }, instanceList.data());
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({ 0u,instanceList.size()*sizeof(culling_system_t::InstanceToCull),cullingParams.instanceList.buffer }, instanceList.data(), transferUpQueue);
 
                         cullPushConstants.instanceCount += instanceList.size();
                     }
@@ -781,7 +784,7 @@ class LoDSystemApp : public ApplicationBase
                 assetManager.get(),
                 "ScreenShot.png",
                 asset::IImage::EL_PRESENT_SRC,
-                static_cast<asset::E_ACCESS_FLAGS>(0u));
+                asset::EAF_NONE);
 
             assert(status);
         }
