@@ -558,12 +558,6 @@ int main(int argc, char** argv)
 				nbl::core::vectorSIMDf(0, 0, -1, 0), // -Z
 				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
 			};
-
-			if(!mainSensorData.rightHandedCamera)
-			{
-				camViews[0] *= -1;
-				camViews[1] *= -1;
-			}
 			
 			const nbl::core::vectorSIMDf upVectors[6] =
 			{
@@ -613,8 +607,8 @@ int main(int argc, char** argv)
 				staticCamera->setTarget((mainCamPos + camView).getAsVector3df());
 				staticCamera->setUpVector(upVector);
 
-				const float w = float(cubemapFaceSensorData.cropWidth)/float(cubemapFaceSensorData.width);
-				const float h = float(cubemapFaceSensorData.cropHeight)/float(cubemapFaceSensorData.height);
+				const float w = float(cubemapFaceSensorData.width)/float(cubemapFaceSensorData.cropWidth);
+				const float h = float(cubemapFaceSensorData.height)/float(cubemapFaceSensorData.cropHeight);
 				
 				const auto fov = atanf(h)*2.f;
 				const auto aspectRatio = h/w;
