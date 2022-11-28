@@ -1132,6 +1132,7 @@ protected:
 		uint32_t queuesIndexInFamily[InitOutput::EQT_COUNT];
 		uint32_t presentQueueIndexInFamily = 0u;
 
+		// TODO(Erfan): There is a much better way to get queue creation params.
 		// Graphics Queue
 		if (!headlessCompute)
 		{
