@@ -1,4 +1,4 @@
-REM @echo off
+@echo off
 
 REM examplary usage:
 REM mergeCubemap.bat 64 64 mergedImage.png stripeFormat.png
@@ -31,10 +31,10 @@ set /a x5 = 5*realSize
 
 set /a stripWidth = realSize*6
 magick convert -size %stripWidth%x%realSize% canvas:none ^
-( %in% -crop %realSize%x%realSize%+%cropOffsetX0%+%cropOffsetY1% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x0%+0 ) -composite ^
-( %in% -crop %realSize%x%realSize%+%cropOffsetX2%+%cropOffsetY1% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x1%+0 ) -composite ^
+( %in% -crop %realSize%x%realSize%+%cropOffsetX2%+%cropOffsetY1% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x0%+0 ) -composite ^
+( %in% -crop %realSize%x%realSize%+%cropOffsetX0%+%cropOffsetY1% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x1%+0 ) -composite ^
 ( %in% -crop %realSize%x%realSize%+%cropOffsetX1%+%cropOffsetY0% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x2%+0 ) -composite ^
 ( %in% -crop %realSize%x%realSize%+%cropOffsetX2%+%cropOffsetY0% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x3%+0 ) -composite ^
-( %in% -crop %realSize%x%realSize%+%cropOffsetX0%+%cropOffsetY0% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x4%+0 ) -composite ^
-( %in% -crop %realSize%x%realSize%+%cropOffsetX1%+%cropOffsetY1% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x5%+0 ) -composite ^
+( %in% -crop %realSize%x%realSize%+%cropOffsetX1%+%cropOffsetY1% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x4%+0 ) -composite ^
+( %in% -crop %realSize%x%realSize%+%cropOffsetX0%+%cropOffsetY0% -matte -virtual-pixel transparent -geometry %realSize%x%realSize%+%x5%+0 ) -composite ^
 %out%
