@@ -95,11 +95,6 @@ int main()
 	constexpr bool LOG_TIMESTAMP = false;
 	static_assert(FRAMES_IN_FLIGHT>FBO_COUNT);
 	
-	CommonAPI::SFeatureRequest< video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-	optionalDeviceFeatures.count = 2u;
-	video::ILogicalDevice::E_FEATURE optionalFeatures_Device[] = { video::ILogicalDevice::EF_RAY_TRACING_PIPELINE, video::ILogicalDevice::EF_RAY_QUERY };
-	optionalDeviceFeatures.features = optionalFeatures_Device;
-
 	const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
 	CommonAPI::InitParams initParams;
 	initParams.apiType = video::EAT_VULKAN;
@@ -109,9 +104,8 @@ int main()
 	initParams.windowHeight = WIN_H;
 	initParams.swapchainImageCount = FBO_COUNT;
 	initParams.swapchainImageUsage = swapchainImageUsage;
-	initParams.optionalDeviceFeatures = optionalDeviceFeatures;
 	initParams.depthFormat = asset::EF_D32_SFLOAT;
-	auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+	auto initOutput = CommonAPI::InitWithRaytracingExt(std::move(initParams));
 
 	auto system = std::move(initOutput.system);
 	auto window = std::move(initParams.window);
@@ -285,7 +279,7 @@ int main()
 			auto gpuSequenceBufferMemReqs = gpuSequenceBuffer->getMemoryReqs();
 			gpuSequenceBufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			device->allocate(gpuSequenceBufferMemReqs, gpuSequenceBuffer.get());
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer());
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer(), graphicsQueue);
 		}
 		gpuSequenceBufferView = device->createBufferView(gpuSequenceBuffer.get(), asset::EF_R32G32B32_UINT);
 	}
@@ -301,7 +295,7 @@ int main()
 		imgParams.arrayLayers = 1u;
 		imgParams.samples = IImage::ESCF_1_BIT;
 		imgParams.usage = core::bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_TRANSFER_DST_BIT;
-		imgParams.initialLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
+		imgParams.initialLayout = asset::IImage::EL_UNDEFINED;
 
 		IGPUImage::SBufferCopy region = {};
 		region.bufferOffset = 0u;
@@ -333,12 +327,13 @@ int main()
 			auto bufferMemReqs = buffer->getMemoryReqs();
 			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			device->allocate(bufferMemReqs, buffer.get());
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data());
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data(),graphicsQueue);
 		}
 
 		IGPUImageView::SCreationParams viewParams;
 		viewParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(graphicsQueue, std::move(imgParams), buffer.get(), 1u, &region);
+		// TODO: Replace this IGPUBuffer -> IGPUImage to using image upload utility
+		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(std::move(imgParams), buffer.get(), 1u, &region, graphicsQueue);
 		viewParams.viewType = IGPUImageView::ET_2D;
 		viewParams.format = EF_R32G32_UINT;
 		viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -524,13 +519,13 @@ int main()
 			range.buffer = gpuubo;
 			range.offset = 0ull;
 			range.size = sizeof(viewParams);
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, range, &viewParams);
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue);
 		}
 				
 		// TRANSITION outHDRImageViews[imgnum] to EIL_GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[3u] = {};
-			imageBarriers[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_WRITE_BIT);
 			imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[0].newLayout = asset::IImage::EL_GENERAL;
@@ -543,7 +538,7 @@ int main()
 			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[0].subresourceRange.layerCount = 1;
 
-			imageBarriers[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
 			imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[1].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
@@ -556,7 +551,7 @@ int main()
 			imageBarriers[1].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[1].subresourceRange.layerCount = 1;
 
-			 imageBarriers[2].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			 imageBarriers[2].barrier.srcAccessMask = asset::EAF_NONE;
 			 imageBarriers[2].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
 			 imageBarriers[2].oldLayout = asset::IImage::EL_UNDEFINED;
 			 imageBarriers[2].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
@@ -593,7 +588,7 @@ int main()
 		// TRANSITION `fbo[imgnum]->getCreationParameters().attachments[0]` to EIL_TRANSFER_DST_OPTIMAL
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[2u] = {};
-			imageBarriers[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 			imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[0].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
@@ -606,7 +601,7 @@ int main()
 			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[0].subresourceRange.layerCount = 1;
 
-			imageBarriers[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[1].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
 			imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
 			imageBarriers[1].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
@@ -648,7 +643,7 @@ int main()
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
 			imageBarriers[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-			imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.dstAccessMask = asset::EAF_NONE;
 			imageBarriers[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 			imageBarriers[0].newLayout = asset::IImage::EL_PRESENT_SRC;
 			imageBarriers[0].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;

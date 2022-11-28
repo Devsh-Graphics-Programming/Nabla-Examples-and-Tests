@@ -153,7 +153,8 @@ public:
         initParams.swapchainImageCount = SC_IMG_COUNT;
         initParams.swapchainImageUsage = swapchainImageUsage;
         initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
-        auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+        initParams.physicalDeviceFilter.requiredFeatures.inheritedQueries = true;
+        auto initOutput = CommonAPI::InitWithDefaultExt<CommonAPI::CommonAPIEventCallback, nbl::video::CSubpassKiln, nbl::video::CDrawIndirectAllocator<>>(std::move(initParams));
 
         window = std::move(initParams.window);
         windowCb = std::move(initParams.windowCb);
@@ -504,7 +505,7 @@ public:
             assetManager.get(),
             "ScreenShot.png",
             asset::IImage::EL_PRESENT_SRC,
-            static_cast<asset::E_ACCESS_FLAGS>(0u));
+            asset::EAF_NONE);
 
         assert(status);
     }

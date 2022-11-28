@@ -24,7 +24,9 @@ public:
 			const nbl::core::vectorSIMDf& backupUpVec = nbl::core::vectorSIMDf(0.5f, 1.0f, 0.0f)
 	) 
 		: position(position)
+		, initialPosition(position)
 		, target(lookat)
+		, initialTarget(lookat)
 		, firstUpdate(true)
 		, moveSpeed(moveSpeed)
 		, rotateSpeed(rotateSpeed)
@@ -239,6 +241,16 @@ public:
 					keysDown[Keys::EKA_MOVE_RIGHT] = false;
 				}
 			}
+
+			if (ev.keyCode == nbl::ui::EKC_HOME)
+			{
+				if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
+				{
+					position = initialPosition;
+					target = initialTarget;
+					recomputeViewMatrix();
+				}
+			}
 		}
 	}
 
@@ -308,6 +320,10 @@ private:
 	}
 
 private:
+
+	nbl::core::vectorSIMDf initialPosition;
+	nbl::core::vectorSIMDf initialTarget;
+
 	nbl::core::vectorSIMDf position;
 	nbl::core::vectorSIMDf target;
 	nbl::core::vectorSIMDf upVector;

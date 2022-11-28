@@ -42,6 +42,7 @@ core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims
 	region.bufferRowLength = dims[0];
 	region.imageExtent = { dims[0], dims[1], dims[2] };
 	region.imageOffset = { 0u, 0u, 0u };
+	region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 	region.imageSubresource.baseArrayLayer = 0u;
 	region.imageSubresource.layerCount = imageParams.arrayLayers;
 	region.imageSubresource.mipLevel = 0;
@@ -529,7 +530,7 @@ private:
 					bufferRange.buffer = coverageAdjustmentScratchBuffer;
 
 					core::vector<uint32_t> fillValues(scratchSize / sizeof(uint32_t), 0u);
-					utilities->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_COMPUTE], bufferRange, fillValues.data());
+					utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, fillValues.data(), queues[CommonAPI::InitOutput::EQT_COMPUTE]);
 				}
 			}
 
@@ -556,7 +557,7 @@ private:
 				bufferRange.offset = 0ull;
 				bufferRange.size = lutSize;
 				bufferRange.buffer = scaledKernelPhasedLUT;
-				utilities->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_COMPUTE], bufferRange, lutMemory);
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, lutMemory, queues[CommonAPI::InitOutput::EQT_COMPUTE]);
 
 				asset::E_FORMAT bufferViewFormat;
 				if constexpr (std::is_same_v<LutDataType, uint16_t>)
@@ -628,7 +629,7 @@ private:
 						queues[CommonAPI::InitOutput::EQT_COMPUTE],
 						nullptr,
 						outImageView.get(),
-						static_cast<asset::E_ACCESS_FLAGS>(0u),
+						asset::EAF_NONE,
 						asset::IImage::EL_GENERAL);
 
 					if (alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)

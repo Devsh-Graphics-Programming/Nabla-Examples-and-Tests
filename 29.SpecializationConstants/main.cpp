@@ -278,7 +278,7 @@ public:
 		range.buffer = m_gpuParticleBuf;
 		range.offset = 0ull;
 		range.size = BUF_SZ * 2ull;
-		utils->updateBufferRangeViaStagingBuffer(queues[CommonAPI::InitOutput::EQT_GRAPHICS], range, particlePosAndVel.data());
+		utils->updateBufferRangeViaStagingBufferAutoSubmit(range, particlePosAndVel.data(), queues[CommonAPI::InitOutput::EQT_GRAPHICS]);
 		particlePosAndVel.clear();
 
 		video::IGPUBuffer::SCreationParams uboComputeCreationParams = {};

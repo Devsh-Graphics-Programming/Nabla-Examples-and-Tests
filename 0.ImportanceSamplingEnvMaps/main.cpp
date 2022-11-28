@@ -873,7 +873,7 @@ public:
 		if (ss)
 		{
 			//TODO:
-			//ext::ScreenShot::createScreenShot(device, HDRFramebuffer->getAttachment(video::EFAP_COLOR_ATTACHMENT0), "screenshot.exr", asset::EIL_PRESENT_SRC, static_cast<asset::E_ACCESS_FLAGS>(0u));
+			//ext::ScreenShot::createScreenShot(device, HDRFramebuffer->getAttachment(video::EFAP_COLOR_ATTACHMENT0), "screenshot.exr", asset::EIL_PRESENT_SRC, asset::EAF_NONE);
 			//ss = false;
 		}
 	}
