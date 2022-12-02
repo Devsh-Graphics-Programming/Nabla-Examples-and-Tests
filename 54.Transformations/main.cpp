@@ -509,7 +509,7 @@ class TransformationApp : public ApplicationBase
 			auto createCPUSpecializedShaderFromSource = [=](std::string&& source, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<asset::ICPUSpecializedShader>
 			{
 				const std::string path = localInputCWD.string(); // TODO: make GLSL Compiler take `const system::path&` instead of cstrings
-				auto unspec = assetManager->getGLSLCompiler()->resolveIncludeDirectives(std::move(source),stage,path.c_str(),1u,initOutput.logger.get());
+				auto unspec = assetManager->getCompilerSet()->getShaderCompiler(nbl::asset::IShader::E_CONTENT_TYPE::ECT_GLSL)->resolveIncludeDirectives(std::move(source),stage,path.c_str(),1u,initOutput.logger.get());
 				if (!unspec)
 					return nullptr;
 
