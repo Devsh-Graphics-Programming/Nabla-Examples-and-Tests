@@ -99,17 +99,6 @@ public:
 	double time_sum = 0;
 	double dtList[NBL_FRAMES_TO_AVERAGE] = {};
 	
-	auto createDescriptorPool(const uint32_t textureCount)
-	{
-		constexpr uint32_t maxItemCount = 256u;
-		{
-			nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-			poolSize.count = textureCount;
-			poolSize.type = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
-			return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-		}
-	}
-	
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
 	{
 		window = std::move(wnd);
@@ -324,7 +313,18 @@ public:
 				We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
 			*/
 
-			auto descriptorPool = createDescriptorPool(1u);
+			constexpr uint32_t DescriptorSetCount = 2u;
+			video::IDescriptorPool::SDescriptorPoolSize poolSizes[DescriptorSetCount];
+			{
+				// DS1 uses one UBO descriptor.
+				poolSizes[0].count = 1u;
+				poolSizes[0].type = asset::EDT_UNIFORM_BUFFER;
+
+				// DS3 uses one combined image sampler descriptor.
+				poolSizes[1].count = 1u;
+				poolSizes[1].type = asset::EDT_COMBINED_IMAGE_SAMPLER;
+			}
+			auto descriptorPool = logicalDevice->createDescriptorPool(video::IDescriptorPool::ECF_NONE, DescriptorSetCount, sizeof(poolSizes)/sizeof(video::IDescriptorPool::SDescriptorPoolSize), poolSizes);
 
 			gpuDescriptorSet3 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs3Layout);
 			{
@@ -338,7 +338,7 @@ public:
 				{
 					info.desc = std::move(gpuImageView);
 					ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETBC_FLOAT_OPAQUE_BLACK,ISampler::ETF_LINEAR,ISampler::ETF_LINEAR,ISampler::ESMM_LINEAR,0u,false,ECO_ALWAYS };
-					info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
+					info.info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
 				}
 				write.info = &info;
 				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
@@ -355,8 +355,8 @@ public:
 				video::IGPUDescriptorSet::SDescriptorInfo info;
 				{
 					info.desc = gpuubo;
-					info.buffer.offset = 0ull;
-					info.buffer.size = sizeof(SBasicViewParameters);
+					info.info.buffer.offset = 0ull;
+					info.info.buffer.size = sizeof(SBasicViewParameters);
 				}
 				write.info = &info;
 				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
@@ -590,6 +590,8 @@ public:
 	{
 		return windowCb->isWindowOpen();
 	}
+
+	void onAppTerminated_impl() override { logicalDevice->waitIdle(); }
 };
 
 NBL_COMMON_API_MAIN(NablaTutorialExampleApp)
