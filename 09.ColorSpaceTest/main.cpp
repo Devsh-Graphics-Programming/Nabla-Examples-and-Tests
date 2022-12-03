@@ -128,7 +128,7 @@ public:
 		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
 		auto immutableSampler = logicalDevice->createSampler(samplerParams);
 
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::EDT_COMBINED_IMAGE_SAMPLER, 1u, video::IGPUShader::ESS_FRAGMENT, &immutableSampler };
+		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::EDT_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
 		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
 		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
 		auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
@@ -485,8 +485,8 @@ public:
 			video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
 				info.desc = gpuImageView;
-				info.image.sampler = nullptr;
-				info.image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
+				info.info.image.sampler = nullptr;
+				info.info.image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 			}
 
 			video::IGPUDescriptorSet::SWriteDescriptorSet write;
