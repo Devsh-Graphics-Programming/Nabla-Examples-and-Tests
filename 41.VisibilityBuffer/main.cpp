@@ -888,8 +888,8 @@ int main()
             const asset::ICPUShader* unspec = _specShader->getUnspecialized();
             assert(unspec->containsGLSL());
 
-            auto begin = reinterpret_cast<const char*>(unspec->getSPVorGLSL()->getPointer());
-            const std::string_view origSource(begin, unspec->getSPVorGLSL()->getSize());
+            auto begin = reinterpret_cast<const char*>(unspec->getContent()->getPointer());
+            const std::string_view origSource(begin, unspec->getContent()->getSize());
 
             const size_t firstNewlineAfterVersion = origSource.find("\n", origSource.find("#version "));
             assert(firstNewlineAfterVersion != std::string_view::npos);

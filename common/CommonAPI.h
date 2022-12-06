@@ -420,6 +420,7 @@ public:
 		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxFramesInFlight>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderToSwapchainRenderpass;
 		nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
+		nbl::core::smart_refctd_ptr<nbl::asset::CCompilerSet> compilerSet;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
 		nbl::core::smart_refctd_ptr<InputSystem> inputSystem;
@@ -480,8 +481,10 @@ public:
 		result.logger = nbl::core::make_smart_refctd_ptr<system::CStdoutLoggerAndroid>(params.logLevel);
 #endif
 
+		result.compilerSet = nbl::core::make_smart_refctd_ptr<nbl::asset::CCompilerSet>(nbl::core::smart_refctd_ptr(result.system));
+
 		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
-		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system)); // we should let user choose it?
+		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system), nbl::core::smart_refctd_ptr(result.compilerSet)); // we should let user choose it?
 
 		if (!headlessCompute)
 		{
@@ -1290,6 +1293,7 @@ protected:
 		dev_params.queueParamsCount = actualQueueParamsCount;
 		dev_params.queueParams = qcp;
 		dev_params.featuresToEnable = params.physicalDeviceFilter.requiredFeatures;
+		dev_params.compilerSet = result.compilerSet;
 		result.logicalDevice = selectedPhysicalDevice->createLogicalDevice(std::move(dev_params));
 
 		result.utilities = nbl::core::make_smart_refctd_ptr<nbl::video::IUtilities>(nbl::core::smart_refctd_ptr(result.logicalDevice));

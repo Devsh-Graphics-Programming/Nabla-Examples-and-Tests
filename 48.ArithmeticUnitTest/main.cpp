@@ -399,7 +399,7 @@ public:
 
 		auto getGPUShader = [&](const ICPUSpecializedShader* shader, uint32_t wg_count) -> auto
 		{
-			auto overridenUnspecialized = IGLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_GLSL_WORKGROUP_SIZE_ %d\n", wg_count);
+			auto overridenUnspecialized = CGLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_GLSL_WORKGROUP_SIZE_ %d\n", wg_count);
 			ISpecializedShader::SInfo specInfo = shader->getSpecializationInfo();
 			auto cs = core::make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(overridenUnspecialized), std::move(specInfo));
 			return cpu2gpu.getGPUObjectsFromAssets(&cs, &cs + 1, cpu2gpuParams)->front();
