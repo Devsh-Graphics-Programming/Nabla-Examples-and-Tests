@@ -144,6 +144,7 @@ public:
 		initParams.swapchainImageCount = SC_IMG_COUNT;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.depthFormat = depthFormat;
+		initParams.physicalDeviceFilter.minimumLimits.workgroupSizeFromSpecConstant = true;
 		auto initOutp = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		window = std::move(initParams.window);
@@ -189,10 +190,12 @@ public:
 		m_camFront = view[2];
 
 		// auto glslExts = device->getSupportedGLSLExtensions();
-		asset::CShaderIntrospector introspector(assetManager->getGLSLCompiler());
+		asset::CSPIRVIntrospector introspector;
 
 		const char* pathToCompShader = "../particles.comp";
+		auto compilerSet = assetManager->getCompilerSet();
 		core::smart_refctd_ptr<asset::ICPUShader> computeUnspec = nullptr;
+		core::smart_refctd_ptr<asset::ICPUShader> computeUnspecSPIRV = nullptr;
 		{
 			auto csBundle = assetManager->getAsset(pathToCompShader, {});
 			auto csContents = csBundle.getContents();
@@ -201,14 +204,27 @@ public:
 
 			asset::ICPUSpecializedShader* csSpec = static_cast<nbl::asset::ICPUSpecializedShader*>(csContents.begin()->get());
 			computeUnspec = core::smart_refctd_ptr<asset::ICPUShader>(csSpec->getUnspecialized());
-			computeUnspec = assetManager->getGLSLCompiler()->resolveIncludeDirectives(
-				(const char*)computeUnspec->getContent()->getPointer(), asset::IShader::ESS_COMPUTE, pathToCompShader);
+
+			auto compiler = compilerSet->getShaderCompiler(computeUnspec->getContentType());
+
+			asset::IShaderCompiler::SPreprocessorOptions preprocessOptions = {};
+			preprocessOptions.sourceIdentifier = pathToCompShader;
+			preprocessOptions.includeFinder = compiler->getDefaultIncludeFinder();
+			computeUnspec = compilerSet->preprocessShader(computeUnspec.get(), preprocessOptions);
 		}
 
-		const asset::CIntrospectionData* introspection = nullptr;
+		core::smart_refctd_ptr<const asset::CSPIRVIntrospector::CIntrospectionData> introspection = nullptr;
 		{
-			asset::CShaderIntrospector::SIntrospectionParams params("main", {nullptr,nullptr});
-			introspection = introspector.introspect(computeUnspec.get(), params);
+			//! This example first preprocesses and then compiles the shader, although it could've been done by calling compileToSPIRV with setting compilerOptions.preprocessorOptions 
+			asset::IShaderCompiler::SCompilerOptions compilerOptions = {};
+			compilerOptions.entryPoint = "main";
+			compilerOptions.stage = computeUnspec->getStage();
+			compilerOptions.genDebugInfo = true; // should be true for introspection
+			compilerOptions.preprocessorOptions.sourceIdentifier = computeUnspec->getFilepathHint(); // already preprocessed but for logging it's best to fill sourceIdentifier
+			computeUnspecSPIRV = compilerSet->compileToSPIRV(computeUnspec.get(), compilerOptions);
+
+			asset::CSPIRVIntrospector::SIntrospectionParams params = { "main", computeUnspecSPIRV };
+			introspection = introspector.introspect(params);
 		}
 
 		asset::ISpecializedShader::SInfo specInfo;
@@ -244,9 +260,9 @@ public:
 			specInfo = asset::ISpecializedShader::SInfo(std::move(entries), std::move(backbuf), "main");
 		}
 
-		auto compute = core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(computeUnspec), std::move(specInfo));
+		auto compute = core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(computeUnspecSPIRV), std::move(specInfo));
 
-		auto computePipeline = introspector.createApproximateComputePipelineFromIntrospection(compute.get(), { nullptr, nullptr });
+		auto computePipeline = introspector.createApproximateComputePipelineFromIntrospection(compute.get());
 		auto computeLayout = core::make_smart_refctd_ptr<asset::ICPUPipelineLayout>(nullptr, nullptr, core::smart_refctd_ptr<asset::ICPUDescriptorSetLayout>(computePipeline->getLayout()->getDescriptorSetLayout(0)));
 		computePipeline->setLayout(core::smart_refctd_ptr(computeLayout));
 
@@ -332,13 +348,25 @@ public:
 			if (shaderContents.empty())
 				assert(false);
 
-			return core::smart_refctd_ptr<asset::ICPUSpecializedShader>(static_cast<nbl::asset::ICPUSpecializedShader*>(shaderContents.begin()->get()));
+			auto specializedShader = static_cast<nbl::asset::ICPUSpecializedShader*>(shaderContents.begin()->get());
+			auto unspecShader = specializedShader->getUnspecialized();
+
+			auto compiler = compilerSet->getShaderCompiler(computeUnspec->getContentType());
+			asset::IShaderCompiler::SCompilerOptions compilerOptions = {};
+			compilerOptions.entryPoint = specializedShader->getSpecializationInfo().entryPoint;
+			compilerOptions.stage = unspecShader->getStage();
+			compilerOptions.genDebugInfo = true;
+			compilerOptions.preprocessorOptions.sourceIdentifier = unspecShader->getFilepathHint(); // already preprocessed but for logging it's best to fill sourceIdentifier
+			compilerOptions.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+			auto unspecSPIRV = compilerSet->compileToSPIRV(unspecShader, compilerOptions);
+
+			return core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(unspecSPIRV), asset::ISpecializedShader::SInfo(specializedShader->getSpecializationInfo()));
 		};
 		auto vs = createSpecShader("../particles.vert", asset::IShader::ESS_VERTEX);
 		auto fs = createSpecShader("../particles.frag", asset::IShader::ESS_FRAGMENT);
 
 		asset::ICPUSpecializedShader* shaders[2] = { vs.get(),fs.get() };
-		auto pipeline = introspector.createApproximateRenderpassIndependentPipelineFromIntrospection({ shaders, shaders + 2 }, { nullptr, nullptr });
+		auto pipeline = introspector.createApproximateRenderpassIndependentPipelineFromIntrospection({ shaders, shaders + 2 });
 		{
 			auto& vtxParams = pipeline->getVertexInputParams();
 			vtxParams.attributes[0].binding = 0u;
