@@ -49,7 +49,11 @@ core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims
 
 	size_t bufferSize = imageParams.arrayLayers * asset::getTexelOrBlockBytesize(imageParams.format) * static_cast<size_t>(region.imageExtent.width) * region.imageExtent.height * region.imageExtent.depth;
 	auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSize);
+
 	core::smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
+	if (!image)
+		return nullptr;
+
 	image->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
 
 	if (fillWithTestData)
@@ -103,7 +107,7 @@ static inline asset::IImageView<asset::ICPUImage>::E_TYPE getImageViewTypeFromIm
 	case asset::IImage::ET_3D:
 		return asset::ICPUImageView::ET_3D;
 	default:
-		__debugbreak();
+		assert(!"Invalid code path.");
 		return static_cast<asset::IImageView<asset::ICPUImage>::E_TYPE>(0u);
 	}
 }
@@ -119,7 +123,7 @@ static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(con
 	case video::IGPUImage::ET_3D:
 		return video::IGPUImageView::ET_3D;
 	default:
-		__debugbreak();
+		assert(!"Invalid code path.");
 		return static_cast<video::IGPUImageView::E_TYPE>(0u);
 	}
 }
@@ -154,6 +158,214 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 
 		{
+			const char* pathToImage = "../../media/GLI/kueken8_rgba_dxt1_unorm.dds";
+
+			constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
+			auto cpuTextureBundle = assetManager->getAsset(pathToImage, loadParams);
+			auto cpuTextureContents = cpuTextureBundle.getContents();
+			{
+				bool status = !cpuTextureContents.empty();
+				assert(status);
+			}
+
+			if (cpuTextureContents.begin() == cpuTextureContents.end())
+				assert(false); // cannot perform test in this scenario
+
+			auto asset = *cpuTextureContents.begin();
+			assert(asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW);
+			auto inImageView = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset);
+			const auto& inImage = inImageView->getCreationParameters().image;
+			const auto& inImageExtent = inImage->getCreationParameters().extent;
+			const auto& inImageFormat = inImage->getCreationParameters().format;
+
+			auto writeImage = [this](core::smart_refctd_ptr<asset::ICPUImage>&& image, const char* path, const asset::IImageView<asset::ICPUImage>::E_TYPE imageViewType)
+			{
+				asset::ICPUImageView::SCreationParams viewParams = {};
+				viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
+				viewParams.image = std::move(image);
+				viewParams.format = viewParams.image->getCreationParameters().format;
+				viewParams.viewType = imageViewType;
+				viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+				viewParams.subresourceRange.baseArrayLayer = 0u;
+				viewParams.subresourceRange.layerCount = viewParams.image->getCreationParameters().arrayLayers;
+				viewParams.subresourceRange.baseMipLevel = 0u;
+				viewParams.subresourceRange.levelCount = viewParams.image->getCreationParameters().mipLevels;
+
+				auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
+				if (!imageViewToWrite)
+				{
+					logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
+					return;
+				}
+
+				asset::IAssetWriter::SAssetWriteParams writeParams(imageViewToWrite.get());
+				if (!assetManager->writeAsset(path, writeParams))
+				{
+					logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
+					return;
+				}
+			};
+
+			const bool testFlattenFilter = true;
+			if (testFlattenFilter)
+			{
+				core::smart_refctd_ptr<ICPUImage> flattenInImage;
+				{
+					const uint64_t bufferSizeNeeded = (inImageExtent.width*inImageExtent.height*inImageExtent.depth*asset::getTexelOrBlockBytesize(inImageFormat))/2ull;
+
+					IImage::SCreationParams imageParams = {};
+					imageParams.type = asset::ICPUImage::ET_2D;
+					imageParams.format = inImageFormat;
+					imageParams.extent = { inImageExtent.width, inImageExtent.height, inImageExtent.depth };
+					imageParams.mipLevels = 1u;
+					imageParams.arrayLayers = 1u;
+					imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
+
+					auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(2ull);
+					{
+						auto& region = (*imageRegions)[0];
+						region.bufferOffset = 0ull;
+						region.bufferRowLength = imageParams.extent.width/2;
+						region.bufferImageHeight = imageParams.extent.height/2;
+						region.imageExtent = { imageParams.extent.width/2, imageParams.extent.height/2, core::max(imageParams.extent.depth/2, 1) };
+						region.imageOffset = { 0u, 0u, 0u };
+						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+						region.imageSubresource.baseArrayLayer = 0u;
+						region.imageSubresource.layerCount = imageParams.arrayLayers;
+						region.imageSubresource.mipLevel = 0;
+					}
+					{
+						auto& region = (*imageRegions)[1];
+						region.bufferOffset = bufferSizeNeeded / 2ull;
+						region.bufferRowLength = imageParams.extent.width/2;
+						region.bufferImageHeight = imageParams.extent.height/2;
+						region.imageExtent = { imageParams.extent.width/2, imageParams.extent.height/2, core::max(imageParams.extent.depth/2, 1) };
+						region.imageOffset = { imageParams.extent.width/2, imageParams.extent.height/2, 0u };
+						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+						region.imageSubresource.baseArrayLayer = 0u;
+						region.imageSubresource.layerCount = imageParams.arrayLayers;
+						region.imageSubresource.mipLevel = 0;
+					}
+
+					auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSizeNeeded);
+					if (!imageBuffer)
+					{
+						logger->log("Failed to create backing buffer for flatten input image.", system::ILogger::ELL_ERROR);
+						return;
+					}
+
+					flattenInImage = ICPUImage::create(std::move(imageParams));
+					if (!flattenInImage)
+					{
+						logger->log("Failed to create the flattne input image.", system::ILogger::ELL_ERROR);
+						return;
+					}
+
+					flattenInImage->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
+
+					const auto blockDim = asset::getBlockDimensions(inImageFormat);
+					const uint32_t blockCountX = inImageExtent.width/blockDim.x;
+					const uint32_t blockCountY = inImageExtent.height/blockDim.y;
+					const auto blockSize = asset::getTexelOrBlockBytesize(inImageFormat);
+
+					uint8_t* src = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
+					uint8_t* dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer());
+					for (uint32_t y = 0; y < blockCountY/2; ++y)
+					{
+						for (uint32_t x = 0; x < blockCountX/2; ++x)
+						{
+							const uint64_t byteOffset = (y*blockCountX + x)*blockSize;
+							memcpy(dst, src+byteOffset, blockSize);
+							dst += blockSize;
+						}
+					}
+
+					src = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
+					dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer()) + (flattenInImage->getBuffer()->getSize()/2ull);
+					for (uint32_t y = 0; y < blockCountY / 2; ++y)
+					{
+						for (uint32_t x = 0; x < blockCountX / 2; ++x)
+						{
+							const uint64_t byteOffset = ((y + (blockCountY / 2)) * blockCountX + (x + (blockCountX / 2))) * blockSize;
+							memcpy(dst, src + byteOffset, blockSize);
+							dst += blockSize;
+						}
+					}
+				}
+
+				asset::CFlattenRegionsImageFilter::CState filterState;
+				filterState.inImage = flattenInImage.get();
+				filterState.outImage = nullptr;
+				filterState.preFill = true;
+				filterState.fillValue.asFloat = core::vectorSIMDf(1.f, 0.f, 1.f, 1.f);
+				
+				if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
+				{
+					logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
+					return;
+				}
+
+				writeImage(std::move(flattenInImage), "flatten_output.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
+			}
+
+			const bool testBlitFilter = false;
+			if (testBlitFilter)
+			{
+				auto outFormat = asset::EF_R32G32B32A32_SFLOAT;
+				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, outFormat);
+				if (!outImage)
+				{
+					logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
+					return;
+				}
+
+				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+
+				auto kernelX = ScaledBoxKernel(scaleX, asset::CBoxImageFilterKernel());
+				auto kernelY = ScaledBoxKernel(scaleY, asset::CBoxImageFilterKernel());
+				auto kernelZ = ScaledBoxKernel(scaleZ, asset::CBoxImageFilterKernel());
+
+				using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, decltype(kernelX), decltype(kernelY), decltype(kernelZ), float>;
+
+				typename BlitFilter::state_type blitFilterState(std::move(kernelX), std::move(kernelY), std::move(kernelZ));
+				blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
+				blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, inImage->getCreationParameters().arrayLayers) + inImage->getMipSize();
+				blitFilterState.inImage = inImage.get();
+
+				blitFilterState.outImage = outImage.get();
+
+				blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
+				blitFilterState.outExtentLayerCount = blitFilterState.inExtentLayerCount;
+
+				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
+				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
+
+				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
+				{
+					logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
+					return;
+				}
+
+				logger->log("Begin..");
+				// if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
+				if (!BlitFilter::execute(core::execution::seq, &blitFilterState))
+				{
+					logger->log("Failed to blit\n", system::ILogger::ELL_ERROR);
+					return;
+				}
+				logger->log("End..");
+
+				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
+
+				writeImage(std::move(outImage), "blit_output.exr", inImageView->getCreationParameters().viewType);
+			}
+		}
+
+		if (0)
+		{
 			logger->log("Test #1");
 
 			const auto layerCount = 10;
@@ -177,6 +389,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
+		if (0)
 		{
 			logger->log("Test #2");
 
@@ -202,6 +415,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
+		if (0)
 		{
 			logger->log("Test #3");
 
@@ -226,6 +440,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
+		if (0)
 		{
 			logger->log("Test #4");
 
@@ -253,6 +468,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
 		}
 
+		if (0)
 		{
 			logger->log("Test #5");
 
@@ -277,6 +493,7 @@ public:
 			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 		}
 
+		if (0)
 		{
 			const auto layerCount = 7;
 			logger->log("Test #6");
