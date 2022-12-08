@@ -279,8 +279,8 @@ public:
                 video::IGPUDescriptorSet::SDescriptorInfo info;
                 {
                     info.desc = cameraUBO;
-                    info.buffer.offset = 0ull;
-                    info.buffer.size = neededDS1UBOsz;
+                    info.info.buffer.offset = 0ull;
+                    info.info.buffer.size = neededDS1UBOsz;
                 }
                 write.info = &info;
                 logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);

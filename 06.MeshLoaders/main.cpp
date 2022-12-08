@@ -52,7 +52,6 @@ public:
 
     nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
     
-    core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool;
     video::IDeviceMemoryBacked::SDeviceMemoryRequirements ubomemreq;
     core::smart_refctd_ptr<video::IGPUBuffer> gpuubo;
     core::smart_refctd_ptr<video::IGPUDescriptorSet> gpuds1;
@@ -91,17 +90,6 @@ public:
     video::CDumbPresentationOracle oracle;
     
     core::smart_refctd_ptr<video::IGPUBuffer> queryResultsBuffer;
-
-    auto createDescriptorPool(const uint32_t textureCount)
-    {
-        constexpr uint32_t maxItemCount = 256u;
-        {
-            nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-            poolSize.count = textureCount;
-            poolSize.type = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
-            return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-        }
-    }
 
     void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
     {
@@ -318,7 +306,10 @@ public:
             gpuds1layout = (*gpu_array)[0];
         }
 
-        descriptorPool = createDescriptorPool(1u);
+        video::IDescriptorPool::SDescriptorPoolSize poolSize;
+        poolSize.count = 1u;
+        poolSize.type = asset::EDT_UNIFORM_BUFFER;
+        auto descriptorPool = logicalDevice->createDescriptorPool(video::IDescriptorPool::ECF_NONE, 1u, 1u, &poolSize);
 
         video::IGPUBuffer::SCreationParams gpuuboCreationParams;
         gpuuboCreationParams.size = neededDS1UBOsz;
@@ -343,8 +334,8 @@ public:
             video::IGPUDescriptorSet::SDescriptorInfo info;
             {
                 info.desc = gpuubo;
-                info.buffer.offset = 0ull;
-                info.buffer.size = neededDS1UBOsz;
+                info.info.buffer.offset = 0ull;
+                info.info.buffer.size = neededDS1UBOsz;
             }
             write.info = &info;
             logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
