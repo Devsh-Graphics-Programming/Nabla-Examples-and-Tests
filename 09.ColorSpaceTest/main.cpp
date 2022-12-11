@@ -453,7 +453,7 @@ public:
 			}
 		};
 
-		auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+		auto ds = gpuDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
@@ -497,7 +497,7 @@ public:
 			write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
 			write.info = &info;
 
-			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
+			gpuDescriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
 
 			auto currentGpuRenderpassIndependentPipeline = getCurrentGPURenderpassIndependentPipeline(gpuImageView.get());
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> gpuGraphicsPipeline;

@@ -326,7 +326,7 @@ public:
 			}
 			auto descriptorPool = logicalDevice->createDescriptorPool(video::IDescriptorPool::ECF_NONE, DescriptorSetCount, sizeof(poolSizes)/sizeof(video::IDescriptorPool::SDescriptorPoolSize), poolSizes);
 
-			gpuDescriptorSet3 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs3Layout);
+			gpuDescriptorSet3 = descriptorPool->createDescriptorSet(gpuDs3Layout);
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuDescriptorSet3.get();
@@ -341,10 +341,10 @@ public:
 					info.info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
 				}
 				write.info = &info;
-				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
+				descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
 			}
 
-			gpuDescriptorSet1 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs1Layout);
+			gpuDescriptorSet1 = descriptorPool->createDescriptorSet(gpuDs1Layout);
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuDescriptorSet1.get();
@@ -359,7 +359,7 @@ public:
 					info.info.buffer.size = sizeof(SBasicViewParameters);
 				}
 				write.info = &info;
-				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
+				descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
 			}
 
 			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, nullptr, std::move(gpuDs1Layout), nullptr, std::move(gpuDs3Layout));

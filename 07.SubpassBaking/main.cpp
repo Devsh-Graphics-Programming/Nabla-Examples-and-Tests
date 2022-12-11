@@ -268,7 +268,7 @@ public:
             ubomemreq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
             logicalDevice->allocate(ubomemreq, cameraUBO.get());
 
-            perCameraDescSet = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
+            perCameraDescSet = descriptorPool->createDescriptorSet(std::move(gpuds1layout));
             {
                 video::IGPUDescriptorSet::SWriteDescriptorSet write;
                 write.dstSet = perCameraDescSet.get();
@@ -283,7 +283,7 @@ public:
                     info.info.buffer.size = neededDS1UBOsz;
                 }
                 write.info = &info;
-                logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
+                descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
             }
         }
 

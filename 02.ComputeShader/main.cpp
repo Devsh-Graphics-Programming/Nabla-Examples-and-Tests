@@ -373,8 +373,7 @@ public:
 			= logicalDevice->createDescriptorPool(descriptorPoolFlags, 1,
 				descriptorPoolSizeCount, poolSizes);
 
-		m_outputTargetDescriptorSet[bufferIx] = logicalDevice->createDescriptorSet(descriptorPool.get(),
-			core::smart_refctd_ptr(m_descriptorSetLayout));
+		m_outputTargetDescriptorSet[bufferIx] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(m_descriptorSetLayout));
 
 		const uint32_t writeDescriptorCount = 2u;
 
@@ -383,8 +382,8 @@ public:
 
 		// image2D -- my input
 		{
-			descriptorInfos[0].image.imageLayout = asset::IImage::EL_GENERAL;
-			descriptorInfos[0].image.sampler = nullptr;
+			descriptorInfos[0].info.image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[0].info.image.sampler = nullptr;
 			descriptorInfos[0].desc = m_inImageView;
 
 			writeDescriptorSets[0].dstSet = m_outputTargetDescriptorSet[bufferIx].get();
@@ -397,8 +396,8 @@ public:
 
 		// image2D -- swapchain image
 		{
-			descriptorInfos[1].image.imageLayout = asset::IImage::EL_GENERAL;
-			descriptorInfos[1].image.sampler = nullptr;
+			descriptorInfos[1].info.image.imageLayout = asset::IImage::EL_GENERAL;
+			descriptorInfos[1].info.image.sampler = nullptr;
 			descriptorInfos[1].desc = m_outputTargetImageView[bufferIx]; // shouldn't IGPUDescriptorSet hold a reference to the resources in its descriptors?
 
 			writeDescriptorSets[1].dstSet = m_outputTargetDescriptorSet[bufferIx].get();
@@ -409,7 +408,7 @@ public:
 			writeDescriptorSets[1].info = &descriptorInfos[1];
 		}
 
-		logicalDevice->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
+		descriptorPool->updateDescriptorSets(writeDescriptorCount, writeDescriptorSets, 0u, nullptr);
 	}
 
 	bool onWindowResized_impl(uint32_t w, uint32_t h) override

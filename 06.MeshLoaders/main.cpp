@@ -322,7 +322,7 @@ public:
         gpuuboMemReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
         auto uboMemoryOffset = logicalDevice->allocate(gpuuboMemReqs, gpuubo.get(), video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
 
-        gpuds1 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
+        gpuds1 = descriptorPool->createDescriptorSet(std::move(gpuds1layout));
 
         {
             video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -338,7 +338,7 @@ public:
                 info.info.buffer.size = neededDS1UBOsz;
             }
             write.info = &info;
-            logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
+            descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
         }
         {
             cpu2gpuParams.beginCommandBuffers();
