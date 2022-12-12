@@ -1,7 +1,6 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-#define ANTI_FLICKER
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
@@ -174,7 +173,7 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
-		const char* pathToShader = "../compute.comp";
+		const char* pathToShader = "../compute.hlsl";
 		core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
 		{
 			asset::IAssetLoader::SAssetLoadParams params = {};

@@ -77,7 +77,7 @@ int main()
 		outImgView = driver->createImageView(IGPUImageView::SCreationParams(imgViewInfo));
 	}
 
-	auto glslCompiler = am->getGLSLCompiler();
+	auto glslCompiler = am->getCompilerSet();
 	const auto inputColorSpace = std::make_tuple(inFormat,ECP_SRGB,EOTF_IDENTITY);
 
 	using LumaMeterClass = ext::LumaMeter::CLumaMeter;
