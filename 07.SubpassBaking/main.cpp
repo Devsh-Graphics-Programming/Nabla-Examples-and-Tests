@@ -283,7 +283,7 @@ public:
                     info.info.buffer.size = neededDS1UBOsz;
                 }
                 write.info = &info;
-                descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
+                logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
             }
         }
 

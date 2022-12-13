@@ -497,7 +497,7 @@ public:
 			write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
 			write.info = &info;
 
-			gpuDescriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
+			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 
 			auto currentGpuRenderpassIndependentPipeline = getCurrentGPURenderpassIndependentPipeline(gpuImageView.get());
 			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> gpuGraphicsPipeline;

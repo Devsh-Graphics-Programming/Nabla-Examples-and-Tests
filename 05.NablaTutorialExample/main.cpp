@@ -341,7 +341,7 @@ public:
 					info.info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
 				}
 				write.info = &info;
-				descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
+				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 			}
 
 			gpuDescriptorSet1 = descriptorPool->createDescriptorSet(gpuDs1Layout);
@@ -359,7 +359,7 @@ public:
 					info.info.buffer.size = sizeof(SBasicViewParameters);
 				}
 				write.info = &info;
-				descriptorPool->updateDescriptorSets(1u, &write, 0u, nullptr);
+				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 			}
 
 			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, nullptr, std::move(gpuDs1Layout), nullptr, std::move(gpuDs3Layout));
