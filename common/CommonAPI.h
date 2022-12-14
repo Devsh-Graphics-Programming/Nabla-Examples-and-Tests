@@ -1419,7 +1419,6 @@ protected:
 		return false;
 	}
 
-#ifdef ANTI_FLICKER
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
 
 	struct PresentedFrameInfo
@@ -1457,8 +1456,8 @@ protected:
 	virtual void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx) {}
 
 	nbl::video::IGPUImage* getTripleBufferTarget(
-		uint32_t frameIx, uint32_t w, uint32_t h, 
-		nbl::asset::E_FORMAT surfaceFormat, 
+		uint32_t frameIx, uint32_t w, uint32_t h,
+		nbl::asset::E_FORMAT surfaceFormat,
 		nbl::core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
 	{
 		uint32_t bufferIx = frameIx % 2;
@@ -1486,7 +1485,6 @@ protected:
 
 		return image.get();
 	}
-#endif
 public:
 	GraphicalApplication(
 		const std::filesystem::path& _localInputCWD,
@@ -1548,7 +1546,6 @@ public:
 		}
 	}
 
-#ifdef ANTI_FLICKER
 	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx, uint32_t lastRenderW, uint32_t lastRenderH)
 	{
 		using namespace nbl;
@@ -1661,7 +1658,6 @@ public:
 
 		logicalDevice->blockForFences(1u, &fence.get());
 	}
-#endif
 };
 #else
 class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
