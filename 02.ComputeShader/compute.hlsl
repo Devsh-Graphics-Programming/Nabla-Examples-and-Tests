@@ -16,8 +16,6 @@ PushConstants u_pushConstants;
 [[vk::binding(0, 0)]] RWTexture2D<float4> outImage;
 [[vk::binding(1, 0)]] Texture2D<float4> inImage;
 
-#include "included.hlsl"
-
 [numthreads(16, 16, 1)]
 void main(uint3 gl_GlobalInvocationID : SV_DispatchThreadID)
 {
@@ -25,7 +23,6 @@ void main(uint3 gl_GlobalInvocationID : SV_DispatchThreadID)
 	{
 		// TODO use swapchain transforms
 		float2 postTransformUv = float2(gl_GlobalInvocationID.xy) / float2(u_pushConstants.imgSize);
-		postTransformUv *= transformMultiplier();
 		float4 outColor = float4(postTransformUv, 0.0, 1.f);
 		outImage[gl_GlobalInvocationID.xy] = outColor;
 	}

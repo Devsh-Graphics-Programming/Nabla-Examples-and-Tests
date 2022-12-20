@@ -173,7 +173,7 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
-		const char* pathToShader = "../compute.comp.hlsl";
+		const char* pathToShader = "../compute.hlsl";
 		core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
 		{
 			asset::IAssetLoader::SAssetLoadParams params = {};
