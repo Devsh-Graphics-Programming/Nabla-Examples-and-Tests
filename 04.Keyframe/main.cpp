@@ -142,9 +142,8 @@ int main()
 			
 		asset::SPushConstantRange range[1] = {asset::ISpecializedShader::ESS_VERTEX,0u,sizeof(core::matrix4SIMD)};
 
-		auto createSpecializedShaderFromSource = [=](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage)
+		auto createSpecializedShaderFromSource = [=](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage, asset::IShaderCompiler::SCompilerOptions&& options)
 		{
-			asset::IShaderCompiler::SCompilerOptions options;
 			options.stage = stage;
 			options.entryPoint = "main";
 			options.preprocessorOptions.sourceIdentifier = "runtimeID";
@@ -152,15 +151,19 @@ int main()
 			return core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(spirv),asset::ICPUSpecializedShader::SInfo{ nullptr,nullptr,"main",stage });
 		};
 		// origFilepath is only relevant when you have filesystem #includes in your shader
+		auto system = nbl::core::make_smart_refctd_ptr<nbl::system::CSystemWin32>();
 		auto createSpecializedShaderFromSourceWithIncludes = [&](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage, const char* origFilepath)
 		{
-			return createSpecializedShaderFromSource(source, stage);
+			asset::IShaderCompiler::SCompilerOptions options;
+			options.preprocessorOptions.includeFinder = new asset::IShaderCompiler::CIncludeFinder(system);
+			options.preprocessorOptions.includeFinder->addSearchPath(origFilepath, options.preprocessorOptions.includeFinder->getDefaultFileSystemLoader());
+			return createSpecializedShaderFromSource(source, stage, std::move(options));
 		};
 		constexpr uint32_t kShaderCount = 2u;
 		core::smart_refctd_ptr<asset::ICPUSpecializedShader> shaders[kShaderCount] =
 		{
 			createSpecializedShaderFromSourceWithIncludes(vertexSource,asset::ISpecializedShader::ESS_VERTEX, "shader.vert"),
-			createSpecializedShaderFromSource(fragmentSource,asset::ISpecializedShader::ESS_FRAGMENT)
+			createSpecializedShaderFromSource(fragmentSource,asset::ISpecializedShader::ESS_FRAGMENT, std::move(asset::IShaderCompiler::SCompilerOptions()))
 		};
 		auto shadersPtr = reinterpret_cast<asset::ICPUSpecializedShader**>(shaders);
 			
