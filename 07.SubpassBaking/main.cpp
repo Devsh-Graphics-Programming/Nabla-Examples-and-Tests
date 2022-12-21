@@ -237,12 +237,9 @@ public:
 
                 // so we can create just one DS
                 const asset::ICPUDescriptorSetLayout* ds1layout = firstMeshBuffer->getPipeline()->getLayout()->getDescriptorSetLayout(1u);
-                for (const auto& bnd : ds1layout->getBindings())
-                    if (bnd.type == asset::EDT_UNIFORM_BUFFER)
-                    {
-                        cameraUBOBinding = bnd.binding;
-                        break;
-                    }
+                const auto& uboRedirect = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER);
+                assert(uboRedirect.getBindingCount() == 1u);
+                cameraUBOBinding = uboRedirect.getBindingNumber(0).data;
 
                 for (const auto& shdrIn : pipelineMetadata->m_inputSemantics)
                     if (shdrIn.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::ET_UNIFORM_BUFFER && shdrIn.descriptorSection.uniformBufferObject.set == 1u && shdrIn.descriptorSection.uniformBufferObject.binding == cameraUBOBinding)
@@ -275,7 +272,7 @@ public:
                 write.binding = cameraUBOBinding;
                 write.count = 1u;
                 write.arrayElement = 0u;
-                write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+                write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
                 video::IGPUDescriptorSet::SDescriptorInfo info;
                 {
                     info.desc = cameraUBO;
