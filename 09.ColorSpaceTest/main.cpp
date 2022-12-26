@@ -118,10 +118,10 @@ public:
 		{
 			constexpr uint32_t maxItemCount = 256u;
 			{
-				video::IDescriptorPool::SDescriptorPoolSize poolSize;
-				poolSize.count = textureCount;
-				poolSize.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
-				return logicalDevice->createDescriptorPool(static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
+				video::IDescriptorPool::SCreateInfo createInfo;
+				createInfo.maxSets = maxItemCount;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
+				return logicalDevice->createDescriptorPool(std::move(createInfo));
 			}
 		};
 
