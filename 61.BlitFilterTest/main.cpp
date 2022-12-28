@@ -158,7 +158,9 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 
 		{
-			const char* pathToImage = "../../media/GLI/kueken8_rgba_dxt1_unorm.dds";
+			// const char* pathToImage = "../../media/GLI/kueken8_rgba_dxt1_unorm.dds"; // BC1
+			const char* pathToImage = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds"; // BC3
+			// const char* pathToImage = "../../media/GLI/dice_bc3.dds"; // BC3
 
 			constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
@@ -212,7 +214,9 @@ public:
 			{
 				core::smart_refctd_ptr<ICPUImage> flattenInImage;
 				{
-					const uint64_t bufferSizeNeeded = (inImageExtent.width*inImageExtent.height*inImageExtent.depth*asset::getTexelOrBlockBytesize(inImageFormat))/2ull;
+					// TODO(achal): Wonder if I need the buffer for the entire image or just the regions I have data in.
+					// const uint64_t bufferSizeNeeded = (inImageExtent.width*inImageExtent.height*inImageExtent.depth*asset::getTexelOrBlockBytesize(inImageFormat))/2ull;
+					const uint64_t bufferSizeNeeded = (inImageExtent.width*inImageExtent.height*inImageExtent.depth*asset::getTexelOrBlockBytesize(inImageFormat));
 
 					IImage::SCreationParams imageParams = {};
 					imageParams.type = asset::ICPUImage::ET_2D;
@@ -237,7 +241,7 @@ public:
 					}
 					{
 						auto& region = (*imageRegions)[1];
-						region.bufferOffset = bufferSizeNeeded / 2ull;
+						region.bufferOffset = (3ull * bufferSizeNeeded) / 4ull;// bufferSizeNeeded / 2ull;
 						region.bufferRowLength = imageParams.extent.width/2;
 						region.bufferImageHeight = imageParams.extent.height/2;
 						region.imageExtent = { imageParams.extent.width/2, imageParams.extent.height/2, core::max(imageParams.extent.depth/2, 1) };
@@ -281,8 +285,10 @@ public:
 						}
 					}
 
+					const auto& regions = flattenInImage->getRegions();
+
 					src = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
-					dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer()) + (flattenInImage->getBuffer()->getSize()/2ull);
+					dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer()) + regions.begin()[1].bufferOffset;
 					for (uint32_t y = 0; y < blockCountY / 2; ++y)
 					{
 						for (uint32_t x = 0; x < blockCountX / 2; ++x)
@@ -293,6 +299,8 @@ public:
 						}
 					}
 				}
+
+				writeImage(core::smart_refctd_ptr(flattenInImage), "flatten_input.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
 
 				asset::CFlattenRegionsImageFilter::CState filterState;
 				filterState.inImage = flattenInImage.get();
@@ -306,7 +314,7 @@ public:
 					return;
 				}
 
-				writeImage(std::move(flattenInImage), "flatten_output.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
+				writeImage(core::smart_refctd_ptr(filterState.outImage), "flatten_output.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
 			}
 
 			const bool testBlitFilter = false;
@@ -360,7 +368,7 @@ public:
 
 				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
 
-				writeImage(std::move(outImage), "blit_output.exr", inImageView->getCreationParameters().viewType);
+				writeImage(std::move(outImage), "blit_output.tga", inImageView->getCreationParameters().viewType);
 			}
 		}
 
