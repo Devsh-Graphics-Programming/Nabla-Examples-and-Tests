@@ -23,14 +23,14 @@ using ScaledMitchellDerivativeKernel = asset::CDerivativeImageFilterKernel<Scale
 using ScaledChannelIndependentKernel = asset::CChannelIndependentImageFilterKernel<ScaledBoxKernel, ScaledMitchellKernel, ScaledKaiserKernel>;
 
 // dims[3] is layer count
-core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const bool fillWithTestData = false)
+core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const uint32_t mipLevels = 1, const bool fillWithTestData = false)
 {
 	IImage::SCreationParams imageParams = {};
 	imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
 	imageParams.type = imageType;
 	imageParams.format = format;
 	imageParams.extent = { dims[0], dims[1], dims[2] };
-	imageParams.mipLevels = 1u;
+	imageParams.mipLevels = mipLevels;
 	imageParams.arrayLayers = dims[3];
 	imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
 	imageParams.usage = asset::IImage::EUF_SAMPLED_BIT;
@@ -157,66 +157,184 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		{
-			// const char* pathToImage = "../../media/GLI/kueken8_rgba_dxt1_unorm.dds"; // BC1
-			const char* pathToImage = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds"; // BC3
-			// const char* pathToImage = "../../media/GLI/dice_bc3.dds"; // BC3
+		constexpr bool TestCPUBlitFilter = true;
+		constexpr bool TestFlattenFilter = true;
+		constexpr bool TestConvertFilter = true;
+		constexpr bool TestGPUBlitFilter = true;
 
+		auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
+		{
 			constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
-			auto cpuTextureBundle = assetManager->getAsset(pathToImage, loadParams);
-			auto cpuTextureContents = cpuTextureBundle.getContents();
+			auto imageBundle = assetManager->getAsset(path, loadParams);
+			auto imageContents = imageBundle.getContents();
+
+			if (imageContents.empty())
+				return nullptr;
+
+			auto asset = *imageContents.begin();
+
+			core::smart_refctd_ptr<asset::ICPUImage> result;
 			{
-				bool status = !cpuTextureContents.empty();
-				assert(status);
+				if (asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW)
+					result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset)->getCreationParameters().image);
+				else if (asset->getAssetType() == asset::IAsset::ET_IMAGE)
+					result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset));
+				else
+					assert(!"Invalid code path.");
 			}
 
-			if (cpuTextureContents.begin() == cpuTextureContents.end())
-				assert(false); // cannot perform test in this scenario
+			// TODO(achal): Boot this out of here and do it in GPU specific tests.
+			result->addImageUsageFlags(asset::IImage::EUF_SAMPLED_BIT);
 
-			auto asset = *cpuTextureContents.begin();
-			assert(asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW);
-			auto inImageView = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset);
-			const auto& inImage = inImageView->getCreationParameters().image;
-			const auto& inImageExtent = inImage->getCreationParameters().extent;
-			const auto& inImageFormat = inImage->getCreationParameters().format;
+			return result;
+		};
 
-			auto writeImage = [this](core::smart_refctd_ptr<asset::ICPUImage>&& image, const char* path, const asset::IImageView<asset::ICPUImage>::E_TYPE imageViewType)
+		auto writeImage = [this](core::smart_refctd_ptr<asset::ICPUImage>&& image, const char* path, const asset::IImageView<asset::ICPUImage>::E_TYPE imageViewType)
+		{
+			asset::ICPUImageView::SCreationParams viewParams = {};
+			viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
+			viewParams.image = std::move(image);
+			viewParams.format = viewParams.image->getCreationParameters().format;
+			viewParams.viewType = imageViewType;
+			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			viewParams.subresourceRange.baseArrayLayer = 0u;
+			viewParams.subresourceRange.layerCount = viewParams.image->getCreationParameters().arrayLayers;
+			viewParams.subresourceRange.baseMipLevel = 0u;
+			viewParams.subresourceRange.levelCount = viewParams.image->getCreationParameters().mipLevels;
+
+			auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
+			if (!imageViewToWrite)
 			{
-				asset::ICPUImageView::SCreationParams viewParams = {};
-				viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
-				viewParams.image = std::move(image);
-				viewParams.format = viewParams.image->getCreationParameters().format;
-				viewParams.viewType = imageViewType;
-				viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-				viewParams.subresourceRange.baseArrayLayer = 0u;
-				viewParams.subresourceRange.layerCount = viewParams.image->getCreationParameters().arrayLayers;
-				viewParams.subresourceRange.baseMipLevel = 0u;
-				viewParams.subresourceRange.levelCount = viewParams.image->getCreationParameters().mipLevels;
+				logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
+				return;
+			}
 
-				auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
-				if (!imageViewToWrite)
-				{
-					logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
-					return;
-				}
+			asset::IAssetWriter::SAssetWriteParams writeParams(imageViewToWrite.get());
+			if (!assetManager->writeAsset(path, writeParams))
+			{
+				logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
+				return;
+			}
+		};
 
-				asset::IAssetWriter::SAssetWriteParams writeParams(imageViewToWrite.get());
-				if (!assetManager->writeAsset(path, writeParams))
-				{
-					logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
-					return;
-				}
+		if (TestCPUBlitFilter)
+		{
+			logger->log("CBlitImageFilter", system::ILogger::ELL_INFO);
+
+			constexpr const char* TestImagePaths[] =
+			{
+				"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
+				"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
+				"../../media/GLI/dice_bc3.dds"
 			};
+			constexpr auto TestImagePathsCount = sizeof(TestImagePaths) / sizeof(const char*);
 
-			const bool testFlattenFilter = true;
-			if (testFlattenFilter)
+			for (const char* pathToImage : TestImagePaths)
 			{
+				logger->log("Image: \t%s", system::ILogger::ELL_INFO, pathToImage);
+
+				const auto& inImage = loadImage(pathToImage);
+				if (!inImage)
+				{
+					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				const auto& inImageExtent = inImage->getCreationParameters().extent;
+				const auto& inImageFormat = inImage->getCreationParameters().format;
+				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels;
+
+				const auto outFormat = asset::EF_R32G32B32A32_SFLOAT;
+
+				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, outFormat);
+				if (!outImage)
+				{
+					logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+
+				auto kernelX = ScaledBoxKernel(scaleX, asset::CBoxImageFilterKernel());
+				auto kernelY = ScaledBoxKernel(scaleY, asset::CBoxImageFilterKernel());
+				auto kernelZ = ScaledBoxKernel(scaleZ, asset::CBoxImageFilterKernel());
+
+				using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, decltype(kernelX), decltype(kernelY), decltype(kernelZ), float>;
+				typename BlitFilter::state_type blitFilterState(std::move(kernelX), std::move(kernelY), std::move(kernelZ));
+
+				blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
+				blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, inImage->getCreationParameters().arrayLayers) + inImage->getMipSize();
+				blitFilterState.inImage = inImage.get();
+
+				blitFilterState.outImage = outImage.get();
+
+				blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
+				blitFilterState.outExtentLayerCount = blitFilterState.inExtentLayerCount;
+
+				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
+				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
+
+				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
+				{
+					logger->log("Failed to compute the LUT for blitting.\n", system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
+				{
+					logger->log("Failed to blit.\n", system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
+
+				std::filesystem::path filename, inFileExtension;
+				core::splitFilename(pathToImage, nullptr, &filename, &inFileExtension);
+
+				assert(outFormat == asset::EF_R32G32B32A32_SFLOAT);
+				constexpr std::string_view outFileExtension = ".exr";
+				std::string outFileName = "CBlitImageFilter_" + filename.string() + outFileExtension.data();
+
+				writeImage(std::move(outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
+			}
+		}
+
+		if (TestFlattenFilter)
+		{
+			logger->log("CFlattenRegionsImageFilter", system::ILogger::ELL_INFO);
+
+			constexpr const char* TestImagePaths[] =
+			{
+				"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
+				"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
+				"../../media/GLI/dice_bc3.dds"
+			};
+			constexpr auto TestImagePathsCount = sizeof(TestImagePaths) / sizeof(const char*);
+
+			for (const char* pathToImage : TestImagePaths)
+			{
+				logger->log("Image: \t%s", system::ILogger::ELL_INFO, pathToImage);
+
+				const auto& inImage = loadImage(pathToImage);
+				if (!inImage)
+				{
+					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				const auto& inImageExtent = inImage->getCreationParameters().extent;
+				const auto& inImageFormat = inImage->getCreationParameters().format;
+				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels;
+
+				// We use the very first block of the image as fill value for the filter.
+				std::unique_ptr<uint8_t[]> fillValueBlock = std::make_unique<uint8_t[]>(asset::getTexelOrBlockBytesize(inImageFormat));
+
 				core::smart_refctd_ptr<ICPUImage> flattenInImage;
 				{
-					// TODO(achal): Wonder if I need the buffer for the entire image or just the regions I have data in.
-					// const uint64_t bufferSizeNeeded = (inImageExtent.width*inImageExtent.height*inImageExtent.depth*asset::getTexelOrBlockBytesize(inImageFormat))/2ull;
-					const uint64_t bufferSizeNeeded = (inImageExtent.width*inImageExtent.height*inImageExtent.depth*asset::getTexelOrBlockBytesize(inImageFormat));
+					const uint64_t bufferSizeNeeded = (inImageExtent.width * inImageExtent.height * inImageExtent.depth * asset::getTexelOrBlockBytesize(inImageFormat)) / 2ull;
 
 					IImage::SCreationParams imageParams = {};
 					imageParams.type = asset::ICPUImage::ET_2D;
@@ -230,9 +348,9 @@ public:
 					{
 						auto& region = (*imageRegions)[0];
 						region.bufferOffset = 0ull;
-						region.bufferRowLength = imageParams.extent.width/2;
-						region.bufferImageHeight = imageParams.extent.height/2;
-						region.imageExtent = { imageParams.extent.width/2, imageParams.extent.height/2, core::max(imageParams.extent.depth/2, 1) };
+						region.bufferRowLength = imageParams.extent.width / 2;
+						region.bufferImageHeight = imageParams.extent.height / 2;
+						region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
 						region.imageOffset = { 0u, 0u, 0u };
 						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 						region.imageSubresource.baseArrayLayer = 0u;
@@ -241,11 +359,11 @@ public:
 					}
 					{
 						auto& region = (*imageRegions)[1];
-						region.bufferOffset = (3ull * bufferSizeNeeded) / 4ull;// bufferSizeNeeded / 2ull;
-						region.bufferRowLength = imageParams.extent.width/2;
-						region.bufferImageHeight = imageParams.extent.height/2;
-						region.imageExtent = { imageParams.extent.width/2, imageParams.extent.height/2, core::max(imageParams.extent.depth/2, 1) };
-						region.imageOffset = { imageParams.extent.width/2, imageParams.extent.height/2, 0u };
+						region.bufferOffset = bufferSizeNeeded / 2ull;
+						region.bufferRowLength = imageParams.extent.width / 2;
+						region.bufferImageHeight = imageParams.extent.height / 2;
+						region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
+						region.imageOffset = { imageParams.extent.width / 2, imageParams.extent.height / 2, 0u };
 						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 						region.imageSubresource.baseArrayLayer = 0u;
 						region.imageSubresource.layerCount = imageParams.arrayLayers;
@@ -256,31 +374,34 @@ public:
 					if (!imageBuffer)
 					{
 						logger->log("Failed to create backing buffer for flatten input image.", system::ILogger::ELL_ERROR);
-						return;
+						continue;
 					}
 
 					flattenInImage = ICPUImage::create(std::move(imageParams));
 					if (!flattenInImage)
 					{
-						logger->log("Failed to create the flattne input image.", system::ILogger::ELL_ERROR);
-						return;
+						logger->log("Failed to create the flatten input image.", system::ILogger::ELL_ERROR);
+						continue;
 					}
 
 					flattenInImage->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
 
 					const auto blockDim = asset::getBlockDimensions(inImageFormat);
-					const uint32_t blockCountX = inImageExtent.width/blockDim.x;
-					const uint32_t blockCountY = inImageExtent.height/blockDim.y;
+					const uint32_t blockCountX = inImageExtent.width / blockDim.x;
+					const uint32_t blockCountY = inImageExtent.height / blockDim.y;
 					const auto blockSize = asset::getTexelOrBlockBytesize(inImageFormat);
 
 					uint8_t* src = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
 					uint8_t* dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer());
-					for (uint32_t y = 0; y < blockCountY/2; ++y)
+					for (uint32_t y = 0; y < blockCountY / 2; ++y)
 					{
-						for (uint32_t x = 0; x < blockCountX/2; ++x)
+						for (uint32_t x = 0; x < blockCountX / 2; ++x)
 						{
-							const uint64_t byteOffset = (y*blockCountX + x)*blockSize;
-							memcpy(dst, src+byteOffset, blockSize);
+							if (x == 0 && y == 0)
+								memcpy(fillValueBlock.get(), src, blockSize);
+
+							const uint64_t byteOffset = (y * blockCountX + x) * blockSize;
+							memcpy(dst, src + byteOffset, blockSize);
 							dst += blockSize;
 						}
 					}
@@ -300,231 +421,262 @@ public:
 					}
 				}
 
+#if 0
 				writeImage(core::smart_refctd_ptr(flattenInImage), "flatten_input.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
-
+#endif
 				asset::CFlattenRegionsImageFilter::CState filterState;
 				filterState.inImage = flattenInImage.get();
 				filterState.outImage = nullptr;
 				filterState.preFill = true;
-				filterState.fillValue.asFloat = core::vectorSIMDf(1.f, 0.f, 1.f, 1.f);
-				
+				memcpy(filterState.fillValue.asCompressedBlock, fillValueBlock.get(), asset::getTexelOrBlockBytesize(filterState.inImage->getCreationParameters().format));
+
 				if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
 				{
 					logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
-					return;
+					continue;
 				}
 
-				writeImage(core::smart_refctd_ptr(filterState.outImage), "flatten_output.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
-			}
+				std::filesystem::path filename, inFileExtension;
+				core::splitFilename(pathToImage, nullptr, &filename, &inFileExtension);
 
-			const bool testBlitFilter = false;
-			if (testBlitFilter)
+				std::string outFileName = "CFlattenRegionsImageFilter_" + filename.string() + inFileExtension.string();
+
+				writeImage(core::smart_refctd_ptr(filterState.outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
+			}
+		}
+
+		if (TestConvertFilter)
+		{
+			logger->log("CConvertFormatImageFilter", system::ILogger::ELL_INFO);
+
+			constexpr const char* TestImagePaths[] =
 			{
-				auto outFormat = asset::EF_R32G32B32A32_SFLOAT;
-				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, outFormat);
+				"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
+				"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
+				"../../media/GLI/dice_bc3.dds"
+			};
+			constexpr auto TestImagePathsCount = sizeof(TestImagePaths)/sizeof(const char*);
+
+			for (const char* pathToImage : TestImagePaths)
+			{
+				logger->log("Image: \t%s", system::ILogger::ELL_INFO, pathToImage);
+
+				const auto& inImage = loadImage(pathToImage);
+				if (!inImage)
+				{
+					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
+					continue;
+				}
+
+				const auto& inImageExtent = inImage->getCreationParameters().extent;
+				const auto& inImageFormat = inImage->getCreationParameters().format;
+				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels;
+
+				const auto outFormat = asset::EF_R32G32B32A32_SFLOAT;
+				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, outFormat, inImageMipCount);
 				if (!outImage)
 				{
 					logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
-					return;
+					continue;
 				}
+
+				const auto& outImageExtent = outImage->getCreationParameters().extent;
+
+				asset::CConvertFormatImageFilter<>::state_type filterState = {};
+				assert((inImageExtent.width == outImageExtent.width) && (inImageExtent.height == outImageExtent.height) && (inImageExtent.depth == outImageExtent.depth) && (inImage->getCreationParameters().arrayLayers == outImage->getCreationParameters().arrayLayers));
+				filterState.extentLayerCount = core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers);
+
+				filterState.inOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+				filterState.outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+
+				assert(inImageMipCount == outImage->getCreationParameters().mipLevels);
+
+				filterState.inImage = inImage.get();
+				filterState.outImage = outImage.get();
+
+				// TODO(achal): If I'm outputting to a format which doesn't support mips then I might as well pick any random mip to convert, or write
+				// to separate output images.
+				for (uint32_t i = 0; i < inImageMipCount; ++i)
+				{
+					filterState.inMipLevel = i;
+					filterState.outMipLevel = i;
+
+					if (!asset::CConvertFormatImageFilter<>::execute(&filterState))
+					{
+						logger->log("CConvertFormatImageFilter failed for mip level %u.", system::ILogger::ELL_ERROR, i);
+						return;
+					}
+				}
+
+				std::filesystem::path filename, inFileExtension;
+				core::splitFilename(pathToImage, nullptr, &filename, &inFileExtension);
+
+				assert(outFormat == asset::EF_R32G32B32A32_SFLOAT);
+				constexpr std::string_view outFileExtension = ".exr";
+				std::string outFileName = "CConvertFormatImageFilter_" + filename.string() + outFileExtension.data();
+
+				writeImage(std::move(outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
+			}
+		}		
+
+		if (TestGPUBlitFilter)
+		{
+
+			if (1)
+			{
+				logger->log("Test #1");
+
+				const auto layerCount = 10;
+				const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
+				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_1D;
+				const asset::E_FORMAT inImageFormat = asset::EF_R32_SFLOAT;
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
+
+				const core::vectorSIMDu32 outImageDim(800u, 1u, 1u, layerCount);
+				const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
+
+				const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+
+				auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+				auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+
+				using LutDataType = uint16_t;
+				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+			}
+
+			if (1)
+			{
+				logger->log("Test #2");
+
+				const char* pathToInputImage = "../../media/colorexr.exr";
+				core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
+				if (!inImage)
+					FATAL_LOG("Failed to load the image at path %s\n", pathToInputImage);
+
+				const auto& inExtent = inImage->getCreationParameters().extent;
+				const auto layerCount = inImage->getCreationParameters().arrayLayers;
+				const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
+				const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
 
 				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
 				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
 				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
 
-				auto kernelX = ScaledBoxKernel(scaleX, asset::CBoxImageFilterKernel());
-				auto kernelY = ScaledBoxKernel(scaleY, asset::CBoxImageFilterKernel());
-				auto kernelZ = ScaledBoxKernel(scaleZ, asset::CBoxImageFilterKernel());
+				auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+				auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
-				using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, decltype(kernelX), decltype(kernelY), decltype(kernelZ), float>;
-
-				typename BlitFilter::state_type blitFilterState(std::move(kernelX), std::move(kernelY), std::move(kernelZ));
-				blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
-				blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, inImage->getCreationParameters().arrayLayers) + inImage->getMipSize();
-				blitFilterState.inImage = inImage.get();
-
-				blitFilterState.outImage = outImage.get();
-
-				blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
-				blitFilterState.outExtentLayerCount = blitFilterState.inExtentLayerCount;
-
-				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
-				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
-
-				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
-				{
-					logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
-					return;
-				}
-
-				logger->log("Begin..");
-				// if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
-				if (!BlitFilter::execute(core::execution::seq, &blitFilterState))
-				{
-					logger->log("Failed to blit\n", system::ILogger::ELL_ERROR);
-					return;
-				}
-				logger->log("End..");
-
-				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
-
-				writeImage(std::move(outImage), "blit_output.tga", inImageView->getCreationParameters().viewType);
+				using LutDataType = float;
+				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 			}
-		}
 
-		if (0)
-		{
-			logger->log("Test #1");
+			if (1)
+			{
+				logger->log("Test #3");
 
-			const auto layerCount = 10;
-			const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
-			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_1D;
-			const asset::E_FORMAT inImageFormat = asset::EF_R32_SFLOAT;
-			auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
+				const auto layerCount = 1u;
+				const core::vectorSIMDu32 inImageDim(2u, 3u, 4u, layerCount);
+				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
+				const asset::E_FORMAT inImageFormat = asset::EF_R32G32B32A32_SFLOAT;
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
 
-			const core::vectorSIMDu32 outImageDim(800u, 1u, 1u, layerCount);
-			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
+				const core::vectorSIMDu32 outImageDim(3u, 4u, 2u, layerCount);
+				const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
 
-			const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 9.f/16.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
 
-			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+				auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+				auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
-			using LutDataType = uint16_t;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
-		}
+				using LutDataType = uint16_t;
+				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+			}
 
-		if (0)
-		{
-			logger->log("Test #2");
+			if (0)
+			{
+				logger->log("Test #4");
 
-			const char* pathToInputImage = "../../media/colorexr.exr";
-			core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
-			if (!inImage)
-				FATAL_LOG("Failed to load the image at path %s\n", pathToInputImage);
+				// TODO(achal): Need to change this path.
+				const char* pathToInputImage = "alpha_test_input.exr";
+				core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
+				if (!inImage)
+					FATAL_LOG("Failed to load the image at path %s\n", pathToInputImage);
 
-			const auto& inExtent = inImage->getCreationParameters().extent;
-			const auto layerCount = inImage->getCreationParameters().arrayLayers;
-			const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
-			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
+				const auto& inExtent = inImage->getCreationParameters().extent;
+				const auto layerCount = inImage->getCreationParameters().arrayLayers;
+				const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
+				const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
+				const float referenceAlpha = 0.5f;
+				const auto alphaBinCount = 1024;
 
-			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
 
-			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+				auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+				auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
-			using LutDataType = float;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
-		}
+				using LutDataType = float;
+				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
+			}
 
-		if (0)
-		{
-			logger->log("Test #3");
+			if (1)
+			{
+				logger->log("Test #5");
 
-			const auto layerCount = 1u;
-			const core::vectorSIMDu32 inImageDim(2u, 3u, 4u, layerCount);
-			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
-			const asset::E_FORMAT inImageFormat = asset::EF_R32G32B32A32_SFLOAT;
-			auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
+				const auto layerCount = 1;
+				const core::vectorSIMDu32 inImageDim(257u, 129u, 63u, layerCount);
+				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
+				const asset::E_FORMAT inImageFormat = asset::EF_B10G11R11_UFLOAT_PACK32;
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
 
-			const core::vectorSIMDu32 outImageDim(3u, 4u, 2u, layerCount);
-			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
+				const core::vectorSIMDu32 outImageDim(256u, 128u, 64u, layerCount);
+				const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
 
-			const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 9.f/16.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
 
-			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+				auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+				auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
-			using LutDataType = uint16_t;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
-		}
+				using LutDataType = uint16_t;
+				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+			}
 
-		if (0)
-		{
-			logger->log("Test #4");
+			if (1)
+			{
+				const auto layerCount = 7;
+				logger->log("Test #6");
+				const core::vectorSIMDu32 inImageDim(511u, 1024u, 1u, layerCount);
+				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_2D;
+				const asset::E_FORMAT inImageFormat = EF_R16G16B16A16_SNORM;
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
 
-			const char* pathToInputImage = "alpha_test_input.exr";
-			core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
-			if (!inImage)
-				FATAL_LOG("Failed to load the image at path %s\n", pathToInputImage);
+				const core::vectorSIMDu32 outImageDim(512u, 257u, 1u, layerCount);
+				const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
+				const float referenceAlpha = 0.5f;
+				const auto alphaBinCount = 4096;
 
-			const auto& inExtent = inImage->getCreationParameters().extent;
-			const auto layerCount = inImage->getCreationParameters().arrayLayers;
-			const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
-			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
-			const float referenceAlpha = 0.5f;
-			const auto alphaBinCount = 1024;
+				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
 
-			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+				auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+				auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
-			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-
-			using LutDataType = float;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
-		}
-
-		if (0)
-		{
-			logger->log("Test #5");
-
-			const auto layerCount = 1;
-			const core::vectorSIMDu32 inImageDim(257u, 129u, 63u, layerCount);
-			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
-			const asset::E_FORMAT inImageFormat = asset::EF_B10G11R11_UFLOAT_PACK32;
-			auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
-
-			const core::vectorSIMDu32 outImageDim(256u, 128u, 64u, layerCount);
-			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
-
-			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
-
-			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-
-			using LutDataType = uint16_t;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
-		}
-
-		if (0)
-		{
-			const auto layerCount = 7;
-			logger->log("Test #6");
-			const core::vectorSIMDu32 inImageDim(511u, 1024u, 1u, layerCount);
-			const asset::IImage::E_TYPE inImageType = asset::IImage::ET_2D;
-			const asset::E_FORMAT inImageFormat = EF_R16G16B16A16_SNORM;
-			auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
-
-			const core::vectorSIMDu32 outImageDim(512u, 257u, 1u, layerCount);
-			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic = IBlitUtilities::EAS_REFERENCE_OR_COVERAGE;
-			const float referenceAlpha = 0.5f;
-			const auto alphaBinCount = 4096;
-
-			const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-			const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
-
-			auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-			auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-			auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-
-			using LutDataType = float;
-			blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
+				using LutDataType = float;
+				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
+			}
 		}
 	}
 
@@ -546,6 +698,7 @@ private:
 	template<typename LutDataType, typename KernelX, typename KernelY, typename KernelZ>
 	void blitTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImageCPU, const core::vectorSIMDu32& outExtent, const KernelX& kernelX, const KernelY& kernelY, const KernelZ& kernelZ, const asset::IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic, const float referenceAlpha = 0.f, const uint32_t alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
 	{
+		assert(inImageCPU->getCreationParameters().mipLevels == 1);
 		using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, KernelX, KernelY, KernelZ, LutDataType>;
 
 		const asset::E_FORMAT inImageFormat = inImageCPU->getCreationParameters().format;
@@ -556,7 +709,7 @@ private:
 		// CPU
 		core::vector<uint8_t> cpuOutput(static_cast<uint64_t>(outExtent[0]) * outExtent[1] * outExtent[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 		{
-			auto outImageCPU = createCPUImage(outExtent, inImageCPU->getCreationParameters().type, outImageFormat);
+			auto outImageCPU = createCPUImage(outExtent, inImageCPU->getCreationParameters().type, outImageFormat, 1);
 
 			KernelX kernelX_(kernelX);
 			KernelY kernelY_(kernelY);
@@ -996,29 +1149,6 @@ private:
 
 		const float alphaCoverage = float(alphaTestPassCount) / float(extent.width * extent.height * extent.depth*layerCount);
 		return alphaCoverage;
-	};
-
-	core::smart_refctd_ptr<asset::ICPUImage> loadImage(const char* path)
-	{
-		core::smart_refctd_ptr<asset::ICPUImage> inImage = nullptr;
-		{
-			constexpr auto cachingFlags = static_cast<nbl::asset::IAssetLoader::E_CACHING_FLAGS>(nbl::asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & nbl::asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-
-			asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
-			auto cpuImageBundle = assetManager->getAsset(path, loadParams);
-			auto cpuImageContents = cpuImageBundle.getContents();
-			if (cpuImageContents.empty() || cpuImageContents.begin() == cpuImageContents.end())
-				return nullptr;
-
-			auto asset = *cpuImageContents.begin();
-			if (asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW)
-				return nullptr; // it would be weird if the loaded image is already an image view
-
-			inImage = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset);
-
-			inImage->addImageUsageFlags(asset::IImage::EUF_SAMPLED_BIT);
-		}
-		return inImage;
 	};
 
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
