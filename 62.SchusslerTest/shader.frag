@@ -8,9 +8,7 @@ layout (location = 0) in vec3 Normal;
 layout (location = 1) in vec3 Pos;
 layout (location = 2) flat in vec3 LightPos;
 layout (location = 3) flat in vec3 CamPos;
-layout (location = 4) flat in vec3 GNormal;
-layout (location = 5) flat in float Alpha;
-layout (location = 6) flat in float AlphaY;
+layout (location = 4) flat in float Alpha;
 
 layout (location = 0) out vec4 outColor;
 
@@ -41,7 +39,7 @@ float ap(vec3 wi, vec3 wp, vec3 wg) {
 }
 
 float at(vec3 wi, vec3 wt, vec3 wp, vec3 wg) {
-    return pdot(wi, wt) * sqrt(1-(pdot(wp,wg)*pdot(wp,wg))) / pdot(wp,wg);
+    return pdot(wi, wt) * sqrt(1.0-(pdot(wp,wg)*pdot(wp,wg))) / pdot(wp,wg);
 }
 
 float lambdap(vec3 wi, vec3 wt, vec3 wp, vec3 wg) {
@@ -52,11 +50,11 @@ float lambdat(vec3 wi, vec3 wt, vec3 wp, vec3 wg) {
     return at(wi,wt,wp,wg) / (ap(wi,wp,wg) + at(wi,wt,wp,wg));
 }
 
-float G1(vec3 wo, vec3 wp, float a2) {
-    float dotNV = pdot(wp,wo);
-    float denomC = sqrt(a2 + (1.0f - a2) * dotNV * dotNV) + dotNV;
-
-    return 2.0f * dotNV / denomC;
+float G1(vec3 wi, vec3 wm, vec3 wt, vec3 wp, vec3 wg) {
+    if (dot(wi,wm) > 0.f) {
+        return min(1.f, pdot(wi, wg)/(lambdap(wi,wt,wp,wg) + lambdat(wi,wt,wp,wg)));
+    }
+    return 0.f;
 }
 
 vec3 evalBRDF(vec3 wi, vec3 wo, vec3 N) {
@@ -91,37 +89,56 @@ vec3 evalBRDF(vec3 wi, vec3 wo, vec3 N) {
 void main()
 {
     const float Intensity = 20.0;
+    const float THRESHOLD = 1.0 - 1e-5;
 
+    vec3 dFdxPos = dFdx(Pos);
+    vec3 dFdyPos = dFdy(Pos);
+    vec3 GN = normalize(cross(dFdxPos,dFdyPos));
+    vec3 N = normalize(Normal);
     vec3 L = LightPos-Pos;
-    vec3 Lnorm = normalize(L);
-    const float THRESHOLD = AlphaY+0.5;
-    float a2 = Alpha;
-    float a2formeta = AlphaY;
-    
-    vec3 wi = normalize(CamPos - Pos);
-    vec3 wo = Lnorm;
-    const float deviation = dot(Normal,GNormal);
-    vec3 wt = -normalize(Normal-deviation*GNormal);
-    vec3 wdasho = normalize(reflect(-wo, wt));
-    vec3 wdashi = normalize(reflect(-wi, wt));
 
-    const vec3 albedo = vec3(0.5);
-    vec3 brdf_cos_wi_wo = evalBRDF(wi,wo,Normal);
-    vec3 brdf_cos_wi_wdasho = evalBRDF(wi,wdasho,Normal);
-    vec3 brdf_cos_wdashi_wo = evalBRDF(wdashi,wo,Normal);
-    vec3 brdf;
-    if (deviation<THRESHOLD) 
+    vec3 wi = normalize(CamPos - Pos);
+    vec3 wo = normalize(L);
+    const float deviation = dot(N,GN);
+    if (deviation < 0) {
+        outColor = vec4(1.0, 0.0, 0.0, 1.0);
+        return;
+    } 
+    vec3 wt = -normalize(N-deviation*GN);
+    vec3 wdasho = reflect(wo, wt);
+    vec3 wdashi = reflect(wi, wt);
+
+    float a2 = Alpha;
+    const float NdotV = dot(GN,wi);
+    const float NdotL = dot(GN,wo);
+    if (NdotV<nbl_glsl_FLT_MIN || NdotL<nbl_glsl_FLT_MIN) {
+        outColor = vec4(0.0,0.0,0.0,1.0);
+        return;
+    }
+
+    vec3 brdf_cos_wi_wo = evalBRDF(wi,wo,N);
+    vec3 brdf_cos_wi_wdasho = evalBRDF(wi,wdasho,N);
+    vec3 brdf_cos_wdashi_wo = evalBRDF(wdashi,wo,N);
+    vec3 brdf = vec3(0.0);
+
+    if (deviation < THRESHOLD) 
     {
-        brdf = lambdap(wi, wt, Normal, GNormal) * (
-            G1(wo, Normal, a2formeta) * brdf_cos_wi_wo +
-            G1(wo, wt, a2formeta) * (1.0 - G1(wdasho, Normal, a2formeta)) * brdf_cos_wi_wdasho
-        ) + lambdat(wi, wt, Normal, GNormal) * brdf_cos_wdashi_wo * G1(wo, Normal, a2formeta);
+        if (dot(wi, GN) >= 0.0) brdf += lambdap(wi, wt, N, GN) * G1(wo, N, wt, N, GN) * brdf_cos_wi_wo;
+        if (dot(wi, GN) >= 0.0) brdf += lambdap(wi, wt, N, GN) * G1(wo, wt,  wt, N, GN) 
+            * (1.0 - G1(wdasho, N,  wt, N, GN)) * brdf_cos_wi_wdasho;
+        if (dot(wdashi, GN) >= 0.0) brdf += lambdat(wi, wt, N, GN) * brdf_cos_wdashi_wo * G1(wo, N,  wt, N, GN);
     } else {
         brdf = brdf_cos_wi_wo;
     }
     const vec3 col = Intensity*brdf/dot(L,L);
-    //red output means brdf>1.0
-    //outColor = any(greaterThan(brdf,vec3(1.0))) ? vec4(1.0,0.0,0.0,1.0) : vec4(Intensity*brdf/dot(L,L), 1.0);
+    // if (AlphaY >= 0.8) 
+    //     outColor = vec4(col, 1.0);
+    // else if (AlphaY >= 0.6) 
+    //     outColor = vec4(wdashi, 1.0);
+    // else if (AlphaY >= 0.4)
+    //     outColor = vec4(-wi, 1.0);
+    // else if (AlphaY >= 0.2)
+    //     outColor = vec4(wt, 1.0);
+    // else
     outColor = vec4(col, 1.0);
-    //outColor = (inter_.NdotV<0.0||_sample.NdotL<0.0) ? vec4(1.0,0.0,0.0,1.0) : vec4(col, 1.0);
 }

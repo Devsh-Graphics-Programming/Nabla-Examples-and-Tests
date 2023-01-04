@@ -154,26 +154,6 @@ public:
 
   APP_CONSTRUCTOR(SchusslerTestApp)
 
-  	#include "nbl/nblpack.h"
-
-    struct SphereVertex
-		{
-			std::array<float,3> pos;
-			std::array<uint8_t,4> color;
-			std::array<float,2> uv;
-			CQuantNormalCache::value_type_t<EF_A2B10G10R10_SNORM_PACK32> normal;
-		} PACK_STRUCT;
-
-		struct VertexWithGNormal {
-    std::array<float, 3> pos;
-    std::array<uint8_t, 4> color;
-    std::array<float, 2> uv;
-    CQuantNormalCache::value_type_t<EF_A2B10G10R10_SNORM_PACK32> normal;
-    std::array<float, 3> gnormal;
-  } PACK_STRUCT;
-  
-	#include "nbl/nblunpack.h"
-
   void onAppInitialized_impl() override {
     const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(
         asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
@@ -219,56 +199,8 @@ public:
                ->getQuantNormalCache();
     constexpr uint32_t INSTANCE_COUNT = 25u;
 
-    auto geometryObject = geometryCreator->createSphereMesh(0.5f, 8u, 8u);
-    constexpr size_t vertexSize = sizeof(VertexWithGNormal);
-
-    // Change vertex buffer to add gemoetric normal
-    geometryObject.inputParams = {
-        0b11111u,
-        0b1u,
-        {
-            {0u, EF_R32G32B32_SFLOAT, offsetof(VertexWithGNormal, pos)},
-            {0u, EF_R8G8B8A8_UNORM, offsetof(VertexWithGNormal, color)},
-            {0u, EF_R32G32_SFLOAT, offsetof(VertexWithGNormal, uv)},
-            {0u, EF_A2B10G10R10_SNORM_PACK32,
-             offsetof(VertexWithGNormal, normal)},
-            {0u, EF_R32G32B32_SFLOAT,
-             offsetof(VertexWithGNormal, gnormal)},
-        },
-        {vertexSize, EVIR_PER_VERTEX}};
-    uint32_t *indices =
-        reinterpret_cast<uint32_t *>(geometryObject.indexBuffer.buffer->getPointer());
-    auto oldVertBufferPtr = geometryObject.bindings[0].buffer;
-    SphereVertex *oldVertBuffer =
-        reinterpret_cast<SphereVertex *>(oldVertBufferPtr->getPointer());
-    auto vtxBuf =
-        core::make_smart_refctd_ptr<asset::ICPUBuffer>(oldVertBufferPtr->getSize() / sizeof(SphereVertex) * sizeof(VertexWithGNormal));
-    VertexWithGNormal *newVertBuffer =
-        reinterpret_cast<VertexWithGNormal*>(vtxBuf->getPointer());
-
-    for (size_t i = 0; i < geometryObject.indexCount; i += 3) {
-      uint32_t vi0 = indices[i];
-      uint32_t vi1 = indices[i + 1];
-      uint32_t vi2 = indices[i + 2];
-      auto &v0 = oldVertBuffer[vi0];
-      auto &v1 = oldVertBuffer[vi1];
-      auto &v2 = oldVertBuffer[vi2];
-      core::vectorSIMDf pos0(v0.pos.data());
-      core::vectorSIMDf pos1(v1.pos.data());
-      core::vectorSIMDf pos2(v2.pos.data());
-      core::vectorSIMDf newNormal = core::cross(pos2 - pos0, pos1 - pos0);
-      std::array<float,3> newNormalPacked = {newNormal[0], newNormal[1], newNormal[2]};
-      newVertBuffer[vi0] = {v0.pos, v0.color, v0.uv, v0.normal,
-                               newNormalPacked};
-      newVertBuffer[vi1] = {v1.pos, v1.color, v1.uv, v1.normal,
-                               newNormalPacked};
-      newVertBuffer[vi2] = {v2.pos, v2.color, v2.uv, v2.normal,
-                               newNormalPacked};
-    }
-    vtxBuf->setUsageFlags(vtxBuf->getUsageFlags() |
-                          asset::IBuffer::EUF_VERTEX_BUFFER_BIT);
-    geometryObject.bindings[0] = {0ull, std::move(vtxBuf)};
-
+    auto geometryObject = geometryCreator->createIcoSphere(0.5f, 2, true);
+    
     asset::SPushConstantRange rng[2];
     rng[0].offset = 0u;
     rng[0].size = sizeof(SPushConsts::vertStage);
