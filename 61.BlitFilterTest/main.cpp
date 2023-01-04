@@ -5,6 +5,8 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
+#include "nbl/asset/filters/CNormalMapToDerivativeFilter.h"
+
 #include "../common/CommonAPI.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
@@ -157,10 +159,11 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		constexpr bool TestCPUBlitFilter = true;
-		constexpr bool TestFlattenFilter = true;
-		constexpr bool TestConvertFilter = true;
-		constexpr bool TestGPUBlitFilter = true;
+		constexpr bool TestCPUBlitFilter = false;
+		constexpr bool TestFlattenFilter = false;
+		constexpr bool TestSwizzleAndConvertFilter = true;
+		constexpr bool TestNormalMapToDerivativeFilter = false;
+		constexpr bool TestGPUBlitFilter = false;
 
 		auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
 		{
@@ -445,23 +448,75 @@ public:
 			}
 		}
 
-		if (TestConvertFilter)
+		if (TestSwizzleAndConvertFilter)
 		{
-			logger->log("CConvertFormatImageFilter", system::ILogger::ELL_INFO);
+			logger->log("CSwizzleAndConvertImageFilter", system::ILogger::ELL_INFO);
 
-			constexpr const char* TestImagePaths[] =
+			struct STestData
 			{
-				"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
-				"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
-				"../../media/GLI/dice_bc3.dds"
+				const char* inImagePath = nullptr;
+
+				asset::E_FORMAT outFormat;
+
+				core::vectorSIMDu32 inOffsetBaseLayer;
+				core::vectorSIMDu32 outOffsetBaseLayer;
+
+				asset::ICPUImageView::SComponentMapping swizzle;
 			};
-			constexpr auto TestImagePathsCount = sizeof(TestImagePaths)/sizeof(const char*);
 
-			for (const char* pathToImage : TestImagePaths)
+			constexpr uint32_t TestCount = 3u;
+			STestData tests[TestCount];
 			{
-				logger->log("Image: \t%s", system::ILogger::ELL_INFO, pathToImage);
+				// Test 0 - Simple format conversion
+				{
+					tests[0].inImagePath = "../../media/GLI/kueken7_rgba_dxt1_unorm.dds";
+					tests[0].outFormat = asset::EF_R8G8B8A8_SRGB;
+					tests[0].inOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+					tests[0].outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+				}
 
-				const auto& inImage = loadImage(pathToImage);
+				// Test 1 - Non-trivial offsets
+				{
+					tests[1].inImagePath = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds";
+					tests[1].outFormat = asset::EF_R32G32B32A32_SFLOAT;
+					tests[1].inOffsetBaseLayer = core::vectorSIMDu32(64, 64, 0, 0);
+					tests[1].outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+				}
+
+				// Test 2 - Non-trivial swizzle
+				{
+					tests[2].inImagePath = "../../media/GLI/dice_bc3.dds";
+					tests[2].outFormat = asset::EF_R32G32B32A32_SFLOAT;
+					tests[2].inOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+					tests[2].outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+
+					tests[2].swizzle.r = asset::ICPUImageView::SComponentMapping::ES_G;
+					tests[2].swizzle.g = asset::ICPUImageView::SComponentMapping::ES_B;
+					tests[2].swizzle.b = asset::ICPUImageView::SComponentMapping::ES_R;
+					tests[2].swizzle.a = asset::ICPUImageView::SComponentMapping::ES_A;
+				}
+
+				// Test 3 - Non-trivial normalization
+				{
+
+				}
+
+				// Test 4 - Non-trivial dithering
+				{
+
+				}
+
+				// Test 5 - Non-trivial clamping
+				{
+
+				}
+			}
+
+			for (const auto& test : tests)
+			{
+				logger->log("Image: \t%s", system::ILogger::ELL_INFO, test.inImagePath);
+
+				const auto& inImage = loadImage(test.inImagePath);
 				if (!inImage)
 				{
 					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
@@ -470,10 +525,9 @@ public:
 
 				const auto& inImageExtent = inImage->getCreationParameters().extent;
 				const auto& inImageFormat = inImage->getCreationParameters().format;
-				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels;
+				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels; // TODO(achal): Remove.
 
-				const auto outFormat = asset::EF_R32G32B32A32_SFLOAT;
-				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, outFormat, inImageMipCount);
+				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, test.outFormat, inImageMipCount);
 				if (!outImage)
 				{
 					logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
@@ -482,49 +536,51 @@ public:
 
 				const auto& outImageExtent = outImage->getCreationParameters().extent;
 
-				asset::CConvertFormatImageFilter<>::state_type filterState = {};
+				asset::CSwizzleAndConvertImageFilter<>::state_type filterState = {};
 				assert((inImageExtent.width == outImageExtent.width) && (inImageExtent.height == outImageExtent.height) && (inImageExtent.depth == outImageExtent.depth) && (inImage->getCreationParameters().arrayLayers == outImage->getCreationParameters().arrayLayers));
-				filterState.extentLayerCount = core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers);
 
-				filterState.inOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
-				filterState.outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
+				filterState.extentLayerCount = core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers) - test.inOffsetBaseLayer;
+				assert((static_cast<core::vectorSIMDi32>(filterState.extentLayerCount) > core::vectorSIMDi32(0)).all());
 
-				assert(inImageMipCount == outImage->getCreationParameters().mipLevels);
-
+				// filterState.normalization = ;
+				filterState.swizzle = test.swizzle;
+				filterState.inOffsetBaseLayer = test.inOffsetBaseLayer;
+				filterState.outOffsetBaseLayer = test.outOffsetBaseLayer;
+				filterState.inMipLevel = 0;
+				filterState.outMipLevel = 0;
 				filterState.inImage = inImage.get();
 				filterState.outImage = outImage.get();
 
-				// TODO(achal): If I'm outputting to a format which doesn't support mips then I might as well pick any random mip to convert, or write
-				// to separate output images.
-				for (uint32_t i = 0; i < inImageMipCount; ++i)
+				if (!asset::CSwizzleAndConvertImageFilter<>::execute(&filterState))
 				{
-					filterState.inMipLevel = i;
-					filterState.outMipLevel = i;
-
-					if (!asset::CConvertFormatImageFilter<>::execute(&filterState))
-					{
-						logger->log("CConvertFormatImageFilter failed for mip level %u.", system::ILogger::ELL_ERROR, i);
-						return;
-					}
+					logger->log("CSwizzleAndConvertImageFilter failed", system::ILogger::ELL_ERROR);
+					return;
 				}
 
 				std::filesystem::path filename, inFileExtension;
-				core::splitFilename(pathToImage, nullptr, &filename, &inFileExtension);
+				core::splitFilename(test.inImagePath, nullptr, &filename, &inFileExtension);
 
-				assert(outFormat == asset::EF_R32G32B32A32_SFLOAT);
-				constexpr std::string_view outFileExtension = ".exr";
-				std::string outFileName = "CConvertFormatImageFilter_" + filename.string() + outFileExtension.data();
+				std::string_view outFileExtension;
+				if (test.outFormat == asset::EF_R32G32B32A32_SFLOAT)
+					outFileExtension = ".exr";
+				else if (test.outFormat == asset::EF_R8G8B8A8_SRGB)
+					outFileExtension = ".png";
+				else
+					assert(false);
+
+				std::string outFileName = "CSwizzleAndConvertImageFilter_" + filename.string() + outFileExtension.data();
 
 				writeImage(std::move(outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
 			}
-		}		
+		}
 
 		if (TestGPUBlitFilter)
 		{
+			logger->log("CComputeBlit", system::ILogger::ELL_INFO);
 
 			if (1)
 			{
-				logger->log("Test #1");
+				logger->log("Test #1", system::ILogger::ELL_INFO);
 
 				const auto layerCount = 10;
 				const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
@@ -544,12 +600,12 @@ public:
 				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 				using LutDataType = uint16_t;
-				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+				gpuBlitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 			}
 
 			if (1)
 			{
-				logger->log("Test #2");
+				logger->log("Test #2", system::ILogger::ELL_INFO);
 
 				const char* pathToInputImage = "../../media/colorexr.exr";
 				core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
@@ -570,12 +626,12 @@ public:
 				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 				using LutDataType = float;
-				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+				gpuBlitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 			}
 
 			if (1)
 			{
-				logger->log("Test #3");
+				logger->log("Test #3", system::ILogger::ELL_INFO);
 
 				const auto layerCount = 1u;
 				const core::vectorSIMDu32 inImageDim(2u, 3u, 4u, layerCount);
@@ -595,14 +651,14 @@ public:
 				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 				using LutDataType = uint16_t;
-				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+				gpuBlitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 			}
 
 			if (0)
 			{
-				logger->log("Test #4");
+				logger->log("Test #4", system::ILogger::ELL_INFO);
 
-				// TODO(achal): Need to change this path.
+				// TODO(achal): Need to change this path to a valid image.
 				const char* pathToInputImage = "alpha_test_input.exr";
 				core::smart_refctd_ptr<asset::ICPUImage> inImage = loadImage(pathToInputImage);
 				if (!inImage)
@@ -624,12 +680,12 @@ public:
 				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 				using LutDataType = float;
-				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
+				gpuBlitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
 			}
 
 			if (1)
 			{
-				logger->log("Test #5");
+				logger->log("Test #5", system::ILogger::ELL_INFO);
 
 				const auto layerCount = 1;
 				const core::vectorSIMDu32 inImageDim(257u, 129u, 63u, layerCount);
@@ -649,13 +705,13 @@ public:
 				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 				using LutDataType = uint16_t;
-				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
+				gpuBlitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic);
 			}
 
 			if (1)
 			{
 				const auto layerCount = 7;
-				logger->log("Test #6");
+				logger->log("Test #6", system::ILogger::ELL_INFO);
 				const core::vectorSIMDu32 inImageDim(511u, 1024u, 1u, layerCount);
 				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_2D;
 				const asset::E_FORMAT inImageFormat = EF_R16G16B16A16_SNORM;
@@ -675,7 +731,7 @@ public:
 				auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
 
 				using LutDataType = float;
-				blitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
+				gpuBlitTest<LutDataType>(std::move(inImage), outImageDim, kernelX, kernelY, kernelZ, alphaSemantic, referenceAlpha, alphaBinCount);
 			}
 		}
 	}
@@ -696,15 +752,50 @@ public:
 
 private:
 	template<typename LutDataType, typename KernelX, typename KernelY, typename KernelZ>
-	void blitTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImageCPU, const core::vectorSIMDu32& outExtent, const KernelX& kernelX, const KernelY& kernelY, const KernelZ& kernelZ, const asset::IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic, const float referenceAlpha = 0.f, const uint32_t alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
+	void gpuBlitTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImageCPU, const core::vectorSIMDu32& outExtent, const KernelX& kernelX, const KernelY& kernelY, const KernelZ& kernelZ, const asset::IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic, const float referenceAlpha = 0.f, const uint32_t alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
 	{
 		assert(inImageCPU->getCreationParameters().mipLevels == 1);
 		using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, KernelX, KernelY, KernelZ, LutDataType>;
 
 		const asset::E_FORMAT inImageFormat = inImageCPU->getCreationParameters().format;
-		const asset::E_FORMAT outImageFormat = inImageFormat; // I can test with different input and output image formats later
+		const asset::E_FORMAT outImageFormat = inImageFormat;
 		const auto layerCount = inImageCPU->getCreationParameters().arrayLayers;
 		assert(outExtent.w == layerCount);
+
+		auto computeAlphaCoverage = [this](const double referenceAlpha, asset::ICPUImage * image) -> float
+		{
+			const uint32_t mipLevel = 0u;
+
+			uint32_t alphaTestPassCount = 0u;
+
+			const auto& extent = image->getCreationParameters().extent;
+			const auto layerCount = image->getCreationParameters().arrayLayers;
+
+			for (auto layer = 0; layer < layerCount; ++layer)
+			{
+				for (uint32_t z = 0u; z < extent.depth; ++z)
+				{
+					for (uint32_t y = 0u; y < extent.height; ++y)
+					{
+						for (uint32_t x = 0u; x < extent.width; ++x)
+						{
+							const core::vectorSIMDu32 texCoord(x, y, z, layer);
+							core::vectorSIMDu32 dummy;
+							const void* encodedPixel = image->getTexelBlockData(mipLevel, texCoord, dummy);
+
+							double decodedPixel[4];
+							asset::decodePixelsRuntime(image->getCreationParameters().format, &encodedPixel, decodedPixel, dummy.x, dummy.y);
+
+							if (decodedPixel[3] > referenceAlpha)
+								++alphaTestPassCount;
+						}
+					}
+				}
+			}
+
+			const float alphaCoverage = float(alphaTestPassCount) / float(extent.width * extent.height * extent.depth * layerCount);
+			return alphaCoverage;
+		};
 
 		// CPU
 		core::vector<uint8_t> cpuOutput(static_cast<uint64_t>(outExtent[0]) * outExtent[1] * outExtent[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
@@ -998,7 +1089,7 @@ private:
 				if (layerCount > 1)
 				{
 					// This can be removed once ext::ScreenShot::createScreenShot works for multiple layers.
-					logger->log("Layer count (%d) is greater than 1 for a 2D image, not calculating GPU alpha coverage..\n", system::ILogger::ELL_WARNING, layerCount);
+					logger->log("Layer count (%d) is greater than 1 for a 2D image, not calculating GPU alpha coverage..", system::ILogger::ELL_WARNING, layerCount);
 				}
 				else
 				{
@@ -1113,43 +1204,8 @@ private:
 		// compute alpha coverage
 		const uint64_t totalPixelCount = static_cast<uint64_t>(outExtent[2]) * outExtent[1] * outExtent[0]*layerCount;
 		const double RMSE = core::sqrt(sqErr / totalPixelCount);
-		logger->log("RMSE: %f\n", system::ILogger::ELL_DEBUG, RMSE);
+		logger->log("RMSE: %f", system::ILogger::ELL_INFO, RMSE);
 	}
-
-	float computeAlphaCoverage(const double referenceAlpha, asset::ICPUImage* image)
-	{
-		const uint32_t mipLevel = 0u;
-
-		uint32_t alphaTestPassCount = 0u;
-
-		const auto& extent = image->getCreationParameters().extent;
-		const auto layerCount = image->getCreationParameters().arrayLayers;
-
-		for (auto layer = 0; layer < layerCount; ++layer)
-		{
-			for (uint32_t z = 0u; z < extent.depth; ++z)
-			{
-				for (uint32_t y = 0u; y < extent.height; ++y)
-				{
-					for (uint32_t x = 0u; x < extent.width; ++x)
-					{
-						const core::vectorSIMDu32 texCoord(x, y, z, layer);
-						core::vectorSIMDu32 dummy;
-						const void* encodedPixel = image->getTexelBlockData(mipLevel, texCoord, dummy);
-
-						double decodedPixel[4];
-						asset::decodePixelsRuntime(image->getCreationParameters().format, &encodedPixel, decodedPixel, dummy.x, dummy.y);
-
-						if (decodedPixel[3] > referenceAlpha)
-							++alphaTestPassCount;
-					}
-				}
-			}
-		}
-
-		const float alphaCoverage = float(alphaTestPassCount) / float(extent.width * extent.height * extent.depth*layerCount);
-		return alphaCoverage;
-	};
 
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
