@@ -1,29 +1,57 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
-// This file is part of the "Nabla Engine".
-// For conditions of distribution and use, see copyright notice in nabla.h
+#include "common.hlsl"
 
-#pragma shader_stage(compute)
-
-struct PushConstants
+PSInput VSMain(uint vertexID : SV_VertexID)
 {
-	uint2 imgSize;
-	uint swapchainTransform;
-};
+    const uint vertexIdx = vertexID & 0x3u;
+    const uint objectID = vertexID >> 2;
+    
+    DrawObject drawObj = drawObjects[objectID];
+    ObjectType objType = drawObj.type;
+    
+    PSInput outV;
+    outV.color = globals.color;
+    outV.lineWidth_eccentricity_objType.x = globals.lineWidth;
+    outV.lineWidth_eccentricity_objType.z = (uint)objType;
 
-[[vk::push_constant]]
-PushConstants u_pushConstants;
+    if (objType == ObjectType::ELLIPSE)
+    {
+    }
+    else
+    {
+        double3x3 transformation = (double3x3)globals.viewProjection;
+        LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address);
 
-[[vk::binding(0, 0)]] RWTexture2D<float4> outImage;
-[[vk::binding(1, 0)]] Texture2D<float4> inImage;
+        float2 transformedPoints[4u];
+        for(uint i = 0u; i < 4u; ++i)
+        {
+            double2 ndc = mul(transformation, double3(points.p[i], 1)).xy; // Transform to NDC
+            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+        }
 
-[numthreads(16, 16, 1)]
-void main(uint3 gl_GlobalInvocationID : SV_DispatchThreadID)
-{
-	if (all(gl_GlobalInvocationID.xy < u_pushConstants.imgSize))
-	{
-		// TODO use swapchain transforms
-		float2 postTransformUv = float2(gl_GlobalInvocationID.xy) / float2(u_pushConstants.imgSize);
-		float4 outColor = float4(postTransformUv, 0.0, 1.f);
-		outImage[gl_GlobalInvocationID.xy] = outColor;
-	}
+        const float2 lineVector = normalize(transformedPoints[2u] - transformedPoints[1u]);
+        const float2 normalToLine = float2(-lineVector.y, lineVector.x);
+
+        if (vertexIdx == 0u || vertexIdx == 1u)
+        {
+            const float2 vectorPrev = normalize(transformedPoints[1u] - transformedPoints[0u]);
+            const float2 normalPrevLine = float2(-vectorPrev.y, vectorPrev.x);
+            const float2 miter = normalize(normalPrevLine + normalToLine);
+
+            outV.position.xy = transformedPoints[1u] + (miter * ((float)vertexIdx - 0.5f) * globals.lineWidth) / dot(normalToLine, normalPrevLine);
+        }
+        else // if (vertexIdx == 2u || vertexIdx == 3u)
+        {
+            const float2 vectorNext = normalize(transformedPoints[3u] - transformedPoints[2u]);
+            const float2 normalNextLine = float2(-vectorNext.y, vectorNext.x);
+            const float2 miter = normalize(normalNextLine + normalToLine);
+
+            outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * globals.lineWidth) / dot(normalToLine, normalNextLine);
+        }
+
+        outV.start_end.xy = transformedPoints[1u];
+        outV.start_end.wz = transformedPoints[2u];
+        outV.position.xy = outV.position.xy / globals.resolution * 2.0 - 1.0; // back to NDC for SV_Position
+        outV.position.w = 1u;
+    }
+	return outV;
 }

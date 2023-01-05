@@ -44,7 +44,7 @@ public:
 	{
 		ObjectType type; // [0-4)
 		// uint32_t reserved = 0u; // [4-8)
-		// LineData -> Later use BDA -> address of line in polyline position and something to note that if it has prev-next?
+		// LineData -> Later use BDA -> address of point in polyline and something to note that if it has prev-next?
 		float nextDir[2]; // [8-16)
 		float prevDir[2]; // [16-24)
 		double start[2]; // [24-40)
@@ -54,7 +54,6 @@ public:
 
 	uint32_t currentDrawObjectCount = 0u;
 	core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
-	core::smart_refctd_ptr<video::IGPUBuffer> vertexBuffer; // dvec2's
 	core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer; // uint32_t's
 	core::smart_refctd_ptr<video::IGPUBuffer> objectsBuffer;
 };
@@ -200,19 +199,19 @@ public:
 		);
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
-		//const char* pathToShader = "../compute.hlsl";
-		//core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
-		//{
-		//	asset::IAssetLoader::SAssetLoadParams params = {};
-		//	params.logger = logger.get();
-		//	auto spec = (assetManager->getAsset(pathToShader, params).getContents());
-		//	auto specShader_cpu = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(pathToShader, params).getContents().begin());
-		//	specializedShader = CPU2GPU.getGPUObjectsFromAssets(&specShader_cpu, &specShader_cpu + 1, cpu2gpuParams)->front();
-		//}
-		//assert(specializedShader);
-		
+		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[2u] = {};
+		{
+			asset::IAssetLoader::SAssetLoadParams params = {};
+			params.logger = logger.get();
+			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
+			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../vertex_shader.hlsl", params).getContents().begin());
+			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../fragment_shader.hlsl", params).getContents().begin());
+			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams)->begin();
+			shaders[0u] = gpuShaders[0u];
+			shaders[0u] = gpuShaders[1u];
+		}
+
 		// TODO:
-		// Write Vertex and Fragment Shader
 		// Load Vertex and Fragment Shader
 		// Create DescriptorSetLayout
 		// Create DescriptorSets
