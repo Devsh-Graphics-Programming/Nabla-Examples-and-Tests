@@ -6,6 +6,7 @@
 #include <nabla.h>
 
 #include "nbl/asset/filters/CNormalMapToDerivativeFilter.h"
+#include "nbl/asset/filters/dithering/CPrecomputedDither.h"
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
@@ -134,6 +135,164 @@ class BlitFilterTestApp : public ApplicationBase
 {
 	constexpr static uint32_t SC_IMG_COUNT = 3u;
 	constexpr static uint64_t MAX_TIMEOUT = 99999999999999ull;
+
+	class ITest
+	{
+	public:
+		bool run()
+		{
+			auto inImage = loadImage();
+			return run_impl(std::move(inImage));
+		}
+
+	protected:
+		ITest(
+			const char* loadImagePath,
+			const asset::E_FORMAT outFormat,
+			core::vectorSIMDu32 inOffsetBaseLayer,
+			core::vectorSIMDu32 outOffsetBaseLayer,
+			asset::ICPUImageView::SComponentMapping swizzle,
+			core::smart_refctd_ptr<nbl::asset::IAssetManager>&& assetManager,
+			core::smart_refctd_ptr<nbl::system::ILogger>&& logger)
+			: m_loadImagePath(loadImagePath), m_outFormat(outFormat), m_inOffsetBaseLayer(inOffsetBaseLayer), m_outOffsetBaseLayer(outOffsetBaseLayer),
+			m_swizzle(swizzle), m_assetManager(std::move(assetManager)), m_logger(std::move(logger))
+		{}
+
+		virtual bool run_impl(core::smart_refctd_ptr<asset::ICPUImage>&& inImage) = 0;
+
+		const char* m_loadImagePath = nullptr;
+		asset::E_FORMAT m_outFormat = asset::EF_UNKNOWN;
+		core::vectorSIMDu32 m_inOffsetBaseLayer;
+		core::vectorSIMDu32 m_outOffsetBaseLayer;
+		asset::ICPUImageView::SComponentMapping m_swizzle;
+
+		core::smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
+		core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
+
+		void writeImage(core::smart_refctd_ptr<asset::ICPUImage>&& image, const char* path)
+		{
+			asset::ICPUImageView::SCreationParams viewParams = {};
+			viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
+			viewParams.image = std::move(image);
+			viewParams.format = viewParams.image->getCreationParameters().format;
+			viewParams.viewType = asset::ICPUImageView::ET_2D;
+			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			viewParams.subresourceRange.baseArrayLayer = 0u;
+			viewParams.subresourceRange.layerCount = viewParams.image->getCreationParameters().arrayLayers;
+			viewParams.subresourceRange.baseMipLevel = 0u;
+			viewParams.subresourceRange.levelCount = viewParams.image->getCreationParameters().mipLevels;
+
+			auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
+			if (!imageViewToWrite)
+			{
+				m_logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
+				return;
+			}
+
+			asset::IAssetWriter::SAssetWriteParams writeParams(imageViewToWrite.get());
+			if (!m_assetManager->writeAsset(path, writeParams))
+			{
+				m_logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
+				return;
+			}
+		}
+
+	private:
+		core::smart_refctd_ptr<asset::ICPUImage> loadImage()
+		{
+			if (!m_loadImagePath)
+				return nullptr;
+
+			constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
+			auto imageBundle = m_assetManager->getAsset(m_loadImagePath, loadParams);
+			auto imageContents = imageBundle.getContents();
+
+			if (imageContents.empty())
+				return nullptr;
+
+			auto asset = *imageContents.begin();
+
+			core::smart_refctd_ptr<asset::ICPUImage> result;
+			{
+				if (asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW)
+					result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset)->getCreationParameters().image);
+				else if (asset->getAssetType() == asset::IAsset::ET_IMAGE)
+					result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset));
+				else
+					assert(!"Invalid code path.");
+			}
+
+			result->addImageUsageFlags(asset::IImage::EUF_SAMPLED_BIT);
+
+			return result;
+		};
+	};
+
+	template <typename Dither = IdentityDither, typename Normalization = void, bool Clamp = false>
+	class CSwizzleAndConvertTest : public ITest
+	{
+	public:
+		CSwizzleAndConvertTest(const char* loadImagePath,
+			const asset::E_FORMAT outFormat,
+			core::vectorSIMDu32 inOffsetBaseLayer,
+			core::vectorSIMDu32 outOffsetBaseLayer,
+			asset::ICPUImageView::SComponentMapping swizzle,
+			core::smart_refctd_ptr<nbl::asset::IAssetManager>&& assetManager,
+			core::smart_refctd_ptr<nbl::system::ILogger>&& logger, const char* writeImagePath)
+			: ITest(loadImagePath, outFormat, inOffsetBaseLayer, outOffsetBaseLayer, swizzle, std::move(assetManager), std::move(logger)), m_writeImagePath(writeImagePath)
+		{}
+
+	private:
+		const char* m_writeImagePath;
+
+		bool run_impl(core::smart_refctd_ptr<asset::ICPUImage>&& inImage) override
+		{
+			if (!inImage)
+				return false;
+
+			const auto& inImageExtent = inImage->getCreationParameters().extent;
+			const auto& inImageFormat = inImage->getCreationParameters().format;
+
+			auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, m_outFormat);
+			if (!outImage)
+			{
+				m_logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			using convert_filter_t = asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, asset::DefaultSwizzle, Dither, Normalization, Clamp>;
+
+			typename convert_filter_t::state_type filterState = {};
+			filterState.extentLayerCount = core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers) - m_inOffsetBaseLayer;
+			assert((static_cast<core::vectorSIMDi32>(filterState.extentLayerCount) > core::vectorSIMDi32(0)).all());
+
+			filterState.inOffsetBaseLayer = m_inOffsetBaseLayer;
+			filterState.outOffsetBaseLayer = m_outOffsetBaseLayer;
+			filterState.inMipLevel = 0;
+			filterState.outMipLevel = 0;
+			filterState.inImage = inImage.get();
+			filterState.outImage = outImage.get();
+			filterState.swizzle = m_swizzle;
+
+			if constexpr (std::is_same_v<Dither, asset::CWhiteNoiseDither>)
+			{
+				asset::CWhiteNoiseDither::CState ditherState;
+				ditherState.texelRange.offset = filterState.inOffset;
+				ditherState.texelRange.extent = filterState.extent;
+
+				filterState.dither = asset::CWhiteNoiseDither();
+				filterState.ditherState = &ditherState;
+			}
+
+			if (!convert_filter_t::execute(&filterState))
+				return false;
+
+			writeImage(std::move(outImage), m_writeImagePath);
+
+			return true;
+		}
+	};
 
 public:
 	void onAppInitialized_impl() override
@@ -452,125 +611,82 @@ public:
 		{
 			logger->log("CSwizzleAndConvertImageFilter", system::ILogger::ELL_INFO);
 
-			struct STestData
+			constexpr uint32_t TestCount = 5;
+			std::unique_ptr<ITest> tests[TestCount];
+
 			{
-				const char* inImagePath = nullptr;
+				// Test 0: Simple format conversion
+				tests[0] = std::make_unique<CSwizzleAndConvertTest<>>
+				(
+					"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
+					asset::EF_R8G8B8A8_SRGB,
+					core::vectorSIMDu32(0, 0, 0, 0),
+					core::vectorSIMDu32(0, 0, 0, 0),
+					asset::ICPUImageView::SComponentMapping(),
+					core::smart_refctd_ptr(assetManager),
+					core::smart_refctd_ptr(logger),
+					"CSwizzleAndConvertImageFilter_0_kueken7_rgba_dxt1_unorm.png"
+				);
 
-				asset::E_FORMAT outFormat;
+				// Test 1: Non-trivial offsets
+				tests[1] = std::make_unique<CSwizzleAndConvertTest<>>
+				(
+					"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
+					asset::EF_R32G32B32A32_SFLOAT,
+					core::vectorSIMDu32(64, 64, 0, 0),
+					core::vectorSIMDu32(64, 0, 0, 0),
+					asset::ICPUImageView::SComponentMapping(),
+					core::smart_refctd_ptr(assetManager),
+					core::smart_refctd_ptr(logger),
+					"CSwizzleAndConvertImageFilter_1_kueken7_rgba_dxt5_unorm.exr"
+				);
 
-				core::vectorSIMDu32 inOffsetBaseLayer;
-				core::vectorSIMDu32 outOffsetBaseLayer;
+				// Test 2: Non-trivial swizzle
+				tests[2] = std::make_unique<CSwizzleAndConvertTest<>>
+				(
+					"../../media/GLI/dice_bc3.dds",
+					asset::EF_R32G32B32A32_SFLOAT,
+					core::vectorSIMDu32(0, 0, 0, 0),
+					core::vectorSIMDu32(0, 0, 0, 0),
+					asset::ICPUImageView::SComponentMapping(asset::ICPUImageView::SComponentMapping::ES_G, asset::ICPUImageView::SComponentMapping::ES_B, asset::ICPUImageView::SComponentMapping::ES_R, asset::ICPUImageView::SComponentMapping::ES_A),
+					core::smart_refctd_ptr(assetManager),
+					core::smart_refctd_ptr(logger),
+					"CSwizzleAndConvertImageFilter_2_dice_bc3.exr"
+				);
 
-				asset::ICPUImageView::SComponentMapping swizzle;
-			};
+				// Test 3: Non-trivial dithering
+				tests[3] = std::make_unique<CSwizzleAndConvertTest<asset::CWhiteNoiseDither>>
+				(
+					"../../media/GLI/kueken7_rgb_dxt1_unorm.ktx",
+					asset::EF_R8G8B8_SRGB,
+					core::vectorSIMDu32(0, 0, 0, 0),
+					core::vectorSIMDu32(0, 0, 0, 0),
+					asset::ICPUImageView::SComponentMapping(),
+					core::smart_refctd_ptr(assetManager),
+					core::smart_refctd_ptr(logger),
+					"CSwizzleAndConvertImageFilter_3_kueken7_rgb_dxt1_unorm.jpg"
+				);
 
-			constexpr uint32_t TestCount = 3u;
-			STestData tests[TestCount];
-			{
-				// Test 0 - Simple format conversion
-				{
-					tests[0].inImagePath = "../../media/GLI/kueken7_rgba_dxt1_unorm.dds";
-					tests[0].outFormat = asset::EF_R8G8B8A8_SRGB;
-					tests[0].inOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
-					tests[0].outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
-				}
-
-				// Test 1 - Non-trivial offsets
-				{
-					tests[1].inImagePath = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds";
-					tests[1].outFormat = asset::EF_R32G32B32A32_SFLOAT;
-					tests[1].inOffsetBaseLayer = core::vectorSIMDu32(64, 64, 0, 0);
-					tests[1].outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
-				}
-
-				// Test 2 - Non-trivial swizzle
-				{
-					tests[2].inImagePath = "../../media/GLI/dice_bc3.dds";
-					tests[2].outFormat = asset::EF_R32G32B32A32_SFLOAT;
-					tests[2].inOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
-					tests[2].outOffsetBaseLayer = core::vectorSIMDu32(0, 0, 0, 0);
-
-					tests[2].swizzle.r = asset::ICPUImageView::SComponentMapping::ES_G;
-					tests[2].swizzle.g = asset::ICPUImageView::SComponentMapping::ES_B;
-					tests[2].swizzle.b = asset::ICPUImageView::SComponentMapping::ES_R;
-					tests[2].swizzle.a = asset::ICPUImageView::SComponentMapping::ES_A;
-				}
-
-				// Test 3 - Non-trivial normalization
-				{
-
-				}
-
-				// Test 4 - Non-trivial dithering
-				{
-
-				}
-
-				// Test 5 - Non-trivial clamping
-				{
-
-				}
+				// Test 4: Non-trivial normalization
+				tests[4] = std::make_unique<CSwizzleAndConvertTest<asset::IdentityDither, asset::CGlobalNormalizationState>>
+				(
+					"../../media/envmap/envmap_0.exr",
+					asset::EF_R32G32B32A32_SFLOAT,
+					core::vectorSIMDu32(0, 0, 0, 0),
+					core::vectorSIMDu32(0, 0, 0, 0),
+					asset::ICPUImageView::SComponentMapping(),
+					core::smart_refctd_ptr(assetManager),
+					core::smart_refctd_ptr(logger),
+					"CSwizzleAndConvertImageFilter_4_envmap_0.exr"
+				);
+				
+				// Test 5: Non-trivial clamping
 			}
 
-			for (const auto& test : tests)
+			for (uint32_t i = 0; i < TestCount; ++i)
 			{
-				logger->log("Image: \t%s", system::ILogger::ELL_INFO, test.inImagePath);
-
-				const auto& inImage = loadImage(test.inImagePath);
-				if (!inImage)
-				{
-					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
-					continue;
-				}
-
-				const auto& inImageExtent = inImage->getCreationParameters().extent;
-				const auto& inImageFormat = inImage->getCreationParameters().format;
-				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels; // TODO(achal): Remove.
-
-				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, test.outFormat, inImageMipCount);
-				if (!outImage)
-				{
-					logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
-					continue;
-				}
-
-				const auto& outImageExtent = outImage->getCreationParameters().extent;
-
-				asset::CSwizzleAndConvertImageFilter<>::state_type filterState = {};
-				assert((inImageExtent.width == outImageExtent.width) && (inImageExtent.height == outImageExtent.height) && (inImageExtent.depth == outImageExtent.depth) && (inImage->getCreationParameters().arrayLayers == outImage->getCreationParameters().arrayLayers));
-
-				filterState.extentLayerCount = core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers) - test.inOffsetBaseLayer;
-				assert((static_cast<core::vectorSIMDi32>(filterState.extentLayerCount) > core::vectorSIMDi32(0)).all());
-
-				// filterState.normalization = ;
-				filterState.swizzle = test.swizzle;
-				filterState.inOffsetBaseLayer = test.inOffsetBaseLayer;
-				filterState.outOffsetBaseLayer = test.outOffsetBaseLayer;
-				filterState.inMipLevel = 0;
-				filterState.outMipLevel = 0;
-				filterState.inImage = inImage.get();
-				filterState.outImage = outImage.get();
-
-				if (!asset::CSwizzleAndConvertImageFilter<>::execute(&filterState))
-				{
-					logger->log("CSwizzleAndConvertImageFilter failed", system::ILogger::ELL_ERROR);
-					return;
-				}
-
-				std::filesystem::path filename, inFileExtension;
-				core::splitFilename(test.inImagePath, nullptr, &filename, &inFileExtension);
-
-				std::string_view outFileExtension;
-				if (test.outFormat == asset::EF_R32G32B32A32_SFLOAT)
-					outFileExtension = ".exr";
-				else if (test.outFormat == asset::EF_R8G8B8A8_SRGB)
-					outFileExtension = ".png";
-				else
-					assert(false);
-
-				std::string outFileName = "CSwizzleAndConvertImageFilter_" + filename.string() + outFileExtension.data();
-
-				writeImage(std::move(outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
+				if (!tests[i]->run())
+					logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
 			}
 		}
 
