@@ -1,3 +1,5 @@
+
+
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -17,7 +19,7 @@ struct LinePoints
     double2 p[4u];
 };
 
-struct Ellipse
+struct EllipseInfo
 {
     double2 majorAxis;
     double2 center;
@@ -36,6 +38,7 @@ struct Globals
     uint2 resolution;
 };
 
+#ifndef __cplusplus
 struct PSInput
 {
 	float4 position : SV_Position;
@@ -46,3 +49,4 @@ struct PSInput
 
 [[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1,0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
+#endif

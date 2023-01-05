@@ -3,59 +3,39 @@
 
 #include "../common/CommonAPI.h"
 
+struct double4x4
+{
+	double _r1[4u];
+	double _r2[4u];
+	double _r3[4u];
+	double _r4[4u];
+};
+
+struct double2
+{
+	double v[2];
+};
+
+struct uint2
+{
+	uint32_t v[2];
+};
+
+#define uint uint32_t
+#define float4 nbl::core::vectorSIMDf
+#include "common.hlsl"
+
+static_assert(sizeof(DrawObject) == 16u);
+static_assert(sizeof(LinePoints) == 64u);
+static_assert(sizeof(EllipseInfo) == 48u);
+static_assert(sizeof(Globals) == 160u);
+
 using namespace nbl;
 
-class DrawSystem : public core::IReferenceCounted
+class Camera2D : public core::IReferenceCounted
 {
 public:
-	DrawSystem(const core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, uint32_t maxObjects = 128u)
-		: m_device(device)
-		, currentDrawObjectCount(0u)
-	{
-		// Allocate Buffers with maxObjects
-	}
-
-	void Reset()
-	{
-		currentDrawObjectCount = 0u;
-	}
-
-	bool AddPolyline(const std::vector<double>& points)
-	{
-		// currentDrawObjectCount +=
-		// update drawObject Buffer with correct offsets and shit
-		return true;
-	}
-
-	struct UniformData
-	{
-		// 3x3 viewProjection matrix -> rows will be padded to 16 bytes so use 4x4 doubles
-		// screenResolution -> uint32_t = uint2
-		uint32_t lineWidthInPixels = 2u; // later will be moved to a "style" struct with a level of indirection from DrawObject
-	};
-
-	enum ObjectType : uint32_t
-	{
-		OT_LINE = 0u,
-		OT_ELLIPSE,
-	};
-
-	struct DrawObject
-	{
-		ObjectType type; // [0-4)
-		// uint32_t reserved = 0u; // [4-8)
-		// LineData -> Later use BDA -> address of point in polyline and something to note that if it has prev-next?
-		float nextDir[2]; // [8-16)
-		float prevDir[2]; // [16-24)
-		double start[2]; // [24-40)
-		double end[2]; // [40-56)
-	};
-	static_assert(sizeof(DrawObject) == 56);
-
-	uint32_t currentDrawObjectCount = 0u;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
-	core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer; // uint32_t's
-	core::smart_refctd_ptr<video::IGPUBuffer> objectsBuffer;
+private:
 };
 
 class CADApp : public ApplicationBase
@@ -97,6 +77,91 @@ class CADApp : public ApplicationBase
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
+	// Related to Drawing Stuff
+	uint32_t currentDrawObjectCount = 0u;
+	uint64_t currentGeometryBufferAddress = 0u;
+	core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
+	core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer;
+	core::smart_refctd_ptr<video::IGPUBuffer> drawObjectsBuffer;
+	core::smart_refctd_ptr<video::IGPUBuffer> geometryBuffer;
+	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer;
+
+	constexpr size_t getMaxMemoryNeeded(uint32_t numberOfLines, uint32_t numberOfEllipses)
+	{
+		size_t mem = sizeof(Globals);
+		uint32_t allObjectsCount = numberOfLines + numberOfEllipses;
+		mem += allObjectsCount * 6u * sizeof(uint32_t); // Index Buffer 6 indices per object cage
+		mem += allObjectsCount * sizeof(DrawObject); // One DrawObject struct per object
+		mem += numberOfLines * 4u * sizeof(double2); // 4 points per line max (generated before/after for calculations)
+		mem += numberOfEllipses * sizeof(EllipseInfo);
+		return mem;
+	}
+
+	void initDrawObjects(uint32_t maxObjects = 128u)
+	{
+		{
+			size_t indexBufferSize = maxObjects * 6u * sizeof(uint32_t);
+			video::IGPUBuffer::SCreationParams indexBufferCreationParams = {};
+			indexBufferCreationParams.size = indexBufferSize;
+			indexBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_INDEX_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			indexBuffer = logicalDevice->createBuffer(std::move(indexBufferCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = indexBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			auto indexBufferMem = logicalDevice->allocate(memReq, indexBuffer.get());
+
+			std::vector<uint32_t> indices(maxObjects * 6u);
+			for (uint32_t i = 0u; i < maxObjects; ++i)
+			{
+				indices[i * 6]		= i * 4u + 0u;
+				indices[i * 6 + 1u] = i * 4u + 1u;
+				indices[i * 6 + 2u] = i * 4u + 2u;
+				indices[i * 6 + 3u] = i * 4u + 2u;
+				indices[i * 6 + 4u] = i * 4u + 1u;
+				indices[i * 6 + 5u] = i * 4u + 3u;
+			}
+
+			asset::SBufferRange<video::IGPUBuffer> rangeToUpload = {0ull, indexBufferSize, indexBuffer};
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(rangeToUpload, indices.data(), queues[CommonAPI::InitOutput::EQT_GRAPHICS]);
+		}
+
+		{
+			size_t drawObjectsBufferSize = maxObjects * sizeof(DrawObject);
+			video::IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
+			drawObjectsCreationParams.size = drawObjectsBufferSize;
+			drawObjectsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			drawObjectsBuffer = logicalDevice->createBuffer(std::move(drawObjectsCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = drawObjectsBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			auto drawObjectsBufferMem = logicalDevice->allocate(memReq, drawObjectsBuffer.get());
+		}
+
+		{
+			size_t geometryBufferSize = maxObjects * sizeof(EllipseInfo);
+			video::IGPUBuffer::SCreationParams geometryCreationParams = {};
+			geometryCreationParams.size = geometryBufferSize;
+			geometryCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = geometryBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			auto geometryBufferMem = logicalDevice->allocate(memReq, geometryBuffer.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+			currentGeometryBufferAddress = logicalDevice->getBufferDeviceAddress(geometryBuffer.get());
+		}
+
+		{
+			size_t globalsBufferSize = maxObjects * sizeof(EllipseInfo);
+			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
+			globalsCreationParams.size = globalsBufferSize;
+			globalsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			globalsBuffer = logicalDevice->createBuffer(std::move(globalsCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer.get());
+		}
+	}
 
 public:
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
@@ -191,7 +256,7 @@ public:
 		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, initParams.windowWidth, initParams.windowHeight, swapchain);
 
 		commandPools = std::move(initOutput.commandPools);
-		const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
+		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 
 		const uint32_t swapchainImageCount = swapchain->getImageCount();
 		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
@@ -237,20 +302,20 @@ public:
 			shaders[1u] = gpuShaders->begin()[1u];
 		}
 
+		initDrawObjects();
+
 		// TODO:
 		// Create DescriptorSetLayout
 		// Create DescriptorSets
 		// Create PipelineLayout from DescriptorSetLayout
 		// Create Pipeline with correct params
 		// Create OrthoCamera
-		
-		// Create Vertex/Index Buffer through a CADDrawData or something
-		// add polyline to the helper class
+
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			logicalDevice->createCommandBuffers(
-				computeCommandPools[i].get(),
+				graphicsCommandPools[i].get(),
 				video::IGPUCommandBuffer::EL_PRIMARY,
 				1,
 				m_cmdbuf + i);
@@ -276,7 +341,7 @@ public:
 			m_resourceIx = 0;
 
 		auto& cb = m_cmdbuf[m_resourceIx];
-		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][m_resourceIx];
+		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 
 		// TODO:
@@ -359,7 +424,7 @@ public:
 		CommonAPI::Submit(
 			logicalDevice.get(),
 			cb.get(),
-			queues[CommonAPI::InitOutput::EQT_COMPUTE],
+			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
 			m_imageAcquire[m_resourceIx].get(),
 			m_renderFinished[m_resourceIx].get(),
 			fence.get());
@@ -368,7 +433,7 @@ public:
 		CommonAPI::Present(
 			logicalDevice.get(),
 			swapchain.get(),
-			queues[CommonAPI::InitOutput::EQT_COMPUTE],
+			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
 			m_renderFinished[m_resourceIx].get(),
 			imgnum);
 	}
