@@ -1,6 +1,56 @@
-#include "common.hlsl"
 
-PSInput VSMain(uint vertexID : SV_VertexID)
+#pragma shader_stage(vertex)
+
+enum class ObjectType : uint32_t
+{
+    LINE = 0u,
+    ELLIPSE = 1u,
+};
+
+struct DrawObject
+{
+    ObjectType type;
+    uint styleIdx;
+    uint64_t address;
+};
+
+struct LinePoints
+{
+    // prev, start, end, next
+    double2 p[4u];
+};
+
+struct Ellipse
+{
+    double2 majorAxis;
+    double2 center;
+    uint2 rangeAnglesPacked; // [0, 2Pi)
+    uint eccentricityPacked; // (0, 1]
+    uint _pad; // TODO we may need to add prev/next tangent if curve joins are not Bi-Arc
+};
+
+struct Globals
+{
+    double4x4 viewProjection;
+    // Next two vars will be part of styles that the objects will reference
+    float4 color;
+    uint lineWidth;
+    uint pad;
+    uint2 resolution;
+};
+
+struct PSInput
+{
+	float4 position : SV_Position;
+    [[vk::location(0)]] float4 color : COLOR; 
+    [[vk::location(1)]] nointerpolation float4 start_end : COLOR1; 
+    [[vk::location(2)]] nointerpolation uint3 lineWidth_eccentricity_objType : COLOR2; 
+};
+
+[[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
+[[vk::binding(1,0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
+
+PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
@@ -19,7 +69,7 @@ PSInput VSMain(uint vertexID : SV_VertexID)
     else
     {
         double3x3 transformation = (double3x3)globals.viewProjection;
-        LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address);
+        LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address, 16u);
 
         float2 transformedPoints[4u];
         for(uint i = 0u; i < 4u; ++i)

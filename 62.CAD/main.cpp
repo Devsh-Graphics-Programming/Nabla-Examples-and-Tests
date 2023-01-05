@@ -85,7 +85,7 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<nbl::system::ILogger> logger;
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
-	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>> m_swapchainImages;
+	core::smart_refctd_ptr<video::IGPUImage> m_swapchainImages[CommonAPI::InitOutput::MaxSwapChainImageCount];
 
 	int32_t m_resourceIx = -1;
 
@@ -165,8 +165,10 @@ public:
 		initParams.windowHeight = WIN_H;
 		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
+		initParams.depthFormat = getDepthFormat();
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
+		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -183,6 +185,7 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 		windowManager = std::move(initOutput.windowManager);
+		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
 		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, initParams.windowWidth, initParams.windowHeight, swapchain);
@@ -191,25 +194,52 @@ public:
 		const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
 
 		const uint32_t swapchainImageCount = swapchain->getImageCount();
-		m_swapchainImages = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUImage>>>(swapchainImageCount);
 		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
 			swapchain->getImageCount(), WIN_W, WIN_H,
 			logicalDevice, swapchain, renderpass,
 			getDepthFormat()
 		);
+
+		for (uint32_t i = 0; i < swapchainImageCount; ++i)
+		{
+			auto& fboDynArray = *(framebuffersDynArraySmartPtr.get());
+			m_swapchainImages[i] = fboDynArray[i]->getCreationParameters().attachments[0u]->getCreationParameters().image;
+		}
+
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[2u] = {};
+		auto loadSPIRVShader = [&](const std::string& filePath, asset::IShader::E_SHADER_STAGE stage)
 		{
-			asset::IAssetLoader::SAssetLoadParams params = {};
-			params.logger = logger.get();
-			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
-			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../vertex_shader.hlsl", params).getContents().begin());
-			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../fragment_shader.hlsl", params).getContents().begin());
-			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams)->begin();
-			shaders[0u] = gpuShaders[0u];
-			shaders[0u] = gpuShaders[1u];
-		}
+			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> shader_future;
+			system->createFile(shader_future, filePath, core::bitflag(nbl::system::IFile::ECF_READ));
+			auto shader_file = shader_future.get();
+			auto shaderSizeInBytes = shader_file->getSize();
+			auto vertexShaderSPIRVBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(shaderSizeInBytes);
+			system::IFile::success_t succ;
+			shader_file->read(succ, vertexShaderSPIRVBuffer->getPointer(), 0u, shaderSizeInBytes);
+			const bool success = bool(succ);
+			assert(success);
+			return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
+		};
+
+		auto vertexCPUShader = loadSPIRVShader("../vertex_shader.spirv", asset::IShader::ESS_VERTEX);
+		auto vertexShader = logicalDevice->createShader(std::move(vertexCPUShader));
+		auto fragmentCPUShader = loadSPIRVShader("../fragment_shader.spirv", asset::IShader::ESS_FRAGMENT);
+		auto fragmentShader = logicalDevice->createShader(std::move(fragmentCPUShader));
+
+		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[2u] = {};
+		//{
+		//	asset::IAssetLoader::SAssetLoadParams params = {};
+		//	params.logger = logger.get();
+		//	core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
+		//	cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../vertex_shader.hlsl", params).getContents().begin());
+		//	cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../fragment_shader.hlsl", params).getContents().begin());
+		//	// cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "VSMain"));
+		//	// cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "PSMain"));
+		//	auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams)->begin();
+		//	shaders[0u] = gpuShaders[0u];
+		//	shaders[0u] = gpuShaders[1u];
+		//}
 
 		// TODO:
 		// Load Vertex and Fragment Shader
@@ -233,6 +263,7 @@ public:
 
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 		{
+			m_frameComplete[i] = logicalDevice->createFence(video::IGPUFence::ECF_SIGNALED_BIT);
 			m_imageAcquire[i] = logicalDevice->createSemaphore();
 			m_renderFinished[i] = logicalDevice->createSemaphore();
 		}
@@ -264,6 +295,8 @@ public:
 		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
 		assert(acquireResult == video::ISwapchain::E_ACQUIRE_IMAGE_RESULT::EAIR_SUCCESS);
 
+		core::smart_refctd_ptr<video::IGPUImage> swapchainImg = m_swapchainImages[imgnum];
+
 		uint32_t windowWidth = swapchain->getCreationParameters().width;
 		uint32_t windowHeight = swapchain->getCreationParameters().height;
 
@@ -285,10 +318,14 @@ public:
 		scissor.offset = { 0, 0 };
 		cb->setScissor(0u, 1u, &scissor);
 
+		// TODO: SwapchainImage Transition to EL_COLOR_ATTACHMENT_OPTIMAL
+
 		// TODO
 		// Bind DescriptorSet, GraphicsPipeline
 		// BindVertexBuffer, BindIndexBuffer
 		// Issue cb->drawIndexed();
+
+		// TODO: SwapchainImage Transition to EL_PRESENT_SRC
 
 		cb->end();
 

@@ -1,6 +1,3 @@
-
-#pragma shader_stage(fragment)
-
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -49,11 +46,3 @@ struct PSInput
 
 [[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1,0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-
-float4 main(PSInput input) : SV_TARGET
-{
-    float2 start = input.start_end.xy;
-    float2 end =  input.start_end.zw;
-    float2 position = input.position.xy;
-    return input.color;
-}
