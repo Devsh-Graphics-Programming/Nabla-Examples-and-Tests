@@ -313,14 +313,46 @@ public:
 		scissor.offset = { 0, 0 };
 		cb->setScissor(0u, 1u, &scissor);
 
-		// TODO: SwapchainImage Transition to EL_COLOR_ATTACHMENT_OPTIMAL
+		// SwapchainImage Transition to EL_COLOR_ATTACHMENT_OPTIMAL
+		{
+			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
+			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_NONE;
+			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_COLOR_ATTACHMENT_WRITE_BIT;
+			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
+			imageBarriers[0].newLayout = nbl::asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
+			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].image = swapchainImg;
+			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
+			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
+			imageBarriers[0].subresourceRange.levelCount = 1;
+			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
+			imageBarriers[0].subresourceRange.layerCount = 1;
+			cb->pipelineBarrier(nbl::asset::EPSF_TOP_OF_PIPE_BIT, nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
+		}
 
 		// TODO
 		// Bind DescriptorSet, GraphicsPipeline
 		// BindVertexBuffer, BindIndexBuffer
 		// Issue cb->drawIndexed();
 
-		// TODO: SwapchainImage Transition to EL_PRESENT_SRC
+		// SwapchainImage Transition to EL_PRESENT_SRC
+		{
+			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
+			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_COLOR_ATTACHMENT_WRITE_BIT;
+			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_NONE;
+			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
+			imageBarriers[0].newLayout = nbl::asset::IImage::EL_PRESENT_SRC;
+			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].image = swapchainImg;
+			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
+			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
+			imageBarriers[0].subresourceRange.levelCount = 1;
+			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
+			imageBarriers[0].subresourceRange.layerCount = 1;
+			cb->pipelineBarrier(nbl::asset::EPSF_ALL_GRAPHICS_BIT, nbl::asset::EPSF_BOTTOM_OF_PIPE_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
+		}
 
 		cb->end();
 
