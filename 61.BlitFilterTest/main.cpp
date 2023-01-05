@@ -611,7 +611,7 @@ public:
 		{
 			logger->log("CSwizzleAndConvertImageFilter", system::ILogger::ELL_INFO);
 
-			constexpr uint32_t TestCount = 5;
+			constexpr uint32_t TestCount = 6;
 			std::unique_ptr<ITest> tests[TestCount];
 
 			{
@@ -681,6 +681,17 @@ public:
 				);
 				
 				// Test 5: Non-trivial clamping
+				tests[5] = std::make_unique<CSwizzleAndConvertTest<asset::IdentityDither, void, false>>
+				(
+					"../../media/envmap/envmap_1.exr",
+					asset::EF_R8G8B8A8_SRGB,
+					core::vectorSIMDu32(0, 0, 0, 0),
+					core::vectorSIMDu32(0, 0, 0, 0),
+					asset::ICPUImageView::SComponentMapping(),
+					core::smart_refctd_ptr(assetManager),
+					core::smart_refctd_ptr(logger),
+					"CSwizzleAndConvertImageFilter_5_envmap_1.png"
+				);
 			}
 
 			for (uint32_t i = 0; i < TestCount; ++i)
