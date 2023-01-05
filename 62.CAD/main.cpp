@@ -208,6 +208,7 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
+		// Used to load SPIR-V directly, if HLSL Compiler doesn't work
 		auto loadSPIRVShader = [&](const std::string& filePath, asset::IShader::E_SHADER_STAGE stage)
 		{
 			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> shader_future;
@@ -222,27 +223,21 @@ public:
 			return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
 		};
 
-		auto vertexCPUShader = loadSPIRVShader("../vertex_shader.spirv", asset::IShader::ESS_VERTEX);
-		auto vertexShader = logicalDevice->createShader(std::move(vertexCPUShader));
-		auto fragmentCPUShader = loadSPIRVShader("../fragment_shader.spirv", asset::IShader::ESS_FRAGMENT);
-		auto fragmentShader = logicalDevice->createShader(std::move(fragmentCPUShader));
-
 		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[2u] = {};
-		//{
-		//	asset::IAssetLoader::SAssetLoadParams params = {};
-		//	params.logger = logger.get();
-		//	core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
-		//	cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../vertex_shader.hlsl", params).getContents().begin());
-		//	cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../fragment_shader.hlsl", params).getContents().begin());
-		//	// cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "VSMain"));
-		//	// cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "PSMain"));
-		//	auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams)->begin();
-		//	shaders[0u] = gpuShaders[0u];
-		//	shaders[0u] = gpuShaders[1u];
-		//}
+		{
+			asset::IAssetLoader::SAssetLoadParams params = {};
+			params.logger = logger.get();
+			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
+			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../vertex_shader.hlsl", params).getContents().begin());
+			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../fragment_shader.hlsl", params).getContents().begin());
+			cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "VSMain"));
+			cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "PSMain"));
+			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams);
+			shaders[0u] = gpuShaders->begin()[0u];
+			shaders[1u] = gpuShaders->begin()[1u];
+		}
 
 		// TODO:
-		// Load Vertex and Fragment Shader
 		// Create DescriptorSetLayout
 		// Create DescriptorSets
 		// Create PipelineLayout from DescriptorSetLayout
