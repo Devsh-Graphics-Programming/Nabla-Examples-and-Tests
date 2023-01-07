@@ -5,20 +5,31 @@
 
 struct double4x4
 {
+	double _r0[4u];
 	double _r1[4u];
 	double _r2[4u];
 	double _r3[4u];
-	double _r4[4u];
 };
 
 struct double2
 {
-	double v[2];
+	double x;
+	double y;
+
+	inline double2 operator-(const double2& other) const
+	{
+		return { x - other.x, y - other.y };
+	}
+	inline double2 operator+(const double2& other) const
+	{
+		return { x + other.x, y + other.y };
+	}
 };
 
 struct uint2
 {
-	uint32_t v[2];
+	uint32_t x;
+	uint32_t y;
 };
 
 #define uint uint32_t
@@ -35,12 +46,38 @@ using namespace nbl;
 class Camera2D : public core::IReferenceCounted
 {
 public:
+	Camera2D()
+	{}
+
+	void setOrigin(const double2& origin)
+	{
+		m_origin = origin;
+	}
+
+	void setSize(const double2& size)
+	{
+		m_size = size;
+	}
+
+	double4x4 constructViewProjection()
+	{
+		double4x4 ret = {};
+		ret._r0[0] = 2.0 / m_size.x;
+		ret._r0[2] = (-2.0 * m_origin.x) / m_size.x;
+		ret._r1[1] = 2.0 / m_size.y;
+		ret._r1[2] = (-2.0 * m_origin.y) / m_size.y;
+		ret._r2[2] = 1.0;
+		return ret;
+	}
+
 private:
+	double2 m_size = {};
+	double2 m_origin = {};
 };
 
 class CADApp : public ApplicationBase
 {
-	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
+	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
 	constexpr static uint32_t WIN_W = 1280u;
@@ -76,10 +113,11 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf[FRAMES_IN_FLIGHT] = { nullptr };
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
-
 	// Related to Drawing Stuff
+	Camera2D m_Camera;
 	uint32_t currentDrawObjectCount = 0u;
-	uint64_t currentGeometryBufferAddress = 0u;
+	uint64_t geometryBufferAddress = 0u;
+	uint64_t currentGeometryBufferOffset = 0u;
 	core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
 	core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer;
 	core::smart_refctd_ptr<video::IGPUBuffer> drawObjectsBuffer;
@@ -87,6 +125,7 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
+	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
 
 	constexpr size_t getMaxMemoryNeeded(uint32_t numberOfLines, uint32_t numberOfEllipses)
 	{
@@ -97,6 +136,36 @@ class CADApp : public ApplicationBase
 		mem += numberOfLines * 4u * sizeof(double2); // 4 points per line max (generated before/after for calculations)
 		mem += numberOfEllipses * sizeof(EllipseInfo);
 		return mem;
+	}
+
+	void addLines(std::vector<double2>&& linePoints)
+	{
+		if (linePoints.size() > 2u)
+		{
+			const auto& firstPoint = linePoints[0u];
+			const auto& secondPoint = linePoints[1u];
+			const auto differenceStart = firstPoint - secondPoint;
+			const double2 generatedStart = firstPoint + differenceStart;
+			linePoints.emplace(linePoints.begin(), generatedStart);
+			const auto& lastPoint = linePoints[linePoints.size() - 1u];
+			const auto& oneToLastPoint = linePoints[linePoints.size() - 2u];
+			const auto differenceEnd = lastPoint - oneToLastPoint;
+			const double2 generatedEnd = lastPoint + differenceEnd;
+			linePoints.push_back(generatedEnd);
+			const auto pointsByteSize = sizeof(double2) * linePoints.size();
+			asset::SBufferRange<video::IGPUBuffer> geometryUpload = { currentGeometryBufferOffset, pointsByteSize, geometryBuffer };
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, linePoints.data(), queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
+			assert(currentGeometryBufferOffset + pointsByteSize <= geometryBuffer->getSize());
+			currentGeometryBufferOffset += pointsByteSize;
+
+			const auto noLines = linePoints.size() - 3u; // + 2 points generated considered
+			DrawObject drawObj = {};
+			drawObj.type = ObjectType::LINE;
+			drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
+			asset::SBufferRange<video::IGPUBuffer> drawObjUpload = {currentDrawObjectCount*sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer};
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
+			currentDrawObjectCount += noLines;
+		}
 	}
 
 	void initDrawObjects(uint32_t maxObjects = 128u)
@@ -124,7 +193,7 @@ class CADApp : public ApplicationBase
 			}
 
 			asset::SBufferRange<video::IGPUBuffer> rangeToUpload = {0ull, indexBufferSize, indexBuffer};
-			utilities->updateBufferRangeViaStagingBufferAutoSubmit(rangeToUpload, indices.data(), queues[CommonAPI::InitOutput::EQT_GRAPHICS]);
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(rangeToUpload, indices.data(), queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
 		}
 
 		{
@@ -149,7 +218,7 @@ class CADApp : public ApplicationBase
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = geometryBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
 			auto geometryBufferMem = logicalDevice->allocate(memReq, geometryBuffer.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-			currentGeometryBufferAddress = logicalDevice->getBufferDeviceAddress(geometryBuffer.get());
+			geometryBufferAddress = logicalDevice->getBufferDeviceAddress(geometryBuffer.get());
 		}
 
 
@@ -240,8 +309,8 @@ public:
 		initParams.depthFormat = getDepthFormat();
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
-		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
-		initParams.physicalDeviceFilter.requiredFeatures.vertexAttributeDouble = true;
+		// initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
+		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -261,18 +330,18 @@ public:
 		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, initParams.windowWidth, initParams.windowHeight, swapchain);
-
 		commandPools = std::move(initOutput.commandPools);
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 
-		const uint32_t swapchainImageCount = swapchain->getImageCount();
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+
 		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
 			swapchain->getImageCount(), WIN_W, WIN_H,
 			logicalDevice, swapchain, renderpass,
 			getDepthFormat()
 		);
 
+		const uint32_t swapchainImageCount = swapchain->getImageCount();
 		for (uint32_t i = 0; i < swapchainImageCount; ++i)
 		{
 			auto& fboDynArray = *(framebuffersDynArraySmartPtr.get());
@@ -360,12 +429,13 @@ public:
 			logicalDevice->updateDescriptorSets(2u, descriptorUpdates, 0u, nullptr);
 		}
 
-		auto pipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+		graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 
 		video::IGPURenderpassIndependentPipeline::SCreationParams renderpassIndependantPipeInfo = {};
-		renderpassIndependantPipeInfo.layout = pipelineLayout;
+		renderpassIndependantPipeInfo.layout = graphicsPipelineLayout;
 		renderpassIndependantPipeInfo.shaders[0u] = shaders[0u];
 		renderpassIndependantPipeInfo.shaders[1u] = shaders[1u];
+		// renderpassIndependantPipeInfo.vertexInput; no gpu vertex buffers
 		// renderpassIndependantPipeInfo.blend = {}; TODO for transparency
 		renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
 		renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
@@ -385,8 +455,6 @@ public:
 		graphicsPipelineCreateInfo.renderpass = renderpass;
 		graphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
 
-		// Create OrthoCamera
-
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			logicalDevice->createCommandBuffers(
@@ -402,6 +470,15 @@ public:
 			m_imageAcquire[i] = logicalDevice->createSemaphore();
 			m_renderFinished[i] = logicalDevice->createSemaphore();
 		}
+
+		m_Camera.setOrigin({ 0.0, 0.0 });
+		m_Camera.setSize({100.0, 60.0});
+
+		std::vector<double2> linePoints;
+		linePoints.push_back({ 0.0, 0.0 });
+		linePoints.push_back({ 60.0, 0.0 });
+		linePoints.push_back({ 60.0, 60.0 });
+		addLines(std::move(linePoints));
 	}
 
 	void onAppTerminated_impl() override
@@ -419,9 +496,11 @@ public:
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 
-		// TODO:
-		// Input and change zoom based on camera
-		// Update UniformBuffer/ConstantBuffer data with camera shit.
+		Globals globalData = {};
+		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
+		globalData.lineWidth = 2u;
+		globalData.resolution = uint2{ WIN_W, WIN_H };
+		globalData.viewProjection = m_Camera.constructViewProjection();
 
 		logicalDevice->blockForFences(1u, &fence.get());
 		logicalDevice->resetFences(1u, &fence.get());
@@ -438,6 +517,8 @@ public:
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
+
+		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 
 		asset::SViewport vp;
 		vp.minDepth = 1.f;
@@ -471,17 +552,40 @@ public:
 			cb->pipelineBarrier(nbl::asset::EPSF_TOP_OF_PIPE_BIT, nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
 		}
 
-		// TODO
-		// Bind DescriptorSet, GraphicsPipeline
-		// BindIndexBuffer
-		// Issue cb->drawIndexed();
+		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		{
+			VkRect2D area;
+			area.offset = { 0,0 };
+			area.extent = { WIN_W, WIN_H };
+			asset::SClearValue clear[2] = {};
+			clear[0].color.float32[0] = 1.f;
+			clear[0].color.float32[1] = 1.f;
+			clear[0].color.float32[2] = 1.f;
+			clear[0].color.float32[3] = 1.f;
+			clear[1].depthStencil.depth = 0.f;
+
+			beginInfo.clearValueCount = 2u;
+			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[imgnum];
+			beginInfo.renderpass = renderpass;
+			beginInfo.renderArea = area;
+			beginInfo.clearValues = clear;
+		}
+
+		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
+
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		cb->bindIndexBuffer(indexBuffer.get(), 0u, asset::EIT_32BIT);
+		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
+
+		cb->endRenderPass();
 
 		// SwapchainImage Transition to EL_PRESENT_SRC
 		{
 			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
 			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_COLOR_ATTACHMENT_WRITE_BIT;
 			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_NONE;
-			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
+			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
 			imageBarriers[0].newLayout = nbl::asset::IImage::EL_PRESENT_SRC;
 			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
