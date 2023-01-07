@@ -176,6 +176,95 @@ class BlitFilterTestApp : public ApplicationBase
 		}
 	};
 
+	template <typename KernelX, typename KernelY, typename KernelZ>
+	class CBlitImageFilterTest : public ITest
+	{
+	public:
+		CBlitImageFilterTest(
+			core::smart_refctd_ptr<asset::ICPUImage>&& inImage,
+			BlitFilterTestApp* parentApp,
+			const core::vectorSIMDu32& outImageDim,
+			const asset::E_FORMAT outImageFormat,
+			KernelX&& kernelX,
+			KernelY&& kernelY,
+			KernelZ&& kernelZ,
+			const char* writeImagePath,
+			const IBlitUtilities::E_ALPHA_SEMANTIC alphaSemantic,
+			const float referenceAlpha = 0.f,
+			const uint32_t alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
+			: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_outImageFormat(outImageFormat),
+			m_kernelX(std::move(kernelX)), m_kernelY(std::move(kernelY)), m_kernelZ(std::move(kernelZ)), m_writeImagePath(writeImagePath),
+			m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
+		{}
+
+		bool run() override
+		{
+			const auto& inImageExtent = m_inImage->getCreationParameters().extent;
+			const auto& inImageFormat = m_inImage->getCreationParameters().format;
+
+			assert(m_outImageDim.w == m_inImage->getCreationParameters().arrayLayers);
+
+			auto outImage = createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, m_outImageFormat);
+			if (!outImage)
+			{
+				m_parentApp->logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			KernelX kernelX(m_kernelX);
+			KernelY kernelY(m_kernelY);
+			KernelZ kernelZ(m_kernelZ);
+
+			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, KernelX, KernelY, KernelZ, float>;
+			typename BlitFilter::state_type blitFilterState(std::move(kernelX), std::move(kernelY), std::move(kernelZ));
+
+			blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
+			blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, m_inImage->getCreationParameters().arrayLayers) + m_inImage->getMipSize();
+			blitFilterState.inImage = m_inImage.get();
+
+			blitFilterState.outImage = outImage.get();
+
+			blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
+			blitFilterState.outExtentLayerCount = m_outImageDim;
+
+			blitFilterState.alphaSemantic = m_alphaSemantic;
+			blitFilterState.alphaBinCount = m_alphaBinCount;
+			blitFilterState.alphaRefValue = m_referenceAlpha;
+
+			blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
+			blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
+
+			if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_kernelX, m_kernelY, m_kernelZ))
+			{
+				m_parentApp->logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
+			{
+				m_parentApp->logger->log("Failed to blit", system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
+
+			writeImage(std::move(outImage), m_writeImagePath);
+
+			return true;
+		}
+
+	private:
+		const core::vectorSIMDu32 m_outImageDim;
+		const asset::E_FORMAT m_outImageFormat;
+		KernelX m_kernelX;
+		KernelY m_kernelY;
+		KernelZ m_kernelZ;
+		const char* m_writeImagePath;
+		const IBlitUtilities::E_ALPHA_SEMANTIC m_alphaSemantic;
+		const float m_referenceAlpha;
+		const uint32_t m_alphaBinCount;
+	};
+
 	template <typename Dither = IdentityDither, typename Normalization = void, bool Clamp = false>
 	class CSwizzleAndConvertTest : public ITest
 	{
@@ -338,6 +427,7 @@ class BlitFilterTestApp : public ApplicationBase
 
 				blitFilterState.alphaSemantic = m_alphaSemantic;
 				blitFilterState.alphaBinCount = m_alphaBinCount;
+				blitFilterState.alphaRefValue = m_referenceAlpha;
 
 				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
@@ -767,9 +857,9 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 
 		constexpr bool TestCPUBlitFilter = false;
-		constexpr bool TestFlattenFilter = false;
-		constexpr bool TestSwizzleAndConvertFilter = true;
-		constexpr bool TestGPUBlitFilter = true;
+		constexpr bool TestFlattenFilter = true;
+		constexpr bool TestSwizzleAndConvertFilter = false;
+		constexpr bool TestGPUBlitFilter = false;
 
 		auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
 		{
@@ -786,7 +876,7 @@ public:
 			core::smart_refctd_ptr<asset::ICPUImage> result;
 			{
 				if (asset->getAssetType() == asset::IAsset::ET_IMAGE_VIEW)
-					result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset)->getCreationParameters().image);
+					result = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset)->getCreationParameters().image;
 				else if (asset->getAssetType() == asset::IAsset::ET_IMAGE)
 					result = std::move(core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset));
 				else
@@ -827,88 +917,106 @@ public:
 			}
 		};
 
+		auto runTests = [this](const uint32_t count, std::unique_ptr<ITest>* tests)
+		{
+			assert(tests);
+
+			for (uint32_t i = 0; i < count; ++i)
+			{
+				if (tests[i])
+				{
+					if (!tests[i]->run())
+						logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
+					else
+						logger->log("Test #%u passed.", system::ILogger::ELL_INFO, i);
+				}
+			}
+		};
+
 		if (TestCPUBlitFilter)
 		{
 			logger->log("CBlitImageFilter", system::ILogger::ELL_INFO);
 
-			constexpr const char* TestImagePaths[] =
+			constexpr uint32_t TestCount = 2;
+			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
+
+			// Test 0: Non-uniform downscale 2D BC format image with Mitchell
 			{
-				"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
-				"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
-				"../../media/GLI/dice_bc3.dds"
-			};
-			constexpr auto TestImagePathsCount = sizeof(TestImagePaths) / sizeof(const char*);
+				const char* path = "../../media/GLI/kueken7_rgba_dxt1_unorm.dds";
+				auto inImage = loadImage(path);
 
-			for (const char* pathToImage : TestImagePaths)
-			{
-				logger->log("Image: \t%s", system::ILogger::ELL_INFO, pathToImage);
-
-				const auto& inImage = loadImage(pathToImage);
-				if (!inImage)
+				if (inImage)
 				{
-					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
-					continue;
+					const auto& inExtent = inImage->getCreationParameters().extent;
+					const auto outImageDim = core::vectorSIMDu32(inExtent.width/2, inExtent.height/4, 1, 1);
+					const auto outImageFormat = asset::EF_R8G8B8A8_SRGB;
+
+					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+
+					auto kernelX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+					auto kernelY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+					auto kernelZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+
+					tests[0] = std::make_unique<CBlitImageFilterTest<decltype(kernelX), decltype(kernelY), decltype(kernelZ)>>
+					(
+						std::move(inImage),
+						this,
+						outImageDim,
+						outImageFormat,
+						std::move(kernelX),
+						std::move(kernelY),
+						std::move(kernelZ),
+						"CBlitImageFilter_0.png",
+						asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED
+					);
 				}
-
-				const auto& inImageExtent = inImage->getCreationParameters().extent;
-				const auto& inImageFormat = inImage->getCreationParameters().format;
-				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels;
-
-				const auto outFormat = asset::EF_R32G32B32A32_SFLOAT;
-
-				auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, inImage->getCreationParameters().arrayLayers), inImage->getCreationParameters().type, outFormat);
-				if (!outImage)
+				else
 				{
-					logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
-					continue;
+					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
 				}
-
-				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
-
-				auto kernelX = ScaledBoxKernel(scaleX, asset::CBoxImageFilterKernel());
-				auto kernelY = ScaledBoxKernel(scaleY, asset::CBoxImageFilterKernel());
-				auto kernelZ = ScaledBoxKernel(scaleZ, asset::CBoxImageFilterKernel());
-
-				using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, decltype(kernelX), decltype(kernelY), decltype(kernelZ), float>;
-				typename BlitFilter::state_type blitFilterState(std::move(kernelX), std::move(kernelY), std::move(kernelZ));
-
-				blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
-				blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, inImage->getCreationParameters().arrayLayers) + inImage->getMipSize();
-				blitFilterState.inImage = inImage.get();
-
-				blitFilterState.outImage = outImage.get();
-
-				blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
-				blitFilterState.outExtentLayerCount = blitFilterState.inExtentLayerCount;
-
-				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
-				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
-
-				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, kernelX, kernelY, kernelZ))
-				{
-					logger->log("Failed to compute the LUT for blitting.\n", system::ILogger::ELL_ERROR);
-					continue;
-				}
-
-				if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
-				{
-					logger->log("Failed to blit.\n", system::ILogger::ELL_ERROR);
-					continue;
-				}
-
-				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
-
-				std::filesystem::path filename, inFileExtension;
-				core::splitFilename(pathToImage, nullptr, &filename, &inFileExtension);
-
-				assert(outFormat == asset::EF_R32G32B32A32_SFLOAT);
-				constexpr std::string_view outFileExtension = ".exr";
-				std::string outFileName = "CBlitImageFilter_" + filename.string() + outFileExtension.data();
-
-				writeImage(std::move(outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
 			}
+
+			// Test 1: Non-uniform upscale 2D BC format image with Kaiser
+			{
+				const char* path = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds";
+				auto inImage = loadImage(path);
+
+				if (inImage)
+				{
+					const auto& inExtent = inImage->getCreationParameters().extent;
+					const auto outImageDim = core::vectorSIMDu32(inExtent.width*2, inExtent.height*4, 1, 1);
+					const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
+
+					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+
+					auto kernelX = ScaledKaiserKernel(scaleX, asset::CKaiserImageFilterKernel());
+					auto kernelY = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
+					auto kernelZ = ScaledKaiserKernel(scaleZ, asset::CKaiserImageFilterKernel());
+
+					tests[1] = std::make_unique<CBlitImageFilterTest<decltype(kernelX), decltype(kernelY), decltype(kernelZ)>>
+					(
+						std::move(inImage),
+						this,
+						outImageDim,
+						outImageFormat,
+						std::move(kernelX),
+						std::move(kernelY),
+						std::move(kernelZ),
+						"CBlitImageFilter_1.exr",
+						asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED
+					);
+				}
+				else
+				{
+					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
+				}
+			}
+
+			runTests(TestCount, tests);
 		}
 
 		if (TestFlattenFilter)
@@ -1053,22 +1161,6 @@ public:
 				writeImage(core::smart_refctd_ptr(filterState.outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
 			}
 		}
-
-		auto runTests = [this](const uint32_t count, std::unique_ptr<ITest>* tests)
-		{
-			assert(tests);
-
-			for (uint32_t i = 0; i < count; ++i)
-			{
-				if (tests[i])
-				{
-					if (!tests[i]->run())
-						logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
-					else
-						logger->log("Test #%u passed.", system::ILogger::ELL_INFO, i);
-				}
-			}
-		};
 
 		if (TestSwizzleAndConvertFilter)
 		{
