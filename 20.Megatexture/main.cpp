@@ -554,7 +554,7 @@ APP_CONSTRUCTOR(MegaTextureApp)
 
             newPipeline->setLayout(core::smart_refctd_ptr(pipelineLayout));
             {
-                auto* fs = pipeline->getShaderAtIndex(asset::ICPURenderpassIndependentPipeline::ESSI_FRAGMENT_SHADER_IX);
+                auto* fs = pipeline->getShaderAtStage(asset::IShader::ESS_FRAGMENT);
                 auto found = modifiedShaders.find(core::smart_refctd_ptr<asset::ICPUSpecializedShader>(fs));
                 core::smart_refctd_ptr<asset::ICPUSpecializedShader> newfs;
                 if (found != modifiedShaders.end())
@@ -563,7 +563,7 @@ APP_CONSTRUCTOR(MegaTextureApp)
                     newfs = createModifiedFragShader(fs, vt.get());
                     modifiedShaders.insert({ core::smart_refctd_ptr<asset::ICPUSpecializedShader>(fs),newfs });
                 }
-                newPipeline->setShaderAtIndex(asset::ICPURenderpassIndependentPipeline::ESSI_FRAGMENT_SHADER_IX, newfs.get());
+                newPipeline->setShaderAtStage(asset::IShader::ESS_FRAGMENT, newfs.get());
             }
 
             //set new pipeline (with overriden FS and layout)

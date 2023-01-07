@@ -438,7 +438,7 @@ int main()
             auto pipeline_cp = core::smart_refctd_ptr_static_cast<asset::ICPURenderpassIndependentPipeline>(pipeline->clone(1u));
 
             // insert a geometry shader into the pipeline
-            pipeline_cp->setShaderAtIndex(asset::ICPURenderpassIndependentPipeline::ESSI_GEOMETRY_SHADER_IX,(pipelineMetadata->usesShaderWithUVs() ? geomShaderUV:geomShaderNOUV).get());
+            pipeline_cp->setShaderAtStage(asset::IShader::ESS_GEOMETRY,(pipelineMetadata->usesShaderWithUVs() ? geomShaderUV:geomShaderNOUV).get());
 
             // add descriptor set layout with one that has an SSBO and UBO
             auto* layout = pipeline_cp->getLayout();

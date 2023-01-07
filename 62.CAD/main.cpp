@@ -84,7 +84,9 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer;
 	core::smart_refctd_ptr<video::IGPUBuffer> drawObjectsBuffer;
 	core::smart_refctd_ptr<video::IGPUBuffer> geometryBuffer;
-	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer;
+	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
+	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
+	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
 
 	constexpr size_t getMaxMemoryNeeded(uint32_t numberOfLines, uint32_t numberOfEllipses)
 	{
@@ -150,16 +152,21 @@ class CADApp : public ApplicationBase
 			currentGeometryBufferAddress = logicalDevice->getBufferDeviceAddress(geometryBuffer.get());
 		}
 
+
 		{
 			size_t globalsBufferSize = maxObjects * sizeof(EllipseInfo);
-			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
-			globalsCreationParams.size = globalsBufferSize;
-			globalsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			globalsBuffer = logicalDevice->createBuffer(std::move(globalsCreationParams));
 
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
-			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer.get());
+			for(uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				video::IGPUBuffer::SCreationParams globalsCreationParams = {};
+				globalsCreationParams.size = globalsBufferSize;
+				globalsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+				globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
+
+				video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
+				memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+				auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
+			}
 		}
 	}
 
@@ -234,6 +241,7 @@ public:
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
 		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
+		initParams.physicalDeviceFilter.requiredFeatures.vertexAttributeDouble = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -304,13 +312,80 @@ public:
 
 		initDrawObjects();
 
-		// TODO:
-		// Create DescriptorSetLayout
-		// Create DescriptorSets
-		// Create PipelineLayout from DescriptorSetLayout
-		// Create Pipeline with correct params
-		// Create OrthoCamera
+		video::IGPUDescriptorSetLayout::SBinding bindings[2u] = {};
+		bindings[0u].binding = 0u;
+		bindings[0u].type = asset::EDT_UNIFORM_BUFFER;
+		bindings[0u].count = 1u;
+		bindings[0u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+		bindings[1u].binding = 1u;
+		bindings[1u].type = asset::EDT_STORAGE_BUFFER;
+		bindings[1u].count = 1u;
+		bindings[1u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+2u);
 
+		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[2u] =
+		{
+			{ nbl::asset::EDT_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
+			{ nbl::asset::EDT_STORAGE_BUFFER, FRAMES_IN_FLIGHT },
+		};
+		auto descriptorPool = logicalDevice->createDescriptorPool(nbl::video::IDescriptorPool::ECF_NONE, 128u, 2u, poolSizes);
+
+		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+		{
+			descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(descriptorSetLayout));
+			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[2u] = {};
+			descriptorInfos[0u].buffer.offset = 0u;
+			descriptorInfos[0u].buffer.size = globalsBuffer[i]->getCreationParams().size;
+			descriptorInfos[0u].desc = globalsBuffer[i];
+
+			descriptorInfos[1u].buffer.offset = 0u;
+			descriptorInfos[1u].buffer.size = drawObjectsBuffer->getCreationParams().size;
+			descriptorInfos[1u].desc = drawObjectsBuffer;
+
+			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[2u] = {};
+			descriptorUpdates[0u].dstSet = descriptorSets[i].get();
+			descriptorUpdates[0u].binding = 0u;
+			descriptorUpdates[0u].arrayElement = 0u;
+			descriptorUpdates[0u].count = 1u;
+			descriptorUpdates[0u].descriptorType = asset::EDT_UNIFORM_BUFFER;
+			descriptorUpdates[0u].info = &descriptorInfos[0];
+
+			descriptorUpdates[1u].dstSet = descriptorSets[i].get();
+			descriptorUpdates[1u].binding = 1u;
+			descriptorUpdates[1u].arrayElement = 0u;
+			descriptorUpdates[1u].count = 1u;
+			descriptorUpdates[1u].descriptorType = asset::EDT_STORAGE_BUFFER;
+			descriptorUpdates[1u].info = &descriptorInfos[1];
+
+			logicalDevice->updateDescriptorSets(2u, descriptorUpdates, 0u, nullptr);
+		}
+
+		auto pipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+
+		video::IGPURenderpassIndependentPipeline::SCreationParams renderpassIndependantPipeInfo = {};
+		renderpassIndependantPipeInfo.layout = pipelineLayout;
+		renderpassIndependantPipeInfo.shaders[0u] = shaders[0u];
+		renderpassIndependantPipeInfo.shaders[1u] = shaders[1u];
+		// renderpassIndependantPipeInfo.blend = {}; TODO for transparency
+		renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
+		renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
+		renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
+		renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_FILL;
+		renderpassIndependantPipeInfo.rasterization.faceCullingMode = asset::EFCM_NONE;
+
+		core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependant;
+		bool succ = logicalDevice->createRenderpassIndependentPipelines(
+			nullptr,
+			core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
+			&renderpassIndependant);
+		assert(succ);
+
+		video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineCreateInfo = {};
+		graphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependant;
+		graphicsPipelineCreateInfo.renderpass = renderpass;
+		graphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
+
+		// Create OrthoCamera
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
@@ -398,7 +473,7 @@ public:
 
 		// TODO
 		// Bind DescriptorSet, GraphicsPipeline
-		// BindVertexBuffer, BindIndexBuffer
+		// BindIndexBuffer
 		// Issue cb->drawIndexed();
 
 		// SwapchainImage Transition to EL_PRESENT_SRC
