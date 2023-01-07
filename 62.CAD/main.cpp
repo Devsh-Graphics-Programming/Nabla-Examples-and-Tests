@@ -309,7 +309,7 @@ public:
 		initParams.depthFormat = getDepthFormat();
 		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
-		// initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
+		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
 		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
