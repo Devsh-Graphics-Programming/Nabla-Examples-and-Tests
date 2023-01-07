@@ -69,8 +69,7 @@ PSInput main(uint vertexID : SV_VertexID)
     else
     {
         double3x3 transformation = (double3x3)globals.viewProjection;
-        LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address, 16u);
-
+        LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address, 8u);
         float2 transformedPoints[4u];
         for(uint i = 0u; i < 4u; ++i)
         {

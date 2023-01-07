@@ -9,7 +9,7 @@ enum class ObjectType : uint32_t
 struct DrawObject
 {
     ObjectType type;
-    uint styleIdx;
+    uint32_t styleIdx;
     uint64_t address;
 };
 
@@ -24,8 +24,8 @@ struct EllipseInfo
     double2 majorAxis;
     double2 center;
     uint2 rangeAnglesPacked; // [0, 2Pi)
-    uint eccentricityPacked; // (0, 1]
-    uint _pad; // TODO we may need to add prev/next tangent if curve joins are not Bi-Arc
+    uint32_t eccentricityPacked; // (0, 1]
+    uint32_t _pad; // TODO we may need to add prev/next tangent if curve joins are not Bi-Arc
 };
 
 struct Globals
@@ -33,8 +33,8 @@ struct Globals
     double4x4 viewProjection;
     // Next two vars will be part of styles that the objects will reference
     float4 color;
-    uint lineWidth;
-    uint pad;
+    uint32_t lineWidth;
+    uint32_t pad;
     uint2 resolution;
 };
 

@@ -32,7 +32,6 @@ struct uint2
 	uint32_t y;
 };
 
-#define uint uint32_t
 #define float4 nbl::core::vectorSIMDf
 #include "common.hlsl"
 
@@ -142,6 +141,18 @@ class CADApp : public ApplicationBase
 	{
 		if (linePoints.size() > 2u)
 		{
+			const auto noLines = linePoints.size() - 1u;
+			DrawObject drawObj = {};
+			drawObj.type = ObjectType::LINE;
+			drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
+			for(uint32_t i = 0u; i < noLines; ++i)
+			{ 
+				drawObj.address += sizeof(double2);
+				asset::SBufferRange<video::IGPUBuffer> drawObjUpload = { currentDrawObjectCount * sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer };
+				utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
+				currentDrawObjectCount += 1u;
+			}
+
 			const auto& firstPoint = linePoints[0u];
 			const auto& secondPoint = linePoints[1u];
 			const auto differenceStart = firstPoint - secondPoint;
@@ -157,14 +168,6 @@ class CADApp : public ApplicationBase
 			utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, linePoints.data(), queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
 			assert(currentGeometryBufferOffset + pointsByteSize <= geometryBuffer->getSize());
 			currentGeometryBufferOffset += pointsByteSize;
-
-			const auto noLines = linePoints.size() - 3u; // + 2 points generated considered
-			DrawObject drawObj = {};
-			drawObj.type = ObjectType::LINE;
-			drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
-			asset::SBufferRange<video::IGPUBuffer> drawObjUpload = {currentDrawObjectCount*sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer};
-			utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-			currentDrawObjectCount += noLines;
 		}
 	}
 
@@ -477,7 +480,6 @@ public:
 		std::vector<double2> linePoints;
 		linePoints.push_back({ 0.0, 0.0 });
 		linePoints.push_back({ 60.0, 0.0 });
-		linePoints.push_back({ 60.0, 60.0 });
 		addLines(std::move(linePoints));
 	}
 
