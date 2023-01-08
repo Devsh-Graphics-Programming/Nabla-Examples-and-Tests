@@ -86,15 +86,15 @@ PSInput main(uint vertexID : SV_VertexID)
             const float2 normalPrevLine = float2(-vectorPrev.y, vectorPrev.x);
             const float2 miter = normalize(normalPrevLine + normalToLine);
 
-            outV.position.xy = transformedPoints[1u] + (miter * ((float)vertexIdx - 0.5f) * globals.lineWidth) / dot(normalToLine, normalPrevLine);
+            outV.position.xy = transformedPoints[1u] + (miter * ((float)vertexIdx - 0.5f) * globals.lineWidth) / dot(normalToLine, miter);
         }
         else // if (vertexIdx == 2u || vertexIdx == 3u)
         {
             const float2 vectorNext = normalize(transformedPoints[3u] - transformedPoints[2u]);
-            const float2 normalNextLine = float2(-vectorNext.y, vectorNext.x);
+            const float2 normalNextLine = float2(vectorNext.y, -vectorNext.x);
             const float2 miter = normalize(normalNextLine + normalToLine);
 
-            outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * globals.lineWidth) / dot(normalToLine, normalNextLine);
+            outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * globals.lineWidth) / dot(normalToLine, miter);
         }
 
         outV.start_end.xy = transformedPoints[1u];

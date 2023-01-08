@@ -139,7 +139,7 @@ class CADApp : public ApplicationBase
 
 	void addLines(std::vector<double2>&& linePoints)
 	{
-		if (linePoints.size() > 2u)
+		if (linePoints.size() >= 2u)
 		{
 			const auto noLines = linePoints.size() - 1u;
 			DrawObject drawObj = {};
@@ -226,7 +226,7 @@ class CADApp : public ApplicationBase
 
 
 		{
-			size_t globalsBufferSize = maxObjects * sizeof(EllipseInfo);
+			size_t globalsBufferSize = sizeof(Globals);
 
 			for(uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 			{
@@ -475,7 +475,7 @@ public:
 		}
 
 		m_Camera.setOrigin({ 0.0, 0.0 });
-		m_Camera.setSize({100.0, 60.0});
+		m_Camera.setSize({200.0, 60.0});
 
 		std::vector<double2> linePoints;
 		linePoints.push_back({ 0.0, 0.0 });
@@ -500,7 +500,7 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 2u;
+		globalData.lineWidth = 10u;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 
@@ -560,11 +560,11 @@ public:
 			area.offset = { 0,0 };
 			area.extent = { WIN_W, WIN_H };
 			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 1.f;
-			clear[0].color.float32[1] = 1.f;
-			clear[0].color.float32[2] = 1.f;
-			clear[0].color.float32[3] = 1.f;
-			clear[1].depthStencil.depth = 0.f;
+			clear[0].color.float32[0] = 0.f;
+			clear[0].color.float32[1] = 0.f;
+			clear[0].color.float32[2] = 0.f;
+			clear[0].color.float32[3] = 0.f;
+			clear[1].depthStencil.depth = 1.f;
 
 			beginInfo.clearValueCount = 2u;
 			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[imgnum];
