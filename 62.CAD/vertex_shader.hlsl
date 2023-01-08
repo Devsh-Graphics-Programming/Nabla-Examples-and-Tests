@@ -66,7 +66,7 @@ PSInput main(uint vertexID : SV_VertexID)
     if (objType == ObjectType::ELLIPSE)
     {
     }
-    else
+    else if (objType == ObjectType::LINE)
     {
         double3x3 transformation = (double3x3)globals.viewProjection;
         LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address, 8u);
@@ -91,7 +91,7 @@ PSInput main(uint vertexID : SV_VertexID)
         else // if (vertexIdx == 2u || vertexIdx == 3u)
         {
             const float2 vectorNext = normalize(transformedPoints[3u] - transformedPoints[2u]);
-            const float2 normalNextLine = float2(vectorNext.y, -vectorNext.x);
+            const float2 normalNextLine = float2(-vectorNext.y, vectorNext.x);
             const float2 miter = normalize(normalNextLine + normalToLine);
 
             outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * globals.lineWidth) / dot(normalToLine, miter);

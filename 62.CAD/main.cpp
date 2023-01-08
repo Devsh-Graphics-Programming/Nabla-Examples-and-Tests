@@ -63,8 +63,8 @@ public:
 		double4x4 ret = {};
 		ret._r0[0] = 2.0 / m_size.x;
 		ret._r0[2] = (-2.0 * m_origin.x) / m_size.x;
-		ret._r1[1] = 2.0 / m_size.y;
-		ret._r1[2] = (-2.0 * m_origin.y) / m_size.y;
+		ret._r1[1] = -2.0 / m_size.y;
+		ret._r1[2] = (2.0 * m_origin.y) / m_size.y;
 		ret._r2[2] = 1.0;
 		return ret;
 	}
@@ -146,11 +146,11 @@ class CADApp : public ApplicationBase
 			drawObj.type = ObjectType::LINE;
 			drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
 			for(uint32_t i = 0u; i < noLines; ++i)
-			{ 
-				drawObj.address += sizeof(double2);
+			{
 				asset::SBufferRange<video::IGPUBuffer> drawObjUpload = { currentDrawObjectCount * sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer };
 				utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
 				currentDrawObjectCount += 1u;
+				drawObj.address += sizeof(double2);
 			}
 
 			const auto& firstPoint = linePoints[0u];
@@ -475,10 +475,12 @@ public:
 		}
 
 		m_Camera.setOrigin({ 0.0, 0.0 });
-		m_Camera.setSize({200.0, 60.0});
+		m_Camera.setSize({200.0, 200.0});
 
 		std::vector<double2> linePoints;
+		linePoints.push_back({ -50.0, 0.0 });
 		linePoints.push_back({ 0.0, 0.0 });
+		linePoints.push_back({ 50.0, 0.0 });
 		linePoints.push_back({ 60.0, 0.0 });
 		addLines(std::move(linePoints));
 	}
@@ -488,6 +490,9 @@ public:
 		logicalDevice->waitIdle();
 	}
 
+	double dt = 0; //! render loop
+	std::chrono::steady_clock::time_point lastTime;
+
 	void workLoopBody() override
 	{
 		m_resourceIx++;
@@ -496,16 +501,22 @@ public:
 
 		auto& cb = m_cmdbuf[m_resourceIx];
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
+		auto& fence = m_frameComplete[0u];
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 10u;
+		globalData.lineWidth = 4u;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 
 		logicalDevice->blockForFences(1u, &fence.get());
 		logicalDevice->resetFences(1u, &fence.get());
+
+		auto now = std::chrono::high_resolution_clock::now();
+		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
+		lastTime = now;
+		static double timeElapsed = 0.0;
+		timeElapsed += dt;
 
 		uint32_t imgnum = 0u;
 		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
@@ -520,6 +531,9 @@ public:
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 
+
+		double2 NewPoint = { 50*cos(timeElapsed * 0.0005), 50*sin(timeElapsed * 0.0005)};
+		cb->updateBuffer(geometryBuffer.get(), 3* sizeof(double2), sizeof(double2), &NewPoint);
 		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 
 		asset::SViewport vp;
