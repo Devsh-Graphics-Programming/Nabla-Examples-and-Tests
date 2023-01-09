@@ -98,8 +98,8 @@ PSInput main(uint vertexID : SV_VertexID)
         }
 
         outV.start_end.xy = transformedPoints[1u];
-        outV.start_end.wz = transformedPoints[2u];
-        outV.position.xy = outV.position.xy / globals.resolution * 2.0 - 1.0; // back to NDC for SV_Position
+        outV.start_end.zw = transformedPoints[2u];
+        outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
     }
 	return outV;

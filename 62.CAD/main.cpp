@@ -480,8 +480,13 @@ public:
 		std::vector<double2> linePoints;
 		linePoints.push_back({ -50.0, 0.0 });
 		linePoints.push_back({ 0.0, 0.0 });
-		linePoints.push_back({ 50.0, 0.0 });
-		linePoints.push_back({ 60.0, 0.0 });
+		linePoints.push_back({ 80.0, 10.0 });
+		linePoints.push_back({ 40.0, 40.0 });
+		linePoints.push_back({ 0.0, 40.0 });
+		linePoints.push_back({ 30.0, 80.0 });
+		linePoints.push_back({ -30.0, 50.0 });
+		linePoints.push_back({ -30.0, 110.0 });
+		linePoints.push_back({ +30.0, -112.0 });
 		addLines(std::move(linePoints));
 	}
 
@@ -505,9 +510,8 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 4u;
+		globalData.lineWidth = 8u;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
-		globalData.viewProjection = m_Camera.constructViewProjection();
 
 		logicalDevice->blockForFences(1u, &fence.get());
 		logicalDevice->resetFences(1u, &fence.get());
@@ -517,6 +521,8 @@ public:
 		lastTime = now;
 		static double timeElapsed = 0.0;
 		timeElapsed += dt;
+		m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.00008)) * 1500, 20.0 + abs(cos(timeElapsed * 0.00008)) * 1500 });
+		globalData.viewProjection = m_Camera.constructViewProjection();
 
 		uint32_t imgnum = 0u;
 		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
@@ -531,9 +537,8 @@ public:
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 
-
-		double2 NewPoint = { 50*cos(timeElapsed * 0.0005), 50*sin(timeElapsed * 0.0005)};
-		cb->updateBuffer(geometryBuffer.get(), 3* sizeof(double2), sizeof(double2), &NewPoint);
+		// double2 NewPoint = { 80*cos(timeElapsed * 0.0002), 80*sin(timeElapsed * 0.0002)};
+		//cb->updateBuffer(geometryBuffer.get(), 3* sizeof(double2), sizeof(double2), &NewPoint);
 		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 
 		asset::SViewport vp;

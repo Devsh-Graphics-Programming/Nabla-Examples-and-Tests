@@ -41,7 +41,7 @@ struct Globals
 
 struct PSInput
 {
-	float4 position : SV_Position;
+    float4 position : SV_Position;
     [[vk::location(0)]] float4 color : COLOR; 
     [[vk::location(1)]] nointerpolation float4 start_end : COLOR1; 
     [[vk::location(2)]] nointerpolation uint3 lineWidth_eccentricity_objType : COLOR2; 
@@ -52,8 +52,26 @@ struct PSInput
 
 float4 main(PSInput input) : SV_TARGET
 {
-    float2 start = input.start_end.xy;
-    float2 end =  input.start_end.zw;
-    float2 position = input.position.xy;
+    ObjectType objType = (ObjectType)input.lineWidth_eccentricity_objType.z;
+    if (objType == ObjectType::ELLIPSE)
+    {
+    }
+    else if (objType == ObjectType::LINE)
+    {
+        const float2 start = input.start_end.xy;
+        const float2 end = input.start_end.zw;
+        const uint lineWidthHalf = ((float)input.lineWidth_eccentricity_objType.x) / 2.0f;
+        float2 lineVec = end - start;
+        float2 pointVec = input.position.xy - start;
+        float pointVecLen = length(pointVec);
+        float lineLen = length(end - start);
+        float projectionLength = dot(normalize(pointVec),normalize(lineVec)) * pointVecLen;
+        float t = projectionLength / lineLen;
+        if (t < 0 && pointVecLen > lineWidthHalf)
+            discard;
+        else if (t > 1 && length(input.position.xy - end) > lineWidthHalf)
+            discard;
+        return input.color;
+    }
     return input.color;
 }
