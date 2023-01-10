@@ -5,8 +5,7 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-#include "nbl/asset/filters/CNormalMapToDerivativeFilter.h"
-#include "nbl/asset/filters/dithering/CPrecomputedDither.h"
+#include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
@@ -895,6 +894,57 @@ class BlitFilterTestApp : public ApplicationBase
 		const uint32_t m_alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount;
 	};
 
+	class CRegionBlockFunctorFilterTest : public ITest
+	{
+	public:
+		CRegionBlockFunctorFilterTest(core::smart_refctd_ptr<asset::ICPUImage>&& inImage, BlitFilterTestApp* parentApp, const char* writeImagePath)
+			: ITest(std::move(inImage), parentApp), m_writeImagePath(writeImagePath)
+		{}
+
+		bool run() override
+		{
+			auto outImage = core::smart_refctd_ptr_static_cast<ICPUImage>(m_inImage->clone());
+			if (!outImage)
+				return false;
+
+			const auto format = m_inImage->getCreationParameters().format;
+			TexelBlockInfo blockInfo(format);
+
+			const auto strides = m_inImage->getRegions().begin()->getByteStrides(blockInfo);
+
+			auto copyFromLevel0 = [this, &outImage, format, &blockInfo, &strides](uint64_t dstByteOffset, core::vectorSIMDu32 coord)
+			{
+				const uint64_t srcByteOffset = m_inImage->getRegions().begin()->getByteOffset(coord, strides);
+
+				uint8_t* src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer()) + srcByteOffset;
+				uint8_t* dst = reinterpret_cast<uint8_t*>(outImage->getBuffer()->getPointer()) + dstByteOffset;
+				memcpy(dst, src, asset::getTexelOrBlockBytesize(format));
+			};
+
+			using region_block_filter_t = asset::CRegionBlockFunctorFilter<decltype(copyFromLevel0), false>;
+
+			region_block_filter_t::CState filterState(copyFromLevel0, outImage.get(), outImage->getRegions().begin() + 1);
+
+			for (uint32_t i = 1; i < outImage->getCreationParameters().mipLevels; ++i)
+			{
+				filterState.regionIterator = outImage->getRegions().begin() + i;
+
+				if (!region_block_filter_t::execute(&filterState))
+				{
+					m_parentApp->logger->log("CRegionBlockFunctorFilter failed for mip level %u", system::ILogger::ELL_ERROR, i);
+					return false;
+				}
+			}
+
+			writeImage(std::move(outImage), m_writeImagePath);
+
+			return true;
+		}
+
+	private:
+		const char* m_writeImagePath;
+	};
+
 public:
 	void onAppInitialized_impl() override
 	{
@@ -923,6 +973,7 @@ public:
 		constexpr bool TestFlattenFilter = true;
 		constexpr bool TestSwizzleAndConvertFilter = true;
 		constexpr bool TestGPUBlitFilter = true;
+		constexpr bool TestRegionBlockFunctorFilter = true;
 
 		auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
 		{
@@ -1499,6 +1550,23 @@ public:
 						alphaBinCount
 					);
 				}
+			}
+
+			runTests(TestCount, tests);
+		}
+
+		if (TestRegionBlockFunctorFilter)
+		{
+			logger->log("CRegionBlockFunctorFilter", system::ILogger::ELL_INFO);
+
+			constexpr uint32_t TestCount = 1;
+			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
+
+			// Test 0: Copy the first NxM texels of the 0th mip level to the ith mip level, where N and M are dimensions of the ith mip level.
+			{
+				auto inImage = loadImage("../../media/GLI/kueken7_rgba_dxt5_unorm.dds");
+				if (inImage)
+					tests[0] = std::make_unique<CRegionBlockFunctorFilterTest>(std::move(inImage), this, "CRegionBlockFunctorFilter_0.dds");
 			}
 
 			runTests(TestCount, tests);
