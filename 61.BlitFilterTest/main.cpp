@@ -265,6 +265,151 @@ class BlitFilterTestApp : public ApplicationBase
 		const uint32_t m_alphaBinCount;
 	};
 
+	class CFlattenRegionsImageFilterTest : public ITest
+	{
+	public:
+		CFlattenRegionsImageFilterTest(
+			core::smart_refctd_ptr<asset::ICPUImage>&& inImage,
+			BlitFilterTestApp* parentApp,
+			const bool enablePrefill,
+			const asset::IImageFilter::IState::ColorValue& fillColor,
+			const char* writeImagePath)
+			: ITest(std::move(inImage), parentApp), m_enablePrefill(enablePrefill), m_writeImagePath(writeImagePath)
+		{
+			memcpy(&m_fillColorValue, &fillColor, sizeof(asset::IImageFilter::IState::ColorValue));
+		}
+
+		bool run() override
+		{
+			const auto& inImageExtent = m_inImage->getCreationParameters().extent;
+			const auto& inImageFormat = m_inImage->getCreationParameters().format;
+			const uint32_t inImageMipCount = m_inImage->getCreationParameters().mipLevels;
+
+			// We use the very first block of the image as fill value for the filter.
+			std::unique_ptr<uint8_t[]> fillValueBlock = std::make_unique<uint8_t[]>(asset::getTexelOrBlockBytesize(inImageFormat));
+
+			core::smart_refctd_ptr<ICPUImage> flattenInImage;
+			{
+				const uint64_t bufferSizeNeeded = (inImageExtent.width * inImageExtent.height * inImageExtent.depth * asset::getTexelOrBlockBytesize(inImageFormat)) / 2ull;
+
+				IImage::SCreationParams imageParams = {};
+				imageParams.type = asset::ICPUImage::ET_2D;
+				imageParams.format = inImageFormat;
+				imageParams.extent = { inImageExtent.width, inImageExtent.height, inImageExtent.depth };
+				imageParams.mipLevels = 1u;
+				imageParams.arrayLayers = 1u;
+				imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
+
+				auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(2ull);
+				{
+					auto& region = (*imageRegions)[0];
+					region.bufferOffset = 0ull;
+					region.bufferRowLength = imageParams.extent.width / 2;
+					region.bufferImageHeight = imageParams.extent.height / 2;
+					region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
+					region.imageOffset = { 0u, 0u, 0u };
+					region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+					region.imageSubresource.baseArrayLayer = 0u;
+					region.imageSubresource.layerCount = imageParams.arrayLayers;
+					region.imageSubresource.mipLevel = 0;
+				}
+				{
+					auto& region = (*imageRegions)[1];
+					region.bufferOffset = bufferSizeNeeded / 2ull;
+					region.bufferRowLength = imageParams.extent.width / 2;
+					region.bufferImageHeight = imageParams.extent.height / 2;
+					region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
+					region.imageOffset = { imageParams.extent.width / 2, imageParams.extent.height / 2, 0u };
+					region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+					region.imageSubresource.baseArrayLayer = 0u;
+					region.imageSubresource.layerCount = imageParams.arrayLayers;
+					region.imageSubresource.mipLevel = 0;
+				}
+
+				auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSizeNeeded);
+				if (!imageBuffer)
+				{
+					m_parentApp->logger->log("Failed to create backing buffer for flatten input image.", system::ILogger::ELL_ERROR);
+					return false;
+				}
+
+				flattenInImage = ICPUImage::create(std::move(imageParams));
+				if (!flattenInImage)
+				{
+					m_parentApp->logger->log("Failed to create the flatten input image.", system::ILogger::ELL_ERROR);
+					return false;
+				}
+
+				flattenInImage->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
+
+				const auto blockDim = asset::getBlockDimensions(inImageFormat);
+				const uint32_t blockCountX = inImageExtent.width / blockDim.x;
+				const uint32_t blockCountY = inImageExtent.height / blockDim.y;
+				const auto blockSize = asset::getTexelOrBlockBytesize(inImageFormat);
+
+				uint8_t* src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer());
+				uint8_t* dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer());
+				for (uint32_t y = 0; y < blockCountY / 2; ++y)
+				{
+					for (uint32_t x = 0; x < blockCountX / 2; ++x)
+					{
+						if (x == 0 && y == 0)
+							memcpy(fillValueBlock.get(), src, blockSize);
+
+						const uint64_t byteOffset = (y * blockCountX + x) * blockSize;
+						memcpy(dst, src + byteOffset, blockSize);
+						dst += blockSize;
+					}
+				}
+
+				const auto& regions = flattenInImage->getRegions();
+
+				src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer());
+				dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer()) + regions.begin()[1].bufferOffset;
+				for (uint32_t y = 0; y < blockCountY / 2; ++y)
+				{
+					for (uint32_t x = 0; x < blockCountX / 2; ++x)
+					{
+						const uint64_t byteOffset = ((y + (blockCountY / 2)) * blockCountX + (x + (blockCountX / 2))) * blockSize;
+						memcpy(dst, src + byteOffset, blockSize);
+						dst += blockSize;
+					}
+				}
+			}
+
+			asset::CFlattenRegionsImageFilter::CState filterState;
+			filterState.inImage = flattenInImage.get();
+			filterState.outImage = nullptr;
+			filterState.preFill = m_enablePrefill;
+
+			if (filterState.preFill)
+			{
+				const auto inImageFormat = filterState.inImage->getCreationParameters().format;
+				if (asset::isBlockCompressionFormat(inImageFormat))
+					memcpy(filterState.fillValue.asCompressedBlock, m_fillColorValue.asCompressedBlock, asset::getTexelOrBlockBytesize(inImageFormat));
+				else if (asset::isFloatingPointFormat(inImageFormat))
+					filterState.fillValue.asFloat = m_fillColorValue.asFloat;
+				else
+					_NBL_TODO();
+			}
+
+			if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
+			{
+				m_parentApp->logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			writeImage(core::smart_refctd_ptr(filterState.outImage), m_writeImagePath);
+
+			return true;
+		}
+
+	private:
+		const bool m_enablePrefill;
+		asset::IImageFilter::IState::ColorValue m_fillColorValue;
+		const char* m_writeImagePath;
+	};
+
 	template <typename Dither = IdentityDither, typename Normalization = void, bool Clamp = false>
 	class CSwizzleAndConvertTest : public ITest
 	{
@@ -1021,145 +1166,119 @@ public:
 
 		if (TestFlattenFilter)
 		{
+			auto getFillValueAsFirstBlockOrTexel = [](asset::IImageFilter::IState::ColorValue& result, asset::ICPUImage* image)
+			{
+				const auto format = image->getCreationParameters().format;
+				if (asset::isBlockCompressionFormat(format))
+					memcpy(result.asCompressedBlock, image->getBuffer()->getPointer(), asset::getTexelOrBlockBytesize(format));
+				else if (asset::isFloatingPointFormat(format))
+					result.asFloat.set(reinterpret_cast<float*>(image->getBuffer()->getPointer()));
+				else
+					_NBL_TODO();				
+			};
+
 			logger->log("CFlattenRegionsImageFilter", system::ILogger::ELL_INFO);
 
-			constexpr const char* TestImagePaths[] =
+			constexpr uint32_t TestCount = 4;
+			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
+
+			// Test 0: BC format with prefill
 			{
-				"../../media/GLI/kueken7_rgba_dxt1_unorm.dds",
-				"../../media/GLI/kueken7_rgba_dxt5_unorm.dds",
-				"../../media/GLI/dice_bc3.dds"
-			};
-			constexpr auto TestImagePathsCount = sizeof(TestImagePaths) / sizeof(const char*);
+				const char* path = "../../media/GLI/kueken7_rgba_dxt1_unorm.dds";
+				auto inImage = loadImage(path);
 
-			for (const char* pathToImage : TestImagePaths)
-			{
-				logger->log("Image: \t%s", system::ILogger::ELL_INFO, pathToImage);
-
-				const auto& inImage = loadImage(pathToImage);
-				if (!inImage)
+				if (inImage)
 				{
-					logger->log("Cannot find the image.", system::ILogger::ELL_ERROR);
-					continue;
+					const auto inImageFormat = inImage->getCreationParameters().format;
+					asset::IImageFilter::IState::ColorValue fillColorValue;
+					getFillValueAsFirstBlockOrTexel(fillColorValue, inImage.get());
+
+					tests[0] = std::make_unique<CFlattenRegionsImageFilterTest>
+					(
+						std::move(inImage),
+						this,
+						true,
+						fillColorValue,
+						"CFlattenRegionsImageFilter_0.dds"
+					);
 				}
-
-				const auto& inImageExtent = inImage->getCreationParameters().extent;
-				const auto& inImageFormat = inImage->getCreationParameters().format;
-				const uint32_t inImageMipCount = inImage->getCreationParameters().mipLevels;
-
-				// We use the very first block of the image as fill value for the filter.
-				std::unique_ptr<uint8_t[]> fillValueBlock = std::make_unique<uint8_t[]>(asset::getTexelOrBlockBytesize(inImageFormat));
-
-				core::smart_refctd_ptr<ICPUImage> flattenInImage;
+				else
 				{
-					const uint64_t bufferSizeNeeded = (inImageExtent.width * inImageExtent.height * inImageExtent.depth * asset::getTexelOrBlockBytesize(inImageFormat)) / 2ull;
-
-					IImage::SCreationParams imageParams = {};
-					imageParams.type = asset::ICPUImage::ET_2D;
-					imageParams.format = inImageFormat;
-					imageParams.extent = { inImageExtent.width, inImageExtent.height, inImageExtent.depth };
-					imageParams.mipLevels = 1u;
-					imageParams.arrayLayers = 1u;
-					imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
-
-					auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(2ull);
-					{
-						auto& region = (*imageRegions)[0];
-						region.bufferOffset = 0ull;
-						region.bufferRowLength = imageParams.extent.width / 2;
-						region.bufferImageHeight = imageParams.extent.height / 2;
-						region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
-						region.imageOffset = { 0u, 0u, 0u };
-						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-						region.imageSubresource.baseArrayLayer = 0u;
-						region.imageSubresource.layerCount = imageParams.arrayLayers;
-						region.imageSubresource.mipLevel = 0;
-					}
-					{
-						auto& region = (*imageRegions)[1];
-						region.bufferOffset = bufferSizeNeeded / 2ull;
-						region.bufferRowLength = imageParams.extent.width / 2;
-						region.bufferImageHeight = imageParams.extent.height / 2;
-						region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
-						region.imageOffset = { imageParams.extent.width / 2, imageParams.extent.height / 2, 0u };
-						region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-						region.imageSubresource.baseArrayLayer = 0u;
-						region.imageSubresource.layerCount = imageParams.arrayLayers;
-						region.imageSubresource.mipLevel = 0;
-					}
-
-					auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSizeNeeded);
-					if (!imageBuffer)
-					{
-						logger->log("Failed to create backing buffer for flatten input image.", system::ILogger::ELL_ERROR);
-						continue;
-					}
-
-					flattenInImage = ICPUImage::create(std::move(imageParams));
-					if (!flattenInImage)
-					{
-						logger->log("Failed to create the flatten input image.", system::ILogger::ELL_ERROR);
-						continue;
-					}
-
-					flattenInImage->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
-
-					const auto blockDim = asset::getBlockDimensions(inImageFormat);
-					const uint32_t blockCountX = inImageExtent.width / blockDim.x;
-					const uint32_t blockCountY = inImageExtent.height / blockDim.y;
-					const auto blockSize = asset::getTexelOrBlockBytesize(inImageFormat);
-
-					uint8_t* src = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
-					uint8_t* dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer());
-					for (uint32_t y = 0; y < blockCountY / 2; ++y)
-					{
-						for (uint32_t x = 0; x < blockCountX / 2; ++x)
-						{
-							if (x == 0 && y == 0)
-								memcpy(fillValueBlock.get(), src, blockSize);
-
-							const uint64_t byteOffset = (y * blockCountX + x) * blockSize;
-							memcpy(dst, src + byteOffset, blockSize);
-							dst += blockSize;
-						}
-					}
-
-					const auto& regions = flattenInImage->getRegions();
-
-					src = reinterpret_cast<uint8_t*>(inImage->getBuffer()->getPointer());
-					dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer()) + regions.begin()[1].bufferOffset;
-					for (uint32_t y = 0; y < blockCountY / 2; ++y)
-					{
-						for (uint32_t x = 0; x < blockCountX / 2; ++x)
-						{
-							const uint64_t byteOffset = ((y + (blockCountY / 2)) * blockCountX + (x + (blockCountX / 2))) * blockSize;
-							memcpy(dst, src + byteOffset, blockSize);
-							dst += blockSize;
-						}
-					}
+					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
 				}
-
-#if 0
-				writeImage(core::smart_refctd_ptr(flattenInImage), "flatten_input.dds", getImageViewTypeFromImageType_CPU(flattenInImage->getCreationParameters().type));
-#endif
-				asset::CFlattenRegionsImageFilter::CState filterState;
-				filterState.inImage = flattenInImage.get();
-				filterState.outImage = nullptr;
-				filterState.preFill = true;
-				memcpy(filterState.fillValue.asCompressedBlock, fillValueBlock.get(), asset::getTexelOrBlockBytesize(filterState.inImage->getCreationParameters().format));
-
-				if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
-				{
-					logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
-					continue;
-				}
-
-				std::filesystem::path filename, inFileExtension;
-				core::splitFilename(pathToImage, nullptr, &filename, &inFileExtension);
-
-				std::string outFileName = "CFlattenRegionsImageFilter_" + filename.string() + inFileExtension.string();
-
-				writeImage(core::smart_refctd_ptr(filterState.outImage), outFileName.c_str(), asset::ICPUImageView::ET_2D);
 			}
+
+			// Test 1: Non BC format with prefill
+			{
+				const char* path = "../../media/colorexr.exr";
+				auto inImage = loadImage(path);
+
+				if (inImage)
+				{
+					const auto inImageFormat = inImage->getCreationParameters().format;
+					asset::IImageFilter::IState::ColorValue fillColorValue;
+					getFillValueAsFirstBlockOrTexel(fillColorValue, inImage.get());
+
+					tests[1] = std::make_unique<CFlattenRegionsImageFilterTest>
+					(
+						std::move(inImage),
+						this,
+						true,
+						fillColorValue,
+						"CFlattenRegionsImageFilter_1.exr"
+					);
+				}
+				else
+				{
+					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
+				}
+			}
+
+			// Test 2: BC format without prefill
+			{
+				const char* path = "../../media/GLI/kueken7_rgba_dxt5_unorm.dds";
+				auto inImage = loadImage(path);
+				
+				if (inImage)
+				{
+					tests[2] = std::make_unique<CFlattenRegionsImageFilterTest>
+					(
+						std::move(inImage),
+						this,
+						false,
+						asset::IImageFilter::IState::ColorValue(),
+						"CFlattenRegionsImageFilter_2.dds"
+					);
+				}
+				else
+				{
+					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
+				}
+			}
+
+			// Test 3: Non BC format without prefill
+			{
+				const char* path = "../../media/color_space_test/R8G8B8_2.jpg";
+				auto inImage = loadImage(path);
+
+				if (inImage)
+				{
+					tests[3] = std::make_unique<CFlattenRegionsImageFilterTest>
+					(
+						std::move(inImage),
+						this,
+						false,
+						asset::IImageFilter::IState::ColorValue(),
+						"CFlattenRegionsImageFilter_3.jpg"
+					);
+				}
+				else
+				{
+					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
+				}
+			}
+
+			runTests(TestCount, tests);
 		}
 
 		if (TestSwizzleAndConvertFilter)
