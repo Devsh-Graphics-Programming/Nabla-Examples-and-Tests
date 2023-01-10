@@ -76,7 +76,7 @@ if (NOT NBL_BUILD_ANDROID)
 	add_subdirectory(58.MediaUnpackingOnAndroid EXCLUDE_FROM_ALL)
 endif()
 add_subdirectory(60.ClusteredRendering EXCLUDE_FROM_ALL)
-add_subdirectory(61.BlitFilterTest EXCLUDE_FROM_ALL)
+add_subdirectory(61.FilterTest EXCLUDE_FROM_ALL)
 add_subdirectory(0.ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 unset(NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET CACHE)
