@@ -3,6 +3,10 @@
 
 #include "../common/CommonAPI.h"
 
+
+static constexpr bool DebugMode = false;
+//#define SHOW_PROBLEM 
+
 struct double4x4
 {
 	double _r0[4u];
@@ -314,6 +318,7 @@ public:
 		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
 		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
 		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
+		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -373,8 +378,10 @@ public:
 			asset::IAssetLoader::SAssetLoadParams params = {};
 			params.logger = logger.get();
 			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
-			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../vertex_shader.hlsl", params).getContents().begin());
-			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset("../fragment_shader.hlsl", params).getContents().begin());
+			constexpr auto vertexShaderPath = "../vertex_shader.hlsl";
+			constexpr auto fragmentShaderPath = (DebugMode) ? "../fragment_shader_debug.hlsl" : "../fragment_shader.hlsl";
+			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(vertexShaderPath, params).getContents().begin());
+			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(fragmentShaderPath, params).getContents().begin());
 			cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "VSMain"));
 			cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "PSMain"));
 			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams);
@@ -443,7 +450,8 @@ public:
 		renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
 		renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
 		renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
-		renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_FILL;
+		renderpassIndependantPipeInfo.rasterization.stencilTestEnable = false;
+		renderpassIndependantPipeInfo.rasterization.polygonMode = (DebugMode) ? asset::EPM_LINE : asset::EPM_FILL;
 		renderpassIndependantPipeInfo.rasterization.faceCullingMode = asset::EFCM_NONE;
 
 		core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependant;
@@ -478,6 +486,12 @@ public:
 		m_Camera.setSize({200.0, 200.0});
 
 		std::vector<double2> linePoints;
+#ifdef SHOW_PROBLEM
+		linePoints.push_back({ -50.0, 0.0 });
+		linePoints.push_back({ 0.0, 0.0 });
+		linePoints.push_back({ 80.0, 0.0 });
+		linePoints.push_back({ -90.0, 0.0 });
+#else
 		linePoints.push_back({ -50.0, 0.0 });
 		linePoints.push_back({ 0.0, 0.0 });
 		linePoints.push_back({ 80.0, 10.0 });
@@ -487,6 +501,7 @@ public:
 		linePoints.push_back({ -30.0, 50.0 });
 		linePoints.push_back({ -30.0, 110.0 });
 		linePoints.push_back({ +30.0, -112.0 });
+#endif
 		addLines(std::move(linePoints));
 	}
 
@@ -510,7 +525,7 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 8u;
+		globalData.lineWidth = 18u;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 
 		logicalDevice->blockForFences(1u, &fence.get());
@@ -521,7 +536,10 @@ public:
 		lastTime = now;
 		static double timeElapsed = 0.0;
 		timeElapsed += dt;
-		m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.00008)) * 1500, 20.0 + abs(cos(timeElapsed * 0.00008)) * 1500 });
+
+#ifndef SHOW_PROBLEM
+		m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000 });
+#endif
 		globalData.viewProjection = m_Camera.constructViewProjection();
 
 		uint32_t imgnum = 0u;
@@ -537,8 +555,10 @@ public:
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 
-		// double2 NewPoint = { 80*cos(timeElapsed * 0.0002), 80*sin(timeElapsed * 0.0002)};
-		//cb->updateBuffer(geometryBuffer.get(), 3* sizeof(double2), sizeof(double2), &NewPoint);
+#ifdef SHOW_PROBLEM
+		double2 NewPoint = { 80*cos(timeElapsed * 0.0002), 80*sin(timeElapsed * 0.0002)};
+		cb->updateBuffer(geometryBuffer.get(), 3* sizeof(double2), sizeof(double2), &NewPoint);
+#endif
 		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 
 		asset::SViewport vp;
