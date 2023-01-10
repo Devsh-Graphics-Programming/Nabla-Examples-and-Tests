@@ -16,88 +16,12 @@ using namespace nbl::asset;
 using namespace nbl::core;
 using namespace nbl::video;
 
-#define FATAL_LOG(x, ...) {logger->log(##x, system::ILogger::ELL_ERROR, __VA_ARGS__); exit(-1);}
-
 using ScaledBoxKernel = asset::CScaledImageFilterKernel<CBoxImageFilterKernel>;
 using ScaledTriangleKernel = asset::CScaledImageFilterKernel<CTriangleImageFilterKernel>;
 using ScaledKaiserKernel = asset::CScaledImageFilterKernel<CKaiserImageFilterKernel<>>;
 using ScaledMitchellKernel = asset::CScaledImageFilterKernel<CMitchellImageFilterKernel<>>;
 using ScaledMitchellDerivativeKernel = asset::CDerivativeImageFilterKernel<ScaledMitchellKernel>;
 using ScaledChannelIndependentKernel = asset::CChannelIndependentImageFilterKernel<ScaledBoxKernel, ScaledMitchellKernel, ScaledKaiserKernel>;
-
-// dims[3] is layer count
-core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const uint32_t mipLevels = 1, const bool fillWithTestData = false)
-{
-	IImage::SCreationParams imageParams = {};
-	imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
-	imageParams.type = imageType;
-	imageParams.format = format;
-	imageParams.extent = { dims[0], dims[1], dims[2] };
-	imageParams.mipLevels = mipLevels;
-	imageParams.arrayLayers = dims[3];
-	imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
-	imageParams.usage = asset::IImage::EUF_SAMPLED_BIT;
-
-	auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(1ull);
-	auto& region = (*imageRegions)[0];
-	region.bufferImageHeight = 0u;
-	region.bufferOffset = 0ull;
-	region.bufferRowLength = dims[0];
-	region.imageExtent = { dims[0], dims[1], dims[2] };
-	region.imageOffset = { 0u, 0u, 0u };
-	region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-	region.imageSubresource.baseArrayLayer = 0u;
-	region.imageSubresource.layerCount = imageParams.arrayLayers;
-	region.imageSubresource.mipLevel = 0;
-
-	size_t bufferSize = imageParams.arrayLayers * asset::getTexelOrBlockBytesize(imageParams.format) * static_cast<size_t>(region.imageExtent.width) * region.imageExtent.height * region.imageExtent.depth;
-	auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSize);
-
-	core::smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
-	if (!image)
-		return nullptr;
-
-	image->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
-
-	if (fillWithTestData)
-	{
-		double pixelValueUpperBound = 20.0;
-		if (asset::isNormalizedFormat(format) || format == asset::EF_B10G11R11_UFLOAT_PACK32)
-			pixelValueUpperBound = 1.00000000001;
-
-		std::uniform_real_distribution<double> dist(0.0, pixelValueUpperBound);
-		std::mt19937 prng;
-
-		uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
-		const auto layerSize = bufferSize / imageParams.arrayLayers;
-
-		double dummyVal = 1.0;
-		for (auto layer = 0; layer < image->getCreationParameters().arrayLayers; ++layer)
-		{
-			// double dummyVal = 1.0;
-
-			for (uint64_t k = 0u; k < dims[2]; ++k)
-			{
-				for (uint64_t j = 0u; j < dims[1]; ++j)
-				{
-					for (uint64_t i = 0; i < dims[0]; ++i)
-					{
-						const double dummyValToPut = dummyVal++;
-						double decodedPixel[4] = { 0 };
-						for (uint32_t ch = 0u; ch < asset::getFormatChannelCount(format); ++ch)
-							// decodedPixel[ch] = dummyValToPut;
-							decodedPixel[ch] = dist(prng);
-
-						const uint64_t pixelIndex = (k * dims[1] * dims[0]) + (j * dims[0]) + i;
-						asset::encodePixelsRuntime(format, bytePtr + layer*layerSize + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
-					}
-				}
-			}
-		}
-	}
-
-	return image;
-}
 
 static inline asset::IImageView<asset::ICPUImage>::E_TYPE getImageViewTypeFromImageType_CPU(const asset::IImage::E_TYPE type)
 {
@@ -204,7 +128,7 @@ class BlitFilterTestApp : public ApplicationBase
 
 			assert(m_outImageDim.w == m_inImage->getCreationParameters().arrayLayers);
 
-			auto outImage = createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, m_outImageFormat);
+			auto outImage = m_parentApp->createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, m_outImageFormat);
 			if (!outImage)
 			{
 				m_parentApp->logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
@@ -432,12 +356,9 @@ class BlitFilterTestApp : public ApplicationBase
 			const auto& inImageExtent = m_inImage->getCreationParameters().extent;
 			const auto& inImageFormat = m_inImage->getCreationParameters().format;
 
-			auto outImage = createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, m_inImage->getCreationParameters().arrayLayers), m_inImage->getCreationParameters().type, m_outFormat);
+			auto outImage = m_parentApp->createCPUImage(core::vectorSIMDu32(inImageExtent.width, inImageExtent.height, inImageExtent.depth, m_inImage->getCreationParameters().arrayLayers), m_inImage->getCreationParameters().type, m_outFormat);
 			if (!outImage)
-			{
-				m_parentApp->logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
 				return false;
-			}
 
 			using convert_filter_t = asset::CSwizzleAndConvertImageFilter<asset::EF_UNKNOWN, asset::EF_UNKNOWN, asset::DefaultSwizzle, Dither, Normalization, Clamp>;
 
@@ -545,12 +466,9 @@ class BlitFilterTestApp : public ApplicationBase
 			// CPU
 			core::vector<uint8_t> cpuOutput(static_cast<uint64_t>(m_outImageDim[0]) * m_outImageDim[1] * m_outImageDim[2] * asset::getTexelOrBlockBytesize(outImageFormat) * layerCount);
 			{
-				auto outImageCPU = createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, outImageFormat, 1);
+				auto outImageCPU = m_parentApp->createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, outImageFormat, 1);
 				if (!outImageCPU)
-				{
-					m_parentApp->logger->log("Failed to create an output image.", system::ILogger::ELL_ERROR);
 					return false;
-				}
 
 				KernelX kernelX_(m_kernelX);
 				KernelY kernelY_(m_kernelY);
@@ -1001,10 +919,10 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		constexpr bool TestCPUBlitFilter = false;
+		constexpr bool TestCPUBlitFilter = true;
 		constexpr bool TestFlattenFilter = true;
-		constexpr bool TestSwizzleAndConvertFilter = false;
-		constexpr bool TestGPUBlitFilter = false;
+		constexpr bool TestSwizzleAndConvertFilter = true;
+		constexpr bool TestGPUBlitFilter = true;
 
 		auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
 		{
@@ -1014,7 +932,10 @@ public:
 			auto imageContents = imageBundle.getContents();
 
 			if (imageContents.empty())
+			{
+				logger->log("Failed to load image at path %s", system::ILogger::ELL_ERROR, path);
 				return nullptr;
+			}
 
 			auto asset = *imageContents.begin();
 
@@ -1028,38 +949,9 @@ public:
 					assert(!"Invalid code path.");
 			}
 
-			// TODO(achal): Boot this out of here and do it in GPU specific tests.
 			result->addImageUsageFlags(asset::IImage::EUF_SAMPLED_BIT);
 
 			return result;
-		};
-
-		auto writeImage = [this](core::smart_refctd_ptr<asset::ICPUImage>&& image, const char* path, const asset::IImageView<asset::ICPUImage>::E_TYPE imageViewType)
-		{
-			asset::ICPUImageView::SCreationParams viewParams = {};
-			viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
-			viewParams.image = std::move(image);
-			viewParams.format = viewParams.image->getCreationParameters().format;
-			viewParams.viewType = imageViewType;
-			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			viewParams.subresourceRange.baseArrayLayer = 0u;
-			viewParams.subresourceRange.layerCount = viewParams.image->getCreationParameters().arrayLayers;
-			viewParams.subresourceRange.baseMipLevel = 0u;
-			viewParams.subresourceRange.levelCount = viewParams.image->getCreationParameters().mipLevels;
-
-			auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
-			if (!imageViewToWrite)
-			{
-				logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
-				return;
-			}
-
-			asset::IAssetWriter::SAssetWriteParams writeParams(imageViewToWrite.get());
-			if (!assetManager->writeAsset(path, writeParams))
-			{
-				logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
-				return;
-			}
 		};
 
 		auto runTests = [this](const uint32_t count, std::unique_ptr<ITest>* tests)
@@ -1117,10 +1009,6 @@ public:
 						asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED
 					);
 				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 1: Non-uniform upscale 2D BC format image with Kaiser
@@ -1154,10 +1042,6 @@ public:
 						"CBlitImageFilter_1.exr",
 						asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED
 					);
-				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
 				}
 			}
 
@@ -1202,10 +1086,6 @@ public:
 						"CFlattenRegionsImageFilter_0.dds"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 1: Non BC format with prefill
@@ -1228,10 +1108,6 @@ public:
 						"CFlattenRegionsImageFilter_1.exr"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 2: BC format without prefill
@@ -1250,10 +1126,6 @@ public:
 						"CFlattenRegionsImageFilter_2.dds"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 3: Non BC format without prefill
@@ -1271,10 +1143,6 @@ public:
 						asset::IImageFilter::IState::ColorValue(),
 						"CFlattenRegionsImageFilter_3.jpg"
 					);
-				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
 				}
 			}
 
@@ -1306,10 +1174,6 @@ public:
 						"CSwizzleAndConvertImageFilter_0.png"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 1: Non-trivial offsets
@@ -1329,10 +1193,6 @@ public:
 						asset::ICPUImageView::SComponentMapping(),
 						"CSwizzleAndConvertImageFilter_1.exr"
 					);
-				}
-				else
-				{
-					logger->log("Failed to find image at path %s", system::ILogger::ELL_ERROR, path);
 				}
 			}
 
@@ -1354,10 +1214,6 @@ public:
 						"CSwizzleAndConvertImageFilter_2.exr"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 3: Non-trivial dithering
@@ -1377,10 +1233,6 @@ public:
 						asset::ICPUImageView::SComponentMapping(),
 						"CSwizzleAndConvertImageFilter_3.jpg"
 					);
-				}
-				else
-				{
-					logger->log("Failed to find image at path %s", system::ILogger::ELL_ERROR, path);
 				}
 			}
 
@@ -1402,10 +1254,6 @@ public:
 						"CSwizzleAndConvertImageFilter_4.exr"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 5: Non-trivial clamping
@@ -1426,10 +1274,6 @@ public:
 						"CSwizzleAndConvertImageFilter_5.png"
 					);
 				}
-				else
-				{
-					logger->log("Failed to find image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			runTests(TestCount, tests);
@@ -1448,7 +1292,7 @@ public:
 				const core::vectorSIMDu32 inImageDim(59u, 1u, 1u, layerCount);
 				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_1D;
 				const asset::E_FORMAT inImageFormat = asset::EF_R32_SFLOAT;
-				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
 
 				if (inImage)
 				{
@@ -1474,10 +1318,6 @@ public:
 						std::move(kernelZ),
 						alphaSemantic
 					);
-				}
-				else
-				{
-					logger->log("Failed to create an input image for testing.", system::ILogger::ELL_ERROR);
 				}
 			}
 
@@ -1512,10 +1352,6 @@ public:
 						alphaSemantic
 					);
 				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 2: Resize 3D image with Box
@@ -1524,7 +1360,7 @@ public:
 				const core::vectorSIMDu32 inImageDim(2u, 3u, 4u, layerCount);
 				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
 				const asset::E_FORMAT inImageFormat = asset::EF_R32G32B32A32_SFLOAT;
-				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
 
 				if (inImage)
 				{
@@ -1550,10 +1386,6 @@ public:
 						std::move(kernelZ),
 						alphaSemantic
 					);
-				}
-				else
-				{
-					logger->log("Failed to create an input image for testing.", system::ILogger::ELL_ERROR);
 				}
 			}
 
@@ -1593,10 +1425,6 @@ public:
 						alphaBinCount
 					);
 				}
-				else
-				{
-					logger->log("Failed to find the image at path %s", system::ILogger::ELL_ERROR, path);
-				}
 			}
 
 			// Test 4: A larger 3D image with an atypical format
@@ -1605,7 +1433,7 @@ public:
 				const core::vectorSIMDu32 inImageDim(257u, 129u, 63u, layerCount);
 				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_3D;
 				const asset::E_FORMAT inImageFormat = asset::EF_B10G11R11_UFLOAT_PACK32;
-				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
 
 				if (inImage)
 				{
@@ -1632,10 +1460,6 @@ public:
 						alphaSemantic
 					);
 				}
-				else
-				{
-					logger->log("Failed to create an input image for testing.", system::ILogger::ELL_ERROR);
-				}
 			}
 
 			// Test 5: A 2D image with atypical dimensions and alpha coverage adjustment
@@ -1644,7 +1468,7 @@ public:
 				const core::vectorSIMDu32 inImageDim(511u, 1024u, 1u, layerCount);
 				const asset::IImage::E_TYPE inImageType = asset::IImage::ET_2D;
 				const asset::E_FORMAT inImageFormat = EF_R16G16B16A16_SNORM;
-				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, 1, true);
+				auto inImage = createCPUImage(inImageDim, inImageType, inImageFormat, true);
 
 				if (inImage)
 				{
@@ -1675,10 +1499,6 @@ public:
 						alphaBinCount
 					);
 				}
-				else
-				{
-					logger->log("Failed to create an input image for testing.", system::ILogger::ELL_ERROR);
-				}
 			}
 
 			runTests(TestCount, tests);
@@ -1700,6 +1520,83 @@ public:
 	}
 
 private:
+	// dims[3] is layer count
+	core::smart_refctd_ptr<ICPUImage> createCPUImage(const core::vectorSIMDu32& dims, const asset::IImage::E_TYPE imageType, const asset::E_FORMAT format, const bool fillWithTestData = false)
+	{
+		IImage::SCreationParams imageParams = {};
+		imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(asset::IImage::ECF_MUTABLE_FORMAT_BIT | asset::IImage::ECF_EXTENDED_USAGE_BIT);
+		imageParams.type = imageType;
+		imageParams.format = format;
+		imageParams.extent = { dims[0], dims[1], dims[2] };
+		imageParams.mipLevels = 1;
+		imageParams.arrayLayers = dims[3];
+		imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
+		imageParams.usage = asset::IImage::EUF_SAMPLED_BIT;
+
+		auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(1ull);
+		auto& region = (*imageRegions)[0];
+		region.bufferImageHeight = 0u;
+		region.bufferOffset = 0ull;
+		region.bufferRowLength = dims[0];
+		region.imageExtent = { dims[0], dims[1], dims[2] };
+		region.imageOffset = { 0u, 0u, 0u };
+		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+		region.imageSubresource.baseArrayLayer = 0u;
+		region.imageSubresource.layerCount = imageParams.arrayLayers;
+		region.imageSubresource.mipLevel = 0;
+
+		size_t bufferSize = imageParams.arrayLayers * asset::getTexelOrBlockBytesize(imageParams.format) * static_cast<size_t>(region.imageExtent.width) * region.imageExtent.height * region.imageExtent.depth;
+		auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSize);
+
+		core::smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
+		if (!image)
+		{
+			logger->log("Failed to create a CPU image", system::ILogger::ELL_ERROR);
+			return nullptr;
+		}
+
+		image->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
+
+		if (fillWithTestData)
+		{
+			double pixelValueUpperBound = 20.0;
+			if (asset::isNormalizedFormat(format) || format == asset::EF_B10G11R11_UFLOAT_PACK32)
+				pixelValueUpperBound = 1.00000000001;
+
+			std::uniform_real_distribution<double> dist(0.0, pixelValueUpperBound);
+			std::mt19937 prng;
+
+			uint8_t* bytePtr = reinterpret_cast<uint8_t*>(image->getBuffer()->getPointer());
+			const auto layerSize = bufferSize / imageParams.arrayLayers;
+
+			double dummyVal = 1.0;
+			for (auto layer = 0; layer < image->getCreationParameters().arrayLayers; ++layer)
+			{
+				// double dummyVal = 1.0;
+
+				for (uint64_t k = 0u; k < dims[2]; ++k)
+				{
+					for (uint64_t j = 0u; j < dims[1]; ++j)
+					{
+						for (uint64_t i = 0; i < dims[0]; ++i)
+						{
+							const double dummyValToPut = dummyVal++;
+							double decodedPixel[4] = { 0 };
+							for (uint32_t ch = 0u; ch < asset::getFormatChannelCount(format); ++ch)
+								// decodedPixel[ch] = dummyValToPut;
+								decodedPixel[ch] = dist(prng);
+
+							const uint64_t pixelIndex = (k * dims[1] * dims[0]) + (j * dims[0]) + i;
+							asset::encodePixelsRuntime(format, bytePtr + layer * layerSize + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
+						}
+					}
+				}
+			}
+		}
+
+		return image;
+	}
+
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
