@@ -15,12 +15,6 @@ using namespace nbl::asset;
 using namespace nbl::core;
 using namespace nbl::video;
 
-using ScaledBoxKernel = asset::CScaledImageFilterKernel<CBoxImageFilterKernel>;
-using ScaledTriangleKernel = asset::CScaledImageFilterKernel<CTriangleImageFilterKernel>;
-using ScaledKaiserKernel = asset::CScaledImageFilterKernel<CKaiserImageFilterKernel<>>;
-using ScaledMitchellKernel = asset::CScaledImageFilterKernel<CMitchellImageFilterKernel<>>;
-using ScaledMitchellDerivativeKernel = asset::CDerivativeImageFilterKernel<ScaledMitchellKernel>;
-using ScaledChannelIndependentKernel = asset::CChannelIndependentImageFilterKernel<ScaledBoxKernel, ScaledMitchellKernel, ScaledKaiserKernel>;
 
 static inline asset::IImageView<asset::ICPUImage>::E_TYPE getImageViewTypeFromImageType_CPU(const asset::IImage::E_TYPE type)
 {
@@ -994,18 +988,76 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-#define NEW_CODE
+// #define NEW_CODE
 #ifdef NEW_CODE
 		{
+			{
+				auto kernelA = asset::CBoxImageFilterKernel();
+				auto kernelB = asset::CBoxImageFilterKernel();
+
+				kernelB.stretchAndScale(core::vectorSIMDf(0.5f, 1.f, 1.f, 1.f));
+
+				auto dummyLoad = [](double* windowSample, const core::vectorSIMDf&, const core::vectorSIMDi32&, const core::vectorSIMDf&) -> void
+				{
+					for (auto h = 0; h < 4; h++)
+						windowSample[h] = 1.0;
+				};
+
+				double kernelWeight[4] = { 0.0, 0.0, 0.0, 0.0 };
+				// actually used to put values in the LUT
+				auto dummyEvaluate = [&kernelWeight](const double* windowSample, const core::vectorSIMDf&, const core::vectorSIMDi32&, const core::vectorSIMDf&) -> void
+				{
+					for (auto h = 0; h < 4; h++)
+						kernelWeight[h] = windowSample[h];
+				};
+
+				printf("kernelA:\n");
+				{
+					core::vectorSIMDf evalPoint = core::vectorSIMDf(-0.5f);
+					kernelA.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+
+					evalPoint = core::vectorSIMDf(0.f);
+					kernelA.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+
+					evalPoint = core::vectorSIMDf(0.5f);
+					kernelA.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+				}
+
+				printf("kernelB:\n");
+				{
+					core::vectorSIMDf evalPoint = core::vectorSIMDf(-0.5f);
+					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+
+					evalPoint = core::vectorSIMDf(-0.25f);
+					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+
+					evalPoint = core::vectorSIMDf(0.f);
+					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+
+					evalPoint = core::vectorSIMDf(0.25f);
+					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+
+
+					evalPoint = core::vectorSIMDf(0.5f);
+					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
+					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
+				}
+
+				__debugbreak();
+			}
+
 			auto inImage = createCPUImage(core::vectorSIMDu32(2, 1, 1, 1), asset::ICPUImage::ET_1D, asset::EF_R32_SFLOAT, true);
 
 			const core::vectorSIMDu32 outImageDim(4, 1, 1, 1);
 			auto outImage = createCPUImage(outImageDim, asset::ICPUImage::ET_1D, asset::EF_R32_SFLOAT);
 			{
-				const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-				const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-				const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
-
 				auto reconstructionX = asset::CBoxImageFilterKernel();
 				auto resamplingX = asset::CBoxImageFilterKernel();
 
@@ -1121,18 +1173,14 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width/2, inExtent.height/4, 1, 1);
 					const auto outImageFormat = asset::EF_R8G8B8A8_SRGB;
 
-					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CMitchellImageFilterKernel();
+					auto resamplingX = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-					auto resamplingX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+					auto reconstructionY = asset::CMitchellImageFilterKernel();
+					auto resamplingY = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-					auto resamplingY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-
-					auto reconstructionZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-					auto resamplingZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+					auto reconstructionZ = asset::CMitchellImageFilterKernel();
+					auto resamplingZ = asset::CMitchellImageFilterKernel();
 
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
 
@@ -1165,18 +1213,14 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width*2, inExtent.height*4, 1, 1);
 					const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 
-					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CKaiserImageFilterKernel();
+					auto resamplingX = asset::CKaiserImageFilterKernel();
 
-					auto reconstructionX = ScaledKaiserKernel(scaleX, asset::CKaiserImageFilterKernel());
-					auto resamplingX = ScaledKaiserKernel(scaleX, asset::CKaiserImageFilterKernel());
+					auto reconstructionY = asset::CKaiserImageFilterKernel();
+					auto resamplingY = asset::CKaiserImageFilterKernel();
 
-					auto reconstructionY = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
-					auto resamplingY = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
-
-					auto reconstructionZ = ScaledKaiserKernel(scaleZ, asset::CKaiserImageFilterKernel());
-					auto resamplingZ = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
+					auto reconstructionZ = asset::CKaiserImageFilterKernel();
+					auto resamplingZ = asset::CKaiserImageFilterKernel();
 
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
 
@@ -1451,18 +1495,18 @@ public:
 				{
 					const core::vectorSIMDu32 outImageDim(800u, 1u, 1u, layerCount);
 
-					const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf stretchX(0.35f, 1.f, 1.f, 1.f);
 
-					auto reconstructionX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-					auto resamplingX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+					auto reconstructionX = asset::CMitchellImageFilterKernel();
+					reconstructionX.stretchAndScale(stretchX);
+					auto resamplingX = asset::CMitchellImageFilterKernel();
+					resamplingX.stretchAndScale(stretchX);
 
-					auto reconstructionY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-					auto resamplingY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
+					auto reconstructionY = asset::CMitchellImageFilterKernel();
+					auto resamplingY = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-					auto resamplingZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+					auto reconstructionZ = asset::CMitchellImageFilterKernel();
+					auto resamplingZ = asset::CMitchellImageFilterKernel();
 
 					using LutDataType = uint16_t;
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
@@ -1492,18 +1536,14 @@ public:
 					const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
 					const auto alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
 
-					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CKaiserImageFilterKernel();
+					auto resamplingX = asset::CKaiserImageFilterKernel();
 
-					auto reconstructionX = ScaledKaiserKernel(scaleX, asset::CKaiserImageFilterKernel());
-					auto resamplingX = ScaledKaiserKernel(scaleX, asset::CKaiserImageFilterKernel());
+					auto reconstructionY = asset::CKaiserImageFilterKernel();
+					auto resamplingY = asset::CKaiserImageFilterKernel();
 
-					auto reconstructionY = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
-					auto resamplingY = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
-
-					auto reconstructionZ = ScaledKaiserKernel(scaleZ, asset::CKaiserImageFilterKernel());
-					auto resamplingZ = ScaledKaiserKernel(scaleY, asset::CKaiserImageFilterKernel());
+					auto reconstructionZ = asset::CKaiserImageFilterKernel();
+					auto resamplingZ = asset::CKaiserImageFilterKernel();
 
 					using LutDataType = float;
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
@@ -1535,18 +1575,21 @@ public:
 				{
 					const core::vectorSIMDu32 outImageDim(3u, 4u, 2u, layerCount);
 
-					const core::vectorSIMDf scaleX(0.35f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 9.f/16.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf stretchX(0.35f, 1.f, 1.f, 1.f);
+					const core::vectorSIMDf stretchY(1.f, 9.f/16.f, 1.f, 1.f);
 
-					auto reconstructionX = ScaledBoxKernel(scaleX, asset::CBoxImageFilterKernel());
-					auto resamplingX = ScaledBoxKernel(scaleX, asset::CBoxImageFilterKernel());
+					auto reconstructionX = asset::CBoxImageFilterKernel();
+					reconstructionX.stretchAndScale(stretchX);
+					auto resamplingX = asset::CBoxImageFilterKernel();
+					resamplingX.stretchAndScale(stretchX);
 
-					auto reconstructionY = ScaledBoxKernel(scaleY, asset::CBoxImageFilterKernel());
-					auto resamplingY = ScaledBoxKernel(scaleY, asset::CBoxImageFilterKernel());
+					auto reconstructionY = asset::CBoxImageFilterKernel();
+					reconstructionY.stretchAndScale(stretchY);
+					auto resamplingY = asset::CBoxImageFilterKernel();
+					resamplingY.stretchAndScale(stretchY);
 
-					auto reconstructionZ = ScaledBoxKernel(scaleZ, asset::CBoxImageFilterKernel());
-					auto resamplingZ = ScaledBoxKernel(scaleZ, asset::CBoxImageFilterKernel());
+					auto reconstructionZ = asset::CBoxImageFilterKernel();
+					auto resamplingZ = asset::CBoxImageFilterKernel();
 
 					using LutDataType = uint16_t;
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
@@ -1579,18 +1622,14 @@ public:
 					const float referenceAlpha = 0.5f;
 					const auto alphaBinCount = 1024;
 
-					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CMitchellImageFilterKernel();
+					auto resamplingX = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-					auto resamplingX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+					auto reconstructionY = asset::CMitchellImageFilterKernel();
+					auto resamplingY = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-					auto resamplingY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-
-					auto reconstructionZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-					auto resamplingZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+					auto reconstructionZ = asset::CMitchellImageFilterKernel();
+					auto resamplingZ = asset::CMitchellImageFilterKernel();
 
 					using LutDataType = float;
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
@@ -1624,18 +1663,14 @@ public:
 				{
 					const core::vectorSIMDu32 outImageDim(256u, 128u, 64u, layerCount);
 
-					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CMitchellImageFilterKernel();
+					auto resamplingX = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-					auto resamplingX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+					auto reconstructionY = asset::CMitchellImageFilterKernel();
+					auto resamplingY = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-					auto resamplingY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-
-					auto reconstructionZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-					auto resamplingZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+					auto reconstructionZ = asset::CMitchellImageFilterKernel();
+					auto resamplingZ = asset::CMitchellImageFilterKernel();
 
 					using LutDataType = uint16_t;
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
@@ -1669,18 +1704,14 @@ public:
 					const float referenceAlpha = 0.5f;
 					const auto alphaBinCount = 4096;
 
-					const core::vectorSIMDf scaleX(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleY(1.f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf scaleZ(1.f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CMitchellImageFilterKernel();
+					auto resamplingX = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
-					auto resamplingX = ScaledMitchellKernel(scaleX, asset::CMitchellImageFilterKernel());
+					auto reconstructionY = asset::CMitchellImageFilterKernel();
+					auto resamplingY = asset::CMitchellImageFilterKernel();
 
-					auto reconstructionY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-					auto resamplingY = ScaledMitchellKernel(scaleY, asset::CMitchellImageFilterKernel());
-
-					auto reconstructionZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
-					auto resamplingZ = ScaledMitchellKernel(scaleZ, asset::CMitchellImageFilterKernel());
+					auto reconstructionZ = asset::CMitchellImageFilterKernel();
+					auto resamplingZ = asset::CMitchellImageFilterKernel();
 
 					using LutDataType = float;
 					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
