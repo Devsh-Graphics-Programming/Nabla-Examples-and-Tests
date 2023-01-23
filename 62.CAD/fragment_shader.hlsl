@@ -1,4 +1,3 @@
-
 #pragma shader_stage(fragment)
 
 enum class ObjectType : uint32_t

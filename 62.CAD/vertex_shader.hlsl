@@ -1,4 +1,3 @@
-
 #pragma shader_stage(vertex)
 
 enum class ObjectType : uint32_t
