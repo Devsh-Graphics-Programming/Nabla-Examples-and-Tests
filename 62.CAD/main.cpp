@@ -5,7 +5,7 @@
 
 
 static constexpr bool DebugMode = false;
-//#define SHOW_PROBLEM 
+#define SHOW_PROBLEM 
 
 struct double4x4
 {
@@ -300,7 +300,7 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
+		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
 		CommonAPI::InitParams initParams;
@@ -489,8 +489,8 @@ public:
 #ifdef SHOW_PROBLEM
 		linePoints.push_back({ -50.0, 0.0 });
 		linePoints.push_back({ 0.0, 0.0 });
-		linePoints.push_back({ 80.0, 0.0 });
-		linePoints.push_back({ -90.0, 0.0 });
+		linePoints.push_back({ 00.0, 50.0 });
+		linePoints.push_back({ -60.0, 0.0 });
 #else
 		linePoints.push_back({ -50.0, 0.0 });
 		linePoints.push_back({ 0.0, 0.0 });
@@ -521,11 +521,11 @@ public:
 
 		auto& cb = m_cmdbuf[m_resourceIx];
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
-		auto& fence = m_frameComplete[0u];
+		auto& fence = m_frameComplete[m_resourceIx];
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 18u;
+		globalData.lineWidth = 10u;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 
 		logicalDevice->blockForFences(1u, &fence.get());
@@ -620,24 +620,6 @@ public:
 		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
 
 		cb->endRenderPass();
-
-		// SwapchainImage Transition to EL_PRESENT_SRC
-		{
-			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
-			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_COLOR_ATTACHMENT_WRITE_BIT;
-			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_NONE;
-			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
-			imageBarriers[0].newLayout = nbl::asset::IImage::EL_PRESENT_SRC;
-			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].image = swapchainImg;
-			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
-			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
-			imageBarriers[0].subresourceRange.levelCount = 1;
-			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
-			imageBarriers[0].subresourceRange.layerCount = 1;
-			cb->pipelineBarrier(nbl::asset::EPSF_ALL_GRAPHICS_BIT, nbl::asset::EPSF_BOTTOM_OF_PIPE_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
-		}
 
 		cb->end();
 
