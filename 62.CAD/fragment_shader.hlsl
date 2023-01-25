@@ -41,13 +41,40 @@ struct Globals
 struct PSInput
 {
     float4 position : SV_Position;
-    [[vk::location(0)]] float4 color : COLOR; 
-    [[vk::location(1)]] nointerpolation float4 start_end : COLOR1; 
-    [[vk::location(2)]] nointerpolation uint3 lineWidth_eccentricity_objType : COLOR2; 
+    [[vk::location(0)]] float4 color : COLOR;
+    [[vk::location(1)]] nointerpolation float4 start_end : COLOR1;
+    [[vk::location(2)]] nointerpolation uint3 lineWidth_eccentricity_objType : COLOR2;
 };
 
-[[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
-[[vk::binding(1,0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
+[[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
+[[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
+
+// https://www.shadertoy.com/view/stcfzn
+namespace SignedDistance
+{
+    float Line(float2 p, float2 start, float2 end, float lineThickness)
+    {
+        const float l = length(end - start);
+        const float2  d = (end - start) / l;
+        float2  q = p - (start + end) * 0.5;
+        q = mul(float2x2(d.x, d.y, -d.y, d.x), q);
+        q = abs(q) - float2(l * 0.5, lineThickness);
+        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+    }
+
+    float Circle(float2 p, float2 center, float radius)
+    {
+        return distance(p, center) - radius;
+    }
+
+    float RoundedLine(float2 p, float2 start, float2 end, float lineThickness)
+    {
+        const float startCircleSD = Circle(p, start, lineThickness);
+        const float endCircleSD = Circle(p, end, lineThickness);
+        const float lineSD = Line(p, start, end, lineThickness);
+        return min(lineSD, min(startCircleSD, endCircleSD));
+    }
+}
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -59,18 +86,17 @@ float4 main(PSInput input) : SV_TARGET
     {
         const float2 start = input.start_end.xy;
         const float2 end = input.start_end.zw;
-        const uint lineWidthHalf = ((float)input.lineWidth_eccentricity_objType.x) / 2.0f;
-        float2 lineVec = end - start;
-        float2 pointVec = input.position.xy - start;
-        float pointVecLen = length(pointVec);
-        float lineLen = length(end - start);
-        float projectionLength = dot(normalize(pointVec),normalize(lineVec)) * pointVecLen;
-        float t = projectionLength / lineLen;
-        if (t < 0 && pointVecLen > lineWidthHalf)
+        const uint lineThickness = ((float)input.lineWidth_eccentricity_objType.x) / 2.0f;
+
+        float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
+
+        if (distance > 0.0)
             discard;
-        else if (t > 1 && length(input.position.xy - end) > lineWidthHalf)
-            discard;
-        return input.color;
+
+        // some heuristic based on lineThickness, we don't antiAlias 2 pixels wide lines or less and it would blur the whole line or need more than 2 pixel width
+        float antiAliasingFactor = fwidth(distance) * ((lineThickness <= 1) ? 0.0f : 1.5f);
+        float alpha = 1.0f - smoothstep(-antiAliasingFactor, 0u, distance);
+        return lerp(float4(0,0,0,0), input.color, alpha);
     }
     return input.color;
 }
