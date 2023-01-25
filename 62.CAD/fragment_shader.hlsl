@@ -49,7 +49,58 @@ struct PSInput
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 
-// https://www.shadertoy.com/view/stcfzn
+// TODO: move these to files and include them here
+//namespace nbl
+//{
+//    namespace hlsl
+//    {
+//        namespace shapes
+//        {
+//            struct Line_t
+//            {
+//                float2 start, end;
+//
+//                // https://www.shadertoy.com/view/stcfzn with modifications
+//                float getSignedDistance(float2 p, float thickness)
+//                {
+//                    const float l = length(end - start);
+//                    const float2  d = (end - start) / l;
+//                    float2  q = p - (start + end) * 0.5;
+//                    q = mul(float2x2(d.x, d.y, -d.y, d.x), q);
+//                    q = abs(q) - float2(l * 0.5, thickness);
+//                    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+//                }
+//            };
+//            struct Circle_t
+//            {
+//                float2 center;
+//                float radius;
+//
+//                float getSignedDistance(float2 p)
+//                {
+//                    return distance(p, center) - radius;
+//                }
+//            };
+//
+//            struct RoundedLine_t
+//            {
+//                float2 start, end;
+//
+//                float getSignedDistance(float2 p, float thickness)
+//                {
+//                    Circle_t startCircle = { start, thickness };
+//                    Circle_t endCircle = { end, thickness };
+//                    Line_t mainLine = { start, end };
+//                    const float startCircleSD = startCircle.getSignedDistance(p);
+//                    const float endCircleSD = endCircle.getSignedDistance(p);
+//                    const float lineSD = mainLine.getSignedDistance(p, thickness);
+//                    return min(lineSD, min(startCircleSD, endCircleSD));
+//                }
+//            };
+//        }
+//    }
+//}
+
 namespace SignedDistance
 {
     float Line(float2 p, float2 start, float2 end, float lineThickness)
