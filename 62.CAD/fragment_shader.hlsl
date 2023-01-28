@@ -97,7 +97,7 @@ float4 main(PSInput input) : SV_TARGET
         /* No need to mul with fwidth(distance), distance already in screen space */
         const float antiAliasingFactor = globals.antiAliasingFactor;
         float alpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        return lerp(float4(0,0,0,0), input.color, alpha);
+        return float4(input.color.xyz, alpha);
     }
     return input.color;
 }

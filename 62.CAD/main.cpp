@@ -475,7 +475,15 @@ public:
 		renderpassIndependantPipeInfo.shaders[0u] = shaders[0u];
 		renderpassIndependantPipeInfo.shaders[1u] = shaders[1u];
 		// renderpassIndependantPipeInfo.vertexInput; no gpu vertex buffers
-		// renderpassIndependantPipeInfo.blend = {}; TODO for transparency
+		renderpassIndependantPipeInfo.blend.blendParams[0u].blendEnable = true;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		renderpassIndependantPipeInfo.blend.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+
 		renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
 		renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
 		renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
