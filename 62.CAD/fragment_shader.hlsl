@@ -1,8 +1,8 @@
 #pragma shader_stage(fragment)
 
 #include "common.hlsl"
+#include <nbl/builtin/hlsl/shapes/line.hlsl>
 
-// TODO: move these to files and include them here
 //namespace nbl
 //{
 //    namespace hlsl
@@ -12,6 +12,14 @@
 //            struct Line_t
 //            {
 //                float2 start, end;
+//
+//                static Line_t create(float2 start, float2 end)
+//                {
+//                    Line_t ret;
+//                    ret.start = start;
+//                    ret.end = end;
+//                    return ret;
+//                }
 //
 //                // https://www.shadertoy.com/view/stcfzn with modifications
 //                float getSignedDistance(float2 p, float thickness)
@@ -92,6 +100,8 @@ float4 main(PSInput input) : SV_TARGET
         const float2 end = input.start_end.zw;
         const float lineThickness = input.lineWidth_eccentricity_objType.x / 2.0f;
 
+        // nbl::hlsl::shapes::Line_t roundedLine = { start, end };
+        // float dist = roundedLine.getSignedDistance(input.position.xy, lineThickness);
         float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
 
         /* No need to mul with fwidth(distance), distance already in screen space */
