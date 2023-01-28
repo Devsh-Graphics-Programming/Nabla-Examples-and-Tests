@@ -137,16 +137,12 @@ float4 main(PSInput input) : SV_TARGET
     {
         const float2 start = input.start_end.xy;
         const float2 end = input.start_end.zw;
-        const uint lineThickness = ((float)input.lineWidth_eccentricity_objType.x) / 2.0f;
+        const float lineThickness = ((float)input.lineWidth_eccentricity_objType.x) / 2.0f;
 
         float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
 
-        if (distance > 0.0)
-            discard;
-
-        // some heuristic based on lineThickness, we don't antiAlias 2 pixels wide lines or less and it would blur the whole line or need more than 2 pixel width
-        float antiAliasingFactor = fwidth(distance) * ((lineThickness <= 1) ? 0.0f : 1.5f);
-        float alpha = 1.0f - smoothstep(-antiAliasingFactor, 0u, distance);
+        float antiAliasingFactor = /*No need, I'm already in screen space fwidth(distance) * */ 0.5f;
+        float alpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         return lerp(float4(0,0,0,0), input.color, alpha);
     }
     return input.color;
