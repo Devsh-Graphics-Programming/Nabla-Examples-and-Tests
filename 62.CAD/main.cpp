@@ -5,7 +5,16 @@
 
 
 static constexpr bool DebugMode = false;
-#define SHOW_PROBLEM 
+
+enum class ExampleMode
+{
+	CASE_0, // Zooming In/Out
+	CASE_1, // Rotating Line
+	CASE_2, // Straight Line Moving up and down
+};
+
+constexpr ExampleMode mode = ExampleMode::CASE_1;
+
 
 struct double4x4
 {
@@ -486,22 +495,31 @@ public:
 		m_Camera.setSize({200.0, 200.0});
 
 		std::vector<double2> linePoints;
-#ifdef SHOW_PROBLEM
-		linePoints.push_back({ -50.0, 0.0 });
-		linePoints.push_back({ 0.0, 0.0 });
-		linePoints.push_back({ 00.0, 50.0 });
-		linePoints.push_back({ -60.0, 0.0 });
-#else
-		linePoints.push_back({ -50.0, 0.0 });
-		linePoints.push_back({ 0.0, 0.0 });
-		linePoints.push_back({ 80.0, 10.0 });
-		linePoints.push_back({ 40.0, 40.0 });
-		linePoints.push_back({ 0.0, 40.0 });
-		linePoints.push_back({ 30.0, 80.0 });
-		linePoints.push_back({ -30.0, 50.0 });
-		linePoints.push_back({ -30.0, 110.0 });
-		linePoints.push_back({ +30.0, -112.0 });
-#endif
+
+		if constexpr (mode == ExampleMode::CASE_0)
+		{
+			linePoints.push_back({ -50.0, 0.0 });
+			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back({ 80.0, 10.0 });
+			linePoints.push_back({ 40.0, 40.0 });
+			linePoints.push_back({ 0.0, 40.0 });
+			linePoints.push_back({ 30.0, 80.0 });
+			linePoints.push_back({ -30.0, 50.0 });
+			linePoints.push_back({ -30.0, 110.0 });
+			linePoints.push_back({ +30.0, -112.0 });
+		}
+		else if (mode == ExampleMode::CASE_1)
+		{
+			linePoints.push_back({ -50.0, 0.0 });
+			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back({ 00.0, 50.0 });
+			linePoints.push_back({ -60.0, 0.0 });
+		}
+		else if (mode == ExampleMode::CASE_2)
+		{
+			linePoints.push_back({ -50.0, 0.0 });
+			linePoints.push_back({ 0.0, 0.0 });
+		}
 		addLines(std::move(linePoints));
 	}
 
@@ -523,11 +541,6 @@ public:
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
 
-		Globals globalData = {};
-		globalData.color = core::vectorSIMDf(0.0f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 10u;
-		globalData.resolution = uint2{ WIN_W, WIN_H };
-
 		logicalDevice->blockForFences(1u, &fence.get());
 		logicalDevice->resetFences(1u, &fence.get());
 
@@ -536,11 +549,6 @@ public:
 		lastTime = now;
 		static double timeElapsed = 0.0;
 		timeElapsed += dt;
-
-#ifndef SHOW_PROBLEM
-		m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000 });
-#endif
-		globalData.viewProjection = m_Camera.constructViewProjection();
 
 		uint32_t imgnum = 0u;
 		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
@@ -555,10 +563,37 @@ public:
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 
-#ifdef SHOW_PROBLEM
-		double2 NewPoint = { 80*cos(timeElapsed * 0.0002), 80*sin(timeElapsed * 0.0002)};
-		cb->updateBuffer(geometryBuffer.get(), 3* sizeof(double2), sizeof(double2), &NewPoint);
-#endif
+		if constexpr (mode == ExampleMode::CASE_0)
+		{
+			m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000 });
+		}
+		else if (mode == ExampleMode::CASE_1)
+		{
+			// m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 3000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 3000 });
+			double2 NewPoint = { 80 * cos(timeElapsed * 0.002), 80 * sin(timeElapsed * 0.002) };
+			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint);
+		}
+		else if (mode == ExampleMode::CASE_2)
+		{
+			// double2 NewPoint = { 80 * cos(timeElapsed * 0.0002), 80 * sin(timeElapsed * 0.0002) };
+			// cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint);
+			double height = cos(timeElapsed * 0.00003) * 10;
+			double2 NewPoint0 = { -50, height };
+			double2 NewPoint1 = { 0, height };
+			double2 NewPoint2 = { 80, height };
+			double2 NewPoint3 = { 90, height };
+			cb->updateBuffer(geometryBuffer.get(), 0 * sizeof(double2), sizeof(double2), &NewPoint0);
+			cb->updateBuffer(geometryBuffer.get(), 1 * sizeof(double2), sizeof(double2), &NewPoint1);
+			cb->updateBuffer(geometryBuffer.get(), 2 * sizeof(double2), sizeof(double2), &NewPoint2);
+			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint3);
+		}
+
+		Globals globalData = {};
+		globalData.color = core::vectorSIMDf(0.4f, 1.0f, 0.5f, 1.0f);
+		globalData.lineWidth = 2.0f;
+		globalData.antiAliasingFactor = 1.5f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
+		globalData.resolution = uint2{ WIN_W, WIN_H };
+		globalData.viewProjection = m_Camera.constructViewProjection();
 		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 
 		asset::SViewport vp;

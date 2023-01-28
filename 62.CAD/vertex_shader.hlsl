@@ -13,7 +13,7 @@ PSInput main(uint vertexID : SV_VertexID)
     PSInput outV;
     outV.color = globals.color;
     outV.lineWidth_eccentricity_objType.x = globals.lineWidth;
-    outV.lineWidth_eccentricity_objType.z = (uint)objType;
+    outV.lineWidth_eccentricity_objType.z = asfloat((uint)objType);
 
     if (objType == ObjectType::ELLIPSE)
     {
@@ -31,6 +31,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
         const float2 lineVector = normalize(transformedPoints[2u] - transformedPoints[1u]);
         const float2 normalToLine = float2(-lineVector.y, lineVector.x);
+        const float antiAliasedLineWidth = globals.lineWidth + globals.antiAliasingFactor * 2.0f;
 
         if (vertexIdx == 0u || vertexIdx == 1u)
         {
@@ -38,7 +39,7 @@ PSInput main(uint vertexID : SV_VertexID)
             const float2 normalPrevLine = float2(-vectorPrev.y, vectorPrev.x);
             const float2 miter = normalize(normalPrevLine + normalToLine);
 
-            outV.position.xy = transformedPoints[1u] + (miter * ((float)vertexIdx - 0.5f) * (globals.lineWidth+1u)) / dot(normalToLine, miter);
+            outV.position.xy = transformedPoints[1u] + (miter * ((float)vertexIdx - 0.5f) * (antiAliasedLineWidth)) / dot(normalToLine, miter);
         }
         else // if (vertexIdx == 2u || vertexIdx == 3u)
         {
@@ -46,7 +47,7 @@ PSInput main(uint vertexID : SV_VertexID)
             const float2 normalNextLine = float2(-vectorNext.y, vectorNext.x);
             const float2 miter = normalize(normalNextLine + normalToLine);
 
-            outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * (globals.lineWidth+1u)) / dot(normalToLine, miter);
+            outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * (antiAliasedLineWidth)) / dot(normalToLine, miter);
         }
 
         outV.start_end.xy = transformedPoints[1u];

@@ -82,7 +82,7 @@ namespace SignedDistance
 
 float4 main(PSInput input) : SV_TARGET
 {
-    ObjectType objType = (ObjectType)input.lineWidth_eccentricity_objType.z;
+    ObjectType objType = (ObjectType)asuint(input.lineWidth_eccentricity_objType.z);
     if (objType == ObjectType::ELLIPSE)
     {
     }
@@ -90,11 +90,12 @@ float4 main(PSInput input) : SV_TARGET
     {
         const float2 start = input.start_end.xy;
         const float2 end = input.start_end.zw;
-        const float lineThickness = ((float)input.lineWidth_eccentricity_objType.x) / 2.0f;
+        const float lineThickness = input.lineWidth_eccentricity_objType.x / 2.0f;
 
         float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
 
-        float antiAliasingFactor = /*No need, I'm already in screen space fwidth(distance) * */ 0.5f;
+        /* No need to mul with fwidth(distance), distance already in screen space */
+        const float antiAliasingFactor = globals.antiAliasingFactor;
         float alpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         return lerp(float4(0,0,0,0), input.color, alpha);
     }
