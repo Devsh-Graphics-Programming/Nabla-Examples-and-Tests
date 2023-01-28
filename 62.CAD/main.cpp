@@ -54,6 +54,7 @@ static_assert(sizeof(EllipseInfo) == 48u);
 static_assert(sizeof(Globals) == 160u);
 
 using namespace nbl;
+using namespace ui;
 
 class Camera2D : public core::IReferenceCounted
 {
@@ -82,7 +83,22 @@ public:
 		return ret;
 	}
 
+	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+	{
+		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+		{
+			auto ev = *eventIt;
+
+			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
+			{
+				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.2, (double)ev.scrollEvent.verticalScroll * -0.2 };
+				m_size = double2 {core::max(1.0, m_size.x), core::max(1.0, m_size.y)};
+			}
+		}
+	}
+
 private:
+
 	double2 m_size = {};
 	double2 m_origin = {};
 };
@@ -94,6 +110,10 @@ class CADApp : public ApplicationBase
 
 	constexpr static uint32_t WIN_W = 1280u;
 	constexpr static uint32_t WIN_H = 720u;
+
+	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+	video::CDumbPresentationOracle oracle;
 
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
@@ -510,10 +530,8 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			linePoints.push_back({ -50.0, 0.0 });
-			linePoints.push_back({ 0.0, 0.0 });
-			linePoints.push_back({ 00.0, 50.0 });
-			linePoints.push_back({ -60.0, 0.0 });
+			linePoints.push_back({ -25.0, 0.0 });
+			linePoints.push_back({ 25.0, 0.0 });
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -521,6 +539,8 @@ public:
 			linePoints.push_back({ 0.0, 0.0 });
 		}
 		addLines(std::move(linePoints));
+
+		oracle.reportBeginFrameRecord();
 	}
 
 	void onAppTerminated_impl() override
@@ -551,8 +571,10 @@ public:
 		timeElapsed += dt;
 
 		uint32_t imgnum = 0u;
-		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
-		assert(acquireResult == video::ISwapchain::E_ACQUIRE_IMAGE_RESULT::EAIR_SUCCESS);
+
+		const auto nextPresentationTimestamp = oracle.acquireNextImage(swapchain.get(), m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
+		// auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
+		// assert(acquireResult == video::ISwapchain::E_ACQUIRE_IMAGE_RESULT::EAIR_SUCCESS);
 
 		core::smart_refctd_ptr<video::IGPUImage> swapchainImg = m_swapchainImages[imgnum];
 
@@ -570,8 +592,17 @@ public:
 		else if (mode == ExampleMode::CASE_1)
 		{
 			// m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 3000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 3000 });
-			double2 NewPoint = { 80 * cos(timeElapsed * 0.002), 80 * sin(timeElapsed * 0.002) };
-			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint);
+			double x = cos(timeElapsed * 0.001);
+			double y = sin(timeElapsed * 0.001);
+
+			double2 NewPoint0 = { x * -50, y * -50};
+			double2 NewPoint1 = { x * -25, y * -25};
+			double2 NewPoint2 = { x * 25, y * 25};
+			double2 NewPoint3 = { x * 50, y * 50};
+			cb->updateBuffer(geometryBuffer.get(), 0 * sizeof(double2), sizeof(double2), &NewPoint0);
+			cb->updateBuffer(geometryBuffer.get(), 1 * sizeof(double2), sizeof(double2), &NewPoint1);
+			cb->updateBuffer(geometryBuffer.get(), 2 * sizeof(double2), sizeof(double2), &NewPoint2);
+			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint3);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -588,10 +619,24 @@ public:
 			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint3);
 		}
 
+		inputSystem->getDefaultMouse(&mouse);
+		inputSystem->getDefaultKeyboard(&keyboard);
+
+		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void 
+			{
+				m_Camera.mouseProcess(events);
+			}
+		, logger.get());
+		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void 
+			{
+				// TODO:
+			}
+		, logger.get());
+
 		Globals globalData = {};
-		globalData.color = core::vectorSIMDf(0.4f, 1.0f, 0.5f, 1.0f);
-		globalData.lineWidth = 2.0f;
-		globalData.antiAliasingFactor = 1.5f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
+		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 1.0f);
+		globalData.lineWidth = 3.0f;
+		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
