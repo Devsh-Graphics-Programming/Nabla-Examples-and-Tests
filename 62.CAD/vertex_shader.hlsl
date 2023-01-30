@@ -24,7 +24,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedCenter;
         float2 transformedMajorAxis;
 
-        // Just make a big cage that covers the screen
+        // Temporary: Just make a big cage that covers the screen
         if (vertexIdx == 0u || vertexIdx == 1u)
         {
         }
@@ -36,7 +36,6 @@ PSInput main(uint vertexID : SV_VertexID)
         // Pass Data:
         // TODO: how to pack/unpack floats into uints
         // pass eccentricity
-        // tranform center and majorAxis
     }
     else if (objType == ObjectType::LINE)
     {

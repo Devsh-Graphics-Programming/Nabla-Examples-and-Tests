@@ -197,11 +197,29 @@ class CADApp : public ApplicationBase
 			const double2 generatedEnd = lastPoint + differenceEnd;
 			linePoints.push_back(generatedEnd);
 			const auto pointsByteSize = sizeof(double2) * linePoints.size();
+
+			assert(currentGeometryBufferOffset + pointsByteSize <= geometryBuffer->getSize());
 			asset::SBufferRange<video::IGPUBuffer> geometryUpload = { currentGeometryBufferOffset, pointsByteSize, geometryBuffer };
 			utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, linePoints.data(), queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-			assert(currentGeometryBufferOffset + pointsByteSize <= geometryBuffer->getSize());
 			currentGeometryBufferOffset += pointsByteSize;
 		}
+	}
+
+	void addEllipse(const EllipseInfo& ellipseInfo)
+	{
+		DrawObject drawObj = {};
+		drawObj.type = ObjectType::ELLIPSE;
+		drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
+		asset::SBufferRange<video::IGPUBuffer> drawObjUpload = { currentDrawObjectCount * sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer };
+		utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
+		currentDrawObjectCount += 1u;
+
+		const auto ellipseBytesize = sizeof(EllipseInfo);
+
+		assert(currentGeometryBufferOffset + ellipseBytesize <= geometryBuffer->getSize());
+		asset::SBufferRange<video::IGPUBuffer> geometryUpload = { currentGeometryBufferOffset, ellipseBytesize, geometryBuffer };
+		utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, &ellipseInfo, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
+		currentGeometryBufferOffset += sizeof(EllipseInfo);
 	}
 
 	void initDrawObjects(uint32_t maxObjects = 128u)
