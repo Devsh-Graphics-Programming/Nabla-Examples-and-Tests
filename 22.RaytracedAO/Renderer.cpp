@@ -710,15 +710,24 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	video::IFrameBuffer* finalEnvFramebuffer = nullptr;
 	{
 		const auto colorFormat = asset::EF_R16G16B16A16_SFLOAT;
-		const auto resolution = 0x1u<<(MipCountEnvmap-1u);
+		// don't touch this, 4x2 envmap is absolute minimum to have everything working
+		uint32_t newWidth = 4;
+		for (const auto& envmapCpuImage : m_globalMeta->m_global.m_envMapImages)
+		{
+			const auto& extent = envmapCpuImage->getCreationParameters().extent;
+			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
+		}
+		// full mipchain would be `MSB+1` but we want it to stop at 4x2
+		const auto mipLevels = core::findMSB(newWidth)-1;
 
 		IGPUImage::SCreationParams imgInfo;
 		imgInfo.format = colorFormat;
 		imgInfo.type = IGPUImage::ET_2D;
-		imgInfo.extent.width = resolution;
-		imgInfo.extent.height = resolution/2;
+		imgInfo.extent.width = newWidth;
+		imgInfo.extent.height = newWidth>>1u;
 		imgInfo.extent.depth = 1u;
-		imgInfo.mipLevels = MipCountEnvmap;
+
+		imgInfo.mipLevels = mipLevels;
 		imgInfo.arrayLayers = 1u;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
@@ -733,7 +742,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 		imgViewInfo.subresourceRange.baseMipLevel = 0u;
 		imgViewInfo.subresourceRange.layerCount = 1u;
-		imgViewInfo.subresourceRange.levelCount = MipCountEnvmap;
+		imgViewInfo.subresourceRange.levelCount = mipLevels;
 
 		m_finalEnvmap = m_driver->createGPUImageView(std::move(imgViewInfo));
 
@@ -748,7 +757,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		IGPUDescriptorSet::SDescriptorInfo info;
 		{
 			info.desc = gpuImageView;
-			ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
+			ISampler::SParams samplerParams = { ISampler::ETC_REPEAT, ISampler::ETC_REPEAT, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 			info.image.sampler = m_driver->createGPUSampler(samplerParams);
 			info.image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
 		}
@@ -770,9 +779,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	m_driver->setRenderTarget(finalEnvFramebuffer, true);
 	float colorClearValues[] = { _envmapBaseColor.x, _envmapBaseColor.y, _envmapBaseColor.z, _envmapBaseColor.w };
 	m_driver->clearColorBuffer(video::EFAP_COLOR_ATTACHMENT0, colorClearValues);
-	for(uint32_t i = 0u; i < m_globalMeta->m_global.m_envMapImages.size(); ++i)
+	for(const auto& envmapCpuImage : m_globalMeta->m_global.m_envMapImages)
 	{
-		auto envmapCpuImage = m_globalMeta->m_global.m_envMapImages[i];
 		ICPUImageView::SCreationParams viewParams;
 		viewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
 		viewParams.image = envmapCpuImage;
