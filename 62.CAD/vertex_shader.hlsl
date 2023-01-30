@@ -17,6 +17,26 @@ PSInput main(uint vertexID : SV_VertexID)
 
     if (objType == ObjectType::ELLIPSE)
     {
+        double3x3 transformation = (double3x3)globals.viewProjection;
+        EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
+        
+        // Transform these
+        float2 transformedCenter;
+        float2 transformedMajorAxis;
+
+        // Just make a big cage that covers the screen
+        if (vertexIdx == 0u || vertexIdx == 1u)
+        {
+        }
+        else // if (vertexIdx == 2u || vertexIdx == 3u)
+        {
+
+        }
+
+        // Pass Data:
+        // TODO: how to pack/unpack floats into uints
+        // pass eccentricity
+        // tranform center and majorAxis
     }
     else if (objType == ObjectType::LINE)
     {
