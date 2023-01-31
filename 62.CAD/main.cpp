@@ -13,7 +13,7 @@ enum class ExampleMode
 	CASE_2, // Straight Line Moving up and down
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_1;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 
 struct double4x4
@@ -75,11 +75,14 @@ public:
 	double4x4 constructViewProjection()
 	{
 		double4x4 ret = {};
+
 		ret._r0[0] = 2.0 / m_size.x;
-		ret._r0[2] = (-2.0 * m_origin.x) / m_size.x;
 		ret._r1[1] = -2.0 / m_size.y;
-		ret._r1[2] = (2.0 * m_origin.y) / m_size.y;
 		ret._r2[2] = 1.0;
+
+		ret._r2[0] = (-2.0 * m_origin.x) / m_size.x;
+		ret._r2[1] = (2.0 * m_origin.y) / m_size.y;
+
 		return ret;
 	}
 
@@ -220,6 +223,12 @@ class CADApp : public ApplicationBase
 		asset::SBufferRange<video::IGPUBuffer> geometryUpload = { currentGeometryBufferOffset, ellipseBytesize, geometryBuffer };
 		utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, &ellipseInfo, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
 		currentGeometryBufferOffset += sizeof(EllipseInfo);
+	}
+
+	void clearObjects()
+	{
+		currentDrawObjectCount = 0u;
+		currentGeometryBufferOffset = 0u;
 	}
 
 	void initDrawObjects(uint32_t maxObjects = 128u)
@@ -537,8 +546,17 @@ public:
 			m_renderFinished[i] = logicalDevice->createSemaphore();
 		}
 
-		m_Camera.setOrigin({ 0.0, 0.0 });
+		m_Camera.setOrigin({ 00.0, 0.0 });
 		m_Camera.setSize({200.0, 200.0});
+
+		update(0.0);
+
+		oracle.reportBeginFrameRecord();
+	}
+
+	void update(double timeElapsed)
+	{
+		clearObjects();
 
 		std::vector<double2> linePoints;
 
@@ -556,17 +574,21 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			linePoints.push_back({ -25.0, 0.0 });
-			linePoints.push_back({ 25.0, 0.0 });
+			linePoints.push_back({ -60.0 * cos(timeElapsed * 0.0005), +60 * sin(timeElapsed * 0.0005) });
+			linePoints.push_back({ +60.0 * cos(timeElapsed * 0.0005), -60 * sin(timeElapsed * 0.0005) });
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
-			linePoints.push_back({ -50.0, 0.0 });
-			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10  });
+			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
 		}
 		addLines(std::move(linePoints));
 
-		oracle.reportBeginFrameRecord();
+		EllipseInfo ellipse = {};
+		ellipse.majorAxis = { 90.0 * cos(timeElapsed * 0.001), 90.0 * sin(timeElapsed * 0.001) };
+		ellipse.center = { 0, 0 };
+		ellipse.eccentricityPacked = (0.4 * UINT32_MAX);
+		addEllipse(ellipse);
 	}
 
 	void onAppTerminated_impl() override
@@ -596,6 +618,8 @@ public:
 		static double timeElapsed = 0.0;
 		timeElapsed += dt;
 
+		update(timeElapsed);
+
 		uint32_t imgnum = 0u;
 
 		const auto nextPresentationTimestamp = oracle.acquireNextImage(swapchain.get(), m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
@@ -615,35 +639,6 @@ public:
 		{
 			m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000 });
 		}
-		else if (mode == ExampleMode::CASE_1)
-		{
-			// m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 3000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 3000 });
-			double x = cos(timeElapsed * 0.001);
-			double y = sin(timeElapsed * 0.001);
-
-			double2 NewPoint0 = { x * -50, y * -50};
-			double2 NewPoint1 = { x * -25, y * -25};
-			double2 NewPoint2 = { x * 25, y * 25};
-			double2 NewPoint3 = { x * 50, y * 50};
-			cb->updateBuffer(geometryBuffer.get(), 0 * sizeof(double2), sizeof(double2), &NewPoint0);
-			cb->updateBuffer(geometryBuffer.get(), 1 * sizeof(double2), sizeof(double2), &NewPoint1);
-			cb->updateBuffer(geometryBuffer.get(), 2 * sizeof(double2), sizeof(double2), &NewPoint2);
-			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint3);
-		}
-		else if (mode == ExampleMode::CASE_2)
-		{
-			// double2 NewPoint = { 80 * cos(timeElapsed * 0.0002), 80 * sin(timeElapsed * 0.0002) };
-			// cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint);
-			double height = cos(timeElapsed * 0.00003) * 10;
-			double2 NewPoint0 = { -50, height };
-			double2 NewPoint1 = { 0, height };
-			double2 NewPoint2 = { 80, height };
-			double2 NewPoint3 = { 90, height };
-			cb->updateBuffer(geometryBuffer.get(), 0 * sizeof(double2), sizeof(double2), &NewPoint0);
-			cb->updateBuffer(geometryBuffer.get(), 1 * sizeof(double2), sizeof(double2), &NewPoint1);
-			cb->updateBuffer(geometryBuffer.get(), 2 * sizeof(double2), sizeof(double2), &NewPoint2);
-			cb->updateBuffer(geometryBuffer.get(), 3 * sizeof(double2), sizeof(double2), &NewPoint3);
-		}
 
 		inputSystem->getDefaultMouse(&mouse);
 		inputSystem->getDefaultKeyboard(&keyboard);
@@ -660,8 +655,8 @@ public:
 		, logger.get());
 
 		Globals globalData = {};
-		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 1.0f);
-		globalData.lineWidth = 3.0f;
+		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 0.5f);
+		globalData.lineWidth = 6.0f;
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();

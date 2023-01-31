@@ -11,31 +11,39 @@ PSInput main(uint vertexID : SV_VertexID)
     ObjectType objType = drawObj.type;
     
     PSInput outV;
+    outV.lineWidth_eccentricity_objType.x = asuint(globals.lineWidth);
+    outV.lineWidth_eccentricity_objType.z = (uint)objType;
+
+    // TODO: get from styles
     outV.color = globals.color;
-    outV.lineWidth_eccentricity_objType.x = globals.lineWidth;
-    outV.lineWidth_eccentricity_objType.z = asfloat((uint)objType);
 
     if (objType == ObjectType::ELLIPSE)
     {
+        // EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 16u);
+        double2 majorAxis = vk::RawBufferLoad<double2>(drawObj.address, 16u);
+        double2 center = vk::RawBufferLoad<double2>(drawObj.address + 16u, 16u);
+        uint4 rangeAnglesPacked_eccentricityPacked_pad = vk::RawBufferLoad<uint4>(drawObj.address + 32u, 16u);
+
+        outV.lineWidth_eccentricity_objType.y = rangeAnglesPacked_eccentricityPacked_pad.z; // asfloat because it is acrually packed into a uint and we should not treat it as a float yet.
+
         double3x3 transformation = (double3x3)globals.viewProjection;
-        EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
-        
-        // Transform these
-        float2 transformedCenter;
-        float2 transformedMajorAxis;
 
-        // Temporary: Just make a big cage that covers the screen
-        if (vertexIdx == 0u || vertexIdx == 1u)
-        {
-        }
-        else // if (vertexIdx == 2u || vertexIdx == 3u)
-        {
+        double2 ndcCenter = mul(transformation, double3(center, 1)).xy; // Transform to NDC
+        float2 transformedCenter = (float2)((ndcCenter + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+        outV.start_end.xy = transformedCenter;
 
-        }
+        double2 ndcMajorAxis = mul(transformation, double3(majorAxis, 0)).xy; // Transform to NDC
+        float2 transformedMajorAxis = (float2)((ndcMajorAxis) * 0.5 * globals.resolution); // Transform to Screen Space
+        outV.start_end.zw = transformedMajorAxis;
 
-        // Pass Data:
-        // TODO: how to pack/unpack floats into uints
-        // pass eccentricity
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
     }
     else if (objType == ObjectType::LINE)
     {
