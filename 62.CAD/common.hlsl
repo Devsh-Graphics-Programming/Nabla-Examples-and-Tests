@@ -23,7 +23,7 @@ struct EllipseInfo
 {
     double2 majorAxis;
     double2 center;
-    uint2 rangeAnglesPacked; // [0, 2Pi)
+    uint2 angleBoundsPacked; // [0, 2Pi)
     uint32_t eccentricityPacked; // (0, 1]
     uint32_t _pad; // TODO we may need to add prev/next tangent if curve joins are not Bi-Arc
 };
