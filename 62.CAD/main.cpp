@@ -4,7 +4,7 @@
 #include "../common/CommonAPI.h"
 
 
-static constexpr bool DebugMode = true;
+static constexpr bool DebugMode = false;
 
 enum class ExampleMode
 {
@@ -67,9 +67,14 @@ public:
 		m_origin = origin;
 	}
 
-	void setSize(const double2& size)
+	void setAspectRatio(const double& aspectRatio)
 	{
-		m_size = size;
+		m_aspectRatio = aspectRatio;
+	}
+
+	void setSize(const double size)
+	{
+		m_size = { size * m_aspectRatio, size };
 	}
 
 	double4x4 constructViewProjection()
@@ -94,14 +99,15 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.2, (double)ev.scrollEvent.verticalScroll * -0.2 };
-				m_size = double2 {core::max(1.0, m_size.x), core::max(1.0, m_size.y)};
+				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.2 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.2};
+				m_size = double2 {core::max(m_aspectRatio, m_size.x), core::max(1.0, m_size.y)};
 			}
 		}
 	}
 
 private:
 
+	double m_aspectRatio = 0.0;
 	double2 m_size = {};
 	double2 m_origin = {};
 };
@@ -569,7 +575,8 @@ public:
 		}
 
 		m_Camera.setOrigin({ 00.0, 0.0 });
-		m_Camera.setSize({200.0, 200.0});
+		m_Camera.setAspectRatio((double)WIN_W / WIN_H);
+		m_Camera.setSize(200.0);
 
 		update(0.0);
 
@@ -578,6 +585,7 @@ public:
 
 	void update(double timeElapsed)
 	{
+		utilities->getDefaultUpStreamingBuffer()->cull_frees();
 		clearObjects();
 
 		std::vector<double2> linePoints;
@@ -596,10 +604,24 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			linePoints.push_back({ -90.0, 0.0 });
-			linePoints.push_back({ -60.0 * cos(timeElapsed * 0.0005), +60 * sin(timeElapsed * 0.0005) });
-			linePoints.push_back({ +60.0 * cos(timeElapsed * 0.0005), -60 * sin(timeElapsed * 0.0005) });
-			linePoints.push_back({ +90.0, 0.0 });
+			const double start = 0.0;
+			const double end = core::PI<double>() / 4.0;
+			constexpr double twoPi = core::PI<double>() * 2.0;
+			EllipseInfo ellipse = {};
+			const double a = timeElapsed * 0.001;
+			ellipse.majorAxis = { 20.0 * cos(a), 20.0 * sin(a) };
+			volatile const double len = sqrt(pow(ellipse.majorAxis.x, 2.0) + pow(ellipse.majorAxis.y, 2.0));
+			// ellipse.majorAxis = { 30.0, 0.0 };
+			ellipse.center = { 0, 0 };
+			ellipse.eccentricityPacked = (0.2 * UINT32_MAX);
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>((start / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>((end / twoPi) * UINT32_MAX)
+			};
+			addEllipse(ellipse);
+
+			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back( ellipse.majorAxis );
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -607,20 +629,6 @@ public:
 			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
 		}
 		addLines(std::move(linePoints));
-
-		const double start = 0.0;
-		const double end = core::PI<double>() / 4.0;
-		constexpr double twoPi = core::PI<double>() * 2.0; 
-		EllipseInfo ellipse = {};
-		// ellipse.majorAxis = { 90.0 * cos(timeElapsed * 0.001), 90.0 * sin(timeElapsed * 0.001) };
-		ellipse.majorAxis = { 30.0, 0.0 };
-		ellipse.center = { 0, 0 };
-		ellipse.eccentricityPacked = (0.5 * UINT32_MAX);
-		ellipse.angleBoundsPacked = { 
-			static_cast<uint32_t>((start / twoPi) * UINT32_MAX),
-			static_cast<uint32_t>((end / twoPi) * UINT32_MAX)
-		};
-		addEllipse(ellipse);
 	}
 
 	void onAppTerminated_impl() override
@@ -669,7 +677,7 @@ public:
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			m_Camera.setSize({ 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000, 20.0 + abs(cos(timeElapsed * 0.0001)) * 7000 });
+			m_Camera.setSize(20.0 + abs(cos(timeElapsed * 0.0001)) * 7000);
 		}
 
 		inputSystem->getDefaultMouse(&mouse);
@@ -688,7 +696,7 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 0.5f);
-		globalData.lineWidth = 20.0f;
+		globalData.lineWidth = 2.0f;
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
@@ -751,8 +759,12 @@ public:
 		cb->bindIndexBuffer(indexBuffer.get(), 0u, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
-		cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
+
+		if constexpr (DebugMode)
+		{
+			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
+			cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
+		}
 
 		cb->endRenderPass();
 

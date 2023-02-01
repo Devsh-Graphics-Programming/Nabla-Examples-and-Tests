@@ -22,6 +22,7 @@ PSInput main(uint vertexID : SV_VertexID)
     if (objType == ObjectType::ELLIPSE)
     {
         outV.color = float4(1.0, 0.0, 0.0, 0.5);
+
 #ifdef LOAD_STRUCT
         EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
         double2 majorAxis = ellipse.majorAxis;
@@ -51,33 +52,39 @@ PSInput main(uint vertexID : SV_VertexID)
         double majorAxisLength = length(transformedMajorAxis);
         double minorAxisLength = majorAxisLength * eccentricity;
         double2 ab = double2(majorAxisLength, -minorAxisLength);
-        double2 dir = transformedMajorAxis / majorAxisLength;
         double2 start = ab * double2(cos(angleBounds.x), sin(angleBounds.x));
         double2 end = ab * double2(cos(angleBounds.y), sin(angleBounds.y));
         
+        // TODO: Figure out correct math for cage
         if (vertexIdx == 0u || vertexIdx == 1u)
         {
-            outV.position.xy = start + normalize(start) * ((float)vertexIdx - 0.5f) * antiAliasedLineWidth * 10;
+            outV.position.xy = start + normalize(start) * ((float)vertexIdx - 0.5f) * antiAliasedLineWidth * 5;
         }
         else // if (vertexIdx == 2u || vertexIdx == 3u)
         {
-            outV.position.xy = end + normalize(end) * ((float)vertexIdx - 2.5f) * antiAliasedLineWidth * 10;
+            outV.position.xy = end + normalize(end) * ((float)vertexIdx - 2.5f) * antiAliasedLineWidth * 5;
         }
 
-        // outV.position.xy = mul(double2x2(dir.x, dir.y, -dir.y, dir.x), outV.position.xy);
+        // Transform from ellipse screen space to actual screen space
+        double2 dir = normalize(transformedMajorAxis);
+        outV.position.xy = mul(double2x2(dir.x, -dir.y, dir.y, dir.x), outV.position.xy);
         outV.position.xy += transformedCenter;
         
+        // Transform to ndc
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
 
-        //if (vertexIdx == 0u)
-        //    outV.position = float4(-1, -1, 0, 1);
-        //else if (vertexIdx == 1u)
-        //    outV.position = float4(-1, +1, 0, 1);
-        //else if (vertexIdx == 2u)
-        //    outV.position = float4(+1, -1, 0, 1);
-        //else if (vertexIdx == 3u)
-        //    outV.position = float4(+1, +1, 0, 1);
+        //if (objectID == 4u)
+        //{
+            if (vertexIdx == 0u)
+                outV.position = float4(-1, -1, 0, 1);
+            else if (vertexIdx == 1u)
+                outV.position = float4(-1, +1, 0, 1);
+            else if (vertexIdx == 2u)
+                outV.position = float4(+1, -1, 0, 1);
+            else if (vertexIdx == 3u)
+                outV.position = float4(+1, +1, 0, 1);
+        //}
     }
     else if (objType == ObjectType::LINE)
     {
