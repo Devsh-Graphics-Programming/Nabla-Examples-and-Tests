@@ -4,7 +4,7 @@
 #include "../common/CommonAPI.h"
 
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 
 enum class ExampleMode
 {
@@ -13,7 +13,7 @@ enum class ExampleMode
 	CASE_2, // Straight Line Moving up and down
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_1;
 
 
 struct double4x4
@@ -160,6 +160,7 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
+	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugGraphicsPipeline;
 	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
 
 	constexpr size_t getMaxMemoryNeeded(uint32_t numberOfLines, uint32_t numberOfEllipses)
@@ -429,20 +430,24 @@ public:
 			return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
 		};
 
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[2u] = {};
+		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[3u] = {};
 		{
 			asset::IAssetLoader::SAssetLoadParams params = {};
 			params.logger = logger.get();
-			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[2u] = {};
+			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[3u] = {};
 			constexpr auto vertexShaderPath = "../vertex_shader.hlsl";
-			constexpr auto fragmentShaderPath = (DebugMode) ? "../fragment_shader_debug.hlsl" : "../fragment_shader.hlsl";
+			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
+			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
 			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(vertexShaderPath, params).getContents().begin());
 			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(fragmentShaderPath, params).getContents().begin());
-			cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "VSMain"));
-			cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "PSMain"));
-			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 2u, cpu2gpuParams);
+			cpuShaders[2u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(debugfragmentShaderPath, params).getContents().begin());
+			cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
+			cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
+			cpuShaders[2u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
+			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 3u, cpu2gpuParams);
 			shaders[0u] = gpuShaders->begin()[0u];
 			shaders[1u] = gpuShaders->begin()[1u];
+			shaders[2u] = gpuShaders->begin()[2u];
 		}
 
 		initDrawObjects();
@@ -515,7 +520,7 @@ public:
 		renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
 		renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
 		renderpassIndependantPipeInfo.rasterization.stencilTestEnable = false;
-		renderpassIndependantPipeInfo.rasterization.polygonMode = (DebugMode) ? asset::EPM_LINE : asset::EPM_FILL;
+		renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_FILL;
 		renderpassIndependantPipeInfo.rasterization.faceCullingMode = asset::EFCM_NONE;
 
 		core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependant;
@@ -529,6 +534,23 @@ public:
 		graphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependant;
 		graphicsPipelineCreateInfo.renderpass = renderpass;
 		graphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
+
+		if constexpr (DebugMode)
+		{
+			core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependantDebug;
+			renderpassIndependantPipeInfo.shaders[1u] = shaders[2u];
+			renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_LINE;
+			succ = logicalDevice->createRenderpassIndependentPipelines(
+				nullptr,
+				core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
+				&renderpassIndependantDebug);
+			assert(succ);
+
+			video::IGPUGraphicsPipeline::SCreationParams debugGraphicsPipelineCreateInfo = {};
+			debugGraphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependantDebug;
+			debugGraphicsPipelineCreateInfo.renderpass = renderpass;
+			debugGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(debugGraphicsPipelineCreateInfo));
+		}
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
@@ -574,20 +596,30 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
+			linePoints.push_back({ -90.0, 0.0 });
 			linePoints.push_back({ -60.0 * cos(timeElapsed * 0.0005), +60 * sin(timeElapsed * 0.0005) });
 			linePoints.push_back({ +60.0 * cos(timeElapsed * 0.0005), -60 * sin(timeElapsed * 0.0005) });
+			linePoints.push_back({ +90.0, 0.0 });
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
-			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10  });
+			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10 });
 			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
 		}
 		addLines(std::move(linePoints));
 
+		const double start = 0.0;
+		const double end = core::PI<double>() / 4.0;
+		constexpr double twoPi = core::PI<double>() * 2.0; 
 		EllipseInfo ellipse = {};
-		ellipse.majorAxis = { 90.0 * cos(timeElapsed * 0.001), 90.0 * sin(timeElapsed * 0.001) };
+		// ellipse.majorAxis = { 90.0 * cos(timeElapsed * 0.001), 90.0 * sin(timeElapsed * 0.001) };
+		ellipse.majorAxis = { 30.0, 0.0 };
 		ellipse.center = { 0, 0 };
-		ellipse.eccentricityPacked = (0.4 * UINT32_MAX);
+		ellipse.eccentricityPacked = (0.5 * UINT32_MAX);
+		ellipse.angleBoundsPacked = { 
+			static_cast<uint32_t>((start / twoPi) * UINT32_MAX),
+			static_cast<uint32_t>((end / twoPi) * UINT32_MAX)
+		};
 		addEllipse(ellipse);
 	}
 
@@ -656,7 +688,7 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 0.5f);
-		globalData.lineWidth = 6.0f;
+		globalData.lineWidth = 20.0f;
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
@@ -716,8 +748,10 @@ public:
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->bindIndexBuffer(indexBuffer.get(), 0u, asset::EIT_32BIT);
+		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
+		cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
 
 		cb->endRenderPass();
