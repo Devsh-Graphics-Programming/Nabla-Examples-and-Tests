@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-		m_staticViewData{{0u,0u},0u,0u,{}}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
+	m_staticViewData{ {0u,0u},0u,0u,{} }, m_raytraceCommonData{ {}, vec3(),0.f,0u,0u,0u,0.f},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -1127,7 +1127,7 @@ void Renderer::deinitSceneResources()
 	m_indirectDrawBuffers[1] = m_indirectDrawBuffers[0] = nullptr;
 	m_indexBuffer = nullptr;
 
-	m_raytraceCommonData = {core::matrix4SIMD(),vec3(),0.f,0,0,0,0.f};
+	m_raytraceCommonData = { {},vec3(),0.f,0,0,0,0.f };
 	m_sceneBound = core::aabbox3df(FLT_MAX, FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
 	m_maxAreaLightLuma = 0.f;
 	
@@ -1790,7 +1790,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 	// raster jittered frame
 	{
 		// jitter with AA AntiAliasingSequence
-		const auto modifiedViewProj = [&](uint32_t frameID)
+		const auto modifiedProj = [&](uint32_t frameID)
 		{
 			const float stddev = 0.5f;
 			const float* sample = AntiAliasingSequence[frameID%AntiAliasingSequenceLength];
@@ -1802,14 +1802,32 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			core::matrix4SIMD jitterMatrix;
 			jitterMatrix.rows[0][3] = cosPhi*r*m_rcpPixelSize.x;
 			jitterMatrix.rows[1][3] = sinPhi*r*m_rcpPixelSize.y;
-			return core::concatenateBFollowedByA(jitterMatrix,core::concatenateBFollowedByA(camera->getProjectionMatrix(),m_prevView));
+			return core::concatenateBFollowedByA(jitterMatrix,camera->getProjectionMatrix());
 		}(m_framesDispatched);
 		m_raytraceCommonData.rcpFramesDispatched = 1.f/float(m_framesDispatched);
 		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
-		if(!modifiedViewProj.getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(m_raytraceCommonData.viewProjMatrixInverse))
-			std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
+		
+		// work out the inverse of the Rotation component of the View applied before Projection
+		{
+			core::matrix4SIMD viewRotProjInv(m_prevView);
+			{
+				viewRotProjInv.setTranslation(core::vectorSIMDf(0.f));
+				if (!core::concatenateBFollowedByA(modifiedProj,viewRotProjInv).getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(viewRotProjInv))
+					std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
+			}
+			// w coordinate needs to be flipped
+			{
+				const auto tpose = core::transpose(viewRotProjInv);
+				m_raytraceCommonData.viewDirReconFactors[0] = tpose.rows[0]*core::vectorSIMDf( 2.f, 2.f, 2.f,-2.f);
+				m_raytraceCommonData.viewDirReconFactors[1] = tpose.rows[1]*core::vectorSIMDf(-2.f,-2.f,-2.f, 2.f);
+			}
+			m_raytraceCommonData.viewDirReconFactors[2].set(-1, 1, 1, 1);
+			viewRotProjInv.transformVect(m_raytraceCommonData.viewDirReconFactors[2]);
+			m_raytraceCommonData.viewDirReconFactors[2].w *= -1.f;
+		}
 		// for (auto i=0u; i<3u; i++)
 		// 	m_raytraceCommonData.ndcToV.rows[i] = inverseMVP.rows[3]*cameraPosition[i]-inverseMVP.rows[i];
+		
 		// cull batches
 		m_driver->bindComputePipeline(m_cullPipeline.get());
 		{
@@ -1818,8 +1836,8 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			IGPUDescriptorSet* descriptorSets[] = { m_globalBackendDataDS.get(),m_cullDS.get() };
 			m_driver->bindDescriptorSets(EPBP_COMPUTE,_cullPipelineLayout,0u,2u,descriptorSets,nullptr);
 			
-			m_cullPushConstants.viewProjMatrix = modifiedViewProj;
-			m_cullPushConstants.viewProjDeterminant = core::determinant(modifiedViewProj);
+			m_cullPushConstants.viewProjMatrix = core::concatenateBFollowedByA(modifiedProj,m_prevView);
+			m_cullPushConstants.viewProjDeterminant = core::determinant(m_cullPushConstants.viewProjMatrix);
 			m_driver->pushConstants(_cullPipelineLayout,ISpecializedShader::ESS_COMPUTE,0u,sizeof(CullShaderData_t),&m_cullPushConstants);
 		}
 		// TODO: Occlusion Culling against HiZ Buffer
