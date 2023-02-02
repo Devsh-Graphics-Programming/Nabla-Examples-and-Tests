@@ -121,7 +121,7 @@ uvec2 getImageDimensions(in StaticViewData_t data)
 
 struct RaytraceShaderCommonData_t
 {
-	mat4 	viewProjMatrixInverse;
+	vec4	viewDirReconFactors[3];
 	vec3	camPos;
 	float   rcpFramesDispatched;
 	uint	frameLowDiscrepancySequenceShift;
