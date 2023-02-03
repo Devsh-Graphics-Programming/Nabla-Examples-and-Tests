@@ -121,13 +121,13 @@ uvec2 getImageDimensions(in StaticViewData_t data)
 
 struct RaytraceShaderCommonData_t
 {
-	vec4	viewDirReconFactors[3];
-	vec3	camPos;
 	float   rcpFramesDispatched;
 	uint	frameLowDiscrepancySequenceShift;
 	uint	depth; // 0 if path tracing disabled
 	uint	rayCountWriteIx;
-	float	textureFootprintFactor;
+	// need to be at the end because of some PC -> OpenGL Uniform mapping bug
+	// mat3(viewDirReconFactors)*vec3(uv,1) or hitPoint-viewDirReconFactors[3]
+	mat4x3	viewDirReconFactors;
 };
 
 #include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
