@@ -206,13 +206,13 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 			switch (integrator->type)
 			{
 				case Enum::DIRECT:
-					pathDepth = 2u;
+					maxPathDepth = 2u;
 					break;
 				case Enum::PATH:
 				case Enum::VOL_PATH_SIMPLE:
 				case Enum::VOL_PATH:
 				case Enum::BDPT:
-					pathDepth = integrator->bdpt.maxPathDepth;
+					maxPathDepth = integrator->bdpt.maxPathDepth;
 					noRussianRouletteDepth = integrator->bdpt.russianRouletteDepth-1u;
 					break;
 				case Enum::ADAPTIVE:
@@ -1061,17 +1061,17 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 			}
 			// lets keep path length within bounds of sanity
 			constexpr auto MaxPathDepth = 255u;
-			if (pathDepth==0)
+			if (maxPathDepth==0)
 			{
 				printf("[ERROR] No suppoerted Integrator found in the Mitsuba XML, setting default.\n");
-				pathDepth = DefaultPathDepth;
+				maxPathDepth = DefaultPathDepth;
 			}
-			else if (pathDepth>MaxPathDepth)
+			else if (maxPathDepth>MaxPathDepth)
 			{
-				printf("[WARNING] Path Depth %d greater than maximum supported, clamping to %d\n",pathDepth,MaxPathDepth);
-				pathDepth = MaxPathDepth;
+				printf("[WARNING] Path Depth %d greater than maximum supported, clamping to %d\n",maxPathDepth,MaxPathDepth);
+				maxPathDepth = MaxPathDepth;
 			}
-			const uint32_t quantizedDimensions = SampleSequence::computeQuantizedDimensions(pathDepth);
+			const uint32_t quantizedDimensions = SampleSequence::computeQuantizedDimensions(maxPathDepth);
 			// The primary limiting factor is the precision of turning a fixed point grid sample to IEEE754 32bit float in the [0,1] range.
 			// Mantissa is only 23 bits, and primary sample space low discrepancy sequence will start to produce duplicates
 			// near 1.0 with exponent -1 after the sample count passes 2^24 elements.
@@ -1092,7 +1092,7 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 					cacheFile->drop();
 				}
 			}
-			std::cout << "\tpathDepth = " << pathDepth << std::endl;
+			std::cout << "\tmaxPathDepth = " << maxPathDepth << std::endl;
 			std::cout << "\tnoRussianRouletteDepth = " << noRussianRouletteDepth << std::endl;
 			std::cout << "\tmaxSamples = " << maxSensorSamples << std::endl;
 		}
@@ -1147,7 +1147,7 @@ void Renderer::deinitSceneResources()
 		rr->DeleteShape(shape);
 	rrShapes.clear();
 
-	pathDepth = DefaultPathDepth;
+	maxPathDepth = DefaultPathDepth;
 	noRussianRouletteDepth = 5u;
 	maxSensorSamples = MaxFreeviewSamples;
 }
@@ -1205,7 +1205,7 @@ void Renderer::initScreenSizedResources(
 	size_t scrambleBufferSize=0u;
 	size_t raygenBufferSize=0u,intersectionBufferSize=0u;
 	{
-		m_staticViewData.pathDepth = pathDepth;
+		m_staticViewData.maxPathDepth = maxPathDepth;
 		m_staticViewData.noRussianRouletteDepth = noRussianRouletteDepth;
 
 		uint32_t _maxRaysPerDispatch = 0u;
@@ -1231,7 +1231,7 @@ void Renderer::initScreenSizedResources(
 			printf("[INFO] Using %d samples (per pixel) per dispatch\n",getSamplesPerPixelPerDispatch());
 		}
 	}
-	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(pathDepth);
+	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(maxPathDepth);
 	auto stream = std::ofstream("runtime_defines.glsl");
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
@@ -1563,7 +1563,7 @@ void Renderer::deinitScreenSizedResources()
 
 	m_staticViewData.imageDimensions[0] = 0u;
 	m_staticViewData.imageDimensions[1] = 0u;
-	m_staticViewData.pathDepth = DefaultPathDepth;
+	m_staticViewData.maxPathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;
 	m_staticViewData.cascadeParams = {};
@@ -1872,7 +1872,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 	// raygen
 	{
 		// vertex 0 is camera
-		m_raytraceCommonData.depth = beauty ? 0u:(~0u);
+		m_raytraceCommonData.setPathDepth(beauty ? 0u:(~0u));
 
 		//
 		video::IGPUDescriptorSet* sameDS[2] = {m_raygenDS.get(),m_raygenDS.get()};
@@ -1885,7 +1885,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 	// path trace
 	if (beauty)
 	{
-		while (m_raytraceCommonData.depth!=m_staticViewData.pathDepth)
+		while (m_raytraceCommonData.getPathDepth()!=m_staticViewData.maxPathDepth)
 		{
 			uint32_t raycount;
 			 if(!traceBounce(raycount))
@@ -1935,12 +1935,13 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 void Renderer::preDispatch(const video::IGPUPipelineLayout* pipelineLayout, video::IGPUDescriptorSet*const *const lastDS)
 {
 	// increment depth
-	const uint32_t descSetIx = (++m_raytraceCommonData.depth)&0x1u;
+	const auto depth = m_raytraceCommonData.getPathDepth()+1;
+	m_raytraceCommonData.setPathDepth(depth);
+	const uint32_t descSetIx = depth&0x1u;
 	m_driver->pushConstants(pipelineLayout,ISpecializedShader::ESS_COMPUTE,0u,sizeof(RaytraceShaderCommonData_t),&m_raytraceCommonData);
 
-	// advance
-	static_assert(core::isPoT(RAYCOUNT_N_BUFFERING),"Raycount Buffer needs to be PoT sized!");
-	m_raytraceCommonData.rayCountWriteIx = (++m_raytraceCommonData.rayCountWriteIx)&RAYCOUNT_N_BUFFERING_MASK;
+	// advance rayCountWriteIx
+	m_raytraceCommonData.advanceWriteIndex();
 	
 	IGPUDescriptorSet* descriptorSets[4] = {m_globalBackendDataDS.get(),m_additionalGlobalDS.get(),m_commonRaytracingDS[descSetIx].get(),lastDS[descSetIx]};
 	m_driver->bindDescriptorSets(EPBP_COMPUTE,pipelineLayout,0u,4u,descriptorSets,nullptr);
@@ -1950,10 +1951,7 @@ bool Renderer::traceBounce(uint32_t& raycount)
 {
 	// probably wise to flush all caches (in the future can optimize to texture_fetch|shader_image_access|shader_storage_buffer|blit|texture_download|...)
 	COpenGLExtensionHandler::pGlMemoryBarrier(GL_ALL_BARRIER_BITS);
-	{
-		const auto rayCountReadIx = (m_raytraceCommonData.rayCountWriteIx-1u)&RAYCOUNT_N_BUFFERING_MASK;
-		m_driver->copyBuffer(m_rayCountBuffer.get(),m_littleDownloadBuffer.get(),sizeof(uint32_t)*rayCountReadIx,0u,sizeof(uint32_t));
-	}
+	m_driver->copyBuffer(m_rayCountBuffer.get(),m_littleDownloadBuffer.get(),sizeof(uint32_t)*m_raytraceCommonData.getReadIndex(),0u,sizeof(uint32_t));
 	glFinish(); // sync CPU to GL
 	raycount = *reinterpret_cast<uint32_t*>(m_littleDownloadBuffer->getBoundMemory()->getMappedPointer());
 
@@ -1962,7 +1960,7 @@ bool Renderer::traceBounce(uint32_t& raycount)
 		// trace rays
 		m_totalRaysCast += raycount;
 		{
-			const uint32_t descSetIx = m_raytraceCommonData.depth&0x1u;
+			const uint32_t descSetIx = m_raytraceCommonData.getPathDepth()&0x1u;
 
 			auto commandQueue = m_rrManager->getCLCommandQueue();
 			const cl_mem clObjects[] = {m_rayBuffer[descSetIx].asRRBuffer.second,m_intersectionBuffer[descSetIx].asRRBuffer.second};

@@ -10,7 +10,7 @@ layout(local_size_x = WORKGROUP_SIZE) in;
 
 uint get_path_vertex_depth()
 {
-	return pc.cummon.depth;
+	return bitfieldExtract(pc.cummon.pathDepth_rayCountWriteIx,0,RAYCOUNT_SHIFT);
 }
 
 #include <nbl/builtin/glsl/ext/RadeonRays/intersection.glsl>
@@ -26,7 +26,7 @@ layout(set = 3, binding = 1, std430) restrict buffer Queries
 
 bool get_sample_job()
 {
-	return gl_GlobalInvocationID.x<rayCount[(pc.cummon.rayCountWriteIx-1u)&uint(RAYCOUNT_N_BUFFERING_MASK)];
+	return gl_GlobalInvocationID.x<rayCount[(pc.cummon.pathDepth_rayCountWriteIx-(0x1u<<RAYCOUNT_SHIFT))>>RAYCOUNT_SHIFT];
 }
 
 void main()
@@ -80,8 +80,8 @@ void main()
 			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
 			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material);
 	
-			const uint pathDepth = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,0,8);
-			const bool _continue = vertex_depth!=pathDepth && material.genchoice_count!=0u && ray.maxT==nbl_glsl_FLT_MAX; // not last vertex and has a BxDF and not NEE path
+			const uint maxPathDepth = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,0,8);
+			const bool _continue = vertex_depth!=maxPathDepth && material.genchoice_count!=0u && ray.maxT==nbl_glsl_FLT_MAX; // not last vertex and has a BxDF and not NEE path
 			if (_continue)
 			{
 				// if we ever support spatially varying emissive, we'll need to hoist barycentric computation and UV fetching to the position fetching
@@ -113,7 +113,7 @@ void main()
 			
 		Contribution_normalizeAoV(contrib);
 		
-		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
+		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 		const uvec3 accumulationLocation = uvec3(outPixelLocation,sampleID%samplesPerPixelPerDispatch);
 		// TODO: finish MIS
 		contrib.color *= throughput;

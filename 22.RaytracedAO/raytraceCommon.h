@@ -98,12 +98,12 @@ struct StaticViewData_t
 {
 #ifdef __cplusplus
 	uint16_t imageDimensions[2];
-	uint8_t pathDepth;
+	uint8_t maxPathDepth;
 	uint8_t noRussianRouletteDepth;
 	uint16_t samplesPerPixelPerDispatch;
 #else
 	uint imageDimensions;
-	uint pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
+	uint maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch;
 #endif
 	uint sampleSequenceStride; // this is a very small number actually, probably 20 bits left to play with
 	uint lightCount;
@@ -119,15 +119,40 @@ uvec2 getImageDimensions(in StaticViewData_t data)
 }
 #endif
 
+
 struct RaytraceShaderCommonData_t
 {
 	float   rcpFramesDispatched;
 	uint	frameLowDiscrepancySequenceShift;
-	uint	depth; // 0 if path tracing disabled
-	uint	rayCountWriteIx;
+	uint	pathDepth_rayCountWriteIx; // depth=0 if path tracing disabled
+	float	textureFootprintFactor;
 	// need to be at the end because of some PC -> OpenGL Uniform mapping bug
 	// mat3(viewDirReconFactors)*vec3(uv,1) or hitPoint-viewDirReconFactors[3]
 	mat4x3	viewDirReconFactors;
+
+#ifdef __cplusplus
+	uint32_t getPathDepth() const
+	{
+		return nbl::core::bitfieldExtract(pathDepth_rayCountWriteIx,0,RAYCOUNT_SHIFT);
+	}
+	void setPathDepth(const uint32_t depth)
+	{
+		pathDepth_rayCountWriteIx = nbl::core::bitfieldInsert(pathDepth_rayCountWriteIx,depth,0,RAYCOUNT_SHIFT);
+	}
+
+	uint32_t getReadIndex() const
+	{
+		const uint32_t index = nbl::core::bitfieldExtract(pathDepth_rayCountWriteIx,RAYCOUNT_SHIFT,RAYCOUNT_N_BUFFERING_LOG2);
+		if (index)
+			return index-1;
+		return RAYCOUNT_N_BUFFERING-1;
+	}
+	void advanceWriteIndex()
+	{
+		const uint32_t writeIx = nbl::core::bitfieldExtract(pathDepth_rayCountWriteIx,RAYCOUNT_SHIFT,RAYCOUNT_N_BUFFERING_LOG2);
+		pathDepth_rayCountWriteIx = nbl::core::bitfieldInsert(pathDepth_rayCountWriteIx,writeIx+1,RAYCOUNT_SHIFT,RAYCOUNT_N_BUFFERING_LOG2);
+	}
+#endif
 };
 
 #include <nbl/builtin/glsl/re_weighted_monte_carlo/reweighting.glsl>
