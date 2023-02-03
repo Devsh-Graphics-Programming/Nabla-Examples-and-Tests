@@ -697,11 +697,13 @@ int main(int argc, char** argv)
 						assert(false);
 						break;
 				}
-
+				core::matrix4SIMD projMat;
+				projMat.setTranslation(core::vectorSIMDf(persp->shiftX,-persp->shiftY,0.f,1.f));
 				if (mainSensorData.rightHandedCamera)
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
 				else
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+				staticCamera->setProjectionMatrix(projMat);
 			}
 			else
 			{

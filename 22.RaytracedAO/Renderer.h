@@ -199,7 +199,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			private:
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
 		} sampleSequence;
-		uint16_t pathDepth;
+		uint16_t maxPathDepth;
 		uint16_t noRussianRouletteDepth;
 		uint32_t maxSensorSamples;
 

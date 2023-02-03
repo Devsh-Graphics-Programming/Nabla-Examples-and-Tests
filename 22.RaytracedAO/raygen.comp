@@ -35,7 +35,7 @@ void main()
 		const vec2 texCoordUV = (vec2(outPixelLocation)+vec2(0.5))/vec2(getImageDimensions(staticViewData));
 		normalizedV = normalize(mat3(pc.cummon.viewDirReconFactors)*vec3(texCoordUV,1.f));
 		
-		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
+		const uint samplesPerPixelPerDispatch = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,16,16);
 		Contribution contrib;
 		const bool hit = visBuffer[0]!=0xffffffffu;
 		if (hit)
@@ -94,7 +94,7 @@ void main()
 		else
 			Contribution_initMiss(contrib,1.f);
 
-		if (bool(pc.cummon.depth))
+		if (bool(bitfieldExtract(pc.cummon.pathDepth_rayCountWriteIx,0,RAYCOUNT_SHIFT)))
 		{
 			Contribution_normalizeAoV(contrib);
 		
