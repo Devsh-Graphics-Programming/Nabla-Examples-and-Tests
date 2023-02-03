@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-	m_staticViewData{ {0u,0u},0u,0u,{} }, m_raytraceCommonData{ {}, vec3(),0.f,0u,0u,0u,0.f},
+	m_staticViewData{ {0u,0u},0u,0u,{} }, m_raytraceCommonData{ 0.f,0u,0u,0u,core::matrix3x4SIMD() },
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -1127,7 +1127,7 @@ void Renderer::deinitSceneResources()
 	m_indirectDrawBuffers[1] = m_indirectDrawBuffers[0] = nullptr;
 	m_indexBuffer = nullptr;
 
-	m_raytraceCommonData = { {},vec3(),0.f,0,0,0,0.f };
+	m_raytraceCommonData = { 0.f,0u,0u,0u,core::matrix3x4SIMD() };
 	m_sceneBound = core::aabbox3df(FLT_MAX, FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
 	m_maxAreaLightLuma = 0.f;
 	
@@ -1805,9 +1805,10 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			return core::concatenateBFollowedByA(jitterMatrix,camera->getProjectionMatrix());
 		}(m_framesDispatched);
 		m_raytraceCommonData.rcpFramesDispatched = 1.f/float(m_framesDispatched);
-		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
+		//m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
 		
 		// work out the inverse of the Rotation component of the View applied before Projection
+		core::matrix4SIMD viewDirReconFactorsT;
 		{
 			core::matrix4SIMD viewRotProjInv(m_prevView);
 			{
@@ -1815,18 +1816,14 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 				if (!core::concatenateBFollowedByA(modifiedProj,viewRotProjInv).getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(viewRotProjInv))
 					std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
 			}
-			// w coordinate needs to be flipped
+			// normalizedV = normalize(-viewRotProjInv*vec3(NDC*vec2(2,-2)+vec2(-1,1),1))
 			{
-				const auto tpose = core::transpose(viewRotProjInv);
-				m_raytraceCommonData.viewDirReconFactors[0] = tpose.rows[0]*core::vectorSIMDf( 2.f, 2.f, 2.f,-2.f);
-				m_raytraceCommonData.viewDirReconFactors[1] = tpose.rows[1]*core::vectorSIMDf(-2.f,-2.f,-2.f, 2.f);
+				const auto T = core::transpose(viewRotProjInv);
+				viewDirReconFactorsT.rows[0] = T.rows[0] * -2.f;
+				viewDirReconFactorsT.rows[1] = T.rows[1] * +2.f;
+				viewDirReconFactorsT.rows[2] = T.rows[0]-T.rows[1]-T.rows[2]-T.rows[3];
 			}
-			m_raytraceCommonData.viewDirReconFactors[2].set(-1, 1, 1, 1);
-			viewRotProjInv.transformVect(m_raytraceCommonData.viewDirReconFactors[2]);
-			m_raytraceCommonData.viewDirReconFactors[2].w *= -1.f;
 		}
-		// for (auto i=0u; i<3u; i++)
-		// 	m_raytraceCommonData.ndcToV.rows[i] = inverseMVP.rows[3]*cameraPosition[i]-inverseMVP.rows[i];
 		
 		// cull batches
 		m_driver->bindComputePipeline(m_cullPipeline.get());
@@ -1869,10 +1866,8 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 		m_cullPushConstants.currentCommandBufferIx ^= 0x01u;
 
 		// prepare camera data for raytracing
-		const auto cameraPosition = core::vectorSIMDf().set(camera->getAbsolutePosition());
-		m_raytraceCommonData.camPos.x = cameraPosition.x;
-		m_raytraceCommonData.camPos.y = cameraPosition.y;
-		m_raytraceCommonData.camPos.z = cameraPosition.z;
+		viewDirReconFactorsT.rows[3] = core::vectorSIMDf().set(camera->getAbsolutePosition());
+		m_raytraceCommonData.viewDirReconFactors = core::transpose(viewDirReconFactorsT).extractSub3x4();
 	}
 	// raygen
 	{
