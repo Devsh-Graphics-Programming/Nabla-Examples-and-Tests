@@ -4,16 +4,17 @@
 #include "../common/CommonAPI.h"
 
 
-static constexpr bool DebugMode = true;
+static constexpr bool DebugMode = false;
 
 enum class ExampleMode
 {
 	CASE_0, // Zooming In/Out
 	CASE_1, // Rotating Line
 	CASE_2, // Straight Line Moving up and down
+	CASE_3, // Ellipses
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_1;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 
 struct double4x4
@@ -99,7 +100,7 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.2 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.2};
+				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
 				m_size = double2 {core::max(m_aspectRatio, m_size.x), core::max(1.0, m_size.y)};
 			}
 		}
@@ -601,33 +602,52 @@ public:
 			linePoints.push_back({ -30.0, 50.0 });
 			linePoints.push_back({ -30.0, 110.0 });
 			linePoints.push_back({ +30.0, -112.0 });
+			addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			const double start = 0.0;
-			const double end = core::PI<double>() / 3.0;
-			constexpr double twoPi = core::PI<double>() * 2.0;
-			EllipseInfo ellipse = {};
-			const double a = timeElapsed * 0.001;
-			// ellipse.majorAxis = { 20.0 * cos(a), 20.0 * sin(a) };
-			ellipse.majorAxis = { 30.0, 0.0 };
-			ellipse.center = { 0, 0 };
-			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
-			ellipse.angleBoundsPacked = {
-				static_cast<uint32_t>((start / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>((end / twoPi) * UINT32_MAX)
-			};
-			addEllipse(ellipse);
-
 			linePoints.push_back({ 0.0, 0.0 });
-			linePoints.push_back( ellipse.majorAxis );
+			linePoints.push_back({ 30.0, 30.0 });
+			addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
 			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10 });
 			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
+			addLines(std::move(linePoints));
 		}
-		// addLines(std::move(linePoints));
+		else if (mode == ExampleMode::CASE_3)
+		{
+			constexpr double twoPi = core::PI<double>() * 2.0;
+			EllipseInfo ellipse = {};
+			const double a = timeElapsed * 0.001;
+			// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
+			ellipse.majorAxis = { 40.0, 0.0 };
+			ellipse.center = { 0, 0 };
+			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
+
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((0.0) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX)
+			};
+			addEllipse(ellipse);
+
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX)
+			};
+			addEllipse(ellipse);
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
+			};
+			addEllipse(ellipse);
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
+			};
+			addEllipse(ellipse);
+		}
 	}
 
 	void onAppTerminated_impl() override
