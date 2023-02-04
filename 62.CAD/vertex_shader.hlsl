@@ -2,6 +2,14 @@
 
 #include "common.hlsl"
 
+float2 intersectLines2D(in float2 p1, in float2 v1, in float2 v2) /* p2 is zero */
+{
+    float det = v1.x * v2.y - v1.y * v2.x;
+    float2x2 inv = float2x2(-v1.y, v1.x, -v2.y, v2.x) / det;
+    float2 t = mul(inv, p1);
+    return mul(v2, t.y);
+}
+
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -49,25 +57,48 @@ PSInput main(uint vertexID : SV_VertexID)
         double2 angleBounds = ((double2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
         const double eccentricity = (double)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
         
-        double majorAxisLength = length(transformedMajorAxis);
-        double minorAxisLength = majorAxisLength * eccentricity;
-        double2 ab = double2(majorAxisLength, -minorAxisLength);
-        double2 start = ab * double2(cos(angleBounds.x), sin(angleBounds.x));
-        double2 end = ab * double2(cos(angleBounds.y), sin(angleBounds.y));
-        
-        // TODO: Figure out correct math for cage
+        float majorAxisLength = length(transformedMajorAxis);
+        float minorAxisLength = float(majorAxisLength * eccentricity);
+        float2 ab = float2(majorAxisLength, minorAxisLength);
+        float2 start = float2(ab * double2(cos(angleBounds.x), sin(angleBounds.x)));
+        float2 end = float2(ab * double2(cos(angleBounds.y), sin(angleBounds.y)));
+        float2 startToEnd = end - start;
+
         if (vertexIdx == 0u || vertexIdx == 1u)
         {
-            outV.position.xy = start + normalize(start) * ((float)vertexIdx - 0.5f) * antiAliasedLineWidth * 5;
+            if (vertexIdx == 0u)
+                outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
+            else
+            {
+                float theta = atan2(startToEnd.y, (eccentricity * startToEnd.x)) + nbl_hlsl_PI;
+
+                // if (theta > angleBounds.y || theta < angleBounds.x)
+
+                // p in the direction of startToEnd is the line tangent to ellipse
+                const float2 axes = ab + float2(antiAliasedLineWidth, antiAliasedLineWidth);
+                float2 p = float2(axes * double2(cos(theta), sin(theta)));
+                float2 intersection = intersectLines2D(p, startToEnd, start);
+                outV.position.xy = intersection;
+            }
         }
         else // if (vertexIdx == 2u || vertexIdx == 3u)
         {
-            outV.position.xy = end + normalize(end) * ((float)vertexIdx - 2.5f) * antiAliasedLineWidth * 5;
+            if (vertexIdx == 2u)
+                outV.position.xy = end - normalize(end) * antiAliasedLineWidth * 0.5f;
+            else
+            {
+                float theta = atan2(startToEnd.y, (eccentricity * startToEnd.x)) + nbl_hlsl_PI;
+                // p in the direction of startToEnd is the line tangent to ellipse
+                const float2 axes = ab;
+                float2 p = float2(axes * double2(cos(theta), sin(theta)));
+                float2 intersection = intersectLines2D(p, startToEnd, end);
+                outV.position.xy = intersection;
+            }
         }
 
         // Transform from ellipse screen space to actual screen space
-        double2 dir = normalize(transformedMajorAxis);
-        outV.position.xy = mul(double2x2(dir.x, -dir.y, dir.y, dir.x), outV.position.xy);
+        float2 dir = normalize(transformedMajorAxis);
+        outV.position.xy = mul(float2x2(dir.x, dir.y, -dir.y, dir.x), outV.position.xy);
         outV.position.xy += transformedCenter;
         
         // Transform to ndc
@@ -76,14 +107,14 @@ PSInput main(uint vertexID : SV_VertexID)
 
         //if (objectID == 4u)
         //{
-            if (vertexIdx == 0u)
-                outV.position = float4(-1, -1, 0, 1);
-            else if (vertexIdx == 1u)
-                outV.position = float4(-1, +1, 0, 1);
-            else if (vertexIdx == 2u)
-                outV.position = float4(+1, -1, 0, 1);
-            else if (vertexIdx == 3u)
-                outV.position = float4(+1, +1, 0, 1);
+            //if (vertexIdx == 0u)
+            //    outV.position = float4(-1, -1, 0, 1);
+            //else if (vertexIdx == 1u)
+            //    outV.position = float4(-1, +1, 0, 1);
+            //else if (vertexIdx == 2u)
+            //    outV.position = float4(+1, -1, 0, 1);
+            //else if (vertexIdx == 3u)
+            //    outV.position = float4(+1, +1, 0, 1);
         //}
     }
     else if (objType == ObjectType::LINE)

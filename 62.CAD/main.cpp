@@ -4,7 +4,7 @@
 #include "../common/CommonAPI.h"
 
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 
 enum class ExampleMode
 {
@@ -605,15 +605,14 @@ public:
 		else if (mode == ExampleMode::CASE_1)
 		{
 			const double start = 0.0;
-			const double end = core::PI<double>() / 4.0;
+			const double end = core::PI<double>() / 3.0;
 			constexpr double twoPi = core::PI<double>() * 2.0;
 			EllipseInfo ellipse = {};
 			const double a = timeElapsed * 0.001;
-			ellipse.majorAxis = { 20.0 * cos(a), 20.0 * sin(a) };
-			volatile const double len = sqrt(pow(ellipse.majorAxis.x, 2.0) + pow(ellipse.majorAxis.y, 2.0));
-			// ellipse.majorAxis = { 30.0, 0.0 };
+			// ellipse.majorAxis = { 20.0 * cos(a), 20.0 * sin(a) };
+			ellipse.majorAxis = { 30.0, 0.0 };
 			ellipse.center = { 0, 0 };
-			ellipse.eccentricityPacked = (0.2 * UINT32_MAX);
+			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
 			ellipse.angleBoundsPacked = {
 				static_cast<uint32_t>((start / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>((end / twoPi) * UINT32_MAX)
@@ -628,7 +627,7 @@ public:
 			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10 });
 			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
 		}
-		addLines(std::move(linePoints));
+		// addLines(std::move(linePoints));
 	}
 
 	void onAppTerminated_impl() override
@@ -696,7 +695,7 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 0.5f);
-		globalData.lineWidth = 2.0f;
+		globalData.lineWidth = 6.0f;
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
