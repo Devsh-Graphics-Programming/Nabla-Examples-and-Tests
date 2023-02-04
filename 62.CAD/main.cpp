@@ -647,6 +647,12 @@ public:
 				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
 			};
 			addEllipse(ellipse);
+
+			linePoints.push_back({ -50.0, 0.0 });
+			linePoints.push_back({ sin(timeElapsed * 0.0005) * 20, cos(timeElapsed * 0.0005) * 20 });
+			linePoints.push_back({ -sin(timeElapsed * 0.0005) * 20, -cos(timeElapsed * 0.0005) * 20 });
+			linePoints.push_back({ 50.0, 0.5 });
+			addLines(std::move(linePoints));
 		}
 	}
 

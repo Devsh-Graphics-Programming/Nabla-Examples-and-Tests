@@ -64,33 +64,31 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 end = float2(ab * double2(cos(angleBounds.y), sin(angleBounds.y)));
         float2 startToEnd = end - start;
 
-        if (vertexIdx == 0u || vertexIdx == 1u)
+        if (vertexIdx == 0u)
         {
-            if (vertexIdx == 0u)
-                outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
-            else
-            {
-                // from p in the direction of startToEnd is the line tangent to ellipse
-                float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
-                float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
-                float2 p = float2(ab * double2(cos(theta), sin(theta)));
-                float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start);
-                outV.position.xy = intersection;
-            }
+            outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
         }
-        else // if (vertexIdx == 2u || vertexIdx == 3u)
+        else if (vertexIdx == 1u)
         {
-            if (vertexIdx == 2u)
-                outV.position.xy = end - normalize(end) * antiAliasedLineWidth * 0.5f;
-            else
-            {
-                // from p in the direction of startToEnd is the line tangent to ellipse
-                float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
-                float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
-                float2 p = float2(ab * double2(cos(theta), sin(theta)));
-                float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end);
-                outV.position.xy = intersection;
-            }
+            // from p in the direction of startToEnd is the line tangent to ellipse
+            float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
+            float2 p = float2(ab * double2(cos(theta), sin(theta)));
+            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start);
+            outV.position.xy = intersection;
+        }
+        else if (vertexIdx == 2u)
+        {
+            outV.position.xy = end - normalize(end) * antiAliasedLineWidth * 0.5f;
+        }
+        else
+        {
+            // from p in the direction of startToEnd is the line tangent to ellipse
+            float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
+            float2 p = float2(ab * double2(cos(theta), sin(theta)));
+            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end);
+            outV.position.xy = intersection;
         }
 
         // Transform from ellipse screen space to actual screen space
