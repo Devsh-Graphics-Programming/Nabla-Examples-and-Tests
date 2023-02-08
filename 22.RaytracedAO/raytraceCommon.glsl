@@ -52,7 +52,7 @@ layout(set = 2, binding = 9) uniform sampler2D luminance;
 void clear_raycount()
 {
 	if (all(equal(uvec3(0u),gl_GlobalInvocationID)))
-		rayCount[(pc.cummon.rayCountWriteIx+1u)&uint(RAYCOUNT_N_BUFFERING_MASK)] = 0u;
+		rayCount[(pc.cummon.pathDepth_rayCountWriteIx+(0x1u<<RAYCOUNT_SHIFT))>>RAYCOUNT_SHIFT] = 0u;
 }
 
 //
@@ -441,7 +441,7 @@ nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 #endif
 
 	// russian roulette
-	const uint noRussianRouletteDepth = bitfieldExtract(staticViewData.pathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,8,8);
+	const uint noRussianRouletteDepth = bitfieldExtract(staticViewData.maxPathDepth_noRussianRouletteDepth_samplesPerPixelPerDispatch,8,8);
 	if (depth>noRussianRouletteDepth)
 	{
 		const float rrContinuationFactor = 0.25f;
@@ -505,7 +505,7 @@ uint generate_next_rays(
 		}
 	}
 	// TODO: investigate workgroup reductions here
-	const uint baseOutputID = atomicAdd(rayCount[pc.cummon.rayCountWriteIx],raysToAllocate);
+	const uint baseOutputID = atomicAdd(rayCount[pc.cummon.pathDepth_rayCountWriteIx>>RAYCOUNT_SHIFT],raysToAllocate);
 
 	// set to 1 if ray generated
 	uint rayMask = 0u;

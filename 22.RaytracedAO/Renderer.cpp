@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-		m_staticViewData{{0u,0u},0u,0u,{}}, m_raytraceCommonData{core::matrix4SIMD(), vec3(),0.f,0u,0u,0u,0.f},
+	m_staticViewData{ {0u,0u},0u,0u,{} }, m_raytraceCommonData{ 0.f,0u,0u,0u,core::matrix3x4SIMD() },
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -206,13 +206,13 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 			switch (integrator->type)
 			{
 				case Enum::DIRECT:
-					pathDepth = 2u;
+					maxPathDepth = 2u;
 					break;
 				case Enum::PATH:
 				case Enum::VOL_PATH_SIMPLE:
 				case Enum::VOL_PATH:
 				case Enum::BDPT:
-					pathDepth = integrator->bdpt.maxPathDepth;
+					maxPathDepth = integrator->bdpt.maxPathDepth;
 					noRussianRouletteDepth = integrator->bdpt.russianRouletteDepth-1u;
 					break;
 				case Enum::ADAPTIVE:
@@ -710,15 +710,24 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	video::IFrameBuffer* finalEnvFramebuffer = nullptr;
 	{
 		const auto colorFormat = asset::EF_R16G16B16A16_SFLOAT;
-		const auto resolution = 0x1u<<(MipCountEnvmap-1u);
+		// don't touch this, 4x2 envmap is absolute minimum to have everything working
+		uint32_t newWidth = 4;
+		for (const auto& envmapCpuImage : m_globalMeta->m_global.m_envMapImages)
+		{
+			const auto& extent = envmapCpuImage->getCreationParameters().extent;
+			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
+		}
+		// full mipchain would be `MSB+1` but we want it to stop at 4x2
+		const auto mipLevels = core::findMSB(newWidth)-1;
 
 		IGPUImage::SCreationParams imgInfo;
 		imgInfo.format = colorFormat;
 		imgInfo.type = IGPUImage::ET_2D;
-		imgInfo.extent.width = resolution;
-		imgInfo.extent.height = resolution/2;
+		imgInfo.extent.width = newWidth;
+		imgInfo.extent.height = newWidth>>1u;
 		imgInfo.extent.depth = 1u;
-		imgInfo.mipLevels = MipCountEnvmap;
+
+		imgInfo.mipLevels = mipLevels;
 		imgInfo.arrayLayers = 1u;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
@@ -733,7 +742,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 		imgViewInfo.subresourceRange.baseMipLevel = 0u;
 		imgViewInfo.subresourceRange.layerCount = 1u;
-		imgViewInfo.subresourceRange.levelCount = MipCountEnvmap;
+		imgViewInfo.subresourceRange.levelCount = mipLevels;
 
 		m_finalEnvmap = m_driver->createGPUImageView(std::move(imgViewInfo));
 
@@ -748,7 +757,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		IGPUDescriptorSet::SDescriptorInfo info;
 		{
 			info.desc = gpuImageView;
-			ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
+			ISampler::SParams samplerParams = { ISampler::ETC_REPEAT, ISampler::ETC_REPEAT, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 			info.image.sampler = m_driver->createGPUSampler(samplerParams);
 			info.image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
 		}
@@ -770,9 +779,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	m_driver->setRenderTarget(finalEnvFramebuffer, true);
 	float colorClearValues[] = { _envmapBaseColor.x, _envmapBaseColor.y, _envmapBaseColor.z, _envmapBaseColor.w };
 	m_driver->clearColorBuffer(video::EFAP_COLOR_ATTACHMENT0, colorClearValues);
-	for(uint32_t i = 0u; i < m_globalMeta->m_global.m_envMapImages.size(); ++i)
+	for(const auto& envmapCpuImage : m_globalMeta->m_global.m_envMapImages)
 	{
-		auto envmapCpuImage = m_globalMeta->m_global.m_envMapImages[i];
 		ICPUImageView::SCreationParams viewParams;
 		viewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
 		viewParams.image = envmapCpuImage;
@@ -1053,17 +1061,17 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 			}
 			// lets keep path length within bounds of sanity
 			constexpr auto MaxPathDepth = 255u;
-			if (pathDepth==0)
+			if (maxPathDepth==0)
 			{
 				printf("[ERROR] No suppoerted Integrator found in the Mitsuba XML, setting default.\n");
-				pathDepth = DefaultPathDepth;
+				maxPathDepth = DefaultPathDepth;
 			}
-			else if (pathDepth>MaxPathDepth)
+			else if (maxPathDepth>MaxPathDepth)
 			{
-				printf("[WARNING] Path Depth %d greater than maximum supported, clamping to %d\n",pathDepth,MaxPathDepth);
-				pathDepth = MaxPathDepth;
+				printf("[WARNING] Path Depth %d greater than maximum supported, clamping to %d\n",maxPathDepth,MaxPathDepth);
+				maxPathDepth = MaxPathDepth;
 			}
-			const uint32_t quantizedDimensions = SampleSequence::computeQuantizedDimensions(pathDepth);
+			const uint32_t quantizedDimensions = SampleSequence::computeQuantizedDimensions(maxPathDepth);
 			// The primary limiting factor is the precision of turning a fixed point grid sample to IEEE754 32bit float in the [0,1] range.
 			// Mantissa is only 23 bits, and primary sample space low discrepancy sequence will start to produce duplicates
 			// near 1.0 with exponent -1 after the sample count passes 2^24 elements.
@@ -1084,7 +1092,7 @@ void Renderer::initSceneResources(SAssetBundle& meshes, nbl::io::path&& _sampleS
 					cacheFile->drop();
 				}
 			}
-			std::cout << "\tpathDepth = " << pathDepth << std::endl;
+			std::cout << "\tmaxPathDepth = " << maxPathDepth << std::endl;
 			std::cout << "\tnoRussianRouletteDepth = " << noRussianRouletteDepth << std::endl;
 			std::cout << "\tmaxSamples = " << maxSensorSamples << std::endl;
 		}
@@ -1119,7 +1127,7 @@ void Renderer::deinitSceneResources()
 	m_indirectDrawBuffers[1] = m_indirectDrawBuffers[0] = nullptr;
 	m_indexBuffer = nullptr;
 
-	m_raytraceCommonData = {core::matrix4SIMD(),vec3(),0.f,0,0,0,0.f};
+	m_raytraceCommonData = { 0.f,0u,0u,0u,core::matrix3x4SIMD() };
 	m_sceneBound = core::aabbox3df(FLT_MAX, FLT_MAX, FLT_MAX, -FLT_MAX, -FLT_MAX, -FLT_MAX);
 	m_maxAreaLightLuma = 0.f;
 	
@@ -1139,7 +1147,7 @@ void Renderer::deinitSceneResources()
 		rr->DeleteShape(shape);
 	rrShapes.clear();
 
-	pathDepth = DefaultPathDepth;
+	maxPathDepth = DefaultPathDepth;
 	noRussianRouletteDepth = 5u;
 	maxSensorSamples = MaxFreeviewSamples;
 }
@@ -1197,7 +1205,7 @@ void Renderer::initScreenSizedResources(
 	size_t scrambleBufferSize=0u;
 	size_t raygenBufferSize=0u,intersectionBufferSize=0u;
 	{
-		m_staticViewData.pathDepth = pathDepth;
+		m_staticViewData.maxPathDepth = maxPathDepth;
 		m_staticViewData.noRussianRouletteDepth = noRussianRouletteDepth;
 
 		uint32_t _maxRaysPerDispatch = 0u;
@@ -1223,7 +1231,7 @@ void Renderer::initScreenSizedResources(
 			printf("[INFO] Using %d samples (per pixel) per dispatch\n",getSamplesPerPixelPerDispatch());
 		}
 	}
-	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(pathDepth);
+	m_staticViewData.sampleSequenceStride = SampleSequence::computeQuantizedDimensions(maxPathDepth);
 	auto stream = std::ofstream("runtime_defines.glsl");
 
 	stream << "#define _NBL_EXT_MITSUBA_LOADER_VT_STORAGE_VIEW_COUNT " << m_globalMeta->m_global.getVTStorageViewCount() << "\n"
@@ -1555,7 +1563,7 @@ void Renderer::deinitScreenSizedResources()
 
 	m_staticViewData.imageDimensions[0] = 0u;
 	m_staticViewData.imageDimensions[1] = 0u;
-	m_staticViewData.pathDepth = DefaultPathDepth;
+	m_staticViewData.maxPathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;
 	m_staticViewData.cascadeParams = {};
@@ -1704,14 +1712,8 @@ void Renderer::denoiseCubemapFaces(
 		extractImagesCmd << "call ../extractCubemap.bat ";
 		extractImagesCmd << " " << std::to_string(cropOffsetX);
 		extractImagesCmd << " " << std::to_string(cropOffsetY);
-		extractImagesCmd << " " << std::to_string(cropWidth);
-		extractImagesCmd << " " << std::to_string(cropHeight);
 		extractImagesCmd << " " << mergedDenoisedWithoutExtension + extension;
-		for(uint32_t i = 0; i < 6; ++i)
-		{
-			auto renderFilePathWithoutExtension = std::filesystem::path(renderFilePaths[i]).replace_extension().string();
-			extractImagesCmd << " " << renderFilePathWithoutExtension + "_denoised" + extension;
-		}
+		extractImagesCmd << " " << mergedDenoisedWithoutExtension + "_stripe" + extension;
 		std::system(extractImagesCmd.str().c_str());
 	};
 
@@ -1788,7 +1790,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 	// raster jittered frame
 	{
 		// jitter with AA AntiAliasingSequence
-		const auto modifiedViewProj = [&](uint32_t frameID)
+		const auto modifiedProj = [&](uint32_t frameID)
 		{
 			const float stddev = 0.5f;
 			const float* sample = AntiAliasingSequence[frameID%AntiAliasingSequenceLength];
@@ -1800,14 +1802,29 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			core::matrix4SIMD jitterMatrix;
 			jitterMatrix.rows[0][3] = cosPhi*r*m_rcpPixelSize.x;
 			jitterMatrix.rows[1][3] = sinPhi*r*m_rcpPixelSize.y;
-			return core::concatenateBFollowedByA(jitterMatrix,core::concatenateBFollowedByA(camera->getProjectionMatrix(),m_prevView));
+			return core::concatenateBFollowedByA(jitterMatrix,camera->getProjectionMatrix());
 		}(m_framesDispatched);
 		m_raytraceCommonData.rcpFramesDispatched = 1.f/float(m_framesDispatched);
-		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
-		if(!modifiedViewProj.getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(m_raytraceCommonData.viewProjMatrixInverse))
-			std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
-		// for (auto i=0u; i<3u; i++)
-		// 	m_raytraceCommonData.ndcToV.rows[i] = inverseMVP.rows[3]*cameraPosition[i]-inverseMVP.rows[i];
+		//m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
+		
+		// work out the inverse of the Rotation component of the View applied before Projection
+		core::matrix4SIMD viewDirReconFactorsT;
+		{
+			core::matrix4SIMD viewRotProjInv(m_prevView);
+			{
+				viewRotProjInv.setTranslation(core::vectorSIMDf(0.f));
+				if (!core::concatenateBFollowedByA(modifiedProj,viewRotProjInv).getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(viewRotProjInv))
+					std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
+			}
+			// normalizedV = normalize(-viewRotProjInv*vec3(NDC*vec2(2,-2)+vec2(-1,1),1))
+			{
+				const auto T = core::transpose(viewRotProjInv);
+				viewDirReconFactorsT.rows[0] = T.rows[0] * -2.f;
+				viewDirReconFactorsT.rows[1] = T.rows[1] * +2.f;
+				viewDirReconFactorsT.rows[2] = T.rows[0]-T.rows[1]-T.rows[2]-T.rows[3];
+			}
+		}
+		
 		// cull batches
 		m_driver->bindComputePipeline(m_cullPipeline.get());
 		{
@@ -1816,8 +1833,8 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			IGPUDescriptorSet* descriptorSets[] = { m_globalBackendDataDS.get(),m_cullDS.get() };
 			m_driver->bindDescriptorSets(EPBP_COMPUTE,_cullPipelineLayout,0u,2u,descriptorSets,nullptr);
 			
-			m_cullPushConstants.viewProjMatrix = modifiedViewProj;
-			m_cullPushConstants.viewProjDeterminant = core::determinant(modifiedViewProj);
+			m_cullPushConstants.viewProjMatrix = core::concatenateBFollowedByA(modifiedProj,m_prevView);
+			m_cullPushConstants.viewProjDeterminant = core::determinant(m_cullPushConstants.viewProjMatrix);
 			m_driver->pushConstants(_cullPipelineLayout,ISpecializedShader::ESS_COMPUTE,0u,sizeof(CullShaderData_t),&m_cullPushConstants);
 		}
 		// TODO: Occlusion Culling against HiZ Buffer
@@ -1849,15 +1866,13 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 		m_cullPushConstants.currentCommandBufferIx ^= 0x01u;
 
 		// prepare camera data for raytracing
-		const auto cameraPosition = core::vectorSIMDf().set(camera->getAbsolutePosition());
-		m_raytraceCommonData.camPos.x = cameraPosition.x;
-		m_raytraceCommonData.camPos.y = cameraPosition.y;
-		m_raytraceCommonData.camPos.z = cameraPosition.z;
+		viewDirReconFactorsT.rows[3] = core::vectorSIMDf().set(camera->getAbsolutePosition());
+		m_raytraceCommonData.viewDirReconFactors = core::transpose(viewDirReconFactorsT).extractSub3x4();
 	}
 	// raygen
 	{
 		// vertex 0 is camera
-		m_raytraceCommonData.depth = beauty ? 0u:(~0u);
+		m_raytraceCommonData.setPathDepth(beauty ? 0u:(~0u));
 
 		//
 		video::IGPUDescriptorSet* sameDS[2] = {m_raygenDS.get(),m_raygenDS.get()};
@@ -1870,7 +1885,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 	// path trace
 	if (beauty)
 	{
-		while (m_raytraceCommonData.depth!=m_staticViewData.pathDepth)
+		while (m_raytraceCommonData.getPathDepth()!=m_staticViewData.maxPathDepth)
 		{
 			uint32_t raycount;
 			 if(!traceBounce(raycount))
@@ -1920,12 +1935,13 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 void Renderer::preDispatch(const video::IGPUPipelineLayout* pipelineLayout, video::IGPUDescriptorSet*const *const lastDS)
 {
 	// increment depth
-	const uint32_t descSetIx = (++m_raytraceCommonData.depth)&0x1u;
+	const auto depth = m_raytraceCommonData.getPathDepth()+1;
+	m_raytraceCommonData.setPathDepth(depth);
+	const uint32_t descSetIx = depth&0x1u;
 	m_driver->pushConstants(pipelineLayout,ISpecializedShader::ESS_COMPUTE,0u,sizeof(RaytraceShaderCommonData_t),&m_raytraceCommonData);
 
-	// advance
-	static_assert(core::isPoT(RAYCOUNT_N_BUFFERING),"Raycount Buffer needs to be PoT sized!");
-	m_raytraceCommonData.rayCountWriteIx = (++m_raytraceCommonData.rayCountWriteIx)&RAYCOUNT_N_BUFFERING_MASK;
+	// advance rayCountWriteIx
+	m_raytraceCommonData.advanceWriteIndex();
 	
 	IGPUDescriptorSet* descriptorSets[4] = {m_globalBackendDataDS.get(),m_additionalGlobalDS.get(),m_commonRaytracingDS[descSetIx].get(),lastDS[descSetIx]};
 	m_driver->bindDescriptorSets(EPBP_COMPUTE,pipelineLayout,0u,4u,descriptorSets,nullptr);
@@ -1935,10 +1951,7 @@ bool Renderer::traceBounce(uint32_t& raycount)
 {
 	// probably wise to flush all caches (in the future can optimize to texture_fetch|shader_image_access|shader_storage_buffer|blit|texture_download|...)
 	COpenGLExtensionHandler::pGlMemoryBarrier(GL_ALL_BARRIER_BITS);
-	{
-		const auto rayCountReadIx = (m_raytraceCommonData.rayCountWriteIx-1u)&RAYCOUNT_N_BUFFERING_MASK;
-		m_driver->copyBuffer(m_rayCountBuffer.get(),m_littleDownloadBuffer.get(),sizeof(uint32_t)*rayCountReadIx,0u,sizeof(uint32_t));
-	}
+	m_driver->copyBuffer(m_rayCountBuffer.get(),m_littleDownloadBuffer.get(),sizeof(uint32_t)*m_raytraceCommonData.getReadIndex(),0u,sizeof(uint32_t));
 	glFinish(); // sync CPU to GL
 	raycount = *reinterpret_cast<uint32_t*>(m_littleDownloadBuffer->getBoundMemory()->getMappedPointer());
 
@@ -1947,7 +1960,7 @@ bool Renderer::traceBounce(uint32_t& raycount)
 		// trace rays
 		m_totalRaysCast += raycount;
 		{
-			const uint32_t descSetIx = m_raytraceCommonData.depth&0x1u;
+			const uint32_t descSetIx = m_raytraceCommonData.getPathDepth()&0x1u;
 
 			auto commandQueue = m_rrManager->getCLCommandQueue();
 			const cl_mem clObjects[] = {m_rayBuffer[descSetIx].asRRBuffer.second,m_intersectionBuffer[descSetIx].asRRBuffer.second};

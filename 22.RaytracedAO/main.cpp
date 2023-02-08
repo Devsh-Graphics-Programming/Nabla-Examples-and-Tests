@@ -551,12 +551,12 @@ int main(int argc, char** argv)
 
 			nbl::core::vectorSIMDf camViews[6] =
 			{
-				nbl::core::vectorSIMDf(+1, 0, 0, 0), // +X
 				nbl::core::vectorSIMDf(-1, 0, 0, 0), // -X
-				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
+				nbl::core::vectorSIMDf(+1, 0, 0, 0), // +X
 				nbl::core::vectorSIMDf(0, -1, 0, 0), // -Y
-				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
+				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 				nbl::core::vectorSIMDf(0, 0, -1, 0), // -Z
+				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
 			};
 
 			if(!mainSensorData.rightHandedCamera)
@@ -569,8 +569,8 @@ int main(int argc, char** argv)
 			{
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
-				nbl::core::vectorSIMDf(0, 0, +1, 0), // -Z
-				nbl::core::vectorSIMDf(0, 0, -1, 0), // +Z
+				nbl::core::vectorSIMDf(0, 0, -1, 0), // -Z
+				nbl::core::vectorSIMDf(0, 0, +1, 0), // +Z
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 				nbl::core::vectorSIMDf(0, +1, 0, 0), // +Y
 			};
@@ -584,9 +584,9 @@ int main(int argc, char** argv)
 				SensorData cubemapFaceSensorData = mainSensorData;
 				cubemapFaceSensorData.envmap = true;
 
-				if((mainSensorData.width != mainSensorData.height) || (mainSensorData.cropWidth != mainSensorData.cropHeight))
+				if (mainSensorData.cropWidth != mainSensorData.cropHeight)
 				{
-					std::cout << "[ERROR] Cannot generate cubemap faces where film.width and film.height are not equal. (Aspect Ratio must be 1)" << std::endl;
+					std::cout << "[ERROR] Cannot generate cubemap faces where film.cropWidth and film.cropHeight are not equal. (Aspect Ratio must be 1)" << std::endl;
 					assert(false);
 				}
 
@@ -594,12 +594,12 @@ int main(int argc, char** argv)
 				cubemapFaceSensorData.outputFilePath.replace_extension();
 				constexpr const char* suffixes[6] =
 				{
-					"_x+.exr",
 					"_x-.exr",
-					"_y+.exr",
+					"_x+.exr",
 					"_y-.exr",
-					"_z+.exr",
+					"_y+.exr",
 					"_z-.exr",
+					"_z+.exr",
 				};
 				cubemapFaceSensorData.outputFilePath += suffixes[i];
 
@@ -613,14 +613,15 @@ int main(int argc, char** argv)
 				staticCamera->setTarget((mainCamPos + camView).getAsVector3df());
 				staticCamera->setUpVector(upVector);
 
-				// auto fov = core::radians(90.0f);
-				auto fov = atanf(float(cubemapFaceSensorData.width) / float(mainSensorData.width)) * 2.0f;
-				auto aspectRatio = 1.0f;
+				const float w = float(cubemapFaceSensorData.width)/float(cubemapFaceSensorData.cropWidth);
+				const float h = float(cubemapFaceSensorData.height)/float(cubemapFaceSensorData.cropHeight);
 				
+				const auto fov = atanf(h)*2.f;
+				const auto aspectRatio = h/w;
 				if (mainSensorData.rightHandedCamera)
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(fov, 1.0f, nearClip, farClip));
+					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(fov, aspectRatio, nearClip, farClip));
 				else
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(fov, 1.0f, nearClip, farClip));
+					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(fov, aspectRatio, nearClip, farClip));
 				
 				cubemapFaceSensorData.interactiveCamera = smgr->addCameraSceneNodeModifiedMaya(nullptr, -1.0f * mainSensorData.rotateSpeed, 50.0f, mainSensorData.moveSpeed, -1, 2.0f, defaultZoomSpeedMultiplier, false, true);
 				cubemapFaceSensorData.resetInteractiveCamera();
@@ -696,11 +697,13 @@ int main(int argc, char** argv)
 						assert(false);
 						break;
 				}
-
+				core::matrix4SIMD projMat;
+				projMat.setTranslation(core::vectorSIMDf(persp->shiftX,-persp->shiftY,0.f,1.f));
 				if (mainSensorData.rightHandedCamera)
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
 				else
-					staticCamera->setProjectionMatrix(core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
+				staticCamera->setProjectionMatrix(projMat);
 			}
 			else
 			{

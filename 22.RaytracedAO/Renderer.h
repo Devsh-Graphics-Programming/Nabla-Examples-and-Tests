@@ -199,7 +199,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			private:
 				nbl::core::smart_refctd_ptr<nbl::video::IGPUBufferView> bufferView;
 		} sampleSequence;
-		uint16_t pathDepth;
+		uint16_t maxPathDepth;
 		uint16_t noRussianRouletteDepth;
 		uint32_t maxSensorSamples;
 
@@ -250,7 +250,6 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::video::IFrameBuffer* m_visibilityBuffer,* m_colorBuffer;
 		
 		// Resources used for blending environmental maps
-		static constexpr uint32_t MipCountEnvmap = 11u;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline> blendEnvPipeline;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> blendEnvDescriptorSet;

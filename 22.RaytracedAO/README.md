@@ -48,6 +48,13 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 |   zoomSpeed   | Camera Zoom Speed     | float | NaN -> Will be deduced from scene bounds |
 |  rotateSpeed  | Camera Rotation Speed | float | 300.0                                    |
 
+#### Properties added to \<sensor type="perspective"\>:
+
+| Property Name | Description                                                              | Type  | Default Value |
+|---------------|--------------------------------------------------------------------------|-------|---------------|
+|    shiftX     | Right/Left Lens-Shift in NDC units, 1.0 moves screen center to the edge. | float |      0.0      |
+|    shiftY     | Up/Down Lens-Shift in NDC units, 1.0 moves screen center to the edge.    | float |      0.0      |
+
 ### Properties added to \<film\>
 | Property Name  | Description                                                                                                                             | Type    | Default Value                                                                                                                                                            |
 |----------------|-----------------------------------------------------------------------------------------------------------------------------------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
