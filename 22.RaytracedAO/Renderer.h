@@ -24,7 +24,6 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
     public:
 		#include "rasterizationCommon.h"
 		#include "raytraceCommon.h"
-		#include "nbl/builtin/glsl/ext/EnvmapImportanceSampling/parameters.glsl"
 		#ifdef __cplusplus
 			#undef uint
 			#undef vec4

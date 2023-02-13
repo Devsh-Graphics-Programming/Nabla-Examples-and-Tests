@@ -51,7 +51,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
-	m_staticViewData{ {0u,0u},0u,0u,{} }, m_raytraceCommonData{ 0.f,0u,0u,0u,core::matrix3x4SIMD() },
+		m_staticViewData{ {0u,0u},0u,0u,0u,0u,core::infinity<float>(),{}}, m_raytraceCommonData{0.f,0u,0u,0u,core::matrix3x4SIMD()},
 		m_indirectDrawBuffers{nullptr},m_cullPushConstants{core::matrix4SIMD(),1.f,0u,0u,0u},m_cullWorkGroups(0u),
 		m_raygenWorkGroups{0u,0u},m_visibilityBuffer(nullptr),m_colorBuffer(nullptr),
 		m_envMapImportanceSampling(_driver)
@@ -717,6 +717,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 			const auto& extent = envmapCpuImage->getCreationParameters().extent;
 			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
 		}
+		newWidth = core::roundUpToPoT<uint32_t>(newWidth); //		newWidth = 1024; // test for LUT accuracy
 		// full mipchain would be `MSB+1` but we want it to stop at 4x2
 		const auto mipLevels = core::findMSB(newWidth)-1;
 
@@ -806,7 +807,8 @@ void Renderer::finalizeScene(Renderer::InitializationData& initData)
 {
 	if (initData.lights.empty())
 		return;
-	m_staticViewData.lightCount = initData.lights.size();
+// TODO: later
+//	m_staticViewData.lightCount = initData.lights.size();
 
 	const double weightSum = std::accumulate(initData.lightPDF.begin(),initData.lightPDF.end(),0.0);
 	assert(weightSum>FLT_MIN);
@@ -1133,7 +1135,7 @@ void Renderer::deinitSceneResources()
 	
 	m_finalEnvmap = nullptr;
 	m_envMapImportanceSampling.deinitResources();
-	m_staticViewData = {{0u,0u},0u,0u,{}};
+	m_staticViewData = {{0u,0u},0u,0u,0u,0u,core::infinity<float>(),{}};
 
 	auto rr = m_rrManager->getRadeonRaysAPI();
 	rr->DetachAll();
@@ -1162,7 +1164,7 @@ void Renderer::initScreenSizedResources(
 )
 {
 	float maxEmitterRadianceLuma;
-	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor,maxEmitterRadianceLuma);
+	bool enableRIS = m_envMapImportanceSampling.computeWarpMap(envMapRegularizationFactor,m_staticViewData.envMapPDFNormalizationFactor,maxEmitterRadianceLuma);
 	if (maxEmitterRadianceLuma<m_maxAreaLightLuma)
 		maxEmitterRadianceLuma = m_maxAreaLightLuma;
 	if (maxEmitterRadianceLuma<Emin)
@@ -1566,6 +1568,7 @@ void Renderer::deinitScreenSizedResources()
 	m_staticViewData.maxPathDepth = DefaultPathDepth;
 	m_staticViewData.noRussianRouletteDepth = 5u;
 	m_staticViewData.samplesPerPixelPerDispatch = 1u;
+	m_staticViewData.envMapPDFNormalizationFactor = core::infinity<float>();
 	m_staticViewData.cascadeParams = {};
 	m_totalRaysCast = 0ull;
 	m_rcpPixelSize = {0.f,0.f};
