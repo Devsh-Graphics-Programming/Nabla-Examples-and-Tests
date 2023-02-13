@@ -360,7 +360,7 @@ nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
 
 	float p_bxdf_bxdf = bxdfCosThroughput.pdf; // BxDF PDF evaluated with BxDF sample (returned from BxDF sampling)
 	// Envmap PDF evaluated with BxDF sample (returned by manual tap of the envmap PDF texture)
-	float p_env_bxdf = nbl_glsl_ext_HierarchicalWarp_deferred_pdf(worldSpaceToMitsubaEnvmap(bxdfSample.L), luminance);
+	float p_env_bxdf = nbl_glsl_ext_HierarchicalWarp_deferred_pdf(worldSpaceToMitsubaEnvmap(bxdfSample.L), luminance, staticViewData.envMapPDFNormalizationFactor);
 	//assert(p_env_bxdf>FLT_MIN && p_env_bxdf<FLT_MAX);
 
 	float p_env_env = 0.0f; // Envmap PDF evaluated with Envmap sample (returned from envmap importance sampling)
