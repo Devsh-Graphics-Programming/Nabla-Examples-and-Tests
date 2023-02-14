@@ -617,6 +617,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	core::vectorSIMDf _envmapBaseColor;
 	_envmapBaseColor.set(0.0f,0.0f,0.0f,1.f);
 
+	uint16_t envmapCount = 0u;
 	for (const auto& emitter : m_globalMeta->m_global.m_emitters)
 	{
 		float weight = 0.f;
@@ -635,6 +636,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 				std::cout << "\tSamplingWeight = " << emitter.envmap.samplingWeight << std::endl;
 				std::cout << "\tFileName = " << emitter.envmap.filename.svalue << std::endl;
 				// LOAD file relative to the XML
+				envmapCount++;
 			}
 				break;
 			case ext::MitsubaLoader::CElementEmitter::Type::INVALID:
@@ -659,6 +661,12 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	}
 
 	// Initialize Pipeline and Resources for EnvMap Blending
+	{
+		auto addEnvShader = gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../addEnvironmentEmitters.comp");
+	}
+
+
+
 	auto fullScreenTriangle = ext::FullScreenTriangle::createFullScreenTriangle(m_assetManager, m_driver);
 
 	IGPUDescriptorSetLayout::SBinding binding{ 0u, EDT_COMBINED_IMAGE_SAMPLER, 1u, IGPUSpecializedShader::ESS_FRAGMENT, nullptr };
@@ -717,7 +725,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 			const auto& extent = envmapCpuImage->getCreationParameters().extent;
 			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
 		}
-		newWidth = core::roundUpToPoT<uint32_t>(newWidth); //		newWidth = 1024; // test for LUT accuracy
+		newWidth = core::roundUpToPoT<uint32_t>(newWidth);
+//		newWidth = 1024; // test for LUT accuracy
 		// full mipchain would be `MSB+1` but we want it to stop at 4x2
 		const auto mipLevels = core::findMSB(newWidth)-1;
 

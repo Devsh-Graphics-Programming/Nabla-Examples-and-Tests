@@ -1,0 +1,50 @@
+#version 430 core
+
+#define WORKGROUP_DIM 16
+#define MAX_SAMPLERS_COMPUTE 16
+layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
+
+#include <nbl/builtin/glsl/math/quaternions.glsl>
+layout(set = 0, binding = 0) readonly buffer Params
+{
+	vec3 baseColor;
+	uint inputCount;
+	nbl_glsl_quaternion_t rotations[]; 
+};
+layout(set = 0, binding = 1, r32ui) restrict uniform uimage2D outEnvMap;
+layout(set = 0, binding = 2) uniform sampler2D inEnvMaps[MAX_SAMPLERS_COMPUTE];
+
+#include <nbl/builtin/glsl/sampling/envmap.glsl>
+#include <nbl/builtin/glsl/format/encode.glsl>
+
+void main()
+{
+	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 dstSize = imageSize(outEnvMap);
+	if (all(lessThan(pixelCoord,dstSize)))
+	{
+		vec3 result = baseColor;
+
+		float dummy;
+		const vec2 origUV = vec2(pixelCoord)/vec2(dstSize);
+		const mat3 dir = mat3(
+			nbl_glsl_sampling_envmap_directionFromUVCoord(origUV+vec2(0.05,0.5)/vec2(dstSize),dummy),
+			nbl_glsl_sampling_envmap_directionFromUVCoord(origUV+vec2(0.5,0.05)/vec2(dstSize),dummy),
+			nbl_glsl_sampling_envmap_directionFromUVCoord(origUV+vec2(0.5)/vec2(dstSize),dummy)
+		);
+		for (uint i=0; i<inputCount; i++)
+		{
+			mat3 rot = nbl_glsl_quaternion_t_constructMatrix(rotations[i]);
+			mat3x2 uv = mat3x2(
+				nbl_glsl_sampling_envmap_uvCoordFromDirection(rot*dir[0]),
+				nbl_glsl_sampling_envmap_uvCoordFromDirection(rot*dir[1]),
+				nbl_glsl_sampling_envmap_uvCoordFromDirection(rot*dir[2])
+			);
+			for (uint j=0; j<2; j++)
+				uv[j] = (uv[2]-uv[j])/0.45f;
+			result += textureGrad(inEnvMaps[i],uv[2],uv[0],uv[1]).rgb;
+		}
+
+		imageStore(outEnvMap,pixelCoord,uvec4(nbl_glsl_encodeRGB9E5(result),0,0,0));
+	}
+}
