@@ -1808,7 +1808,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			return core::concatenateBFollowedByA(jitterMatrix,camera->getProjectionMatrix());
 		}(m_framesDispatched);
 		m_raytraceCommonData.rcpFramesDispatched = 1.f/float(m_framesDispatched);
-		//m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
+		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));
 		
 		// work out the inverse of the Rotation component of the View applied before Projection
 		core::matrix4SIMD viewDirReconFactorsT;
