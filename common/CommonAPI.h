@@ -1058,6 +1058,8 @@ protected:
 		}
 		else if (params.apiType == EAT_OPENGL)
 		{
+			assert(0);
+#if 0 // KILL IT
 			auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
 
 			if (!headlessCompute)
@@ -1070,9 +1072,13 @@ protected:
 			}
 
 			result.apiConnection = _apiConnection;
+
+#endif 
 		}
 		else if (params.apiType == EAT_OPENGL_ES)
 		{
+			assert(0);
+#if 0 // KILL IT
 			auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
 
 			if (!headlessCompute)
@@ -1085,6 +1091,7 @@ protected:
 			}
 
 			result.apiConnection = _apiConnection;
+#endif
 		}
 		else
 		{

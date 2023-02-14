@@ -260,20 +260,26 @@ Choose Graphics API:
 
 		case video::EAT_OPENGL:
 		{
+			assert(0);
+#if 0 // kill it
 			apiConnection = video::COpenGLConnection::create(core::smart_refctd_ptr(system), 0, APP_NAME, video::COpenGLDebugCallback(core::smart_refctd_ptr(logger)));
 
 			surface = video::CSurfaceGLWin32::create(
 				core::smart_refctd_ptr<video::COpenGLConnection>(static_cast<video::COpenGLConnection*>(apiConnection.get())),
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
+#endif 
 		} break;
 
 		case video::EAT_OPENGL_ES:
 		{
+			assert(0);
+#if 0 // kill it
 			apiConnection = video::COpenGLESConnection::create(core::smart_refctd_ptr(system), 0, APP_NAME, video::COpenGLDebugCallback(core::smart_refctd_ptr(logger)));
 
 			surface = video::CSurfaceGLWin32::create(
 				core::smart_refctd_ptr<video::COpenGLESConnection>(static_cast<video::COpenGLESConnection*>(apiConnection.get())),
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
+#endif 
 		} break;
 
 		default:
@@ -429,12 +435,18 @@ Choose Graphics API:
 
 		case video::EAT_OPENGL:
 		{
+			assert(0);
+#if 0 // kill it
 			swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(sc_params));
+#endif
 		} break;
 
 		case video::EAT_OPENGL_ES:
 		{
+			assert(0);
+#if 0 // kill it
 			swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(sc_params));
+#endif
 		} break;
 
 		default:
