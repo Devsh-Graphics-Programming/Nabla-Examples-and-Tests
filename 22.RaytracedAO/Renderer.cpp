@@ -726,7 +726,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
 		}
 		newWidth = core::roundUpToPoT<uint32_t>(newWidth);
-		newWidth = 1024; // test for LUT accuracy
+
 		// full mipchain would be `MSB+1` but we want it to stop at 4x2
 		const auto mipLevels = core::findMSB(newWidth)-1;
 
