@@ -277,7 +277,7 @@ public:
 
 		auto createSpecializedShaderFromSource = [=](const char* source, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUSpecializedShader>
 		{
-			auto computeUnspec = core::make_smart_refctd_ptr<asset::ICPUShader>(source, stage, asset::IShader::E_CONTENT_TYPE::ECT_GLSL);
+			auto computeUnspec = core::make_smart_refctd_ptr<asset::ICPUShader>(source, stage, asset::IShader::E_CONTENT_TYPE::ECT_GLSL, "runtimeID");
 
 			asset::IShaderCompiler::SCompilerOptions options = {};
 			options.preprocessorOptions.sourceIdentifier = "runtimeID";
@@ -293,13 +293,12 @@ public:
 
 		auto createSpecializedShaderFromSourceWithIncludes = [&](const char* source, asset::IShader::E_SHADER_STAGE stage, const char* origFilepath)
 		{
-			auto computeUnspec = core::make_smart_refctd_ptr<asset::ICPUShader>(source, stage, asset::IShader::E_CONTENT_TYPE::ECT_GLSL);
-			auto shaderCompiler = assetManager->getCompilerSet()->getShaderCompiler(asset::IShader::E_CONTENT_TYPE::ECT_GLSL)->getDefaultIncludeFinder();
-			shaderCompiler->addSearchPath(origFilepath, core::make_smart_refctd_ptr<asset::IShaderCompiler::CFileSystemIncludeLoader>(core::smart_refctd_ptr(system)));
+			auto computeUnspec = core::make_smart_refctd_ptr<asset::ICPUShader>(source, stage, asset::IShader::E_CONTENT_TYPE::ECT_GLSL, origFilepath);
+			auto includeFinder = assetManager->getCompilerSet()->getShaderCompiler(asset::IShader::E_CONTENT_TYPE::ECT_GLSL)->getDefaultIncludeFinder();
 
 			asset::IShaderCompiler::SPreprocessorOptions options = {};
-			options.sourceIdentifier = "runtimeID";
-			options.includeFinder = shaderCompiler;
+			options.sourceIdentifier = origFilepath;
+			options.includeFinder = includeFinder;
 			auto resolved_includes = assetManager->getCompilerSet()->preprocessShader(computeUnspec.get(), std::move(options));
 			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getContent()->getPointer()), stage);
 		};
