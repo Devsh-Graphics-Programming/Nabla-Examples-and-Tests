@@ -17,13 +17,13 @@ PushConstants u_pushConstants;
 [[vk::binding(1, 0)]] Texture2D<float4> inImage;
 
 [numthreads(16, 16, 1)]
-void main(uint3 gl_GlobalInvocationID : SV_DispatchThreadID)
+void main(uint3 invocationID : SV_DispatchThreadID)
 {
-	if (all(gl_GlobalInvocationID.xy < u_pushConstants.imgSize))
+	if (all(invocationID.xy < u_pushConstants.imgSize))
 	{
 		// TODO use swapchain transforms
-		float2 postTransformUv = float2(gl_GlobalInvocationID.xy) / float2(u_pushConstants.imgSize);
+		float2 postTransformUv = float2(invocationID.xy) / float2(u_pushConstants.imgSize);
 		float4 outColor = float4(postTransformUv, 0.0, 1.f);
-		outImage[gl_GlobalInvocationID.xy] = outColor;
+		outImage[invocationID.xy] = outColor;
 	}
 }
