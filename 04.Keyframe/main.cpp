@@ -142,28 +142,23 @@ int main()
 			
 		asset::SPushConstantRange range[1] = {asset::ISpecializedShader::ESS_VERTEX,0u,sizeof(core::matrix4SIMD)};
 
-		auto createSpecializedShaderFromSource = [=](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage, asset::IShaderCompiler::SCompilerOptions&& options)
+		auto createSpecializedShaderFromSource = [=](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage)
 		{
-			options.stage = stage;
-			options.entryPoint = "main";
-			options.preprocessorOptions.sourceIdentifier = "runtimeID";
-			auto spirv = device->getAssetManager()->getCompilerSet()->compileToSPIRV(source, options);
+			// TODO: Update: should use the compiler set from asset manager
+			auto spirv = device->getAssetManager()->getGLSLCompiler()->createSPIRVFromGLSL(source, stage, "main", "runtimeID");
 			return core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(spirv),asset::ICPUSpecializedShader::SInfo{ nullptr,nullptr,"main",stage });
 		};
 		// origFilepath is only relevant when you have filesystem #includes in your shader
-		auto system = nbl::core::make_smart_refctd_ptr<nbl::system::CSystemWin32>();
 		auto createSpecializedShaderFromSourceWithIncludes = [&](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage, const char* origFilepath)
 		{
-			asset::IShaderCompiler::SCompilerOptions options;
-			options.preprocessorOptions.includeFinder = new asset::IShaderCompiler::CIncludeFinder(system);
-			options.preprocessorOptions.includeFinder->addSearchPath(origFilepath, options.preprocessorOptions.includeFinder->getDefaultFileSystemLoader());
-			return createSpecializedShaderFromSource(source, stage, std::move(options));
+			auto resolved_includes = device->getAssetManager()->getGLSLCompiler()->resolveIncludeDirectives(source, stage, origFilepath);
+			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getContent()->getPointer()), stage);
 		};
 		constexpr uint32_t kShaderCount = 2u;
 		core::smart_refctd_ptr<asset::ICPUSpecializedShader> shaders[kShaderCount] =
 		{
 			createSpecializedShaderFromSourceWithIncludes(vertexSource,asset::ISpecializedShader::ESS_VERTEX, "shader.vert"),
-			createSpecializedShaderFromSource(fragmentSource,asset::ISpecializedShader::ESS_FRAGMENT, std::move(asset::IShaderCompiler::SCompilerOptions()))
+			createSpecializedShaderFromSource(fragmentSource,asset::ISpecializedShader::ESS_FRAGMENT)
 		};
 		auto shadersPtr = reinterpret_cast<asset::ICPUSpecializedShader**>(shaders);
 			
