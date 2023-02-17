@@ -324,11 +324,17 @@ bool CommonAPI::createSwapchain(
 	}
 	else if (device->getAPIType() == nbl::video::EAT_OPENGL)
 	{
+		assert(0);
+#if 0 // kill it
 		swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(paramsCp));
+#endif 
 	}
 	else if (device->getAPIType() == nbl::video::EAT_OPENGL_ES)
 	{
+		assert(0);
+#if 0 // kill it
 		swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(paramsCp));
+#endif
 	}
 	else
 	{
