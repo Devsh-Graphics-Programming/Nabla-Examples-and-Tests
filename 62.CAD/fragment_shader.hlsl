@@ -185,6 +185,12 @@ float4 main(PSInput input) : SV_TARGET
         float alpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         return float4(input.color.xyz, input.color.w * alpha);
     }
+    // else if (objType == ObjectType::ROAD)
+    {
+        // use fwidth to get antiAliasingFactor because road line width is constant in world space
+        // calculate alpha based on aniAliasingFactor
+        // return float4(input.color.xyz, input.color.w * alpha);
+    }
 
 
     return input.color;

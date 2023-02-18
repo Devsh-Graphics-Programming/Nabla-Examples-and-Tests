@@ -3,7 +3,8 @@
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
-    ELLIPSE = 1u,
+    ROAD = 1u,
+    ELLIPSE = 2u,
 };
 
 struct DrawObject
@@ -11,12 +12,6 @@ struct DrawObject
     ObjectType type;
     uint32_t styleIdx;
     uint64_t address;
-};
-
-struct LinePoints
-{
-    // prev, start, end, next
-    double2 p[4u];
 };
 
 struct EllipseInfo

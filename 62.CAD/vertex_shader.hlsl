@@ -29,7 +29,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
     if (objType == ObjectType::ELLIPSE)
     {
-        outV.color = float4(1.0, 0.0, 0.0, 0.5);
+        outV.color = float4(0.7, 0.3, 0.1, 0.5);
 
 #ifdef LOAD_STRUCT
         EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
@@ -102,44 +102,50 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::LINE)
     {
-        outV.color = float4(0.0, 0.0, 1.0, 0.5);
+        outV.color = float4(0.3, 0.2, 0.6, 0.5);
         double3x3 transformation = (double3x3)globals.viewProjection;
-        LinePoints points = vk::RawBufferLoad<LinePoints>(drawObj.address, 8u);
-        float2 transformedPoints[4u];
-        for(uint i = 0u; i < 4u; ++i)
+
+        double2 points[2u];
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
+
+        float2 transformedPoints[2u];
+        for(uint i = 0u; i < 2u; ++i)
         {
-            double2 ndc = mul(transformation, double3(points.p[i], 1)).xy; // Transform to NDC
+            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
         }
 
-        const float2 lineVector = normalize(transformedPoints[2u] - transformedPoints[1u]);
+        const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
         const float2 normalToLine = float2(-lineVector.y, lineVector.x);
 
         if (vertexIdx == 0u || vertexIdx == 1u)
         {
             // work in screen space coordinates because of fixed pixel size
-            const float2 vectorPrev = normalize(transformedPoints[1u] - transformedPoints[0u]);
-            const float2 normalPrevLine = float2(-vectorPrev.y, vectorPrev.x);
-            const float2 miter = normalize(normalPrevLine + normalToLine);
-
-            outV.position.xy = transformedPoints[1u] + (miter * ((float)vertexIdx - 0.5f) * (antiAliasedLineWidth)) / dot(normalToLine, miter);
+            outV.position.xy = transformedPoints[0u]
+                + normalToLine * (((float)vertexIdx - 0.5f) * antiAliasedLineWidth)
+                - lineVector * antiAliasedLineWidth * 0.5f;
         }
         else // if (vertexIdx == 2u || vertexIdx == 3u)
         {
             // work in screen space coordinates because of fixed pixel size
-            const float2 vectorNext = normalize(transformedPoints[3u] - transformedPoints[2u]);
-            const float2 normalNextLine = float2(-vectorNext.y, vectorNext.x);
-            const float2 miter = normalize(normalNextLine + normalToLine);
-
-            outV.position.xy = transformedPoints[2u] + (miter * ((float)vertexIdx - 2.5f) * (antiAliasedLineWidth)) / dot(normalToLine, miter);
+            outV.position.xy = transformedPoints[1u]
+                + normalToLine * (((float)vertexIdx - 2.5f) * antiAliasedLineWidth)
+                + lineVector * antiAliasedLineWidth * 0.5f;
         }
 
-        outV.start_end.xy = transformedPoints[1u];
-        outV.start_end.zw = transformedPoints[2u];
+        outV.start_end.xy = transformedPoints[0u];
+        outV.start_end.zw = transformedPoints[1u];
 
         // convert back to ndc
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
+    }
+    else if (objType == ObjectType::ROAD)
+    {
+        // Get the 4 generated points 
+        // Transform to ndc
+        // pass to fragment
     }
 	return outV;
 }

@@ -50,7 +50,6 @@ struct uint2
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(LinePoints) == 64u);
 static_assert(sizeof(EllipseInfo) == 48u);
 static_assert(sizeof(Globals) == 160u);
 
@@ -181,13 +180,13 @@ class CADApp : public ApplicationBase
 		return mem;
 	}
 
-	void addLines(std::vector<double2>&& linePoints)
+	void addLines(std::vector<double2>&& linePoints, bool constantWorldSpaceThickness = false)
 	{
 		if (linePoints.size() >= 2u)
 		{
 			const auto noLines = linePoints.size() - 1u;
 			DrawObject drawObj = {};
-			drawObj.type = ObjectType::LINE;
+			drawObj.type = (constantWorldSpaceThickness) ? ObjectType::ROAD : ObjectType::LINE;
 			drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
 			for(uint32_t i = 0u; i < noLines; ++i)
 			{
@@ -197,16 +196,6 @@ class CADApp : public ApplicationBase
 				drawObj.address += sizeof(double2);
 			}
 
-			const auto& firstPoint = linePoints[0u];
-			const auto& secondPoint = linePoints[1u];
-			const auto differenceStart = firstPoint - secondPoint;
-			const double2 generatedStart = firstPoint + differenceStart;
-			linePoints.emplace(linePoints.begin(), generatedStart);
-			const auto& lastPoint = linePoints[linePoints.size() - 1u];
-			const auto& oneToLastPoint = linePoints[linePoints.size() - 2u];
-			const auto differenceEnd = lastPoint - oneToLastPoint;
-			const double2 generatedEnd = lastPoint + differenceEnd;
-			linePoints.push_back(generatedEnd);
 			const auto pointsByteSize = sizeof(double2) * linePoints.size();
 
 			assert(currentGeometryBufferOffset + pointsByteSize <= geometryBuffer->getSize());
@@ -721,7 +710,7 @@ public:
 
 		Globals globalData = {};
 		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 0.5f);
-		globalData.lineWidth = 6.0f;
+		globalData.lineWidth = 16.0f;
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
@@ -765,9 +754,9 @@ public:
 			area.offset = { 0,0 };
 			area.extent = { WIN_W, WIN_H };
 			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 0.f;
-			clear[0].color.float32[1] = 0.f;
-			clear[0].color.float32[2] = 0.f;
+			clear[0].color.float32[0] = 0.8f;
+			clear[0].color.float32[1] = 0.8f;
+			clear[0].color.float32[2] = 0.8f;
 			clear[0].color.float32[3] = 0.f;
 			clear[1].depthStencil.depth = 1.f;
 
