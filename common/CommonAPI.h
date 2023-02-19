@@ -321,7 +321,7 @@ public:
 	{
 	public:
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDeviceFilter`
-		virtual nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) = 0;
+		virtual nbl::video::IPhysicalDevice* selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice*> suitablePhysicalDevices) = 0;
 	};
 	
 	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
@@ -336,7 +336,7 @@ public:
 		{}
 
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
-		nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) override;
+		nbl::video::IPhysicalDevice* selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice*> suitablePhysicalDevices) override;
 	};
 
 	template <typename FeatureType>
@@ -495,8 +495,14 @@ public:
 			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
 			if (!params.window)
 			{
-				result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
-
+				#ifdef _NBL_PLATFORM_WINDOWS_
+					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
+				#elif defined(_NBL_PLATFORM_LINUX_)
+					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerX11>(); // on the Android path
+				#else
+					#error "Unsupported platform"
+				#endif
+				
 				nbl::ui::IWindow::SCreationParams windowsCreationParams;
 				windowsCreationParams.width = params.windowWidth;
 				windowsCreationParams.height = params.windowHeight;
@@ -698,16 +704,13 @@ public:
 	}
 
 protected:
-	static nbl::core::set<nbl::video::IPhysicalDevice* const> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
+	static nbl::core::set<nbl::video::IPhysicalDevice*> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
 	{
 		using namespace nbl;
 		using namespace nbl::video;
 
-		core::set<IPhysicalDevice* const> ret;
-
-		for (size_t i = 0ull; i < physicalDevices.size(); ++i)
-		{
-			auto physDev = physicalDevices[i];
+		core::set<nbl::video::IPhysicalDevice*> ret;
+		for(auto& physDev : physicalDevices) {
 			if(filter.meetsRequirements(physDev))
 				ret.insert(physDev);
 		}

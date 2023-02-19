@@ -1,7 +1,7 @@
 
 #include "CommonAPI.h"
 
-nbl::video::IPhysicalDevice* const CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices)
+nbl::video::IPhysicalDevice* CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice*> suitablePhysicalDevices)
 {
 
 	if (suitablePhysicalDevices.empty())
@@ -9,7 +9,7 @@ nbl::video::IPhysicalDevice* const CommonAPI::CDefaultPhysicalDeviceSelector::se
 
 	for (auto itr = suitablePhysicalDevices.begin(); itr != suitablePhysicalDevices.end(); ++itr)
 	{
-		nbl::video::IPhysicalDevice* const physdev = *itr;
+		nbl::video::IPhysicalDevice* physdev = *itr;
 		if (physdev->getProperties().driverID == preferredDriver)
 			return physdev;
 	}
