@@ -2,17 +2,20 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// TODO: @AnastaZIuk NBL_STATIC_LIB should have been added by CMake because we now have DLL builds!
 #define _NBL_STATIC_LIB_
+
 #include <iostream>
 #include <cstdio>
-#include <nabla.h>
+
+#include "nabla.h"
 
 #if defined(_NBL_PLATFORM_WINDOWS_)
-	#include <nbl/system/CColoredStdoutLoggerWin32.h>
-	#include <nbl/system/CSystemWin32.h>
+	#include "nbl/system/CColoredStdoutLoggerWin32.h"
+	#include "nbl/system/CSystemWin32.h"
 #elif defined(_NBL_PLATFORM_LINUX_)
-	#include <nbl/system/CColoredStdoutLoggerANSI.h>
-	#include <nbl/system/CSystemLinux.h>
+	#include "nbl/system/CColoredStdoutLoggerANSI.h"
+	#include "nbl/system/CSystemLinux.h"
 #else
 	#error "Unsupported Platform"
 #endif // TODO more platforms
