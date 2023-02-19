@@ -6,10 +6,12 @@
 
 // TODO: get these all included by the appropriate namespace headers!
 #include "nbl/system/IApplicationFramework.h"
-#include "nbl/video/IDeviceMemoryBacked.h"
+
 #include "nbl/ui/CGraphicalApplicationAndroid.h"
 #include "nbl/ui/CWindowManagerAndroid.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
+
+// TODO: see TODO below
 #if defined(_NBL_PLATFORM_WINDOWS_)
 #include <nbl/system/CColoredStdoutLoggerWin32.h>
 #elif defined(_NBL_PLATFORM_ANDROID_)

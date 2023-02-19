@@ -199,10 +199,12 @@ public:
 	{
 		const char* APP_NAME = "01.HelloWorld";
 
+		// create basic system objects
 		system = createSystem();
 		auto logLevelMask = core::bitflag(system::ILogger::ELL_DEBUG) | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_WARNING | system::ILogger::ELL_ERROR;
 		logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(logLevelMask);
 
+		// set windo event callback
 #ifndef _NBL_PLATFORM_ANDROID_
 		auto windowManager = core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>();
 		windowCb = core::make_smart_refctd_ptr<DemoEventCallback>();
@@ -216,83 +218,38 @@ public:
 		params.flags = ui::IWindow::ECF_NONE;
 		params.windowCaption = APP_NAME;
 		params.callback = windowCb;
-
+		// TODO (deprilula): Win32 window seems to be resizable despite the lack of resizability flag in the creation parameters!
 		window = windowManager->createWindow(std::move(params));
 #else
 		assert(window);
 		window->setEventCallback(core::smart_refctd_ptr(windowCb));
 #endif
+
+		// create API connection
 		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
-		apiFeaturesToEnable.swapchainMode = swapChainMode;
-		apiFeaturesToEnable.validations = true;
-		apiFeaturesToEnable.debugUtils = true;
-
-		std::cout <<
-			R"(
-Choose Graphics API:
-0) Vulkan
-1) OpenGL
-2) OpenGL ES
-)" << std::endl;
-
-		int apiTypeInput;
-		std::cin >> apiTypeInput;
-
-		video::E_API_TYPE apiType;
-		if(apiTypeInput == 0) apiType = video::EAT_VULKAN;
-		if(apiTypeInput == 1) apiType = video::EAT_OPENGL;
-		if(apiTypeInput == 2) apiType = video::EAT_OPENGL_ES;
-
-		switch (apiType)
 		{
-		case video::EAT_VULKAN:
-		{
+			nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
+			apiFeaturesToEnable.swapchainMode = swapChainMode;
+			apiFeaturesToEnable.validations = true;
+			apiFeaturesToEnable.debugUtils = true;
+
 			apiConnection = video::CVulkanConnection::create(
 				core::smart_refctd_ptr(system),
 				0, APP_NAME,
 				core::smart_refctd_ptr(logger), apiFeaturesToEnable);
+			assert(apiConnection);
+		}
 
+		{
 			surface = video::CSurfaceVulkanWin32::create(
 				core::smart_refctd_ptr<video::CVulkanConnection>(static_cast<video::CVulkanConnection*>(apiConnection.get())),
 				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
-		} break;
-
-		case video::EAT_OPENGL:
-		{
-			assert(0);
-#if 0 // kill it
-			apiConnection = video::COpenGLConnection::create(core::smart_refctd_ptr(system), 0, APP_NAME, video::COpenGLDebugCallback(core::smart_refctd_ptr(logger)));
-
-			surface = video::CSurfaceGLWin32::create(
-				core::smart_refctd_ptr<video::COpenGLConnection>(static_cast<video::COpenGLConnection*>(apiConnection.get())),
-				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
-#endif 
-		} break;
-
-		case video::EAT_OPENGL_ES:
-		{
-			assert(0);
-#if 0 // kill it
-			apiConnection = video::COpenGLESConnection::create(core::smart_refctd_ptr(system), 0, APP_NAME, video::COpenGLDebugCallback(core::smart_refctd_ptr(logger)));
-
-			surface = video::CSurfaceGLWin32::create(
-				core::smart_refctd_ptr<video::COpenGLESConnection>(static_cast<video::COpenGLESConnection*>(apiConnection.get())),
-				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
-#endif 
-		} break;
-
-		default:
-			assert(false);
+			assert(surface);
 		}
-		assert(apiConnection);
-
-		auto gpus = apiConnection->getPhysicalDevices();
-		assert(!gpus.empty());
-
-
 
 		// Find a suitable gpu
+		auto gpus = apiConnection->getPhysicalDevices();
+		assert(!gpus.empty());
 		uint32_t graphicsFamilyIndex(~0u);
 		uint32_t presentFamilyIndex(~0u);
 
@@ -412,45 +369,22 @@ Choose Graphics API:
 		graphicsQueue = device->getQueue(graphicsFamilyIndex, 0u);
 		presentQueue = device->getQueue(presentFamilyIndex, 0u);
 
-		video::ISwapchain::SCreationParams sc_params = {};
-		sc_params.surface = surface;
-		sc_params.minImageCount = minSwapchainImageCount;
-		sc_params.surfaceFormat = surfaceFormat;
-		sc_params.presentMode = presentMode;
-		sc_params.width = WIN_W;
-		sc_params.height = WIN_H;
-		sc_params.queueFamilyIndexCount = static_cast<uint32_t>(queueFamilyIndices.size());
-		sc_params.queueFamilyIndices = queueFamilyIndices.data();
-		sc_params.preTransform = video::ISurface::EST_IDENTITY_BIT;
-		sc_params.compositeAlpha = video::ISurface::ECA_OPAQUE_BIT;
-		sc_params.imageUsage = asset::IImage::EUF_COLOR_ATTACHMENT_BIT;
-		sc_params.oldSwapchain = nullptr;
-		
-		switch (apiType)
+		// create a swapchain
 		{
-		case video::EAT_VULKAN:
-		{
+			video::ISwapchain::SCreationParams sc_params = {};
+			sc_params.surface = surface;
+			sc_params.minImageCount = minSwapchainImageCount;
+			sc_params.surfaceFormat = surfaceFormat;
+			sc_params.presentMode = presentMode;
+			sc_params.width = WIN_W;
+			sc_params.height = WIN_H;
+			sc_params.queueFamilyIndexCount = static_cast<uint32_t>(queueFamilyIndices.size());
+			sc_params.queueFamilyIndices = queueFamilyIndices.data();
+			sc_params.preTransform = video::ISurface::EST_IDENTITY_BIT;
+			sc_params.compositeAlpha = video::ISurface::ECA_OPAQUE_BIT;
+			sc_params.imageUsage = asset::IImage::EUF_COLOR_ATTACHMENT_BIT;
+			sc_params.oldSwapchain = nullptr;
 			swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(sc_params));
-		} break;
-
-		case video::EAT_OPENGL:
-		{
-			assert(0);
-#if 0 // kill it
-			swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(sc_params));
-#endif
-		} break;
-
-		case video::EAT_OPENGL_ES:
-		{
-			assert(0);
-#if 0 // kill it
-			swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(sc_params));
-#endif
-		} break;
-
-		default:
-			assert(false);
 		}
 
 		// Create render pass
