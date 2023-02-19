@@ -1,7 +1,7 @@
 
 #include "CommonAPI.h"
 
-nbl::video::IPhysicalDevice* CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice*> suitablePhysicalDevices)
+nbl::video::IPhysicalDevice* CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices)
 {
 
 	if (suitablePhysicalDevices.empty())

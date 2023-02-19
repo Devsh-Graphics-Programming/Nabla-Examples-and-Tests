@@ -321,7 +321,7 @@ public:
 	{
 	public:
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDeviceFilter`
-		virtual nbl::video::IPhysicalDevice* selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice*> suitablePhysicalDevices) = 0;
+		virtual nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) = 0;
 	};
 	
 	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
@@ -336,7 +336,7 @@ public:
 		{}
 
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
-		nbl::video::IPhysicalDevice* selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice*> suitablePhysicalDevices) override;
+		nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) override;
 	};
 
 	template <typename FeatureType>
