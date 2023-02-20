@@ -1,20 +1,14 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "nabla.h"
 
 /**
 This example just shows a screen which clears to red,
-nothing fancy, just to show that Irrlicht links fine
+nothing fancy, just to show that Nabla links fine
 **/
-#define _NBL_STATIC_LIB_
 #include <iostream>
 #include <cstdio>
-#include <nabla.h>
-
-#if defined(_NBL_PLATFORM_WINDOWS_)
-#	include <nbl/system/CColoredStdoutLoggerWin32.h>
-#endif // TODO more platforms
-// TODO: make these include themselves via `nabla.h`
 
 #include "nbl/system/IApplicationFramework.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
