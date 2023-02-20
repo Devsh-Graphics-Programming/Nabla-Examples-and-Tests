@@ -149,25 +149,185 @@ class CADApp : public ApplicationBase
 
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
+	core::smart_refctd_ptr<video::IGPUSemaphore> m_drawBufferUploadsFinished[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
+	core::smart_refctd_ptr<video::IGPUFence> m_drawBufferUploadsComplete[FRAMES_IN_FLIGHT] = { nullptr };
 
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf[FRAMES_IN_FLIGHT] = { nullptr };
+	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_uploadCmdBuf[FRAMES_IN_FLIGHT] = { nullptr };
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
+
 	// Related to Drawing Stuff
 	Camera2D m_Camera;
-	uint32_t currentDrawObjectCount = 0u;
-	uint64_t geometryBufferAddress = 0u;
-	uint64_t currentGeometryBufferOffset = 0u;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
-	core::smart_refctd_ptr<video::IGPUBuffer> indexBuffer;
-	core::smart_refctd_ptr<video::IGPUBuffer> drawObjectsBuffer;
-	core::smart_refctd_ptr<video::IGPUBuffer> geometryBuffer;
+
+	core::smart_refctd_ptr<video::IGPUImageView> pseudoStencilImageView[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
 	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugGraphicsPipeline;
 	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
+
+	template <typename BufferType>
+	struct DrawBuffers
+	{
+		core::smart_refctd_ptr<BufferType> indexBuffer;
+		core::smart_refctd_ptr<BufferType> drawObjectsBuffer;
+		core::smart_refctd_ptr<BufferType> geometryBuffer;
+	};
+
+	struct DrawBuffersFiller
+	{
+		core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
+		core::smart_refctd_ptr<nbl::video::ILogicalDevice> device;
+
+		DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
+		DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
+
+		uint64_t geometryBufferAddress = 0u;
+
+		uint32_t currentIndexCount = 0u;
+		uint32_t maxIndices = 0u;
+		
+		uint32_t currentDrawObjectCount = 0u;
+		uint32_t maxDrawObjects = 0u;
+
+		uint64_t currentGeometryBufferSize = 0u;
+		
+		void allocateIndexBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t indices)
+		{
+			maxIndices = indices;
+			const size_t indexBufferSize = maxIndices * sizeof(uint32_t);
+
+			video::IGPUBuffer::SCreationParams indexBufferCreationParams = {};
+			indexBufferCreationParams.size = indexBufferSize;
+			indexBufferCreationParams.usage = video::IGPUBuffer::EUF_INDEX_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			gpuDrawBuffers.indexBuffer = logicalDevice->createBuffer(std::move(indexBufferCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.indexBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto indexBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.indexBuffer.get());
+
+			cpuDrawBuffers.indexBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(indexBufferSize);
+		}
+
+		void allocateDrawObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t drawObjects)
+		{
+			maxDrawObjects = drawObjects;
+			size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
+
+			video::IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
+			drawObjectsCreationParams.size = drawObjectsBufferSize;
+			drawObjectsCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			gpuDrawBuffers.drawObjectsBuffer = logicalDevice->createBuffer(std::move(drawObjectsCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.drawObjectsBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto drawObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.drawObjectsBuffer.get());
+
+			cpuDrawBuffers.drawObjectsBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(drawObjectsBufferSize);
+		}
+
+		void allocateGeometryBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, size_t size)
+		{
+			video::IGPUBuffer::SCreationParams geometryCreationParams = {};
+			geometryCreationParams.size = size;
+			geometryCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			gpuDrawBuffers.geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+			geometryBufferAddress = logicalDevice->getBufferDeviceAddress(gpuDrawBuffers.geometryBuffer.get());
+
+			cpuDrawBuffers.geometryBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(size);
+		}
+
+		void clear()
+		{
+			currentIndexCount = 0u;
+			currentDrawObjectCount = 0u;
+			currentGeometryBufferSize = 0u;
+		}
+
+		void finalizeCopiesToGPU(
+			core::smart_refctd_ptr<nbl::video::IUtilities> utils,
+			video::IGPUQueue* submissionQueue,
+			video::IGPUFence* submissionFence,
+			video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+		{
+			// Copy Indices
+			asset::SBufferRange<video::IGPUBuffer> indicesRange = {0u, sizeof(uint32_t) * currentIndexCount, gpuDrawBuffers.indexBuffer };
+			intendedNextSubmit = utils->updateBufferRangeViaStagingBuffer(indicesRange, cpuDrawBuffers.indexBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
+			// Copy DrawBuffers
+			asset::SBufferRange<video::IGPUBuffer> drawObjectsRange = { 0u, sizeof(DrawObject) * currentDrawObjectCount, gpuDrawBuffers.drawObjectsBuffer };
+			intendedNextSubmit = utils->updateBufferRangeViaStagingBuffer(drawObjectsRange, cpuDrawBuffers.drawObjectsBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
+			// Copy GeometryBuffer and AutoSubmit
+			asset::SBufferRange<video::IGPUBuffer> geomRange = { 0u, currentGeometryBufferSize, gpuDrawBuffers.geometryBuffer };
+			utils->updateBufferRangeViaStagingBufferAutoSubmit(geomRange, cpuDrawBuffers.geometryBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
+		}
+
+		void addLines(std::vector<double2>&& linePoints)
+		{
+			if (linePoints.size() < 2u)
+				return;
+
+			const auto noLines = linePoints.size() - 1u;
+
+			// DrawObj
+			DrawObject drawObj = {};
+			drawObj.type = ObjectType::LINE;
+			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+			for (uint32_t i = 0u; i < noLines; ++i)
+			{
+				void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+				memcpy(dst, &drawObj, sizeof(DrawObject));
+				currentDrawObjectCount += 1u;
+				drawObj.address += sizeof(double2);
+			}
+			
+			// Index
+			uint32_t* indices = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
+			for (uint32_t i = 0u; i < noLines; ++i)
+			{
+				indices[i * 6] = i * 4u + 0u;
+				indices[i * 6 + 1u] = i * 4u + 1u;
+				indices[i * 6 + 2u] = i * 4u + 2u;
+				indices[i * 6 + 3u] = i * 4u + 2u;
+				indices[i * 6 + 4u] = i * 4u + 1u;
+				indices[i * 6 + 5u] = i * 4u + 3u;
+				currentIndexCount += 6;
+			}
+
+			// Geom
+			{
+				const auto pointsByteSize = sizeof(double2) * linePoints.size();
+				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				memcpy(dst, linePoints.data(), pointsByteSize);
+				currentGeometryBufferSize += pointsByteSize;
+			}
+		}
+
+		void addEllipse(const EllipseInfo& ellipseInfo)
+		{
+			return;
+			DrawObject drawObj = {};
+			drawObj.type = ObjectType::ELLIPSE;
+			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+			currentDrawObjectCount += 1u;
+
+			// Copy drawObj to correct CPU Address
+			{
+				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				memcpy(dst, &ellipseInfo, sizeof(EllipseInfo));
+				currentGeometryBufferSize += sizeof(EllipseInfo);
+			}
+		}
+	};
+
+	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
 
 	constexpr size_t getMaxMemoryNeeded(uint32_t numberOfLines, uint32_t numberOfEllipses)
 	{
@@ -180,123 +340,161 @@ class CADApp : public ApplicationBase
 		return mem;
 	}
 
-	void addLines(std::vector<double2>&& linePoints, bool constantWorldSpaceThickness = false)
-	{
-		if (linePoints.size() >= 2u)
-		{
-			const auto noLines = linePoints.size() - 1u;
-			DrawObject drawObj = {};
-			drawObj.type = (constantWorldSpaceThickness) ? ObjectType::ROAD : ObjectType::LINE;
-			drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
-			for(uint32_t i = 0u; i < noLines; ++i)
-			{
-				asset::SBufferRange<video::IGPUBuffer> drawObjUpload = { currentDrawObjectCount * sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer };
-				utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-				currentDrawObjectCount += 1u;
-				drawObj.address += sizeof(double2);
-			}
-
-			const auto pointsByteSize = sizeof(double2) * linePoints.size();
-
-			assert(currentGeometryBufferOffset + pointsByteSize <= geometryBuffer->getSize());
-			asset::SBufferRange<video::IGPUBuffer> geometryUpload = { currentGeometryBufferOffset, pointsByteSize, geometryBuffer };
-			utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, linePoints.data(), queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-			currentGeometryBufferOffset += pointsByteSize;
-		}
-	}
-
-	void addEllipse(const EllipseInfo& ellipseInfo)
-	{
-		DrawObject drawObj = {};
-		drawObj.type = ObjectType::ELLIPSE;
-		drawObj.address = geometryBufferAddress + currentGeometryBufferOffset;
-		asset::SBufferRange<video::IGPUBuffer> drawObjUpload = { currentDrawObjectCount * sizeof(DrawObject), sizeof(DrawObject), drawObjectsBuffer };
-		utilities->updateBufferRangeViaStagingBufferAutoSubmit(drawObjUpload, &drawObj, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-		currentDrawObjectCount += 1u;
-
-		const auto ellipseBytesize = sizeof(EllipseInfo);
-
-		assert(currentGeometryBufferOffset + ellipseBytesize <= geometryBuffer->getSize());
-		asset::SBufferRange<video::IGPUBuffer> geometryUpload = { currentGeometryBufferOffset, ellipseBytesize, geometryBuffer };
-		utilities->updateBufferRangeViaStagingBufferAutoSubmit(geometryUpload, &ellipseInfo, queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-		currentGeometryBufferOffset += sizeof(EllipseInfo);
-	}
-
-	void clearObjects()
-	{
-		currentDrawObjectCount = 0u;
-		currentGeometryBufferOffset = 0u;
-	}
-
 	void initDrawObjects(uint32_t maxObjects = 128u)
 	{
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
-			size_t indexBufferSize = maxObjects * 6u * sizeof(uint32_t);
-			video::IGPUBuffer::SCreationParams indexBufferCreationParams = {};
-			indexBufferCreationParams.size = indexBufferSize;
-			indexBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_INDEX_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			indexBuffer = logicalDevice->createBuffer(std::move(indexBufferCreationParams));
+			size_t maxIndices = maxObjects * 6u * 2u;
+			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
+			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects);
 
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = indexBuffer->getMemoryReqs();
-			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
-			auto indexBufferMem = logicalDevice->allocate(memReq, indexBuffer.get());
-
-			std::vector<uint32_t> indices(maxObjects * 6u);
-			for (uint32_t i = 0u; i < maxObjects; ++i)
-			{
-				indices[i * 6]		= i * 4u + 0u;
-				indices[i * 6 + 1u] = i * 4u + 1u;
-				indices[i * 6 + 2u] = i * 4u + 2u;
-				indices[i * 6 + 3u] = i * 4u + 2u;
-				indices[i * 6 + 4u] = i * 4u + 1u;
-				indices[i * 6 + 5u] = i * 4u + 3u;
-			}
-
-			asset::SBufferRange<video::IGPUBuffer> rangeToUpload = {0ull, indexBufferSize, indexBuffer};
-			utilities->updateBufferRangeViaStagingBufferAutoSubmit(rangeToUpload, indices.data(), queues[CommonAPI::InitOutput::EQT_TRANSFER_UP]);
-		}
-
-		{
-			size_t drawObjectsBufferSize = maxObjects * sizeof(DrawObject);
-			video::IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
-			drawObjectsCreationParams.size = drawObjectsBufferSize;
-			drawObjectsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			drawObjectsBuffer = logicalDevice->createBuffer(std::move(drawObjectsCreationParams));
-
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = drawObjectsBuffer->getMemoryReqs();
-			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
-			auto drawObjectsBufferMem = logicalDevice->allocate(memReq, drawObjectsBuffer.get());
-		}
-
-		{
 			size_t geometryBufferSize = maxObjects * sizeof(EllipseInfo);
-			video::IGPUBuffer::SCreationParams geometryCreationParams = {};
-			geometryCreationParams.size = geometryBufferSize;
-			geometryCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
-
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = geometryBuffer->getMemoryReqs();
-			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
-			auto geometryBufferMem = logicalDevice->allocate(memReq, geometryBuffer.get(), video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-			geometryBufferAddress = logicalDevice->getBufferDeviceAddress(geometryBuffer.get());
+			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
 		}
 
-
+		for(uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 		{
-			size_t globalsBufferSize = sizeof(Globals);
+			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
+			globalsCreationParams.size = sizeof(Globals);
+			globalsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
 
-			for(uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-			{
-				video::IGPUBuffer::SCreationParams globalsCreationParams = {};
-				globalsCreationParams.size = globalsBufferSize;
-				globalsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
-				globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
-
-				video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
-				memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
-				auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
-			}
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
+			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
 		}
+
+		// pseudoStencil
+		for(uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
+		{
+			video::IGPUImage::SCreationParams imgInfo;
+			imgInfo.format = asset::EF_R32_UINT;
+			imgInfo.type = video::IGPUImage::ET_2D;
+			imgInfo.extent.width = WIN_W;
+			imgInfo.extent.height = WIN_H;
+			imgInfo.extent.depth = 1u;
+			imgInfo.mipLevels = 1u;
+			imgInfo.arrayLayers = 1u;
+			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
+			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
+			imgInfo.initialLayout = video::IGPUImage::EL_UNDEFINED;
+			imgInfo.tiling = video::IGPUImage::ET_OPTIMAL;
+			
+			auto image = logicalDevice->createImage(std::move(imgInfo));
+			auto imageMemReqs = image->getMemoryReqs();
+			imageMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			logicalDevice->allocate(imageMemReqs, image.get());
+
+			image->setObjectDebugName("pseudoStencil Image");
+
+			video::IGPUImageView::SCreationParams imgViewInfo;
+			imgViewInfo.image = std::move(image);
+			imgViewInfo.format = asset::EF_R32_UINT;
+			imgViewInfo.viewType = video::IGPUImageView::ET_2D;
+			imgViewInfo.flags = video::IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+			imgViewInfo.subresourceRange.baseMipLevel = 0u;
+			imgViewInfo.subresourceRange.layerCount = 1u;
+			imgViewInfo.subresourceRange.levelCount = 1u;
+
+			pseudoStencilImageView[i] = logicalDevice->createImageView(std::move(imgViewInfo));
+		}
+	}
+
+	void update(const double timeElapsed, const uint32_t resourceIdx)
+	{
+		utilities->getDefaultUpStreamingBuffer()->cull_frees();
+		auto& currentDrawBuffers = drawBuffers[resourceIdx];
+		currentDrawBuffers.clear();
+
+		std::vector<double2> linePoints;
+
+		if constexpr (mode == ExampleMode::CASE_0)
+		{
+			linePoints.push_back({ -50.0, 0.0 });
+			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back({ 80.0, 10.0 });
+			linePoints.push_back({ 40.0, 40.0 });
+			linePoints.push_back({ 0.0, 40.0 });
+			linePoints.push_back({ 30.0, 80.0 });
+			linePoints.push_back({ -30.0, 50.0 });
+			linePoints.push_back({ -30.0, 110.0 });
+			linePoints.push_back({ +30.0, -112.0 });
+			currentDrawBuffers.addLines(std::move(linePoints));
+		}
+		else if (mode == ExampleMode::CASE_1)
+		{
+			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back({ 30.0, 30.0 });
+			currentDrawBuffers.addLines(std::move(linePoints));
+		}
+		else if (mode == ExampleMode::CASE_2)
+		{
+			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10 });
+			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
+			currentDrawBuffers.addLines(std::move(linePoints));
+		}
+		else if (mode == ExampleMode::CASE_3)
+		{
+			constexpr double twoPi = core::PI<double>() * 2.0;
+			EllipseInfo ellipse = {};
+			const double a = timeElapsed * 0.001;
+			// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
+			ellipse.majorAxis = { 40.0, 0.0 };
+			ellipse.center = { 0, 0 };
+			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
+
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((0.0) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX)
+			};
+			currentDrawBuffers.addEllipse(ellipse);
+
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX)
+			};
+			currentDrawBuffers.addEllipse(ellipse);
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
+			};
+			currentDrawBuffers.addEllipse(ellipse);
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
+			};
+			currentDrawBuffers.addEllipse(ellipse);
+
+			linePoints.push_back({ -50.0, 0.0 });
+			linePoints.push_back({ sin(timeElapsed * 0.0005) * 20, cos(timeElapsed * 0.0005) * 20 });
+			linePoints.push_back({ -sin(timeElapsed * 0.0005) * 20, -cos(timeElapsed * 0.0005) * 20 });
+			linePoints.push_back({ 50.0, 0.5 });
+			linePoints.push_back({ 80.0, 20.0 });
+			linePoints.push_back({ 30.0, -10.0 });
+			linePoints.push_back({ 90.0, -50.0 });
+			currentDrawBuffers.addLines(std::move(linePoints));
+		}
+
+
+		auto& transferQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
+		auto& cb = m_uploadCmdBuf[m_resourceIx];
+
+		nbl::video::IGPUQueue::SSubmitInfo submit;
+		submit.commandBufferCount = 1u;
+		submit.commandBuffers = &cb.get();
+		submit.signalSemaphoreCount = 1u;
+		submit.pSignalSemaphores = &m_drawBufferUploadsFinished[m_resourceIx].get();
+		submit.waitSemaphoreCount = 0u;
+		submit.pWaitSemaphores = nullptr;
+		submit.pWaitDstStageMask = nullptr;
+
+		logicalDevice->resetFences(1, &m_drawBufferUploadsComplete[m_resourceIx].get());
+
+		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		currentDrawBuffers.finalizeCopiesToGPU(utilities, transferQueue, m_drawBufferUploadsComplete[m_resourceIx].get(), submit);
 	}
 
 public:
@@ -393,6 +591,7 @@ public:
 
 		commandPools = std::move(initOutput.commandPools);
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+		const auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
 
 		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
 
@@ -448,16 +647,22 @@ public:
 
 		initDrawObjects();
 
-		video::IGPUDescriptorSetLayout::SBinding bindings[2u] = {};
+		video::IGPUDescriptorSetLayout::SBinding bindings[3u] = {};
 		bindings[0u].binding = 0u;
 		bindings[0u].type = asset::EDT_UNIFORM_BUFFER;
 		bindings[0u].count = 1u;
 		bindings[0u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+
 		bindings[1u].binding = 1u;
 		bindings[1u].type = asset::EDT_STORAGE_BUFFER;
 		bindings[1u].count = 1u;
 		bindings[1u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+2u);
+
+		bindings[2u].binding = 2u;
+		bindings[2u].type = asset::EDT_STORAGE_IMAGE;
+		bindings[2u].count = 1u;
+		bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
+		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+3u);
 
 		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[2u] =
 		{
@@ -469,31 +674,42 @@ public:
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(descriptorSetLayout));
-			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[2u] = {};
+			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[3u] = {};
 			descriptorInfos[0u].buffer.offset = 0u;
 			descriptorInfos[0u].buffer.size = globalsBuffer[i]->getCreationParams().size;
 			descriptorInfos[0u].desc = globalsBuffer[i];
 
 			descriptorInfos[1u].buffer.offset = 0u;
-			descriptorInfos[1u].buffer.size = drawObjectsBuffer->getCreationParams().size;
-			descriptorInfos[1u].desc = drawObjectsBuffer;
+			descriptorInfos[1u].buffer.size = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
+			descriptorInfos[1u].desc = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer;
 
-			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[2u] = {};
+			descriptorInfos[2u].image.imageLayout = asset::IImage::E_LAYOUT::EL_GENERAL;
+			descriptorInfos[2u].image.sampler = nullptr;
+			descriptorInfos[2u].desc = pseudoStencilImageView[i];
+
+			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[3u] = {};
 			descriptorUpdates[0u].dstSet = descriptorSets[i].get();
 			descriptorUpdates[0u].binding = 0u;
 			descriptorUpdates[0u].arrayElement = 0u;
 			descriptorUpdates[0u].count = 1u;
 			descriptorUpdates[0u].descriptorType = asset::EDT_UNIFORM_BUFFER;
-			descriptorUpdates[0u].info = &descriptorInfos[0];
+			descriptorUpdates[0u].info = &descriptorInfos[0u];
 
 			descriptorUpdates[1u].dstSet = descriptorSets[i].get();
 			descriptorUpdates[1u].binding = 1u;
 			descriptorUpdates[1u].arrayElement = 0u;
 			descriptorUpdates[1u].count = 1u;
 			descriptorUpdates[1u].descriptorType = asset::EDT_STORAGE_BUFFER;
-			descriptorUpdates[1u].info = &descriptorInfos[1];
+			descriptorUpdates[1u].info = &descriptorInfos[1u];
 
-			logicalDevice->updateDescriptorSets(2u, descriptorUpdates, 0u, nullptr);
+			descriptorUpdates[2u].dstSet = descriptorSets[i].get();
+			descriptorUpdates[2u].binding = 2u;
+			descriptorUpdates[2u].arrayElement = 0u;
+			descriptorUpdates[2u].count = 1u;
+			descriptorUpdates[2u].descriptorType = asset::EDT_STORAGE_IMAGE;
+			descriptorUpdates[2u].info = &descriptorInfos[2u];
+
+			logicalDevice->updateDescriptorSets(3u, descriptorUpdates, 0u, nullptr);
 		}
 
 		graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
@@ -555,94 +771,28 @@ public:
 				video::IGPUCommandBuffer::EL_PRIMARY,
 				1,
 				m_cmdbuf + i);
+
+			logicalDevice->createCommandBuffers(
+				transferCommandPools[i].get(),
+				video::IGPUCommandBuffer::EL_PRIMARY,
+				1,
+				m_uploadCmdBuf + i);
 		}
 
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 		{
 			m_frameComplete[i] = logicalDevice->createFence(video::IGPUFence::ECF_SIGNALED_BIT);
+			m_drawBufferUploadsComplete[i] = logicalDevice->createFence(video::IGPUFence::ECF_SIGNALED_BIT);
 			m_imageAcquire[i] = logicalDevice->createSemaphore();
 			m_renderFinished[i] = logicalDevice->createSemaphore();
+			m_drawBufferUploadsFinished[i] = logicalDevice->createSemaphore();
 		}
 
 		m_Camera.setOrigin({ 00.0, 0.0 });
 		m_Camera.setAspectRatio((double)WIN_W / WIN_H);
 		m_Camera.setSize(200.0);
 
-		update(0.0);
-
 		oracle.reportBeginFrameRecord();
-	}
-
-	void update(double timeElapsed)
-	{
-		utilities->getDefaultUpStreamingBuffer()->cull_frees();
-		clearObjects();
-
-		std::vector<double2> linePoints;
-
-		if constexpr (mode == ExampleMode::CASE_0)
-		{
-			linePoints.push_back({ -50.0, 0.0 });
-			linePoints.push_back({ 0.0, 0.0 });
-			linePoints.push_back({ 80.0, 10.0 });
-			linePoints.push_back({ 40.0, 40.0 });
-			linePoints.push_back({ 0.0, 40.0 });
-			linePoints.push_back({ 30.0, 80.0 });
-			linePoints.push_back({ -30.0, 50.0 });
-			linePoints.push_back({ -30.0, 110.0 });
-			linePoints.push_back({ +30.0, -112.0 });
-			addLines(std::move(linePoints));
-		}
-		else if (mode == ExampleMode::CASE_1)
-		{
-			linePoints.push_back({ 0.0, 0.0 });
-			linePoints.push_back({ 30.0, 30.0 });
-			addLines(std::move(linePoints));
-		}
-		else if (mode == ExampleMode::CASE_2)
-		{
-			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10 });
-			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
-			addLines(std::move(linePoints));
-		}
-		else if (mode == ExampleMode::CASE_3)
-		{
-			constexpr double twoPi = core::PI<double>() * 2.0;
-			EllipseInfo ellipse = {};
-			const double a = timeElapsed * 0.001;
-			// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
-			ellipse.majorAxis = { 40.0, 0.0 };
-			ellipse.center = { 0, 0 };
-			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
-
-			ellipse.angleBoundsPacked = {
-				static_cast<uint32_t>(((0.0) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX)
-			};
-			addEllipse(ellipse);
-
-			ellipse.angleBoundsPacked = {
-				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX)
-			};
-			addEllipse(ellipse);
-			ellipse.angleBoundsPacked = {
-				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
-			};
-			addEllipse(ellipse);
-			ellipse.angleBoundsPacked = {
-				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
-			};
-			addEllipse(ellipse);
-
-			linePoints.push_back({ -50.0, 0.0 });
-			linePoints.push_back({ sin(timeElapsed * 0.0005) * 20, cos(timeElapsed * 0.0005) * 20 });
-			linePoints.push_back({ -sin(timeElapsed * 0.0005) * 20, -cos(timeElapsed * 0.0005) * 20 });
-			linePoints.push_back({ 50.0, 0.5 });
-			addLines(std::move(linePoints));
-		}
 	}
 
 	void onAppTerminated_impl() override
@@ -659,23 +809,21 @@ public:
 		if (m_resourceIx >= FRAMES_IN_FLIGHT)
 			m_resourceIx = 0;
 
-		auto& cb = m_cmdbuf[m_resourceIx];
-		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
-
-		logicalDevice->blockForFences(1u, &fence.get());
-		logicalDevice->resetFences(1u, &fence.get());
-
 		auto now = std::chrono::high_resolution_clock::now();
 		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
 		lastTime = now;
 		static double timeElapsed = 0.0;
 		timeElapsed += dt;
 
-		update(timeElapsed);
+		auto& cb = m_cmdbuf[m_resourceIx];
+		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
+		auto& fence = m_frameComplete[m_resourceIx];
+		logicalDevice->blockForFences(1u, &fence.get());
+		logicalDevice->resetFences(1u, &fence.get());
+
+		update(timeElapsed, m_resourceIx);
 
 		uint32_t imgnum = 0u;
-
 		const auto nextPresentationTimestamp = oracle.acquireNextImage(swapchain.get(), m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
 		// auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &imgnum);
 		// assert(acquireResult == video::ISwapchain::E_ACQUIRE_IMAGE_RESULT::EAIR_SUCCESS);
@@ -715,6 +863,38 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
+
+		// Clear pseudoStencil
+		{
+			auto pseudoStencilImage = pseudoStencilImageView[m_resourceIx]->getCreationParameters().image;
+
+			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
+			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_NONE;
+			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_NONE; // TODO?
+			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
+			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
+			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].image = pseudoStencilImage;
+			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
+			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
+			imageBarriers[0].subresourceRange.levelCount = 1;
+			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
+			imageBarriers[0].subresourceRange.layerCount = 1;
+			cb->pipelineBarrier(nbl::asset::EPSF_TOP_OF_PIPE_BIT, nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
+
+			asset::SClearColorValue clear = {};
+			clear.uint32[0] = 0u;
+			
+			asset::IImage::SSubresourceRange subresourceRange = {};
+			subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			subresourceRange.baseArrayLayer = 0u;
+			subresourceRange.baseMipLevel = 0u;
+			subresourceRange.layerCount = 1u;
+			subresourceRange.levelCount = 1u;
+
+			cb->clearColorImage(pseudoStencilImage.get(), asset::IImage::EL_GENERAL, &clear, 1u, &subresourceRange);
+		}
 
 		asset::SViewport vp;
 		vp.minDepth = 1.f;
@@ -769,29 +949,36 @@ public:
 
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
+		const uint32_t currentIndexCount = drawBuffers[m_resourceIx].currentIndexCount;
+
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
-		cb->bindIndexBuffer(indexBuffer.get(), 0u, asset::EIT_32BIT);
+		cb->bindIndexBuffer(drawBuffers[m_resourceIx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
-		cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
+		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
 		if constexpr (DebugMode)
 		{
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cb->drawIndexed(currentDrawObjectCount * 6u, 1u, 0u, 0u, 0u);
+			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
 
 		cb->endRenderPass();
 
 		cb->end();
 
-		CommonAPI::Submit(
-			logicalDevice.get(),
-			cb.get(),
-			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			m_imageAcquire[m_resourceIx].get(),
-			m_renderFinished[m_resourceIx].get(),
-			fence.get());
+		auto& graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
 
+		nbl::video::IGPUQueue::SSubmitInfo submit;
+		submit.commandBufferCount = 1u;
+		submit.commandBuffers = &cb.get();
+		submit.signalSemaphoreCount = 1u;
+		submit.pSignalSemaphores = &m_renderFinished[m_resourceIx].get();
+		nbl::video::IGPUSemaphore* waitSemaphores[2u] = { m_imageAcquire[m_resourceIx].get(), m_drawBufferUploadsFinished[m_resourceIx].get() };
+		asset::E_PIPELINE_STAGE_FLAGS waitStages[2u] = { nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT };
+		submit.waitSemaphoreCount = 2u;
+		submit.pWaitSemaphores = waitSemaphores;
+		submit.pWaitDstStageMask = waitStages;
+		graphicsQueue->submit(1u, &submit, fence.get());
 
 		CommonAPI::Present(
 			logicalDevice.get(),
