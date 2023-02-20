@@ -19,8 +19,8 @@ PSInput main(uint vertexID : SV_VertexID)
     ObjectType objType = drawObj.type;
     
     PSInput outV;
-    outV.lineWidth_eccentricity_objType.x = asuint(globals.lineWidth);
-    outV.lineWidth_eccentricity_objType.z = (uint)objType;
+    outV.lineWidth_eccentricity_objType_writeToAlpha.x = asuint(globals.lineWidth);
+    outV.lineWidth_eccentricity_objType_writeToAlpha.z = (uint)objType;
 
     // TODO: get from styles
     outV.color = globals.color;
@@ -41,7 +41,8 @@ PSInput main(uint vertexID : SV_VertexID)
 #endif 
         uint4 angleBoundsPacked_eccentricityPacked_pad = vk::RawBufferLoad<uint4>(drawObj.address + 32u, 8u);
 
-        outV.lineWidth_eccentricity_objType.y = angleBoundsPacked_eccentricityPacked_pad.z; // asfloat because it is acrually packed into a uint and we should not treat it as a float yet.
+        outV.lineWidth_eccentricity_objType_writeToAlpha.y = angleBoundsPacked_eccentricityPacked_pad.z; // asfloat because it is acrually packed into a uint and we should not treat it as a float yet.
+        outV.lineWidth_eccentricity_objType_writeToAlpha.w = vertexID % 2;
 
         double3x3 transformation = (double3x3)globals.viewProjection;
 

@@ -92,8 +92,8 @@ namespace SignedDistance
     float Ellipse(float2 p, float2 center, float2 majorAxis, double eccentricity)
     {
         float majorAxisLength = length(majorAxis);
-       
-        if (eccentricity == 1.0) 
+
+        if (eccentricity == 1.0)
             return length(p - center) - majorAxisLength;
 
         double minorAxisLength = double(majorAxisLength * eccentricity);
@@ -158,40 +158,52 @@ namespace SignedDistance
 
 float4 main(PSInput input) : SV_TARGET
 {
-    ObjectType objType = (ObjectType)input.lineWidth_eccentricity_objType.z;
+    ObjectType objType = (ObjectType)input.lineWidth_eccentricity_objType_writeToAlpha.z;
 
+    float localAlpha = 1.0f;
     if (objType == ObjectType::ELLIPSE)
     {
         const float2 center = input.start_end.xy;
         const float2 majorAxis = input.start_end.zw;
-        const float lineThickness = asfloat(input.lineWidth_eccentricity_objType.x) / 2.0f;
-        const double eccentricity = (double)(input.lineWidth_eccentricity_objType.y) / UINT32_MAX;
+        const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
+        const double eccentricity = (double)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
 
         float distance = SignedDistance::EllipseOutline(input.position.xy, center, majorAxis, eccentricity, lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
-        float alpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        return float4(input.color.xyz, input.color.w * alpha);
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
     else if (objType == ObjectType::LINE)
     {
         const float2 start = input.start_end.xy;
         const float2 end = input.start_end.zw;
-        const float lineThickness = asfloat(input.lineWidth_eccentricity_objType.x) / 2.0f;
+        const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
         float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
 
         /* No need to mul with fwidth(distance), distance already in screen space */
         const float antiAliasingFactor = globals.antiAliasingFactor;
-        float alpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        return float4(input.color.xyz, input.color.w * alpha);
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
     // else if (objType == ObjectType::ROAD)
     {
         // use fwidth to get antiAliasingFactor because road line width is constant in world space
         // calculate alpha based on aniAliasingFactor
-        // return float4(input.color.xyz, input.color.w * alpha);
     }
 
+    //bool writeToAlpha = lineWidth_eccentricity_objType_writeToAlpha.w > 0u;
+    //if (writeToAlpha)
+    //{
+    //    InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
+    //}
+    //else
+    //{
+    //    uint previous;
+    //    InterlockedExchange(pseudoStencil[fragCoord], 0u, previous);
+    //    localAlpha = asfloat(previous);
+    //}
 
-    return input.color;
+    //if (writeToAlpha || localAlpha == 0.0f)
+    //    discard;
+
+    return float4(input.color.xyz, input.color.w * localAlpha);
 }
