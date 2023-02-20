@@ -318,23 +318,8 @@ bool CommonAPI::createSwapchain(
 	paramsCp.height = height;
 	paramsCp.oldSwapchain = oldSwapchain;
 
-	if (device->getAPIType() == nbl::video::EAT_VULKAN)
-	{
-		swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(paramsCp));
-	}
-	else if (device->getAPIType() == nbl::video::EAT_OPENGL)
-	{
-		swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(paramsCp));
-	}
-	else if (device->getAPIType() == nbl::video::EAT_OPENGL_ES)
-	{
-		swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(paramsCp));
-	}
-	else
-	{
-		_NBL_TODO();
-	}
-
+	assert(device->getAPIType() == nbl::video::EAT_VULKAN);
+	swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(paramsCp));
 	assert(swapchain);
 	assert(swapchain != oldSwapchain);
 

@@ -6,10 +6,12 @@
 
 // TODO: get these all included by the appropriate namespace headers!
 #include "nbl/system/IApplicationFramework.h"
-#include "nbl/video/IDeviceMemoryBacked.h"
+
 #include "nbl/ui/CGraphicalApplicationAndroid.h"
 #include "nbl/ui/CWindowManagerAndroid.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
+
+// TODO: see TODO below
 #if defined(_NBL_PLATFORM_WINDOWS_)
 #include <nbl/system/CColoredStdoutLoggerWin32.h>
 #elif defined(_NBL_PLATFORM_ANDROID_)
@@ -1061,6 +1063,8 @@ protected:
 		}
 		else if (params.apiType == EAT_OPENGL)
 		{
+			assert(0);
+#if 0 // KILL IT
 			auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
 
 			if (!headlessCompute)
@@ -1073,9 +1077,13 @@ protected:
 			}
 
 			result.apiConnection = _apiConnection;
+
+#endif 
 		}
 		else if (params.apiType == EAT_OPENGL_ES)
 		{
+			assert(0);
+#if 0 // KILL IT
 			auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
 
 			if (!headlessCompute)
@@ -1088,6 +1096,7 @@ protected:
 			}
 
 			result.apiConnection = _apiConnection;
+#endif
 		}
 		else
 		{
@@ -1422,7 +1431,6 @@ protected:
 		return false;
 	}
 
-#ifdef ANTI_FLICKER
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
 
 	struct PresentedFrameInfo
@@ -1460,8 +1468,8 @@ protected:
 	virtual void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx) {}
 
 	nbl::video::IGPUImage* getTripleBufferTarget(
-		uint32_t frameIx, uint32_t w, uint32_t h, 
-		nbl::asset::E_FORMAT surfaceFormat, 
+		uint32_t frameIx, uint32_t w, uint32_t h,
+		nbl::asset::E_FORMAT surfaceFormat,
 		nbl::core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
 	{
 		uint32_t bufferIx = frameIx % 2;
@@ -1489,7 +1497,6 @@ protected:
 
 		return image.get();
 	}
-#endif
 public:
 	GraphicalApplication(
 		const std::filesystem::path& _localInputCWD,
@@ -1551,7 +1558,6 @@ public:
 		}
 	}
 
-#ifdef ANTI_FLICKER
 	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx, uint32_t lastRenderW, uint32_t lastRenderH)
 	{
 		using namespace nbl;
@@ -1664,7 +1670,6 @@ public:
 
 		logicalDevice->blockForFences(1u, &fence.get());
 	}
-#endif
 };
 #else
 class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid
