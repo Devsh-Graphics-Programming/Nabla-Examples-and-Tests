@@ -2,13 +2,22 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// TODO: @AnastaZIuk NBL_STATIC_LIB should have been added by CMake because we now have DLL builds!
 #define _NBL_STATIC_LIB_
+
 #include <iostream>
 #include <cstdio>
-#include <nabla.h>
+
+#include "nabla.h"
 
 #if defined(_NBL_PLATFORM_WINDOWS_)
-#	include <nbl/system/CColoredStdoutLoggerWin32.h>
+	#include "nbl/system/CColoredStdoutLoggerWin32.h"
+	#include "nbl/system/CSystemWin32.h"
+#elif defined(_NBL_PLATFORM_LINUX_)
+	#include "nbl/system/CColoredStdoutLoggerANSI.h"
+	#include "nbl/system/CSystemLinux.h"
+#else
+	#error "Unsupported Platform"
 #endif // TODO more platforms
 
 using namespace nbl;
@@ -18,22 +27,28 @@ using namespace system;
 
 static inline nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
 {
-	using namespace nbl;
-	using namespace core;
-	using namespace system;
-	smart_refctd_ptr<ISystemCaller> caller = nullptr;
+	smart_refctd_ptr<ISystem> system = nullptr;
 
 	#ifdef _NBL_PLATFORM_WINDOWS_
-	caller = make_smart_refctd_ptr<nbl::system::CSystemCallerWin32>();
+		system = make_smart_refctd_ptr<nbl::system::CSystemWin32>();
+	#elif defined(_NBL_PLATFORM_LINUX_)
+		system = make_smart_refctd_ptr<nbl::system::CSystemLinux>();
+	#else
+		#error "Unsupported Platform"
 	#endif
 
-	return make_smart_refctd_ptr<ISystem>(std::move(caller));
+	return system;
 }
 
 int main(int argc, char * argv[])
 {
 	auto system = createSystem();
+
+#if defined(_NBL_PLATFORM_WINDOWS_)
 	auto logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>();
+#else
+	auto logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>();
+#endif
 	auto assetManager = core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(system));
 
 	const bool isItDefaultImage = argc == 1;
