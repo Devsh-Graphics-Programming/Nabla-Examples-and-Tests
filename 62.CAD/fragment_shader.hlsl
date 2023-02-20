@@ -156,55 +156,93 @@ namespace SignedDistance
     }
 }
 
+#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
+[[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
+void beginInvocationInterlockEXT();
+[[vk::ext_instruction(/* OpEndInvocationInterlockEXT */ 5365)]]
+void endInvocationInterlockEXT();
+#endif
+
 float4 main(PSInput input) : SV_TARGET
 {
+#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
+    [[vk::ext_capability(/*FragmentShaderPixelInterlockEXT*/ 5378)]]
+    [[vk::ext_extension("SPV_EXT_fragment_shader_interlock")]]
+    vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
+#endif
+
     ObjectType objType = (ObjectType)input.lineWidth_eccentricity_objType_writeToAlpha.z;
 
-    float localAlpha = 1.0f;
-    if (objType == ObjectType::ELLIPSE)
+    float localAlpha = 0.0f;
+    bool writeToAlpha = input.lineWidth_eccentricity_objType_writeToAlpha.w == 1u;
+    
+    if (writeToAlpha)
     {
-        const float2 center = input.start_end.xy;
-        const float2 majorAxis = input.start_end.zw;
-        const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-        const double eccentricity = (double)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
+        if (objType == ObjectType::ELLIPSE)
+        {
+            const float2 center = input.start_end.xy;
+            const float2 majorAxis = input.start_end.zw;
+            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
+            const double eccentricity = (double)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
 
-        float distance = SignedDistance::EllipseOutline(input.position.xy, center, majorAxis, eccentricity, lineThickness);
+            float distance = SignedDistance::EllipseOutline(input.position.xy, center, majorAxis, eccentricity, lineThickness);
 
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-    }
-    else if (objType == ObjectType::LINE)
-    {
-        const float2 start = input.start_end.xy;
-        const float2 end = input.start_end.zw;
-        const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-        float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+        }
+        else if (objType == ObjectType::LINE)
+        {
+            const float2 start = input.start_end.xy;
+            const float2 end = input.start_end.zw;
+            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
+            float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
 
-        /* No need to mul with fwidth(distance), distance already in screen space */
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-    }
-    // else if (objType == ObjectType::ROAD)
-    {
-        // use fwidth to get antiAliasingFactor because road line width is constant in world space
-        // calculate alpha based on aniAliasingFactor
+            /* No need to mul with fwidth(distance), distance already in screen space */
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+        }
+        // else if (objType == ObjectType::ROAD)
+        {
+            // use fwidth to get antiAliasingFactor because road line width is constant in world space
+            // calculate alpha based on aniAliasingFactor
+        }
     }
 
     uint2 fragCoord = uint2(input.position.xy);
-    bool writeToAlpha = input.lineWidth_eccentricity_objType_writeToAlpha.w > 0u;
+
+    float alpha = 0.0f; // new alpha
+
+#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
+    beginInvocationInterlockEXT();
+
+    alpha = asfloat(pseudoStencil[fragCoord]);
     if (writeToAlpha)
     {
-        // InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
+        if (localAlpha > alpha)
+            pseudoStencil[fragCoord] = asuint(localAlpha);
     }
     else
     {
-        // uint previous;
-        // InterlockedExchange(pseudoStencil[fragCoord], 0u, previous);
-        // localAlpha = asfloat(previous);
+        if (alpha != 0.0f)
+            pseudoStencil[fragCoord] = asuint(0.0f);
     }
 
-    if (writeToAlpha || localAlpha == 0.0f)
+    endInvocationInterlockEXT();
+#else
+    if (writeToAlpha)
+    {
+        InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
+    }
+    else
+    {
+        uint previousAlpha;
+        InterlockedExchange(pseudoStencil[fragCoord], 0u, previousAlpha);
+        alpha = asfloat(previousAlpha);
+    }
+#endif
+
+    if (writeToAlpha || alpha == 0.0f)
         discard;
 
-    return float4(input.color.xyz, input.color.w * localAlpha);
+    return float4(input.color.xyz, input.color.w * alpha);
 }

@@ -14,7 +14,7 @@ PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
-    
+
     DrawObject drawObj = drawObjects[objectID];
     ObjectType objType = drawObj.type;
     
@@ -26,6 +26,8 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.color = globals.color;
 
     const float antiAliasedLineWidth = globals.lineWidth + globals.antiAliasingFactor * 2.0f;
+
+    outV.lineWidth_eccentricity_objType_writeToAlpha.w = (vertexIdx % 2u == 0u) ? 1u : 0u;
 
     if (objType == ObjectType::ELLIPSE)
     {
@@ -42,7 +44,6 @@ PSInput main(uint vertexID : SV_VertexID)
         uint4 angleBoundsPacked_eccentricityPacked_pad = vk::RawBufferLoad<uint4>(drawObj.address + 32u, 8u);
 
         outV.lineWidth_eccentricity_objType_writeToAlpha.y = angleBoundsPacked_eccentricityPacked_pad.z; // asfloat because it is acrually packed into a uint and we should not treat it as a float yet.
-        outV.lineWidth_eccentricity_objType_writeToAlpha.w = 0u;
 
         double3x3 transformation = (double3x3)globals.viewProjection;
 

@@ -5,6 +5,7 @@
 
 
 static constexpr bool DebugMode = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -398,10 +399,19 @@ class CADApp : public ApplicationBase
 		}
 
 		// pseudoStencil
+
+		asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
+
+		video::IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
+		promotionRequest.originalFormat = asset::EF_R8_UINT;
+		promotionRequest.usages = {};
+		promotionRequest.usages.storageImageAtomic = true;
+		pseudoStencilFormat = physicalDevice->promoteImageFormat(promotionRequest, video::IGPUImage::ET_OPTIMAL);
+		
 		for(uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
 			video::IGPUImage::SCreationParams imgInfo;
-			imgInfo.format = asset::EF_R32_UINT;
+			imgInfo.format = pseudoStencilFormat;
 			imgInfo.type = video::IGPUImage::ET_2D;
 			imgInfo.extent.width = WIN_W;
 			imgInfo.extent.height = WIN_H;
@@ -423,7 +433,7 @@ class CADApp : public ApplicationBase
 
 			video::IGPUImageView::SCreationParams imgViewInfo;
 			imgViewInfo.image = std::move(image);
-			imgViewInfo.format = asset::EF_R32_UINT;
+			imgViewInfo.format = pseudoStencilFormat;
 			imgViewInfo.viewType = video::IGPUImageView::ET_2D;
 			imgViewInfo.flags = video::IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
 			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -476,7 +486,7 @@ class CADApp : public ApplicationBase
 			EllipseInfo ellipse = {};
 			const double a = timeElapsed * 0.001;
 			// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
-			ellipse.majorAxis = { 20.0, 0.0 };
+			ellipse.majorAxis = { 30.0, 0.0 };
 			ellipse.center = { 0, 0 };
 			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
 
@@ -501,15 +511,23 @@ class CADApp : public ApplicationBase
 				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
+			ellipse.majorAxis = { 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
+			ellipse.center = { 50, 50 };
+			ellipse.angleBoundsPacked = {
+				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
+			};
+			currentDrawBuffers.addEllipse(ellipse);
 
 			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
 			linePoints.push_back({ sin(timeElapsed * 0.0005) * 20, cos(timeElapsed * 0.0005) * 20 });
 			linePoints.push_back({ -sin(timeElapsed * 0.0005) * 20, -cos(timeElapsed * 0.0005) * 20 });
-			linePoints.push_back({ 50.0, 0.5 });
-			linePoints.push_back({ 80.0, 20.0 });
-			linePoints.push_back({ 30.0, -10.0 });
-			linePoints.push_back({ 90.0, -50.0 });
+			linePoints.push_back({ 50.0, 0.0 });
+			linePoints.push_back({ 80.0, 00.0 });
+			linePoints.push_back({ 80.0, +40.0 });
+			linePoints.push_back({ 60.0, -50.0 });
+			linePoints.push_back({ 40.0, +30.0 });
 			currentDrawBuffers.addLines(std::move(linePoints));
 
 			std::vector<double2> linePoints2;
@@ -610,6 +628,7 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
 		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
 		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
+		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
