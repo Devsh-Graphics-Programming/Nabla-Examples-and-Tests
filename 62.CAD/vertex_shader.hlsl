@@ -42,7 +42,7 @@ PSInput main(uint vertexID : SV_VertexID)
         uint4 angleBoundsPacked_eccentricityPacked_pad = vk::RawBufferLoad<uint4>(drawObj.address + 32u, 8u);
 
         outV.lineWidth_eccentricity_objType_writeToAlpha.y = angleBoundsPacked_eccentricityPacked_pad.z; // asfloat because it is acrually packed into a uint and we should not treat it as a float yet.
-        outV.lineWidth_eccentricity_objType_writeToAlpha.w = vertexID % 2;
+        outV.lineWidth_eccentricity_objType_writeToAlpha.w = 0u;
 
         double3x3 transformation = (double3x3)globals.viewProjection;
 

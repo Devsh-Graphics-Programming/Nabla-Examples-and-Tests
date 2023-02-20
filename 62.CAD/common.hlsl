@@ -41,7 +41,7 @@ struct Globals
 
 struct PSInput
 {
-	float4 position : SV_Position;
+    float4 position : SV_Position;
     [[vk::location(0)]] float4 color : COLOR; 
     [[vk::location(1)]] nointerpolation float4 start_end : COLOR1; 
     [[vk::location(2)]] nointerpolation uint4 lineWidth_eccentricity_objType_writeToAlpha : COLOR2; 
@@ -49,5 +49,5 @@ struct PSInput
 
 [[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1,0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-[[vk::binding(2,0)]] RWTexture2D<uint> pseudoStencil : register(u0);
+[[vk::binding(2,0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 #endif

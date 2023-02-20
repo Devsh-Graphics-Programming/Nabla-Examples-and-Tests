@@ -190,20 +190,21 @@ float4 main(PSInput input) : SV_TARGET
         // calculate alpha based on aniAliasingFactor
     }
 
-    //bool writeToAlpha = lineWidth_eccentricity_objType_writeToAlpha.w > 0u;
-    //if (writeToAlpha)
-    //{
-    //    InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
-    //}
-    //else
-    //{
-    //    uint previous;
-    //    InterlockedExchange(pseudoStencil[fragCoord], 0u, previous);
-    //    localAlpha = asfloat(previous);
-    //}
+    uint2 fragCoord = uint2(input.position.xy);
+    bool writeToAlpha = input.lineWidth_eccentricity_objType_writeToAlpha.w > 0u;
+    if (writeToAlpha)
+    {
+        // InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
+    }
+    else
+    {
+        // uint previous;
+        // InterlockedExchange(pseudoStencil[fragCoord], 0u, previous);
+        // localAlpha = asfloat(previous);
+    }
 
-    //if (writeToAlpha || localAlpha == 0.0f)
-    //    discard;
+    if (writeToAlpha || localAlpha == 0.0f)
+        discard;
 
     return float4(input.color.xyz, input.color.w * localAlpha);
 }

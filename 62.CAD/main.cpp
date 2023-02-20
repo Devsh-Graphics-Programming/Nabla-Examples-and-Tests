@@ -187,6 +187,7 @@ class CADApp : public ApplicationBase
 		uint64_t geometryBufferAddress = 0u;
 
 		uint32_t currentIndexCount = 0u;
+		uint32_t noOfCages = 0u;
 		uint32_t maxIndices = 0u;
 		
 		uint32_t currentDrawObjectCount = 0u;
@@ -245,6 +246,7 @@ class CADApp : public ApplicationBase
 
 		void clear()
 		{
+			noOfCages = 0u;
 			currentIndexCount = 0u;
 			currentDrawObjectCount = 0u;
 			currentGeometryBufferSize = 0u;
@@ -267,6 +269,7 @@ class CADApp : public ApplicationBase
 			utils->updateBufferRangeViaStagingBufferAutoSubmit(geomRange, cpuDrawBuffers.geometryBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
+
 		void addLines(std::vector<double2>&& linePoints)
 		{
 			if (linePoints.size() < 2u)
@@ -287,17 +290,8 @@ class CADApp : public ApplicationBase
 			}
 			
 			// Index
-			uint32_t* indices = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
-			for (uint32_t i = 0u; i < noLines; ++i)
-			{
-				indices[i * 6] = i * 4u + 0u;
-				indices[i * 6 + 1u] = i * 4u + 1u;
-				indices[i * 6 + 2u] = i * 4u + 2u;
-				indices[i * 6 + 3u] = i * 4u + 2u;
-				indices[i * 6 + 4u] = i * 4u + 1u;
-				indices[i * 6 + 5u] = i * 4u + 3u;
-				currentIndexCount += 6;
-			}
+			bool isOpaque = false;
+			addNewCagesIndices(noLines, isOpaque);
 
 			// Geom
 			{
@@ -310,7 +304,7 @@ class CADApp : public ApplicationBase
 
 		void addEllipse(const EllipseInfo& ellipseInfo)
 		{
-			return;
+			// Geom
 			DrawObject drawObj = {};
 			drawObj.type = ObjectType::ELLIPSE;
 			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
@@ -318,12 +312,51 @@ class CADApp : public ApplicationBase
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 			currentDrawObjectCount += 1u;
 
-			// Copy drawObj to correct CPU Address
+			// Index
+			bool isOpaque = false;
+			addNewCagesIndices(1u, isOpaque);
+
+			// Geom
 			{
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, &ellipseInfo, sizeof(EllipseInfo));
 				currentGeometryBufferSize += sizeof(EllipseInfo);
 			}
+		}
+
+		void addNewCagesIndices(const uint32_t cages, const bool isOpaque)
+		{
+			uint32_t* indices = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
+
+			for (uint32_t i = 0u; i < cages; ++i)
+			{
+				uint32_t start = i + noOfCages;
+				indices[i * 6] = start * 4u + 0u;
+				indices[i * 6 + 1u] = start * 4u + 1u;
+				indices[i * 6 + 2u] = start * 4u + 2u;
+
+				indices[i * 6 + 3u] = start * 4u + 2u;
+				indices[i * 6 + 4u] = start * 4u + 1u;
+				indices[i * 6 + 5u] = start * 4u + 3u;
+			}
+			if (!isOpaque)
+			{
+				// Transparent Objects (as a whole) need to draw twice, one for setting the alpha and another for clearing it and drawing it
+				indices += cages * 6u;
+				for (uint32_t i = 0u; i < cages; ++i)
+				{
+					uint32_t start = i + noOfCages;
+					indices[i * 6] = start * 4u + 1u;
+					indices[i * 6 + 1u] = start * 4u + 0u;
+					indices[i * 6 + 2u] = start * 4u + 2u;
+
+					indices[i * 6 + 3u] = start * 4u + 1u;
+					indices[i * 6 + 4u] = start * 4u + 2u;
+					indices[i * 6 + 5u] = start * 4u + 3u;
+				}
+			}
+			noOfCages += cages;
+			currentIndexCount += cages * 6u * (isOpaque ? 1u : 2u);
 		}
 	};
 
@@ -409,10 +442,9 @@ class CADApp : public ApplicationBase
 		auto& currentDrawBuffers = drawBuffers[resourceIdx];
 		currentDrawBuffers.clear();
 
-		std::vector<double2> linePoints;
-
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
+			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 80.0, 10.0 });
@@ -426,12 +458,14 @@ class CADApp : public ApplicationBase
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
+			std::vector<double2> linePoints;
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 30.0, 30.0 });
 			currentDrawBuffers.addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
+			std::vector<double2> linePoints;
 			linePoints.push_back({ -70.0, cos(timeElapsed * 0.00003) * 10 });
 			linePoints.push_back({ 70.0, cos(timeElapsed * 0.00003) * 10 });
 			currentDrawBuffers.addLines(std::move(linePoints));
@@ -442,7 +476,7 @@ class CADApp : public ApplicationBase
 			EllipseInfo ellipse = {};
 			const double a = timeElapsed * 0.001;
 			// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
-			ellipse.majorAxis = { 40.0, 0.0 };
+			ellipse.majorAxis = { 20.0, 0.0 };
 			ellipse.center = { 0, 0 };
 			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
 
@@ -468,6 +502,7 @@ class CADApp : public ApplicationBase
 			};
 			currentDrawBuffers.addEllipse(ellipse);
 
+			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
 			linePoints.push_back({ sin(timeElapsed * 0.0005) * 20, cos(timeElapsed * 0.0005) * 20 });
 			linePoints.push_back({ -sin(timeElapsed * 0.0005) * 20, -cos(timeElapsed * 0.0005) * 20 });
@@ -476,6 +511,11 @@ class CADApp : public ApplicationBase
 			linePoints.push_back({ 30.0, -10.0 });
 			linePoints.push_back({ 90.0, -50.0 });
 			currentDrawBuffers.addLines(std::move(linePoints));
+
+			std::vector<double2> linePoints2;
+			linePoints2.push_back({ -100.0, 0.0 });
+			linePoints2.push_back({ 100.0, 100.0 });
+			currentDrawBuffers.addLines(std::move(linePoints2));
 		}
 
 
