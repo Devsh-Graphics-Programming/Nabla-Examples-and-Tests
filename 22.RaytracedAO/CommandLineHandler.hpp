@@ -63,35 +63,24 @@ using variablesType = std::unordered_map<RaytracerExampleArguments, std::optiona
 class CommandLineHandler
 {
 	public:
-
 		CommandLineHandler(const std::vector<std::string>& argv);
 
-		auto& getSceneDirectory() const
+		inline auto& getSceneDirectory() const
 		{
 			return sceneDirectory;
 		}
 
-		auto& getTerminate() const
+		inline auto& getProcessSensorsBehaviour() const
 		{
-			return terminate;
+			return processSensorsBehaviour;
 		}
 
-		inline ProcessSensorsBehaviour getProcessSensorBehaviour() const
+		inline auto& getSensorID() const
 		{
-			const ProcessSensorsBehaviour behaviour = processSensorsBehaviourAndID.first;
-			assert(behaviour != ProcessSensorsBehaviour::PSB_COUNT);
-			return behaviour;
-		}
-
-		inline uint32_t getProcessSensorID() const
-		{
-			const uint32_t sensorID = processSensorsBehaviourAndID.second;
-			assert(sensorID != ~0u);
 			return sensorID;
 		}
 
 	private:
-
 		void initializeMatchingMap()
 		{
 			rawVariables[REA_SCENE];
@@ -121,27 +110,29 @@ class CommandLineHandler
 				terminate = true;
 			if (rawVariables[REA_PROCESS_SENSORS].has_value())
 			{
+				processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE; // default, when no behaviour option is specified
+
 				const auto& values = rawVariables[REA_PROCESS_SENSORS].value();
-				uint32_t sensorID = ~0u;
-				if (values.empty())
+				if (!values.empty())
 				{
-					processSensorsBehaviourAndID = { ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE, sensorID };
-				}
-				else
-				{
-					const char* behaviour = rawVariables[REA_PROCESS_SENSORS].value()[0].c_str();
-
-					if (rawVariables[REA_PROCESS_SENSORS].value().size() > 1)
-						sensorID = std::stoi(rawVariables[REA_PROCESS_SENSORS].value()[1]);
-
-					if (strcmp(behaviour, "RenderAllThenInteractive") == 0)
-						processSensorsBehaviourAndID = { ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE, sensorID };
-					else if (strcmp(behaviour, "RenderAllThenTerminate") == 0)
-						processSensorsBehaviourAndID = { ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE, sensorID };
+					const char* behaviour = values[0].c_str();
+					if (strcmp(behaviour, "RenderAllThenTerminate") == 0)
+					{
+						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE;
+						assert(values.size() == 1 && "Passing a sensor ID doens't make sense here.");
+					}
 					else if (strcmp(behaviour, "RenderSensorThenInteractive") == 0)
-						processSensorsBehaviourAndID = { ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE, sensorID };
+					{
+						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE;
+						sensorID = std::stoi(values[1]);
+					}
 					else if (strcmp(behaviour, "InteractiveAtSensor") == 0)
-						processSensorsBehaviourAndID = { ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR, sensorID };
+					{
+						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR;
+						sensorID = std::stoi(values[1]);
+					}
+					else
+						assert(!"Invalid option.");
 				}
 			}
 		}
@@ -152,7 +143,11 @@ class CommandLineHandler
 		std::vector<std::string> sceneDirectory; // [0] zip [1] optional xml in zip
 		std::string outputScreenshotsFolderPath;
 		bool terminate = false;
-		std::pair<ProcessSensorsBehaviour, uint32_t> processSensorsBehaviourAndID = {ProcessSensorsBehaviour::PSB_COUNT, ~0u};
+		struct
+		{
+			ProcessSensorsBehaviour processSensorsBehaviour = ProcessSensorsBehaviour::PSB_COUNT;
+			std::optional<uint32_t> sensorID;
+		};
 
 };
 

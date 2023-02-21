@@ -138,7 +138,7 @@ int main(int argc, char** argv)
 	auto sceneDir = cmdHandler.getSceneDirectory();
 	std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
 	std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
-	bool shouldTerminateAfterRenders = cmdHandler.getTerminate(); // skip interaction with window and take screenshots only
+	bool shouldTerminateAfterRenders = cmdHandler.getProcessSensorsBehaviour() == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE; // skip interaction with window and take screenshots only
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
 
@@ -698,7 +698,8 @@ int main(int argc, char** argv)
 						break;
 				}
 				core::matrix4SIMD projMat;
-				projMat.setTranslation(core::vectorSIMDf(persp->shiftX,-persp->shiftY,0.f,1.f));
+				// projMat.setTranslation(core::vectorSIMDf(persp->shiftX,-persp->shiftY,0.f,1.f));
+				projMat.setTranslation(core::vectorSIMDf(0.f,0.f,0.f,1.f));
 				if (mainSensorData.rightHandedCamera)
 					projMat = core::concatenateBFollowedByA(projMat,core::matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(realFoVDegrees), aspectRatio, nearClip, farClip));
 				else
@@ -717,11 +718,30 @@ int main(int argc, char** argv)
 		return true;
 	};
 
-	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
+	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+	if (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE || processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR)
 	{
-		std::cout << "Sensors[" << s << "] = " << std::endl;
-		const auto& sensor = globalMeta->m_global.m_sensors[s];
-		extractAndAddToSensorData(sensor, s);
+		auto sensorID = cmdHandler.getSensorID();
+		assert(sensorID.has_value());
+
+		uint32_t sensorIndex = sensorID.value();
+		if (sensorIndex >= globalMeta->m_global.m_sensors.size())
+		{
+			std::cout << "[WARNING]: Specified sensor ID doesn't correspond to a valid sensor. Selecting the first sensor." << std::endl;
+			sensorIndex = 0;
+		}
+		const auto& sensor = globalMeta->m_global.m_sensors[sensorIndex];
+		extractAndAddToSensorData(sensor, sensorIndex);
+	}
+	else
+	{
+		// If -PROCESS_SENSORS is not specified at all then we end up here.
+		for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
+		{
+			std::cout << "Sensors[" << s << "] = " << std::endl;
+			const auto& sensor = globalMeta->m_global.m_sensors[s];
+			extractAndAddToSensorData(sensor, s);
+		}
 	}
 
 	auto driver = device->getVideoDriver();
@@ -774,112 +794,116 @@ int main(int argc, char** argv)
 	int32_t prevHeight = 0;
 	int32_t prevCascadeCount = 0;
 	float prevRegFactor = 0.0f;
-	for(uint32_t s = 0u; s < sensors.size(); ++s)
+	const bool jumpStraightToInteractive = (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
+	if (!jumpStraightToInteractive)
 	{
-		if(!receiver.keepOpen())
-			break;
-
-		const auto& sensorData = sensors[s];
-		
-		printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
-
-		bool needsReinit = prevWidth!=sensorData.width || prevHeight!=sensorData.height || prevCascadeCount!=sensorData.cascadeCount || prevRegFactor!=sensorData.envmapRegFactor;
-		prevWidth = sensorData.width;
-		prevHeight = sensorData.height;
-		prevCascadeCount = sensorData.cascadeCount;
-		prevRegFactor = sensorData.envmapRegFactor;
-		
-		renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
-		if(needsReinit) 
+		for(uint32_t s = 0u; s < sensors.size(); ++s)
 		{
-			renderer->deinitScreenSizedResources();
-			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
-		}
-		
-		smgr->setActiveCamera(sensorData.staticCamera);
-
-		const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
-		const uint32_t maxNeededIterations = (sensorData.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
-		
-		uint32_t itr = 0u;
-		bool takenEnoughSamples = false;
-		bool renderFailed = false;
-		auto lastTimeLoggedProgress = std::chrono::steady_clock::now();
-		while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
-		{
-			if(itr >= maxNeededIterations)
-				std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensorData.samplesNeeded << ") by now; something is wrong." << std::endl;
-
-			// Handle Inputs
-			{
-				if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
-				{
-					int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-					printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
-					lastTimeLoggedProgress = std::chrono::steady_clock::now();
-				}
-				receiver.resetKeys();
-			}
-
-
-			driver->beginScene(false, false);
-
-			if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.Emin,!sensorData.envmap))
-			{
-				renderFailed = true;
-				driver->endScene();
+			if(!receiver.keepOpen())
 				break;
+
+			const auto& sensorData = sensors[s];
+		
+			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
+
+			bool needsReinit = prevWidth!=sensorData.width || prevHeight!=sensorData.height || prevCascadeCount!=sensorData.cascadeCount || prevRegFactor!=sensorData.envmapRegFactor;
+			prevWidth = sensorData.width;
+			prevHeight = sensorData.height;
+			prevCascadeCount = sensorData.cascadeCount;
+			prevRegFactor = sensorData.envmapRegFactor;
+		
+			renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
+			if(needsReinit) 
+			{
+				renderer->deinitScreenSizedResources();
+				renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
+			}
+		
+			smgr->setActiveCamera(sensorData.staticCamera);
+
+			const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
+			const uint32_t maxNeededIterations = (sensorData.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
+		
+			uint32_t itr = 0u;
+			bool takenEnoughSamples = false;
+			bool renderFailed = false;
+			auto lastTimeLoggedProgress = std::chrono::steady_clock::now();
+			while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
+			{
+				if(itr >= maxNeededIterations)
+					std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensorData.samplesNeeded << ") by now; something is wrong." << std::endl;
+
+				// Handle Inputs
+				{
+					if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
+					{
+						int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
+						printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
+						lastTimeLoggedProgress = std::chrono::steady_clock::now();
+					}
+					receiver.resetKeys();
+				}
+
+
+				driver->beginScene(false, false);
+
+				if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.Emin,!sensorData.envmap))
+				{
+					renderFailed = true;
+					driver->endScene();
+					break;
+				}
+
+				auto oldVP = driver->getViewPort();
+				driver->blitRenderTargets(renderer->getColorBuffer(),nullptr,false,false,{},{},true);
+				driver->setViewPort(oldVP);
+
+				driver->endScene();
+			
+				if(renderer->getTotalSamplesPerPixelComputed() >= sensorData.samplesNeeded)
+					takenEnoughSamples = true;
+			
+				itr++;
 			}
 
-			auto oldVP = driver->getViewPort();
-			driver->blitRenderTargets(renderer->getColorBuffer(),nullptr,false,false,{},{},true);
-			driver->setViewPort(oldVP);
-
-			driver->endScene();
-			
-			if(renderer->getTotalSamplesPerPixelComputed() >= sensorData.samplesNeeded)
-				takenEnoughSamples = true;
-			
-			itr++;
-		}
-
-		auto screenshotFilePath = sensorData.outputFilePath;
+			auto screenshotFilePath = sensorData.outputFilePath;
 		
-		if(renderFailed)
-		{
-			std::cout << "[ERROR] Render Failed." << std::endl;
-		}
-		else
-		{
-			bool shouldDenoise = sensorData.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
-			renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensorData.denoiserInfo);
-			int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-			printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded, screenshotFilePath.filename().string().c_str());
-		}
+			if(renderFailed)
+			{
+				std::cout << "[ERROR] Render Failed." << std::endl;
+			}
+			else
+			{
+				bool shouldDenoise = sensorData.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
+				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensorData.denoiserInfo);
+				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
+				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded, screenshotFilePath.filename().string().c_str());
+			}
 
-		receiver.resetKeys();
-	}
-
-	// Denoise Cubemaps that weren't denoised seperately
-	for(uint32_t i = 0; i < cubemapRenders.size(); ++i)
-	{
-		uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
-		assert(beginIdx + 6 <= sensors.size());
-
-		std::filesystem::path filePaths[6] = {};
-
-		for(uint32_t f = beginIdx; f < beginIdx + 6; ++f)
-		{
-			const auto & sensor = sensors[f];
-			filePaths[f] = sensor.outputFilePath;
+			receiver.resetKeys();
 		}
 
-		std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
-		renderer->denoiseCubemapFaces(
-			filePaths,
-			mergedFileName,
-			sensors[beginIdx].cropOffsetX, sensors[beginIdx].cropOffsetY, sensors[beginIdx].cropWidth, sensors[beginIdx].cropHeight,
-			sensors[beginIdx].denoiserInfo);
+		// Denoise Cubemaps that weren't denoised seperately
+		for(uint32_t i = 0; i < cubemapRenders.size(); ++i)
+		{
+			uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
+			assert(beginIdx + 6 <= sensors.size());
+
+			std::filesystem::path filePaths[6] = {};
+
+			for(uint32_t f = beginIdx; f < beginIdx + 6; ++f)
+			{
+				const auto & sensor = sensors[f];
+				filePaths[f] = sensor.outputFilePath;
+			}
+
+			std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
+			renderer->denoiseCubemapFaces(
+				filePaths,
+				mergedFileName,
+				sensors[beginIdx].cropOffsetX, sensors[beginIdx].cropOffsetY, sensors[beginIdx].cropWidth, sensors[beginIdx].cropHeight,
+				sensors[beginIdx].denoiserInfo);
+		}
 	}
 
 	// Interactive
