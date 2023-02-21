@@ -201,8 +201,9 @@ float4 main(PSInput input) : SV_TARGET
             const float antiAliasingFactor = globals.antiAliasingFactor;
             localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
-        // else if (objType == ObjectType::ROAD)
+        else if (objType == ObjectType::ROAD)
         {
+            localAlpha = 1.0f;
             // use fwidth to get antiAliasingFactor because road line width is constant in world space
             // calculate alpha based on aniAliasingFactor
         }

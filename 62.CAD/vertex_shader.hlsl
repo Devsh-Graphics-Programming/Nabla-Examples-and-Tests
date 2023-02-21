@@ -145,9 +145,11 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::ROAD)
     {
-        // Get the 4 generated points 
-        // Transform to ndc
-        // pass to fragment
+        outV.color = float4(0.7, 0.1, 0.5, 0.5);
+        double3x3 transformation = (double3x3)globals.viewProjection;
+        double2 vertex = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * vertexIdx, 8u);
+        outV.position.xy = mul(transformation, double3(vertex, 1)).xy; // Transform to NDC
+        outV.position.w = 1u;
     }
 	return outV;
 }
