@@ -229,21 +229,24 @@ float4 main(PSInput input) : SV_TARGET
     }
 
     endInvocationInterlockEXT();
-#else
-    if (writeToAlpha)
-    {
-        InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
-    }
-    else
-    {
-        uint previousAlpha;
-        InterlockedExchange(pseudoStencil[fragCoord], 0u, previousAlpha);
-        alpha = asfloat(previousAlpha);
-    }
-#endif
 
     if (writeToAlpha || alpha == 0.0f)
         discard;
+#else
+    alpha = localAlpha;
+    if (!writeToAlpha)
+        discard;
+    //if (writeToAlpha)
+    //{
+    //    InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
+    //}
+    //else
+    //{
+    //    uint previousAlpha;
+    //    InterlockedExchange(pseudoStencil[fragCoord], 0u, previousAlpha);
+    //    alpha = previousAlpha;
+    //}
+#endif
 
     return float4(input.color.xyz, input.color.w * alpha);
 }
