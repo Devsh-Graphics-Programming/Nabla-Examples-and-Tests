@@ -23,12 +23,20 @@ using namespace core;
 
 // #define NBL_MORE_LOGS
 
+#include "nbl/nblpack.h" //! Designed for use with interface blocks declared with `layout (row_major, std140)`
+struct NBL_CAMERA_VECTORS {
+    nbl::core::vectorSIMDf cameraPosition;
+    nbl::core::vectorSIMDf cameraTarget;
+};
+#include "nbl/nblunpack.h"
+
 class SierpinskiSDF : public ApplicationBase 
 {
     constexpr static uint32_t WIN_W = 1280;
     constexpr static uint32_t WIN_H = 720;
     constexpr static uint32_t SC_IMG_COUNT = 3u;
     constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
+    constexpr static size_t NBL_FRAMES_TO_AVERAGE = 100ull;
 
     static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
 
@@ -57,11 +65,11 @@ class SierpinskiSDF : public ApplicationBase
 
         core::smart_refctd_ptr<video::IGPUMeshBuffer> gpuMeshBuffer;
         core::smart_refctd_ptr<IGPURenderpassIndependentPipeline> gpuRenderpassIndependentPipeline;
-        core::smart_refctd_ptr<IGPUBuffer> gpuubo;
-        core::smart_refctd_ptr<IGPUDescriptorSet> gpuDescriptorSet1;
-        core::smart_refctd_ptr<IGPUDescriptorSet> gpuDescriptorSet3;
         core::smart_refctd_ptr<IGPUGraphicsPipeline> gpuGraphicsPipeline;
 
+        core::smart_refctd_ptr<IGPUBuffer> gpuubo;
+        core::smart_refctd_ptr<IGPUDescriptorSet> gpuDescriptorSet1;
+   
         core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
         core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
         core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
@@ -76,16 +84,11 @@ class SierpinskiSDF : public ApplicationBase
         int resourceIx;
         uint32_t acquiredNextFBO = {};
 
-        struct SPushConsts 
-        {
-            struct VertStage {
-                core::matrix4SIMD VP;
-            } vertStage;
-
-            struct FragStage {
-                core::vectorSIMDf campos = {};
-            } fragStage;
-        };
+        std::chrono::system_clock::time_point lastTime;
+        bool frameDataFilled = false;
+        size_t frame_count = 0ull;
+        double time_sum = 0;
+        double dtList[NBL_FRAMES_TO_AVERAGE] = {};
 
         auto createDescriptorPool(const uint32_t textureCount) 
         {
@@ -194,38 +197,57 @@ class SierpinskiSDF : public ApplicationBase
             assert(swapchain);
 
             fbo = CommonAPI::createFBOWithSwapchainImages(swapchain->getImageCount(), WIN_W, WIN_H, logicalDevice, swapchain, renderpass, nbl::asset::EF_D32_SFLOAT);
-    
-            asset::SPushConstantRange rng[2];
-            rng[0].offset = 0u;
-            rng[0].size = sizeof(SPushConsts::vertStage);
-            rng[0].stageFlags = asset::IShader::ESS_VERTEX;
-            rng[1].offset = offsetof(SPushConsts, fragStage);
-            rng[1].size = sizeof(SPushConsts::fragStage);
-            rng[1].stageFlags = asset::IShader::ESS_FRAGMENT;
 
-            auto gpuPipelineLayout = logicalDevice->createPipelineLayout(rng, rng + 2, nullptr, nullptr, nullptr, nullptr);
+            auto descriptorPool = createDescriptorPool(1u);
 
-            auto vertexShaderBundle = assetManager->getAsset("../shader.vert", {});
+            const size_t ds1UboBinding = 0;
+
+            IGPUDescriptorSetLayout::SBinding gpuUboBinding;
+            gpuUboBinding.count = 1u;
+            gpuUboBinding.binding = ds1UboBinding;
+            gpuUboBinding.stageFlags = static_cast<asset::ICPUShader::E_SHADER_STAGE>(asset::ICPUShader::ESS_VERTEX | asset::ICPUShader::ESS_FRAGMENT);
+            gpuUboBinding.type = asset::EDT_UNIFORM_BUFFER;
+
+            auto gpuDs1Layout = logicalDevice->createDescriptorSetLayout(&gpuUboBinding, &gpuUboBinding + 1);
             {
-                bool status = !vertexShaderBundle.getContents().empty();
-                assert(status);
-            }
-            auto cpuVertexShader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(vertexShaderBundle.getContents().begin()[0]);
+                IGPUBuffer::SCreationParams creationParams = {};
+                creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+                creationParams.size = sizeof(NBL_CAMERA_VECTORS);
+                gpuubo = logicalDevice->createBuffer(std::move(creationParams));
 
-            smart_refctd_ptr<video::IGPUSpecializedShader> gpuVertexShader;
+                IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuubo->getMemoryReqs();
+                memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+                logicalDevice->allocate(memReq, gpuubo.get());
+            }
+
+            gpuDescriptorSet1 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs1Layout);
             {
-                auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuVertexShader, &cpuVertexShader + 1, cpu2gpuParams);
-                if (!gpu_array || gpu_array->size() < 1u || !(*gpu_array)[0])
-                assert(false);
-
-                gpuVertexShader = (*gpu_array)[0];
+                video::IGPUDescriptorSet::SWriteDescriptorSet write;
+                write.dstSet = gpuDescriptorSet1.get();
+                write.binding = ds1UboBinding;
+                write.count = 1u;
+                write.arrayElement = 0u;
+                write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+                video::IGPUDescriptorSet::SDescriptorInfo info;
+                {
+                    info.desc = gpuubo;
+                    info.buffer.offset = 0ull;
+                    info.buffer.size = sizeof(SBasicViewParameters);
+                }
+                write.info = &info;
+                logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
             }
+
+            auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
+            auto constants = std::get<asset::SPushConstantRange>(fstProtoPipeline);
+            auto gpuPipelineLayout = logicalDevice->createPipelineLayout(&constants, &constants + 1, nullptr, core::smart_refctd_ptr(gpuDs1Layout), nullptr, nullptr);
 
             auto fragmentShaderBundle = assetManager->getAsset("../shader.frag", {});
             {
                 bool status = !fragmentShaderBundle.getContents().empty();
                 assert(status);
             }
+
             auto cpuFragmentShader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(fragmentShaderBundle.getContents().begin()[0]);
             smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
             {
@@ -235,15 +257,12 @@ class SierpinskiSDF : public ApplicationBase
 
                 gpuFragmentShader = (*gpu_array)[0];
             }
+            gpuRenderpassIndependentPipeline = ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fstProtoPipeline, std::move(gpuFragmentShader), std::move(gpuPipelineLayout));
 
-            core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuGShaders[] = { gpuVertexShader, gpuFragmentShader };
-            auto gpuGShadersPointer = reinterpret_cast<video::IGPUSpecializedShader **>(gpuGShaders);
-
-            ///////////////////////////////////////////////////////////////////////
-
-            //! TOOD: use full triangle extension with modified push contants for camera target/pos
-
-            ////////////////////////////////////////////////////////////////////
+            nbl::video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams;
+            graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline>(gpuRenderpassIndependentPipeline.get());
+            graphicsPipelineParams.renderpass = core::smart_refctd_ptr(renderpass);
+            gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
 
             const auto &graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
             for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++) 
@@ -275,38 +294,42 @@ class SierpinskiSDF : public ApplicationBase
             else
                 fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
+            auto renderStart = std::chrono::system_clock::now();
+            const auto renderDt = std::chrono::duration_cast<std::chrono::milliseconds>(renderStart - lastTime).count();
+            lastTime = renderStart;
+            { // Calculate Simple Moving Average for FrameTime
+                time_sum -= dtList[frame_count];
+                time_sum += renderDt;
+                dtList[frame_count] = renderDt;
+                frame_count++;
+                if (frame_count >= NBL_FRAMES_TO_AVERAGE)
+                {
+                    frameDataFilled = true;
+                    frame_count = 0;
+                }
+
+            }
+            const double averageFrameTime = frameDataFilled ? (time_sum / (double)NBL_FRAMES_TO_AVERAGE) : (time_sum / frame_count);
+
+            auto averageFrameTimeDuration = std::chrono::duration<double, std::milli>(averageFrameTime);
+            auto nextPresentationTime = renderStart + averageFrameTimeDuration;
+            auto nextPresentationTimeStamp = std::chrono::duration_cast<std::chrono::microseconds>(nextPresentationTime.time_since_epoch());
+
+            inputSystem->getDefaultMouse(&mouse);
             inputSystem->getDefaultKeyboard(&keyboard);
-            keyboard.consumeEvents([&](const ui::IKeyboardEventChannel::range_t &events) -> void 
-            {
-                for (auto &event : events) 
-                    if (event.action == ui::SKeyboardEvent::ECA_PRESSED) 
-                    {
-                        switch (event.keyCode) 
-                        {
-                            case ui::EKC_1:
-                            {
-                                int TODO = 1;
-                                break;
-                            }
 
-                            case ui::EKC_2:
-                            {
-                                int TODO = 2;
-                                break;
-                            }
-
-                            case ui::EKC_3:
-                            {
-                                int TODO = 3;
-                                break;
-                            }
-                        }
-                    }
-            },
-            logger.get());
+            camera.beginInputProcessing(nextPresentationTimeStamp);
+            mouse.consumeEvents([&](const ui::IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, logger.get());
+            keyboard.consumeEvents([&](const ui::IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, logger.get());
+            camera.endInputProcessing(nextPresentationTimeStamp);
 
             commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
             commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+
+            NBL_CAMERA_VECTORS uboData;
+            uboData.cameraPosition = camera.getPosition();
+            uboData.cameraTarget = camera.getTarget();
+            commandBuffer->updateBuffer(gpuubo.get(), 0ull, gpuubo->getSize(), &uboData);
 
             asset::SViewport viewport;
             viewport.minDepth = 1.f;
@@ -344,15 +367,8 @@ class SierpinskiSDF : public ApplicationBase
 
             commandBuffer->beginRenderPass(&beginInfo, nbl::asset::ESC_INLINE);
             commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline.get());
-
-            SPushConsts pc;
-            pc.vertStage.VP = camera.getConcatenatedMatrix();
-            pc.fragStage.campos = core::vectorSIMDf(&camera.getPosition().X);
-
-            commandBuffer->pushConstants(gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), asset::IShader::ESS_VERTEX, 0u, sizeof(SPushConsts::vertStage), &pc.vertStage);
-            commandBuffer->pushConstants(gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), asset::IShader::ESS_FRAGMENT, offsetof(SPushConsts, fragStage), sizeof(SPushConsts::fragStage), &pc.fragStage);
-            commandBuffer->drawMeshBuffer(gpuMeshBuffer.get());
-
+            commandBuffer->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuRenderpassIndependentPipeline->getLayout(), 1u, 1u, &gpuDescriptorSet1.get(), 0u);
+            ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), commandBuffer.get());
             commandBuffer->endRenderPass();
             commandBuffer->end();
 

@@ -3,7 +3,13 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-layout(location = 0) in vec2 TexCoord;
+layout (set = 1, binding = 0, row_major, std140) uniform UBO 
+{
+    vec4 position;
+    vec4 target;
+} cameraVectors;
+
+layout(location = 0) in vec2 texCoord;
 layout(location = 0) out vec4 pixelColor;
 
 #define MARCHING_STEP 64.
@@ -83,13 +89,10 @@ float getFinalRayMarchDistance(vec3 position, vec3 direction, float start, float
 
 void main()
 {
-	// TODO! get from Push Contants
-    vec3 cameraTarget = vec3(0, 0, 0);
-    vec2 uv = TexCoord;
+	vec3 cameraPosition = cameraVectors.position.xyz;
+    vec3 cameraTarget = cameraVectors.target.xyz;
+    vec2 uv = texCoord;
 	
-    // TODO! get from Push Contants
-	vec3 cameraPosition;
-
     vec3 viewMarchRay = getCameraviewMarchRayDir(uv, cameraPosition, cameraTarget);
     
     float i;
