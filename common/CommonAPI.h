@@ -1049,7 +1049,8 @@ protected:
 				0,
 				params.appName.data(),
 				nbl::core::smart_refctd_ptr(result.logger),
-				params.apiFeaturesToEnable);
+				params.apiFeaturesToEnable
+			);
 
 			if (!headlessCompute)
 			{
@@ -1060,43 +1061,6 @@ protected:
 	#endif
 			}
 			result.apiConnection = _apiConnection;
-		}
-		else if (params.apiType == EAT_OPENGL)
-		{
-			assert(0);
-#if 0 // KILL IT
-			auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
-
-			if (!headlessCompute)
-			{
-	#ifdef _NBL_PLATFORM_WINDOWS_
-				result.surface = nbl::video::CSurfaceGLWin32::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowWin32>(static_cast<nbl::ui::IWindowWin32*>(params.window.get())));
-	#elif defined(_NBL_PLATFORM_ANDROID_)
-				result.surface = nbl::video::CSurfaceGLAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
-	#endif
-			}
-
-			result.apiConnection = _apiConnection;
-
-#endif 
-		}
-		else if (params.apiType == EAT_OPENGL_ES)
-		{
-			assert(0);
-#if 0 // KILL IT
-			auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
-
-			if (!headlessCompute)
-			{
-	#ifdef _NBL_PLATFORM_WINDOWS_
-				result.surface = nbl::video::CSurfaceGLWin32::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowWin32>(static_cast<nbl::ui::IWindowWin32*>(params.window.get())));
-	#elif defined(_NBL_PLATFORM_ANDROID_)
-				result.surface = nbl::video::CSurfaceGLAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
-	#endif
-			}
-
-			result.apiConnection = _apiConnection;
-#endif
 		}
 		else
 		{

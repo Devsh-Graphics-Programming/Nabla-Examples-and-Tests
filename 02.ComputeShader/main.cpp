@@ -259,8 +259,7 @@ public:
 			creationParams.arrayLayers = 1u;
 			creationParams.samples = asset::IImage::ESCF_1_BIT;
 			creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
-			if (apiConnection->getAPIType() == video::EAT_VULKAN ||
-				apiConnection->getAPIType() == video::EAT_OPENGL_ES)
+			if (apiConnection->getAPIType() == video::EAT_VULKAN)
 			{
 				const auto& formatUsages = physicalDevice->getImageFormatUsagesOptimalTiling()[creationParams.format];
 				assert(formatUsages.storageImage);
