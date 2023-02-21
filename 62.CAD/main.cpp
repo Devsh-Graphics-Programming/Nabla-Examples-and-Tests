@@ -26,26 +26,8 @@ struct double4x4
 	double _r3[4u];
 };
 
-struct double2
-{
-	double x;
-	double y;
-
-	inline double2 operator-(const double2& other) const
-	{
-		return { x - other.x, y - other.y };
-	}
-	inline double2 operator+(const double2& other) const
-	{
-		return { x + other.x, y + other.y };
-	}
-};
-
-struct uint2
-{
-	uint32_t x;
-	uint32_t y;
-};
+typedef nbl::core::vector2d<double> double2;
+typedef nbl::core::vector2d<uint32_t> uint2;
 
 #define float4 nbl::core::vectorSIMDf
 #include "common.hlsl"
@@ -56,6 +38,21 @@ static_assert(sizeof(Globals) == 160u);
 
 using namespace nbl;
 using namespace ui;
+
+// TODO: Use a math lib?
+double dot(const double2& a, const double2& b)
+{
+	return a.X * b.X + a.Y * b.Y;
+}
+double2 normalize(const double2& x)
+{
+	double len = dot(x,x);
+#ifdef __NBL_FAST_MATH
+	return x * core::inversesqrt<double>(len);
+#else
+	return x / core::sqrt<double>(len);
+#endif
+}
 
 class Camera2D : public core::IReferenceCounted
 {
@@ -75,19 +72,19 @@ public:
 
 	void setSize(const double size)
 	{
-		m_size = { size * m_aspectRatio, size };
+		m_size = double2{ size * m_aspectRatio, size };
 	}
 
 	double4x4 constructViewProjection()
 	{
 		double4x4 ret = {};
 
-		ret._r0[0] = 2.0 / m_size.x;
-		ret._r1[1] = -2.0 / m_size.y;
+		ret._r0[0] = 2.0 / m_size.X;
+		ret._r1[1] = -2.0 / m_size.Y;
 		ret._r2[2] = 1.0;
 
-		ret._r2[0] = (-2.0 * m_origin.x) / m_size.x;
-		ret._r2[1] = (2.0 * m_origin.y) / m_size.y;
+		ret._r2[0] = (-2.0 * m_origin.X) / m_size.X;
+		ret._r2[1] = (2.0 * m_origin.Y) / m_size.Y;
 
 		return ret;
 	}
@@ -101,7 +98,7 @@ public:
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
 				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
-				m_size = double2 {core::max(m_aspectRatio, m_size.x), core::max(1.0, m_size.y)};
+				m_size = double2 {core::max(m_aspectRatio, m_size.X), core::max(1.0, m_size.Y)};
 			}
 		}
 	}
@@ -188,7 +185,6 @@ class CADApp : public ApplicationBase
 		uint64_t geometryBufferAddress = 0u;
 
 		uint32_t currentIndexCount = 0u;
-		uint32_t noOfCages = 0u;
 		uint32_t maxIndices = 0u;
 		
 		uint32_t currentDrawObjectCount = 0u;
@@ -247,7 +243,6 @@ class CADApp : public ApplicationBase
 
 		void clear()
 		{
-			noOfCages = 0u;
 			currentIndexCount = 0u;
 			currentDrawObjectCount = 0u;
 			currentGeometryBufferSize = 0u;
@@ -270,13 +265,17 @@ class CADApp : public ApplicationBase
 			utils->updateBufferRangeViaStagingBufferAutoSubmit(geomRange, cpuDrawBuffers.geometryBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
-
 		void addLines(std::vector<double2>&& linePoints)
 		{
+			return;
 			if (linePoints.size() < 2u)
 				return;
 
 			const auto noLines = linePoints.size() - 1u;
+
+			// Indices for Objects
+			bool isOpaque = false;
+			addNewObjectsIndices(noLines, isOpaque);
 
 			// DrawObj
 			DrawObject drawObj = {};
@@ -290,10 +289,6 @@ class CADApp : public ApplicationBase
 				drawObj.address += sizeof(double2);
 			}
 			
-			// Index
-			bool isOpaque = false;
-			addNewCagesIndices(noLines, isOpaque);
-
 			// Geom
 			{
 				const auto pointsByteSize = sizeof(double2) * linePoints.size();
@@ -303,8 +298,71 @@ class CADApp : public ApplicationBase
 			}
 		}
 
+		void addRoads(std::vector<double2>&& linePoints)
+		{
+			if (linePoints.size() < 2u)
+				return;
+
+			const auto noPoints = linePoints.size();
+			const auto noLines = noPoints - 1u;
+
+			// Indices for Objects
+			bool isOpaque = false;
+			addNewObjectsIndices(noLines, isOpaque);
+
+			double2 prevLineVec;
+			for (uint32_t i = 0u; i < noPoints; ++i)
+			{
+				void* geomBufferPointer = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				void* drawObjPointer = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+
+				// Add Geom
+				{
+					double2 lineVec;
+					if (i < noPoints - 1u)
+						lineVec = linePoints[i + 1] - linePoints[i];
+					else 
+						lineVec = prevLineVec;
+
+					lineVec = normalize(lineVec);
+
+					if (i == 0)
+						prevLineVec = lineVec;
+
+					const double2 normalToLine = double2{ -lineVec.Y, lineVec.X };
+					const double2 normalToPrevLine = double2{ -prevLineVec.Y, prevLineVec.X};
+					const double2 miter = normalize(normalToPrevLine + normalToLine);
+					const double lineWidth = 2.0;
+					double2 points[2u] = {};
+					points[0u] = linePoints[i] + (miter * lineWidth * 0.5) / dot(normalToLine, miter);
+					points[1u] = linePoints[i] - (miter * lineWidth * 0.5) / dot(normalToLine, miter);
+
+					memcpy(geomBufferPointer, points, sizeof(double2) * 2u);
+					prevLineVec = lineVec;
+				}
+
+				// Add Draw Obj
+				if (i < noPoints - 1u)
+				{
+					// DrawObj
+					DrawObject drawObj = {};
+					drawObj.type = ObjectType::ROAD;
+					drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+					memcpy(drawObjPointer, &drawObj, sizeof(DrawObject));
+					currentDrawObjectCount++;
+				}
+
+				currentGeometryBufferSize += sizeof(double2) * 2u;
+			}
+		}
+
 		void addEllipse(const EllipseInfo& ellipseInfo)
 		{
+			return;
+			// Indices for objects
+			bool isOpaque = false;
+			addNewObjectsIndices(1u, isOpaque);
+
 			// Geom
 			DrawObject drawObj = {};
 			drawObj.type = ObjectType::ELLIPSE;
@@ -312,10 +370,6 @@ class CADApp : public ApplicationBase
 			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 			currentDrawObjectCount += 1u;
-
-			// Index
-			bool isOpaque = false;
-			addNewCagesIndices(1u, isOpaque);
 
 			// Geom
 			{
@@ -325,13 +379,13 @@ class CADApp : public ApplicationBase
 			}
 		}
 
-		void addNewCagesIndices(const uint32_t cages, const bool isOpaque)
+		void addNewObjectsIndices(const uint32_t noOfObjects, const bool isOpaque)
 		{
 			uint32_t* indices = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
 
-			for (uint32_t i = 0u; i < cages; ++i)
+			for (uint32_t i = 0u; i < noOfObjects; ++i)
 			{
-				uint32_t start = i + noOfCages;
+				uint32_t start = i + currentDrawObjectCount;
 				indices[i * 6] = start * 4u + 0u;
 				indices[i * 6 + 1u] = start * 4u + 1u;
 				indices[i * 6 + 2u] = start * 4u + 2u;
@@ -343,10 +397,10 @@ class CADApp : public ApplicationBase
 			if (!isOpaque)
 			{
 				// Transparent Objects (as a whole) need to draw twice, one for setting the alpha and another for clearing it and drawing it
-				indices += cages * 6u;
-				for (uint32_t i = 0u; i < cages; ++i)
+				indices += noOfObjects * 6u;
+				for (uint32_t i = 0u; i < noOfObjects; ++i)
 				{
-					uint32_t start = i + noOfCages;
+					uint32_t start = i + currentDrawObjectCount;
 					indices[i * 6] = start * 4u + 1u;
 					indices[i * 6 + 1u] = start * 4u + 0u;
 					indices[i * 6 + 2u] = start * 4u + 2u;
@@ -356,8 +410,7 @@ class CADApp : public ApplicationBase
 					indices[i * 6 + 5u] = start * 4u + 3u;
 				}
 			}
-			noOfCages += cages;
-			currentIndexCount += cages * 6u * (isOpaque ? 1u : 2u);
+			currentIndexCount += noOfObjects * 6u * (isOpaque ? 1u : 2u);
 		}
 	};
 
@@ -486,34 +539,34 @@ class CADApp : public ApplicationBase
 			EllipseInfo ellipse = {};
 			const double a = timeElapsed * 0.001;
 			// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
-			ellipse.majorAxis = { 30.0, 0.0 };
-			ellipse.center = { 0, 0 };
+			ellipse.majorAxis = double2{ 30.0, 0.0 };
+			ellipse.center = double2{ 0, 0 };
 			ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
 
-			ellipse.angleBoundsPacked = {
+			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((0.0) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
 
-			ellipse.angleBoundsPacked = {
+			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
-			ellipse.angleBoundsPacked = {
+			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
-			ellipse.angleBoundsPacked = {
+			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
-			ellipse.majorAxis = { 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
-			ellipse.center = { 50, 50 };
-			ellipse.angleBoundsPacked = {
+			ellipse.majorAxis = double2{ 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
+			ellipse.center = double2{ 50, 50 };
+			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
 			};
@@ -531,9 +584,11 @@ class CADApp : public ApplicationBase
 			currentDrawBuffers.addLines(std::move(linePoints));
 
 			std::vector<double2> linePoints2;
-			linePoints2.push_back({ -100.0, 0.0 });
-			linePoints2.push_back({ 100.0, 100.0 });
-			currentDrawBuffers.addLines(std::move(linePoints2));
+			linePoints2.push_back({ -50.0, 0.0 });
+			linePoints2.push_back({ 50.0, 0.0 });
+			linePoints2.push_back({ 50.0, 50.0 });
+			linePoints2.push_back({ -40.0, -20.0 });
+			currentDrawBuffers.addRoads(std::move(linePoints2));
 		}
 
 
