@@ -267,7 +267,6 @@ class CADApp : public ApplicationBase
 
 		void addLines(std::vector<double2>&& linePoints)
 		{
-			return;
 			if (linePoints.size() < 2u)
 				return;
 
@@ -300,6 +299,7 @@ class CADApp : public ApplicationBase
 
 		void addRoads(std::vector<double2>&& linePoints)
 		{
+			return;
 			if (linePoints.size() < 2u)
 				return;
 
@@ -358,7 +358,6 @@ class CADApp : public ApplicationBase
 
 		void addEllipse(const EllipseInfo& ellipseInfo)
 		{
-			return;
 			// Indices for objects
 			bool isOpaque = false;
 			addNewObjectsIndices(1u, isOpaque);
@@ -777,13 +776,14 @@ public:
 		bindings[2u].count = 1u;
 		bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
 		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+3u);
-
-		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[2u] =
+		
+		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[3u] =
 		{
 			{ nbl::asset::EDT_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
 			{ nbl::asset::EDT_STORAGE_BUFFER, FRAMES_IN_FLIGHT },
+			{ nbl::asset::EDT_STORAGE_IMAGE, FRAMES_IN_FLIGHT },
 		};
-		auto descriptorPool = logicalDevice->createDescriptorPool(nbl::video::IDescriptorPool::ECF_NONE, 128u, 2u, poolSizes);
+		auto descriptorPool = logicalDevice->createDescriptorPool(nbl::video::IDescriptorPool::ECF_NONE, 128u, 3u, poolSizes);
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
