@@ -7,11 +7,10 @@ layout (set = 1, binding = 0, row_major, std140) uniform UBO
 {
     vec4 position;
     vec4 target;
-	vec4 screenResolution;
-	vec4 time;
+	vec4 screenResolution; //! only x & y components
+	vec4 time; //! only x component
 } cameraVectors;
 
-layout(location = 0) in vec2 texCoord;
 layout(location = 0) out vec4 pixelColor;
 
 #define MARCHING_STEP 64.
@@ -120,7 +119,6 @@ void main()
     }
     else
     {
-        color = vec3(finalMarchDistance*0.1); 
 		color = vec3(0.75 + sin(time), 0.515, 0.053 + cos(time)) * float(i)/float(MARCHING_STEP);
     }
     

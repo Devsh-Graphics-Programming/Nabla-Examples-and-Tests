@@ -306,7 +306,6 @@ class SierpinskiSDF : public ApplicationBase
             {
                 const std::chrono::duration<double, std::milli> elapsed = end - start;
                 uboData.time.x = uint32_t(elapsed.count() * 1000.f);
-                std::cout << uboData.time.x << "\n";
             }
             commandBuffer->updateBuffer(gpuubo.get(), 0ull, gpuubo->getSize(), &uboData);
 
