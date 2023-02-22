@@ -6,6 +6,7 @@
 #include <nabla.h>
 
 #include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
+#include "nbl/asset/utils/CDerivativeMapCreator.h"
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
@@ -111,7 +112,7 @@ class BlitFilterTestApp : public ApplicationBase
 			blit_utils_t::resampling_z_t&&				resamplingZ,
 			const char*									writeImagePath,
 			const IBlitUtilities::E_ALPHA_SEMANTIC		alphaSemantic,
-			const float									referenceAlpha = 0.f,
+			const float									referenceAlpha = 0.5f,
 			const uint32_t								alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
 			: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_outImageFormat(outImageFormat),
 			m_reconstructionX(std::move(reconstructionX)),
@@ -897,7 +898,7 @@ class BlitFilterTestApp : public ApplicationBase
 
 			constexpr double MaxAllowedRMSE = 0.7; // arbitrary
 
-			return (RMSE <= MaxAllowedRMSE);
+			return (RMSE <= MaxAllowedRMSE) && !std::isnan(RMSE);
 		}
 
 	private:
@@ -974,8 +975,6 @@ public:
 		auto initOutput = CommonAPI::Init(std::move(initParams));
 
 		system = std::move(initOutput.system);
-		window = std::move(initParams.window);
-		windowCb = std::move(initParams.windowCb);
 		apiConnection = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		physicalDevice = std::move(initOutput.physicalDevice);
@@ -987,6 +986,7 @@ public:
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+
 
 // #define NEW_CODE
 #ifdef NEW_CODE
@@ -1104,10 +1104,10 @@ public:
 #endif
 
 		constexpr bool TestCPUBlitFilter = true;
-		constexpr bool TestFlattenFilter = false;
-		constexpr bool TestSwizzleAndConvertFilter = false;
+		constexpr bool TestFlattenFilter = true;
+		constexpr bool TestSwizzleAndConvertFilter = true;
 		constexpr bool TestGPUBlitFilter = true;
-		constexpr bool TestRegionBlockFunctorFilter = false;
+		constexpr bool TestRegionBlockFunctorFilter = true;
 
 		auto loadImage = [this](const char* path) -> core::smart_refctd_ptr<asset::ICPUImage>
 		{
