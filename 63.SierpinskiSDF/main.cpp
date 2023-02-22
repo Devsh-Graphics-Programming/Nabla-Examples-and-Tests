@@ -24,9 +24,10 @@ using namespace core;
 // #define NBL_MORE_LOGS
 
 #include "nbl/nblpack.h" //! Designed for use with interface blocks declared with `layout (row_major, std140)`
-struct NBL_CAMERA_VECTORS {
+struct NBL_UBO_VECTORS {
     nbl::core::vectorSIMDf cameraPosition;
     nbl::core::vectorSIMDf cameraTarget;
+    nbl::core::vectorSIMDf resolution;
 };
 #include "nbl/nblunpack.h"
 
@@ -212,7 +213,7 @@ class SierpinskiSDF : public ApplicationBase
             {
                 IGPUBuffer::SCreationParams creationParams = {};
                 creationParams.usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-                creationParams.size = sizeof(NBL_CAMERA_VECTORS);
+                creationParams.size = sizeof(NBL_UBO_VECTORS);
                 gpuubo = logicalDevice->createBuffer(std::move(creationParams));
 
                 IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuubo->getMemoryReqs();
@@ -326,9 +327,10 @@ class SierpinskiSDF : public ApplicationBase
             commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
             commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
 
-            NBL_CAMERA_VECTORS uboData;
+            NBL_UBO_VECTORS uboData;
             uboData.cameraPosition = camera.getPosition();
             uboData.cameraTarget = camera.getTarget();
+            uboData.resolution = core::vectorSIMDf(WIN_W, WIN_H);
             commandBuffer->updateBuffer(gpuubo.get(), 0ull, gpuubo->getSize(), &uboData);
 
             asset::SViewport viewport;

@@ -7,6 +7,7 @@ layout (set = 1, binding = 0, row_major, std140) uniform UBO
 {
     vec4 position;
     vec4 target;
+	vec4 screenResolution;
 } cameraVectors;
 
 layout(location = 0) in vec2 texCoord;
@@ -87,11 +88,18 @@ float getFinalRayMarchDistance(vec3 position, vec3 direction, float start, float
     }
 }
 
+vec2 normalizeScreenCoords(vec2 screenCoord)
+{
+    vec2 result = 2.0 * (screenCoord/cameraVectors.screenResolution.xy - 0.5);
+    result.x *= cameraVectors.screenResolution.x/cameraVectors.screenResolution.y;
+    return result;
+}
+
 void main()
 {
 	vec3 cameraPosition = cameraVectors.position.xyz;
     vec3 cameraTarget = cameraVectors.target.xyz;
-    vec2 uv = texCoord;
+    vec2 uv = normalizeScreenCoords(gl_FragCoord.xy);
 	
     vec3 viewMarchRay = getCameraviewMarchRayDir(uv, cameraPosition, cameraTarget);
     
