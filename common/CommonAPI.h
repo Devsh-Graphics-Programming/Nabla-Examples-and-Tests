@@ -6,10 +6,12 @@
 
 // TODO: get these all included by the appropriate namespace headers!
 #include "nbl/system/IApplicationFramework.h"
-#include "nbl/video/IDeviceMemoryBacked.h"
+
 #include "nbl/ui/CGraphicalApplicationAndroid.h"
 #include "nbl/ui/CWindowManagerAndroid.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
+
+// TODO: see TODO below
 #if defined(_NBL_PLATFORM_WINDOWS_)
 #include <nbl/system/CColoredStdoutLoggerWin32.h>
 #elif defined(_NBL_PLATFORM_ANDROID_)
@@ -321,7 +323,7 @@ public:
 	{
 	public:
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDeviceFilter`
-		virtual nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) = 0;
+		virtual nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) = 0;
 	};
 	
 	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
@@ -336,7 +338,7 @@ public:
 		{}
 
 		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
-		nbl::video::IPhysicalDevice* const selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices) override;
+		nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) override;
 	};
 
 	template <typename FeatureType>
@@ -420,6 +422,7 @@ public:
 		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxFramesInFlight>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderToSwapchainRenderpass;
 		nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
+		nbl::core::smart_refctd_ptr<nbl::asset::CCompilerSet> compilerSet;
 		nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
 		nbl::core::smart_refctd_ptr<InputSystem> inputSystem;
@@ -480,8 +483,10 @@ public:
 		result.logger = nbl::core::make_smart_refctd_ptr<system::CStdoutLoggerAndroid>(params.logLevel);
 #endif
 
+		result.compilerSet = nbl::core::make_smart_refctd_ptr<nbl::asset::CCompilerSet>(nbl::core::smart_refctd_ptr(result.system));
+
 		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
-		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system)); // we should let user choose it?
+		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system), nbl::core::smart_refctd_ptr(result.compilerSet)); // we should let user choose it?
 
 		if (!headlessCompute)
 		{
@@ -492,8 +497,14 @@ public:
 			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
 			if (!params.window)
 			{
-				result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
-
+				#ifdef _NBL_PLATFORM_WINDOWS_
+					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
+				#elif defined(_NBL_PLATFORM_LINUX_)
+					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerX11>(); // on the Android path
+				#else
+					#error "Unsupported platform"
+				#endif
+				
 				nbl::ui::IWindow::SCreationParams windowsCreationParams;
 				windowsCreationParams.width = params.windowWidth;
 				windowsCreationParams.height = params.windowHeight;
@@ -695,16 +706,13 @@ public:
 	}
 
 protected:
-	static nbl::core::set<nbl::video::IPhysicalDevice* const> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
+	static nbl::core::set<nbl::video::IPhysicalDevice*> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
 	{
 		using namespace nbl;
 		using namespace nbl::video;
 
-		core::set<IPhysicalDevice* const> ret;
-
-		for (size_t i = 0ull; i < physicalDevices.size(); ++i)
-		{
-			auto physDev = physicalDevices[i];
+		core::set<nbl::video::IPhysicalDevice*> ret;
+		for(auto& physDev : physicalDevices) {
 			if(filter.meetsRequirements(physDev))
 				ret.insert(physDev);
 		}
@@ -1041,7 +1049,8 @@ protected:
 				0,
 				params.appName.data(),
 				nbl::core::smart_refctd_ptr(result.logger),
-				params.apiFeaturesToEnable);
+				params.apiFeaturesToEnable
+			);
 
 			if (!headlessCompute)
 			{
@@ -1051,36 +1060,6 @@ protected:
 				////result.surface = nbl::video::CSurfaceVulkanAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
 	#endif
 			}
-			result.apiConnection = _apiConnection;
-		}
-		else if (params.apiType == EAT_OPENGL)
-		{
-			auto _apiConnection = nbl::video::COpenGLConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
-
-			if (!headlessCompute)
-			{
-	#ifdef _NBL_PLATFORM_WINDOWS_
-				result.surface = nbl::video::CSurfaceGLWin32::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowWin32>(static_cast<nbl::ui::IWindowWin32*>(params.window.get())));
-	#elif defined(_NBL_PLATFORM_ANDROID_)
-				result.surface = nbl::video::CSurfaceGLAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
-	#endif
-			}
-
-			result.apiConnection = _apiConnection;
-		}
-		else if (params.apiType == EAT_OPENGL_ES)
-		{
-			auto _apiConnection = nbl::video::COpenGLESConnection::create(nbl::core::smart_refctd_ptr(result.system), 0, params.appName.data(), nbl::video::COpenGLDebugCallback(nbl::core::smart_refctd_ptr(result.logger)));
-
-			if (!headlessCompute)
-			{
-	#ifdef _NBL_PLATFORM_WINDOWS_
-				result.surface = nbl::video::CSurfaceGLWin32::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowWin32>(static_cast<nbl::ui::IWindowWin32*>(params.window.get())));
-	#elif defined(_NBL_PLATFORM_ANDROID_)
-				result.surface = nbl::video::CSurfaceGLAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
-	#endif
-			}
-
 			result.apiConnection = _apiConnection;
 		}
 		else
@@ -1290,6 +1269,7 @@ protected:
 		dev_params.queueParamsCount = actualQueueParamsCount;
 		dev_params.queueParams = qcp;
 		dev_params.featuresToEnable = params.physicalDeviceFilter.requiredFeatures;
+		dev_params.compilerSet = result.compilerSet;
 		result.logicalDevice = selectedPhysicalDevice->createLogicalDevice(std::move(dev_params));
 
 		result.utilities = nbl::core::make_smart_refctd_ptr<nbl::video::IUtilities>(nbl::core::smart_refctd_ptr(result.logicalDevice));
@@ -1415,7 +1395,6 @@ protected:
 		return false;
 	}
 
-#ifdef ANTI_FLICKER
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
 
 	struct PresentedFrameInfo
@@ -1453,8 +1432,8 @@ protected:
 	virtual void onCreateResourcesWithTripleBufferTarget(nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>& image, uint32_t bufferIx) {}
 
 	nbl::video::IGPUImage* getTripleBufferTarget(
-		uint32_t frameIx, uint32_t w, uint32_t h, 
-		nbl::asset::E_FORMAT surfaceFormat, 
+		uint32_t frameIx, uint32_t w, uint32_t h,
+		nbl::asset::E_FORMAT surfaceFormat,
 		nbl::core::bitflag<nbl::asset::IImage::E_USAGE_FLAGS> imageUsageFlags)
 	{
 		uint32_t bufferIx = frameIx % 2;
@@ -1482,7 +1461,6 @@ protected:
 
 		return image.get();
 	}
-#endif
 public:
 	GraphicalApplication(
 		const std::filesystem::path& _localInputCWD,
@@ -1544,7 +1522,6 @@ public:
 		}
 	}
 
-#ifdef ANTI_FLICKER
 	void immediateImagePresent(nbl::video::IGPUQueue* queue, nbl::video::ISwapchain* swapchain, nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>* swapchainImages, uint32_t frameIx, uint32_t lastRenderW, uint32_t lastRenderH)
 	{
 		using namespace nbl;
@@ -1657,7 +1634,6 @@ public:
 
 		logicalDevice->blockForFences(1u, &fence.get());
 	}
-#endif
 };
 #else
 class GraphicalApplication : public nbl::ui::CGraphicalApplicationAndroid

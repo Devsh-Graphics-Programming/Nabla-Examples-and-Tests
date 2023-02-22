@@ -1,7 +1,6 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-#define ANTI_FLICKER
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
@@ -174,12 +173,11 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
-		const char* pathToShader = "../compute.comp";
+		const char* pathToShader = "../compute.hlsl";
 		core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
 		{
 			asset::IAssetLoader::SAssetLoadParams params = {};
 			params.logger = logger.get();
-			auto spec = (assetManager->getAsset(pathToShader, params).getContents());
 			auto specShader_cpu = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(pathToShader, params).getContents().begin());
 			specializedShader = CPU2GPU.getGPUObjectsFromAssets(&specShader_cpu, &specShader_cpu + 1, cpu2gpuParams)->front();
 		}
@@ -261,8 +259,7 @@ public:
 			creationParams.arrayLayers = 1u;
 			creationParams.samples = asset::IImage::ESCF_1_BIT;
 			creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
-			if (apiConnection->getAPIType() == video::EAT_VULKAN ||
-				apiConnection->getAPIType() == video::EAT_OPENGL_ES)
+			if (apiConnection->getAPIType() == video::EAT_VULKAN)
 			{
 				const auto& formatUsages = physicalDevice->getImageFormatUsagesOptimalTiling()[creationParams.format];
 				assert(formatUsages.storageImage);

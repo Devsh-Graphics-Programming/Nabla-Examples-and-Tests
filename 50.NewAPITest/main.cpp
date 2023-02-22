@@ -8,20 +8,12 @@
 #include <iostream>
 #include <cstdio>
 
-// TODO: remove as will be replaced with ISystem
-#include "CFileSystem.h" // tmp, this should be accessible via IFileSystem and not required to be created explicitely by user
-
 #if defined(_NBL_PLATFORM_WINDOWS_)
 #include <nbl/ui/CWindowWin32.h>
 using CWindowT = nbl::ui::CWindowWin32;
 #elif defined(_NBL_PLATFORM_LINUX_)
-#ifdef _NBL_TEST_WAYLAND
-#include <nbl/ui/CWindowWayland.h>
-using CWindowT = nbl::ui::CWindowWayland;
-#else
-#include <nbl/ui/CWindowX11.h>
-using CWindowT = nbl::ui::CWindowX11;
-#endif
+#include <nbl/ui/CWindowXcb.h>
+using CWindowT = nbl::ui::CWindowXcb;
 #endif
 
 using namespace nbl;

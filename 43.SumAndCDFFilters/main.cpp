@@ -78,7 +78,7 @@ public:
 	void onAppInitialized_impl() override
 	{
 		CommonAPI::InitParams initParams;
-		initParams.apiType = video::EAT_OPENGL;
+		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "43.SumAndCDFFilter" };
 		auto initOutput = CommonAPI::Init(std::move(initParams));
 		
