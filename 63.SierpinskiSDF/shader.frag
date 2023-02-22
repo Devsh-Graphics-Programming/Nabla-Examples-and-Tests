@@ -8,6 +8,7 @@ layout (set = 1, binding = 0, row_major, std140) uniform UBO
     vec4 position;
     vec4 target;
 	vec4 screenResolution;
+	vec4 time;
 } cameraVectors;
 
 layout(location = 0) in vec2 texCoord;
@@ -97,8 +98,14 @@ vec2 normalizeScreenCoords(vec2 screenCoord)
 
 void main()
 {
-	vec3 cameraPosition = cameraVectors.position.xyz;
-    vec3 cameraTarget = cameraVectors.target.xyz;
+	//! use it if you want camera movement by yourself
+	// vec3 cameraPosition = cameraVectors.position.xyz;
+	//! vec3 cameraTarget = cameraVectors.target.xyz;
+	
+	float time = cameraVectors.time.x / 10000000.f;
+	
+	vec3 cameraPosition = vec3(cos(time), 0.f, sin(time));
+    vec3 cameraTarget = vec3(0.f, 0.f, 0.f);
     vec2 uv = normalizeScreenCoords(gl_FragCoord.xy);
 	
     vec3 viewMarchRay = getCameraviewMarchRayDir(uv, cameraPosition, cameraTarget);
@@ -114,6 +121,7 @@ void main()
     else
     {
         color = vec3(finalMarchDistance*0.1); 
+		color = vec3(0.75 + sin(time), 0.515, 0.053 + cos(time)) * float(i)/float(MARCHING_STEP);
     }
     
     pixelColor = vec4(color,1.0);

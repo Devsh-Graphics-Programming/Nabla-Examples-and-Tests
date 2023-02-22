@@ -28,6 +28,7 @@ struct NBL_UBO_VECTORS {
     nbl::core::vectorSIMDf cameraPosition;
     nbl::core::vectorSIMDf cameraTarget;
     nbl::core::vectorSIMDf resolution;
+    nbl::core::vectorSIMDf time; //! in seconds, only x component (but vector for padding)
 };
 #include "nbl/nblunpack.h"
 
@@ -85,12 +86,8 @@ class SierpinskiSDF : public ApplicationBase
         int resourceIx;
         uint32_t acquiredNextFBO = {};
 
-        std::chrono::system_clock::time_point lastTime;
-        bool frameDataFilled = false;
-        size_t frame_count = 0ull;
-        double time_sum = 0;
-        double dtList[NBL_FRAMES_TO_AVERAGE] = {};
-
+        std::chrono::steady_clock::time_point start;
+        
         auto createDescriptorPool(const uint32_t textureCount) 
         {
             constexpr uint32_t maxItemCount = 256u;
@@ -273,8 +270,10 @@ class SierpinskiSDF : public ApplicationBase
                 renderFinished[i] = logicalDevice->createSemaphore();
             }
 
-            matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 5000.0f);
-            camera = Camera(core::vectorSIMDf(0.f, 0.f, 6.f), core::vectorSIMDf(0.f, 0.f, -1.f), projectionMatrix, 10.f, 1.f);
+            matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.001f, 5000.0f);
+            camera = Camera(core::vectorSIMDf(0.f, 0.f, 0.f), core::vectorSIMDf(0.f, 0.f, -1.f), projectionMatrix, 0.3f, 1.f);
+
+            start = std::chrono::high_resolution_clock::now();
         }
 
         void workLoopBody() override 
@@ -295,34 +294,7 @@ class SierpinskiSDF : public ApplicationBase
             else
                 fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
-            auto renderStart = std::chrono::system_clock::now();
-            const auto renderDt = std::chrono::duration_cast<std::chrono::milliseconds>(renderStart - lastTime).count();
-            lastTime = renderStart;
-            { // Calculate Simple Moving Average for FrameTime
-                time_sum -= dtList[frame_count];
-                time_sum += renderDt;
-                dtList[frame_count] = renderDt;
-                frame_count++;
-                if (frame_count >= NBL_FRAMES_TO_AVERAGE)
-                {
-                    frameDataFilled = true;
-                    frame_count = 0;
-                }
-
-            }
-            const double averageFrameTime = frameDataFilled ? (time_sum / (double)NBL_FRAMES_TO_AVERAGE) : (time_sum / frame_count);
-
-            auto averageFrameTimeDuration = std::chrono::duration<double, std::milli>(averageFrameTime);
-            auto nextPresentationTime = renderStart + averageFrameTimeDuration;
-            auto nextPresentationTimeStamp = std::chrono::duration_cast<std::chrono::microseconds>(nextPresentationTime.time_since_epoch());
-
-            inputSystem->getDefaultMouse(&mouse);
-            inputSystem->getDefaultKeyboard(&keyboard);
-
-            camera.beginInputProcessing(nextPresentationTimeStamp);
-            mouse.consumeEvents([&](const ui::IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); }, logger.get());
-            keyboard.consumeEvents([&](const ui::IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, logger.get());
-            camera.endInputProcessing(nextPresentationTimeStamp);
+            const auto end = std::chrono::high_resolution_clock::now();
 
             commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
             commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
@@ -331,6 +303,11 @@ class SierpinskiSDF : public ApplicationBase
             uboData.cameraPosition = camera.getPosition();
             uboData.cameraTarget = camera.getTarget();
             uboData.resolution = core::vectorSIMDf(WIN_W, WIN_H);
+            {
+                const std::chrono::duration<double, std::milli> elapsed = end - start;
+                uboData.time.x = uint32_t(elapsed.count() * 1000.f);
+                std::cout << uboData.time.x << "\n";
+            }
             commandBuffer->updateBuffer(gpuubo.get(), 0ull, gpuubo->getSize(), &uboData);
 
             asset::SViewport viewport;
