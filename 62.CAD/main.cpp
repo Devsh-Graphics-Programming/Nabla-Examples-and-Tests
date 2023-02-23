@@ -442,7 +442,7 @@ class CADApp : public ApplicationBase
 		{
 			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
-			globalsCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			globalsCreationParams.usage = video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
@@ -976,7 +976,8 @@ public:
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
-		cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
+		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
+		assert(updateSuccess);
 
 		// Clear pseudoStencil
 		{
