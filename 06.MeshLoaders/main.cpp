@@ -282,13 +282,7 @@ public:
 
         // so we can create just one DS
         const asset::ICPUDescriptorSetLayout* ds1layout = firstMeshBuffer->getPipeline()->getLayout()->getDescriptorSetLayout(1u);
-        ds1UboBinding = 0u;
-        for (const auto& bnd : ds1layout->getBindings())
-            if (bnd.type == asset::EDT_UNIFORM_BUFFER)
-            {
-                ds1UboBinding = bnd.binding;
-                break;
-            }
+        ds1UboBinding = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER).getBindingNumber(0).data;
 
         size_t neededDS1UBOsz = 0ull;
         {
@@ -306,10 +300,13 @@ public:
             gpuds1layout = (*gpu_array)[0];
         }
 
-        video::IDescriptorPool::SDescriptorPoolSize poolSize;
-        poolSize.count = 1u;
-        poolSize.type = asset::EDT_UNIFORM_BUFFER;
-        auto descriptorPool = logicalDevice->createDescriptorPool(video::IDescriptorPool::ECF_NONE, 1u, 1u, &poolSize);
+        core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
+        {
+            video::IDescriptorPool::SCreateInfo createInfo = {};
+            createInfo.maxSets = 1u;
+            createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = 1u;
+            descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+        }
 
         video::IGPUBuffer::SCreationParams gpuuboCreationParams;
         gpuuboCreationParams.size = neededDS1UBOsz;
@@ -330,7 +327,7 @@ public:
             write.binding = ds1UboBinding;
             write.count = 1u;
             write.arrayElement = 0u;
-            write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+            write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
             video::IGPUDescriptorSet::SDescriptorInfo info;
             {
                 info.desc = gpuubo;

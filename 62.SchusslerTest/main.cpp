@@ -107,18 +107,6 @@ public:
     } fragStage;
   };
 
-  auto createDescriptorPool(const uint32_t textureCount) {
-    constexpr uint32_t maxItemCount = 256u;
-    {
-      nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-      poolSize.count = textureCount;
-      poolSize.type = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
-      return logicalDevice->createDescriptorPool(
-          static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0),
-          maxItemCount, 1u, &poolSize);
-    }
-  }
-
   void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow> &&wnd) override {
     window = std::move(wnd);
   }
@@ -454,6 +442,8 @@ public:
   }
 
   bool keepRunning() override { return windowCb->isWindowOpen(); }
+
+  void onAppTerminated_impl() override { logicalDevice->waitIdle(); }
 };
 
 NBL_COMMON_API_MAIN(SchusslerTestApp)

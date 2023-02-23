@@ -762,43 +762,46 @@ public:
 
 		video::IGPUDescriptorSetLayout::SBinding bindings[3u] = {};
 		bindings[0u].binding = 0u;
-		bindings[0u].type = asset::EDT_UNIFORM_BUFFER;
+		bindings[0u].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 		bindings[0u].count = 1u;
 		bindings[0u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
 		bindings[1u].binding = 1u;
-		bindings[1u].type = asset::EDT_STORAGE_BUFFER;
+		bindings[1u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
 		bindings[1u].count = 1u;
 		bindings[1u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
 		bindings[2u].binding = 2u;
-		bindings[2u].type = asset::EDT_STORAGE_IMAGE;
+		bindings[2u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
 		bindings[2u].count = 1u;
 		bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
 		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+3u);
-		
-		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[3u] =
+
+		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
 		{
-			{ nbl::asset::EDT_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
-			{ nbl::asset::EDT_STORAGE_BUFFER, FRAMES_IN_FLIGHT },
-			{ nbl::asset::EDT_STORAGE_IMAGE, FRAMES_IN_FLIGHT },
-		};
-		auto descriptorPool = logicalDevice->createDescriptorPool(nbl::video::IDescriptorPool::ECF_NONE, 128u, 3u, poolSizes);
+			video::IDescriptorPool::SCreateInfo createInfo = {};
+			createInfo.maxSets = 128;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = FRAMES_IN_FLIGHT;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
+
+			descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+		}
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
-			descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(descriptorSetLayout));
+			descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
 			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[3u] = {};
-			descriptorInfos[0u].buffer.offset = 0u;
-			descriptorInfos[0u].buffer.size = globalsBuffer[i]->getCreationParams().size;
+			descriptorInfos[0u].info.buffer.offset = 0u;
+			descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
 			descriptorInfos[0u].desc = globalsBuffer[i];
 
-			descriptorInfos[1u].buffer.offset = 0u;
-			descriptorInfos[1u].buffer.size = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
+			descriptorInfos[1u].info.buffer.offset = 0u;
+			descriptorInfos[1u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
 			descriptorInfos[1u].desc = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer;
 
-			descriptorInfos[2u].image.imageLayout = asset::IImage::E_LAYOUT::EL_GENERAL;
-			descriptorInfos[2u].image.sampler = nullptr;
+			descriptorInfos[2u].info.image.imageLayout = asset::IImage::E_LAYOUT::EL_GENERAL;
+			descriptorInfos[2u].info.image.sampler = nullptr;
 			descriptorInfos[2u].desc = pseudoStencilImageView[i];
 
 			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[3u] = {};
@@ -806,21 +809,21 @@ public:
 			descriptorUpdates[0u].binding = 0u;
 			descriptorUpdates[0u].arrayElement = 0u;
 			descriptorUpdates[0u].count = 1u;
-			descriptorUpdates[0u].descriptorType = asset::EDT_UNIFORM_BUFFER;
+			descriptorUpdates[0u].descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 			descriptorUpdates[0u].info = &descriptorInfos[0u];
 
 			descriptorUpdates[1u].dstSet = descriptorSets[i].get();
 			descriptorUpdates[1u].binding = 1u;
 			descriptorUpdates[1u].arrayElement = 0u;
 			descriptorUpdates[1u].count = 1u;
-			descriptorUpdates[1u].descriptorType = asset::EDT_STORAGE_BUFFER;
+			descriptorUpdates[1u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
 			descriptorUpdates[1u].info = &descriptorInfos[1u];
 
 			descriptorUpdates[2u].dstSet = descriptorSets[i].get();
 			descriptorUpdates[2u].binding = 2u;
 			descriptorUpdates[2u].arrayElement = 0u;
 			descriptorUpdates[2u].count = 1u;
-			descriptorUpdates[2u].descriptorType = asset::EDT_STORAGE_IMAGE;
+			descriptorUpdates[2u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
 			descriptorUpdates[2u].info = &descriptorInfos[2u];
 
 			logicalDevice->updateDescriptorSets(3u, descriptorUpdates, 0u, nullptr);

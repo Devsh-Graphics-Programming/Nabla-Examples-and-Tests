@@ -266,7 +266,7 @@ public:
 
 			IGPUDescriptorSetLayout::SBinding gpuSamplerBinding;
 			gpuSamplerBinding.binding = ds0SamplerBinding;
-			gpuSamplerBinding.type = EDT_COMBINED_IMAGE_SAMPLER;
+			gpuSamplerBinding.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
 			gpuSamplerBinding.count = 1u;
 			gpuSamplerBinding.stageFlags = static_cast<IGPUShader::E_SHADER_STAGE>(IGPUShader::ESS_FRAGMENT);
 			gpuSamplerBinding.samplers = nullptr;
@@ -279,7 +279,7 @@ public:
 			gpuUboBinding.count = 1u;
 			gpuUboBinding.binding = ds1UboBinding;
 			gpuUboBinding.stageFlags = static_cast<asset::ICPUShader::E_SHADER_STAGE>(asset::ICPUShader::ESS_VERTEX | asset::ICPUShader::ESS_FRAGMENT);
-			gpuUboBinding.type = asset::EDT_UNIFORM_BUFFER;
+			gpuUboBinding.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 
 			/*
 				Creating specific descriptor set layouts from specialized bindings.
@@ -313,18 +313,17 @@ public:
 				We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
 			*/
 
-			constexpr uint32_t DescriptorSetCount = 2u;
-			video::IDescriptorPool::SDescriptorPoolSize poolSizes[DescriptorSetCount];
+			core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
 			{
-				// DS1 uses one UBO descriptor.
-				poolSizes[0].count = 1u;
-				poolSizes[0].type = asset::EDT_UNIFORM_BUFFER;
+				constexpr uint32_t DescriptorSetCount = 2u;
 
-				// DS3 uses one combined image sampler descriptor.
-				poolSizes[1].count = 1u;
-				poolSizes[1].type = asset::EDT_COMBINED_IMAGE_SAMPLER;
+				video::IDescriptorPool::SCreateInfo createInfo = {};
+				createInfo.maxSets = DescriptorSetCount;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = 1; // DS1 uses one UBO descriptor.
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = 1; // DS3 uses one combined image sampler descriptor.
+
+				descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
 			}
-			auto descriptorPool = logicalDevice->createDescriptorPool(video::IDescriptorPool::ECF_NONE, DescriptorSetCount, sizeof(poolSizes)/sizeof(video::IDescriptorPool::SDescriptorPoolSize), poolSizes);
 
 			gpuDescriptorSet3 = descriptorPool->createDescriptorSet(gpuDs3Layout);
 			{
@@ -333,7 +332,7 @@ public:
 				write.binding = ds0SamplerBinding;
 				write.count = 1u;
 				write.arrayElement = 0u;
-				write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+				write.descriptorType = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
 				IGPUDescriptorSet::SDescriptorInfo info;
 				{
 					info.desc = std::move(gpuImageView);
@@ -351,7 +350,7 @@ public:
 				write.binding = ds1UboBinding;
 				write.count = 1u;
 				write.arrayElement = 0u;
-				write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+				write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 				video::IGPUDescriptorSet::SDescriptorInfo info;
 				{
 					info.desc = gpuubo;
