@@ -3,8 +3,7 @@
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
-    ROAD = 1u,
-    ELLIPSE = 2u,
+    ELLIPSE = 1u,
 };
 
 struct DrawObject
@@ -25,12 +24,15 @@ struct EllipseInfo
 
 struct Globals
 {
-    double4x4 viewProjection;
+    double4x4 viewProjection; // 128 
+    double screenToWorldRatio; // 136
+    uint2 resolution; // 144
+    float antiAliasingFactor; // 148
+    float _pad; // 152
+
     // Next two vars will be part of styles that the objects will reference
-    float4 color;
-    float lineWidth;
-    float antiAliasingFactor;
-    uint2 resolution;
+    float screenSpaceLineWidth; // 156
+    float worldSpaceLineWidth; // 160
 };
 
 #ifndef __cplusplus

@@ -19,14 +19,14 @@ PSInput main(uint vertexID : SV_VertexID)
     ObjectType objType = drawObj.type;
     
     PSInput outV;
-    outV.lineWidth_eccentricity_objType_writeToAlpha.x = asuint(globals.lineWidth);
-    outV.lineWidth_eccentricity_objType_writeToAlpha.z = (uint)objType;
-
     // TODO: get from styles
-    outV.color = globals.color;
+    // outV.color = globals.color;
+    
+    const float screenSpaceLineWidth = globals.screenSpaceLineWidth + globals.worldSpaceLineWidth * globals.screenToWorldRatio;
+    const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
-    const float antiAliasedLineWidth = globals.lineWidth + globals.antiAliasingFactor * 2.0f;
-
+    outV.lineWidth_eccentricity_objType_writeToAlpha.x = asuint(screenSpaceLineWidth);
+    outV.lineWidth_eccentricity_objType_writeToAlpha.z = (uint)objType;
     outV.lineWidth_eccentricity_objType_writeToAlpha.w = (vertexIdx % 2u == 0u) ? 1u : 0u;
 
     if (objType == ObjectType::ELLIPSE)
@@ -56,14 +56,14 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.start_end.zw = transformedMajorAxis;
 
         // construct a cage, working in ellipse screen space :
-        double2 angleBounds = ((double2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
+        float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
         const double eccentricity = (double)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
         
         float majorAxisLength = length(transformedMajorAxis);
         float minorAxisLength = float(majorAxisLength * eccentricity);
         float2 ab = float2(majorAxisLength, minorAxisLength);
-        float2 start = float2(ab * double2(cos(angleBounds.x), sin(angleBounds.x)));
-        float2 end = float2(ab * double2(cos(angleBounds.y), sin(angleBounds.y)));
+        float2 start = float2(ab * float2(cos(angleBounds.x), sin(angleBounds.x)));
+        float2 end = float2(ab * float2(cos(angleBounds.y), sin(angleBounds.y)));
         float2 startToEnd = end - start;
 
         if (vertexIdx == 0u)
@@ -73,7 +73,7 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (vertexIdx == 1u)
         {
             // from p in the direction of startToEnd is the line tangent to ellipse
-            float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            float theta = atan2(float(eccentricity * (double)startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * double2(cos(theta), sin(theta)));
             float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start);
@@ -86,7 +86,7 @@ PSInput main(uint vertexID : SV_VertexID)
         else
         {
             // from p in the direction of startToEnd is the line tangent to ellipse
-            float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            float theta = atan2(float(eccentricity * (double)startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * double2(cos(theta), sin(theta)));
             float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end);
@@ -143,13 +143,17 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
     }
-    else if (objType == ObjectType::ROAD)
-    {
-        outV.color = float4(0.7, 0.1, 0.5, 0.5);
-        double3x3 transformation = (double3x3)globals.viewProjection;
-        double2 vertex = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * vertexIdx, 8u);
-        outV.position.xy = mul(transformation, double3(vertex, 1)).xy; // Transform to NDC
-        outV.position.w = 1u;
-    }
+
+#if 0
+    if (vertexIdx == 0u)
+        outV.position = float4(-1, -1, 0, 1);
+    else if (vertexIdx == 1u)
+        outV.position = float4(-1, +1, 0, 1);
+    else if (vertexIdx == 2u)
+        outV.position = float4(+1, -1, 0, 1);
+    else if (vertexIdx == 3u)
+        outV.position = float4(+1, +1, 0, 1);
+#endif
+
 	return outV;
 }

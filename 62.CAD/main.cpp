@@ -72,19 +72,24 @@ public:
 
 	void setSize(const double size)
 	{
-		m_size = double2{ size * m_aspectRatio, size };
+		m_bounds = double2{ size * m_aspectRatio, size };
+	}
+
+	double2 getBounds() const
+	{
+		return m_bounds;
 	}
 
 	double4x4 constructViewProjection()
 	{
 		double4x4 ret = {};
 
-		ret._r0[0] = 2.0 / m_size.X;
-		ret._r1[1] = -2.0 / m_size.Y;
+		ret._r0[0] = 2.0 / m_bounds.X;
+		ret._r1[1] = -2.0 / m_bounds.Y;
 		ret._r2[2] = 1.0;
 
-		ret._r2[0] = (-2.0 * m_origin.X) / m_size.X;
-		ret._r2[1] = (2.0 * m_origin.Y) / m_size.Y;
+		ret._r2[0] = (-2.0 * m_origin.X) / m_bounds.X;
+		ret._r2[1] = (2.0 * m_origin.Y) / m_bounds.Y;
 
 		return ret;
 	}
@@ -97,8 +102,8 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_size = m_size + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
-				m_size = double2 {core::max(m_aspectRatio, m_size.X), core::max(1.0, m_size.Y)};
+				m_bounds = m_bounds + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
+				m_bounds = double2 {core::max(m_aspectRatio, m_bounds.X), core::max(1.0, m_bounds.Y)};
 			}
 		}
 	}
@@ -106,7 +111,7 @@ public:
 private:
 
 	double m_aspectRatio = 0.0;
-	double2 m_size = {};
+	double2 m_bounds = {};
 	double2 m_origin = {};
 };
 
@@ -294,65 +299,6 @@ class CADApp : public ApplicationBase
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, linePoints.data(), pointsByteSize);
 				currentGeometryBufferSize += pointsByteSize;
-			}
-		}
-
-		void addRoads(std::vector<double2>&& linePoints)
-		{
-			return;
-			if (linePoints.size() < 2u)
-				return;
-
-			const auto noPoints = linePoints.size();
-			const auto noLines = noPoints - 1u;
-
-			// Indices for Objects
-			bool isOpaque = false;
-			addNewObjectsIndices(noLines, isOpaque);
-
-			double2 prevLineVec;
-			for (uint32_t i = 0u; i < noPoints; ++i)
-			{
-				void* geomBufferPointer = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-				void* drawObjPointer = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-
-				// Add Geom
-				{
-					double2 lineVec;
-					if (i < noPoints - 1u)
-						lineVec = linePoints[i + 1] - linePoints[i];
-					else 
-						lineVec = prevLineVec;
-
-					lineVec = normalize(lineVec);
-
-					if (i == 0)
-						prevLineVec = lineVec;
-
-					const double2 normalToLine = double2{ -lineVec.Y, lineVec.X };
-					const double2 normalToPrevLine = double2{ -prevLineVec.Y, prevLineVec.X};
-					const double2 miter = normalize(normalToPrevLine + normalToLine);
-					const double lineWidth = 2.0;
-					double2 points[2u] = {};
-					points[0u] = linePoints[i] + (miter * lineWidth * 0.5) / dot(normalToLine, miter);
-					points[1u] = linePoints[i] - (miter * lineWidth * 0.5) / dot(normalToLine, miter);
-
-					memcpy(geomBufferPointer, points, sizeof(double2) * 2u);
-					prevLineVec = lineVec;
-				}
-
-				// Add Draw Obj
-				if (i < noPoints - 1u)
-				{
-					// DrawObj
-					DrawObject drawObj = {};
-					drawObj.type = ObjectType::ROAD;
-					drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-					memcpy(drawObjPointer, &drawObj, sizeof(DrawObject));
-					currentDrawObjectCount++;
-				}
-
-				currentGeometryBufferSize += sizeof(double2) * 2u;
 			}
 		}
 
@@ -546,18 +492,18 @@ class CADApp : public ApplicationBase
 				static_cast<uint32_t>(((0.0) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX)
 			};
-			currentDrawBuffers.addEllipse(ellipse);
+			//currentDrawBuffers.addEllipse(ellipse);
 
 			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX)
 			};
-			currentDrawBuffers.addEllipse(ellipse);
+			//currentDrawBuffers.addEllipse(ellipse);
 			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
 			};
-			currentDrawBuffers.addEllipse(ellipse);
+			//currentDrawBuffers.addEllipse(ellipse);
 			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
@@ -578,8 +524,8 @@ class CADApp : public ApplicationBase
 			linePoints.push_back({ 50.0, 0.0 });
 			linePoints.push_back({ 80.0, 00.0 });
 			linePoints.push_back({ 80.0, +40.0 });
-			linePoints.push_back({ 60.0, -50.0 });
-			linePoints.push_back({ 40.0, +30.0 });
+			linePoints.push_back({ 0.0, 0.0 });
+			linePoints.push_back({ 100.0, 0.0 });
 			currentDrawBuffers.addLines(std::move(linePoints));
 
 			std::vector<double2> linePoints2;
@@ -587,7 +533,7 @@ class CADApp : public ApplicationBase
 			linePoints2.push_back({ 50.0, 0.0 });
 			linePoints2.push_back({ 50.0, 50.0 });
 			linePoints2.push_back({ -40.0, -20.0 });
-			currentDrawBuffers.addRoads(std::move(linePoints2));
+			//currentDrawBuffers.addLines(std::move(linePoints2));
 		}
 
 
@@ -971,11 +917,14 @@ public:
 		, logger.get());
 
 		Globals globalData = {};
-		globalData.color = core::vectorSIMDf(0.8f, 0.7f, 0.5f, 0.5f);
-		globalData.lineWidth = 16.0f;
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
+		globalData.screenToWorldRatio = WIN_W / m_Camera.getBounds().X;
+
+		globalData.screenSpaceLineWidth = 0.0f;
+		globalData.worldSpaceLineWidth = 1.0f;
+
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
