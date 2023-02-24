@@ -56,9 +56,10 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.start_end.zw = transformedMajorAxis;
 
         // construct a cage, working in ellipse screen space :
-        float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
-        const double eccentricity = (double)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
-        
+        const float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
+        const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
+        outV.ellipseBounds = angleBounds;
+
         float majorAxisLength = length(transformedMajorAxis);
         float minorAxisLength = float(majorAxisLength * eccentricity);
         float2 ab = float2(majorAxisLength, minorAxisLength);
@@ -73,9 +74,9 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (vertexIdx == 1u)
         {
             // from p in the direction of startToEnd is the line tangent to ellipse
-            float theta = atan2(float(eccentricity * (double)startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
-            float2 p = float2(ab * double2(cos(theta), sin(theta)));
+            float2 p = float2(ab * float2(cos(theta), sin(theta)));
             float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start);
             outV.position.xy = intersection;
         }
@@ -86,9 +87,9 @@ PSInput main(uint vertexID : SV_VertexID)
         else
         {
             // from p in the direction of startToEnd is the line tangent to ellipse
-            float theta = atan2(float(eccentricity * (double)startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
-            float2 p = float2(ab * double2(cos(theta), sin(theta)));
+            float2 p = float2(ab * float2(cos(theta), sin(theta)));
             float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end);
             outV.position.xy = intersection;
         }
@@ -144,7 +145,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position.w = 1u;
     }
 
-#if 0
+#if 1
     if (vertexIdx == 0u)
         outV.position = float4(-1, -1, 0, 1);
     else if (vertexIdx == 1u)
