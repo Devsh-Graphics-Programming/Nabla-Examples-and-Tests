@@ -69,11 +69,13 @@ PSInput main(uint vertexID : SV_VertexID)
 
         if (vertexIdx == 0u)
         {
-            outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
+            float2 startNormalized = normalize(start);
+            float2 normalToStart = float2(-startNormalized.y, startNormalized.x);
+            outV.position.xy = start - (startNormalized) * antiAliasedLineWidth * 0.5f;
         }
         else if (vertexIdx == 1u)
         {
-            // from p in the direction of startToEnd is the line tangent to ellipse
+            // find the angle in which the tangent of the ellipse is equal to startToEnd:
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
@@ -86,7 +88,7 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else
         {
-            // from p in the direction of startToEnd is the line tangent to ellipse
+            // find the angle in which the tangent of the ellipse is equal to startToEnd:
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));

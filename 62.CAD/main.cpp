@@ -4,7 +4,7 @@
 #include "../common/CommonAPI.h"
 
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
@@ -206,6 +206,7 @@ class CADApp : public ApplicationBase
 			indexBufferCreationParams.size = indexBufferSize;
 			indexBufferCreationParams.usage = video::IGPUBuffer::EUF_INDEX_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			gpuDrawBuffers.indexBuffer = logicalDevice->createBuffer(std::move(indexBufferCreationParams));
+			gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.indexBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
@@ -223,6 +224,7 @@ class CADApp : public ApplicationBase
 			drawObjectsCreationParams.size = drawObjectsBufferSize;
 			drawObjectsCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			gpuDrawBuffers.drawObjectsBuffer = logicalDevice->createBuffer(std::move(drawObjectsCreationParams));
+			gpuDrawBuffers.drawObjectsBuffer->setObjectDebugName("drawObjectsBuffer");
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.drawObjectsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
@@ -237,6 +239,7 @@ class CADApp : public ApplicationBase
 			geometryCreationParams.size = size;
 			geometryCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			gpuDrawBuffers.geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
+			gpuDrawBuffers.geometryBuffer->setObjectDebugName("geometryBuffer");
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
@@ -504,18 +507,21 @@ class CADApp : public ApplicationBase
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
 			};
 			//currentDrawBuffers.addEllipse(ellipse);
+			ellipse.majorAxis = double2{ 30.0, 0.0 };
+			double start = /*abs(sin(timeElapsed * 0.0002))*/ 0.0 * core::PI<double>();
+			double end = abs(cos(timeElapsed * 0.0001)) * 2 * core::PI<double>();
 			ellipse.angleBoundsPacked = uint2{
-				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
+				static_cast<uint32_t>(((start) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((end) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
-			ellipse.majorAxis = double2{ 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
-			ellipse.center = double2{ 50, 50 };
+			// ellipse.majorAxis = double2{ 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
+			//ellipse.center = double2{ 50, 50 };
 			ellipse.angleBoundsPacked = uint2{
-				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>() * 2) / twoPi) * UINT32_MAX)
+				static_cast<uint32_t>(((core::PI<double>() * 0) / twoPi) * UINT32_MAX),
+				static_cast<uint32_t>(((core::PI<double>() * 3.0/2.0) / twoPi) * UINT32_MAX)
 			};
-			currentDrawBuffers.addEllipse(ellipse);
+			// currentDrawBuffers.addEllipse(ellipse);
 
 			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
@@ -526,7 +532,7 @@ class CADApp : public ApplicationBase
 			linePoints.push_back({ 80.0, +40.0 });
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 100.0, 0.0 });
-			currentDrawBuffers.addLines(std::move(linePoints));
+			// currentDrawBuffers.addLines(std::move(linePoints));
 
 			std::vector<double2> linePoints2;
 			linePoints2.push_back({ -50.0, 0.0 });
@@ -922,8 +928,9 @@ public:
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = WIN_W / m_Camera.getBounds().X;
 
+		// Move to style later
 		globalData.screenSpaceLineWidth = 0.0f;
-		globalData.worldSpaceLineWidth = 1.0f;
+		globalData.worldSpaceLineWidth = 5.0f;
 
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);

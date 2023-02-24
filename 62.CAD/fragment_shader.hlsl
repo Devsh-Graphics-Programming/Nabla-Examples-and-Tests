@@ -37,7 +37,7 @@ namespace SignedDistance
         if (eccentricity == 1.0)
             return length(p) - majorAxisLength;
 
-        float minorAxisLength = float(majorAxisLength * eccentricity);
+        float minorAxisLength = majorAxisLength * eccentricity;
         float2 ab = float2(majorAxisLength, minorAxisLength);
         p = abs(p);
 
@@ -64,8 +64,8 @@ namespace SignedDistance
             float h = acos(q / c3) / 3.0;
             float s = cos(h) + 2.0;
             float t = sin(h) * sqrt(3.0);
-            float rx = sqrt(max(m2 - c * (s + t), nbl_hlsl_FLT_EPSILON));
-            float ry = sqrt(max(m2 - c * (s - t), nbl_hlsl_FLT_EPSILON));
+            float rx = sqrt(max(m2 - c * (s + t), 0.0));
+            float ry = sqrt(max(m2 - c * (s - t), 0.0));
             co = ry + sign(l) * rx + abs(g) / (rx * ry);
         }
         else
@@ -75,8 +75,8 @@ namespace SignedDistance
             float t = msign(q - h) * pow(abs(q - h), 1.0 / 3.0);
             float rx = -(s + t) - c * 4.0 + 2.0 * m2;
             float ry = (s - t) * sqrt(3.0);
-            float rm = sqrt(max(rx * rx + ry * ry, nbl_hlsl_FLT_EPSILON));
-            co = ry / sqrt(max(rm - rx, nbl_hlsl_FLT_EPSILON)) + 2.0 * g / rm;
+            float rm = sqrt(max(rx * rx + ry * ry, 0.0));
+            co = ry / sqrt(max(rm - rx, 0.0)) + 2.0 * g / rm;
         }
         co = (co - m) / 2.0;
 
@@ -99,15 +99,28 @@ namespace SignedDistance
     }
 
     // @param bounds is in [0, 2PI]
-    float EllipseOutlineBounded(float2 p, float2 center, float2 majorAxis, float eccentricity, float thickness, float bounds)
+    float EllipseOutlineBounded(float2 p, float2 center, float2 majorAxis, float eccentricity, float thickness, float2 bounds)
     {
         float majorAxisLength = length(majorAxis);
         float2 dir = majorAxis / majorAxisLength;
         p = p - center;
         p = mul(float2x2(dir.x, dir.y, -dir.y, dir.x), p);
 
-        float ellipseDist = Ellipse(p, majorAxisLength, eccentricity);
-        return abs(ellipseDist) - thickness;
+        float2 pNormalized = normalize(p);
+        float theta = atan2(pNormalized.y, -pNormalized.x * eccentricity) + nbl_hlsl_PI;
+
+        float minorAxisLength = majorAxisLength * eccentricity;
+        if (theta < bounds.x || theta > bounds.y)
+        {
+            float sdCircle1 = Circle(p, float2(majorAxisLength * cos(bounds.x), -minorAxisLength * sin(bounds.x)), thickness);
+            float sdCircle2 = Circle(p, float2(majorAxisLength * cos(bounds.y), -minorAxisLength * sin(bounds.y)), thickness);
+            return min(sdCircle1, sdCircle2);
+        }
+        else
+        {
+            float ellipseDist = Ellipse(p, majorAxisLength, eccentricity);
+            return abs(ellipseDist) - thickness;
+        }
     }
 }
 
