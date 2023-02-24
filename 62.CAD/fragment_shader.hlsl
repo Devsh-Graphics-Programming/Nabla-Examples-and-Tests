@@ -89,67 +89,67 @@ namespace SignedDistance
     float msign(in float x) { return (x < 0.0) ? -1.0 : 1.0; }
 
     // https://iquilezles.org/articles/ellipsedist/ with modifications to add rotation and different inputs
-    float Ellipse(float2 p, float2 center, float2 majorAxis, double eccentricity)
+    float Ellipse(float2 p, float2 center, float2 majorAxis, float eccentricity)
     {
         float majorAxisLength = length(majorAxis);
 
         if (eccentricity == 1.0)
             return length(p - center) - majorAxisLength;
 
-        double minorAxisLength = double(majorAxisLength * eccentricity);
-        double2 ab = double2(majorAxisLength, minorAxisLength);
+        float minorAxisLength = float(majorAxisLength * eccentricity);
+        float2 ab = float2(majorAxisLength, minorAxisLength);
 
-        double2 dir = majorAxis / majorAxisLength;
+        float2 dir = majorAxis / majorAxisLength;
         p = p - center;
-        p = abs(mul(double2x2(dir.x, dir.y, -dir.y, dir.x), p));
+        p = abs(mul(float2x2(dir.x, dir.y, -dir.y, dir.x), p));
 
         if (p.x > p.y) { p = p.yx; ab = ab.yx; }
 
-        double l = ab.y * ab.y - ab.x * ab.x;
+        float l = ab.y * ab.y - ab.x * ab.x;
 
-        double m = ab.x * p.x / l;
-        double n = ab.y * p.y / l;
-        double m2 = m * m;
-        double n2 = n * n;
+        float m = ab.x * p.x / l;
+        float n = ab.y * p.y / l;
+        float m2 = m * m;
+        float n2 = n * n;
 
-        double c = (m2 + n2 - 1.0) / 3.0;
-        double c3 = c * c * c;
+        float c = (m2 + n2 - 1.0) / 3.0;
+        float c3 = c * c * c;
 
-        double d = c3 + m2 * n2;
-        double q = d + m2 * n2;
-        double g = m + m * n2;
+        float d = c3 + m2 * n2;
+        float q = d + m2 * n2;
+        float g = m + m * n2;
 
-        double co;
+        float co;
 
         if (d < 0.0)
         {
-            double h = acos(q / c3) / 3.0;
-            double s = cos(h) + 2.0;
-            double t = sin(h) * sqrt(3.0);
-            double rx = sqrt(m2 - c * (s + t));
-            double ry = sqrt(m2 - c * (s - t));
+            float h = acos(q / c3) / 3.0;
+            float s = cos(h) + 2.0;
+            float t = sin(h) * sqrt(3.0);
+            float rx = sqrt(max(m2 - c * (s + t), nbl_hlsl_FLT_EPSILON));
+            float ry = sqrt(max(m2 - c * (s - t), nbl_hlsl_FLT_EPSILON));
             co = ry + sign(l) * rx + abs(g) / (rx * ry);
         }
         else
         {
-            double h = 2.0 * m * n * sqrt(d);
-            double s = msign(q + h) * pow(abs(q + h), 1.0 / 3.0);
-            double t = msign(q - h) * pow(abs(q - h), 1.0 / 3.0);
-            double rx = -(s + t) - c * 4.0 + 2.0 * m2;
-            double ry = (s - t) * sqrt(3.0);
-            double rm = sqrt(rx * rx + ry * ry);
-            co = ry / sqrt(rm - rx) + 2.0 * g / rm;
+            float h = 2.0 * m * n * sqrt(d);
+            float s = msign(q + h) * pow(abs(q + h), 1.0 / 3.0);
+            float t = msign(q - h) * pow(abs(q - h), 1.0 / 3.0);
+            float rx = -(s + t) - c * 4.0 + 2.0 * m2;
+            float ry = (s - t) * sqrt(3.0);
+            float rm = sqrt(max(rx * rx + ry * ry, nbl_hlsl_FLT_EPSILON));
+            co = ry / sqrt(max(rm - rx, nbl_hlsl_FLT_EPSILON)) + 2.0 * g / rm;
         }
         co = (co - m) / 2.0;
 
-        double si = sqrt(max(1.0 - co * co, 0.0));
+        float si = sqrt(max(1.0 - co * co, 0.0));
 
-        double2 r = ab * double2(co, si);
+        float2 r = ab * float2(co, si);
 
         return length(r - p) * msign(p.y - r.y);
     }
 
-    float EllipseOutline(float2 p, float2 center, float2 majorAxis, double eccentricity, float thickness)
+    float EllipseOutline(float2 p, float2 center, float2 majorAxis, float eccentricity, float thickness)
     {
         float ellipseDist = Ellipse(p, center, majorAxis, eccentricity);
         return abs(ellipseDist) - thickness;
@@ -183,7 +183,7 @@ float4 main(PSInput input) : SV_TARGET
             const float2 center = input.start_end.xy;
             const float2 majorAxis = input.start_end.zw;
             const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-            const double eccentricity = (double)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
+            const float eccentricity = (float)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
 
             float distance = SignedDistance::EllipseOutline(input.position.xy, center, majorAxis, eccentricity, lineThickness);
 

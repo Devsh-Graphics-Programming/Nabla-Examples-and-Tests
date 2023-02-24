@@ -39,6 +39,7 @@ struct Globals
 
 // TODO: Remove these two when we include our builtin shaders
 #define nbl_hlsl_PI 3.14159265359
+#define	nbl_hlsl_FLT_EPSILON 5.96046447754e-08
 #define UINT32_MAX      0xffffffffu
 
 struct PSInput
