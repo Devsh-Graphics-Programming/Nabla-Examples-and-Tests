@@ -69,9 +69,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
         if (vertexIdx == 0u)
         {
-            float2 startNormalized = normalize(start);
-            float2 normalToStart = float2(-startNormalized.y, startNormalized.x);
-            outV.position.xy = start - (startNormalized) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
         }
         else if (vertexIdx == 1u)
         {

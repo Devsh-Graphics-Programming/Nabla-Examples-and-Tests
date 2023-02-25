@@ -99,6 +99,7 @@ namespace SignedDistance
     }
 
     // @param bounds is in [0, 2PI]
+    //      bounds.y-bounds.x should be <= PI
     float EllipseOutlineBounded(float2 p, float2 center, float2 majorAxis, float eccentricity, float thickness, float2 bounds)
     {
         float majorAxisLength = length(majorAxis);
@@ -110,16 +111,26 @@ namespace SignedDistance
         float theta = atan2(pNormalized.y, -pNormalized.x * eccentricity) + nbl_hlsl_PI;
 
         float minorAxisLength = majorAxisLength * eccentricity;
-        if (theta < bounds.x || theta > bounds.y)
-        {
-            float sdCircle1 = Circle(p, float2(majorAxisLength * cos(bounds.x), -minorAxisLength * sin(bounds.x)), thickness);
-            float sdCircle2 = Circle(p, float2(majorAxisLength * cos(bounds.y), -minorAxisLength * sin(bounds.y)), thickness);
-            return min(sdCircle1, sdCircle2);
-        }
-        else
+
+        // TODO: Optimize
+        float2 startPoint = float2(majorAxisLength * cos(bounds.x), -minorAxisLength * sin(bounds.x));
+        float2 endPoint = float2(majorAxisLength * cos(bounds.y), -minorAxisLength * sin(bounds.y));
+        
+        float2 startTangent = float2(-majorAxisLength * sin(bounds.x), -minorAxisLength * cos(bounds.x));
+        float2 endTangent = float2(-majorAxisLength * sin(bounds.y), -minorAxisLength * cos(bounds.y));
+        float dotStart = dot(startTangent, float2(p - startPoint));
+        float dotEnd = dot(endTangent, float2(p - endPoint));
+
+        if (dotStart > 0 && dotEnd < 0)
         {
             float ellipseDist = Ellipse(p, majorAxisLength, eccentricity);
             return abs(ellipseDist) - thickness;
+        }
+        else
+        {
+            float sdCircle1 = Circle(p, startPoint, thickness);
+            float sdCircle2 = Circle(p, endPoint, thickness);
+            return min(sdCircle1, sdCircle2);
         }
     }
 }
