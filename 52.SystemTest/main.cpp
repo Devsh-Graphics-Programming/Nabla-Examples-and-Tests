@@ -15,6 +15,8 @@
 #include "nbl/system/CFileLogger.h"
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
 
+#include "nbl/builtin/CArchive.h"
+
 using namespace nbl;
 using namespace core;
 using namespace ui;
@@ -268,6 +270,27 @@ int main(int argc, char** argv)
 			assert(success);
 		}
 		assert(readStr == fileData);
+	}
+
+	// CArchive test
+	{
+		const std::string nblBuiltInResoucesPath = std::filesystem::current_path().string() + "/../../../include";
+
+		core::smart_refctd_ptr<nbl::builtin::CArchive> archive = core::make_smart_refctd_ptr<nbl::builtin::CArchive>(nblBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
+		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("nbl/builtin/glsl/utils/acceleration_structures.glsl", "");
+
+		const size_t fileSize = testFile->getSize();
+		std::string readStr(fileSize, '\0');
+		system::IFile::success_t readSuccess;
+
+		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		{
+			const bool success = bool(readSuccess);
+			assert(success);
+		}
+		
+		const auto* testStream = readStr.c_str();
+		std::cout << testStream;
 	}
 
 	// polling for events!
