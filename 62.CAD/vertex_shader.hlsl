@@ -2,12 +2,12 @@
 
 #include "common.hlsl"
 
-float2 intersectLines2D(in float2 p1, in float2 v1, in float2 v2) /* p2 is zero */
+float2 intersectLines2D(in float2 p1, in float2 v1, in float2 p2, in float2 v2)
 {
     float det = v1.y * v2.x - v1.x * v2.y;
     float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
-    float2 t = mul(inv, p1);
-    return mul(v2, t.y);
+    float2 t = mul(inv, p1-p2);
+    return p2 + mul(v2, t.y);
 }
 
 PSInput main(uint vertexID : SV_VertexID)
@@ -60,6 +60,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
         outV.ellipseBounds = angleBounds;
 
+        // TODO: Optimize
         float majorAxisLength = length(transformedMajorAxis);
         float minorAxisLength = float(majorAxisLength * eccentricity);
         float2 ab = float2(majorAxisLength, minorAxisLength);
@@ -67,9 +68,17 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 end = float2(ab * float2(cos(angleBounds.y), sin(angleBounds.y)));
         float2 startToEnd = end - start;
 
+        float2 tangentToStartPoint = normalize(float2(-majorAxisLength * sin(angleBounds.x), minorAxisLength * cos(angleBounds.x)));
+        float2 tangentToEndPoint = normalize(float2(-majorAxisLength * sin(angleBounds.y), minorAxisLength * cos(angleBounds.y)));
+        float2 normalToStartPoint = float2(tangentToStartPoint.y, -tangentToStartPoint.x);
+        float2 normalToEndPoint = float2(tangentToEndPoint.y, -tangentToEndPoint.x);
+
+        start -= tangentToStartPoint*antiAliasedLineWidth * 0.5f;
+        end += tangentToEndPoint*antiAliasedLineWidth * 0.5f;
+
         if (vertexIdx == 0u)
         {
-            outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = start - (normalToStartPoint) * antiAliasedLineWidth * 0.5f;
         }
         else if (vertexIdx == 1u)
         {
@@ -77,12 +86,12 @@ PSInput main(uint vertexID : SV_VertexID)
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
-            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start);
+            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start, normalToStartPoint);
             outV.position.xy = intersection;
         }
         else if (vertexIdx == 2u)
         {
-            outV.position.xy = end - normalize(end) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = end - (normalToEndPoint) * antiAliasedLineWidth * 0.5f;
         }
         else
         {
@@ -90,7 +99,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
-            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end);
+            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end, normalToEndPoint);
             outV.position.xy = intersection;
         }
 
@@ -145,7 +154,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position.w = 1u;
     }
 
-#if 1
+#if 0
     if (vertexIdx == 0u)
         outV.position = float4(-1, -1, 0, 1);
     else if (vertexIdx == 1u)
