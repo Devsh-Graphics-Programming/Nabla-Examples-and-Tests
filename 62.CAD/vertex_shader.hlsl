@@ -73,8 +73,12 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 normalToStartPoint = float2(tangentToStartPoint.y, -tangentToStartPoint.x);
         float2 normalToEndPoint = float2(tangentToEndPoint.y, -tangentToEndPoint.x);
 
-        start -= tangentToStartPoint*antiAliasedLineWidth * 0.5f;
-        end += tangentToEndPoint*antiAliasedLineWidth * 0.5f;
+        bool roundedJoins = true;
+        if (roundedJoins)
+        {
+            start -= tangentToStartPoint * antiAliasedLineWidth * 0.5f;
+            end += tangentToEndPoint * antiAliasedLineWidth * 0.5f;
+        }
 
         if (vertexIdx == 0u)
         {

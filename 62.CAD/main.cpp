@@ -507,21 +507,21 @@ class CADApp : public ApplicationBase
 				static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
 			};
 			//currentDrawBuffers.addEllipse(ellipse);
-			ellipse.majorAxis = double2{ 30.0, 0.0 };
-			double start = /*abs(sin(timeElapsed * 0.0002))*/ 0.0 * core::PI<double>();
-			double end = abs(cos(timeElapsed * 0.0001)) * 2 * core::PI<double>();
+			ellipse.majorAxis = double2{ 50.0, 0.0 };
+			double start = 0.0 * core::PI<double>();
+			double end = abs(sin(timeElapsed * 0.0005)) * core::PI<double>();
 			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((start) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((end) / twoPi) * UINT32_MAX)
 			};
 			currentDrawBuffers.addEllipse(ellipse);
-			// ellipse.majorAxis = double2{ 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
-			//ellipse.center = double2{ 50, 50 };
+			ellipse.majorAxis = double2{ 30.0 * sin(timeElapsed * 0.0005), 30.0 * cos(timeElapsed * 0.0005) };
+			ellipse.center = double2{ 50, 50 };
 			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 0) / twoPi) * UINT32_MAX),
-				static_cast<uint32_t>(((core::PI<double>() * 3.0/2.0) / twoPi) * UINT32_MAX)
+				static_cast<uint32_t>(((core::PI<double>() * 2.0/3.0) / twoPi) * UINT32_MAX)
 			};
-			// currentDrawBuffers.addEllipse(ellipse);
+			currentDrawBuffers.addEllipse(ellipse);
 
 			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
@@ -532,7 +532,7 @@ class CADApp : public ApplicationBase
 			linePoints.push_back({ 80.0, +40.0 });
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 100.0, 0.0 });
-			// currentDrawBuffers.addLines(std::move(linePoints));
+			//currentDrawBuffers.addLines(std::move(linePoints));
 
 			std::vector<double2> linePoints2;
 			linePoints2.push_back({ -50.0, 0.0 });
