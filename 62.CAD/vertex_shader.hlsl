@@ -16,14 +16,14 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint objectID = vertexID >> 2;
 
     DrawObject drawObj = drawObjects[objectID];
+    LineStyle lineStyle = lineStyles[drawObj.styleIdx];
     ObjectType objType = drawObj.type;
     
     PSInput outV;
-    // TODO: get from styles
-    // outV.color = globals.color;
     
-    const float screenSpaceLineWidth = globals.screenSpaceLineWidth + globals.worldSpaceLineWidth * globals.screenToWorldRatio;
+    const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
+    outV.color = lineStyle.color;
 
     outV.lineWidth_eccentricity_objType_writeToAlpha.x = asuint(screenSpaceLineWidth);
     outV.lineWidth_eccentricity_objType_writeToAlpha.z = (uint)objType;
@@ -31,8 +31,6 @@ PSInput main(uint vertexID : SV_VertexID)
 
     if (objType == ObjectType::ELLIPSE)
     {
-        outV.color = float4(0.7, 0.3, 0.1, 0.5);
-
 #ifdef LOAD_STRUCT
         EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
         double2 majorAxis = ellipse.majorAxis;
@@ -118,7 +116,6 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::LINE)
     {
-        outV.color = float4(0.3, 0.2, 0.6, 0.5);
         double3x3 transformation = (double3x3)globals.viewProjection;
 
         double2 points[2u];

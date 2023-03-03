@@ -26,15 +26,35 @@ struct double4x4
 	double _r3[4u];
 };
 
+struct float4
+{
+	float4() {}
+
+	float4(const float x, const float y, const float z, const float w)
+	{
+		val[0u] = x;
+		val[1u] = y;
+		val[2u] = z;
+		val[3u] = w;
+	}
+
+	float val[4u];
+
+	inline bool operator ==(const float4& other) const
+	{
+		return val[0u] == other.val[0u];
+	}
+};
+
 typedef nbl::core::vector2d<double> double2;
 typedef nbl::core::vector2d<uint32_t> uint2;
 
-#define float4 nbl::core::vectorSIMDf
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(EllipseInfo) == 48u);
-static_assert(sizeof(Globals) == 160u);
+static_assert(sizeof(Globals) == 152u);
+static_assert(sizeof(LineStyle) == 32u);
 
 using namespace nbl;
 using namespace ui;
@@ -115,6 +135,12 @@ private:
 	double2 m_origin = {};
 };
 
+// This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
+class CPolyline
+{
+
+};
+
 class CADApp : public ApplicationBase
 {
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
@@ -177,6 +203,7 @@ class CADApp : public ApplicationBase
 		core::smart_refctd_ptr<BufferType> indexBuffer;
 		core::smart_refctd_ptr<BufferType> drawObjectsBuffer;
 		core::smart_refctd_ptr<BufferType> geometryBuffer;
+		core::smart_refctd_ptr<BufferType> lineStylesBuffer;
 	};
 
 	struct DrawBuffersFiller
@@ -194,6 +221,9 @@ class CADApp : public ApplicationBase
 		
 		uint32_t currentDrawObjectCount = 0u;
 		uint32_t maxDrawObjects = 0u;
+
+		uint32_t currentLineStylesCount = 0u;
+		uint32_t maxLineStyles = 0u;
 
 		uint64_t currentGeometryBufferSize = 0u;
 		
@@ -249,6 +279,24 @@ class CADApp : public ApplicationBase
 			cpuDrawBuffers.geometryBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(size);
 		}
 
+		void allocateStylesBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t stylesCount)
+		{
+			maxLineStyles = stylesCount;
+			size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
+
+			video::IGPUBuffer::SCreationParams lineStylesCreationParams = {};
+			lineStylesCreationParams.size = lineStylesBufferSize;
+			lineStylesCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			gpuDrawBuffers.lineStylesBuffer = logicalDevice->createBuffer(std::move(lineStylesCreationParams));
+			gpuDrawBuffers.lineStylesBuffer->setObjectDebugName("lineStylesBuffer");
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.lineStylesBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
+
+			cpuDrawBuffers.lineStylesBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lineStylesBufferSize);
+		}
+
 		void clear()
 		{
 			currentIndexCount = 0u;
@@ -271,10 +319,31 @@ class CADApp : public ApplicationBase
 			// Copy GeometryBuffer and AutoSubmit
 			asset::SBufferRange<video::IGPUBuffer> geomRange = { 0u, currentGeometryBufferSize, gpuDrawBuffers.geometryBuffer };
 			intendedNextSubmit = utils->updateBufferRangeViaStagingBuffer(geomRange, cpuDrawBuffers.geometryBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
+			// Copy LineStyles
+			asset::SBufferRange<video::IGPUBuffer> stylesRange = { 0u, sizeof(LineStyle) * currentLineStylesCount, gpuDrawBuffers.lineStylesBuffer };
+			intendedNextSubmit = utils->updateBufferRangeViaStagingBuffer(stylesRange, cpuDrawBuffers.lineStylesBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
+
 			return intendedNextSubmit;
 		}
 
-		void addLines(std::vector<double2>&& linePoints)
+		uint32_t addLineStyle(const LineStyle& lineStyle)
+		{
+			LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
+			for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
+			{
+				const LineStyle& itr = stylesArray[i];
+				if (lineStyle.screenSpaceLineWidth == itr.screenSpaceLineWidth)
+					if (lineStyle.worldSpaceLineWidth == itr.worldSpaceLineWidth)
+						if (lineStyle.color == itr.color)
+							return i;
+			}
+
+			void* dst = stylesArray + currentLineStylesCount;
+			memcpy(dst, &lineStyle, sizeof(LineStyle));
+			return currentLineStylesCount++;
+		}
+
+		void addLines(std::vector<double2>&& linePoints, uint32_t styleIdx)
 		{
 			if (linePoints.size() < 2u)
 				return;
@@ -289,6 +358,7 @@ class CADApp : public ApplicationBase
 			DrawObject drawObj = {};
 			drawObj.type = ObjectType::LINE;
 			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+			drawObj.styleIdx = styleIdx;
 			for (uint32_t i = 0u; i < noLines; ++i)
 			{
 				void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
@@ -306,7 +376,7 @@ class CADApp : public ApplicationBase
 			}
 		}
 
-		void addEllipse(const EllipseInfo& ellipseInfo)
+		void addEllipse(const EllipseInfo& ellipseInfo, uint32_t styleIdx)
 		{
 			// Indices for objects
 			bool isOpaque = false;
@@ -316,6 +386,7 @@ class CADApp : public ApplicationBase
 			DrawObject drawObj = {};
 			drawObj.type = ObjectType::ELLIPSE;
 			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+			drawObj.styleIdx = styleIdx;
 			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 			currentDrawObjectCount += 1u;
@@ -383,6 +454,7 @@ class CADApp : public ApplicationBase
 			size_t maxIndices = maxObjects * 6u * 2u;
 			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
 
 			size_t geometryBufferSize = maxObjects * sizeof(EllipseInfo);
 			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
@@ -673,7 +745,7 @@ public:
 
 		initDrawObjects();
 
-		video::IGPUDescriptorSetLayout::SBinding bindings[3u] = {};
+		video::IGPUDescriptorSetLayout::SBinding bindings[4u] = {};
 		bindings[0u].binding = 0u;
 		bindings[0u].type = asset::EDT_UNIFORM_BUFFER;
 		bindings[0u].count = 1u;
@@ -688,20 +760,27 @@ public:
 		bindings[2u].type = asset::EDT_STORAGE_IMAGE;
 		bindings[2u].count = 1u;
 		bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
-		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+3u);
+
+		bindings[3u].binding = 3u;
+		bindings[3u].type = asset::EDT_STORAGE_BUFFER;
+		bindings[3u].count = 1u;
+		bindings[3u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+
+		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+4u);
 		
-		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[3u] =
+		nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[4u] =
 		{
 			{ nbl::asset::EDT_UNIFORM_BUFFER, FRAMES_IN_FLIGHT },
 			{ nbl::asset::EDT_STORAGE_BUFFER, FRAMES_IN_FLIGHT },
 			{ nbl::asset::EDT_STORAGE_IMAGE, FRAMES_IN_FLIGHT },
+			{ nbl::asset::EDT_STORAGE_BUFFER, FRAMES_IN_FLIGHT },
 		};
-		auto descriptorPool = logicalDevice->createDescriptorPool(nbl::video::IDescriptorPool::ECF_NONE, 128u, 3u, poolSizes);
+		auto descriptorPool = logicalDevice->createDescriptorPool(nbl::video::IDescriptorPool::ECF_NONE, 128u, 4u, poolSizes);
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			descriptorSets[i] = logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(descriptorSetLayout));
-			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[3u] = {};
+			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[4u] = {};
 			descriptorInfos[0u].buffer.offset = 0u;
 			descriptorInfos[0u].buffer.size = globalsBuffer[i]->getCreationParams().size;
 			descriptorInfos[0u].desc = globalsBuffer[i];
@@ -714,7 +793,11 @@ public:
 			descriptorInfos[2u].image.sampler = nullptr;
 			descriptorInfos[2u].desc = pseudoStencilImageView[i];
 
-			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[3u] = {};
+			descriptorInfos[3u].buffer.offset = 0u;
+			descriptorInfos[3u].buffer.size = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
+			descriptorInfos[3u].desc = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer;
+
+			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[4u] = {};
 			descriptorUpdates[0u].dstSet = descriptorSets[i].get();
 			descriptorUpdates[0u].binding = 0u;
 			descriptorUpdates[0u].arrayElement = 0u;
@@ -736,7 +819,14 @@ public:
 			descriptorUpdates[2u].descriptorType = asset::EDT_STORAGE_IMAGE;
 			descriptorUpdates[2u].info = &descriptorInfos[2u];
 
-			logicalDevice->updateDescriptorSets(3u, descriptorUpdates, 0u, nullptr);
+			descriptorUpdates[3u].dstSet = descriptorSets[i].get();
+			descriptorUpdates[3u].binding = 3u;
+			descriptorUpdates[3u].arrayElement = 0u;
+			descriptorUpdates[3u].count = 1u;
+			descriptorUpdates[3u].descriptorType = asset::EDT_STORAGE_BUFFER;
+			descriptorUpdates[3u].info = &descriptorInfos[3u];
+
+			logicalDevice->updateDescriptorSets(4u, descriptorUpdates, 0u, nullptr);
 		}
 
 		graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
@@ -848,9 +938,6 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = WIN_W / m_Camera.getBounds().X;
-		// Move to style later
-		globalData.screenSpaceLineWidth = 0.0f;
-		globalData.worldSpaceLineWidth = 5.0f;
 
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
@@ -999,24 +1086,34 @@ public:
 			linePoints.push_back({ -30.0, 50.0 });
 			linePoints.push_back({ -30.0, 110.0 });
 			linePoints.push_back({ +30.0, -112.0 });
-			currentDrawBuffers.addLines(std::move(linePoints));
+			//currentDrawBuffers.addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
 			std::vector<double2> linePoints;
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 30.0, 30.0 });
-			currentDrawBuffers.addLines(std::move(linePoints));
+			//currentDrawBuffers.addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
 			std::vector<double2> linePoints;
 			linePoints.push_back({ -70.0, cos(m_timeElapsed * 0.00003) * 10 });
 			linePoints.push_back({ 70.0, cos(m_timeElapsed * 0.00003) * 10 });
-			currentDrawBuffers.addLines(std::move(linePoints));
+			//currentDrawBuffers.addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
+			LineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 5.0f;
+			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+			const uint32_t firstStyleIdx = currentDrawBuffers.addLineStyle(style);
+			style.screenSpaceLineWidth = 5.0f;
+			style.worldSpaceLineWidth = 0.0f;
+			style.color = float4(0.5f, 0.0f, 0.0f, 1.0f);
+			const uint32_t secondStyleIdx = currentDrawBuffers.addLineStyle(style);
+
 			constexpr double twoPi = core::PI<double>() * 2.0;
 			EllipseInfo ellipse = {};
 			const double a = m_timeElapsed * 0.001;
@@ -1048,14 +1145,14 @@ public:
 				static_cast<uint32_t>(((start) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((end) / twoPi) * UINT32_MAX)
 			};
-			currentDrawBuffers.addEllipse(ellipse);
+			currentDrawBuffers.addEllipse(ellipse, firstStyleIdx);
 			ellipse.majorAxis = double2{ 30.0 * sin(m_timeElapsed * 0.0005), 30.0 * cos(m_timeElapsed * 0.0005) };
 			ellipse.center = double2{ 50, 50 };
 			ellipse.angleBoundsPacked = uint2{
 				static_cast<uint32_t>(((core::PI<double>() * 0) / twoPi) * UINT32_MAX),
 				static_cast<uint32_t>(((core::PI<double>() * 2.0 / 3.0) / twoPi) * UINT32_MAX)
 			};
-			currentDrawBuffers.addEllipse(ellipse);
+			currentDrawBuffers.addEllipse(ellipse, firstStyleIdx);
 
 			intendedNextSubmit = submitInBetweenDraws(submissionQueue, submissionFence, intendedNextSubmit);
 
@@ -1068,7 +1165,7 @@ public:
 			linePoints.push_back({ 80.0, +40.0 });
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 100.0, 0.0 });
-			currentDrawBuffers.addLines(std::move(linePoints));
+			currentDrawBuffers.addLines(std::move(linePoints), secondStyleIdx);
 
 			std::vector<double2> linePoints2;
 			linePoints2.push_back({ -50.0, 0.0 });

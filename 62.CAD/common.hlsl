@@ -29,10 +29,14 @@ struct Globals
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
     float _pad; // 152
+};
 
-    // Next two vars will be part of styles that the objects will reference
-    float screenSpaceLineWidth; // 156
-    float worldSpaceLineWidth; // 160
+struct LineStyle
+{
+    float4 color;
+    float screenSpaceLineWidth;
+    float worldSpaceLineWidth;
+    float _pad[2u];
 };
 
 #ifndef __cplusplus
@@ -52,6 +56,7 @@ struct PSInput
 };
 
 [[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
-[[vk::binding(1,0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-[[vk::binding(2,0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
+[[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
+[[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
+[[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 #endif
