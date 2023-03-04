@@ -376,7 +376,7 @@ public:
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		uint32_t styleIdx = addLineStyle_Internal(lineStyle);
+		uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, submissionQueue, submissionFence, intendedNextSubmit);
 
 		const auto sectionsCount = polyline.getSectionsCount();
 
@@ -426,7 +426,7 @@ public:
 					startDrawObjectCount = 0u;
 					previousSectionIdx = currentSectionIdx;
 					previousObjectInSection = currentObjectInSection;
-					intendedNextSubmit = finalizeCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 					reset();
 					shouldSubmit = false;
@@ -486,7 +486,7 @@ public:
 		return intendedNextSubmit;
 	}
 
-	video::IGPUQueue::SSubmitInfo finalizeCopiesToGPU(
+	video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
@@ -540,7 +540,7 @@ protected:
 
 	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
 
-	uint32_t addLineStyle_AutoSubmit(
+	uint32_t addLineStyle_SubmitIfNeeded(
 		const LineStyle& lineStyle,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
@@ -551,7 +551,7 @@ protected:
 			return ret;
 		else
 		{
-			intendedNextSubmit = finalizeCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 			reset();
 			return addLineStyle_Internal(lineStyle);
@@ -671,118 +671,6 @@ protected:
 	uint64_t geometryBufferAddress = 0u;
 	uint64_t currentGeometryBufferSize = 0u;
 	uint64_t maxGeometryBufferSize = 0u;
-
-
-	// Deprecated
-
-public:
-
-	uint32_t addLineStyle(const LineStyle& lineStyle)
-	{
-		LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
-		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
-		{
-			const LineStyle& itr = stylesArray[i];
-			if (lineStyle.screenSpaceLineWidth == itr.screenSpaceLineWidth)
-				if (lineStyle.worldSpaceLineWidth == itr.worldSpaceLineWidth)
-					if (lineStyle.color == itr.color)
-						return i;
-		}
-
-		void* dst = stylesArray + currentLineStylesCount;
-		memcpy(dst, &lineStyle, sizeof(LineStyle));
-		return currentLineStylesCount++;
-	}
-
-	void addLines(std::vector<double2>&& linePoints, uint32_t styleIdx)
-	{
-		if (linePoints.size() < 2u)
-			return;
-
-		const auto noLines = linePoints.size() - 1u;
-
-		// Indices for Objects
-		bool isOpaque = false;
-		addNewObjectsIndices(noLines, isOpaque);
-
-		// DrawObj
-		DrawObject drawObj = {};
-		drawObj.type = ObjectType::LINE;
-		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-		drawObj.styleIdx = styleIdx;
-		for (uint32_t i = 0u; i < noLines; ++i)
-		{
-			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-			memcpy(dst, &drawObj, sizeof(DrawObject));
-			currentDrawObjectCount += 1u;
-			drawObj.address += sizeof(double2);
-		}
-
-		// Geom
-		{
-			const auto pointsByteSize = sizeof(double2) * linePoints.size();
-			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			memcpy(dst, linePoints.data(), pointsByteSize);
-			currentGeometryBufferSize += pointsByteSize;
-		}
-	}
-
-	void addEllipse(const PackedEllipseInfo& ellipseInfo, uint32_t styleIdx)
-	{
-		// Indices for objects
-		bool isOpaque = false;
-		addNewObjectsIndices(1u, isOpaque);
-
-		// Geom
-		DrawObject drawObj = {};
-		drawObj.type = ObjectType::ELLIPSE;
-		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-		drawObj.styleIdx = styleIdx;
-		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-		memcpy(dst, &drawObj, sizeof(DrawObject));
-		currentDrawObjectCount += 1u;
-
-		// Geom
-		{
-			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			memcpy(dst, &ellipseInfo, sizeof(PackedEllipseInfo));
-			currentGeometryBufferSize += sizeof(PackedEllipseInfo);
-		}
-	}
-
-	void addNewObjectsIndices(const uint32_t noOfObjects, const bool isOpaque)
-	{
-		uint32_t* indices = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
-
-		for (uint32_t i = 0u; i < noOfObjects; ++i)
-		{
-			uint32_t start = i + currentDrawObjectCount;
-			indices[i * 6] = start * 4u + 0u;
-			indices[i * 6 + 1u] = start * 4u + 1u;
-			indices[i * 6 + 2u] = start * 4u + 2u;
-
-			indices[i * 6 + 3u] = start * 4u + 2u;
-			indices[i * 6 + 4u] = start * 4u + 1u;
-			indices[i * 6 + 5u] = start * 4u + 3u;
-		}
-		if (!isOpaque)
-		{
-			// Transparent Objects (as a whole) need to draw twice, one for setting the alpha and another for clearing it and drawing it
-			indices += noOfObjects * 6u;
-			for (uint32_t i = 0u; i < noOfObjects; ++i)
-			{
-				uint32_t start = i + currentDrawObjectCount;
-				indices[i * 6] = start * 4u + 1u;
-				indices[i * 6 + 1u] = start * 4u + 0u;
-				indices[i * 6 + 2u] = start * 4u + 2u;
-
-				indices[i * 6 + 3u] = start * 4u + 1u;
-				indices[i * 6 + 4u] = start * 4u + 2u;
-				indices[i * 6 + 5u] = start * 4u + 3u;
-			}
-		}
-		currentIndexCount += noOfObjects * 6u * (isOpaque ? 1u : 2u);
-	}
 };
 
 class CADApp : public ApplicationBase
@@ -863,7 +751,7 @@ class CADApp : public ApplicationBase
 			size_t maxIndices = maxObjects * 6u * 2u;
 			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice, 1u);
 
 			size_t geometryBufferSize = maxObjects * sizeof(PackedEllipseInfo);
 			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
@@ -1566,6 +1454,12 @@ public:
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
+			LineStyle style2 = {};
+			style2.screenSpaceLineWidth = 5.0f;
+			style2.worldSpaceLineWidth = 0.0f;
+			style2.color = float4(0.2f, 0.6f, 0.2f, 0.5f);
+
+
 			CPolyline polyline;
 			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
@@ -1579,8 +1473,9 @@ public:
 			polyline.addLinePoints(std::move(linePoints));
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
-		intendedNextSubmit = currentDrawBuffers.finalizeCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;
 	}
 
