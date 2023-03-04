@@ -32,7 +32,7 @@ PSInput main(uint vertexID : SV_VertexID)
     if (objType == ObjectType::ELLIPSE)
     {
 #ifdef LOAD_STRUCT
-        EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
+        PackedEllipseInfo ellipse = vk::RawBufferLoad<PackedEllipseInfo>(drawObj.address, 8u);
         double2 majorAxis = ellipse.majorAxis;
         double2 center = ellipse.majorAxis;
 #else

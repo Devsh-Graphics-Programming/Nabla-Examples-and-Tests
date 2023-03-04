@@ -13,7 +13,7 @@ struct DrawObject
     uint64_t address;
 };
 
-struct EllipseInfo
+struct PackedEllipseInfo
 {
     double2 majorAxis;
     double2 center;
