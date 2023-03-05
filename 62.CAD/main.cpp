@@ -297,6 +297,7 @@ public:
 
 	void allocateIndexBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t indices)
 	{
+		indices = 42u;
 		maxIndices = indices;
 		const size_t indexBufferSize = maxIndices * sizeof(uint32_t);
 
@@ -351,6 +352,7 @@ public:
 
 	void allocateStylesBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t stylesCount)
 	{
+		stylesCount = 2u;
 		maxLineStyles = stylesCount;
 		size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
 
@@ -376,7 +378,8 @@ public:
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, submissionQueue, submissionFence, intendedNextSubmit);
+		uint32_t styleIdx;
+		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 		const auto sectionsCount = polyline.getSectionsCount();
 
@@ -409,7 +412,7 @@ public:
 				}
 				else if (currentSection.type == ObjectType::ELLIPSE)
 				{
-					// addEllipses -> basically based on what is left tries to fit as many ellipses as possible
+					// TODO: addEllipses -> basically based on what is left tries to fit as many ellipses as possible
 
 					// if currentObjectInSection was not equal to max then we know we should submit
 					if (currentObjectInSection >= currentSection.count)
@@ -423,12 +426,17 @@ public:
 
 				if (shouldSubmit)
 				{
+					intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+					resetIndexCounters();
+					resetGeometryCounters();
+
 					startDrawObjectCount = 0u;
 					previousSectionIdx = currentSectionIdx;
 					previousObjectInSection = currentObjectInSection;
-					intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-					reset();
+
 					shouldSubmit = false;
 				}
 			}
@@ -439,7 +447,7 @@ public:
 			uint32_t currentSectionIdx = previousSectionIdx;
 			uint32_t currentObjectInSection = previousObjectInSection;
 
-			// all front faces only using index buffer for those object that are already in memory
+			// all front faces only using index buffer for those object that are already in cpu memory (ready for upload)
 			while (currentSectionIdx < sectionsCount)
 			{
 				bool shouldSubmit = false;
@@ -463,7 +471,7 @@ public:
 					else
 						shouldSubmit = true;
 
-					startDrawObjectCount = currentDrawObjectCount;
+					startDrawObjectCount += objectsToUpload;
 				}
 				else if (currentSection.type == ObjectType::ELLIPSE)
 				{
@@ -472,16 +480,71 @@ public:
 
 				if (shouldSubmit)
 				{
-					startDrawObjectCount = 0u;
-					previousSectionIdx = currentSectionIdx;
-					previousObjectInSection = currentObjectInSection;
+					intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 					intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-					resetIndices();
+					resetIndexCounters();
+					// we don't reset the geometry counters cause we overflowed on index memory not geometry memory
+
 					shouldSubmit = false;
 				}
 			}
 		}
+
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo finalizeIndexCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		// Copy Indices
+		uint32_t remainingIndexCount = currentIndexCount - inMemIndexCount;
+		asset::SBufferRange<video::IGPUBuffer> indicesRange = { sizeof(uint32_t) * inMemIndexCount, sizeof(uint32_t) * remainingIndexCount, gpuDrawBuffers.indexBuffer };
+		const uint32_t* srcIndexData = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + inMemIndexCount;
+		if (indicesRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(indicesRange, srcIndexData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemIndexCount = currentIndexCount;
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo finalizeLineStyleCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		// Copy LineStyles
+		uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
+		asset::SBufferRange<video::IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
+		const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
+		if (stylesRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(stylesRange, srcLineStylesData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemLineStylesCount = currentLineStylesCount;
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo finalizeGeometryCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		// Copy DrawBuffers
+		uint32_t remainingDrawObjects = currentDrawObjectCount - inMemDrawObjectCount;
+		asset::SBufferRange<video::IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
+		const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
+		if (drawObjectsRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(drawObjectsRange, srcDrawObjData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemDrawObjectCount = currentDrawObjectCount;
+
+		// Copy GeometryBuffer
+		uint32_t remainingGeometries = currentGeometryBufferSize - inMemGeometryBufferSize;
+		asset::SBufferRange<video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometries, gpuDrawBuffers.geometryBuffer };
+		const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
+		if (geomRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(geomRange, srcGeomData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemGeometryBufferSize = currentGeometryBufferSize;
 
 		return intendedNextSubmit;
 	}
@@ -491,44 +554,16 @@ public:
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		// Copy Indices
-		asset::SBufferRange<video::IGPUBuffer> indicesRange = { 0u, sizeof(uint32_t) * currentIndexCount, gpuDrawBuffers.indexBuffer };
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(indicesRange, cpuDrawBuffers.indexBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
-		// Copy DrawBuffers
-		asset::SBufferRange<video::IGPUBuffer> drawObjectsRange = { 0u, sizeof(DrawObject) * currentDrawObjectCount, gpuDrawBuffers.drawObjectsBuffer };
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(drawObjectsRange, cpuDrawBuffers.drawObjectsBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
-		// Copy GeometryBuffer and AutoSubmit
-		asset::SBufferRange<video::IGPUBuffer> geomRange = { 0u, currentGeometryBufferSize, gpuDrawBuffers.geometryBuffer };
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(geomRange, cpuDrawBuffers.geometryBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
-		// Copy LineStyles
-		asset::SBufferRange<video::IGPUBuffer> stylesRange = { 0u, sizeof(LineStyle) * currentLineStylesCount, gpuDrawBuffers.lineStylesBuffer };
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(stylesRange, cpuDrawBuffers.lineStylesBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 
 		return intendedNextSubmit;
 	}
 
 	void reset()
 	{
-		currentIndexCount = 0u;
-		currentDrawObjectCount = 0u;
-		currentGeometryBufferSize = 0u;
-	}
-
-	video::IGPUQueue::SSubmitInfo finalizeIndexCopiesToGPU(
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		// Copy Indices
-		asset::SBufferRange<video::IGPUBuffer> indicesRange = { 0u, sizeof(uint32_t) * currentIndexCount, gpuDrawBuffers.indexBuffer };
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(indicesRange, cpuDrawBuffers.indexBuffer->getPointer(), submissionQueue, submissionFence, intendedNextSubmit);
-
-		return intendedNextSubmit;
-	}
-
-	void resetIndices()
-	{
-		currentIndexCount = 0u;
+		resetAllCounters();
 	}
 
 	DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
@@ -540,22 +575,23 @@ protected:
 
 	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
 
-	uint32_t addLineStyle_SubmitIfNeeded(
+	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
 		const LineStyle& lineStyle,
+		uint32_t& outLineStyleIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		auto ret = addLineStyle_Internal(lineStyle);
-		if (ret != InvalidLineStyleIdx)
-			return ret;
-		else
+		outLineStyleIdx = addLineStyle_Internal(lineStyle);
+		if (outLineStyleIdx == InvalidLineStyleIdx)
 		{
 			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			reset();
-			return addLineStyle_Internal(lineStyle);
+			resetAllCounters();
+			outLineStyleIdx = addLineStyle_Internal(lineStyle);
+			assert(outLineStyleIdx != InvalidLineStyleIdx);
 		}
+		return intendedNextSubmit;
 	}
 
 	uint32_t addLineStyle_Internal(const LineStyle& lineStyle)
@@ -611,6 +647,7 @@ protected:
 		}
 
 		// Add Geometry
+		if (objectsToUpload > 0u)
 		{
 			const auto pointsByteSize = sizeof(double2) * (objectsToUpload + 1u);
 			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
@@ -656,19 +693,51 @@ protected:
 		currentIndexCount += objectCount * 6u;
 	}
 
+	void resetAllCounters()
+	{
+		resetGeometryCounters();
+		resetIndexCounters();
+		resetStyleCounters();
+	}
+
+	void resetGeometryCounters()
+	{
+		inMemDrawObjectCount = 0u;
+		inMemGeometryBufferSize = 0u;
+		currentDrawObjectCount = 0u;
+		currentGeometryBufferSize = 0u;
+	}
+
+	void resetIndexCounters()
+	{
+		inMemIndexCount = 0u;
+		currentIndexCount = 0u;
+	}
+
+	void resetStyleCounters()
+	{
+		currentLineStylesCount = 0u;
+		inMemLineStylesCount = 0u;
+	}
+
 	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
 	core::smart_refctd_ptr<nbl::video::ILogicalDevice> device;
 
+	uint32_t inMemIndexCount = 0u;
 	uint32_t currentIndexCount = 0u;
 	uint32_t maxIndices = 0u;
 
+	uint32_t inMemDrawObjectCount = 0u;
 	uint32_t currentDrawObjectCount = 0u;
 	uint32_t maxDrawObjects = 0u;
 
+	uint32_t inMemLineStylesCount = 0u;
 	uint32_t currentLineStylesCount = 0u;
 	uint32_t maxLineStyles = 0u;
 
 	uint64_t geometryBufferAddress = 0u;
+
+	uint64_t inMemGeometryBufferSize = 0u;
 	uint64_t currentGeometryBufferSize = 0u;
 	uint64_t maxGeometryBufferSize = 0u;
 };
@@ -751,7 +820,7 @@ class CADApp : public ApplicationBase
 			size_t maxIndices = maxObjects * 6u * 2u;
 			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice, 1u);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
 
 			size_t geometryBufferSize = maxObjects * sizeof(PackedEllipseInfo);
 			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
@@ -1463,8 +1532,8 @@ public:
 			CPolyline polyline;
 			std::vector<double2> linePoints;
 			linePoints.push_back({ -50.0, 0.0 });
-			linePoints.push_back({ sin(m_timeElapsed * 0.0005) * 20, cos(m_timeElapsed * 0.0005) * 20 });
-			linePoints.push_back({ -sin(m_timeElapsed * 0.0005) * 20, -cos(m_timeElapsed * 0.0005) * 20 });
+			linePoints.push_back({ sin(m_timeElapsed * 0.005) * 20, cos(m_timeElapsed * 0.005) * 20 });
+			linePoints.push_back({ -sin(m_timeElapsed * 0.005) * 20, -cos(m_timeElapsed * 0.005) * 20 });
 			linePoints.push_back({ 50.0, 0.0 });
 			linePoints.push_back({ 80.0, 00.0 });
 			linePoints.push_back({ 80.0, +40.0 });
