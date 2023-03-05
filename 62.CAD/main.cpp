@@ -316,6 +316,7 @@ public:
 
 	void allocateDrawObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t drawObjects)
 	{
+		drawObjects = 2u;
 		maxDrawObjects = drawObjects;
 		size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
 
@@ -334,6 +335,7 @@ public:
 
 	void allocateGeometryBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, size_t size)
 	{
+		size = sizeof(PackedEllipseInfo) + 8u;
 		maxGeometryBufferSize = size;
 
 		video::IGPUBuffer::SCreationParams geometryCreationParams = {};
@@ -352,7 +354,7 @@ public:
 
 	void allocateStylesBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t stylesCount)
 	{
-		stylesCount = 2u;
+		stylesCount = 1u;
 		maxLineStyles = stylesCount;
 		size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
 
@@ -371,6 +373,7 @@ public:
 
 	uint32_t getIndexCount() const { return currentIndexCount; }
 
+	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
 		const LineStyle& lineStyle,
@@ -388,7 +391,9 @@ public:
 		uint32_t previousSectionIdx = 0u;
 		uint32_t previousObjectInSection = 0u;
 
+
 		// Fill all back faces (and draw when overflow)
+		// backface is our slang for even provoking vertex
 		{
 			uint32_t currentSectionIdx = 0u;
 			uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
@@ -399,7 +404,7 @@ public:
 				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
 				if (currentSection.type == ObjectType::LINE)
 				{
-					addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx);
+					addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
 					// if currentObjectInSection was not equal to max then we know we should submit
 					const auto lineCount = currentSection.count - 1u;
 					if (currentObjectInSection >= lineCount)
@@ -443,51 +448,103 @@ public:
 		}
 
 		// Fill all front faces (and draw when overflow)
+		// frontface is our slang for odd provoking vertex
 		{
-			uint32_t currentSectionIdx = previousSectionIdx;
-			uint32_t currentObjectInSection = previousObjectInSection;
-
 			// all front faces only using index buffer for those object that are already in cpu memory (ready for upload)
-			while (currentSectionIdx < sectionsCount)
 			{
-				bool shouldSubmit = false;
-				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-				if (currentSection.type == ObjectType::LINE)
+				uint32_t currentSectionIdx = previousSectionIdx;
+				uint32_t currentObjectInSection = previousObjectInSection;
+
+				while (currentSectionIdx < sectionsCount)
 				{
-					// we only care about indices because the geometry and drawData is already in memory
-					const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-					const auto lineCount = currentSection.count - 1u;
-					const auto objectsRemaining = lineCount - currentObjectInSection;
-					const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
-
-					addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
-					currentObjectInSection += objectsToUpload;
-
-					if (currentObjectInSection >= lineCount)
+					bool shouldSubmit = false;
+					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
+					if (currentSection.type == ObjectType::LINE)
 					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
+						// we only care about indices because the geometry and drawData is already in memory
+						const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+						const auto lineCount = currentSection.count - 1u;
+						const auto objectsRemaining = lineCount - currentObjectInSection;
+						const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+
+						addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
+						currentObjectInSection += objectsToUpload;
+
+						if (currentObjectInSection >= lineCount)
+						{
+							currentSectionIdx++;
+							currentObjectInSection = 0u;
+						}
+						else
+							shouldSubmit = true;
+
+						startDrawObjectCount += objectsToUpload;
 					}
-					else
-						shouldSubmit = true;
+					else if (currentSection.type == ObjectType::ELLIPSE)
+					{
+						const auto ellipseCount = currentSection.count;
+					}
 
-					startDrawObjectCount += objectsToUpload;
+					if (shouldSubmit)
+					{
+						intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+						intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+						intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+						intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+						resetIndexCounters();
+						// we don't reset the geometry counters cause we overflowed on index memory not geometry memory
+
+						shouldSubmit = false;
+					}
 				}
-				else if (currentSection.type == ObjectType::ELLIPSE)
-				{
-					const auto ellipseCount = currentSection.count;
-				}
+			}
+			// remaining front faces where their geometry is non-existent in memory due to previous submit cleats
+			{
+				const uint32_t lastSectionIdx = previousSectionIdx;
+				const uint32_t lastObjectInSection = previousObjectInSection;
 
-				if (shouldSubmit)
-				{
-					intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-					resetIndexCounters();
-					// we don't reset the geometry counters cause we overflowed on index memory not geometry memory
+				uint32_t currentSectionIdx = 0u;
+				uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
 
-					shouldSubmit = false;
+				while (currentSectionIdx < lastSectionIdx || (currentSectionIdx == lastSectionIdx && lastObjectInSection > 0u))
+				{
+					bool shouldSubmit = false;
+					auto currentSection = polyline.getSectionInfoAt(currentSectionIdx);
+					if (currentSection.type == ObjectType::LINE)
+					{
+						if (currentSectionIdx == lastSectionIdx)
+							currentSection.count = lastObjectInSection + 1u; // because this is point count
+
+						addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
+						// if currentObjectInSection was not equal to max then we know we should submit
+						const auto lineCount = currentSection.count - 1u;
+						if (currentObjectInSection >= lineCount)
+						{
+							currentSectionIdx++;
+							currentObjectInSection = 0u;
+						}
+						else
+							shouldSubmit = true;
+					}
+					else if (currentSection.type == ObjectType::ELLIPSE)
+					{
+					}
+
+					if (shouldSubmit)
+					{
+						intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+						intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+						intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+						intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+						resetIndexCounters();
+						resetGeometryCounters();
+
+						startDrawObjectCount = 0u;
+						previousSectionIdx = currentSectionIdx;
+						previousObjectInSection = currentObjectInSection;
+
+						shouldSubmit = false;
+					}
 				}
 			}
 		}
@@ -614,7 +671,8 @@ protected:
 		return currentLineStylesCount++;
 	}
 
-	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx)
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
 		assert(section.count >= 2u);
 		assert(section.type == ObjectType::LINE);
@@ -631,7 +689,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addObjectIndices_Internal(false, currentDrawObjectCount, objectsToUpload);
+		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
@@ -933,13 +991,14 @@ public:
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
-		return nbl::asset::EF_D32_SFLOAT;
+		return nbl::asset::EF_UNKNOWN;
 	}
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(
 		nbl::asset::E_FORMAT colorAttachmentFormat,
 		nbl::asset::E_FORMAT baseDepthFormat,
 		nbl::video::IGPURenderpass::E_LOAD_OP loadOp,
+		nbl::asset::IImage::E_LAYOUT initialLayout,
 		nbl::asset::IImage::E_LAYOUT finalLayout)
 	{
 		using namespace nbl;
@@ -956,7 +1015,7 @@ public:
 		}
 
 		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
-		attachments[0].initialLayout = asset::IImage::EL_UNDEFINED;
+		attachments[0].initialLayout = initialLayout;
 		attachments[0].finalLayout = finalLayout;
 		attachments[0].format = colorAttachmentFormat;
 		attachments[0].samples = asset::IImage::ESCF_1_BIT;
@@ -1049,9 +1108,9 @@ public:
 		// renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
-		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
-		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
-		renderpassFinal = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_PRESENT_SRC);
+		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
+		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
+		renderpassFinal = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_PRESENT_SRC);
 		
 		commandPools = std::move(initOutput.commandPools);
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
@@ -1535,10 +1594,6 @@ public:
 			linePoints.push_back({ sin(m_timeElapsed * 0.005) * 20, cos(m_timeElapsed * 0.005) * 20 });
 			linePoints.push_back({ -sin(m_timeElapsed * 0.005) * 20, -cos(m_timeElapsed * 0.005) * 20 });
 			linePoints.push_back({ 50.0, 0.0 });
-			linePoints.push_back({ 80.0, 00.0 });
-			linePoints.push_back({ 80.0, +40.0 });
-			linePoints.push_back({ 0.0, 0.0 });
-			linePoints.push_back({ 100.0, 0.0 });
 			polyline.addLinePoints(std::move(linePoints));
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
