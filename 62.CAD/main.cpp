@@ -417,10 +417,10 @@ public:
 				}
 				else if (currentSection.type == ObjectType::ELLIPSE)
 				{
-					// TODO: addEllipses -> basically based on what is left tries to fit as many ellipses as possible
-
+					addEllipses_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
 					// if currentObjectInSection was not equal to max then we know we should submit
-					if (currentObjectInSection >= currentSection.count)
+					const auto ellipseCount = currentSection.count;
+					if (currentObjectInSection >= ellipseCount)
 					{
 						currentSectionIdx++;
 						currentObjectInSection = 0u;
@@ -482,7 +482,24 @@ public:
 					}
 					else if (currentSection.type == ObjectType::ELLIPSE)
 					{
+						// we only care about indices because the geometry and drawData is already in memory
+						const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
 						const auto ellipseCount = currentSection.count;
+						const auto objectsRemaining = ellipseCount - currentObjectInSection;
+						const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+
+						addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
+						currentObjectInSection += objectsToUpload;
+
+						if (currentObjectInSection >= ellipseCount)
+						{
+							currentSectionIdx++;
+							currentObjectInSection = 0u;
+						}
+						else
+							shouldSubmit = true;
+
+						startDrawObjectCount += objectsToUpload;
 					}
 
 					if (shouldSubmit)
@@ -528,6 +545,16 @@ public:
 					}
 					else if (currentSection.type == ObjectType::ELLIPSE)
 					{
+						addEllipses_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
+						// if currentObjectInSection was not equal to max then we know we should submit
+						const auto ellipseCount = currentSection.count;
+						if (currentObjectInSection >= ellipseCount)
+						{
+							currentSectionIdx++;
+							currentObjectInSection = 0u;
+						}
+						else
+							shouldSubmit = true;
 					}
 
 					if (shouldSubmit)
@@ -712,6 +739,51 @@ protected:
 			auto& linePoint = polyline.getLinePointAt(section.index + currentObjectInSection);
 			memcpy(dst, &linePoint, pointsByteSize);
 			currentGeometryBufferSize += pointsByteSize;
+		}
+
+		currentObjectInSection += objectsToUpload;
+	}
+
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addEllipses_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	{
+		assert(section.type == ObjectType::ELLIPSE);
+
+		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(double2);
+		const auto maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
+
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferLines);
+		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+
+		const auto ellipseCount = section.count ;
+		const auto remainingObjects = ellipseCount - currentObjectInSection;
+		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
+
+		// Add Indices
+		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+
+		// Add DrawObjs
+		DrawObject drawObj = {};
+		drawObj.type = ObjectType::ELLIPSE;
+		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+		drawObj.styleIdx = styleIdx;
+		for (uint32_t i = 0u; i < objectsToUpload; ++i)
+		{
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+			currentDrawObjectCount += 1u;
+			drawObj.address += sizeof(PackedEllipseInfo);
+		}
+
+		// Add Geometry
+		if (objectsToUpload > 0u)
+		{
+			const auto ellipsesByteSize = sizeof(PackedEllipseInfo) * (objectsToUpload);
+			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			auto& ellipse = polyline.getEllipseInfoAt(section.index + currentObjectInSection);
+			memcpy(dst, &ellipse, ellipsesByteSize);
+			currentGeometryBufferSize += ellipsesByteSize;
 		}
 
 		currentObjectInSection += objectsToUpload;
