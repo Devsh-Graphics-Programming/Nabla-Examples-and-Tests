@@ -1446,6 +1446,14 @@ public:
 		logicalDevice->waitIdle();
 	}
 
+	double getScreenToWorldRatio(const double4x4& viewProjectionMatrix, uint2 windowSize)
+	{
+		double idx_0_0 = viewProjectionMatrix._r0[0u] * (windowSize.X / 2.0);
+		double idx_1_1 = viewProjectionMatrix._r1[1u] * (windowSize.Y / 2.0);
+		double det_2x2_mat = idx_0_0 * idx_1_1;
+		return core::sqrt(core::abs(det_2x2_mat));
+	}
+
 	void beginFrameRender()
 	{
 		auto& cb = m_cmdbuf[m_resourceIx];
@@ -1468,7 +1476,7 @@ public:
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
-		globalData.screenToWorldRatio = WIN_W / m_Camera.getBounds().X;
+		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
 
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
