@@ -743,18 +743,21 @@ int main(int argc, char** argv)
 			printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
 			sensorIndex = 0;
 		}
-		const auto& sensor = globalMeta->m_global.m_sensors[sensorIndex];
-		extractAndAddToSensorData(sensor, sensorIndex);
 	}
-	else
+
+	// Add the found sensor to sensor data, if no (or invalid) ID was specified then just add the first sensor.
+	const auto& sensor = globalMeta->m_global.m_sensors[sensorIndex];
+	extractAndAddToSensorData(sensor, sensorIndex);
+
+	// Add the remaining sensors.
+	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
 	{
-		// If -PROCESS_SENSORS is not specified at all then we end up here.
-		for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
-		{
-			std::cout << "Sensors[" << s << "] = " << std::endl;
-			const auto& sensor = globalMeta->m_global.m_sensors[s];
-			extractAndAddToSensorData(sensor, s);
-		}
+		if (s == sensorIndex)
+			continue; // skip it because we have already addes this one above
+
+		std::cout << "Sensors[" << s << "] = " << std::endl;
+		const auto& sensor = globalMeta->m_global.m_sensors[s];
+		extractAndAddToSensorData(sensor, s);
 	}
 
 	auto driver = device->getVideoDriver();
@@ -814,6 +817,9 @@ int main(int argc, char** argv)
 		{
 			if(!receiver.keepOpen())
 				break;
+
+			if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE) && (s > 0))
+				break; // we only want to render with the first sensor in this case
 
 			const auto& sensorData = sensors[s];
 		
