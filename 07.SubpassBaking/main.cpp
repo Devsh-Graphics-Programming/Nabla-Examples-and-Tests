@@ -239,7 +239,7 @@ public:
                 const asset::ICPUDescriptorSetLayout* ds1layout = firstMeshBuffer->getPipeline()->getLayout()->getDescriptorSetLayout(1u);
                 const auto& uboRedirect = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER);
                 assert(uboRedirect.getBindingCount() == 1u);
-                cameraUBOBinding = uboRedirect.getBindingNumber(0).data;
+                cameraUBOBinding = uboRedirect.getBinding(asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t{ 0 }).data;
 
                 for (const auto& shdrIn : pipelineMetadata->m_inputSemantics)
                     if (shdrIn.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::ET_UNIFORM_BUFFER && shdrIn.descriptorSection.uniformBufferObject.set == 1u && shdrIn.descriptorSection.uniformBufferObject.binding == cameraUBOBinding)

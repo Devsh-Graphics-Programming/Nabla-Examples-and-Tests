@@ -282,7 +282,7 @@ public:
 
         // so we can create just one DS
         const asset::ICPUDescriptorSetLayout* ds1layout = firstMeshBuffer->getPipeline()->getLayout()->getDescriptorSetLayout(1u);
-        ds1UboBinding = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER).getBindingNumber(0).data;
+        ds1UboBinding = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER).getBinding(asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t{ 0 }).data;
 
         size_t neededDS1UBOsz = 0ull;
         {

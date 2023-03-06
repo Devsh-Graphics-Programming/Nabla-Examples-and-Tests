@@ -85,7 +85,7 @@ public:
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FRAMES_IN_FLIGHT];
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
-	
+
 	CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> keyboard;
 	Camera camera = Camera(vectorSIMDf(0, 0, 0), vectorSIMDf(0, 0, 0), matrix4SIMD());
@@ -313,7 +313,7 @@ public:
 				We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
 			*/
 
-			core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
+			nbl::core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
 			{
 				constexpr uint32_t DescriptorSetCount = 2u;
 
