@@ -724,6 +724,7 @@ int main(int argc, char** argv)
 		return true;
 	};
 
+	uint32_t sensorIndex = 0;
 	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
 	if (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE || processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR)
 	{
@@ -733,7 +734,7 @@ int main(int argc, char** argv)
 		if (!sensorID.has_value())
 			foundValidSensorID = false;
 
-		uint32_t sensorIndex = sensorID.value();
+		sensorIndex = sensorID.value();
 		if (sensorIndex >= globalMeta->m_global.m_sensors.size())
 			foundValidSensorID = false;
 
@@ -954,19 +955,12 @@ int main(int argc, char** argv)
 			}
 		};
 
-		setActiveSensor(0);
-
-		// TODO(achal): This needs to take in the active sensor ID.
-		// if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE) || (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR))
-		// 	setActiveSensor(activeSensorID);
-		// else
-		// 	setActiveSensor(0);
+		setActiveSensor(sensorIndex);
 
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
 		bool renderFailed = false;
-		while (device->run(
-		) && receiver.keepOpen())
+		while (device->run() && receiver.keepOpen())
 		{
 			// Handle Inputs
 			{
