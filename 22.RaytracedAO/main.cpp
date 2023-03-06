@@ -55,6 +55,9 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 					case BeautyKey:
 						renderingBeauty = !renderingBeauty;
 						break;
+					case ReloadKey:
+						reloadKeyPressed = true;
+						break;
 					case QuitKey:
 						running = false;
 						return true;
@@ -82,6 +85,8 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 
 		inline bool isRenderingBeauty() const { return renderingBeauty; }
 
+		inline bool isReloadKeyPressed() const { return reloadKeyPressed; }
+
 		inline void resetKeys()
 		{
 			skipKeyPressed = false;
@@ -90,6 +95,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 			previousKeyPressed = false;
 			screenshotKeyPressed = false;
 			logProgressKeyPressed = false;
+			reloadKeyPressed = false;
 		}
 
 	private:
@@ -101,6 +107,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		static constexpr nbl::EKEY_CODE ScreenshotKey = nbl::KEY_KEY_P;
 		static constexpr nbl::EKEY_CODE LogProgressKey = nbl::KEY_KEY_L;
 		static constexpr nbl::EKEY_CODE BeautyKey = nbl::KEY_KEY_B;
+		static constexpr nbl::EKEY_CODE ReloadKey = nbl::KEY_F5;
 
 		bool running;
 		bool renderingBeauty;
@@ -111,6 +118,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool previousKeyPressed;
 		bool screenshotKeyPressed;
 		bool logProgressKeyPressed;
+		bool reloadKeyPressed;
 };
 
 int main(int argc, char** argv)
@@ -127,7 +135,6 @@ int main(int argc, char** argv)
 		"-SCENE",
 		"../../media/mitsuba/staircase2.zip",
 		"scene.xml",
-		"-TERMINATE",
 		"-SCREENSHOT_OUTPUT_FOLDER",
 		"\"C:\\Nabla-Screen-Shots\""
 	};
@@ -720,13 +727,19 @@ int main(int argc, char** argv)
 	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
 	if (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE || processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR)
 	{
+		bool foundValidSensorID = true;
+
 		auto sensorID = cmdHandler.getSensorID();
-		assert(sensorID.has_value());
+		if (!sensorID.has_value())
+			foundValidSensorID = false;
 
 		uint32_t sensorIndex = sensorID.value();
 		if (sensorIndex >= globalMeta->m_global.m_sensors.size())
+			foundValidSensorID = false;
+
+		if (!foundValidSensorID)
 		{
-			std::cout << "[WARNING]: Specified sensor ID doesn't correspond to a valid sensor. Selecting the first sensor." << std::endl;
+			printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
 			sensorIndex = 0;
 		}
 		const auto& sensor = globalMeta->m_global.m_sensors[sensorIndex];
@@ -943,10 +956,17 @@ int main(int argc, char** argv)
 
 		setActiveSensor(0);
 
+		// TODO(achal): This needs to take in the active sensor ID.
+		// if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE) || (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR))
+		// 	setActiveSensor(activeSensorID);
+		// else
+		// 	setActiveSensor(0);
+
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
 		bool renderFailed = false;
-		while (device->run() && receiver.keepOpen())
+		while (device->run(
+		) && receiver.keepOpen())
 		{
 			// Handle Inputs
 			{
@@ -997,7 +1017,12 @@ int main(int argc, char** argv)
 				}
 				if(receiver.isLogProgressKeyPressed())
 				{
-					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed. \n", renderer->getTotalSamplesPerPixelComputed());
+					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed.\n", renderer->getTotalSamplesPerPixelComputed());
+				}
+				if (receiver.isReloadKeyPressed())
+				{
+					printf("[INFO]: Reloading..\n");
+					// ShellExecuteA()
 				}
 				receiver.resetKeys();
 			}

@@ -16,27 +16,22 @@ constexpr std::string_view helpMessage = R"(
 
 Parameters:
 -SCENE=sceneMitsubaXMLPathOrZipAndXML
--TERMINATE
 
 Description and usage: 
 
 -SCENE:
 	some/path extra/path which will make it skip the file choose dialog
-
--TERMINATE:
-	which will make the app stop when the required amount of samples has been renderered (its in the Mitsuba Scene metadata) and obviously take screenshot when quitting
 	
 Example Usages :
-	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml -TERMINATE
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -TERMINATE
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml" -TERMINATE
-	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -TERMINATE
+	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml"
+	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml"
 )";
  
 
 constexpr std::string_view SCENE_VAR_NAME						= "SCENE";
 constexpr std::string_view SCREENSHOT_OUTPUT_FOLDER_VAR_NAME	= "SCREENSHOT_OUTPUT_FOLDER";
-constexpr std::string_view TERMINATE_VAR_NAME					= "TERMINATE";
 constexpr std::string_view PROCESS_SENSORS_VAR_NAME				= "PROCESS_SENSORS";
 
 constexpr uint32_t MaxRayTracerCommandLineArgs = 8;
@@ -44,7 +39,6 @@ constexpr uint32_t MaxRayTracerCommandLineArgs = 8;
 enum RaytracerExampleArguments
 {
 	REA_SCENE,
-	REA_TERMINATE,
 	REA_PROCESS_SENSORS,
 	REA_COUNT,
 };
@@ -84,7 +78,6 @@ class CommandLineHandler
 		void initializeMatchingMap()
 		{
 			rawVariables[REA_SCENE];
-			rawVariables[REA_TERMINATE];
 			rawVariables[REA_PROCESS_SENSORS];
 		}
 
@@ -92,8 +85,6 @@ class CommandLineHandler
 		{
 			if (variableName == SCENE_VAR_NAME)
 				return REA_SCENE;
-			else if (variableName == TERMINATE_VAR_NAME)
-				return REA_TERMINATE;
 			else if (variableName == PROCESS_SENSORS_VAR_NAME)
 				return REA_PROCESS_SENSORS;
 			else
@@ -106,8 +97,6 @@ class CommandLineHandler
 		{
 			if(rawVariables[REA_SCENE].has_value())
 				sceneDirectory = rawVariables[REA_SCENE].value();
-			if(rawVariables[REA_TERMINATE].has_value())
-				terminate = true;
 			if (rawVariables[REA_PROCESS_SENSORS].has_value())
 			{
 				processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE; // default, when no behaviour option is specified
@@ -116,10 +105,15 @@ class CommandLineHandler
 				if (!values.empty())
 				{
 					const char* behaviour = values[0].c_str();
-					if (strcmp(behaviour, "RenderAllThenTerminate") == 0)
+					if (strcmp(behaviour, "RenderAllThenInteractive") == 0)
+					{
+						// Do nothing
+					}
+					else if (strcmp(behaviour, "RenderAllThenTerminate") == 0)
 					{
 						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE;
-						assert(values.size() == 1 && "Passing a sensor ID doens't make sense here.");
+						if (values.size() > 1)
+							printf("[WARNING]: You passed a sensor ID to the 'RenderAllThenTerminate' option, but it will be ignored.\n");
 					}
 					else if (strcmp(behaviour, "RenderSensorThenInteractive") == 0)
 					{
@@ -132,7 +126,9 @@ class CommandLineHandler
 						sensorID = std::stoi(values[1]);
 					}
 					else
-						assert(!"Invalid option.");
+					{
+						printf("[ERROR]: Invalid option for '%s'. Using 'RenderAllThenInteractive'.\n", PROCESS_SENSORS_VAR_NAME.data());
+					}
 				}
 			}
 		}
@@ -142,7 +138,6 @@ class CommandLineHandler
 		// Loaded from CMD
 		std::vector<std::string> sceneDirectory; // [0] zip [1] optional xml in zip
 		std::string outputScreenshotsFolderPath;
-		bool terminate = false;
 		struct
 		{
 			ProcessSensorsBehaviour processSensorsBehaviour = ProcessSensorsBehaviour::PSB_COUNT;
