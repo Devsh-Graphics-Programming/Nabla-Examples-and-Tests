@@ -24,9 +24,10 @@ Description and usage:
 	
 Example Usages :
 	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml"
-	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml"
+	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml -PROCESS_SENSORS RenderAllThenInteractive
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -PROCESS_SENSORS RenderAllThenTerminate
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml" -PROCESS_SENSORS RenderSensorThenInteractive 1
+	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2
 )";
  
 
