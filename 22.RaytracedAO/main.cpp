@@ -888,7 +888,11 @@ int main(int argc, char** argv)
 							if (success)
 							{
 								// Launch the new instance of the application.
-								HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], argv[1], NULL, SW_SHOWNORMAL);
+								std::stringstream parameterStream;
+								for (uint32_t p = 1; p < argc; ++p)
+									parameterStream << argv[p] << " ";
+								const char* params = parameterStream.str().c_str();
+								HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], params, NULL, SW_SHOWNORMAL);
 								if ((uint64_t)result <= 32)
 									printf("[ERROR]: Failed to reload.\n");
 								else
