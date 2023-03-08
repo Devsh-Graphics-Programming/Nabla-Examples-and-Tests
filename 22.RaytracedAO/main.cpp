@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 #include "../common/QToQuitEventReceiver.h"
 
@@ -804,6 +805,14 @@ int main(int argc, char** argv)
 		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getMoveSpeed()));
 	}
 
+	std::ifstream reloadCacheFile("lastRun.cache", std::ios::binary);
+	const bool applicationReloaded = reloadCacheFile.is_open();
+	uint32_t sensorIndex_reloaded;
+	if (applicationReloaded)
+	{
+		reloadCacheFile.read((char*)&sensorIndex_reloaded, sizeof(sensorIndex_reloaded));
+		reloadCacheFile.close();
+	}
 
 	// Render To file
 	int32_t prevWidth = 0;
@@ -813,7 +822,8 @@ int main(int argc, char** argv)
 	const bool jumpStraightToInteractive = (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
 	if (!jumpStraightToInteractive)
 	{
-		for(uint32_t s = 0u; s < sensors.size(); ++s)
+		uint32_t s = applicationReloaded ? sensorIndex_reloaded : 0u;
+		for(; s < sensors.size(); ++s)
 		{
 			if(!receiver.keepOpen())
 				break;
@@ -859,6 +869,35 @@ int main(int argc, char** argv)
 						int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
 						printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
 						lastTimeLoggedProgress = std::chrono::steady_clock::now();
+					}
+					if (receiver.isReloadKeyPressed())
+					{
+						printf("[INFO]: Reloading..\n");
+
+						bool success = true;
+						std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
+						if (outFile.is_open())
+						{
+							outFile.write(reinterpret_cast<char*>(&s), sizeof(uint32_t));
+							if (outFile.rdstate() != std::ios_base::goodbit)
+							{
+								success = false;
+								outFile.close();
+							}
+
+							if (success)
+							{
+								// Launch the new instance of the application.
+								HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], argv[1], NULL, SW_SHOWNORMAL);
+								if ((uint64_t)result <= 32)
+									printf("[ERROR]: Failed to reload.\n");
+								else
+									exit(0);
+							}
+						}
+
+						if (!success)
+							printf("[ERROR]: Failed to write the reload cache. Cannot reload.\n");
 					}
 					receiver.resetKeys();
 				}
@@ -928,7 +967,7 @@ int main(int argc, char** argv)
 	// Interactive
 	if(!shouldTerminateAfterRenders && receiver.keepOpen())
 	{
-		int activeSensor = -1; // that outputs to current window when not in TERMIANTE mode.
+		int activeSensor = -1;
 
 		auto setActiveSensor = [&](int index) 
 		{
@@ -1022,7 +1061,6 @@ int main(int argc, char** argv)
 				if (receiver.isReloadKeyPressed())
 				{
 					printf("[INFO]: Reloading..\n");
-					// ShellExecuteA()
 				}
 				receiver.resetKeys();
 			}
@@ -1078,6 +1116,9 @@ int main(int argc, char** argv)
 
 	renderer->deinitSceneResources();
 	renderer = nullptr;
+
+	// When we're doing a "normal" exit (not reloading the application) make sure to delete the lastRun.cache file so that the next run doesn't assume that we're reloading.
+	std::filesystem::remove("lastRun.cache");
 
 	// will leak thread because there's no cross platform input!
 	std::exit(0);
