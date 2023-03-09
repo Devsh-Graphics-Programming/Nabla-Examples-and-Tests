@@ -21,11 +21,16 @@ Description and usage:
 
 -SCENE:
 	some/path extra/path which will make it skip the file choose dialog
+
+-PROCESS_SENSORS ID:
+	It will control the behaviour of sensors in the app as detailed above.
+	If the option is not passed, then it defaults to RenderAllThenInteractive.
+	If the ID is not passed, then it defaults to 0.
 	
 Example Usages :
 	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml
 	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml -PROCESS_SENSORS RenderAllThenInteractive
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -PROCESS_SENSORS RenderAllThenTerminate
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -PROCESS_SENSORS RenderAllThenTerminate 0
 	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml" -PROCESS_SENSORS RenderSensorThenInteractive 1
 	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2
 )";
