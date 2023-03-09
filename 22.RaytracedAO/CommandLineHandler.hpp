@@ -100,35 +100,36 @@ class CommandLineHandler
 				sceneDirectory = rawVariables[REA_SCENE].value();
 			if (rawVariables[REA_PROCESS_SENSORS].has_value())
 			{
-				processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE; // default, when no behaviour option is specified
-
 				const auto& values = rawVariables[REA_PROCESS_SENSORS].value();
-				if (!values.empty())
+				for (uint32_t i = 0; i < values.size(); ++i)
 				{
-					const char* behaviour = values[0].c_str();
-					if (strcmp(behaviour, "RenderAllThenInteractive") == 0)
+					if (i == 0)
 					{
-						// Do nothing
+						const char* behaviour = values[0].c_str();
+						if (strcmp(behaviour, "RenderAllThenInteractive") == 0)
+						{
+							processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE;
+						}
+						else if (strcmp(behaviour, "RenderAllThenTerminate") == 0)
+						{
+							processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE;
+						}
+						else if (strcmp(behaviour, "RenderSensorThenInteractive") == 0)
+						{
+							processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE;
+						}
+						else if (strcmp(behaviour, "InteractiveAtSensor") == 0)
+						{
+							processSensorsBehaviour = ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR;
+						}
+						else
+						{
+							printf("[ERROR]: Invalid option for '%s'. Using RenderAllThenInteractive.\n", PROCESS_SENSORS_VAR_NAME.data());
+						}
 					}
-					else if (strcmp(behaviour, "RenderAllThenTerminate") == 0)
+					else if (i == 1)
 					{
-						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE;
-						if (values.size() > 1)
-							printf("[WARNING]: You passed a sensor ID to the 'RenderAllThenTerminate' option, but it will be ignored.\n");
-					}
-					else if (strcmp(behaviour, "RenderSensorThenInteractive") == 0)
-					{
-						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE;
-						sensorID = std::stoi(values[1]);
-					}
-					else if (strcmp(behaviour, "InteractiveAtSensor") == 0)
-					{
-						processSensorsBehaviour = ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR;
-						sensorID = std::stoi(values[1]);
-					}
-					else
-					{
-						printf("[ERROR]: Invalid option for '%s'. Using 'RenderAllThenInteractive'.\n", PROCESS_SENSORS_VAR_NAME.data());
+                        sensorID = std::stoi(values[1]);
 					}
 				}
 			}
@@ -141,8 +142,8 @@ class CommandLineHandler
 		std::string outputScreenshotsFolderPath;
 		struct
 		{
-			ProcessSensorsBehaviour processSensorsBehaviour = ProcessSensorsBehaviour::PSB_COUNT;
-			std::optional<uint32_t> sensorID;
+			ProcessSensorsBehaviour processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE;
+			uint32_t sensorID = 0;
 		};
 
 };

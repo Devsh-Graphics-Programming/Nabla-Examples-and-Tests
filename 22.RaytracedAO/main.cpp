@@ -725,25 +725,12 @@ int main(int argc, char** argv)
 		return true;
 	};
 
-	uint32_t sensorIndex = 0;
 	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
-	if (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE || processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR)
+	uint32_t sensorIndex = cmdHandler.getSensorID();
+	if (sensorIndex >= globalMeta->m_global.m_sensors.size())
 	{
-		bool foundValidSensorID = true;
-
-		auto sensorID = cmdHandler.getSensorID();
-		if (!sensorID.has_value())
-			foundValidSensorID = false;
-
-		sensorIndex = sensorID.value();
-		if (sensorIndex >= globalMeta->m_global.m_sensors.size())
-			foundValidSensorID = false;
-
-		if (!foundValidSensorID)
-		{
-			printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
-			sensorIndex = 0;
-		}
+		printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
+		sensorIndex = 0;
 	}
 
 	// Add the found sensor to sensor data, if no (or invalid) ID was specified then just add the first sensor.
@@ -754,7 +741,7 @@ int main(int argc, char** argv)
 	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
 	{
 		if (s == sensorIndex)
-			continue; // skip it because we have already addes this one above
+			continue; // skip it because we have already added this one above
 
 		std::cout << "Sensors[" << s << "] = " << std::endl;
 		const auto& sensor = globalMeta->m_global.m_sensors[s];
