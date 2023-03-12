@@ -122,6 +122,16 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool reloadKeyPressed;
 };
 
+struct PersistentState
+{
+	bool isBeauty;
+	uint32_t sensorID;
+	core::matrix3x4SIMD interactiveCameraViewMatrix;
+	// sceneXMLPath starts from (uint8_t*)base + sizeof(PersistentState)
+	// mainFileName starts from (uint8_t*)base + sizeof(PersistentState) + mainFileNameOffset
+	uint32_t mainFileNameOffset;
+};
+
 int main(int argc, char** argv)
 {
 	std::vector<std::string> arguments;
@@ -184,95 +194,143 @@ int main(int argc, char** argv)
 
 		if(filePath.empty())
 		{
-			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. \nIf you cancel or choosen file fails to load, simple scene will be loaded.", pfd::choice::ok);
+			// Two cases:
+			// 1. Only XML
+			// -SCENE=../../media/Ditt-Reference-Scenes/test_scenes/unity/combined_sensors.xml -PROCESS_SENSORS=RenderSensorThenInteractive 2
+			// 
+			//		filePath:		"../../media/Ditt-Reference-Scenes/test_scenes/unity/combined_sensors.xml"
+			//		mainFileName:	"combined_sensors"
+			// 
+			// 
+			// 2. ZIP with XML
+			// -SCENE=E:\Projects\Nabla-Ditt\examples_tests\media\mitsuba\kitchen.zip scene.xml -PROCESS_SENSORS=RenderSensorThenInteractive 2
+			//
+			//		filePath:		"kitchen/scene.xml"
+			//		mainFileName:	"kitchen_scene"
+			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
 			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml"});
 			if (!file.result().empty())
 				filePath = file.result()[0];
 		}
 
-		if(filePath.empty())
-			filePath = "../../media/mitsuba/staircase2.zip";
-		
-		mainFileName = std::filesystem::path(filePath).filename().string();
-		mainFileName = mainFileName.substr(0u, mainFileName.find_first_of('.')); 
-		
-		std::cout << "\nSelected File = " << filePath << "\n" << std::endl;
-
-		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+		if (!filePath.empty())
 		{
-			io::IFileArchive* arch = nullptr;
-			device->getFileSystem()->addFileArchive(filePath.c_str(),io::EFAT_ZIP,"",&arch);
-			if (arch)
+			std::cout << "\nSelected File = " << filePath << "\n" << std::endl;
+
+			mainFileName = std::filesystem::path(filePath).filename().string();
+			mainFileName = mainFileName.substr(0u, mainFileName.find_first_of('.')); 
+
+			if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
 			{
-				auto flist = arch->getFileList();
-				if (!flist)
-					return 3;
-				auto files = flist->getFiles();
-
-				for (auto it=files.begin(); it!=files.end(); )
+				auto loadFromZip = [&filePath, &mainFileName, &device, &cin_thread](const std::string& zipPath, const std::string& xmlPath)
 				{
-					if (core::hasFileExtension(it->FullName, "xml", "XML"))
-						it++;
-					else
-						it = files.erase(it);
-				}
-				if (files.size() == 0u)
-					return 4;
+					io::IFileArchive* arch = nullptr;
+					device->getFileSystem()->addFileArchive(zipPath.c_str(), io::EFAT_ZIP, "", &arch);
+					if (!arch)
+						return;
 
-				if(extraPath.empty())
-				{
-					uint32_t chosen = 0xffffffffu;
+					auto flist = arch->getFileList();
+					if (!flist)
+						return;
 
-					// Don't ask for choosing file when there is only 1 available
-					if(files.size() > 1)
+					auto files = flist->getFiles();
+					for (auto it = files.begin(); it != files.end(); )
 					{
-						std::cout << "Choose File (0-" << files.size() - 1ull << "):" << std::endl;
-						for (auto i = 0u; i < files.size(); i++)
-							std::cout << i << ": " << files[i].FullName.c_str() << std::endl;
+						if (core::hasFileExtension(it->FullName, "xml", "XML"))
+							it++;
+						else
+							it = files.erase(it);
+					}
+					if (files.size() == 0u)
+						return;
 
-						// std::cin with timeout
+					if (xmlPath.empty())
+					{
+						uint32_t chosen = 0xffffffffu;
+
+						// Don't ask for choosing file when there is only 1 available
+						if (files.size() > 1)
 						{
-							std::atomic<bool> started = false;
-							cin_thread = std::thread([&chosen,&started]()
+							std::cout << "Choose File (0-" << files.size() - 1ull << "):" << std::endl;
+							for (auto i = 0u; i < files.size(); i++)
+								std::cout << i << ": " << files[i].FullName.c_str() << std::endl;
+
+							// std::cin with timeout
 							{
-								started = true;
-								std::cin >> chosen;
-							});
-							const auto end = std::chrono::steady_clock::now()+std::chrono::seconds(10u);
-							while (!started || chosen==0xffffffffu && std::chrono::steady_clock::now()<end) {}
+								std::atomic<bool> started = false;
+								cin_thread = std::thread([&chosen, &started]()
+									{
+										started = true;
+										std::cin >> chosen;
+									});
+								const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10u);
+								while (!started || chosen == 0xffffffffu && std::chrono::steady_clock::now() < end) {}
+							}
 						}
-					}
-					else if(files.size() >= 0)
-					{
-						std::cout << "The only available XML in zip Selected." << std::endl;
-					}
-					
-					if (chosen >= files.size())
-						chosen = 0u;
-
-					filePath = files[chosen].FullName.c_str();
-					std::cout << "Selected XML File: "<< files[chosen].Name.c_str() << std::endl;
-					mainFileName += std::string("_") + std::filesystem::path(files[chosen].Name.c_str()).replace_extension().string();
-				}
-				else
-				{
-					bool found = false;
-					for (auto it=files.begin(); it!=files.end(); it++)
-					{
-						if(extraPath == std::string(it->Name.c_str()))
+						else if (files.size() >= 0)
 						{
-							found = true;
-							filePath = it->FullName.c_str();
-							mainFileName += std::string("_") + std::filesystem::path(it->Name.c_str()).replace_extension().string();
-							break;
+							std::cout << "The only available XML in zip Selected." << std::endl;
+						}
+
+						if (chosen >= files.size())
+							chosen = 0u;
+
+						filePath = files[chosen].FullName.c_str();
+						std::cout << "Selected XML File: " << files[chosen].Name.c_str() << std::endl;
+						mainFileName += std::string("_") + std::filesystem::path(files[chosen].Name.c_str()).replace_extension().string();
+					}
+					else
+					{
+						bool found = false;
+						for (auto it = files.begin(); it != files.end(); it++)
+						{
+							if (xmlPath == std::string(it->Name.c_str()))
+							{
+								found = true;
+								filePath = it->FullName.c_str();
+								mainFileName += std::string("_") + std::filesystem::path(it->Name.c_str()).replace_extension().string();
+								break;
+							}
+						}
+
+						if (!found)
+						{
+							std::cout << "Cannot find requested file (" << xmlPath.c_str() << ") in zip (" << zipPath << ")" << std::endl;
+							return;
 						}
 					}
+				};
 
-					if(!found) {
-						std::cout << "Cannot find requested file (" << extraPath.c_str() << ") in zip (" << filePath << ")" << std::endl;
-						return 4;
+				loadFromZip(filePath, extraPath);
+			}
+		}
+		else
+		{
+			PersistentState prevAppState;
+			std::ifstream stateCacheFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
+			if (stateCacheFile.is_open())
+			{
+				auto fileSize = stateCacheFile.tellg();
+				if (fileSize != std::istream::pos_type(-1))
+				{
+					std::vector<char> fileBuffer(fileSize);
+					stateCacheFile.seekg(0, std::ios::beg);
+					stateCacheFile.read(fileBuffer.data(), fileSize);
+					if (stateCacheFile.rdstate() == std::ios_base::goodbit)
+					{
+						prevAppState = *reinterpret_cast<PersistentState*>(fileBuffer.data());
+
+						// TODO(achal): prevAppState also has some more data that we may find useful for the rest of the application, like sensorID etc.
+						filePath = std::string(fileBuffer.data() + sizeof(PersistentState));
+						mainFileName = std::string(fileBuffer.data() + sizeof(PersistentState) + prevAppState.mainFileNameOffset);
 					}
 				}
+				stateCacheFile.close();
+			}
+			else
+			{
+				printf("[ERROR]: Cannot find the previous state of the application.\n");
+				return 2;
 			}
 		}
 		
@@ -281,18 +339,22 @@ int main(int argc, char** argv)
 		//! read cache results -- speeds up mesh generation
 		qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
 		//! load the mitsuba scene
+		MessageBoxA(NULL, filePath.c_str(), mainFileName.c_str(), MB_OK); // TODO(achal): Remove.
 		meshes = am->getAsset(filePath, {});
 		//! cache results -- speeds up mesh generation on second run
 		qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
 		
 		auto contents = meshes.getContents();
-		if (!contents.size()) {
-			std::cout << "[ERROR] Failed loading asset in " << filePath << ".";
-			return 2;
+		if (!contents.size())
+		{
+			std::cout << "[ERROR] Failed loading asset in " << filePath << ". Trying to restore the last run state.\n";
+			// At this point we will look for lastRun.cache
+			
 		}
 
 		globalMeta = core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>());
-		if (!globalMeta) {
+		if (!globalMeta)
+		{
 			std::cout << "[ERROR] Couldn't get global Meta";
 			return 3;
 		}
@@ -725,28 +787,39 @@ int main(int argc, char** argv)
 		return true;
 	};
 
-	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
-	uint32_t sensorIndex = cmdHandler.getSensorID();
-	if (sensorIndex >= globalMeta->m_global.m_sensors.size())
-	{
-		printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
-		sensorIndex = 0;
-	}
-
-	// Add the found sensor to sensor data, if no (or invalid) ID was specified then just add the first sensor.
-	const auto& sensor = globalMeta->m_global.m_sensors[sensorIndex];
-	extractAndAddToSensorData(sensor, sensorIndex);
-
-	// Add the remaining sensors.
+	// Always add all the sensors because the interactive mode wants all the sensors.
+	// TODO(achal): Not do it when InteractiveAtSensor is specified?
 	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
 	{
-		if (s == sensorIndex)
-			continue; // skip it because we have already added this one above
-
 		std::cout << "Sensors[" << s << "] = " << std::endl;
 		const auto& sensor = globalMeta->m_global.m_sensors[s];
 		extractAndAddToSensorData(sensor, s);
 	}
+
+	// TODO(achal): I think I need to remove this entirely now.
+	PersistentState reloadedAppState;
+	const bool applicationReloaded = false;
+#if 0
+	std::ifstream reloadCacheFile("lastRun.cache", std::ios::binary);
+	if (applicationReloaded)
+	{
+		reloadCacheFile.read(reinterpret_cast<char*>(&reloadedAppState), sizeof(PersistentState));
+		reloadCacheFile.close();
+
+		printf("Reloaded sensor ID: %u\n", reloadedAppState.sensorID);
+	}
+#endif
+
+	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+	// Everytime we can load lastRun.cache we can ignore this sensorIndex and use the one in the freshly loaded PersistentState.
+	uint32_t sensorIndexFromCmdLine = cmdHandler.getSensorID();
+	if (sensorIndexFromCmdLine >= globalMeta->m_global.m_sensors.size())
+	{
+		printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
+		sensorIndexFromCmdLine = 0;
+	}
+
+	// TODO(achal): Save a slice of into above sensor array for the non-interactive mode.
 
 	auto driver = device->getVideoDriver();
 
@@ -792,14 +865,6 @@ int main(int argc, char** argv)
 		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getMoveSpeed()));
 	}
 
-	std::ifstream reloadCacheFile("lastRun.cache", std::ios::binary);
-	const bool applicationReloaded = reloadCacheFile.is_open();
-	uint32_t sensorIndex_reloaded;
-	if (applicationReloaded)
-	{
-		reloadCacheFile.read((char*)&sensorIndex_reloaded, sizeof(sensorIndex_reloaded));
-		reloadCacheFile.close();
-	}
 
 	// Render To file
 	int32_t prevWidth = 0;
@@ -809,7 +874,7 @@ int main(int argc, char** argv)
 	const bool jumpStraightToInteractive = (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
 	if (!jumpStraightToInteractive)
 	{
-		uint32_t s = applicationReloaded ? sensorIndex_reloaded : 0u;
+		uint32_t s = applicationReloaded ? reloadedAppState.sensorID : 0u;
 		for(; s < sensors.size(); ++s)
 		{
 			if(!receiver.keepOpen())
@@ -817,6 +882,55 @@ int main(int argc, char** argv)
 
 			if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE) && (s > 0))
 				break; // we only want to render with the first sensor in this case
+
+			// Save application's current persistent state to disk.
+			{
+				bool writeSuccess = false;
+				std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
+				if (outFile.is_open())
+				{
+					const size_t writeFileSize = sizeof(PersistentState) + (filePath.length()+1) + (mainFileName.length()+1);
+					core::vector<char> writeFileBuffer(writeFileSize);
+					PersistentState* writeState = new (writeFileBuffer.data()) PersistentState();
+					{
+						writeState->sensorID = 69;
+						writeState->isBeauty = false;
+						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
+						writeState->mainFileNameOffset = filePath.length()+1;
+					}
+					{
+						memcpy(writeFileBuffer.data() + sizeof(PersistentState), filePath.c_str(), filePath.length()+1);
+						memcpy(writeFileBuffer.data() + sizeof(PersistentState) + writeState->mainFileNameOffset, mainFileName.c_str(), mainFileName.length()+1);
+					}
+
+					outFile.write(writeFileBuffer.data(), writeFileSize);
+					if (outFile.rdstate() == std::ios_base::goodbit)
+						writeSuccess = true;
+
+					outFile.close();
+					writeState->~PersistentState();
+
+#if 0
+					if (success)
+					{
+						// Launch the new instance of the application.
+						std::stringstream parameterStream;
+						for (uint32_t p = 1; p < argc; ++p)
+							parameterStream << argv[p] << " ";
+						const char* params = parameterStream.str().c_str();
+						HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], params, NULL, SW_SHOWNORMAL);
+						if ((uint64_t)result <= 32)
+							printf("[ERROR]: Failed to reload.\n");
+						else
+							exit(0);
+					}
+#endif
+				}
+
+				if (!writeSuccess)
+					printf("[ERROR]: Failed to write the persistent state cache.\n");
+			}
+
 
 			const auto& sensorData = sensors[s];
 		
@@ -861,34 +975,7 @@ int main(int argc, char** argv)
 					{
 						printf("[INFO]: Reloading..\n");
 
-						bool success = true;
-						std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
-						if (outFile.is_open())
-						{
-							outFile.write(reinterpret_cast<char*>(&s), sizeof(uint32_t));
-							if (outFile.rdstate() != std::ios_base::goodbit)
-							{
-								success = false;
-								outFile.close();
-							}
-
-							if (success)
-							{
-								// Launch the new instance of the application.
-								std::stringstream parameterStream;
-								for (uint32_t p = 1; p < argc; ++p)
-									parameterStream << argv[p] << " ";
-								const char* params = parameterStream.str().c_str();
-								HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], params, NULL, SW_SHOWNORMAL);
-								if ((uint64_t)result <= 32)
-									printf("[ERROR]: Failed to reload.\n");
-								else
-									exit(0);
-							}
-						}
-
-						if (!success)
-							printf("[ERROR]: Failed to write the reload cache. Cannot reload.\n");
+						
 					}
 					receiver.resetKeys();
 				}
@@ -991,7 +1078,7 @@ int main(int argc, char** argv)
 			}
 		};
 
-		setActiveSensor(sensorIndex);
+		setActiveSensor(sensorIndexFromCmdLine);
 
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
@@ -1107,9 +1194,6 @@ int main(int argc, char** argv)
 
 	renderer->deinitSceneResources();
 	renderer = nullptr;
-
-	// When we're doing a "normal" exit (not reloading the application) make sure to delete the lastRun.cache file so that the next run doesn't assume that we're reloading.
-	std::filesystem::remove("lastRun.cache");
 
 	// will leak thread because there's no cross platform input!
 	std::exit(0);
