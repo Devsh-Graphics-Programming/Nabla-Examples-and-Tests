@@ -127,9 +127,9 @@ struct PersistentState
 	bool isBeauty;
 	uint32_t sensorID;
 	core::matrix3x4SIMD interactiveCameraViewMatrix;
-	// sceneXMLPath starts from (uint8_t*)base + sizeof(PersistentState)
-	// mainFileName starts from (uint8_t*)base + sizeof(PersistentState) + mainFileNameOffset
-	uint32_t mainFileNameOffset;
+	// ZIP path starts from (uint8_t*)base + sizeof(PersistentState)
+	// XML path starts from (uint8_t*)base + sizeof(PersistentState) + xmlPathOffset
+	uint32_t xmlPathOffset;
 };
 
 int main(int argc, char** argv)
@@ -153,9 +153,28 @@ int main(int argc, char** argv)
 	
 	CommandLineHandler cmdHandler = CommandLineHandler(arguments);
 	
-	auto sceneDir = cmdHandler.getSceneDirectory();
-	std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
-	std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
+	std::string zipPath = "";
+	std::string xmlPath = "";
+	{
+		auto sceneDir = cmdHandler.getSceneDirectory();
+		std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
+		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
+		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+		{
+			zipPath = filePath;
+			xmlPath = extraPath;
+		}
+		else
+		{
+			xmlPath = filePath;
+		}
+	}
+
+	// After this there could be 4 cases:
+	// 1. zipPath filled, xmlPath filled -> load xml from zip
+	// 2. zipPath empty, xmlPath filled -> directly load xml
+	// 3. zipPath filled, xmlPath empty -> load chosen (or default to first) xml from zip
+	// 4. zipPath empty, xmlPath empty -> try to restore state after asking for the user to choose files
 	bool shouldTerminateAfterRenders = cmdHandler.getProcessSensorsBehaviour() == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE; // skip interaction with window and take screenshots only
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
@@ -184,15 +203,15 @@ int main(int argc, char** argv)
 	{
 		io::IFileSystem* fs = device->getFileSystem();
 		asset::IAssetManager* am = device->getAssetManager();
-		
+
 		auto serializedLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CSerializedLoader>(am);
-		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am,fs);
+		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am, fs);
 		serializedLoader->initialize();
 		mitsubaLoader->initialize();
 		am->addAssetLoader(std::move(serializedLoader));
 		am->addAssetLoader(std::move(mitsubaLoader));
 
-		if(filePath.empty())
+		if (zipPath.empty() && xmlPath.empty())
 		{
 			// Two cases:
 			// 1. Only XML
@@ -207,107 +226,143 @@ int main(int argc, char** argv)
 			//
 			//		filePath:		"kitchen/scene.xml"
 			//		mainFileName:	"kitchen_scene"
+			//
+			// For the first case I only want to save the XML file name
+			// For the second case I want the ZIP file name as well as the XML file name.
+
 			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
-			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml"});
+			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
 			if (!file.result().empty())
-				filePath = file.result()[0];
+			{
+				if (core::hasFileExtension(io::path(file.result()[0].c_str()), "zip", "ZIP"))
+					zipPath = file.result()[0];
+				else
+					xmlPath = file.result()[0];
+			}
 		}
 
-		if (!filePath.empty())
+		auto loadScene = [&device, &am, &fs](const std::string& _zipPath, std::string& _xmlPath, std::string& _mainFileName) -> asset::SAssetBundle
 		{
-			std::cout << "\nSelected File = " << filePath << "\n" << std::endl;
+			asset::SAssetBundle result = {};
+			if (_zipPath.empty() && _xmlPath.empty())
+				return result;
 
-			mainFileName = std::filesystem::path(filePath).filename().string();
-			mainFileName = mainFileName.substr(0u, mainFileName.find_first_of('.')); 
-
-			if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+			_mainFileName = "";
+			if (!_zipPath.empty())
 			{
-				auto loadFromZip = [&filePath, &mainFileName, &device, &cin_thread](const std::string& zipPath, const std::string& xmlPath)
+				_mainFileName = std::filesystem::path(_zipPath).filename().string();
+				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+
+				io::IFileArchive* arch = nullptr;
+				device->getFileSystem()->addFileArchive(_zipPath.c_str(), io::EFAT_ZIP, "", &arch);
+				if (!arch)
+					return result;
+
+				auto flist = arch->getFileList();
+				if (!flist)
+					return {};
+
+				auto files = flist->getFiles();
+				for (auto it = files.begin(); it != files.end(); )
 				{
-					io::IFileArchive* arch = nullptr;
-					device->getFileSystem()->addFileArchive(zipPath.c_str(), io::EFAT_ZIP, "", &arch);
-					if (!arch)
-						return;
+					if (core::hasFileExtension(it->FullName, "xml", "XML"))
+						it++;
+					else
+						it = files.erase(it);
+				}
+				if (files.size() == 0u)
+				{
+					printf("[ERROR]: No XML files found in the ZIP archive!\n");
+					return result;
+				}
 
-					auto flist = arch->getFileList();
-					if (!flist)
-						return;
+				if (_xmlPath.empty())
+				{
+					uint32_t chosen = 0xffffffffu;
 
-					auto files = flist->getFiles();
-					for (auto it = files.begin(); it != files.end(); )
+					// Only ask for choosing a file when there are multiple of them.
+					if (files.size() > 1)
 					{
-						if (core::hasFileExtension(it->FullName, "xml", "XML"))
-							it++;
-						else
-							it = files.erase(it);
-					}
-					if (files.size() == 0u)
-						return;
+						printf("Choose File (0-%llu):\n", files.size() - 1ull);
+						for (auto i = 0u; i < files.size(); i++)
+							printf("%u: %s\n", i, files[i].FullName.c_str());
 
-					if (xmlPath.empty())
-					{
-						uint32_t chosen = 0xffffffffu;
-
-						// Don't ask for choosing file when there is only 1 available
-						if (files.size() > 1)
+						// std::cin with timeout
 						{
-							std::cout << "Choose File (0-" << files.size() - 1ull << "):" << std::endl;
-							for (auto i = 0u; i < files.size(); i++)
-								std::cout << i << ": " << files[i].FullName.c_str() << std::endl;
-
-							// std::cin with timeout
+							std::atomic<bool> started = false;
+							std::thread cin_thread([&chosen, &started]()
 							{
-								std::atomic<bool> started = false;
-								cin_thread = std::thread([&chosen, &started]()
-									{
-										started = true;
-										std::cin >> chosen;
-									});
-								const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10u);
-								while (!started || chosen == 0xffffffffu && std::chrono::steady_clock::now() < end) {}
-							}
+								started = true;
+								std::cin >> chosen;
+							});
+							const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10u);
+							while (!started || chosen == 0xffffffffu && std::chrono::steady_clock::now() < end) {}
 						}
-						else if (files.size() >= 0)
-						{
-							std::cout << "The only available XML in zip Selected." << std::endl;
-						}
-
-						if (chosen >= files.size())
-							chosen = 0u;
-
-						filePath = files[chosen].FullName.c_str();
-						std::cout << "Selected XML File: " << files[chosen].Name.c_str() << std::endl;
-						mainFileName += std::string("_") + std::filesystem::path(files[chosen].Name.c_str()).replace_extension().string();
 					}
 					else
 					{
-						bool found = false;
-						for (auto it = files.begin(); it != files.end(); it++)
-						{
-							if (xmlPath == std::string(it->Name.c_str()))
-							{
-								found = true;
-								filePath = it->FullName.c_str();
-								mainFileName += std::string("_") + std::filesystem::path(it->Name.c_str()).replace_extension().string();
-								break;
-							}
-						}
+						printf("[INFO]: The only available XML in the ZIP is selected.\n");
+					}
 
-						if (!found)
+					if (chosen >= files.size())
+						chosen = 0u;
+
+					_xmlPath = std::string(files[chosen].FullName.c_str());
+				}
+				else
+				{
+					// Verify that the passed XML path is in the ZIP archive.
+					bool found = false;
+					for (auto it = files.begin(); it != files.end(); it++)
+					{
+						if (_xmlPath == std::string(it->Name.c_str()))
 						{
-							std::cout << "Cannot find requested file (" << xmlPath.c_str() << ") in zip (" << zipPath << ")" << std::endl;
-							return;
+							found = true;
+							break;
 						}
 					}
-				};
 
-				loadFromZip(filePath, extraPath);
+					if (!found)
+					{
+						printf("[ERROR]: Cannot find requested XML file (%s) in the ZIP (%s)\n", _xmlPath.c_str(), _zipPath.c_str());
+						return result;
+					}
+				}
+
+				printf("Selected XML file: %s\n", _xmlPath.c_str());
+				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).replace_extension().string();
 			}
-		}
-		else
+			else if (!_xmlPath.empty())
+			{
+				_mainFileName = std::filesystem::path(_xmlPath).filename().string();
+				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+			}
+
+			asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
+
+			//! read cache results -- speeds up mesh generation
+			qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
+			//! load the mitsuba scene
+			result = am->getAsset(_xmlPath, {});
+			//! cache results -- speeds up mesh generation on second run
+			qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
+			
+			return result;
+		};
+
+		meshes = loadScene(zipPath, xmlPath, mainFileName);
+		if (meshes.getContents().empty())
 		{
+			if (!xmlPath.empty())
+				printf("[ERROR]: Failed to load asset at: %s\n", xmlPath.c_str());
+
+			// Restore state to get new values for zipPath and xmlPath and try loading again
+			printf("[INFO]: Trying to restore the application to its previous state.\n");
+
+			bool restoreSuccess = false;
 			PersistentState prevAppState;
 			std::ifstream stateCacheFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
+
 			if (stateCacheFile.is_open())
 			{
 				auto fileSize = stateCacheFile.tellg();
@@ -320,36 +375,23 @@ int main(int argc, char** argv)
 					{
 						prevAppState = *reinterpret_cast<PersistentState*>(fileBuffer.data());
 
-						// TODO(achal): prevAppState also has some more data that we may find useful for the rest of the application, like sensorID etc.
-						filePath = std::string(fileBuffer.data() + sizeof(PersistentState));
-						mainFileName = std::string(fileBuffer.data() + sizeof(PersistentState) + prevAppState.mainFileNameOffset);
+						// TODO(achal): prevAppState also has some more data that we will most likely find useful for the rest of the application, like sensorID etc.
+						zipPath = std::string(fileBuffer.data() + sizeof(PersistentState));
+						xmlPath = std::string(fileBuffer.data() + sizeof(PersistentState) + prevAppState.xmlPathOffset);
+
+						meshes = loadScene(zipPath, xmlPath, mainFileName);
+						if (!meshes.getContents().empty())
+							restoreSuccess = true;
 					}
 				}
 				stateCacheFile.close();
 			}
-			else
+
+			if (!restoreSuccess)
 			{
-				printf("[ERROR]: Cannot find the previous state of the application.\n");
+				pfd::message("ERROR", "Cannot restore application to its previous state.", pfd::choice::ok);
 				return 2;
 			}
-		}
-		
-		asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
-
-		//! read cache results -- speeds up mesh generation
-		qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
-		//! load the mitsuba scene
-		MessageBoxA(NULL, filePath.c_str(), mainFileName.c_str(), MB_OK); // TODO(achal): Remove.
-		meshes = am->getAsset(filePath, {});
-		//! cache results -- speeds up mesh generation on second run
-		qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
-		
-		auto contents = meshes.getContents();
-		if (!contents.size())
-		{
-			std::cout << "[ERROR] Failed loading asset in " << filePath << ". Trying to restore the last run state.\n";
-			// At this point we will look for lastRun.cache
-			
 		}
 
 		globalMeta = core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>());
@@ -889,18 +931,18 @@ int main(int argc, char** argv)
 				std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
 				if (outFile.is_open())
 				{
-					const size_t writeFileSize = sizeof(PersistentState) + (filePath.length()+1) + (mainFileName.length()+1);
+					const size_t writeFileSize = sizeof(PersistentState) + (zipPath.length() + 1) + (xmlPath.length() + 1);
 					core::vector<char> writeFileBuffer(writeFileSize);
 					PersistentState* writeState = new (writeFileBuffer.data()) PersistentState();
 					{
 						writeState->sensorID = 69;
 						writeState->isBeauty = false;
 						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
-						writeState->mainFileNameOffset = filePath.length()+1;
+						writeState->xmlPathOffset = zipPath.length()+1;
 					}
 					{
-						memcpy(writeFileBuffer.data() + sizeof(PersistentState), filePath.c_str(), filePath.length()+1);
-						memcpy(writeFileBuffer.data() + sizeof(PersistentState) + writeState->mainFileNameOffset, mainFileName.c_str(), mainFileName.length()+1);
+						memcpy(writeFileBuffer.data() + sizeof(PersistentState), zipPath.c_str(), zipPath.length()+1);
+						memcpy(writeFileBuffer.data() + sizeof(PersistentState) + writeState->xmlPathOffset, xmlPath.c_str(), xmlPath.length()+1);
 					}
 
 					outFile.write(writeFileBuffer.data(), writeFileSize);
@@ -934,7 +976,7 @@ int main(int argc, char** argv)
 
 			const auto& sensorData = sensors[s];
 		
-			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
+			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", xmlPath.c_str(), s);
 
 			bool needsReinit = prevWidth!=sensorData.width || prevHeight!=sensorData.height || prevCascadeCount!=sensorData.cascadeCount || prevRegFactor!=sensorData.envmapRegFactor;
 			prevWidth = sensorData.width;
