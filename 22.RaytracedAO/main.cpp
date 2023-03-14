@@ -169,12 +169,14 @@ int main(int argc, char** argv)
 			xmlPath = filePath;
 		}
 	}
-
-	// After this there could be 4 cases:
+	// After this, there could be 4 cases:
 	// 1. zipPath filled, xmlPath filled -> load xml from zip
 	// 2. zipPath empty, xmlPath filled -> directly load xml
 	// 3. zipPath filled, xmlPath empty -> load chosen (or default to first) xml from zip
 	// 4. zipPath empty, xmlPath empty -> try to restore state after asking for the user to choose files
+	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+	uint32_t startSensorID = cmdHandler.getSensorID();
+
 	bool shouldTerminateAfterRenders = cmdHandler.getProcessSensorsBehaviour() == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE; // skip interaction with window and take screenshots only
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
@@ -213,20 +215,6 @@ int main(int argc, char** argv)
 
 		if (zipPath.empty() && xmlPath.empty())
 		{
-			// Two cases:
-			// 1. Only XML
-			// -SCENE=../../media/Ditt-Reference-Scenes/test_scenes/unity/combined_sensors.xml -PROCESS_SENSORS=RenderSensorThenInteractive 2
-			// 
-			//		filePath:		"../../media/Ditt-Reference-Scenes/test_scenes/unity/combined_sensors.xml"
-			//		mainFileName:	"combined_sensors"
-			// 
-			// 
-			// 2. ZIP with XML
-			// -SCENE=E:\Projects\Nabla-Ditt\examples_tests\media\mitsuba\kitchen.zip scene.xml -PROCESS_SENSORS=RenderSensorThenInteractive 2
-			//
-			//		filePath:		"kitchen/scene.xml"
-			//		mainFileName:	"kitchen_scene"
-
 			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
 			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
 			if (!file.result().empty())
@@ -328,7 +316,6 @@ int main(int argc, char** argv)
 					}
 				}
 
-				printf("Selected XML file: %s\n", _xmlPath.c_str());
 				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).replace_extension().string();
 			}
 			else if (!_xmlPath.empty())
@@ -336,6 +323,8 @@ int main(int argc, char** argv)
 				_mainFileName = std::filesystem::path(_xmlPath).filename().string();
 				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
 			}
+
+			printf("[INFO]: Loading XML file: %s\n", _xmlPath.c_str());
 
 			asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
 
@@ -374,9 +363,14 @@ int main(int argc, char** argv)
 					{
 						prevAppState = *reinterpret_cast<PersistentState*>(fileBuffer.data());
 
-						// TODO(achal): prevAppState also has some more data that we will most likely find useful for the rest of the application, like sensorID etc.
+						// TODO(achal): prevAppState also has some more data that we will most likely find useful for the rest of the application.
 						zipPath = std::string(fileBuffer.data() + sizeof(PersistentState));
 						xmlPath = std::string(fileBuffer.data() + sizeof(PersistentState) + prevAppState.xmlPathOffset);
+
+						// If we are restoring the application to a previous state, then we should ignore the values coming from command line.
+						startSensorID = prevAppState.sensorID;
+						// TODO(achal): Here I want to override ProcessSensorsBehaviour as well.
+						// processSensorsBehaviour = prevAppState.processSensorsBehaviour;
 
 						meshes = loadScene(zipPath, xmlPath, mainFileName);
 						if (!meshes.getContents().empty())
@@ -398,6 +392,21 @@ int main(int argc, char** argv)
 		{
 			std::cout << "[ERROR] Couldn't get global Meta";
 			return 3;
+		}
+
+		std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
+
+		if (globalMeta->m_global.m_sensors.empty())
+		{
+			std::cout << "[ERROR] No Sensors found." << std::endl;
+			assert(false);
+			return 5; // return code?
+		}
+
+		if (startSensorID >= globalMeta->m_global.m_sensors.size())
+		{
+			printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
+			startSensorID = 0;
 		}
 	}
 	
@@ -506,15 +515,6 @@ int main(int argc, char** argv)
 			return false;
 		}
 	};
-
-	std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
-
-	if(globalMeta->m_global.m_sensors.empty())
-	{
-		std::cout << "[ERROR] No Sensors found." << std::endl;
-		assert(false);
-		return 5; // return code?
-	}
 	
 	const bool shouldHaveSensorIdxInFileName = globalMeta->m_global.m_sensors.size() > 1;
 	std::vector<SensorData> sensors = std::vector<SensorData>();
@@ -829,7 +829,6 @@ int main(int argc, char** argv)
 	};
 
 	// Always add all the sensors because the interactive mode wants all the sensors.
-	// TODO(achal): Not do it when InteractiveAtSensor is specified?
 	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
 	{
 		std::cout << "Sensors[" << s << "] = " << std::endl;
@@ -850,17 +849,6 @@ int main(int argc, char** argv)
 		printf("Reloaded sensor ID: %u\n", reloadedAppState.sensorID);
 	}
 #endif
-
-	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
-	// Everytime we can load lastRun.cache we can ignore this sensorIndex and use the one in the freshly loaded PersistentState.
-	uint32_t sensorIndexFromCmdLine = cmdHandler.getSensorID();
-	if (sensorIndexFromCmdLine >= globalMeta->m_global.m_sensors.size())
-	{
-		printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
-		sensorIndexFromCmdLine = 0;
-	}
-
-	// TODO(achal): Save a slice of into above sensor array for the non-interactive mode.
 
 	auto driver = device->getVideoDriver();
 
@@ -906,23 +894,34 @@ int main(int argc, char** argv)
 		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getMoveSpeed()));
 	}
 
+	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
+	{
+		assert(startSensorID < globalMeta->m_global.m_sensors.size() && "startSensorID should've been a valid value by now.");
+
+		uint32_t onePastLastSensorID = startSensorID;
+		if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE) || (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE))
+			onePastLastSensorID = sensors.size();
+		else if (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE)
+			onePastLastSensorID = startSensorID + 1;
+		nonInteractiveSensors = { sensors.data() + startSensorID, sensors.data() + onePastLastSensorID };
+	}
+	assert(nonInteractiveSensors.size() <= sensors.size());
 
 	// Render To file
 	int32_t prevWidth = 0;
 	int32_t prevHeight = 0;
 	int32_t prevCascadeCount = 0;
 	float prevRegFactor = 0.0f;
+	// TODO(achal): We most likely don't need this check anymore.
 	const bool jumpStraightToInteractive = (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
 	if (!jumpStraightToInteractive)
 	{
-		uint32_t s = applicationReloaded ? reloadedAppState.sensorID : 0u;
-		for(; s < sensors.size(); ++s)
+		for (const auto& sensor : nonInteractiveSensors)
 		{
 			if(!receiver.keepOpen())
 				break;
 
-			if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE) && (s > 0))
-				break; // we only want to render with the first sensor in this case
+			const uint32_t s = &sensor - sensors.data();
 
 			// Save application's current persistent state to disk.
 			{
@@ -934,7 +933,7 @@ int main(int argc, char** argv)
 					core::vector<char> writeFileBuffer(writeFileSize);
 					PersistentState* writeState = new (writeFileBuffer.data()) PersistentState();
 					{
-						writeState->sensorID = 69;
+						writeState->sensorID = s;
 						writeState->isBeauty = false;
 						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
 						writeState->xmlPathOffset = zipPath.length()+1;
@@ -971,29 +970,26 @@ int main(int argc, char** argv)
 				if (!writeSuccess)
 					printf("[ERROR]: Failed to write the persistent state cache.\n");
 			}
-
-
-			const auto& sensorData = sensors[s];
 		
 			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", xmlPath.c_str(), s);
 
-			bool needsReinit = prevWidth!=sensorData.width || prevHeight!=sensorData.height || prevCascadeCount!=sensorData.cascadeCount || prevRegFactor!=sensorData.envmapRegFactor;
-			prevWidth = sensorData.width;
-			prevHeight = sensorData.height;
-			prevCascadeCount = sensorData.cascadeCount;
-			prevRegFactor = sensorData.envmapRegFactor;
+			bool needsReinit = prevWidth!=sensor.width || prevHeight!=sensor.height || prevCascadeCount!=sensor.cascadeCount || prevRegFactor!=sensor.envmapRegFactor;
+			prevWidth = sensor.width;
+			prevHeight = sensor.height;
+			prevCascadeCount = sensor.cascadeCount;
+			prevRegFactor = sensor.envmapRegFactor;
 		
 			renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
 			if(needsReinit) 
 			{
 				renderer->deinitScreenSizedResources();
-				renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
+				renderer->initScreenSizedResources(sensor.width,sensor.height,sensor.envmapRegFactor,sensor.cascadeCount,sensor.cascadeLuminanceBase,sensor.cascadeLuminanceStart,sensor.Emin);
 			}
 		
-			smgr->setActiveCamera(sensorData.staticCamera);
+			smgr->setActiveCamera(sensor.staticCamera);
 
 			const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
-			const uint32_t maxNeededIterations = (sensorData.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
+			const uint32_t maxNeededIterations = (sensor.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
 		
 			uint32_t itr = 0u;
 			bool takenEnoughSamples = false;
@@ -1002,21 +998,19 @@ int main(int argc, char** argv)
 			while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
 			{
 				if(itr >= maxNeededIterations)
-					std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensorData.samplesNeeded << ") by now; something is wrong." << std::endl;
+					std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensor.samplesNeeded << ") by now; something is wrong." << std::endl;
 
 				// Handle Inputs
 				{
 					if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
 					{
-						int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-						printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
+						int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
+						printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded);
 						lastTimeLoggedProgress = std::chrono::steady_clock::now();
 					}
 					if (receiver.isReloadKeyPressed())
 					{
 						printf("[INFO]: Reloading..\n");
-
-						
 					}
 					receiver.resetKeys();
 				}
@@ -1024,7 +1018,7 @@ int main(int argc, char** argv)
 
 				driver->beginScene(false, false);
 
-				if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.Emin,!sensorData.envmap))
+				if(!renderer->render(device->getTimer(),sensor.kappa,sensor.Emin,!sensor.envmap))
 				{
 					renderFailed = true;
 					driver->endScene();
@@ -1037,13 +1031,13 @@ int main(int argc, char** argv)
 
 				driver->endScene();
 			
-				if(renderer->getTotalSamplesPerPixelComputed() >= sensorData.samplesNeeded)
+				if(renderer->getTotalSamplesPerPixelComputed() >= sensor.samplesNeeded)
 					takenEnoughSamples = true;
 			
 				itr++;
 			}
 
-			auto screenshotFilePath = sensorData.outputFilePath;
+			auto screenshotFilePath = sensor.outputFilePath;
 		
 			if(renderFailed)
 			{
@@ -1051,10 +1045,10 @@ int main(int argc, char** argv)
 			}
 			else
 			{
-				bool shouldDenoise = sensorData.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
-				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensorData.denoiserInfo);
-				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded, screenshotFilePath.filename().string().c_str());
+				bool shouldDenoise = sensor.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
+				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensor.denoiserInfo);
+				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
+				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded, screenshotFilePath.filename().string().c_str());
 			}
 
 			receiver.resetKeys();
@@ -1119,7 +1113,7 @@ int main(int argc, char** argv)
 			}
 		};
 
-		setActiveSensor(sensorIndexFromCmdLine);
+		setActiveSensor(startSensorID);
 
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
