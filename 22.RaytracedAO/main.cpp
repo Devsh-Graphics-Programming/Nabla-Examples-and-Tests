@@ -226,9 +226,6 @@ int main(int argc, char** argv)
 			//
 			//		filePath:		"kitchen/scene.xml"
 			//		mainFileName:	"kitchen_scene"
-			//
-			// For the first case I only want to save the XML file name
-			// For the second case I want the ZIP file name as well as the XML file name.
 
 			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
 			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
@@ -315,8 +312,10 @@ int main(int argc, char** argv)
 					bool found = false;
 					for (auto it = files.begin(); it != files.end(); it++)
 					{
-						if (_xmlPath == std::string(it->Name.c_str()))
+						// In `PersistentState` we save the full XML name `_xmlPath` could also be that.
+						if ((_xmlPath == std::string(it->Name.c_str())) || (_xmlPath == std::string(it->FullName.c_str())))
 						{
+							_xmlPath = std::string(it->FullName.c_str());
 							found = true;
 							break;
 						}
