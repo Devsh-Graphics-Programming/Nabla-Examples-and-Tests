@@ -126,10 +126,11 @@ struct PersistentState
 {
 	bool isBeauty;
 	uint32_t sensorID;
-	core::matrix3x4SIMD interactiveCameraViewMatrix;
 	// ZIP path starts from (uint8_t*)base + sizeof(PersistentState)
 	// XML path starts from (uint8_t*)base + sizeof(PersistentState) + xmlPathOffset
 	uint32_t xmlPathOffset;
+	ProcessSensorsBehaviour processSensorsBehaviour;
+	core::matrix3x4SIMD interactiveCameraViewMatrix;
 };
 
 int main(int argc, char** argv)
@@ -369,8 +370,7 @@ int main(int argc, char** argv)
 
 						// If we are restoring the application to a previous state, then we should ignore the values coming from command line.
 						startSensorID = prevAppState.sensorID;
-						// TODO(achal): Here I want to override ProcessSensorsBehaviour as well.
-						// processSensorsBehaviour = prevAppState.processSensorsBehaviour;
+						processSensorsBehaviour = prevAppState.processSensorsBehaviour;
 
 						meshes = loadScene(zipPath, xmlPath, mainFileName);
 						if (!meshes.getContents().empty())
@@ -912,9 +912,7 @@ int main(int argc, char** argv)
 	int32_t prevHeight = 0;
 	int32_t prevCascadeCount = 0;
 	float prevRegFactor = 0.0f;
-	// TODO(achal): We most likely don't need this check anymore.
-	const bool jumpStraightToInteractive = (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
-	if (!jumpStraightToInteractive)
+	if (!nonInteractiveSensors.empty())
 	{
 		for (const auto& sensor : nonInteractiveSensors)
 		{
@@ -935,8 +933,9 @@ int main(int argc, char** argv)
 					{
 						writeState->sensorID = s;
 						writeState->isBeauty = false;
-						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
+						writeState->processSensorsBehaviour = processSensorsBehaviour;
 						writeState->xmlPathOffset = zipPath.length()+1;
+						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
 					}
 					{
 						memcpy(writeFileBuffer.data() + sizeof(PersistentState), zipPath.c_str(), zipPath.length()+1);
