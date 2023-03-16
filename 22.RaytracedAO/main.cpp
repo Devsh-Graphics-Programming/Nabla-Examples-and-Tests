@@ -152,12 +152,22 @@ int main(int argc, char** argv)
 	};
 #endif
 	
-	CommandLineHandler cmdHandler = CommandLineHandler(arguments);
 	
+	bool applicationIsReloaded = false;
+	ProcessSensorsBehaviour processSensorsBehaviour;
+	uint32_t startSensorID;
 	std::string zipPath = "";
 	std::string xmlPath = "";
 	{
+		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
+
+		processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+		startSensorID = cmdHandler.getSensorID();
+
 		auto sceneDir = cmdHandler.getSceneDirectory();
+		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
+			applicationIsReloaded = true;
+
 		std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
 		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
 		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
@@ -169,16 +179,13 @@ int main(int argc, char** argv)
 		{
 			xmlPath = filePath;
 		}
+		// After this, there could be 4 cases:
+		// 1. zipPath filled, xmlPath filled -> load xml from zip
+		// 2. zipPath empty, xmlPath filled -> directly load xml
+		// 3. zipPath filled, xmlPath empty -> load chosen (or default to first) xml from zip
+		// 4. zipPath empty, xmlPath empty -> try to restore state after asking for the user to choose files
 	}
-	// After this, there could be 4 cases:
-	// 1. zipPath filled, xmlPath filled -> load xml from zip
-	// 2. zipPath empty, xmlPath filled -> directly load xml
-	// 3. zipPath filled, xmlPath empty -> load chosen (or default to first) xml from zip
-	// 4. zipPath empty, xmlPath empty -> try to restore state after asking for the user to choose files
-	auto processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
-	uint32_t startSensorID = cmdHandler.getSensorID();
 
-	bool shouldTerminateAfterRenders = cmdHandler.getProcessSensorsBehaviour() == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE; // skip interaction with window and take screenshots only
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
 
@@ -201,7 +208,7 @@ int main(int argc, char** argv)
 	std::thread cin_thread;
 
 	//
-	asset::SAssetBundle meshes;
+	asset::SAssetBundle meshes = {};
 	core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> globalMeta;
 	{
 		io::IFileSystem* fs = device->getFileSystem();
@@ -214,7 +221,7 @@ int main(int argc, char** argv)
 		am->addAssetLoader(std::move(serializedLoader));
 		am->addAssetLoader(std::move(mitsubaLoader));
 
-		if (zipPath.empty() && xmlPath.empty())
+		if (zipPath.empty() && xmlPath.empty() && !applicationIsReloaded)
 		{
 			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
 			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
@@ -340,9 +347,9 @@ int main(int argc, char** argv)
 		};
 
 		meshes = loadScene(zipPath, xmlPath, mainFileName);
-		if (meshes.getContents().empty())
+		if (meshes.getContents().empty() || applicationIsReloaded)
 		{
-			if (!xmlPath.empty())
+			if (meshes.getContents().empty() && !xmlPath.empty())
 				printf("[ERROR]: Failed to load asset at: %s\n", xmlPath.c_str());
 
 			// Restore state to get new values for zipPath and xmlPath and try loading again
@@ -372,7 +379,9 @@ int main(int argc, char** argv)
 						startSensorID = prevAppState.sensorID;
 						processSensorsBehaviour = prevAppState.processSensorsBehaviour;
 
-						meshes = loadScene(zipPath, xmlPath, mainFileName);
+						if (meshes.getContents().empty())
+							meshes = loadScene(zipPath, xmlPath, mainFileName);
+
 						if (!meshes.getContents().empty())
 							restoreSuccess = true;
 					}
@@ -405,8 +414,8 @@ int main(int argc, char** argv)
 
 		if (startSensorID >= globalMeta->m_global.m_sensors.size())
 		{
-			printf("[WARNING]: A valid sensor ID was not found. Selecting the first sensor.\n");
 			startSensorID = 0;
+			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", startSensorID);
 		}
 	}
 	
@@ -836,20 +845,6 @@ int main(int argc, char** argv)
 		extractAndAddToSensorData(sensor, s);
 	}
 
-	// TODO(achal): I think I need to remove this entirely now.
-	PersistentState reloadedAppState;
-	const bool applicationReloaded = false;
-#if 0
-	std::ifstream reloadCacheFile("lastRun.cache", std::ios::binary);
-	if (applicationReloaded)
-	{
-		reloadCacheFile.read(reinterpret_cast<char*>(&reloadedAppState), sizeof(PersistentState));
-		reloadCacheFile.close();
-
-		printf("Reloaded sensor ID: %u\n", reloadedAppState.sensorID);
-	}
-#endif
-
 	auto driver = device->getVideoDriver();
 
 	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr);
@@ -932,7 +927,7 @@ int main(int argc, char** argv)
 					PersistentState* writeState = new (writeFileBuffer.data()) PersistentState();
 					{
 						writeState->sensorID = s;
-						writeState->isBeauty = false;
+						writeState->isBeauty = receiver.isRenderingBeauty();
 						writeState->processSensorsBehaviour = processSensorsBehaviour;
 						writeState->xmlPathOffset = zipPath.length()+1;
 						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
@@ -948,22 +943,6 @@ int main(int argc, char** argv)
 
 					outFile.close();
 					writeState->~PersistentState();
-
-#if 0
-					if (success)
-					{
-						// Launch the new instance of the application.
-						std::stringstream parameterStream;
-						for (uint32_t p = 1; p < argc; ++p)
-							parameterStream << argv[p] << " ";
-						const char* params = parameterStream.str().c_str();
-						HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], params, NULL, SW_SHOWNORMAL);
-						if ((uint64_t)result <= 32)
-							printf("[ERROR]: Failed to reload.\n");
-						else
-							exit(0);
-					}
-#endif
 				}
 
 				if (!writeSuccess)
@@ -1010,6 +989,14 @@ int main(int argc, char** argv)
 					if (receiver.isReloadKeyPressed())
 					{
 						printf("[INFO]: Reloading..\n");
+
+						// Set up the special reload condition.
+						const char* cmdLineParams = "-SCENE=";
+						HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], cmdLineParams, NULL, SW_SHOWNORMAL);
+						if ((uint64_t)result <= 32)
+							printf("[ERROR]: Failed to reload.\n");
+						else
+							exit(0);
 					}
 					receiver.resetKeys();
 				}
@@ -1077,7 +1064,7 @@ int main(int argc, char** argv)
 	}
 
 	// Interactive
-	if(!shouldTerminateAfterRenders && receiver.keepOpen())
+	if((processSensorsBehaviour != ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE) && receiver.keepOpen())
 	{
 		int activeSensor = -1;
 
