@@ -125,12 +125,124 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 struct PersistentState
 {
 	bool isBeauty;
-	uint32_t sensorID;
-	// ZIP path starts from (uint8_t*)base + sizeof(PersistentState)
-	// XML path starts from (uint8_t*)base + sizeof(PersistentState) + xmlPathOffset
-	uint32_t xmlPathOffset;
+	bool isInteractiveMode;
+	uint32_t startSensorID;
+	std::string zipPath;
+	std::string xmlPath;
 	ProcessSensorsBehaviour processSensorsBehaviour;
 	core::matrix3x4SIMD interactiveCameraViewMatrix;
+
+	bool readFromDisk()
+	{
+		bool readSuccess = false;
+		std::ifstream readFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
+		if (readFile.is_open())
+		{
+			auto readSize = readFile.tellg();
+			if (readSize != std::istream::pos_type(-1))
+			{
+				std::unique_ptr<uint8_t[]> readBuffer = std::make_unique<uint8_t[]>(readSize);
+				readFile.seekg(0, std::ios::beg);
+				readFile.read(reinterpret_cast<char*>(readBuffer.get()), readSize);
+				if (readFile.rdstate() == std::ios_base::goodbit)
+				{
+					uint64_t offset = 0;
+
+					memcpy(&isBeauty, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&isInteractiveMode, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&startSensorID, readBuffer.get() + offset, sizeof(uint32_t));
+					offset += sizeof(uint32_t);
+
+					memcpy(&processSensorsBehaviour, readBuffer.get() + offset, sizeof(ProcessSensorsBehaviour));
+					offset += sizeof(ProcessSensorsBehaviour);
+
+					memcpy(&interactiveCameraViewMatrix, readBuffer.get() + offset, sizeof(core::matrix3x4SIMD));
+					offset += sizeof(core::matrix3x4SIMD);
+
+					const char* path = reinterpret_cast<const char*>(readBuffer.get() + offset);
+					zipPath = std::string(path);
+					offset += zipPath.length() + 1;
+
+					path = reinterpret_cast<const char*>(readBuffer.get() + offset);
+					xmlPath = std::string(path);
+					offset += xmlPath.length() + 1;
+
+					readSuccess = (offset == static_cast<uint64_t>(readSize));
+				}
+			}
+
+			readFile.close();
+		}
+
+		return readSuccess;
+	}
+
+	bool writeToDisk() const
+	{
+		bool writeSuccess = false;
+		std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
+		if (outFile.is_open())
+		{
+			const size_t writeSize = getSerializedMemorySize();
+
+			std::unique_ptr<uint8_t[]> writeBuffer = std::make_unique<uint8_t[]>(writeSize);
+
+			uint64_t offset = 0;
+
+			memcpy(writeBuffer.get() + offset, &isBeauty, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &isInteractiveMode, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &startSensorID, sizeof(uint32_t));
+			offset += sizeof(uint32_t);
+
+			memcpy(writeBuffer.get() + offset, &processSensorsBehaviour, sizeof(ProcessSensorsBehaviour));
+			offset += sizeof(ProcessSensorsBehaviour);
+
+			memcpy(writeBuffer.get() + offset, &interactiveCameraViewMatrix, sizeof(core::matrix3x4SIMD));
+			offset += sizeof(core::matrix3x4SIMD);
+
+			memcpy(writeBuffer.get() + offset, zipPath.c_str(), zipPath.length() + 1);
+			offset += zipPath.length() + 1;
+
+			memcpy(writeBuffer.get() + offset, xmlPath.c_str(), xmlPath.length() + 1);
+			offset += xmlPath.length() + 1;
+
+			assert(offset == static_cast<uint32_t>(writeSize));
+
+			outFile.write(reinterpret_cast<char*>(writeBuffer.get()), writeSize);
+			if (outFile.rdstate() == std::ios_base::goodbit)
+				writeSuccess = true;
+
+			outFile.close();
+		}
+
+		if (!writeSuccess)
+			printf("[ERROR]: Failed to write the persistent state cache.\n");
+
+		return writeSuccess;
+	}
+
+private:
+	inline size_t getSerializedMemorySize() const
+	{
+		const size_t result =
+			sizeof(bool)					+ // isBeauty
+			sizeof(bool)					+ // isInteractiveMode
+			sizeof(uint32_t)				+ // startSensorID
+			sizeof(ProcessSensorsBehaviour) + // processSensorsBehaviour
+			sizeof(core::matrix3x4SIMD)		+ // interactiveCameraViewMatrix
+			(zipPath.length() + 1)			+
+			(xmlPath.length() + 1)			;
+
+		return result;
+	}
 };
 
 int main(int argc, char** argv)
@@ -152,17 +264,14 @@ int main(int argc, char** argv)
 	};
 #endif
 	
-	
 	bool applicationIsReloaded = false;
-	ProcessSensorsBehaviour processSensorsBehaviour;
-	uint32_t startSensorID;
-	std::string zipPath = "";
-	std::string xmlPath = "";
+	PersistentState applicationState;
+	applicationState.isInteractiveMode = false;
 	{
 		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
 
-		processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
-		startSensorID = cmdHandler.getSensorID();
+		applicationState.processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+		applicationState.startSensorID = cmdHandler.getSensorID();
 
 		auto sceneDir = cmdHandler.getSceneDirectory();
 		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
@@ -172,12 +281,12 @@ int main(int argc, char** argv)
 		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
 		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
 		{
-			zipPath = filePath;
-			xmlPath = extraPath;
+			applicationState.zipPath = filePath;
+			applicationState.xmlPath = extraPath;
 		}
 		else
 		{
-			xmlPath = filePath;
+			applicationState.xmlPath = filePath;
 		}
 		// After this, there could be 4 cases:
 		// 1. zipPath filled, xmlPath filled -> load xml from zip
@@ -221,16 +330,16 @@ int main(int argc, char** argv)
 		am->addAssetLoader(std::move(serializedLoader));
 		am->addAssetLoader(std::move(mitsubaLoader));
 
-		if (zipPath.empty() && xmlPath.empty() && !applicationIsReloaded)
+		if (applicationState.zipPath.empty() && applicationState.xmlPath.empty() && !applicationIsReloaded)
 		{
 			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
 			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
 			if (!file.result().empty())
 			{
 				if (core::hasFileExtension(io::path(file.result()[0].c_str()), "zip", "ZIP"))
-					zipPath = file.result()[0];
+					applicationState.zipPath = file.result()[0];
 				else
-					xmlPath = file.result()[0];
+					applicationState.xmlPath = file.result()[0];
 			}
 		}
 
@@ -346,47 +455,21 @@ int main(int argc, char** argv)
 			return result;
 		};
 
-		meshes = loadScene(zipPath, xmlPath, mainFileName);
+		meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
 		if (meshes.getContents().empty() || applicationIsReloaded)
 		{
-			if (meshes.getContents().empty() && !xmlPath.empty())
-				printf("[ERROR]: Failed to load asset at: %s\n", xmlPath.c_str());
+			if (meshes.getContents().empty() && !applicationState.xmlPath.empty())
+				printf("[ERROR]: Failed to load asset at: %s\n", applicationState.xmlPath.c_str());
 
 			// Restore state to get new values for zipPath and xmlPath and try loading again
 			printf("[INFO]: Trying to restore the application to its previous state.\n");
 
 			bool restoreSuccess = false;
-			PersistentState prevAppState;
-			std::ifstream stateCacheFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
-
-			if (stateCacheFile.is_open())
+			if (applicationState.readFromDisk())
 			{
-				auto fileSize = stateCacheFile.tellg();
-				if (fileSize != std::istream::pos_type(-1))
-				{
-					std::vector<char> fileBuffer(fileSize);
-					stateCacheFile.seekg(0, std::ios::beg);
-					stateCacheFile.read(fileBuffer.data(), fileSize);
-					if (stateCacheFile.rdstate() == std::ios_base::goodbit)
-					{
-						prevAppState = *reinterpret_cast<PersistentState*>(fileBuffer.data());
-
-						// TODO(achal): prevAppState also has some more data that we will most likely find useful for the rest of the application.
-						zipPath = std::string(fileBuffer.data() + sizeof(PersistentState));
-						xmlPath = std::string(fileBuffer.data() + sizeof(PersistentState) + prevAppState.xmlPathOffset);
-
-						// If we are restoring the application to a previous state, then we should ignore the values coming from command line.
-						startSensorID = prevAppState.sensorID;
-						processSensorsBehaviour = prevAppState.processSensorsBehaviour;
-
-						if (meshes.getContents().empty())
-							meshes = loadScene(zipPath, xmlPath, mainFileName);
-
-						if (!meshes.getContents().empty())
-							restoreSuccess = true;
-					}
-				}
-				stateCacheFile.close();
+				meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
+				if (!meshes.getContents().empty())
+					restoreSuccess = true;
 			}
 
 			if (!restoreSuccess)
@@ -412,10 +495,10 @@ int main(int argc, char** argv)
 			return 5; // return code?
 		}
 
-		if (startSensorID >= globalMeta->m_global.m_sensors.size())
+		if (applicationState.startSensorID >= globalMeta->m_global.m_sensors.size())
 		{
-			startSensorID = 0;
-			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", startSensorID);
+			applicationState.startSensorID = 0;
+			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", applicationState.startSensorID);
 		}
 	}
 	
@@ -890,15 +973,16 @@ int main(int argc, char** argv)
 	}
 
 	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
+	if (!applicationState.isInteractiveMode)
 	{
 		assert(startSensorID < globalMeta->m_global.m_sensors.size() && "startSensorID should've been a valid value by now.");
 
-		uint32_t onePastLastSensorID = startSensorID;
-		if ((processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE) || (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE))
+		uint32_t onePastLastSensorID = applicationState.startSensorID;
+		if ((applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE) || (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE))
 			onePastLastSensorID = sensors.size();
-		else if (processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE)
-			onePastLastSensorID = startSensorID + 1;
-		nonInteractiveSensors = { sensors.data() + startSensorID, sensors.data() + onePastLastSensorID };
+		else if (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE)
+			onePastLastSensorID = applicationState.startSensorID + 1;
+		nonInteractiveSensors = { sensors.data() + applicationState.startSensorID, sensors.data() + onePastLastSensorID };
 	}
 	assert(nonInteractiveSensors.size() <= sensors.size());
 
@@ -918,38 +1002,15 @@ int main(int argc, char** argv)
 
 			// Save application's current persistent state to disk.
 			{
-				bool writeSuccess = false;
-				std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
-				if (outFile.is_open())
-				{
-					const size_t writeFileSize = sizeof(PersistentState) + (zipPath.length() + 1) + (xmlPath.length() + 1);
-					core::vector<char> writeFileBuffer(writeFileSize);
-					PersistentState* writeState = new (writeFileBuffer.data()) PersistentState();
-					{
-						writeState->sensorID = s;
-						writeState->isBeauty = receiver.isRenderingBeauty();
-						writeState->processSensorsBehaviour = processSensorsBehaviour;
-						writeState->xmlPathOffset = zipPath.length()+1;
-						// writeState->interactiveCameraViewMatrix = ; // I think we don't need to set this here.
-					}
-					{
-						memcpy(writeFileBuffer.data() + sizeof(PersistentState), zipPath.c_str(), zipPath.length()+1);
-						memcpy(writeFileBuffer.data() + sizeof(PersistentState) + writeState->xmlPathOffset, xmlPath.c_str(), xmlPath.length()+1);
-					}
+				applicationState.isBeauty = receiver.isRenderingBeauty();
+				applicationState.isInteractiveMode = false;
+				applicationState.startSensorID = s;
 
-					outFile.write(writeFileBuffer.data(), writeFileSize);
-					if (outFile.rdstate() == std::ios_base::goodbit)
-						writeSuccess = true;
-
-					outFile.close();
-					writeState->~PersistentState();
-				}
-
-				if (!writeSuccess)
-					printf("[ERROR]: Failed to write the persistent state cache.\n");
+				if (!applicationState.writeToDisk())
+					printf("[ERROR]: Cannot write application state to disk\n");
 			}
 		
-			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", xmlPath.c_str(), s);
+			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", applicationState.xmlPath.c_str(), s);
 
 			bool needsReinit = prevWidth!=sensor.width || prevHeight!=sensor.height || prevCascadeCount!=sensor.cascadeCount || prevRegFactor!=sensor.envmapRegFactor;
 			prevWidth = sensor.width;
@@ -1064,7 +1125,7 @@ int main(int argc, char** argv)
 	}
 
 	// Interactive
-	if((processSensorsBehaviour != ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE) && receiver.keepOpen())
+	if((applicationState.processSensorsBehaviour != ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE) && receiver.keepOpen())
 	{
 		int activeSensor = -1;
 
@@ -1099,8 +1160,11 @@ int main(int argc, char** argv)
 			}
 		};
 
-		setActiveSensor(startSensorID);
+		setActiveSensor(applicationState.startSensorID);
 
+		PersistentState state;
+		state.isInteractiveMode = true;
+		state.processSensorsBehaviour = applicationState.processSensorsBehaviour;
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
 		bool renderFailed = false;
@@ -1116,10 +1180,12 @@ int main(int argc, char** argv)
 				if(receiver.isNextPressed())
 				{
 					setActiveSensor(activeSensor + 1);
+					// writeOutPersistentState
 				}
 				if(receiver.isPreviousPressed())
 				{
 					setActiveSensor(activeSensor - 1);
+					// writeOutPersistentState
 				}
 				if(receiver.isScreenshotKeyPressed())
 				{
