@@ -118,17 +118,17 @@ public:
 		{
 			constexpr uint32_t maxItemCount = 256u;
 			{
-				video::IDescriptorPool::SDescriptorPoolSize poolSize;
-				poolSize.count = textureCount;
-				poolSize.type = asset::EDT_COMBINED_IMAGE_SAMPLER;
-				return logicalDevice->createDescriptorPool(static_cast<video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
+				video::IDescriptorPool::SCreateInfo createInfo;
+				createInfo.maxSets = maxItemCount;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
+				return logicalDevice->createDescriptorPool(std::move(createInfo));
 			}
 		};
 
 		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
 		auto immutableSampler = logicalDevice->createSampler(samplerParams);
 
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::EDT_COMBINED_IMAGE_SAMPLER, 1u, video::IGPUShader::ESS_FRAGMENT, &immutableSampler };
+		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
 		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
 		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
 		auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
@@ -453,7 +453,7 @@ public:
 			}
 		};
 
-		auto ds = logicalDevice->createDescriptorSet(gpuDescriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+		auto ds = gpuDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
@@ -485,8 +485,8 @@ public:
 			video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
 				info.desc = gpuImageView;
-				info.image.sampler = nullptr;
-				info.image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
+				info.info.image.sampler = nullptr;
+				info.info.image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 			}
 
 			video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -494,7 +494,7 @@ public:
 			write.binding = 0u;
 			write.arrayElement = 0u;
 			write.count = 1u;
-			write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+			write.descriptorType = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
 			write.info = &info;
 
 			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);

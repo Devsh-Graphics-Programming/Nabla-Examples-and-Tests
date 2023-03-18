@@ -52,7 +52,6 @@ public:
 
     nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
     
-    core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool;
     video::IDeviceMemoryBacked::SDeviceMemoryRequirements ubomemreq;
     core::smart_refctd_ptr<video::IGPUBuffer> gpuubo;
     core::smart_refctd_ptr<video::IGPUDescriptorSet> gpuds1;
@@ -91,17 +90,6 @@ public:
     video::CDumbPresentationOracle oracle;
     
     core::smart_refctd_ptr<video::IGPUBuffer> queryResultsBuffer;
-
-    auto createDescriptorPool(const uint32_t textureCount)
-    {
-        constexpr uint32_t maxItemCount = 256u;
-        {
-            nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-            poolSize.count = textureCount;
-            poolSize.type = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
-            return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-        }
-    }
 
     void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
     {
@@ -294,13 +282,7 @@ public:
 
         // so we can create just one DS
         const asset::ICPUDescriptorSetLayout* ds1layout = firstMeshBuffer->getPipeline()->getLayout()->getDescriptorSetLayout(1u);
-        ds1UboBinding = 0u;
-        for (const auto& bnd : ds1layout->getBindings())
-            if (bnd.type == asset::EDT_UNIFORM_BUFFER)
-            {
-                ds1UboBinding = bnd.binding;
-                break;
-            }
+        ds1UboBinding = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER).getBinding(asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t{ 0 }).data;
 
         size_t neededDS1UBOsz = 0ull;
         {
@@ -318,7 +300,13 @@ public:
             gpuds1layout = (*gpu_array)[0];
         }
 
-        descriptorPool = createDescriptorPool(1u);
+        core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
+        {
+            video::IDescriptorPool::SCreateInfo createInfo = {};
+            createInfo.maxSets = 1u;
+            createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = 1u;
+            descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+        }
 
         video::IGPUBuffer::SCreationParams gpuuboCreationParams;
         gpuuboCreationParams.size = neededDS1UBOsz;
@@ -331,7 +319,7 @@ public:
         gpuuboMemReqs.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
         auto uboMemoryOffset = logicalDevice->allocate(gpuuboMemReqs, gpuubo.get(), video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
 
-        gpuds1 = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
+        gpuds1 = descriptorPool->createDescriptorSet(std::move(gpuds1layout));
 
         {
             video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -339,12 +327,12 @@ public:
             write.binding = ds1UboBinding;
             write.count = 1u;
             write.arrayElement = 0u;
-            write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+            write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
             video::IGPUDescriptorSet::SDescriptorInfo info;
             {
                 info.desc = gpuubo;
-                info.buffer.offset = 0ull;
-                info.buffer.size = neededDS1UBOsz;
+                info.info.buffer.offset = 0ull;
+                info.info.buffer.size = neededDS1UBOsz;
             }
             write.info = &info;
             logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);

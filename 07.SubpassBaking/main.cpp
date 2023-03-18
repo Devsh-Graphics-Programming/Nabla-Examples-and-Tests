@@ -237,12 +237,9 @@ public:
 
                 // so we can create just one DS
                 const asset::ICPUDescriptorSetLayout* ds1layout = firstMeshBuffer->getPipeline()->getLayout()->getDescriptorSetLayout(1u);
-                for (const auto& bnd : ds1layout->getBindings())
-                    if (bnd.type == asset::EDT_UNIFORM_BUFFER)
-                    {
-                        cameraUBOBinding = bnd.binding;
-                        break;
-                    }
+                const auto& uboRedirect = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER);
+                assert(uboRedirect.getBindingCount() == 1u);
+                cameraUBOBinding = uboRedirect.getBinding(asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t{ 0 }).data;
 
                 for (const auto& shdrIn : pipelineMetadata->m_inputSemantics)
                     if (shdrIn.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::ET_UNIFORM_BUFFER && shdrIn.descriptorSection.uniformBufferObject.set == 1u && shdrIn.descriptorSection.uniformBufferObject.binding == cameraUBOBinding)
@@ -268,19 +265,19 @@ public:
             ubomemreq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
             logicalDevice->allocate(ubomemreq, cameraUBO.get());
 
-            perCameraDescSet = logicalDevice->createDescriptorSet(descriptorPool.get(), std::move(gpuds1layout));
+            perCameraDescSet = descriptorPool->createDescriptorSet(std::move(gpuds1layout));
             {
                 video::IGPUDescriptorSet::SWriteDescriptorSet write;
                 write.dstSet = perCameraDescSet.get();
                 write.binding = cameraUBOBinding;
                 write.count = 1u;
                 write.arrayElement = 0u;
-                write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+                write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
                 video::IGPUDescriptorSet::SDescriptorInfo info;
                 {
                     info.desc = cameraUBO;
-                    info.buffer.offset = 0ull;
-                    info.buffer.size = neededDS1UBOsz;
+                    info.info.buffer.offset = 0ull;
+                    info.info.buffer.size = neededDS1UBOsz;
                 }
                 write.info = &info;
                 logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
