@@ -10,8 +10,11 @@ nothing fancy, just to show that Nabla links fine
 #include <iostream>
 #include <cstdio>
 
+#include "nbl/system/CColoredStdoutLoggerANSI.h"
 #include "nbl/system/IApplicationFramework.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
+
+#include "nbl/ui/CWindowManagerXCB.h"
 
 using namespace nbl;
 
@@ -196,10 +199,15 @@ public:
 		// create basic system objects
 		system = createSystem();
 		auto logLevelMask = core::bitflag(system::ILogger::ELL_DEBUG) | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_WARNING | system::ILogger::ELL_ERROR;
+	
+	#ifdef _NBL_PLATFORM_WINDOWS_
 		logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(logLevelMask);
+	#else
+		logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(logLevelMask);
+	#endif
 
 		// set windo event callback
-#ifndef _NBL_PLATFORM_ANDROID_
+#ifdef _NBL_PLATFORM_WINDOWS_
 		auto windowManager = core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>();
 		windowCb = core::make_smart_refctd_ptr<DemoEventCallback>();
 
@@ -214,9 +222,22 @@ public:
 		params.callback = windowCb;
 		// TODO (deprilula): Win32 window seems to be resizable despite the lack of resizability flag in the creation parameters!
 		window = windowManager->createWindow(std::move(params));
+#elif defined(_NBL_PLATFORM_LINUX_)
+		auto windowManager = core::make_smart_refctd_ptr<nbl::ui::CWindowManagerXCB>();
+		windowCb = core::make_smart_refctd_ptr<DemoEventCallback>();
+
+		ui::IWindow::SCreationParams params;
+		params.width = WIN_W;
+		params.height = WIN_H;
+		params.x = 64;
+		params.y = 64;
+		params.system = core::smart_refctd_ptr(system);
+		params.flags = ui::IWindow::ECF_NONE;
+		params.windowCaption = APP_NAME;
+		params.callback = windowCb;
+		window = windowManager->createWindow(std::move(params));
 #else
-		assert(window);
-		window->setEventCallback(core::smart_refctd_ptr(windowCb));
+	#error "Unsupported platform"
 #endif
 
 		// create API connection
@@ -234,12 +255,20 @@ public:
 			assert(apiConnection);
 		}
 
-		{
-			surface = video::CSurfaceVulkanWin32::create(
-				core::smart_refctd_ptr<video::CVulkanConnection>(static_cast<video::CVulkanConnection*>(apiConnection.get())),
-				core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
-			assert(surface);
-		}
+#ifdef _NBL_PLATFORM_WINDOWS_
+		surface = video::CSurfaceVulkanWin32::create(
+			core::smart_refctd_ptr<video::CVulkanConnection>(static_cast<video::CVulkanConnection*>(apiConnection.get())),
+			core::smart_refctd_ptr<ui::IWindowWin32>(static_cast<ui::IWindowWin32*>(window.get())));
+		assert(surface);
+#elif defined(_NBL_PLATFORM_LINUX_)
+		surface = video::CSurfaceVulkanXcb::create(
+			core::smart_refctd_ptr<video::CVulkanConnection>(static_cast<video::CVulkanConnection*>(apiConnection.get())),
+			core::smart_refctd_ptr<ui::IWindowXCB>(static_cast<ui::IWindowXCB*>(window.get())));
+		assert(surface);
+#else
+	#error "Unsupported platform"
+#endif
+		
 
 		// Find a suitable gpu
 		auto gpus = apiConnection->getPhysicalDevices();

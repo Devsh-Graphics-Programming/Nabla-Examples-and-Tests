@@ -500,7 +500,7 @@ public:
 				#ifdef _NBL_PLATFORM_WINDOWS_
 					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
 				#elif defined(_NBL_PLATFORM_LINUX_)
-					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerX11>(); // on the Android path
+					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerXCB>(); // on the Android path
 				#else
 					#error "Unsupported platform"
 				#endif
