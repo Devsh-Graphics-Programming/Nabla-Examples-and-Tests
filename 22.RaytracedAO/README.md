@@ -173,6 +173,7 @@ So the full width, height are 1152x1152 (64+1024+64=1152)
 | P         | Press to take a snapshot when moving around (will be denoised)                                                         |
 | L         | Press to log the current progress percentage and samples rendered.                                                     |
 | B         | Toggle between Path Tracing and Albedo preview, allows you to position the camera more responsively in complex scenes. |
+| F5		| Press to reload the application.                                                                                       |
 
 ## Denoiser Hook
 `denoiser_hook.bat` is a script that you can call to denoise your rendered images.
