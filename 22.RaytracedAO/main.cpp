@@ -130,7 +130,8 @@ struct PersistentState
 	std::string zipPath;
 	std::string xmlPath;
 	ProcessSensorsBehaviour processSensorsBehaviour;
-	core::matrix3x4SIMD interactiveCameraViewMatrix;
+	// It is important to initialize it to all 0s because we use the condition of determinant 0 as an invalid condition for the view matrix.
+	core::matrix3x4SIMD interactiveCameraViewMatrix = core::matrix3x4SIMD(core::vectorSIMDf(), core::vectorSIMDf(), core::vectorSIMDf());
 
 	bool readFromDisk()
 	{
@@ -266,12 +267,12 @@ int main(int argc, char** argv)
 	
 	bool applicationIsReloaded = false;
 	PersistentState applicationState;
-	applicationState.isInteractiveMode = false;
 	{
 		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
 
 		applicationState.processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
 		applicationState.startSensorID = cmdHandler.getSensorID();
+		applicationState.isInteractiveMode = (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
 
 		auto sceneDir = cmdHandler.getSceneDirectory();
 		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
@@ -711,6 +712,12 @@ int main(int argc, char** argv)
 		// need to extract individual components from matrix to camera
 		{
 			auto relativeTransform = sensor.transform.matrix.extractSub3x4();
+			if (applicationState.isInteractiveMode && (idx == applicationState.startSensorID) && (core::abs(applicationState.interactiveCameraViewMatrix.getPseudoDeterminant().x) > 1e-6f))
+			{
+				if (!applicationState.interactiveCameraViewMatrix.getInverse(relativeTransform))
+					printf("[ERROR]: Previously saved interactive camera's view matrix is not invertible.\n");
+			}
+			
 			if (relativeTransform.getPseudoDeterminant().x < 0.f)
 				mainSensorData.rightHandedCamera = false;
 			else
@@ -986,6 +993,19 @@ int main(int argc, char** argv)
 	}
 	assert(nonInteractiveSensors.size() <= sensors.size());
 
+	auto reloadApplication = [argv]()
+	{
+		printf("[INFO]: Reloading..\n");
+
+		// Set up the special reload condition.
+		const char* cmdLineParams = "-SCENE=";
+		HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], cmdLineParams, NULL, SW_SHOWNORMAL);
+		if ((uint64_t)result <= 32)
+			printf("[ERROR]: Failed to reload.\n");
+		else
+			exit(0);
+	};
+
 	// Render To file
 	int32_t prevWidth = 0;
 	int32_t prevHeight = 0;
@@ -1050,18 +1070,10 @@ int main(int argc, char** argv)
 					if (receiver.isReloadKeyPressed())
 					{
 						printf("[INFO]: Reloading..\n");
-
-						// Set up the special reload condition.
-						const char* cmdLineParams = "-SCENE=";
-						HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], cmdLineParams, NULL, SW_SHOWNORMAL);
-						if ((uint64_t)result <= 32)
-							printf("[ERROR]: Failed to reload.\n");
-						else
-							exit(0);
+						reloadApplication();
 					}
 					receiver.resetKeys();
 				}
-
 
 				driver->beginScene(false, false);
 
@@ -1162,9 +1174,7 @@ int main(int argc, char** argv)
 
 		setActiveSensor(applicationState.startSensorID);
 
-		PersistentState state;
-		state.isInteractiveMode = true;
-		state.processSensorsBehaviour = applicationState.processSensorsBehaviour;
+		bool writeLastRunState = false;
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
 		bool renderFailed = false;
@@ -1180,12 +1190,12 @@ int main(int argc, char** argv)
 				if(receiver.isNextPressed())
 				{
 					setActiveSensor(activeSensor + 1);
-					// writeOutPersistentState
+					writeLastRunState = true;
 				}
 				if(receiver.isPreviousPressed())
 				{
 					setActiveSensor(activeSensor - 1);
-					// writeOutPersistentState
+					writeLastRunState = true;
 				}
 				if(receiver.isScreenshotKeyPressed())
 				{
@@ -1223,11 +1233,6 @@ int main(int argc, char** argv)
 				{
 					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed.\n", renderer->getTotalSamplesPerPixelComputed());
 				}
-				if (receiver.isReloadKeyPressed())
-				{
-					printf("[INFO]: Reloading..\n");
-				}
-				receiver.resetKeys();
 			}
 
 			driver->beginScene(false, false);
@@ -1241,6 +1246,34 @@ int main(int argc, char** argv)
 				renderFailed = true;
 				driver->endScene();
 				break;
+			}
+
+			if (writeLastRunState)
+			{
+				applicationState.isBeauty = receiver.isRenderingBeauty();
+				applicationState.isInteractiveMode = true;
+				applicationState.startSensorID = activeSensor;
+				applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
+
+				applicationState.writeToDisk();
+
+				writeLastRunState = false;
+			}
+
+			// Post-frame input handling
+			{
+				if (receiver.isReloadKeyPressed())
+				{
+					applicationState.isBeauty = receiver.isRenderingBeauty();
+					applicationState.isInteractiveMode = true;
+					applicationState.startSensorID = activeSensor;
+					applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
+
+					applicationState.writeToDisk();
+
+					reloadApplication();
+				}
+				receiver.resetKeys();
 			}
 
 			auto oldVP = driver->getViewPort();
