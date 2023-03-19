@@ -171,14 +171,6 @@ public:
 			depthFormat
 		);
 
-		video::IDescriptorPool::SDescriptorPoolSize poolSize[2];
-		poolSize[0].count = 1;
-		poolSize[0].type = asset::EDT_STORAGE_BUFFER;
-		poolSize[1].count = 1;
-		poolSize[1].type = asset::EDT_UNIFORM_BUFFER;
-
-		auto dscPool = device->createDescriptorPool(video::IDescriptorPool::ECF_FREE_DESCRIPTOR_SET_BIT, 2, 2, poolSize);
-
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 		m_cameraPosition = core::vectorSIMDf(0, 0, -10);
 		matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(90.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.01, 100);
@@ -217,7 +209,7 @@ public:
 		{
 			//! This example first preprocesses and then compiles the shader, although it could've been done by calling compileToSPIRV with setting compilerOptions.preprocessorOptions 
 			asset::IShaderCompiler::SCompilerOptions compilerOptions = {};
-			compilerOptions.entryPoint = "main";
+			// compilerOptions.entryPoint = "main";
 			compilerOptions.stage = computeUnspec->getStage();
 			compilerOptions.genDebugInfo = true; // should be true for introspection
 			compilerOptions.preprocessorOptions.sourceIdentifier = computeUnspec->getFilepathHint(); // already preprocessed but for logging it's best to fill sourceIdentifier
@@ -303,35 +295,7 @@ public:
 		auto gpuUboCompute = device->createBuffer(std::move(uboComputeCreationParams));
 		auto gpuUboComputeMemReqs = gpuUboCompute->getMemoryReqs();
 		gpuUboComputeMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-		device->allocate(gpuUboComputeMemReqs, gpuUboCompute.get());
-		m_gpuds0Compute = device->createDescriptorSet(dscPool.get(), std::move(gpuDs0layoutCompute));
-		{
-			video::IGPUDescriptorSet::SDescriptorInfo i[3];
-			video::IGPUDescriptorSet::SWriteDescriptorSet w[2];
-			w[0].arrayElement = 0u;
-			w[0].binding = PARTICLE_BUF_BINDING;
-			w[0].count = BUF_COUNT;
-			w[0].descriptorType = asset::EDT_STORAGE_BUFFER;
-			w[0].dstSet = m_gpuds0Compute.get();
-			w[0].info = i;
-			w[1].arrayElement = 0u;
-			w[1].binding = COMPUTE_DATA_UBO_BINDING;
-			w[1].count = 1u;
-			w[1].descriptorType = asset::EDT_UNIFORM_BUFFER;
-			w[1].dstSet = m_gpuds0Compute.get();
-			w[1].info = i + 2u;
-			i[0].desc = m_gpuParticleBuf;
-			i[0].buffer.offset = 0ull;
-			i[0].buffer.size = BUF_SZ;
-			i[1].desc = m_gpuParticleBuf;
-			i[1].buffer.offset = BUF_SZ;
-			i[1].buffer.size = BUF_SZ;
-			i[2].desc = gpuUboCompute;
-			i[2].buffer.offset = 0ull;
-			i[2].buffer.size = gpuUboCompute->getSize();
-
-			device->updateDescriptorSets(2u, w, 0u, nullptr);
-		}
+		device->allocate(gpuUboComputeMemReqs, gpuUboCompute.get());		
 
 		asset::SBufferBinding<video::IGPUBuffer> vtxBindings[video::IGPUMeshBuffer::MAX_ATTR_BUF_BINDING_COUNT];
 		vtxBindings[0].buffer = m_gpuParticleBuf;
@@ -353,7 +317,7 @@ public:
 
 			auto compiler = compilerSet->getShaderCompiler(computeUnspec->getContentType());
 			asset::IShaderCompiler::SCompilerOptions compilerOptions = {};
-			compilerOptions.entryPoint = specializedShader->getSpecializationInfo().entryPoint;
+			// compilerOptions.entryPoint = specializedShader->getSpecializationInfo().entryPoint;
 			compilerOptions.stage = unspecShader->getStage();
 			compilerOptions.genDebugInfo = true;
 			compilerOptions.preprocessorOptions.sourceIdentifier = unspecShader->getFilepathHint(); // already preprocessed but for logging it's best to fill sourceIdentifier
@@ -387,7 +351,42 @@ public:
 		m_rpIndependentPipeline = CPU2GPU.getGPUObjectsFromAssets(&pipeline.get(), &pipeline.get() + 1, cpu2gpuParams)->front();
 		auto* ds0layoutGraphics = gfxLayout->getDescriptorSetLayout(0);
 		core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> gpuDs0layoutGraphics = CPU2GPU.getGPUObjectsFromAssets(&ds0layoutGraphics, &ds0layoutGraphics + 1, cpu2gpuParams)->front();
-		m_gpuds0Graphics = device->createDescriptorSet(dscPool.get(), std::move(gpuDs0layoutGraphics));
+
+		video::IGPUDescriptorSetLayout* gpuDSLayouts_raw[2] = { gpuDs0layoutCompute.get(), gpuDs0layoutGraphics.get() };
+		const uint32_t setCount[2] = { 1u, 1u };
+		auto dscPool = device->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, gpuDSLayouts_raw, gpuDSLayouts_raw + 2ull, setCount);
+
+		m_gpuds0Compute = dscPool->createDescriptorSet(std::move(gpuDs0layoutCompute));
+		{
+			video::IGPUDescriptorSet::SDescriptorInfo i[3];
+			video::IGPUDescriptorSet::SWriteDescriptorSet w[2];
+			w[0].arrayElement = 0u;
+			w[0].binding = PARTICLE_BUF_BINDING;
+			w[0].count = BUF_COUNT;
+			w[0].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			w[0].dstSet = m_gpuds0Compute.get();
+			w[0].info = i;
+			w[1].arrayElement = 0u;
+			w[1].binding = COMPUTE_DATA_UBO_BINDING;
+			w[1].count = 1u;
+			w[1].descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
+			w[1].dstSet = m_gpuds0Compute.get();
+			w[1].info = i + 2u;
+			i[0].desc = m_gpuParticleBuf;
+			i[0].info.buffer.offset = 0ull;
+			i[0].info.buffer.size = BUF_SZ;
+			i[1].desc = m_gpuParticleBuf;
+			i[1].info.buffer.offset = BUF_SZ;
+			i[1].info.buffer.size = BUF_SZ;
+			i[2].desc = gpuUboCompute;
+			i[2].info.buffer.offset = 0ull;
+			i[2].info.buffer.size = gpuUboCompute->getSize();
+
+			device->updateDescriptorSets(2u, w, 0u, nullptr);
+		}
+
+
+		m_gpuds0Graphics = dscPool->createDescriptorSet(std::move(gpuDs0layoutGraphics));
 
 		video::IGPUGraphicsPipeline::SCreationParams gp_params;
 		gp_params.rasterizationSamples = asset::IImage::ESCF_1_BIT;
@@ -411,12 +410,12 @@ public:
 			w.arrayElement = 0u;
 			w.binding = GRAPHICS_DATA_UBO_BINDING;
 			w.count = 1u;
-			w.descriptorType = asset::EDT_UNIFORM_BUFFER;
+			w.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 			w.dstSet = m_gpuds0Graphics.get();
 			w.info = &i;
 			i.desc = gpuUboGraphics;
-			i.buffer.offset = 0u;
-			i.buffer.size = gpuUboGraphics->getSize(); // gpuUboGraphics->getSize();
+			i.info.buffer.offset = 0u;
+			i.info.buffer.size = gpuUboGraphics->getSize(); // gpuUboGraphics->getSize();
 
 			device->updateDescriptorSets(1u, &w, 0u, nullptr);
 		}
