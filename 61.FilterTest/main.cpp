@@ -752,13 +752,13 @@ class BlitFilterTestApp : public ApplicationBase
 					alphaTestPipeline = blitFilter->getAlphaTestPipeline(m_alphaBinCount, inImageType);
 					normalizationPipeline = blitFilter->getNormalizationPipeline(normalizationInImage->getCreationParameters().type, outImageFormat, m_alphaBinCount);
 
-					normalizationDS = m_parentApp->logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
+					normalizationDS = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(blitDSLayout));
 					blitFilter->updateDescriptorSet(normalizationDS.get(), nullptr, normalizationInImageView, outImageView, coverageAdjustmentScratchBuffer, nullptr);
 				}
 
 				blitPipeline = blitFilter->getBlitPipeline<BlitUtilities>(outImageFormat, inImageType, inExtent, m_outImageDim, m_alphaSemantic, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ, BlitWorkgroupSize, m_alphaBinCount);
-				blitDS = m_parentApp->logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(blitDSLayout));
-				blitWeightsDS = m_parentApp->logicalDevice->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(kernelWeightsDSLayout));
+				blitDS = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(blitDSLayout));
+				blitWeightsDS = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(kernelWeightsDSLayout));
 
 				blitFilter->updateDescriptorSet(blitDS.get(), blitWeightsDS.get(), inImageView, normalizationInImageView, coverageAdjustmentScratchBuffer, scaledKernelPhasedLUTView);
 
