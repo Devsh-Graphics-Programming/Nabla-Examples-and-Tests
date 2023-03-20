@@ -1,7 +1,7 @@
 
 #include "CommonAPI.h"
 
-nbl::video::IPhysicalDevice* const CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(nbl::core::set<nbl::video::IPhysicalDevice* const> suitablePhysicalDevices)
+nbl::video::IPhysicalDevice* CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices)
 {
 
 	if (suitablePhysicalDevices.empty())
@@ -9,7 +9,7 @@ nbl::video::IPhysicalDevice* const CommonAPI::CDefaultPhysicalDeviceSelector::se
 
 	for (auto itr = suitablePhysicalDevices.begin(); itr != suitablePhysicalDevices.end(); ++itr)
 	{
-		nbl::video::IPhysicalDevice* const physdev = *itr;
+		nbl::video::IPhysicalDevice* physdev = *itr;
 		if (physdev->getProperties().driverID == preferredDriver)
 			return physdev;
 	}
@@ -318,23 +318,8 @@ bool CommonAPI::createSwapchain(
 	paramsCp.height = height;
 	paramsCp.oldSwapchain = oldSwapchain;
 
-	if (device->getAPIType() == nbl::video::EAT_VULKAN)
-	{
-		swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(paramsCp));
-	}
-	else if (device->getAPIType() == nbl::video::EAT_OPENGL)
-	{
-		swapchain = nbl::video::COpenGLSwapchain::create(std::move(device), std::move(paramsCp));
-	}
-	else if (device->getAPIType() == nbl::video::EAT_OPENGL_ES)
-	{
-		swapchain = nbl::video::COpenGLESSwapchain::create(std::move(device), std::move(paramsCp));
-	}
-	else
-	{
-		_NBL_TODO();
-	}
-
+	assert(device->getAPIType() == nbl::video::EAT_VULKAN);
+	swapchain = nbl::video::CVulkanSwapchain::create(std::move(device), std::move(paramsCp));
 	assert(swapchain);
 	assert(swapchain != oldSwapchain);
 

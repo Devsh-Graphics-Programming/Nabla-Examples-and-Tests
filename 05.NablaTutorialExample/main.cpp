@@ -85,7 +85,7 @@ public:
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FRAMES_IN_FLIGHT];
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
-	
+
 	CommonAPI::InputSystem::ChannelReader<ui::IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<ui::IKeyboardEventChannel> keyboard;
 	Camera camera = Camera(vectorSIMDf(0, 0, 0), vectorSIMDf(0, 0, 0), matrix4SIMD());
@@ -98,17 +98,6 @@ public:
 	size_t frame_count = 0ull;
 	double time_sum = 0;
 	double dtList[NBL_FRAMES_TO_AVERAGE] = {};
-	
-	auto createDescriptorPool(const uint32_t textureCount)
-	{
-		constexpr uint32_t maxItemCount = 256u;
-		{
-			nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-			poolSize.count = textureCount;
-			poolSize.type = nbl::asset::EDT_COMBINED_IMAGE_SAMPLER;
-			return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-		}
-	}
 	
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
 	{
@@ -277,7 +266,7 @@ public:
 
 			IGPUDescriptorSetLayout::SBinding gpuSamplerBinding;
 			gpuSamplerBinding.binding = ds0SamplerBinding;
-			gpuSamplerBinding.type = EDT_COMBINED_IMAGE_SAMPLER;
+			gpuSamplerBinding.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
 			gpuSamplerBinding.count = 1u;
 			gpuSamplerBinding.stageFlags = static_cast<IGPUShader::E_SHADER_STAGE>(IGPUShader::ESS_FRAGMENT);
 			gpuSamplerBinding.samplers = nullptr;
@@ -290,7 +279,7 @@ public:
 			gpuUboBinding.count = 1u;
 			gpuUboBinding.binding = ds1UboBinding;
 			gpuUboBinding.stageFlags = static_cast<asset::ICPUShader::E_SHADER_STAGE>(asset::ICPUShader::ESS_VERTEX | asset::ICPUShader::ESS_FRAGMENT);
-			gpuUboBinding.type = asset::EDT_UNIFORM_BUFFER;
+			gpuUboBinding.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 
 			/*
 				Creating specific descriptor set layouts from specialized bindings.
@@ -324,39 +313,49 @@ public:
 				We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
 			*/
 
-			auto descriptorPool = createDescriptorPool(1u);
+			nbl::core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
+			{
+				constexpr uint32_t DescriptorSetCount = 2u;
 
-			gpuDescriptorSet3 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs3Layout);
+				video::IDescriptorPool::SCreateInfo createInfo = {};
+				createInfo.maxSets = DescriptorSetCount;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = 1; // DS1 uses one UBO descriptor.
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = 1; // DS3 uses one combined image sampler descriptor.
+
+				descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+			}
+
+			gpuDescriptorSet3 = descriptorPool->createDescriptorSet(gpuDs3Layout);
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuDescriptorSet3.get();
 				write.binding = ds0SamplerBinding;
 				write.count = 1u;
 				write.arrayElement = 0u;
-				write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+				write.descriptorType = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
 				IGPUDescriptorSet::SDescriptorInfo info;
 				{
 					info.desc = std::move(gpuImageView);
 					ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETC_CLAMP_TO_EDGE,ISampler::ETBC_FLOAT_OPAQUE_BLACK,ISampler::ETF_LINEAR,ISampler::ETF_LINEAR,ISampler::ESMM_LINEAR,0u,false,ECO_ALWAYS };
-					info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
+					info.info.image = { logicalDevice->createSampler(samplerParams),IGPUImage::EL_SHADER_READ_ONLY_OPTIMAL };
 				}
 				write.info = &info;
 				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 			}
 
-			gpuDescriptorSet1 = logicalDevice->createDescriptorSet(descriptorPool.get(), gpuDs1Layout);
+			gpuDescriptorSet1 = descriptorPool->createDescriptorSet(gpuDs1Layout);
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuDescriptorSet1.get();
 				write.binding = ds1UboBinding;
 				write.count = 1u;
 				write.arrayElement = 0u;
-				write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+				write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 				video::IGPUDescriptorSet::SDescriptorInfo info;
 				{
 					info.desc = gpuubo;
-					info.buffer.offset = 0ull;
-					info.buffer.size = sizeof(SBasicViewParameters);
+					info.info.buffer.offset = 0ull;
+					info.info.buffer.size = sizeof(SBasicViewParameters);
 				}
 				write.info = &info;
 				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
@@ -590,6 +589,8 @@ public:
 	{
 		return windowCb->isWindowOpen();
 	}
+
+	void onAppTerminated_impl() override { logicalDevice->waitIdle(); }
 };
 
 NBL_COMMON_API_MAIN(NablaTutorialExampleApp)

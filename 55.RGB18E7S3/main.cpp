@@ -64,17 +64,6 @@ int main()
 
     nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 
-    auto createDescriptorPool = [&](const uint32_t count, asset::E_DESCRIPTOR_TYPE type)
-    {
-        constexpr uint32_t maxItemCount = 256u;
-        {
-            nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-            poolSize.count = count;
-            poolSize.type = type;
-            return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-        }
-    };
-
     auto computeShaderBundle = assetManager->getAsset("../computeShader.comp", {});
     {
         bool status = !computeShaderBundle.getContents().empty();
@@ -141,43 +130,50 @@ int main()
 
     video::IGPUDescriptorSetLayout::SBinding gpuBindingsLayout[ES_COUNT] =
     {
-        {ES_RGB, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_CPP_DECODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_GLSL_DECODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_CPP_ENCODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_GLSL_ENCODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr}
+        { ES_RGB,               asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_CPP_DECODED,   asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_GLSL_DECODED,  asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_CPP_ENCODED,   asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_GLSL_ENCODED,  asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr }
     };
 
-    auto gpuCDescriptorPool = createDescriptorPool(ES_COUNT, asset::EDT_STORAGE_BUFFER);
+    core::smart_refctd_ptr<video::IDescriptorPool> gpuCDescriptorPool = nullptr;
+    {
+        video::IDescriptorPool::SCreateInfo createInfo = {};
+        createInfo.maxSets = 1;
+        createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = ES_COUNT;
+        gpuCDescriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+    }
+
     auto gpuCDescriptorSetLayout = logicalDevice->createDescriptorSetLayout(gpuBindingsLayout, gpuBindingsLayout + ES_COUNT);
-    auto gpuCDescriptorSet = logicalDevice->createDescriptorSet(gpuCDescriptorPool.get(), core::smart_refctd_ptr(gpuCDescriptorSetLayout));
+    auto gpuCDescriptorSet = gpuCDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuCDescriptorSetLayout));
     {
         video::IGPUDescriptorSet::SDescriptorInfo gpuDescriptorSetInfos[ES_COUNT];
 
         gpuDescriptorSetInfos[ES_RGB].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB].buffer.size = sizeof(SShaderStorageBufferObject::rgb);
-        gpuDescriptorSetInfos[ES_RGB].buffer.offset = 0;
+        gpuDescriptorSetInfos[ES_RGB].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb);
+        gpuDescriptorSetInfos[ES_RGB].info.buffer.offset = 0;
 
         gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_decoded);
-        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_decoded);
+        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB].info.buffer.size;
 
         gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_decoded);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_decoded);
+        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.size;
 
         gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_encoded);
-        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.offset + gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_encoded);
+        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.offset + gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.size;
 
         gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_encoded);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_encoded);
+        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.size;
 
         video::IGPUDescriptorSet::SWriteDescriptorSet gpuWrites[ES_COUNT];
         {
             for (uint32_t binding = 0u; binding < ES_COUNT; binding++)
-                gpuWrites[binding] = { gpuCDescriptorSet.get(), binding, 0u, 1u, asset::EDT_STORAGE_BUFFER, gpuDescriptorSetInfos + binding };
+                gpuWrites[binding] = { gpuCDescriptorSet.get(), binding, 0u, 1u, asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, gpuDescriptorSetInfos + binding };
             logicalDevice->updateDescriptorSets(ES_COUNT, gpuWrites, 0u, nullptr);
         }
     }
