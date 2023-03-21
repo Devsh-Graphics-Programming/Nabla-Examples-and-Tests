@@ -200,7 +200,7 @@ public:
 
 		// set windo event callback
 #ifndef _NBL_PLATFORM_ANDROID_
-		auto windowManager = core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>();
+		auto windowManager = nbl::ui::IWindowManagerWin32::create();
 		windowCb = core::make_smart_refctd_ptr<DemoEventCallback>();
 
 		ui::IWindow::SCreationParams params;
@@ -208,7 +208,6 @@ public:
 		params.height = WIN_H;
 		params.x = 64;
 		params.y = 64;
-		params.system = core::smart_refctd_ptr(system);
 		params.flags = ui::IWindow::ECF_NONE;
 		params.windowCaption = APP_NAME;
 		params.callback = windowCb;
