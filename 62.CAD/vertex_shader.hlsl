@@ -21,7 +21,7 @@ PSInput main(uint vertexID : SV_VertexID)
     
     PSInput outV;
     
-    const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio;
+    const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
     outV.color = lineStyle.color;
 
