@@ -498,7 +498,7 @@ public:
 			if (!params.window)
 			{
 				#ifdef _NBL_PLATFORM_WINDOWS_
-					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerWin32>(); // on the Android path
+					result.windowManager = ui::IWindowManagerWin32::create(); // on the Windows path
 				#elif defined(_NBL_PLATFORM_LINUX_)
 					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerX11>(); // on the Android path
 				#else
@@ -510,7 +510,6 @@ public:
 				windowsCreationParams.height = params.windowHeight;
 				windowsCreationParams.x = 64u;
 				windowsCreationParams.y = 64u;
-				windowsCreationParams.system = nbl::core::smart_refctd_ptr(result.system);
 				windowsCreationParams.flags = nbl::ui::IWindow::ECF_RESIZABLE;
 				windowsCreationParams.windowCaption = params.appName.data();
 				windowsCreationParams.callback = params.windowCb;

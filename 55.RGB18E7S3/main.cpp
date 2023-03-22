@@ -43,6 +43,8 @@ int main()
 {
     constexpr std::string_view APP_NAME = "RGB18E7S3 utility test";
 
+    system::IApplicationFramework::GlobalsInit();
+
     CommonAPI::InitParams initParams;
     initParams.apiType = video::EAT_VULKAN;
     initParams.appName = APP_NAME.data();

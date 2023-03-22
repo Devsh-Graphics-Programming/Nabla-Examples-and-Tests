@@ -960,7 +960,7 @@ class CADApp : public ApplicationBase
 		{
 			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
-			globalsCreationParams.usage = video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			globalsCreationParams.usage = video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
 			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
@@ -1206,18 +1206,19 @@ public:
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
 		// Used to load SPIR-V directly, if HLSL Compiler doesn't work
-		auto loadSPIRVShader = [&](const std::string& filePath, asset::IShader::E_SHADER_STAGE stage)
+		auto loadSPIRVShader = [&](const std::string& filePath, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<asset::ICPUShader>
 		{
-			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> shader_future;
-			system->createFile(shader_future, filePath, core::bitflag(nbl::system::IFile::ECF_READ));
-			auto shader_file = shader_future.get();
-			auto shaderSizeInBytes = shader_file->getSize();
-			auto vertexShaderSPIRVBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(shaderSizeInBytes);
-			system::IFile::success_t succ;
-			shader_file->read(succ, vertexShaderSPIRVBuffer->getPointer(), 0u, shaderSizeInBytes);
-			const bool success = bool(succ);
-			assert(success);
-			return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
+			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> file_future;
+			system->createFile(file_future, filePath, core::bitflag(system::IFile::ECF_READ)|system::IFile::ECF_MAPPABLE);
+			if (auto shader_file=file_future.acquire())
+			{
+				auto shaderSizeInBytes = (*shader_file)->getSize();
+				auto shaderData = (*shader_file)->getMappedPointer();
+				// copy the data in so it survives past the destruction of the mapped file
+				auto vertexShaderSPIRVBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<>>(shaderSizeInBytes,shaderData);
+				return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
+			}
+			return nullptr;
 		};
 
 		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[3u] = {};
