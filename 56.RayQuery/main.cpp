@@ -232,55 +232,19 @@ public:
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
 			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);
 
-		constexpr uint32_t maxDescriptorCount = 256u;
-
 		core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
 		{
 			video::IDescriptorPool::SCreateInfo createInfo = {};
-			createInfo.maxSets = maxDescriptorCount;
+			createInfo.maxSets = CommonAPI::InitOutput::MaxSwapChainImageCount+2;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 1;
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = 8;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = CommonAPI::InitOutput::MaxSwapChainImageCount;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = 2;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER)] = 1;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = 1;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_ACCELERATION_STRUCTURE)] = 1;
 			
 			descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
 		}
-	
-		auto geometryCreator = assetManager->getGeometryCreator();
-		auto cubeGeom = geometryCreator->createCubeMesh(core::vector3df(1.0f, 1.0f, 1.0f));
-
-		auto dummyPplnLayout = core::make_smart_refctd_ptr<asset::ICPUPipelineLayout>();
-		auto createMeshBufferFromGeomCreatorReturnType = [&dummyPplnLayout](
-			asset::IGeometryCreator::return_type& _data,
-			asset::IAssetManager* _manager,
-			asset::ICPUSpecializedShader** _shadersBegin, asset::ICPUSpecializedShader** _shadersEnd)
-		{
-			//creating pipeline just to forward vtx and primitive params
-			auto pipeline = core::make_smart_refctd_ptr<asset::ICPURenderpassIndependentPipeline>(
-				core::smart_refctd_ptr(dummyPplnLayout), _shadersBegin, _shadersEnd,
-				_data.inputParams, 
-				asset::SBlendParams(),
-				_data.assemblyParams,
-				asset::SRasterizationParams()
-				);
-
-			auto mb = core::make_smart_refctd_ptr<asset::ICPUMeshBuffer>(
-				nullptr, nullptr,
-				_data.bindings, std::move(_data.indexBuffer)
-			);
-
-			mb->setIndexCount(_data.indexCount);
-			mb->setIndexType(_data.indexType);
-			mb->setBoundingBox(_data.bbox);
-			mb->setPipeline(std::move(pipeline));
-			constexpr auto NORMAL_ATTRIBUTE = 3;
-			mb->setNormalAttributeIx(NORMAL_ATTRIBUTE);
-
-			return mb;
-
-		};
-		auto cpuMeshCube = createMeshBufferFromGeomCreatorReturnType(cubeGeom, assetManager.get(), nullptr, nullptr);
 
 		// Initialize Spheres
 		constexpr uint32_t SphereCount = 9u;
