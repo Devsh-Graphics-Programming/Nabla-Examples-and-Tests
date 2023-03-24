@@ -663,48 +663,9 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 	// Initialize Pipeline and Resources for EnvMap Blending
 	{
 		auto addEnvShader = gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../addEnvironmentEmitters.comp");
+		auto pipelineLayout = m_driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(blendEnvDescriptorSetLayout));
 	}
 
-
-
-	auto fullScreenTriangle = ext::FullScreenTriangle::createFullScreenTriangle(m_assetManager, m_driver);
-
-	IGPUDescriptorSetLayout::SBinding binding{ 0u, EDT_COMBINED_IMAGE_SAMPLER, 1u, IGPUSpecializedShader::ESS_FRAGMENT, nullptr };
-	auto blendEnvDescriptorSetLayout = m_driver->createGPUDescriptorSetLayout(&binding, &binding + 1u);
-	
-	IAssetLoader::SAssetLoadParams lp;
-	auto fs_bundle = m_assetManager->getAsset("nbl/builtin/material/lambertian/singletexture/specialized_shader.frag",lp);
-	auto fs_contents = fs_bundle.getContents();
-	assert(!fs_contents.empty());
-	
-	ICPUSpecializedShader* fs = static_cast<ICPUSpecializedShader*>(fs_contents.begin()->get());
-	
-	auto fragShader = m_driver->getGPUObjectsFromAssets(&fs, &fs + 1)->front();
-	if (!fragShader)
-		std::cout << "[ERROR] Couldn't get fragShader." << std::endl;
-	
-	IGPUSpecializedShader* shaders[2] = { std::get<0>(fullScreenTriangle).get(), fragShader.get() };
-	SBlendParams blendParams = {};
-	blendParams.logicOpEnable = false;
-	blendParams.logicOp = ELO_NO_OP;
-	blendParams.blendParams[0].attachmentEnabled = true;
-	blendParams.blendParams[0].blendEnable = true;
-	blendParams.blendParams[0].srcColorFactor = asset::EBF_ONE;
-	blendParams.blendParams[0].dstColorFactor = asset::EBF_ONE;
-	blendParams.blendParams[0].colorBlendOp = asset::EBO_ADD;
-	blendParams.blendParams[0].srcAlphaFactor = asset::EBF_ONE;
-	blendParams.blendParams[0].dstAlphaFactor = asset::EBF_ONE;
-	blendParams.blendParams[0].alphaBlendOp = asset::EBO_ADD;
-	blendParams.blendParams[0].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
-
-	SRasterizationParams rasterParams = {};
-	rasterParams.faceCullingMode = EFCM_NONE;
-	rasterParams.depthCompareOp = ECO_ALWAYS;
-	rasterParams.minSampleShading = 1.f;
-	rasterParams.depthWriteEnable = false;
-	rasterParams.depthTestEnable = false;
-
-	auto gpuPipelineLayout = m_driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(blendEnvDescriptorSetLayout));
 
 	blendEnvPipeline = m_driver->createGPURenderpassIndependentPipeline(nullptr, std::move(gpuPipelineLayout), shaders, shaders + 2,
 		std::get<SVertexInputParams>(fullScreenTriangle), blendParams,
@@ -725,7 +686,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 			const auto& extent = envmapCpuImage->getCreationParameters().extent;
 			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
 		}
-		newWidth = core::roundUpToPoT<uint32_t>(newWidth);
+		constexpr uint32_t kMaxEnvMapSize = 16u << 10u;
+		newWidth = core::roundUpToPoT<uint32_t>(core::min<uint32_t>(newWidth,kMaxEnvMapSize));
 
 		// full mipchain would be `MSB+1` but we want it to stop at 4x2
 		const auto mipLevels = core::findMSB(newWidth)-1;
