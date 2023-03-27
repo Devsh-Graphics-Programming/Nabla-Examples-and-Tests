@@ -47,5 +47,5 @@ nbl_create_executable_project(
 if(NBL_RUN_TESTS)
 	get_target_property(_RTAO_OUTPUT_RUNTIME_RELEASE_ ${EXECUTABLE_NAME} RUNTIME_OUTPUT_DIRECTORY_RELEASE)
 	set(_NBL_PATHTRACER_EXE_ "${_RTAO_OUTPUT_RUNTIME_RELEASE_}/${EXECUTABLE_NAME}.exe" CACHE FILEPATH "")
-	configure_file("${NBL_ROOT_PATH}/tests/22.RaytracedAO/test.py" "${CMAKE_CURRENT_BINARY_DIR}/tests/22.RaytracedAO/test.py")
+	configure_file("${NBL_ROOT_PATH}/tests/22.RaytracedAO/test.py" "${NBL_BINARY_PATH}/examples_tests/22.RaytracedAO/test.py")
 endif() 
