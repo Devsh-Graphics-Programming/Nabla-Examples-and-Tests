@@ -118,6 +118,7 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 			if(endOfFetchedVariableName != std::string::npos)
 			{
 				auto value = rawFetchedCmdArgument.substr(endOfFetchedVariableName + 1);
+
 				auto zipExtensionPos = value.find(".zip");
 				if(zipExtensionPos == std::string::npos)
 					zipExtensionPos = value.find(".ZIP");
@@ -144,7 +145,6 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 					toAdd.push_back(value);
 					rawVariables[arg].emplace(toAdd);
 				}
-
 			}
 			else
 			{
@@ -154,7 +154,6 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 
 			previousArg = arg;
 		}
-
 	}
 
 	if (!validateParameters() || !success)
