@@ -2,19 +2,25 @@
 
 ## How the Renderer works
 
-* It starts by rendering the scene with each sensor and will stop when enough samples is taken.
-	* To skip this part, press the `END` Key. (more detail below)
----
-* Then you'll have full control of the camera, you can take snapshots, move around and have fun :)
-	* To skip this part pass `-TERMINATE` as a cmd argument when executing the renderer (more detail below).
----
+* You have control over how the renderer behaves via the following options passed to the `-PROCESS_SENSORS` command line option:
+
+
+| Option							| Behaviour																																																																		       |
+|-----------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `RenderAllThenInteractive ID`		| It starts by rendering the scene with each sensor starting at the given ID, and will stop when enough samples are taken. To skip this part, press the `END` Key (more detail below). Then you'll have full control of the camera, you can take snapshots, move around and have fun :)|
+| `RenderAllThenTerminate ID`		| Same as above but it will exit after rendering with each sensor.																																																					   |
+| `RenderSensorThenInteractive ID`	| This will render only with the passed sensor ID. If the sensor ID is not valid, then it defaults to the first one in Mitsuba metadata. After the rendering you'll be in interactive mode.																							   |
+| `InteractiveAtSensor ID`			| This will skip all rendering and you'll go straight to the interactive mode with the given sensor ID.																																												   |
+
+
+* For all the above options, if the ID is not passed, then it defaults to 0.
 * Before Exiting from the Renderer, the very last view will be rendered and denoised to files named like `LastView_spaceship_Sensor_0`
 
 ## CommandLine Help
 ```
 Parameters:
 -SCENE=sceneMitsubaXMLPathOrZipAndXML
--TERMINATE
+-PROCESS_SENSORS ID
 
 Description and usage: 
 
@@ -23,15 +29,17 @@ Description and usage:
 
 	NOTE: If the scene path contains space, put it between quotation marks
 
--TERMINATE:
-	It will make the app stop when the required amount of samples has been renderered (its in the Mitsuba Scene metadata) and obviously take screenshot when quitting
+-PROCESS_SENSORS ID:
+	It will control the behaviour of sensors in the app as detailed above.
+	If the option is not passed, then it defaults to RenderAllThenInteractive.
+	If the ID is not passed, then it defaults to 0.
 	
-
 Example Usages :
-	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml -TERMINATE
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -TERMINATE
-	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml" -TERMINATE
-	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -TERMINATE
+	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml
+	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml -PROCESS_SENSORS RenderAllThenInteractive
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -PROCESS_SENSORS RenderAllThenTerminate 0
+	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml" -PROCESS_SENSORS RenderSensorThenInteractive 1
+	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2
 ```
 
 
@@ -165,6 +173,7 @@ So the full width, height are 1152x1152 (64+1024+64=1152)
 | P         | Press to take a snapshot when moving around (will be denoised)                                                         |
 | L         | Press to log the current progress percentage and samples rendered.                                                     |
 | B         | Toggle between Path Tracing and Albedo preview, allows you to position the camera more responsively in complex scenes. |
+| F5		| Press to reload the application.                                                                                       |
 
 ## Denoiser Hook
 `denoiser_hook.bat` is a script that you can call to denoise your rendered images.

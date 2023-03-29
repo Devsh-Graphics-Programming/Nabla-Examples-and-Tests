@@ -7,6 +7,7 @@
 
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 
 #include "../common/QToQuitEventReceiver.h"
 
@@ -55,6 +56,9 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 					case BeautyKey:
 						renderingBeauty = !renderingBeauty;
 						break;
+					case ReloadKey:
+						reloadKeyPressed = true;
+						break;
 					case QuitKey:
 						running = false;
 						return true;
@@ -82,6 +86,8 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 
 		inline bool isRenderingBeauty() const { return renderingBeauty; }
 
+		inline bool isReloadKeyPressed() const { return reloadKeyPressed; }
+
 		inline void resetKeys()
 		{
 			skipKeyPressed = false;
@@ -90,6 +96,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 			previousKeyPressed = false;
 			screenshotKeyPressed = false;
 			logProgressKeyPressed = false;
+			reloadKeyPressed = false;
 		}
 
 	private:
@@ -101,6 +108,7 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		static constexpr nbl::EKEY_CODE ScreenshotKey = nbl::KEY_KEY_P;
 		static constexpr nbl::EKEY_CODE LogProgressKey = nbl::KEY_KEY_L;
 		static constexpr nbl::EKEY_CODE BeautyKey = nbl::KEY_KEY_B;
+		static constexpr nbl::EKEY_CODE ReloadKey = nbl::KEY_F5;
 
 		bool running;
 		bool renderingBeauty;
@@ -111,6 +119,131 @@ class RaytracerExampleEventReceiver : public nbl::IEventReceiver
 		bool previousKeyPressed;
 		bool screenshotKeyPressed;
 		bool logProgressKeyPressed;
+		bool reloadKeyPressed;
+};
+
+struct PersistentState
+{
+	bool isBeauty;
+	bool isInteractiveMode;
+	uint32_t startSensorID;
+	std::string zipPath;
+	std::string xmlPath;
+	ProcessSensorsBehaviour processSensorsBehaviour;
+	// It is important to initialize it to all 0s because we use the condition of determinant 0 as an invalid condition for the view matrix.
+	core::matrix3x4SIMD interactiveCameraViewMatrix = core::matrix3x4SIMD(core::vectorSIMDf(), core::vectorSIMDf(), core::vectorSIMDf());
+
+	bool readFromDisk()
+	{
+		bool readSuccess = false;
+		std::ifstream readFile("lastRun.cache", std::ios::in | std::ios::binary | std::ios::ate);
+		if (readFile.is_open())
+		{
+			auto readSize = readFile.tellg();
+			if (readSize != std::istream::pos_type(-1))
+			{
+				std::unique_ptr<uint8_t[]> readBuffer = std::make_unique<uint8_t[]>(readSize);
+				readFile.seekg(0, std::ios::beg);
+				readFile.read(reinterpret_cast<char*>(readBuffer.get()), readSize);
+				if (readFile.rdstate() == std::ios_base::goodbit)
+				{
+					uint64_t offset = 0;
+
+					memcpy(&isBeauty, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&isInteractiveMode, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&startSensorID, readBuffer.get() + offset, sizeof(uint32_t));
+					offset += sizeof(uint32_t);
+
+					memcpy(&processSensorsBehaviour, readBuffer.get() + offset, sizeof(ProcessSensorsBehaviour));
+					offset += sizeof(ProcessSensorsBehaviour);
+
+					memcpy(&interactiveCameraViewMatrix, readBuffer.get() + offset, sizeof(core::matrix3x4SIMD));
+					offset += sizeof(core::matrix3x4SIMD);
+
+					const char* path = reinterpret_cast<const char*>(readBuffer.get() + offset);
+					zipPath = std::string(path);
+					offset += zipPath.length() + 1;
+
+					path = reinterpret_cast<const char*>(readBuffer.get() + offset);
+					xmlPath = std::string(path);
+					offset += xmlPath.length() + 1;
+
+					readSuccess = (offset == static_cast<uint64_t>(readSize));
+				}
+			}
+
+			readFile.close();
+		}
+
+		return readSuccess;
+	}
+
+	bool writeToDisk() const
+	{
+		bool writeSuccess = false;
+		std::ofstream outFile("lastRun.cache", std::ios::out | std::ios::binary);
+		if (outFile.is_open())
+		{
+			const size_t writeSize = getSerializedMemorySize();
+
+			std::unique_ptr<uint8_t[]> writeBuffer = std::make_unique<uint8_t[]>(writeSize);
+
+			uint64_t offset = 0;
+
+			memcpy(writeBuffer.get() + offset, &isBeauty, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &isInteractiveMode, sizeof(bool));
+			offset += sizeof(bool);
+
+			memcpy(writeBuffer.get() + offset, &startSensorID, sizeof(uint32_t));
+			offset += sizeof(uint32_t);
+
+			memcpy(writeBuffer.get() + offset, &processSensorsBehaviour, sizeof(ProcessSensorsBehaviour));
+			offset += sizeof(ProcessSensorsBehaviour);
+
+			memcpy(writeBuffer.get() + offset, &interactiveCameraViewMatrix, sizeof(core::matrix3x4SIMD));
+			offset += sizeof(core::matrix3x4SIMD);
+
+			memcpy(writeBuffer.get() + offset, zipPath.c_str(), zipPath.length() + 1);
+			offset += zipPath.length() + 1;
+
+			memcpy(writeBuffer.get() + offset, xmlPath.c_str(), xmlPath.length() + 1);
+			offset += xmlPath.length() + 1;
+
+			assert(offset == static_cast<uint32_t>(writeSize));
+
+			outFile.write(reinterpret_cast<char*>(writeBuffer.get()), writeSize);
+			if (outFile.rdstate() == std::ios_base::goodbit)
+				writeSuccess = true;
+
+			outFile.close();
+		}
+
+		if (!writeSuccess)
+			printf("[ERROR]: Failed to write the persistent state cache.\n");
+
+		return writeSuccess;
+	}
+
+private:
+	inline size_t getSerializedMemorySize() const
+	{
+		const size_t result =
+			sizeof(bool)					+ // isBeauty
+			sizeof(bool)					+ // isInteractiveMode
+			sizeof(uint32_t)				+ // startSensorID
+			sizeof(ProcessSensorsBehaviour) + // processSensorsBehaviour
+			sizeof(core::matrix3x4SIMD)		+ // interactiveCameraViewMatrix
+			(zipPath.length() + 1)			+
+			(xmlPath.length() + 1)			;
+
+		return result;
+	}
 };
 
 int main(int argc, char** argv)
@@ -127,18 +260,42 @@ int main(int argc, char** argv)
 		"-SCENE",
 		"../../media/mitsuba/staircase2.zip",
 		"scene.xml",
-		"-TERMINATE",
 		"-SCREENSHOT_OUTPUT_FOLDER",
 		"\"C:\\Nabla-Screen-Shots\""
 	};
 #endif
 	
-	CommandLineHandler cmdHandler = CommandLineHandler(arguments);
-	
-	auto sceneDir = cmdHandler.getSceneDirectory();
-	std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
-	std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
-	bool shouldTerminateAfterRenders = cmdHandler.getTerminate(); // skip interaction with window and take screenshots only
+	bool applicationIsReloaded = false;
+	PersistentState applicationState;
+	{
+		CommandLineHandler cmdHandler = CommandLineHandler(arguments);
+
+		applicationState.processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
+		applicationState.startSensorID = cmdHandler.getSensorID();
+		applicationState.isInteractiveMode = (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
+
+		auto sceneDir = cmdHandler.getSceneDirectory();
+		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
+			applicationIsReloaded = true;
+
+		std::string filePath = (sceneDir.size() >= 1) ? sceneDir[0] : ""; // zip or xml
+		std::string extraPath = (sceneDir.size() >= 2) ? sceneDir[1] : "";; // xml in zip
+		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+		{
+			applicationState.zipPath = filePath;
+			applicationState.xmlPath = extraPath;
+		}
+		else
+		{
+			applicationState.xmlPath = filePath;
+		}
+		// After this, there could be 4 cases:
+		// 1. zipPath filled, xmlPath filled -> load xml from zip
+		// 2. zipPath empty, xmlPath filled -> directly load xml
+		// 3. zipPath filled, xmlPath empty -> load chosen (or default to first) xml from zip
+		// 4. zipPath empty, xmlPath empty -> try to restore state after asking for the user to choose files
+	}
+
 	bool takeScreenShots = true;
 	std::string mainFileName; // std::filesystem::path(filePath).filename().string();
 
@@ -161,47 +318,55 @@ int main(int argc, char** argv)
 	std::thread cin_thread;
 
 	//
-	asset::SAssetBundle meshes;
+	asset::SAssetBundle meshes = {};
 	core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata> globalMeta;
 	{
 		io::IFileSystem* fs = device->getFileSystem();
 		asset::IAssetManager* am = device->getAssetManager();
-		
+
 		auto serializedLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CSerializedLoader>(am);
-		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am,fs);
+		auto mitsubaLoader = core::make_smart_refctd_ptr<nbl::ext::MitsubaLoader::CMitsubaLoader>(am, fs);
 		serializedLoader->initialize();
 		mitsubaLoader->initialize();
 		am->addAssetLoader(std::move(serializedLoader));
 		am->addAssetLoader(std::move(mitsubaLoader));
 
-		if(filePath.empty())
+		if (applicationState.zipPath.empty() && applicationState.xmlPath.empty() && !applicationIsReloaded)
 		{
-			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. \nIf you cancel or choosen file fails to load, simple scene will be loaded.", pfd::choice::ok);
-			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml"});
+			pfd::message("Choose file to load", "Choose mitsuba XML file to load or ZIP containing an XML. If you cancel or choosen file fails to load, previous state of the application will be restored, if available.", pfd::choice::ok);
+			pfd::open_file file("Choose XML or ZIP file", "../../media/mitsuba", { "All Supported Formats", "*.xml *.zip", "ZIP files (.zip)", "*.zip", "XML files (.xml)", "*.xml" });
 			if (!file.result().empty())
-				filePath = file.result()[0];
+			{
+				if (core::hasFileExtension(io::path(file.result()[0].c_str()), "zip", "ZIP"))
+					applicationState.zipPath = file.result()[0];
+				else
+					applicationState.xmlPath = file.result()[0];
+			}
 		}
 
-		if(filePath.empty())
-			filePath = "../../media/mitsuba/staircase2.zip";
-		
-		mainFileName = std::filesystem::path(filePath).filename().string();
-		mainFileName = mainFileName.substr(0u, mainFileName.find_first_of('.')); 
-		
-		std::cout << "\nSelected File = " << filePath << "\n" << std::endl;
-
-		if (core::hasFileExtension(io::path(filePath.c_str()), "zip", "ZIP"))
+		auto loadScene = [&device, &am, &fs](const std::string& _zipPath, std::string& _xmlPath, std::string& _mainFileName) -> asset::SAssetBundle
 		{
-			io::IFileArchive* arch = nullptr;
-			device->getFileSystem()->addFileArchive(filePath.c_str(),io::EFAT_ZIP,"",&arch);
-			if (arch)
+			asset::SAssetBundle result = {};
+			if (_zipPath.empty() && _xmlPath.empty())
+				return result;
+
+			_mainFileName = "";
+			if (!_zipPath.empty())
 			{
+				_mainFileName = std::filesystem::path(_zipPath).filename().string();
+				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+
+				io::IFileArchive* arch = nullptr;
+				device->getFileSystem()->addFileArchive(_zipPath.c_str(), io::EFAT_ZIP, "", &arch);
+				if (!arch)
+					return result;
+
 				auto flist = arch->getFileList();
 				if (!flist)
-					return 3;
-				auto files = flist->getFiles();
+					return {};
 
-				for (auto it=files.begin(); it!=files.end(); )
+				auto files = flist->getFiles();
+				for (auto it = files.begin(); it != files.end(); )
 				{
 					if (core::hasFileExtension(it->FullName, "xml", "XML"))
 						it++;
@@ -209,84 +374,132 @@ int main(int argc, char** argv)
 						it = files.erase(it);
 				}
 				if (files.size() == 0u)
-					return 4;
+				{
+					printf("[ERROR]: No XML files found in the ZIP archive!\n");
+					return result;
+				}
 
-				if(extraPath.empty())
+				if (_xmlPath.empty())
 				{
 					uint32_t chosen = 0xffffffffu;
 
-					// Don't ask for choosing file when there is only 1 available
-					if(files.size() > 1)
+					// Only ask for choosing a file when there are multiple of them.
+					if (files.size() > 1)
 					{
-						std::cout << "Choose File (0-" << files.size() - 1ull << "):" << std::endl;
+						printf("Choose File (0-%llu):\n", files.size() - 1ull);
 						for (auto i = 0u; i < files.size(); i++)
-							std::cout << i << ": " << files[i].FullName.c_str() << std::endl;
+							printf("%u: %s\n", i, files[i].FullName.c_str());
 
 						// std::cin with timeout
 						{
 							std::atomic<bool> started = false;
-							cin_thread = std::thread([&chosen,&started]()
+							std::thread cin_thread([&chosen, &started]()
 							{
 								started = true;
 								std::cin >> chosen;
 							});
-							const auto end = std::chrono::steady_clock::now()+std::chrono::seconds(10u);
-							while (!started || chosen==0xffffffffu && std::chrono::steady_clock::now()<end) {}
+							const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10u);
+							while (!started || chosen == 0xffffffffu && std::chrono::steady_clock::now() < end) {}
 						}
 					}
-					else if(files.size() >= 0)
+					else
 					{
-						std::cout << "The only available XML in zip Selected." << std::endl;
+						printf("[INFO]: The only available XML in the ZIP is selected.\n");
 					}
-					
+
 					if (chosen >= files.size())
 						chosen = 0u;
 
-					filePath = files[chosen].FullName.c_str();
-					std::cout << "Selected XML File: "<< files[chosen].Name.c_str() << std::endl;
-					mainFileName += std::string("_") + std::filesystem::path(files[chosen].Name.c_str()).replace_extension().string();
+					_xmlPath = std::string(files[chosen].FullName.c_str());
 				}
 				else
 				{
+					// Verify that the passed XML path is in the ZIP archive.
 					bool found = false;
-					for (auto it=files.begin(); it!=files.end(); it++)
+					for (auto it = files.begin(); it != files.end(); it++)
 					{
-						if(extraPath == std::string(it->Name.c_str()))
+						// In `PersistentState` we save the full XML name `_xmlPath` could also be that.
+						if ((_xmlPath == std::string(it->Name.c_str())) || (_xmlPath == std::string(it->FullName.c_str())))
 						{
+							_xmlPath = std::string(it->FullName.c_str());
 							found = true;
-							filePath = it->FullName.c_str();
-							mainFileName += std::string("_") + std::filesystem::path(it->Name.c_str()).replace_extension().string();
 							break;
 						}
 					}
 
-					if(!found) {
-						std::cout << "Cannot find requested file (" << extraPath.c_str() << ") in zip (" << filePath << ")" << std::endl;
-						return 4;
+					if (!found)
+					{
+						printf("[ERROR]: Cannot find requested XML file (%s) in the ZIP (%s)\n", _xmlPath.c_str(), _zipPath.c_str());
+						return result;
 					}
 				}
-			}
-		}
-		
-		asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
 
-		//! read cache results -- speeds up mesh generation
-		qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
-		//! load the mitsuba scene
-		meshes = am->getAsset(filePath, {});
-		//! cache results -- speeds up mesh generation on second run
-		qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
-		
-		auto contents = meshes.getContents();
-		if (!contents.size()) {
-			std::cout << "[ERROR] Failed loading asset in " << filePath << ".";
-			return 2;
+				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).replace_extension().string();
+			}
+			else if (!_xmlPath.empty())
+			{
+				_mainFileName = std::filesystem::path(_xmlPath).filename().string();
+				_mainFileName = _mainFileName.substr(0u, _mainFileName.find_first_of('.'));
+			}
+
+			printf("[INFO]: Loading XML file: %s\n", _xmlPath.c_str());
+
+			asset::CQuantNormalCache* qnc = am->getMeshManipulator()->getQuantNormalCache();
+
+			//! read cache results -- speeds up mesh generation
+			qnc->loadCacheFromFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
+			//! load the mitsuba scene
+			result = am->getAsset(_xmlPath, {});
+			//! cache results -- speeds up mesh generation on second run
+			qnc->saveCacheToFile<asset::EF_A2B10G10R10_SNORM_PACK32>(fs, "../../tmp/normalCache101010.sse");
+			
+			return result;
+		};
+
+		meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
+		if (meshes.getContents().empty() || applicationIsReloaded)
+		{
+			if (meshes.getContents().empty() && !applicationState.xmlPath.empty())
+				printf("[ERROR]: Failed to load asset at: %s\n", applicationState.xmlPath.c_str());
+
+			// Restore state to get new values for zipPath and xmlPath and try loading again
+			printf("[INFO]: Trying to restore the application to its previous state.\n");
+
+			bool restoreSuccess = false;
+			if (applicationState.readFromDisk())
+			{
+				meshes = loadScene(applicationState.zipPath, applicationState.xmlPath, mainFileName);
+				if (!meshes.getContents().empty())
+					restoreSuccess = true;
+			}
+
+			if (!restoreSuccess)
+			{
+				pfd::message("ERROR", "Cannot restore application to its previous state.", pfd::choice::ok);
+				return 2;
+			}
 		}
 
 		globalMeta = core::smart_refctd_ptr<const ext::MitsubaLoader::CMitsubaMetadata>(meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>());
-		if (!globalMeta) {
+		if (!globalMeta)
+		{
 			std::cout << "[ERROR] Couldn't get global Meta";
 			return 3;
+		}
+
+		std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
+
+		if (globalMeta->m_global.m_sensors.empty())
+		{
+			std::cout << "[ERROR] No Sensors found." << std::endl;
+			assert(false);
+			return 5; // return code?
+		}
+
+		if (applicationState.startSensorID >= globalMeta->m_global.m_sensors.size())
+		{
+			applicationState.startSensorID = 0;
+			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", applicationState.startSensorID);
 		}
 	}
 	
@@ -395,15 +608,6 @@ int main(int argc, char** argv)
 			return false;
 		}
 	};
-
-	std::cout << "Total number of Sensors = " << globalMeta->m_global.m_sensors.size() << std::endl;
-
-	if(globalMeta->m_global.m_sensors.empty())
-	{
-		std::cout << "[ERROR] No Sensors found." << std::endl;
-		assert(false);
-		return 5; // return code?
-	}
 	
 	const bool shouldHaveSensorIdxInFileName = globalMeta->m_global.m_sensors.size() > 1;
 	std::vector<SensorData> sensors = std::vector<SensorData>();
@@ -508,6 +712,12 @@ int main(int argc, char** argv)
 		// need to extract individual components from matrix to camera
 		{
 			auto relativeTransform = sensor.transform.matrix.extractSub3x4();
+			if (applicationState.isInteractiveMode && (idx == applicationState.startSensorID) && (core::abs(applicationState.interactiveCameraViewMatrix.getPseudoDeterminant().x) > 1e-6f))
+			{
+				if (!applicationState.interactiveCameraViewMatrix.getInverse(relativeTransform))
+					printf("[ERROR]: Previously saved interactive camera's view matrix is not invertible.\n");
+			}
+			
 			if (relativeTransform.getPseudoDeterminant().x < 0.f)
 				mainSensorData.rightHandedCamera = false;
 			else
@@ -717,6 +927,7 @@ int main(int argc, char** argv)
 		return true;
 	};
 
+	// Always add all the sensors because the interactive mode wants all the sensors.
 	for(uint32_t s = 0u; s < globalMeta->m_global.m_sensors.size(); ++s)
 	{
 		std::cout << "Sensors[" << s << "] = " << std::endl;
@@ -768,124 +979,167 @@ int main(int argc, char** argv)
 		assert(!core::isnan<float>(sensorData.getInteractiveCameraAnimator()->getMoveSpeed()));
 	}
 
+	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
+	if (!applicationState.isInteractiveMode)
+	{
+		assert(startSensorID < globalMeta->m_global.m_sensors.size() && "startSensorID should've been a valid value by now.");
+
+		uint32_t onePastLastSensorID = applicationState.startSensorID;
+		if ((applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE) || (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE))
+			onePastLastSensorID = sensors.size();
+		else if (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_SENSOR_THEN_INTERACTIVE)
+			onePastLastSensorID = applicationState.startSensorID + 1;
+		nonInteractiveSensors = { sensors.data() + applicationState.startSensorID, sensors.data() + onePastLastSensorID };
+	}
+	assert(nonInteractiveSensors.size() <= sensors.size());
+
+	auto reloadApplication = [argv]()
+	{
+		printf("[INFO]: Reloading..\n");
+
+		// Set up the special reload condition.
+		const char* cmdLineParams = "-SCENE=";
+		HINSTANCE result = ShellExecuteA(NULL, "open", argv[0], cmdLineParams, NULL, SW_SHOWNORMAL);
+		if ((uint64_t)result <= 32)
+			printf("[ERROR]: Failed to reload.\n");
+		else
+			exit(0);
+	};
 
 	// Render To file
 	int32_t prevWidth = 0;
 	int32_t prevHeight = 0;
 	int32_t prevCascadeCount = 0;
 	float prevRegFactor = 0.0f;
-	for(uint32_t s = 0u; s < sensors.size(); ++s)
+	if (!nonInteractiveSensors.empty())
 	{
-		if(!receiver.keepOpen())
-			break;
-
-		const auto& sensorData = sensors[s];
-		
-		printf("[INFO] Rendering %s - Sensor(%d) to file.\n", filePath.c_str(), s);
-
-		bool needsReinit = prevWidth!=sensorData.width || prevHeight!=sensorData.height || prevCascadeCount!=sensorData.cascadeCount || prevRegFactor!=sensorData.envmapRegFactor;
-		prevWidth = sensorData.width;
-		prevHeight = sensorData.height;
-		prevCascadeCount = sensorData.cascadeCount;
-		prevRegFactor = sensorData.envmapRegFactor;
-		
-		renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
-		if(needsReinit) 
+		for (const auto& sensor : nonInteractiveSensors)
 		{
-			renderer->deinitScreenSizedResources();
-			renderer->initScreenSizedResources(sensorData.width,sensorData.height,sensorData.envmapRegFactor,sensorData.cascadeCount,sensorData.cascadeLuminanceBase,sensorData.cascadeLuminanceStart,sensorData.Emin);
-		}
-		
-		smgr->setActiveCamera(sensorData.staticCamera);
-
-		const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
-		const uint32_t maxNeededIterations = (sensorData.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
-		
-		uint32_t itr = 0u;
-		bool takenEnoughSamples = false;
-		bool renderFailed = false;
-		auto lastTimeLoggedProgress = std::chrono::steady_clock::now();
-		while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
-		{
-			if(itr >= maxNeededIterations)
-				std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensorData.samplesNeeded << ") by now; something is wrong." << std::endl;
-
-			// Handle Inputs
-			{
-				if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
-				{
-					int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-					printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded);
-					lastTimeLoggedProgress = std::chrono::steady_clock::now();
-				}
-				receiver.resetKeys();
-			}
-
-
-			driver->beginScene(false, false);
-
-			if(!renderer->render(device->getTimer(),sensorData.kappa,sensorData.Emin,!sensorData.envmap))
-			{
-				renderFailed = true;
-				driver->endScene();
+			if(!receiver.keepOpen())
 				break;
+
+			const uint32_t s = &sensor - sensors.data();
+
+			// Save application's current persistent state to disk.
+			{
+				applicationState.isBeauty = receiver.isRenderingBeauty();
+				applicationState.isInteractiveMode = false;
+				applicationState.startSensorID = s;
+
+				if (!applicationState.writeToDisk())
+					printf("[ERROR]: Cannot write application state to disk\n");
+			}
+		
+			printf("[INFO] Rendering %s - Sensor(%d) to file.\n", applicationState.xmlPath.c_str(), s);
+
+			bool needsReinit = prevWidth!=sensor.width || prevHeight!=sensor.height || prevCascadeCount!=sensor.cascadeCount || prevRegFactor!=sensor.envmapRegFactor;
+			prevWidth = sensor.width;
+			prevHeight = sensor.height;
+			prevCascadeCount = sensor.cascadeCount;
+			prevRegFactor = sensor.envmapRegFactor;
+		
+			renderer->resetSampleAndFrameCounters(); // so that renderer->getTotalSamplesPerPixelComputed is 0 at the very beginning
+			if(needsReinit) 
+			{
+				renderer->deinitScreenSizedResources();
+				renderer->initScreenSizedResources(sensor.width,sensor.height,sensor.envmapRegFactor,sensor.cascadeCount,sensor.cascadeLuminanceBase,sensor.cascadeLuminanceStart,sensor.Emin);
+			}
+		
+			smgr->setActiveCamera(sensor.staticCamera);
+
+			const uint32_t samplesPerPixelPerDispatch = renderer->getSamplesPerPixelPerDispatch();
+			const uint32_t maxNeededIterations = (sensor.samplesNeeded + samplesPerPixelPerDispatch - 1) / samplesPerPixelPerDispatch;
+		
+			uint32_t itr = 0u;
+			bool takenEnoughSamples = false;
+			bool renderFailed = false;
+			auto lastTimeLoggedProgress = std::chrono::steady_clock::now();
+			while(!takenEnoughSamples && (device->run() && !receiver.isSkipKeyPressed() && receiver.keepOpen()))
+			{
+				if(itr >= maxNeededIterations)
+					std::cout << "[ERROR] Samples taken (" << renderer->getTotalSamplesPerPixelComputed() << ") must've exceeded samples needed for Sensor (" << sensor.samplesNeeded << ") by now; something is wrong." << std::endl;
+
+				// Handle Inputs
+				{
+					if(receiver.isLogProgressKeyPressed() || (std::chrono::steady_clock::now()-lastTimeLoggedProgress)>std::chrono::seconds(3))
+					{
+						int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
+						printf("[INFO] Rendering in progress - %d%% Progress = %u/%u SamplesPerPixel. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded);
+						lastTimeLoggedProgress = std::chrono::steady_clock::now();
+					}
+					if (receiver.isReloadKeyPressed())
+					{
+						printf("[INFO]: Reloading..\n");
+						reloadApplication();
+					}
+					receiver.resetKeys();
+				}
+
+				driver->beginScene(false, false);
+
+				if(!renderer->render(device->getTimer(),sensor.kappa,sensor.Emin,!sensor.envmap))
+				{
+					renderFailed = true;
+					driver->endScene();
+					break;
+				}
+
+				auto oldVP = driver->getViewPort();
+				driver->blitRenderTargets(renderer->getColorBuffer(),nullptr,false,false,{},{},true);
+				driver->setViewPort(oldVP);
+
+				driver->endScene();
+			
+				if(renderer->getTotalSamplesPerPixelComputed() >= sensor.samplesNeeded)
+					takenEnoughSamples = true;
+			
+				itr++;
 			}
 
-			auto oldVP = driver->getViewPort();
-			driver->blitRenderTargets(renderer->getColorBuffer(),nullptr,false,false,{},{},true);
-			driver->setViewPort(oldVP);
-
-			driver->endScene();
-			
-			if(renderer->getTotalSamplesPerPixelComputed() >= sensorData.samplesNeeded)
-				takenEnoughSamples = true;
-			
-			itr++;
-		}
-
-		auto screenshotFilePath = sensorData.outputFilePath;
+			auto screenshotFilePath = sensor.outputFilePath;
 		
-		if(renderFailed)
-		{
-			std::cout << "[ERROR] Render Failed." << std::endl;
-		}
-		else
-		{
-			bool shouldDenoise = sensorData.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
-			renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensorData.denoiserInfo);
-			int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensorData.samplesNeeded) * 100;
-			printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensorData.samplesNeeded, screenshotFilePath.filename().string().c_str());
-		}
+			if(renderFailed)
+			{
+				std::cout << "[ERROR] Render Failed." << std::endl;
+			}
+			else
+			{
+				bool shouldDenoise = sensor.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
+				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensor.denoiserInfo);
+				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
+				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded, screenshotFilePath.filename().string().c_str());
+			}
 
-		receiver.resetKeys();
-	}
-
-	// Denoise Cubemaps that weren't denoised seperately
-	for(uint32_t i = 0; i < cubemapRenders.size(); ++i)
-	{
-		uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
-		assert(beginIdx + 6 <= sensors.size());
-
-		std::filesystem::path filePaths[6] = {};
-
-		for(uint32_t f = beginIdx; f < beginIdx + 6; ++f)
-		{
-			const auto & sensor = sensors[f];
-			filePaths[f] = sensor.outputFilePath;
+			receiver.resetKeys();
 		}
 
-		std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
-		renderer->denoiseCubemapFaces(
-			filePaths,
-			mergedFileName,
-			sensors[beginIdx].cropOffsetX, sensors[beginIdx].cropOffsetY, sensors[beginIdx].cropWidth, sensors[beginIdx].cropHeight,
-			sensors[beginIdx].denoiserInfo);
+		// Denoise Cubemaps that weren't denoised seperately
+		for(uint32_t i = 0; i < cubemapRenders.size(); ++i)
+		{
+			uint32_t beginIdx = cubemapRenders[i].getSensorsBeginIdx();
+			assert(beginIdx + 6 <= sensors.size());
+
+			std::filesystem::path filePaths[6] = {};
+
+			for(uint32_t f = beginIdx; f < beginIdx + 6; ++f)
+			{
+				const auto & sensor = sensors[f];
+				filePaths[f] = sensor.outputFilePath;
+			}
+
+			std::string mergedFileName = "Merge_CubeMap_" + mainFileName;
+			renderer->denoiseCubemapFaces(
+				filePaths,
+				mergedFileName,
+				sensors[beginIdx].cropOffsetX, sensors[beginIdx].cropOffsetY, sensors[beginIdx].cropWidth, sensors[beginIdx].cropHeight,
+				sensors[beginIdx].denoiserInfo);
+		}
 	}
 
 	// Interactive
-	if(!shouldTerminateAfterRenders && receiver.keepOpen())
+	if((applicationState.processSensorsBehaviour != ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE) && receiver.keepOpen())
 	{
-		int activeSensor = -1; // that outputs to current window when not in TERMIANTE mode.
+		int activeSensor = -1;
 
 		auto setActiveSensor = [&](int index) 
 		{
@@ -918,8 +1172,9 @@ int main(int argc, char** argv)
 			}
 		};
 
-		setActiveSensor(0);
+		setActiveSensor(applicationState.startSensorID);
 
+		bool writeLastRunState = false;
 		uint64_t lastFPSTime = 0;
 		auto start = std::chrono::steady_clock::now();
 		bool renderFailed = false;
@@ -935,10 +1190,12 @@ int main(int argc, char** argv)
 				if(receiver.isNextPressed())
 				{
 					setActiveSensor(activeSensor + 1);
+					writeLastRunState = true;
 				}
 				if(receiver.isPreviousPressed())
 				{
 					setActiveSensor(activeSensor - 1);
+					writeLastRunState = true;
 				}
 				if(receiver.isScreenshotKeyPressed())
 				{
@@ -974,9 +1231,8 @@ int main(int argc, char** argv)
 				}
 				if(receiver.isLogProgressKeyPressed())
 				{
-					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed. \n", renderer->getTotalSamplesPerPixelComputed());
+					printf("[INFO] Rendering in progress - %d Total SamplesPerPixel Computed.\n", renderer->getTotalSamplesPerPixelComputed());
 				}
-				receiver.resetKeys();
 			}
 
 			driver->beginScene(false, false);
@@ -990,6 +1246,34 @@ int main(int argc, char** argv)
 				renderFailed = true;
 				driver->endScene();
 				break;
+			}
+
+			if (writeLastRunState)
+			{
+				applicationState.isBeauty = receiver.isRenderingBeauty();
+				applicationState.isInteractiveMode = true;
+				applicationState.startSensorID = activeSensor;
+				applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
+
+				applicationState.writeToDisk();
+
+				writeLastRunState = false;
+			}
+
+			// Post-frame input handling
+			{
+				if (receiver.isReloadKeyPressed())
+				{
+					applicationState.isBeauty = receiver.isRenderingBeauty();
+					applicationState.isInteractiveMode = true;
+					applicationState.startSensorID = activeSensor;
+					applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
+
+					applicationState.writeToDisk();
+
+					reloadApplication();
+				}
+				receiver.resetKeys();
 			}
 
 			auto oldVP = driver->getViewPort();
