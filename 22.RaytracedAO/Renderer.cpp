@@ -738,8 +738,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 			std::fill_n(samplers,MAX_SAMPLERS_COMPUTE,sampler);
 			const IGPUDescriptorSetLayout::SBinding bindings[BindingCount] = {
 				{0,EDT_STORAGE_BUFFER,1,ISpecializedShader::ESS_COMPUTE,nullptr},
-				{0,EDT_STORAGE_IMAGE,1,ISpecializedShader::ESS_COMPUTE,nullptr},
-				{0,EDT_COMBINED_IMAGE_SAMPLER,MAX_SAMPLERS_COMPUTE,ISpecializedShader::ESS_COMPUTE,samplers}
+				{1,EDT_STORAGE_IMAGE,1,ISpecializedShader::ESS_COMPUTE,nullptr},
+				{2,EDT_COMBINED_IMAGE_SAMPLER,MAX_SAMPLERS_COMPUTE,ISpecializedShader::ESS_COMPUTE,samplers}
 			};
 			auto descriptorSetLayout = m_driver->createGPUDescriptorSetLayout(bindings,bindings+BindingCount);
 			
@@ -770,7 +770,13 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 
 			infos[0].desc = paramsBuffer;
 			infos[0].buffer = {0,paramsBuffer->getSize()};
-			infos[1].desc = m_finalEnvmap;
+			infos[1].desc = m_driver->createGPUImageView({
+				static_cast<IGPUImageView::E_CREATE_FLAGS>(0u),
+				m_finalEnvmap->getCreationParameters().image,
+				IGPUImageView::ET_2D,
+				asset::EF_R32_UINT, // need to view the RGB9E5 as R32UI to write to it
+				{},{IGPUImage::EAF_COLOR_BIT,0u,1u,0u,1u}
+			});
 			infos[1].image = {nullptr,EIL_GENERAL};
 			auto pInfoEnvmap = writes[2].info;
 			auto envMapGPUImages = m_driver->getGPUObjectsFromAssets(envMapCPUImages.data(),envMapCPUImages.data()+envMapCPUImages.size());
@@ -792,8 +798,8 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 
 		m_driver->bindComputePipeline(pipeline.get());
 		m_driver->bindDescriptorSets(EPBP_COMPUTE,pipeline->getLayout(),0u,1u,&descriptorSet.get(),nullptr);
-		const auto xGroups = newWidth/WORKGROUP_DIM;
-		m_driver->dispatch(xGroups,xGroups>>1u,1u);
+		const auto xGroups = (newWidth-1u)/WORKGROUP_DIM+1u;
+		m_driver->dispatch(xGroups,core::max(xGroups>>1u,1u),1u);
 
 		// always needs doing after rendering
 		// TODO: better filter and GPU accelerated
