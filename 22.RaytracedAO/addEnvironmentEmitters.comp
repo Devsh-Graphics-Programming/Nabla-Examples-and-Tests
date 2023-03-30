@@ -1,9 +1,8 @@
 #version 430 core
 
-#define WORKGROUP_DIM 16
+#include "common.h"
 layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
 
-#include "common.h"
 layout(set = 0, binding = 0, row_major) readonly buffer Params
 {
 	vec3 baseColor;
@@ -17,6 +16,12 @@ layout(set = 0, binding = 2) uniform sampler2D inEnvMaps[MAX_SAMPLERS_COMPUTE];
 #include <nbl/builtin/glsl/sampling/envmap.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
 
+vec3 directionFromMitsubaUVCoord(in vec2 uv)
+{
+	float dummy;
+	return mitsubaEnvmapToWorldSpace(nbl_glsl_sampling_envmap_directionFromUVCoord(uv,dummy));
+}
+
 void main()
 {
 	const ivec2 pixelCoord = ivec2(gl_GlobalInvocationID.xy);
@@ -25,18 +30,17 @@ void main()
 	{
 		vec3 result = baseColor;
 
-		float dummy;
 		const vec2 origUV = vec2(pixelCoord)/vec2(dstSize);
 		const mat3 dir = mat3(
-			nbl_glsl_sampling_envmap_directionFromUVCoord(origUV+vec2(0.05,0.5)/vec2(dstSize),dummy),
-			nbl_glsl_sampling_envmap_directionFromUVCoord(origUV+vec2(0.5,0.05)/vec2(dstSize),dummy),
-			nbl_glsl_sampling_envmap_directionFromUVCoord(origUV+vec2(0.5)/vec2(dstSize),dummy)
+			directionFromMitsubaUVCoord(origUV+vec2(0.05,0.5)/vec2(dstSize)),
+			directionFromMitsubaUVCoord(origUV+vec2(0.5,0.05)/vec2(dstSize)),
+			directionFromMitsubaUVCoord(origUV+vec2(0.5)/vec2(dstSize))
 		);
 		for (uint i=0; i<inputCount; i++)
 		{
 			mat3x2 uv;
 			for (uint j=0; j<3; j++)
-				uv[j] = nbl_glsl_sampling_envmap_uvCoordFromDirection(nbl_glsl_pseudoMul3x4with3x1(reorientations[i],dir[j]));
+				uv[j] = nbl_glsl_sampling_envmap_uvCoordFromDirection(worldSpaceToMitsubaEnvmap(nbl_glsl_pseudoMul3x4with3x1(reorientations[i],dir[j])));
 			for (uint j=0; j<2; j++)
 				uv[j] = (uv[2]-uv[j])/0.45f;
 			result += textureGrad(inEnvMaps[i],uv[2],uv[0],uv[1]).rgb;

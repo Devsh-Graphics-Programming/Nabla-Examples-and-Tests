@@ -1,12 +1,9 @@
 #ifndef _RAYTRACE_COMMON_H_INCLUDED_
 #define _RAYTRACE_COMMON_H_INCLUDED_
 
+
 #include "common.h"
 
-#if WORKGROUP_SIZE!=256
-	#error "Hardcoded 16 should be NBL_SQRT(WORKGROUP_SIZE)"
-#endif
-#define WORKGROUP_DIM 16
 
 /**
 Plan for lighting:
