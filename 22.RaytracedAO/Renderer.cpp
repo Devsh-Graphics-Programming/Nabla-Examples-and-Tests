@@ -614,76 +614,69 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 {
-	core::vectorSIMDf _envmapBaseColor;
-	_envmapBaseColor.set(0.0f,0.0f,0.0f,1.f);
-
-	uint16_t envmapCount = 0u;
-	for (const auto& emitter : m_globalMeta->m_global.m_emitters)
+	core::smart_refctd_ptr<IGPUBuffer> paramsBuffer;
 	{
-		float weight = 0.f;
-		switch (emitter.type)
+		core::vector<core::vectorSIMDf> params({core::vectorSIMDf(0.0f,0.0f,0.0f,1.f)});
+		for (const auto& emitter : m_globalMeta->m_global.m_emitters)
 		{
-			case ext::MitsubaLoader::CElementEmitter::Type::CONSTANT:
+			float weight = 0.f;
+			switch (emitter.type)
 			{
-				_envmapBaseColor += emitter.constant.radiance;
+				case ext::MitsubaLoader::CElementEmitter::Type::CONSTANT:
+				{
+					params.front() += emitter.constant.radiance;
+					break;
+				}
+				case ext::MitsubaLoader::CElementEmitter::Type::ENVMAP:
+				{
+					std::cout << "ENVMAP FOUND = " << std::endl;
+					std::cout << "\tScale = " << emitter.envmap.scale << std::endl;
+					std::cout << "\tGamma = " << emitter.envmap.gamma << std::endl;
+					std::cout << "\tSamplingWeight = " << emitter.envmap.samplingWeight << std::endl;
+					// LOAD file relative to the XML
+					std::cout << "\tFileName = " << emitter.envmap.filename.svalue << std::endl;
+					core::matrix3x4SIMD invTform;
+					emitter.transform.matrix.extractSub3x4().getInverse(invTform);
+					params.push_back(invTform.rows[0]);
+					params.push_back(invTform.rows[1]);
+					params.push_back(invTform.rows[2]);
+					break;
+				}
+				case ext::MitsubaLoader::CElementEmitter::Type::INVALID:
+					break;
+				default:
+				#ifdef _DEBUG
+					assert(false);
+				#endif
+					// let's implement a new emitter type!
+					//weight = emitter.unionType.samplingWeight;
+					break;
 			}
-				break;
-			case ext::MitsubaLoader::CElementEmitter::Type::ENVMAP:
-			{
-				std::cout << "ENVMAP FOUND = " << std::endl;
-				std::cout << "\tScale = " << emitter.envmap.scale << std::endl;
-				std::cout << "\tGamma = " << emitter.envmap.gamma << std::endl;
-				std::cout << "\tSamplingWeight = " << emitter.envmap.samplingWeight << std::endl;
-				std::cout << "\tFileName = " << emitter.envmap.filename.svalue << std::endl;
-				// LOAD file relative to the XML
-				envmapCount++;
-			}
-				break;
-			case ext::MitsubaLoader::CElementEmitter::Type::INVALID:
-				break;
-			default:
-			#ifdef _DEBUG
-				assert(false);
-			#endif
-				// let's implement a new emitter type!
-				//weight = emitter.unionType.samplingWeight;
-				break;
-		}
-		if (weight==0.f)
-			continue;
+			if (weight==0.f)
+				continue;
 			
-		//weight *= light.computeFlux(NAN);
-		if (weight <= FLT_MIN)
-			continue;
+			//weight *= light.computeFlux(NAN);
+			if (weight <= FLT_MIN)
+				continue;
 
-		//initData.lightPDF.push_back(weight);
-		//initData.lights.push_back(light);
+			//initData.lightPDF.push_back(weight);
+			//initData.lights.push_back(light);
+		}
+		reinterpret_cast<uint32_t&>(params.front().w) = params.size()/3;
+		paramsBuffer = m_driver->createFilledDeviceLocalGPUBufferOnDedMem(sizeof(core::vectorSIMDf)*params.size(),params.data());
 	}
-
-	// Initialize Pipeline and Resources for EnvMap Blending
-	{
-		auto addEnvShader = gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../addEnvironmentEmitters.comp");
-		auto pipelineLayout = m_driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(blendEnvDescriptorSetLayout));
-	}
-
-
-	blendEnvPipeline = m_driver->createGPURenderpassIndependentPipeline(nullptr, std::move(gpuPipelineLayout), shaders, shaders + 2,
-		std::get<SVertexInputParams>(fullScreenTriangle), blendParams,
-		std::get<SPrimitiveAssemblyParams>(fullScreenTriangle), rasterParams);
+	const auto& envMapCPUImages = m_globalMeta->m_global.m_envMapImages;
 	
-	SBufferBinding<IGPUBuffer> idxBinding{ 0ull, nullptr };
-	blendEnvMeshBuffer = core::make_smart_refctd_ptr<IGPUMeshBuffer>(nullptr, nullptr, nullptr, std::move(idxBinding));
-	blendEnvMeshBuffer->setIndexCount(3u);
-	blendEnvMeshBuffer->setInstanceCount(1u);
-	
-	video::IFrameBuffer* finalEnvFramebuffer = nullptr;
+	// don't touch this, 4x2 envmap is absolute minimum to have everything working
+	uint32_t newWidth = 4;
+	// create image
 	{
-		const auto colorFormat = asset::EF_R16G16B16A16_SFLOAT;
-		// don't touch this, 4x2 envmap is absolute minimum to have everything working
-		uint32_t newWidth = 4;
-		for (const auto& envmapCpuImage : m_globalMeta->m_global.m_envMapImages)
+		const auto colorFormat = asset::EF_E5B9G9R9_UFLOAT_PACK32;
+
+		for (const auto& envmapCpuImage : envMapCPUImages)
 		{
 			const auto& extent = envmapCpuImage->getCreationParameters().extent;
+			// I could upscale 2x2 if detecting a rotation, but should have used Cubemaps or Octahedral mapping instead 
 			newWidth = core::max<uint32_t>(core::max<uint32_t>(extent.width,extent.height<<1u),newWidth);
 		}
 		constexpr uint32_t kMaxEnvMapSize = 16u << 10u;
@@ -704,7 +697,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 
-		auto image = m_driver->createGPUImageOnDedMem(std::move(imgInfo), m_driver->getDeviceLocalGPUMemoryReqs());
+		auto image = m_driver->createGPUImageOnDedMem(std::move(imgInfo),m_driver->getDeviceLocalGPUMemoryReqs());
 
 		IGPUImageView::SCreationParams imgViewInfo;
 		imgViewInfo.image = std::move(image);
@@ -717,60 +710,97 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 		imgViewInfo.subresourceRange.levelCount = mipLevels;
 
 		m_finalEnvmap = m_driver->createGPUImageView(std::move(imgViewInfo));
-
-		finalEnvFramebuffer = m_driver->addFrameBuffer();
-		finalEnvFramebuffer->attach(video::EFAP_COLOR_ATTACHMENT0,core::smart_refctd_ptr(m_finalEnvmap));
 	}
 
-	auto blendToFinalEnvMap = [&](nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> gpuImageView) -> void
 	{
-		auto blendEnvDescriptorSet = m_driver->createGPUDescriptorSet(std::move(blendEnvDescriptorSetLayout));
-		
-		IGPUDescriptorSet::SDescriptorInfo info;
+		// we don't have DLT on this branch
+		auto sampler = m_driver->createGPUSampler(IGPUSampler::SParams{
+			IGPUSampler::ETC_REPEAT,
+			IGPUSampler::ETC_REPEAT,
+			IGPUSampler::ETC_REPEAT,
+			IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK,
+			IGPUSampler::ETF_LINEAR,
+			IGPUSampler::ETF_LINEAR,
+			IGPUSampler::ESMM_LINEAR,
+			5,
+			false,
+			IGPUSampler::ECO_ALWAYS
+		});
+		core::vector<core::smart_refctd_ptr<IGPUImageView>> retainedViews;
+
+		constexpr auto BindingCount = 3;
+		// Initialize Pipeline and Resources for EnvMap Blending
+		core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
+		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
+		//
 		{
-			info.desc = gpuImageView;
-			ISampler::SParams samplerParams = { ISampler::ETC_REPEAT, ISampler::ETC_REPEAT, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
-			info.image.sampler = m_driver->createGPUSampler(samplerParams);
-			info.image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
+			core::smart_refctd_ptr<IGPUSampler> samplers[MAX_SAMPLERS_COMPUTE];
+			std::fill_n(samplers,MAX_SAMPLERS_COMPUTE,sampler);
+			const IGPUDescriptorSetLayout::SBinding bindings[BindingCount] = {
+				{0,EDT_STORAGE_BUFFER,1,ISpecializedShader::ESS_COMPUTE,nullptr},
+				{0,EDT_STORAGE_IMAGE,1,ISpecializedShader::ESS_COMPUTE,nullptr},
+				{0,EDT_COMBINED_IMAGE_SAMPLER,MAX_SAMPLERS_COMPUTE,ISpecializedShader::ESS_COMPUTE,samplers}
+			};
+			auto descriptorSetLayout = m_driver->createGPUDescriptorSetLayout(bindings,bindings+BindingCount);
+			
+			pipeline = m_driver->createGPUComputePipeline(nullptr,
+				m_driver->createGPUPipelineLayout(nullptr,nullptr,core::smart_refctd_ptr(descriptorSetLayout)),
+				gpuSpecializedShaderFromFile(m_assetManager,m_driver,"../addEnvironmentEmitters.comp")
+			);
+
+			descriptorSet = m_driver->createGPUDescriptorSet(std::move(descriptorSetLayout));
+		}
+		//
+		{
+			std::unique_ptr<IGPUDescriptorSet::SDescriptorInfo[]> infos(new IGPUDescriptorSet::SDescriptorInfo[envMapCPUImages.size()+BindingCount-1u]);
+				
+			IGPUDescriptorSet::SWriteDescriptorSet writes[BindingCount];
+			for (auto i=0; i<BindingCount; i++)
+			{
+				writes[i].dstSet = descriptorSet.get();
+				writes[i].binding = i;
+				writes[i].arrayElement = 0u;
+				writes[i].count = 1u;
+				writes[i].info = infos.get()+i;
+			}
+			writes[0].descriptorType = EDT_UNIFORM_BUFFER;
+			writes[1].descriptorType = EDT_STORAGE_IMAGE;
+			writes[2].descriptorType = EDT_COMBINED_IMAGE_SAMPLER;
+			writes[2].count = envMapCPUImages.size();
+
+			infos[0].desc = paramsBuffer;
+			infos[0].buffer = {0,paramsBuffer->getSize()};
+			infos[1].desc = m_finalEnvmap;
+			infos[1].image = {nullptr,EIL_GENERAL};
+			auto pInfoEnvmap = writes[2].info;
+			auto envMapGPUImages = m_driver->getGPUObjectsFromAssets(envMapCPUImages.data(),envMapCPUImages.data()+envMapCPUImages.size());
+			for(auto& image : *envMapGPUImages)
+			{
+				pInfoEnvmap->desc = retainedViews.emplace_back(m_driver->createGPUImageView({
+					static_cast<IGPUImageView::E_CREATE_FLAGS>(0u),
+					core::smart_refctd_ptr(image),
+					IGPUImageView::ET_2D,
+					image->getCreationParameters().format,
+					{},{IGPUImage::EAF_COLOR_BIT,0u,1u,0u,1u}
+				}));
+				pInfoEnvmap->image = {nullptr,asset::EIL_SHADER_READ_ONLY_OPTIMAL};
+				pInfoEnvmap++;
+			}
+
+			m_driver->updateDescriptorSets(BindingCount,writes,0u,nullptr);
 		}
 
-		IGPUDescriptorSet::SWriteDescriptorSet write;
-		write.dstSet = blendEnvDescriptorSet.get();
-		write.binding = 0u;
-		write.arrayElement = 0u;
-		write.count = 1u;
-		write.descriptorType = EDT_COMBINED_IMAGE_SAMPLER;
-		write.info = &info;
+		m_driver->bindComputePipeline(pipeline.get());
+		m_driver->bindDescriptorSets(EPBP_COMPUTE,pipeline->getLayout(),0u,1u,&descriptorSet.get(),nullptr);
+		const auto xGroups = newWidth/WORKGROUP_DIM;
+		m_driver->dispatch(xGroups,xGroups>>1u,1u);
 
-		m_driver->updateDescriptorSets(1u, &write, 0u, nullptr);
-		m_driver->bindGraphicsPipeline(blendEnvPipeline.get());
-		m_driver->bindDescriptorSets(EPBP_GRAPHICS, blendEnvPipeline->getLayout(), 3u, 1u, &blendEnvDescriptorSet.get(), nullptr);
-		m_driver->drawMeshBuffer(blendEnvMeshBuffer.get());
-	};
-	
-	m_driver->setRenderTarget(finalEnvFramebuffer, true);
-	float colorClearValues[] = { _envmapBaseColor.x, _envmapBaseColor.y, _envmapBaseColor.z, _envmapBaseColor.w };
-	m_driver->clearColorBuffer(video::EFAP_COLOR_ATTACHMENT0, colorClearValues);
-	for(const auto& envmapCpuImage : m_globalMeta->m_global.m_envMapImages)
-	{
-		ICPUImageView::SCreationParams viewParams;
-		viewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
-		viewParams.image = envmapCpuImage;
-		viewParams.format = viewParams.image->getCreationParameters().format;
-		viewParams.viewType = IImageView<ICPUImage>::ET_2D;
-		viewParams.subresourceRange.baseArrayLayer = 0u;
-		viewParams.subresourceRange.layerCount = 1u;
-		viewParams.subresourceRange.baseMipLevel = 0u;
-		viewParams.subresourceRange.levelCount = 1u;
-		auto cpuEnvmapImageView = ICPUImageView::create(std::move(viewParams));
-		auto envMapImageView = m_driver->getGPUObjectsFromAssets(&cpuEnvmapImageView.get(), &cpuEnvmapImageView.get() + 1u)->front();
-		blendToFinalEnvMap(envMapImageView);
+		// always needs doing after rendering
+		// TODO: better filter and GPU accelerated
+		COpenGLExtensionHandler::extGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT|GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 	}
-	m_driver->setRenderTarget(nullptr, true);
-	// always needs doing after rendering
-	// TODO: better filter and GPU accelerated
-	m_finalEnvmap->regenerateMipMapLevels();
 
+	m_finalEnvmap->regenerateMipMapLevels();
 	m_envMapImportanceSampling.initResources(m_finalEnvmap);
 }
 
