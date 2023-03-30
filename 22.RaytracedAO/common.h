@@ -14,6 +14,8 @@
 
 #define WORKGROUP_SIZE 256
 
+#define MAX_SAMPLERS_COMPUTE 16
+
 
 #ifdef __cplusplus
 	#define uint uint32_t

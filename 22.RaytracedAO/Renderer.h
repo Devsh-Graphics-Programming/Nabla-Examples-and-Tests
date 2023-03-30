@@ -248,12 +248,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_normalAcc,m_normalRslv;
 		nbl::video::IFrameBuffer* m_visibilityBuffer,* m_colorBuffer;
 		
-		// Resources used for blending environmental maps
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpassIndependentPipeline> blendEnvPipeline;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSetLayout> blendEnvDescriptorSet;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUMeshBuffer> blendEnvMeshBuffer;
-		
+		// Resources used for envmap sampling
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_finalEnvmap;		
 		nbl::ext::EnvmapImportanceSampling::EnvmapImportanceSampling m_envMapImportanceSampling;
 
 		std::future<bool> compileShadersFuture;

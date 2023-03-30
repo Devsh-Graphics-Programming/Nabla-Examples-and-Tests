@@ -1,19 +1,19 @@
 #version 430 core
 
 #define WORKGROUP_DIM 16
-#define MAX_SAMPLERS_COMPUTE 16
 layout(local_size_x = WORKGROUP_DIM, local_size_y = WORKGROUP_DIM) in;
 
-#include <nbl/builtin/glsl/math/quaternions.glsl>
-layout(set = 0, binding = 0) readonly buffer Params
+#include "common.h"
+layout(set = 0, binding = 0, row_major) readonly buffer Params
 {
 	vec3 baseColor;
 	uint inputCount;
-	nbl_glsl_quaternion_t rotations[]; 
+	mat4x3 reorientations[];
 };
 layout(set = 0, binding = 1, r32ui) restrict uniform uimage2D outEnvMap;
 layout(set = 0, binding = 2) uniform sampler2D inEnvMaps[MAX_SAMPLERS_COMPUTE];
 
+#include <nbl/builtin/glsl/utils/transform.glsl>
 #include <nbl/builtin/glsl/sampling/envmap.glsl>
 #include <nbl/builtin/glsl/format/encode.glsl>
 
@@ -34,12 +34,9 @@ void main()
 		);
 		for (uint i=0; i<inputCount; i++)
 		{
-			mat3 rot = nbl_glsl_quaternion_t_constructMatrix(rotations[i]);
-			mat3x2 uv = mat3x2(
-				nbl_glsl_sampling_envmap_uvCoordFromDirection(rot*dir[0]),
-				nbl_glsl_sampling_envmap_uvCoordFromDirection(rot*dir[1]),
-				nbl_glsl_sampling_envmap_uvCoordFromDirection(rot*dir[2])
-			);
+			mat3x2 uv;
+			for (uint j=0; j<3; j++)
+				uv[j] = nbl_glsl_sampling_envmap_uvCoordFromDirection(nbl_glsl_pseudoMul3x4with3x1(reorientations[i],dir[j]));
 			for (uint j=0; j<2; j++)
 				uv[j] = (uv[2]-uv[j])/0.45f;
 			result += textureGrad(inEnvMaps[i],uv[2],uv[0],uv[1]).rgb;
