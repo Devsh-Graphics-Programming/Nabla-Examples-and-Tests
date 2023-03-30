@@ -313,9 +313,6 @@ int main(int argc, char** argv)
 	auto device = createDeviceEx(params);
 	if (!device)
 		return 1; // could not create selected driver.
-	
-	// will leak it because there's no cross platform input!
-	std::thread cin_thread;
 
 	//
 	asset::SAssetBundle meshes = {};
@@ -398,6 +395,7 @@ int main(int argc, char** argv)
 								started = true;
 								std::cin >> chosen;
 							});
+							cin_thread.detach();
 							const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(10u);
 							while (!started || chosen == 0xffffffffu && std::chrono::steady_clock::now() < end) {}
 						}
