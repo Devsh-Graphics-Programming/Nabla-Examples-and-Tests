@@ -254,16 +254,6 @@ int main(int argc, char** argv)
 		for (auto i = 1ul; i < argc; ++i)
 			arguments.emplace_back(argv[i]);
 	}
-
-#ifdef TEST_ARGS
-	arguments = std::vector<std::string> { 
-		"-SCENE",
-		"../../media/mitsuba/staircase2.zip",
-		"scene.xml",
-		"-SCREENSHOT_OUTPUT_FOLDER",
-		"\"C:\\Nabla-Screen-Shots\""
-	};
-#endif
 	
 	bool applicationIsReloaded = false;
 	PersistentState applicationState;
@@ -432,7 +422,7 @@ int main(int argc, char** argv)
 					}
 				}
 
-				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).replace_extension().string();
+				_mainFileName += std::string("_") + std::filesystem::path(_xmlPath.c_str()).filename().replace_extension().string();
 			}
 			else if (!_xmlPath.empty())
 			{
@@ -569,18 +559,19 @@ int main(int argc, char** argv)
 	{
 		std::string ret = "";
 		using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
-		switch (format) {
-		case FileFormat::PNG:
-			ret = ".png";
-			break;
-		case FileFormat::OPENEXR:
-			ret = ".exr";
-			break;
-		case FileFormat::JPEG:
-			ret = ".jpg";
-			break;
-		default: // TODO?
-			break;
+		switch (format)
+		{
+			case FileFormat::PNG:
+				ret = ".png";
+				break;
+			case FileFormat::OPENEXR:
+				ret = ".exr";
+				break;
+			case FileFormat::JPEG:
+				ret = ".jpg";
+				break;
+			default: // TODO?
+				break;
 		}
 		return ret;
 	};
@@ -595,15 +586,16 @@ int main(int argc, char** argv)
 
 		// TODO: get the supported extensions from loaders(?)
 		using FileFormat = ext::MitsubaLoader::CElementFilm::FileFormat;
-		switch (format) {
-		case FileFormat::PNG:
-			return extension == "png";
-		case FileFormat::OPENEXR:
-			return extension == "exr";
-		case FileFormat::JPEG:
-			return extension == "jpg" || extension == "jpeg" || extension == "jpe" || extension == "jif" || extension == "jfif" || extension == "jfi";
-		default:
-			return false;
+		switch (format)
+		{
+			case FileFormat::PNG:
+				return extension == "png";
+			case FileFormat::OPENEXR:
+				return extension == "exr";
+			case FileFormat::JPEG:
+				return extension == "jpg" || extension == "jpeg" || extension == "jpe" || extension == "jif" || extension == "jfif" || extension == "jfi";
+			default:
+				return false;
 		}
 	};
 	
@@ -628,10 +620,6 @@ int main(int argc, char** argv)
 		mainSensorData.Emin = film.rfilter.Emin;
 		mainSensorData.envmapRegFactor = core::clamp(film.envmapRegularizationFactor, 0.0f, 0.8f);
 		mainSensorData.outputFilePath = std::filesystem::path(film.outputFilePath);
-		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
-		{
-			std::cout << "[ERROR] film.outputFilePath's extension is not compatible with film.fileFormat" << std::endl;
-		}
 		// handle missing output path
 		if (mainSensorData.outputFilePath.empty())
 		{
@@ -641,6 +629,8 @@ int main(int argc, char** argv)
 			else
 				mainSensorData.outputFilePath = std::filesystem::path("Render_" + mainFileName + extensionStr);
 		}
+		if(!isFileExtensionCompatibleWithFormat(mainSensorData.outputFilePath.extension().string(), mainSensorData.fileFormat))
+			std::cout << "[ERROR] film.outputFilePath's extension is not compatible with film.fileFormat" << std::endl;
 
 		mainSensorData.samplesNeeded = sensor.sampler.sampleCount;
 		std::cout << "\t SamplesPerPixelNeeded = " << mainSensorData.samplesNeeded << std::endl;
