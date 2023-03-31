@@ -964,7 +964,7 @@ int main(int argc, char** argv)
 	core::SRange<SensorData> nonInteractiveSensors = { nullptr, nullptr };
 	if (!applicationState.isInteractiveMode)
 	{
-		assert(startSensorID < globalMeta->m_global.m_sensors.size() && "startSensorID should've been a valid value by now.");
+		assert(applicationState.startSensorID < globalMeta->m_global.m_sensors.size() && "startSensorID should've been a valid value by now.");
 
 		uint32_t onePastLastSensorID = applicationState.startSensorID;
 		if ((applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE) || (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_TERMINATE))
