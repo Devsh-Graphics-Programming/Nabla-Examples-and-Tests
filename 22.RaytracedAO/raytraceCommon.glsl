@@ -326,15 +326,6 @@ mat2x3 rand6d(in uvec3 scramble_keys[2], in int _sample, int depth)
 }
 
 #include <nbl/builtin/glsl/ext/EnvmapImportanceSampling/functions.glsl>
-// for some reason Mitsuba uses Left-Handed coordinate system with Y-up for Envmaps
-vec3 worldSpaceToMitsubaEnvmap(in vec3 worldSpace)
-{
-	return vec3(-worldSpace.z,worldSpace.xy);
-}
-vec3 mitsubaEnvmapToWorldSpace(in vec3 mitsubaEnvmaSpace)
-{
-	return vec3(mitsubaEnvmaSpace.yz,-mitsubaEnvmaSpace.x);
-}
 
 
 nbl_glsl_MC_quot_pdf_aov_t gen_sample_ray(
