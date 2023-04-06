@@ -93,7 +93,7 @@ class BlitFilterTestApp : public ApplicationBase
 		}
 	};
 
-	template <Blittable BlitUtilities>
+	template <typename BlitUtilities>
 	class CBlitImageFilterTest : public ITest
 	{
 		using blit_utils_t = BlitUtilities;
@@ -104,24 +104,13 @@ class BlitFilterTestApp : public ApplicationBase
 			BlitFilterTestApp*							parentApp,
 			const core::vectorSIMDu32&					outImageDim,
 			const asset::E_FORMAT						outImageFormat,
-			blit_utils_t::reconstruction_x_t&&			reconstructionX,
-			blit_utils_t::resampling_x_t&&				resamplingX,
-			blit_utils_t::reconstruction_y_t&&			reconstructionY,
-			blit_utils_t::resampling_y_t&&				resamplingY,
-			blit_utils_t::reconstruction_z_t&&			reconstructionZ,
-			blit_utils_t::resampling_z_t&&				resamplingZ,
 			const char*									writeImagePath,
-			const IBlitUtilities::E_ALPHA_SEMANTIC		alphaSemantic,
+			const typename blit_utils_t::convolution_kernels_t&  convolutionKernels,
+			const IBlitUtilities::E_ALPHA_SEMANTIC		alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
 			const float									referenceAlpha = 0.5f,
 			const uint32_t								alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
 			: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_outImageFormat(outImageFormat),
-			m_reconstructionX(std::move(reconstructionX)),
-			m_resamplingX(std::move(resamplingX)),
-			m_reconstructionY(std::move(reconstructionY)),
-			m_resamplingY(std::move(resamplingY)),
-			m_reconstructionZ(std::move(reconstructionZ)),
-			m_resamplingZ(std::move(resamplingZ)),
-			m_writeImagePath(writeImagePath),
+			m_convolutionKernels(convolutionKernels), m_writeImagePath(writeImagePath),
 			m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
 		{}
 
@@ -140,7 +129,7 @@ class BlitFilterTestApp : public ApplicationBase
 			}
 
 			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, BlitUtilities, float>;
-			typename BlitFilter::state_type blitFilterState(m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ);
+			typename BlitFilter::state_type blitFilterState(m_convolutionKernels);
 
 			blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
 			blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, m_inImage->getCreationParameters().arrayLayers) + m_inImage->getMipSize();
@@ -158,7 +147,7 @@ class BlitFilterTestApp : public ApplicationBase
 			blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 			blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
-			if (!blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ))
+			if (!blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
 			{
 				m_parentApp->logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
 				return false;
@@ -178,18 +167,13 @@ class BlitFilterTestApp : public ApplicationBase
 		}
 
 	private:
-		const core::vectorSIMDu32				m_outImageDim;
-		const asset::E_FORMAT					m_outImageFormat;
-		blit_utils_t::reconstruction_x_t&&		m_reconstructionX;
-		blit_utils_t::resampling_x_t&&			m_resamplingX;
-		blit_utils_t::reconstruction_y_t&&		m_reconstructionY;
-		blit_utils_t::resampling_y_t&&			m_resamplingY;
-		blit_utils_t::reconstruction_z_t&&		m_reconstructionZ;
-		blit_utils_t::resampling_z_t&&			m_resamplingZ;
-		const char*								m_writeImagePath;
-		const IBlitUtilities::E_ALPHA_SEMANTIC	m_alphaSemantic;
-		const float								m_referenceAlpha;
-		const uint32_t							m_alphaBinCount;
+		const core::vectorSIMDu32					m_outImageDim;
+		const asset::E_FORMAT						m_outImageFormat;
+		const typename blit_utils_t::convolution_kernels_t	m_convolutionKernels;
+		const char*									m_writeImagePath;
+		const IBlitUtilities::E_ALPHA_SEMANTIC		m_alphaSemantic;
+		const float									m_referenceAlpha;
+		const uint32_t								m_alphaBinCount;
 	};
 
 	class CFlattenRegionsImageFilterTest : public ITest
@@ -403,32 +387,21 @@ class BlitFilterTestApp : public ApplicationBase
 		const char* m_writeImagePath;
 	};
 
-	template <typename LutDataType, Blittable BlitUtilities>
+	template <typename LutDataType, typename BlitUtilities>
 	class CComputeBlitTest : public ITest
 	{
 		using blit_utils_t = BlitUtilities;
 
 	public:
 		CComputeBlitTest(
-			core::smart_refctd_ptr<asset::ICPUImage>&&		inImage,
-			BlitFilterTestApp*								parentApp,
-			const core::vectorSIMDu32&						outImageDim,
-			blit_utils_t::reconstruction_x_t&&				reconstructionX,
-			blit_utils_t::resampling_x_t&&					resamplingX,
-			blit_utils_t::reconstruction_y_t&&				reconstructionY,
-			blit_utils_t::resampling_y_t&&					resamplingY,
-			blit_utils_t::reconstruction_z_t&&				reconstructionZ,
-			blit_utils_t::resampling_z_t&&					resamplingZ,
-			const IBlitUtilities::E_ALPHA_SEMANTIC			alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
-			const float										referenceAlpha = 0.f,
-			const uint32_t									alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
-			: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim),
-			m_reconstructionX(std::move(reconstructionX)),
-			m_resamplingX(std::move(resamplingX)),
-			m_reconstructionY(std::move(reconstructionY)),
-			m_resamplingY(std::move(resamplingY)),
-			m_reconstructionZ(std::move(reconstructionZ)),
-			m_resamplingZ(std::move(resamplingZ)),
+			core::smart_refctd_ptr<asset::ICPUImage>&&			inImage,
+			BlitFilterTestApp*									parentApp,
+			const core::vectorSIMDu32&							outImageDim,
+			const typename blit_utils_t::convolution_kernels_t& convolutionKernels,
+			const IBlitUtilities::E_ALPHA_SEMANTIC				alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
+			const float											referenceAlpha = 0.f,
+			const uint32_t										alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
+			: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_convolutionKernels(convolutionKernels),
 			m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
 		{}
 
@@ -484,13 +457,7 @@ class BlitFilterTestApp : public ApplicationBase
 				if (!outImageCPU)
 					return false;
 
-				typename BlitFilter::state_type blitFilterState = typename BlitFilter::state_type(
-					m_reconstructionX,
-					m_resamplingX,
-					m_reconstructionY,
-					m_resamplingY,
-					m_reconstructionZ,
-					m_resamplingZ);
+				typename BlitFilter::state_type blitFilterState = typename BlitFilter::state_type(m_convolutionKernels);
 
 				blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
 				blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, layerCount) + m_inImage->getMipSize();
@@ -512,7 +479,7 @@ class BlitFilterTestApp : public ApplicationBase
 				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
-				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ))
+				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
 					m_parentApp->logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
 
 				m_parentApp->logger->log("CPU begin..");
@@ -694,10 +661,10 @@ class BlitFilterTestApp : public ApplicationBase
 				// create scaledKernelPhasedLUT and its view
 				core::smart_refctd_ptr<video::IGPUBufferView> scaledKernelPhasedLUTView = nullptr;
 				{
-					const auto lutSize = blit_utils_t::template getScaledKernelPhasedLUTSize<LutDataType>(inExtent, m_outImageDim, inImageType, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ);
+					const auto lutSize = blit_utils_t::template getScaledKernelPhasedLUTSize<LutDataType>(inExtent, m_outImageDim, inImageType, m_convolutionKernels);
 
 					uint8_t* lutMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(lutSize, 32));
-					if (!blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(lutMemory, inExtent, m_outImageDim, inImageType, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ))
+					if (!blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(lutMemory, inExtent, m_outImageDim, inImageType, m_convolutionKernels))
 					{
 						m_parentApp->logger->log("Failed to compute scaled kernel phased LUT for the GPU case!", system::ILogger::ELL_ERROR);
 						return false;
@@ -756,7 +723,7 @@ class BlitFilterTestApp : public ApplicationBase
 					blitFilter->updateDescriptorSet(normalizationDS.get(), nullptr, normalizationInImageView, outImageView, coverageAdjustmentScratchBuffer, nullptr);
 				}
 
-				blitPipeline = blitFilter->getBlitPipeline<BlitUtilities>(outImageFormat, inImageType, inExtent, m_outImageDim, m_alphaSemantic, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ, BlitWorkgroupSize, m_alphaBinCount);
+				blitPipeline = blitFilter->getBlitPipeline<BlitUtilities>(outImageFormat, inImageType, inExtent, m_outImageDim, m_alphaSemantic, m_convolutionKernels, BlitWorkgroupSize, m_alphaBinCount);
 				blitDS = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(blitDSLayout));
 				blitWeightsDS = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(kernelWeightsDSLayout));
 
@@ -768,7 +735,7 @@ class BlitFilterTestApp : public ApplicationBase
 					blitDS.get(), alphaTestPipeline.get(),
 					blitDS.get(), blitWeightsDS.get(), blitPipeline.get(),
 					normalizationDS.get(), normalizationPipeline.get(),
-					inExtent, inImageType, inImageFormat, normalizationInImage, m_reconstructionX, m_resamplingX, m_reconstructionY, m_resamplingY, m_reconstructionZ, m_resamplingZ,
+					inExtent, inImageType, inImageFormat, normalizationInImage, m_convolutionKernels,
 					layersToBlit,
 					coverageAdjustmentScratchBuffer, m_referenceAlpha,
 					m_alphaBinCount, BlitWorkgroupSize);
@@ -902,16 +869,11 @@ class BlitFilterTestApp : public ApplicationBase
 		}
 
 	private:
-		const core::vectorSIMDu32				m_outImageDim;
-		const IBlitUtilities::E_ALPHA_SEMANTIC  m_alphaSemantic;
-		blit_utils_t::reconstruction_x_t&&		m_reconstructionX;
-		blit_utils_t::resampling_x_t&&			m_resamplingX;
-		blit_utils_t::reconstruction_y_t&&		m_reconstructionY;
-		blit_utils_t::resampling_y_t&&			m_resamplingY;
-		blit_utils_t::reconstruction_z_t&&		m_reconstructionZ;
-		blit_utils_t::resampling_z_t&&			m_resamplingZ;
-		const float								m_referenceAlpha = 0.f;
-		const uint32_t							m_alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount;
+		const core::vectorSIMDu32							m_outImageDim;
+		const IBlitUtilities::E_ALPHA_SEMANTIC				m_alphaSemantic;
+		const typename blit_utils_t::convolution_kernels_t	m_convolutionKernels;
+		const float											m_referenceAlpha = 0.f;
+		const uint32_t										m_alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount;
 	};
 
 	class CRegionBlockFunctorFilterTest : public ITest
@@ -988,121 +950,6 @@ public:
 		inputSystem = std::move(initOutput.inputSystem);
 
 
-// #define NEW_CODE
-#ifdef NEW_CODE
-		{
-			{
-				auto kernelA = asset::CBoxImageFilterKernel();
-				auto kernelB = asset::CBoxImageFilterKernel();
-
-				kernelB.stretchAndScale(core::vectorSIMDf(0.5f, 1.f, 1.f, 1.f));
-
-				auto dummyLoad = [](double* windowSample, const core::vectorSIMDf&, const core::vectorSIMDi32&, const core::vectorSIMDf&) -> void
-				{
-					for (auto h = 0; h < 4; h++)
-						windowSample[h] = 1.0;
-				};
-
-				double kernelWeight[4] = { 0.0, 0.0, 0.0, 0.0 };
-				// actually used to put values in the LUT
-				auto dummyEvaluate = [&kernelWeight](const double* windowSample, const core::vectorSIMDf&, const core::vectorSIMDi32&, const core::vectorSIMDf&) -> void
-				{
-					for (auto h = 0; h < 4; h++)
-						kernelWeight[h] = windowSample[h];
-				};
-
-				printf("kernelA:\n");
-				{
-					core::vectorSIMDf evalPoint = core::vectorSIMDf(-0.5f);
-					kernelA.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-
-					evalPoint = core::vectorSIMDf(0.f);
-					kernelA.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-
-					evalPoint = core::vectorSIMDf(0.5f);
-					kernelA.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-				}
-
-				printf("kernelB:\n");
-				{
-					core::vectorSIMDf evalPoint = core::vectorSIMDf(-0.5f);
-					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-
-					evalPoint = core::vectorSIMDf(-0.25f);
-					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-
-					evalPoint = core::vectorSIMDf(0.f);
-					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-
-					evalPoint = core::vectorSIMDf(0.25f);
-					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-
-
-					evalPoint = core::vectorSIMDf(0.5f);
-					kernelB.evaluateImpl(dummyLoad, dummyEvaluate, kernelWeight, evalPoint, core::vectorSIMDi32());
-					printf("\tevalPoint = (%f, %f, %f, %f)\n\tweight = (%f, %f, %f, %f)\n\n", evalPoint.x, evalPoint.y, evalPoint.z, evalPoint.w, kernelWeight[0], kernelWeight[1], kernelWeight[2], kernelWeight[3]);
-				}
-
-				__debugbreak();
-			}
-
-			auto inImage = createCPUImage(core::vectorSIMDu32(2, 1, 1, 1), asset::ICPUImage::ET_1D, asset::EF_R32_SFLOAT, true);
-
-			const core::vectorSIMDu32 outImageDim(4, 1, 1, 1);
-			auto outImage = createCPUImage(outImageDim, asset::ICPUImage::ET_1D, asset::EF_R32_SFLOAT);
-			{
-				auto reconstructionX = asset::CBoxImageFilterKernel();
-				auto resamplingX = asset::CBoxImageFilterKernel();
-
-				auto reconstructionY = asset::CBoxImageFilterKernel();
-				auto resamplingY = asset::CBoxImageFilterKernel();
-
-				auto reconstructionZ = asset::CBoxImageFilterKernel();
-				auto resamplingZ = asset::CBoxImageFilterKernel();
-
-				using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>, float>;
-
-				typename BlitFilter::state_type blitFilterState(reconstructionX, resamplingX, reconstructionY, resamplingY, reconstructionZ, resamplingZ);
-
-				blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
-				blitFilterState.inExtentLayerCount = core::vectorSIMDu32(0u, 0u, 0u, inImage->getCreationParameters().arrayLayers) + inImage->getMipSize();
-				blitFilterState.inImage = inImage.get();
-
-				blitFilterState.outImage = outImage.get();
-
-				blitFilterState.outOffsetBaseLayer = core::vectorSIMDu32();
-				blitFilterState.outExtentLayerCount = outImageDim;
-
-				blitFilterState.alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
-
-				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
-				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
-
-				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, reconstructionX, resamplingX, reconstructionY, resamplingY, reconstructionZ, resamplingZ))
-				{
-					logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
-					return;
-				}
-
-				if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
-				{
-					logger->log("Failed to blit", system::ILogger::ELL_ERROR);
-					return;
-				}
-
-				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
-				__debugbreak();
-			}
-		}
-#endif
-
 		constexpr bool TestCPUBlitFilter = true;
 		constexpr bool TestFlattenFilter = true;
 		constexpr bool TestSwizzleAndConvertFilter = true;
@@ -1173,16 +1020,9 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width/2, inExtent.height/4, 1, 1);
 					const auto outImageFormat = asset::EF_R8G8B8A8_SRGB;
 
-					auto reconstructionX = asset::CMitchellImageFilterKernel();
-					auto resamplingX = asset::CMitchellImageFilterKernel();
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<SMitchellFunction<>>>;
 
-					auto reconstructionY = asset::CMitchellImageFilterKernel();
-					auto resamplingY = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionZ = asset::CMitchellImageFilterKernel();
-					auto resamplingZ = asset::CMitchellImageFilterKernel();
-
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
 					tests[0] = std::make_unique<CBlitImageFilterTest<BlitUtilities>>
 					(
@@ -1190,14 +1030,8 @@ public:
 						this,
 						outImageDim,
 						outImageFormat,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ),
 						"CBlitImageFilter_0.png",
-						asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED
+						convolutionKernels
 					);
 				}
 			}
@@ -1213,16 +1047,8 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width*2, inExtent.height*4, 1, 1);
 					const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 
-					auto reconstructionX = asset::CKaiserImageFilterKernel();
-					auto resamplingX = asset::CKaiserImageFilterKernel();
-
-					auto reconstructionY = asset::CKaiserImageFilterKernel();
-					auto resamplingY = asset::CKaiserImageFilterKernel();
-
-					auto reconstructionZ = asset::CKaiserImageFilterKernel();
-					auto resamplingZ = asset::CKaiserImageFilterKernel();
-
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SKaiserFunction>>;
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
 					tests[1] = std::make_unique<CBlitImageFilterTest<BlitUtilities>>
 					(
@@ -1230,14 +1056,8 @@ public:
 						this,
 						outImageDim,
 						outImageFormat,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ),
 						"CBlitImageFilter_1.exr",
-						asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED
+						convolutionKernels
 					);
 				}
 			}
@@ -1495,32 +1315,23 @@ public:
 				{
 					const core::vectorSIMDu32 outImageDim(800u, 1u, 1u, layerCount);
 
-					const core::vectorSIMDf stretchX(0.35f, 1.f, 1.f, 1.f);
+					auto reconstructionX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
+					reconstructionX.stretchAndScale(0.35f);
 
-					auto reconstructionX = asset::CMitchellImageFilterKernel();
-					reconstructionX.stretchAndScale(stretchX);
-					auto resamplingX = asset::CMitchellImageFilterKernel();
-					resamplingX.stretchAndScale(stretchX);
-
-					auto reconstructionY = asset::CMitchellImageFilterKernel();
-					auto resamplingY = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionZ = asset::CMitchellImageFilterKernel();
-					auto resamplingZ = asset::CMitchellImageFilterKernel();
+					auto resamplingX = asset::CWeightFunction1D<asset::SMitchellFunction<>>();
+					resamplingX.stretchAndScale(0.35f);
 
 					using LutDataType = uint16_t;
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX));
+
 					tests[0] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
 						outImageDim,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ)
+						convolutionKernels
 					);
 				}
 			}
@@ -1534,31 +1345,18 @@ public:
 					const auto& inExtent = inImage->getCreationParameters().extent;
 					const auto layerCount = inImage->getCreationParameters().arrayLayers;
 					const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
-					const auto alphaSemantic = IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED;
-
-					auto reconstructionX = asset::CKaiserImageFilterKernel();
-					auto resamplingX = asset::CKaiserImageFilterKernel();
-
-					auto reconstructionY = asset::CKaiserImageFilterKernel();
-					auto resamplingY = asset::CKaiserImageFilterKernel();
-
-					auto reconstructionZ = asset::CKaiserImageFilterKernel();
-					auto resamplingZ = asset::CKaiserImageFilterKernel();
 
 					using LutDataType = float;
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SKaiserFunction>>;
+
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+
 					tests[1] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
 						outImageDim,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ),
-						alphaSemantic
+						convolutionKernels
 					);
 				}
 			}
@@ -1575,35 +1373,27 @@ public:
 				{
 					const core::vectorSIMDu32 outImageDim(3u, 4u, 2u, layerCount);
 
-					const core::vectorSIMDf stretchX(0.35f, 1.f, 1.f, 1.f);
-					const core::vectorSIMDf stretchY(1.f, 9.f/16.f, 1.f, 1.f);
+					auto reconstructionX = asset::CWeightFunction1D<asset::SBoxFunction>();
+					reconstructionX.stretchAndScale(0.35f);
+					auto resamplingX = asset::CWeightFunction1D<asset::SBoxFunction>();
+					resamplingX.stretchAndScale(0.35f);
 
-					auto reconstructionX = asset::CBoxImageFilterKernel();
-					reconstructionX.stretchAndScale(stretchX);
-					auto resamplingX = asset::CBoxImageFilterKernel();
-					resamplingX.stretchAndScale(stretchX);
-
-					auto reconstructionY = asset::CBoxImageFilterKernel();
-					reconstructionY.stretchAndScale(stretchY);
-					auto resamplingY = asset::CBoxImageFilterKernel();
-					resamplingY.stretchAndScale(stretchY);
-
-					auto reconstructionZ = asset::CBoxImageFilterKernel();
-					auto resamplingZ = asset::CBoxImageFilterKernel();
+					auto reconstructionY = asset::CWeightFunction1D<asset::SBoxFunction>();
+					reconstructionY.stretchAndScale(9.f/16.f);
+					auto resamplingY = asset::CWeightFunction1D<asset::SBoxFunction>();
+					resamplingY.stretchAndScale(9.f/16.f);
 
 					using LutDataType = uint16_t;
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SBoxFunction>>;
+
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX), std::move(reconstructionY), std::move(resamplingY));
+
 					tests[2] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
 						outImageDim,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ)
+						convolutionKernels
 					);
 				}
 			}
@@ -1622,28 +1412,17 @@ public:
 					const float referenceAlpha = 0.5f;
 					const auto alphaBinCount = 1024;
 
-					auto reconstructionX = asset::CMitchellImageFilterKernel();
-					auto resamplingX = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionY = asset::CMitchellImageFilterKernel();
-					auto resamplingY = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionZ = asset::CMitchellImageFilterKernel();
-					auto resamplingZ = asset::CMitchellImageFilterKernel();
-
 					using LutDataType = float;
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+
 					tests[3] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
 						outImageDim,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ),
+						convolutionKernels,
 						alphaSemantic,
 						referenceAlpha,
 						alphaBinCount
@@ -1663,28 +1442,16 @@ public:
 				{
 					const core::vectorSIMDu32 outImageDim(256u, 128u, 64u, layerCount);
 
-					auto reconstructionX = asset::CMitchellImageFilterKernel();
-					auto resamplingX = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionY = asset::CMitchellImageFilterKernel();
-					auto resamplingY = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionZ = asset::CMitchellImageFilterKernel();
-					auto resamplingZ = asset::CMitchellImageFilterKernel();
-
 					using LutDataType = uint16_t;
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim);
+
 					tests[4] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
 						outImageDim,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ)
+						convolutionKernels
 					);
 				}
 			}
@@ -1704,28 +1471,17 @@ public:
 					const float referenceAlpha = 0.5f;
 					const auto alphaBinCount = 4096;
 
-					auto reconstructionX = asset::CMitchellImageFilterKernel();
-					auto resamplingX = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionY = asset::CMitchellImageFilterKernel();
-					auto resamplingY = asset::CMitchellImageFilterKernel();
-
-					auto reconstructionZ = asset::CMitchellImageFilterKernel();
-					auto resamplingZ = asset::CMitchellImageFilterKernel();
-
 					using LutDataType = float;
-					using BlitUtilities = asset::CBlitUtilities<decltype(reconstructionX), decltype(resamplingX), decltype(reconstructionY), decltype(resamplingY), decltype(reconstructionZ), decltype(resamplingZ)>;
+					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim);
+
 					tests[5] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
 						outImageDim,
-						std::move(reconstructionX),
-						std::move(resamplingX),
-						std::move(reconstructionY),
-						std::move(resamplingY),
-						std::move(reconstructionZ),
-						std::move(resamplingZ),
+						convolutionKernels,
 						alphaSemantic,
 						referenceAlpha,
 						alphaBinCount
@@ -1821,22 +1577,15 @@ private:
 			double dummyVal = 1.0;
 			for (auto layer = 0; layer < image->getCreationParameters().arrayLayers; ++layer)
 			{
-				double dummyVal = 1.0;
-
 				for (uint64_t k = 0u; k < dims[2]; ++k)
 				{
 					for (uint64_t j = 0u; j < dims[1]; ++j)
 					{
 						for (uint64_t i = 0; i < dims[0]; ++i)
 						{
-							const double dummyValToPut = dummyVal++;
 							double decodedPixel[4] = { 0 };
 							for (uint32_t ch = 0u; ch < asset::getFormatChannelCount(format); ++ch)
-#ifdef NEW_CODE
-								decodedPixel[ch] = dummyValToPut;
-#else
 								decodedPixel[ch] = dist(prng);
-#endif
 
 							const uint64_t pixelIndex = (k * dims[1] * dims[0]) + (j * dims[0]) + i;
 							asset::encodePixelsRuntime(format, bytePtr + layer * layerSize + pixelIndex * asset::getTexelOrBlockBytesize(format), decodedPixel);
