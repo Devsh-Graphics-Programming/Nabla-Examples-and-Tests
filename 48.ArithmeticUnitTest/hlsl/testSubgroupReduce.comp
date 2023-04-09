@@ -1,0 +1,18 @@
+#include "shaderCommon.hlsl"
+#include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
+
+using reduction = nbl::hlsl::subgroup::reduction;
+namespace binops = nbl::hlsl::binops;
+
+[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
+void CSMain(uint gl_GlobalInvocationID: SV_DispatchThreadID)
+{
+	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
+	outand.output[gl_GlobalInvocationID.x] = reduction<binops::bitwise_and>(sourceVal);
+	outxor.output[gl_GlobalInvocationID.x] = reduction<binops::bitwise_xor>(sourceVal);
+	outor.output[gl_GlobalInvocationID.x] = reduction<binops::bitwise_or>(sourceVal);
+	outadd.output[gl_GlobalInvocationID.x] = reduction<binops::add>(sourceVal);
+	outmul.output[gl_GlobalInvocationID.x] = reduction<binops::mul>(sourceVal);
+	outmin.output[gl_GlobalInvocationID.x] = reduction<binops::min>(sourceVal);
+	outmax.output[gl_GlobalInvocationID.x] = reduction<binops::max>(sourceVal);
+}

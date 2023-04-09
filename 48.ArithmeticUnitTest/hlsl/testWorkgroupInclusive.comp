@@ -1,0 +1,16 @@
+#include "workgroupCommon.hlsl"
+
+[numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
+void CSMain(uint gl_GlobalInvocationID: SV_DispatchThreadID)
+{
+	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
+	outand.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveAnd(sourceVal); // TODO (PentaKon): maybe change to workgroup::and ?
+	outxor.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveXor(sourceVal);
+	outor.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveOr(sourceVal);
+	outadd.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveAdd(sourceVal);
+	outmul.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveMul(sourceVal);
+	outmin.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveMin(sourceVal);
+	outmax.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveMax(sourceVal);
+	nbl::hlsl::workgroupBallot((sourceVal&0x1u)==0x1u);
+	outbitcount.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupBallotInclusiveBitCount();
+}
