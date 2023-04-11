@@ -280,6 +280,8 @@ struct DrawBuffersFiller
 {
 public:
 
+	typedef uint32_t index_buffer_type;
+
 	DrawBuffersFiller() {}
 
 	DrawBuffersFiller(core::smart_refctd_ptr<nbl::video::IUtilities>&& utils)
@@ -297,7 +299,6 @@ public:
 
 	void allocateIndexBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t indices)
 	{
-		indices = 42u;
 		maxIndices = indices;
 		const size_t indexBufferSize = maxIndices * sizeof(uint32_t);
 
@@ -316,7 +317,6 @@ public:
 
 	void allocateDrawObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t drawObjects)
 	{
-		drawObjects = 2u;
 		maxDrawObjects = drawObjects;
 		size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
 
@@ -335,7 +335,6 @@ public:
 
 	void allocateGeometryBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, size_t size)
 	{
-		size = sizeof(PackedEllipseInfo) + 8u;
 		maxGeometryBufferSize = size;
 
 		video::IGPUBuffer::SCreationParams geometryCreationParams = {};
@@ -354,7 +353,6 @@ public:
 
 	void allocateStylesBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t stylesCount)
 	{
-		stylesCount = 1u;
 		maxLineStyles = stylesCount;
 		size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
 
@@ -586,8 +584,8 @@ public:
 	{
 		// Copy Indices
 		uint32_t remainingIndexCount = currentIndexCount - inMemIndexCount;
-		asset::SBufferRange<video::IGPUBuffer> indicesRange = { sizeof(uint32_t) * inMemIndexCount, sizeof(uint32_t) * remainingIndexCount, gpuDrawBuffers.indexBuffer };
-		const uint32_t* srcIndexData = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + inMemIndexCount;
+		asset::SBufferRange<video::IGPUBuffer> indicesRange = { sizeof(index_buffer_type) * inMemIndexCount, sizeof(index_buffer_type) * remainingIndexCount, gpuDrawBuffers.indexBuffer };
+		const index_buffer_type* srcIndexData = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + inMemIndexCount;
 		if (indicesRange.size > 0u)
 			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(indicesRange, srcIndexData, submissionQueue, submissionFence, intendedNextSubmit);
 		inMemIndexCount = currentIndexCount;
@@ -644,6 +642,27 @@ public:
 
 		return intendedNextSubmit;
 	}
+
+	size_t getCurrentIndexBufferSize() const
+	{
+		return sizeof(index_buffer_type) * currentIndexCount;
+	}
+
+	size_t getCurrentLineStylesBufferSize() const
+	{
+		return sizeof(LineStyle) * currentLineStylesCount;
+	}
+
+	size_t getCurrentDrawObjectsBufferSize() const
+	{
+		return sizeof(DrawObject) * currentDrawObjectCount;
+	}
+
+	size_t getCurrentGeometryBufferSize() const
+	{
+		return currentGeometryBufferSize;
+	}
+
 
 	void reset()
 	{
@@ -792,10 +811,10 @@ protected:
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
 	{
-		uint32_t* indices = reinterpret_cast<uint32_t*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
+		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
 		for (uint32_t i = 0u; i < objectCount; ++i)
 		{
-			uint32_t objIndex = startObject + i;
+			index_buffer_type objIndex = startObject + i;
 			if(oddProvokingVertex)
 			{
 				indices[i * 6] = objIndex * 4u + 1u;
@@ -1449,7 +1468,7 @@ public:
 
 			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
 			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_NONE;
-			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_NONE; // TODO?
+			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
 			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
 			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
 			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -1499,6 +1518,75 @@ public:
 		cb->endRenderPass();
 	}
 
+	void pipelineBarriersBeforeDraw(video::IGPUCommandBuffer* const cb)
+	{
+		auto& currentDrawBuffers = drawBuffers[m_resourceIx];
+		{
+			auto pseudoStencilImage = pseudoStencilImageView[m_resourceIx]->getCreationParameters().image;
+			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
+			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT | nbl::asset::EAF_SHADER_WRITE_BIT; // SYNC_FRAGMENT_SHADER_SHADER_SAMPLED_READ | SYNC_FRAGMENT_SHADER_SHADER_STORAGE_READ | SYNC_FRAGMENT_SHADER_UNIFORM_READ
+			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_GENERAL;
+			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
+			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			imageBarriers[0].image = pseudoStencilImage;
+			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
+			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
+			imageBarriers[0].subresourceRange.levelCount = 1;
+			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
+			imageBarriers[0].subresourceRange.layerCount = 1;
+			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
+
+		}
+		{
+			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[1u] = {};
+			bufferBarriers[0u].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+			bufferBarriers[0u].barrier.dstAccessMask = nbl::asset::EAF_INDEX_READ_BIT;
+			bufferBarriers[0u].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[0u].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[0u].buffer = currentDrawBuffers.gpuDrawBuffers.indexBuffer;
+			bufferBarriers[0u].offset = 0u;
+			bufferBarriers[0u].size = currentDrawBuffers.getCurrentIndexBufferSize();
+			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
+		}
+		{
+			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[4u] = {};
+			bufferBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+			bufferBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_UNIFORM_READ_BIT;
+			bufferBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[0].buffer = globalsBuffer[m_resourceIx];
+			bufferBarriers[0].offset = 0u;
+			bufferBarriers[0].size = globalsBuffer[m_resourceIx]->getSize();
+
+			bufferBarriers[1].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+			bufferBarriers[1].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+			bufferBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[1].buffer = currentDrawBuffers.gpuDrawBuffers.drawObjectsBuffer;
+			bufferBarriers[1].offset = 0u;
+			bufferBarriers[1].size = currentDrawBuffers.getCurrentDrawObjectsBufferSize();
+
+			bufferBarriers[2].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+			bufferBarriers[2].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+			bufferBarriers[2].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[2].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[2].buffer = currentDrawBuffers.gpuDrawBuffers.geometryBuffer;
+			bufferBarriers[2].offset = 0u;
+			bufferBarriers[2].size = currentDrawBuffers.getCurrentGeometryBufferSize();
+
+			bufferBarriers[3].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+			bufferBarriers[3].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+			bufferBarriers[3].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[3].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			bufferBarriers[3].buffer = currentDrawBuffers.gpuDrawBuffers.lineStylesBuffer;
+			bufferBarriers[3].offset = 0u;
+			bufferBarriers[3].size = currentDrawBuffers.getCurrentLineStylesBufferSize();
+			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 4u, bufferBarriers, 0u, nullptr);
+		}
+	}
+
 	void endFrameRender()
 	{
 		auto& cb = m_cmdbuf[m_resourceIx];
@@ -1532,6 +1620,8 @@ public:
 			beginInfo.renderArea = area;
 			beginInfo.clearValues = nullptr;
 		}
+
+		pipelineBarriersBeforeDraw(cb.get());
 
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
@@ -1715,6 +1805,8 @@ public:
 		scissor.extent = { windowWidth, windowHeight };
 		scissor.offset = { 0, 0 };
 		cmdbuf->setScissor(0u, 1u, &scissor);
+
+		pipelineBarriersBeforeDraw(cmdbuf);
 
 		cmdbuf->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
