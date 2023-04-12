@@ -2,12 +2,12 @@
 
 #include "common.hlsl"
 
-float2 intersectLines2D(in float2 p1, in float2 v1, in float2 v2) /* p2 is zero */
+float2 intersectLines2D(in float2 p1, in float2 v1, in float2 p2, in float2 v2)
 {
     float det = v1.y * v2.x - v1.x * v2.y;
     float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
-    float2 t = mul(inv, p1);
-    return mul(v2, t.y);
+    float2 t = mul(inv, p1-p2);
+    return p2 + mul(v2, t.y);
 }
 
 PSInput main(uint vertexID : SV_VertexID)
@@ -16,25 +16,23 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint objectID = vertexID >> 2;
 
     DrawObject drawObj = drawObjects[objectID];
+    LineStyle lineStyle = lineStyles[drawObj.styleIdx];
     ObjectType objType = drawObj.type;
     
     PSInput outV;
-    outV.lineWidth_eccentricity_objType_writeToAlpha.x = asuint(globals.lineWidth);
+    
+    const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
+    const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
+    outV.color = lineStyle.color;
+
+    outV.lineWidth_eccentricity_objType_writeToAlpha.x = asuint(screenSpaceLineWidth);
     outV.lineWidth_eccentricity_objType_writeToAlpha.z = (uint)objType;
-
-    // TODO: get from styles
-    outV.color = globals.color;
-
-    const float antiAliasedLineWidth = globals.lineWidth + globals.antiAliasingFactor * 2.0f;
-
     outV.lineWidth_eccentricity_objType_writeToAlpha.w = (vertexIdx % 2u == 0u) ? 1u : 0u;
 
     if (objType == ObjectType::ELLIPSE)
     {
-        outV.color = float4(0.7, 0.3, 0.1, 0.5);
-
 #ifdef LOAD_STRUCT
-        EllipseInfo ellipse = vk::RawBufferLoad<EllipseInfo>(drawObj.address, 8u);
+        PackedEllipseInfo ellipse = vk::RawBufferLoad<PackedEllipseInfo>(drawObj.address, 8u);
         double2 majorAxis = ellipse.majorAxis;
         double2 center = ellipse.majorAxis;
 #else
@@ -56,40 +54,54 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.start_end.zw = transformedMajorAxis;
 
         // construct a cage, working in ellipse screen space :
-        double2 angleBounds = ((double2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
-        const double eccentricity = (double)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
-        
+        const float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
+        const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
+        outV.ellipseBounds = angleBounds;
+
+        // TODO: Optimize
         float majorAxisLength = length(transformedMajorAxis);
         float minorAxisLength = float(majorAxisLength * eccentricity);
         float2 ab = float2(majorAxisLength, minorAxisLength);
-        float2 start = float2(ab * double2(cos(angleBounds.x), sin(angleBounds.x)));
-        float2 end = float2(ab * double2(cos(angleBounds.y), sin(angleBounds.y)));
+        float2 start = float2(ab * float2(cos(angleBounds.x), sin(angleBounds.x)));
+        float2 end = float2(ab * float2(cos(angleBounds.y), sin(angleBounds.y)));
         float2 startToEnd = end - start;
+
+        float2 tangentToStartPoint = normalize(float2(-majorAxisLength * sin(angleBounds.x), minorAxisLength * cos(angleBounds.x)));
+        float2 tangentToEndPoint = normalize(float2(-majorAxisLength * sin(angleBounds.y), minorAxisLength * cos(angleBounds.y)));
+        float2 normalToStartPoint = float2(tangentToStartPoint.y, -tangentToStartPoint.x);
+        float2 normalToEndPoint = float2(tangentToEndPoint.y, -tangentToEndPoint.x);
+
+        bool roundedJoins = true;
+        if (roundedJoins)
+        {
+            start -= tangentToStartPoint * antiAliasedLineWidth * 0.5f;
+            end += tangentToEndPoint * antiAliasedLineWidth * 0.5f;
+        }
 
         if (vertexIdx == 0u)
         {
-            outV.position.xy = start - normalize(start) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = start - (normalToStartPoint) * antiAliasedLineWidth * 0.5f;
         }
         else if (vertexIdx == 1u)
         {
-            // from p in the direction of startToEnd is the line tangent to ellipse
-            float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            // find the angle in which the tangent of the ellipse is equal to startToEnd:
+            float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
-            float2 p = float2(ab * double2(cos(theta), sin(theta)));
-            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start);
+            float2 p = float2(ab * float2(cos(theta), sin(theta)));
+            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, start, normalToStartPoint);
             outV.position.xy = intersection;
         }
         else if (vertexIdx == 2u)
         {
-            outV.position.xy = end - normalize(end) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = end - (normalToEndPoint) * antiAliasedLineWidth * 0.5f;
         }
         else
         {
-            // from p in the direction of startToEnd is the line tangent to ellipse
-            float theta = atan2((eccentricity * startToEnd.x), -startToEnd.y) + nbl_hlsl_PI;
+            // find the angle in which the tangent of the ellipse is equal to startToEnd:
+            float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
-            float2 p = float2(ab * double2(cos(theta), sin(theta)));
-            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end);
+            float2 p = float2(ab * float2(cos(theta), sin(theta)));
+            float2 intersection = intersectLines2D(p + perp * antiAliasedLineWidth * 0.5f, startToEnd, end, normalToEndPoint);
             outV.position.xy = intersection;
         }
 
@@ -104,7 +116,6 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::LINE)
     {
-        outV.color = float4(0.3, 0.2, 0.6, 0.5);
         double3x3 transformation = (double3x3)globals.viewProjection;
 
         double2 points[2u];
@@ -143,13 +154,17 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
     }
-    else if (objType == ObjectType::ROAD)
-    {
-        outV.color = float4(0.7, 0.1, 0.5, 0.5);
-        double3x3 transformation = (double3x3)globals.viewProjection;
-        double2 vertex = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * vertexIdx, 8u);
-        outV.position.xy = mul(transformation, double3(vertex, 1)).xy; // Transform to NDC
-        outV.position.w = 1u;
-    }
+
+#if 0
+    if (vertexIdx == 0u)
+        outV.position = float4(-1, -1, 0, 1);
+    else if (vertexIdx == 1u)
+        outV.position = float4(-1, +1, 0, 1);
+    else if (vertexIdx == 2u)
+        outV.position = float4(+1, -1, 0, 1);
+    else if (vertexIdx == 3u)
+        outV.position = float4(+1, +1, 0, 1);
+#endif
+
 	return outV;
 }

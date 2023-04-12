@@ -13,30 +13,28 @@ using namespace core;
 using namespace asset;
 using namespace system;
 
-static inline nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
-{
-	smart_refctd_ptr<ISystem> system = nullptr;
 
+int main(int argc, char * argv[])
+{
+	// need to call this to Delay-Load DLLs properly
+	IApplicationFramework::GlobalsInit();
+
+	smart_refctd_ptr<ISystem> system = nullptr;
+	{
 	#ifdef _NBL_PLATFORM_WINDOWS_
 		system = make_smart_refctd_ptr<nbl::system::CSystemWin32>();
 	#elif defined(_NBL_PLATFORM_LINUX_)
 		system = make_smart_refctd_ptr<nbl::system::CSystemLinux>();
 	#else
-		#error "Unsupported Platform"
+	#error "Unsupported Platform"
 	#endif
+	}
 
-	return system;
-}
-
-int main(int argc, char * argv[])
-{
-	auto system = createSystem();
-
-#if defined(_NBL_PLATFORM_WINDOWS_)
+	#if defined(_NBL_PLATFORM_WINDOWS_)
 	auto logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>();
-#else
+	#else
 	auto logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>();
-#endif
+	#endif
 	auto assetManager = core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(system));
 
 	const bool isItDefaultImage = argc == 1;
