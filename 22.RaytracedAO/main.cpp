@@ -17,6 +17,7 @@
 
 #include "CSceneNodeAnimatorCameraModifiedMaya.h"
 #include "Renderer.h"
+#include "SimpleJson.h"
 
 using namespace nbl;
 using namespace core;
@@ -1086,10 +1087,23 @@ int main(int argc, char** argv)
 			}
 			else
 			{
+
 				bool shouldDenoise = sensor.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
 				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensor.denoiserInfo);
 				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
 				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded, screenshotFilePath.filename().string().c_str());
+				auto filename_wo_ext = screenshotFilePath;
+				filename_wo_ext.replace_extension();
+				auto stream = std::make_shared<simplejson::Stream>();
+				stream->begin_json_object();
+				stream->emit_json_key_value("output_tonemap", filename_wo_ext.string() +".exr");
+				stream->emit_json_key_value("output_albedo", filename_wo_ext.string() + "_albedo.exr");
+				stream->emit_json_key_value("output_normal", filename_wo_ext.string() + "_normal.exr");
+				if(shouldDenoise)
+					stream->emit_json_key_value("output_denoised", filename_wo_ext.string() + "_denoised.exr");
+				stream->end_json_object();
+				std::cout << "\n[JSON] " << stream->str() << "\n[ENDJSON]" << std::endl;
+				
 			}
 
 			receiver.resetKeys();
