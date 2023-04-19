@@ -34,6 +34,7 @@ set(EXTRA_SOURCES
 	../../src/nbl/ext/EnvmapImportanceSampling/EnvmapImportanceSampling.cpp
 	Renderer.cpp
 	CommandLineHandler.cpp
+	SimpleJson.cpp
 )
 
 nbl_create_executable_project(
