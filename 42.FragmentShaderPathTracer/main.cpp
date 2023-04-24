@@ -88,6 +88,8 @@ DispatchInfo_t getDispatchInfo(uint32_t imgWidth, uint32_t imgHeight) {
 
 int main()
 {
+	system::IApplicationFramework::GlobalsInit();
+
 	constexpr uint32_t WIN_W = 1280;
 	constexpr uint32_t WIN_H = 720;
 	constexpr uint32_t FBO_COUNT = 2u;
