@@ -191,7 +191,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 	// get primary (texture and material) global DS
 	InitializationData retval = {};
 	m_globalMeta  = meshes.getMetadata()->selfCast<const ext::MitsubaLoader::CMitsubaMetadata>();
-	assert(m_globalMeta );
+	assert(m_globalMeta);
 
 	//
 	{
@@ -240,9 +240,10 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 	}
 
 	//
-	auto* _globalBackendDataDS = m_globalMeta ->m_global.m_ds0.get();
+	auto* _globalBackendDataDS = m_globalMeta->m_global.m_ds0.get();
 
-	auto* instanceDataDescPtr = _globalBackendDataDS->getDescriptors(5u).begin();
+	constexpr auto kInstanceDataDescriptorBinding = 5u;
+	auto* instanceDataDescPtr = _globalBackendDataDS->getDescriptors(kInstanceDataDescriptorBinding).begin();
 	assert(instanceDataDescPtr->desc->getTypeCategory()==IDescriptor::EC_BUFFER);
 	auto* origInstanceData = reinterpret_cast<const ext::MitsubaLoader::instance_data_t*>(static_cast<ICPUBuffer*>(instanceDataDescPtr->desc.get())->getPointer());
 
@@ -278,6 +279,8 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 		// set up batches/meshlets, lights and culling data
 		{
 			auto contents = meshes.getContents();
+			const auto meshCount = contents.size();
+			printf("[INFO] Mesh Count: %d\n",meshCount);
 
 			core::vector<IMeshPackerBase::PackedMeshBufferData> pmbd;
 			// split into packed batches
@@ -321,6 +324,9 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 					// TODO: Optimize! Check which triangles need normals, bin into two separate meshbuffers, dont have normals for meshbuffers where all(abs(transpose(normals)*cross(pos1-pos0,pos2-pos0))~=1.f) 
 					// TODO: Optimize! Check which materials use any textures, if meshbuffer doens't use any textures, its pipeline doesn't need UV coordinates
 					// TODO: separate pipeline for stuff without UVs and separate out the barycentric derivative FBO attachment 
+					// stats 
+					uint32_t totalInstanceCount = 0;
+					size_t totalInstancedTriangleCount = 0u;
 					for (const auto& asset : contents)
 					{
 						auto cpumesh = static_cast<asset::ICPUMesh*>(asset.get());
@@ -328,9 +334,11 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 						assert(!meshBuffers.empty());
 						const uint32_t instanceCount = (*meshBuffers.begin())->getInstanceCount();
+						totalInstanceCount += instanceCount;
 						for (auto mbIt=meshBuffers.begin(); mbIt!=meshBuffers.end(); mbIt++)
 						{
 							auto meshBuffer = *mbIt;
+							totalInstancedTriangleCount += (meshBuffer->getIndexCount()/3)*instanceCount;
 							assert(meshBuffer->getInstanceCount()==instanceCount);
 							// We'll disable certain attributes to ensure we only copy position, normal and uv attribute
 							SVertexInputParams& vertexInput = meshBuffer->getPipeline()->getVertexInputParams();
@@ -370,6 +378,19 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 						meshBuffersToProcess.insert(meshBuffersToProcess.end(),meshBuffers.begin(),meshBuffers.end());
 					}
+					if (totalInstancedTriangleCount >= ~0x0u)
+						printf("[ERROR] Over 2^32-1 Triangles, WILL CRASH!\n");
+					printf("[INFO] Total Instanced Triangles in the Scene: %d\n",totalInstancedTriangleCount);
+					{
+						// Radeon Rays uses 64 byte nodes in BVH2
+						const auto bvh_size = size_t(totalInstancedTriangleCount)*64u*2u;
+						printf("[INFO] BVH Size: At Least %d MB\n",bvh_size>>20u);
+						if ((0x1ull<<31)<bvh_size)
+							printf("[WARNING] BVH Larger than 2GB!\n");
+						if ((0x1ull<<32)<bvh_size)
+							printf("[WARNING] BVH Larger than 4GB! EXPECT HANGS AND CRASHES!\n");
+					}
+					printf("[INFO] Total Shape Instances in the Scene: %d\n", totalInstanceCount);
 					for (auto meshBuffer : meshBuffersToProcess)
 						const_cast<ICPUMeshBuffer*>(meshBuffer)->getPipeline()->getVertexInputParams().enabledAttribFlags = newEnabledAttributeMask;
 
@@ -383,6 +404,13 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 					cullData.reserve(batchInstanceBoundTotal);
 
 					newInstanceDataBuffer = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(ext::MitsubaLoader::instance_data_t)*batchInstanceBoundTotal);
+				}
+				//
+				{
+					const auto totalIndexBytes = cpump->getIndexAllocator().get_allocated_size();
+					printf("[INFO] Total Index Memory Consumed: %d MB\n",((totalIndexBytes-1)>>20)+1);
+					const auto totalVertexBytes = cpump->getVertexAllocator().get_allocated_size();
+					printf("[INFO] Total Vertex Memory Consumed: %d MB\n",((totalVertexBytes-1)>>20)+1);
 				}
 				// actually commit the physical memory, compute batches and set up instance data
 				{
@@ -524,7 +552,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 						}
 					}
 				}
-				printf("Scene Bound: %f,%f,%f -> %f,%f,%f\n",
+				printf("[INFO] Scene Bound: %f,%f,%f -> %f,%f,%f\n",
 					m_sceneBound.MinEdge.X,
 					m_sceneBound.MinEdge.Y,
 					m_sceneBound.MinEdge.Z,
