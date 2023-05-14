@@ -3,6 +3,7 @@
 // b -> For uniform buffers
 // t -> For buffers where each thread accesses its own index
 
+// Instead of register(...) we can also use [[vk::binding(uint)]]
 StructuredBuffer<uint> inputValue : register(t0); // read-only
 
 struct Output {
@@ -18,3 +19,7 @@ RWStructuredBuffer<Output> outmul : register(u5);
 RWStructuredBuffer<Output> outmin : register(u6);
 RWStructuredBuffer<Output> outmax : register(u7);
 RWStructuredBuffer<Output> outbitcount : register(u8);
+
+//shared uint scratch[bitfieldDWORDs + 1];
+groupshared uint scratch[512];
+#define SHARED_MEM scratch

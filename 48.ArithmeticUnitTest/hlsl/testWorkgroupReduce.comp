@@ -1,16 +1,19 @@
 #include "workgroupCommon.hlsl"
 
+using reduction = nbl::hlsl::workgroup::reduction;
+using binops = nbl::hlsl::binops;
+
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void CSMain(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 {
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
-	outand.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupAnd(sourceVal); // TODO (PentaKon): maybe change to workgroup::and ?
-	outxor.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupXor(sourceVal);
-	outor.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupOr(sourceVal);
-	outadd.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupAdd(sourceVal);
-	outmul.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupMul(sourceVal);
-	outmin.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupMin(sourceVal);
-	outmax.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupMax(sourceVal);
-	nbl::hlsl::workgroupBallot((sourceVal&0x1u)==0x1u);
-	outbitcount.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupBallotBitCount();
+	outand.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_and<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outxor.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_xor<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outor.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_or<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outadd.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_add<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outmul.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_mul<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outmin.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_min<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outmax.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_max<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	nbl::hlsl::workgroup::ballot((sourceVal&0x1u)==0x1u);
+	outbitcount.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotBitCount();
 }

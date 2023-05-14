@@ -1,16 +1,19 @@
 #include "workgroupCommon.hlsl"
 
+using inclusive_scan = nbl::hlsl::workgroup::inclusive_scan;
+using binops = nbl::hlsl::binops;
+
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void CSMain(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 {
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
-	outand.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveAnd(sourceVal); // TODO (PentaKon): maybe change to workgroup::and ?
-	outxor.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveXor(sourceVal);
-	outor.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveOr(sourceVal);
-	outadd.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveAdd(sourceVal);
-	outmul.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveMul(sourceVal);
-	outmin.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveMin(sourceVal);
-	outmax.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupInclusiveMax(sourceVal);
-	nbl::hlsl::workgroupBallot((sourceVal&0x1u)==0x1u);
-	outbitcount.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroupBallotInclusiveBitCount();
+	outand.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_and<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outxor.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_xor<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outor.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_or<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outadd.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_add<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outmul.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_mul<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outmin.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_min<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	outmax.output[gl_GlobalInvocationID.x] = inclusive_scan< uint, binops::bitwise_max<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	nbl::hlsl::workgroup::ballot((sourceVal&0x1u)==0x1u);
+	outbitcount.output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount();
 }
