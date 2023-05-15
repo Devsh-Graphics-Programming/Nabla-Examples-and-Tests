@@ -7,6 +7,6 @@
 // But in this unit test we don't because we need to test if the default
 // sizing macros actually work for all workgroup sizes.
 #include "shaderCommon.hlsl"
-#include <nbl/builtin/hlsl/workgroup/arithmetic.hlsl>
-#include <nbl/builtin/hlsl/workgroup/ballot.hlsl>
-#include <nbl/builtin/hlsl/shared_memory_accessor.hlsl>
+#include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
+#include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
+#include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"

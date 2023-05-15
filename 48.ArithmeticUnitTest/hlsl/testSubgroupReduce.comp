@@ -1,7 +1,7 @@
 #include "shaderCommon.hlsl"
 
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
-#include <nbl/builtin/hlsl/shared_memory_accessor.hlsl>
+#include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
 using reduction = nbl::hlsl::subgroup::reduction;
 using binops = nbl::hlsl::binops;
