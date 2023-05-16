@@ -2,32 +2,87 @@
 
 #include "common.hlsl"
 
+namespace nbl
+{
+    namespace hlsl
+    {
+        namespace shapes
+        {
+            struct Line_t
+            {
+                float2 start;
+                float2 end;
+
+                static Line_t construct(float2 start, float2 end)
+                {
+                    Line_t ret = {start, end};
+                    return ret;
+                }
+
+                float signedDistance(float2 p, float lineThickness)
+                {
+                    const float l = length(end - start);
+                    const float2  d = (end - start) / l;
+                    float2  q = p - (start + end) * 0.5;
+                    q = mul(float2x2(d.x, d.y, -d.y, d.x), q);
+                    q = abs(q) - float2(l * 0.5, lineThickness);
+                    return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
+                }
+            };
+
+            struct Circle_t
+            {
+                float2 center;
+                float radius;
+
+                static Circle_t construct(float2 center, float radius)
+                {
+                    Circle_t c = { center, radius };
+                    return c;
+                }
+
+                float signedDistance(float2 p)
+                {
+                    return distance(p, center) - radius;
+                }
+            };
+
+            struct RoundedLine_t
+            {
+                float2 start;
+                float2 end;
+
+                static RoundedLine_t construct(float2 start, float2 end)
+                {
+                    RoundedLine_t ret = { start, end };
+                    return ret;
+                }
+
+                float signedDistance(float2 p, float lineThickness)
+                {
+                    const float startCircleSD = Circle_t::construct(start, lineThickness).signedDistance(p);
+                    const float endCircleSD = Circle_t::construct(end, lineThickness).signedDistance(p);
+                    const float lineSD = Line_t::construct(start, end).signedDistance(p, lineThickness);
+                    return min(lineSD, min(startCircleSD, endCircleSD));
+                }
+            };
+
+            struct EllipseOutline_t
+            {
+
+            };
+        }
+    }
+}
+
 namespace SignedDistance
 {
-    float Line(float2 p, float2 start, float2 end, float lineThickness)
-    {
-        const float l = length(end - start);
-        const float2  d = (end - start) / l;
-        float2  q = p - (start + end) * 0.5;
-        q = mul(float2x2(d.x, d.y, -d.y, d.x), q);
-        q = abs(q) - float2(l * 0.5, lineThickness);
-        return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);
-    }
+    float msign(in float x) { return (x < 0.0) ? -1.0 : 1.0; }
 
     float Circle(float2 p, float2 center, float radius)
     {
         return distance(p, center) - radius;
     }
-
-    float RoundedLine(float2 p, float2 start, float2 end, float lineThickness)
-    {
-        const float startCircleSD = Circle(p, start, lineThickness);
-        const float endCircleSD = Circle(p, end, lineThickness);
-        const float lineSD = Line(p, start, end, lineThickness);
-        return min(lineSD, min(startCircleSD, endCircleSD));
-    }
-
-    float msign(in float x) { return (x < 0.0) ? -1.0 : 1.0; }
 
     // https://iquilezles.org/articles/ellipsedist/ with modifications to add rotation and different inputs and fixed degenerate points
     // major axis is in the direction of x and minor axis is in the direction of y
@@ -112,7 +167,6 @@ namespace SignedDistance
 
         float minorAxisLength = majorAxisLength * eccentricity;
 
-        // TODO: Optimize
         float2 startPoint = float2(majorAxisLength * cos(bounds.x), -minorAxisLength * sin(bounds.x));
         float2 endPoint = float2(majorAxisLength * cos(bounds.y), -minorAxisLength * sin(bounds.y));
         
@@ -174,7 +228,7 @@ float4 main(PSInput input) : SV_TARGET
             const float2 start = input.start_end.xy;
             const float2 end = input.start_end.zw;
             const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-            float distance = SignedDistance::RoundedLine(input.position.xy, start, end, lineThickness);
+            float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end).signedDistance(input.position.xy, lineThickness);
 
             /* No need to mul with fwidth(distance), distance already in screen space */
             const float antiAliasingFactor = globals.antiAliasingFactor;
