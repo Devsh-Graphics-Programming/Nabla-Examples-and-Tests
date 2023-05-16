@@ -228,6 +228,7 @@ float4 main(PSInput input) : SV_TARGET
             const float2 start = input.start_end.xy;
             const float2 end = input.start_end.zw;
             const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
+            
             float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end).signedDistance(input.position.xy, lineThickness);
 
             /* No need to mul with fwidth(distance), distance already in screen space */

@@ -53,7 +53,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedMajorAxis = (float2)((ndcMajorAxis) * 0.5 * globals.resolution); // Transform to Screen Space
         outV.start_end.zw = transformedMajorAxis;
 
-        // construct a cage, working in ellipse screen space :
+        // construct a cage, working in ellipse screen space (ellipse centered in 0,0 and major axis aligned with x-axis) :
         const float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
         const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
         outV.ellipseBounds = angleBounds;
@@ -84,7 +84,7 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (vertexIdx == 1u)
         {
-            // find the angle in which the tangent of the ellipse is equal to startToEnd:
+            // find the theta (input to ellipse) in which the tangent of the ellipse is equal to startToEnd:
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
@@ -97,7 +97,7 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else
         {
-            // find the angle in which the tangent of the ellipse is equal to startToEnd:
+            // find the theta (input to ellipse) in which the tangent of the ellipse is equal to startToEnd:
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
@@ -105,9 +105,9 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position.xy = intersection;
         }
 
-        // Transform from ellipse screen space to actual screen space
+        // Transform from ellipse screen space to actual screen space with a rotation and translation
         float2 dir = normalize(transformedMajorAxis);
-        outV.position.xy = mul(float2x2(dir.x, dir.y, dir.y, -dir.x), outV.position.xy);
+        outV.position.xy = mul(float2x2(dir.x, dir.y, dir.y, -dir.x), outV.position.xy); // transforming ellipse -> screen space we need to also invert y other than rotate, hence the inversion of signs in the last row
         outV.position.xy += transformedCenter;
 
         // Transform to ndc
