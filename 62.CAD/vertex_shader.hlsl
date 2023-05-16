@@ -6,7 +6,7 @@ float2 intersectLines2D(in float2 p1, in float2 v1, in float2 p2, in float2 v2)
 {
     float det = v1.y * v2.x - v1.x * v2.y;
     float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
-    float2 t = mul(inv, p1-p2);
+    float2 t = mul(inv, p1 - p2);
     return p2 + mul(v2, t.y);
 }
 
@@ -18,9 +18,9 @@ PSInput main(uint vertexID : SV_VertexID)
     DrawObject drawObj = drawObjects[objectID];
     LineStyle lineStyle = lineStyles[drawObj.styleIdx];
     ObjectType objType = drawObj.type;
-    
+
     PSInput outV;
-    
+
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
     outV.color = lineStyle.color;
@@ -80,7 +80,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
         if (vertexIdx == 0u)
         {
-            outV.position.xy = start - (normalToStartPoint) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = start - (normalToStartPoint)*antiAliasedLineWidth * 0.5f;
         }
         else if (vertexIdx == 1u)
         {
@@ -93,7 +93,7 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (vertexIdx == 2u)
         {
-            outV.position.xy = end - (normalToEndPoint) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = end - (normalToEndPoint)*antiAliasedLineWidth * 0.5f;
         }
         else
         {
@@ -109,7 +109,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 dir = normalize(transformedMajorAxis);
         outV.position.xy = mul(float2x2(dir.x, dir.y, dir.y, -dir.x), outV.position.xy);
         outV.position.xy += transformedCenter;
-        
+
         // Transform to ndc
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
@@ -123,7 +123,7 @@ PSInput main(uint vertexID : SV_VertexID)
         points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
 
         float2 transformedPoints[2u];
-        for(uint i = 0u; i < 2u; ++i)
+        for (uint i = 0u; i < 2u; ++i)
         {
             double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
@@ -166,5 +166,5 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position = float4(+1, +1, 0, 1);
 #endif
 
-	return outV;
+    return outV;
 }
