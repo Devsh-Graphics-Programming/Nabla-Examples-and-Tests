@@ -78,7 +78,6 @@ class UIApp : public ApplicationBase
 		{
 
 			const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-			std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_R8G8B8A8_SRGB };
 
 			CommonAPI::InitParams initParams;
 			initParams.windowCb = core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback>(this);
@@ -86,12 +85,11 @@ class UIApp : public ApplicationBase
 			initParams.apiType = video::EAT_VULKAN;
 			initParams.appName = { "02.ComputeShader" };
 			initParams.framesInFlight = FRAMES_IN_FLIGHT;
-			initParams.windowWidth = 768u;
-			initParams.windowHeight = 512u;
+			initParams.windowWidth = WIN_W;
+			initParams.windowHeight = WIN_H;
 			initParams.swapchainImageCount = 3u;
 			initParams.swapchainImageUsage = swapchainImageUsage;
-			initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
-			initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
+			initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
 			auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		    window = std::move(initParams.window);
@@ -107,6 +105,7 @@ class UIApp : public ApplicationBase
 			inputSystem = std::move(initOutput.inputSystem);
 			system = std::move(initOutput.system);
 			cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+			renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 			utilities = std::move(initOutput.utilities);
 			auto swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
