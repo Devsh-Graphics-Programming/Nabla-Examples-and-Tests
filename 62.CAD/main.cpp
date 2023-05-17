@@ -1891,9 +1891,19 @@ public:
 				linePoints.push_back({ 150.0, 100.0 });
 				polyline.addLinePoints(std::move(linePoints));
 			}
+			{
+				std::vector<CubicBezierInfo> cubicBeziers;
+				CubicBezierInfo cubic1;
+				cubic1.p[0] = double2(20.0, 0.0);
+				cubic1.p[1] = double2(20.0, 100.0);
+				cubic1.p[2] = double2(80.0, 100.0);
+				cubic1.p[3] = double2(80.0, 0.0);
+				cubicBeziers.push_back(cubic1);
+				polyline.addCubicBeziers(std::move(cubicBeziers));
+			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;
