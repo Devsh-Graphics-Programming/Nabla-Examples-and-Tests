@@ -1901,6 +1901,15 @@ public:
 				cubicBeziers.push_back(cubic1);
 				polyline.addCubicBeziers(std::move(cubicBeziers));
 			}
+			{
+				std::vector<QuadraticBezierInfo> quadBeziers;
+				QuadraticBezierInfo quadratic1;
+				quadratic1.p[0] = double2(20.0, 0.0);
+				quadratic1.p[1] = double2(20.0, 50.0);
+				quadratic1.p[2] = double2(80.0, 0.0);
+				quadBeziers.push_back(quadratic1);
+				polyline.addQuadBeziers(std::move(quadBeziers));
+			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
 			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
