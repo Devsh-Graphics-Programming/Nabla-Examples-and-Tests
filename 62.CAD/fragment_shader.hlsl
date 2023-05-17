@@ -3,6 +3,7 @@
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/rounded_line.hlsl>
 #include <nbl/builtin/hlsl/shapes/ellipse.hlsl>
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -49,6 +50,27 @@ float4 main(PSInput input) : SV_TARGET
             /* No need to mul with fwidth(distance), distance already in screen space */
             const float antiAliasingFactor = globals.antiAliasingFactor;
             localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+        }
+        else if (objType == ObjectType::QUAD_BEZIER)
+        {
+            const float2 a = input.start_end.xy;
+            const float2 b = input.start_end.zw;
+            const float2 c = input.ellipseBounds_bezierP3P4.xy;
+            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
+
+            float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+
+            /* No need to mul with fwidth(distance), distance already in screen space */
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+        }
+        else if (objType == ObjectType::CUBIC_BEZIER)
+        {
+            const float2 a = input.start_end.xy;
+            const float2 b = input.start_end.zw;
+            const float2 c = input.ellipseBounds_bezierP3P4.xy;
+            const float2 d = input.ellipseBounds_bezierP3P4.zw;
+            localAlpha = 0.2f;
         }
     }
 
