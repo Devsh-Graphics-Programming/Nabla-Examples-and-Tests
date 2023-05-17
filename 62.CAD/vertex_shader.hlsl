@@ -56,7 +56,7 @@ PSInput main(uint vertexID : SV_VertexID)
         // construct a cage, working in ellipse screen space (ellipse centered in 0,0 and major axis aligned with x-axis) :
         const float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
         const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
-        outV.ellipseBounds = angleBounds;
+        outV.ellipseBounds_bezierP3P4.xy = angleBounds;
 
         // TODO: Optimize
         float majorAxisLength = length(transformedMajorAxis);
@@ -153,6 +153,43 @@ PSInput main(uint vertexID : SV_VertexID)
         // convert back to ndc
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
+    }
+    else if (objType == ObjectType::QUAD_BEZIER)
+    {
+        double2 points[3u];
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
+        points[2u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 2u, 8u);
+
+        // transform these points into screen space and pass to fragment
+
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
+    }
+    else if (objType == ObjectType::CUBIC_BEZIER)
+    {
+        double2 points[4u];
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
+        points[2u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 2u, 8u);
+        points[3u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 3u, 8u);
+
+        // transform these points into screen space and pass to fragment
+
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
     }
 
 #if 0
