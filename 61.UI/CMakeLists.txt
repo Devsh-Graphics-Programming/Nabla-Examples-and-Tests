@@ -10,6 +10,6 @@ if(NBL_BUILD_IMGUI)
 		"${NBL_EXT_IMGUI_UI_LIB}"
 	)
 
-nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+nbl_create_executable_project("" "" "" "${libs}" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
 endif()
