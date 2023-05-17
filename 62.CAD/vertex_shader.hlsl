@@ -171,9 +171,9 @@ PSInput main(uint vertexID : SV_VertexID)
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
         }
 
-        outV.start_end.xy = points[0u];
-        outV.start_end.zw = points[1u];
-        outV.ellipseBounds_bezierP3P4.xy = points[2u];
+        outV.start_end.xy = transformedPoints[0u];
+        outV.start_end.zw = transformedPoints[1u];
+        outV.ellipseBounds_bezierP3P4.xy = transformedPoints[2u];
 
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
@@ -202,10 +202,10 @@ PSInput main(uint vertexID : SV_VertexID)
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
         }
 
-        outV.start_end.xy = points[0u];
-        outV.start_end.zw = points[1u];
-        outV.ellipseBounds_bezierP3P4.xy = points[2u];
-        outV.ellipseBounds_bezierP3P4.zw = points[3u];
+        outV.start_end.xy = transformedPoints[0u];
+        outV.start_end.zw = transformedPoints[1u];
+        outV.ellipseBounds_bezierP3P4.xy = transformedPoints[2u];
+        outV.ellipseBounds_bezierP3P4.zw = transformedPoints[3u];
 
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
