@@ -156,12 +156,24 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
+        double3x3 transformation = (double3x3)globals.viewProjection;
+
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
         points[2u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 2u, 8u);
 
         // transform these points into screen space and pass to fragment
+        float2 transformedPoints[3u];
+        for (uint i = 0u; i < 3u; ++i)
+        {
+            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
+            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+        }
+
+        outV.start_end.xy = points[0u];
+        outV.start_end.zw = points[1u];
+        outV.ellipseBounds_bezierP3P4.xy = points[2u];
 
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
@@ -174,6 +186,8 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::CUBIC_BEZIER)
     {
+        double3x3 transformation = (double3x3)globals.viewProjection;
+
         double2 points[4u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
@@ -181,6 +195,17 @@ PSInput main(uint vertexID : SV_VertexID)
         points[3u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 3u, 8u);
 
         // transform these points into screen space and pass to fragment
+        float2 transformedPoints[4u];
+        for (uint i = 0u; i < 4u; ++i)
+        {
+            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
+            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+        }
+
+        outV.start_end.xy = points[0u];
+        outV.start_end.zw = points[1u];
+        outV.ellipseBounds_bezierP3P4.xy = points[2u];
+        outV.ellipseBounds_bezierP3P4.zw = points[3u];
 
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
