@@ -4,6 +4,8 @@ enum class ObjectType : uint32_t
 {
     LINE = 0u,
     ELLIPSE = 1u,
+    QUAD_BEZIER = 2u,
+    CUBIC_BEZIER = 3u,
 };
 
 struct DrawObject
@@ -12,6 +14,17 @@ struct DrawObject
     uint32_t styleIdx;
     uint64_t address;
 };
+
+struct QuadraticBezierInfo
+{
+    double2 p[3]; // 16*3=48bytes
+};
+
+struct CubicBezierInfo
+{
+    double2 p[4]; //  16*4=64bytes
+};
+
 
 struct PackedEllipseInfo
 {
@@ -52,7 +65,7 @@ struct PSInput
     [[vk::location(0)]] float4 color : COLOR; 
     [[vk::location(1)]] nointerpolation float4 start_end : COLOR1; 
     [[vk::location(2)]] nointerpolation uint4 lineWidth_eccentricity_objType_writeToAlpha : COLOR2;
-    [[vk::location(3)]] nointerpolation float2 ellipseBounds : COLOR3;
+    [[vk::location(3)]] nointerpolation float4 ellipseBounds_bezierP3P4 : COLOR3;
 };
 
 [[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
