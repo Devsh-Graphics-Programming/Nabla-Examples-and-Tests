@@ -502,48 +502,25 @@ public:
 				{
 					bool shouldSubmit = false;
 					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-					if (currentSection.type == ObjectType::LINE)
+
+					// we only care about indices because the geometry and drawData is already in memory
+					const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+					const auto objectsRemaining = currentSection.count - currentObjectInSection;
+					const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+
+					addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
+
+					currentObjectInSection += objectsToUpload;
+
+					if (currentObjectInSection >= currentSection.count)
 					{
-						// we only care about indices because the geometry and drawData is already in memory
-						const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-						const auto lineCount = currentSection.count;
-						const auto objectsRemaining = lineCount - currentObjectInSection;
-						const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
-
-						addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
-						currentObjectInSection += objectsToUpload;
-
-						if (currentObjectInSection >= lineCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
-
-						startDrawObjectCount += objectsToUpload;
+						currentSectionIdx++;
+						currentObjectInSection = 0u;
 					}
-					else if (currentSection.type == ObjectType::ELLIPSE)
-					{
-						// we only care about indices because the geometry and drawData is already in memory
-						const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-						const auto ellipseCount = currentSection.count;
-						const auto objectsRemaining = ellipseCount - currentObjectInSection;
-						const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+					else
+						shouldSubmit = true;
 
-						addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
-						currentObjectInSection += objectsToUpload;
-
-						if (currentObjectInSection >= ellipseCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
-
-						startDrawObjectCount += objectsToUpload;
-					}
+					startDrawObjectCount += objectsToUpload;
 
 					if (shouldSubmit)
 					{
