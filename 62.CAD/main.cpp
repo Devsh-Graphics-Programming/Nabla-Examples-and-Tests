@@ -452,7 +452,6 @@ public:
 		uint32_t previousSectionIdx = 0u;
 		uint32_t previousObjectInSection = 0u;
 
-
 		// Fill all back faces (and draw when overflow)
 		// backface is our slang for even provoking vertex
 		{
@@ -463,32 +462,15 @@ public:
 			{
 				bool shouldSubmit = false;
 				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-				if (currentSection.type == ObjectType::LINE)
+				addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
+				
+				if (currentObjectInSection >= currentSection.count)
 				{
-					addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
-					// if currentObjectInSection was not equal to max then we know we should submit
-					const auto lineCount = currentSection.count;
-					if (currentObjectInSection >= lineCount)
-					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
-					}
-					else
-						shouldSubmit = true;
+					currentSectionIdx++;
+					currentObjectInSection = 0u;
 				}
-				else if (currentSection.type == ObjectType::ELLIPSE)
-				{
-					addEllipses_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
-					// if currentObjectInSection was not equal to max then we know we should submit
-					const auto ellipseCount = currentSection.count;
-					if (currentObjectInSection >= ellipseCount)
-					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
-					}
-					else
-						shouldSubmit = true;
-				}
+				else
+					shouldSubmit = true;
 
 				if (shouldSubmit)
 				{
@@ -591,32 +573,15 @@ public:
 					if (currentSectionIdx == lastSectionIdx)
 						currentSection.count = lastObjectInSection;
 
-					if (currentSection.type == ObjectType::LINE)
+					addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
+
+					if (currentObjectInSection >= currentSection.count)
 					{
-						addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
-						// if currentObjectInSection was not equal to max then we know we should submit
-						const auto lineCount = currentSection.count;
-						if (currentObjectInSection >= lineCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
+						currentSectionIdx++;
+						currentObjectInSection = 0u;
 					}
-					else if (currentSection.type == ObjectType::ELLIPSE)
-					{
-						addEllipses_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
-						// if currentObjectInSection was not equal to max then we know we should submit
-						const auto ellipseCount = currentSection.count;
-						if (currentObjectInSection >= ellipseCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
-					}
+					else
+						shouldSubmit = true;
 
 					if (shouldSubmit)
 					{
@@ -773,6 +738,21 @@ protected:
 		void* dst = stylesArray + currentLineStylesCount;
 		memcpy(dst, &lineStyle, sizeof(LineStyle));
 		return currentLineStylesCount++;
+	}
+
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	{
+		if (section.type == ObjectType::LINE)
+			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else if (section.type == ObjectType::ELLIPSE)
+			addEllipses_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else if (section.type == ObjectType::QUAD_BEZIER)
+			addQuadBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else if (section.type == ObjectType::CUBIC_BEZIER)
+			addCubicBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else
+			assert(false); // we don't handle other object types
 	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
