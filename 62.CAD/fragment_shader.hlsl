@@ -47,7 +47,6 @@ float4 main(PSInput input) : SV_TARGET
             
             float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
 
-            /* No need to mul with fwidth(distance), distance already in screen space */
             const float antiAliasingFactor = globals.antiAliasingFactor;
             localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
@@ -60,7 +59,6 @@ float4 main(PSInput input) : SV_TARGET
 
             float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
 
-            /* No need to mul with fwidth(distance), distance already in screen space */
             const float antiAliasingFactor = globals.antiAliasingFactor;
             localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
@@ -70,7 +68,12 @@ float4 main(PSInput input) : SV_TARGET
             const float2 b = input.start_end.zw;
             const float2 c = input.ellipseBounds_bezierP3P4.xy;
             const float2 d = input.ellipseBounds_bezierP3P4.zw;
-            localAlpha = 0.2f;
+            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
+
+            float distance = nbl::hlsl::shapes::CubicBezier::construct(a, b, c, d, lineThickness).signedDistance(input.position.xy);
+
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
     }
 
