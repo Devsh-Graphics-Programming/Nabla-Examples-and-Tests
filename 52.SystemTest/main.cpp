@@ -297,7 +297,7 @@ int main(int argc, char** argv)
 	// Custom case
 	{
 		core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
-		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to yourNamespace/data/test.txt
+		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to dir/data/test.txt
 
 		const size_t fileSize = testFile->getSize();
 		std::string readStr(fileSize, '\0');
