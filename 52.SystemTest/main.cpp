@@ -278,9 +278,7 @@ int main(int argc, char** argv)
 	//! builtin resources archive test
 	// Nabla case
 	{
-		const std::string nblBuiltInResoucesPath = std::filesystem::current_path().string() + "/../../../include";
-
-		core::smart_refctd_ptr<nbl::builtin::CArchive> archive = core::make_smart_refctd_ptr<nbl::builtin::CArchive>(nblBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
+		core::smart_refctd_ptr<nbl::builtin::CArchive> archive = core::make_smart_refctd_ptr<nbl::builtin::CArchive>(core::smart_refctd_ptr(logger));
 		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("nbl/builtin/glsl/utils/acceleration_structures.glsl", "");
 
 		const size_t fileSize = testFile->getSize();
@@ -298,10 +296,8 @@ int main(int argc, char** argv)
 	}
 	// Custom case
 	{
-		const std::string customBuiltInResoucesPath = std::filesystem::current_path().string() + "/../builtin/include";
-
-		core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(customBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
-		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("yourNamespace/data/test.txt", "");
+		core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
+		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to yourNamespace/data/test.txt
 
 		const size_t fileSize = testFile->getSize();
 		std::string readStr(fileSize, '\0');
