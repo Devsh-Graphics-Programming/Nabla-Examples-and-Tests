@@ -278,39 +278,47 @@ int main(int argc, char** argv)
 	//! builtin resources archive test
 	// Nabla case
 	{
-		core::smart_refctd_ptr<nbl::builtin::CArchive> archive = core::make_smart_refctd_ptr<nbl::builtin::CArchive>(core::smart_refctd_ptr(logger));
-		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("nbl/builtin/glsl/utils/acceleration_structures.glsl", "");
-
-		const size_t fileSize = testFile->getSize();
-		std::string readStr(fileSize, '\0');
-		system::IFile::success_t readSuccess;
-
-		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+		system->createFile(future, "nbl/builtin/glsl/utils/acceleration_structures.glsl", core::bitflag(IFileBase::ECF_READ));
+		if (auto pFile = future.acquire())
 		{
-			const bool success = bool(readSuccess);
-			assert(success);
+			auto& file = *pFile;
+
+			const size_t fileSize = file->getSize();
+			std::string readStr(fileSize, '\0');
+			system::IFile::success_t readSuccess;
+			file->read(readSuccess, readStr.data(), 0, readStr.length());
+			{
+				const bool success = bool(readSuccess);
+				assert(success);
+			}
+
+			const auto* testStream = readStr.c_str();
+			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 		}
-		
-		const auto* testStream = readStr.c_str();
-		std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 	}
 	// Custom case
 	{
-		core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
-		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to dir/data/test.txt
+		system->mount(core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger)), "yourNamespace");
 
-		const size_t fileSize = testFile->getSize();
-		std::string readStr(fileSize, '\0');
-		system::IFile::success_t readSuccess;
-
-		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+		system->createFile(future, "aliasTest1", core::bitflag(IFileBase::ECF_READ)); // alias to dir/data/test.txt
+		if (auto pFile = future.acquire())
 		{
-			const bool success = bool(readSuccess);
-			assert(success);
-		}
+			auto& file = *pFile;
 
-		const auto* testStream = readStr.c_str();
-		std::cout << testStream;
+			const size_t fileSize = file->getSize();
+			std::string readStr(fileSize, '\0');
+			system::IFile::success_t readSuccess;
+			file->read(readSuccess, readStr.data(), 0, readStr.length());
+			{
+				const bool success = bool(readSuccess);
+				assert(success);
+			}
+
+			const auto* testStream = readStr.c_str();
+			std::cout << testStream;
+		}
 	}
 
 	// polling for events!
