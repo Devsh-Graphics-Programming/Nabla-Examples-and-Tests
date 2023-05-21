@@ -299,25 +299,45 @@ int main(int argc, char** argv)
 	}
 	// Custom case
 	{
-		system->mount(core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger)), "yourNamespace");
+		nbl::core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
+		system->mount(core::smart_refctd_ptr(archive));
 
-		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
-		system->createFile(future, "aliasTest1", core::bitflag(IFileBase::ECF_READ)); // alias to dir/data/test.txt
-		if (auto pFile = future.acquire())
+		// archive path test
 		{
-			auto& file = *pFile;
+			nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+			system->createFile(future, "dir/data/test.txt", core::bitflag(IFileBase::ECF_READ));
+			if (auto pFile = future.acquire())
+			{
+				auto& file = *pFile;
 
-			const size_t fileSize = file->getSize();
+				const size_t fileSize = file->getSize();
+				std::string readStr(fileSize, '\0');
+				system::IFile::success_t readSuccess;
+				file->read(readSuccess, readStr.data(), 0, readStr.length());
+				{
+					const bool success = bool(readSuccess);
+					assert(success);
+				}
+
+				const auto* testStream = readStr.c_str();
+				std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+			}
+		}
+
+		// archive alias test
+		{
+			nbl::core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to dir/data/test.txt
+
+			const size_t fileSize = testFile->getSize();
 			std::string readStr(fileSize, '\0');
 			system::IFile::success_t readSuccess;
-			file->read(readSuccess, readStr.data(), 0, readStr.length());
+			testFile->read(readSuccess, readStr.data(), 0, readStr.length());
 			{
 				const bool success = bool(readSuccess);
 				assert(success);
 			}
-
 			const auto* testStream = readStr.c_str();
-			std::cout << testStream;
+			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 		}
 	}
 
