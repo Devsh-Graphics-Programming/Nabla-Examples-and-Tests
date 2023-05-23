@@ -158,6 +158,17 @@ public:
 		double2 center;
 		double2 angleBounds; // [0, 2Pi)
 		double eccentricity; // (0, 1]
+
+		bool isValid() const
+		{
+			if (eccentricity > 1.0 || eccentricity < 0.0)
+				return false;
+			if (angleBounds.Y < angleBounds.X)
+				return false;
+			if ((angleBounds.Y - angleBounds.X) > 2 * core::PI<double>())
+				return false;
+			return true;
+		}
 	};
 
 	size_t getSectionsCount() const { return m_sections.size(); }
@@ -219,6 +230,7 @@ public:
 		for (uint32_t i = 0u; i < ellipses.size(); ++i)
 		{
 			const auto& mainEllipse = ellipses[i];
+			assert(mainEllipse.isValid());
 			const double endAngle = mainEllipse.angleBounds.Y;
 			double startAngle = mainEllipse.angleBounds.X;
 			for (uint32_t e = 0u; e < maxEllipseParts && startAngle < endAngle; e++)
@@ -621,8 +633,8 @@ public:
 		inMemDrawObjectCount = currentDrawObjectCount;
 
 		// Copy GeometryBuffer
-		uint32_t remainingGeometries = currentGeometryBufferSize - inMemGeometryBufferSize;
-		asset::SBufferRange<video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometries, gpuDrawBuffers.geometryBuffer };
+		uint32_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
+		asset::SBufferRange<video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
 		const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
 		if (geomRange.size > 0u)
 			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(geomRange, srcGeomData, submissionQueue, submissionFence, intendedNextSubmit);
@@ -768,14 +780,13 @@ protected:
 	{
 		assert(section.type == ObjectType::ELLIPSE);
 
-		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(double2);
-		const auto maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
+		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(PackedEllipseInfo);
 
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferLines);
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
-		const auto ellipseCount = section.count ;
+		const auto ellipseCount = section.count;
 		const auto remainingObjects = ellipseCount - currentObjectInSection;
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
@@ -1435,6 +1446,14 @@ public:
 		logicalDevice->waitIdle();
 	}
 
+	double getScreenToWorldRatio(const double4x4& viewProjectionMatrix, uint2 windowSize)
+	{
+		double idx_0_0 = viewProjectionMatrix._r0[0u] * (windowSize.X / 2.0);
+		double idx_1_1 = viewProjectionMatrix._r1[1u] * (windowSize.Y / 2.0);
+		double det_2x2_mat = idx_0_0 * idx_1_1;
+		return core::sqrt(core::abs(det_2x2_mat));
+	}
+
 	void beginFrameRender()
 	{
 		auto& cb = m_cmdbuf[m_resourceIx];
@@ -1457,7 +1476,7 @@ public:
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
-		globalData.screenToWorldRatio = WIN_W / m_Camera.getBounds().X;
+		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
 
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
@@ -1755,12 +1774,32 @@ public:
 
 
 			CPolyline polyline;
-			std::vector<double2> linePoints;
-			linePoints.push_back({ -50.0, 0.0 });
-			linePoints.push_back({ sin(m_timeElapsed * 0.005) * 20, cos(m_timeElapsed * 0.005) * 20 });
-			linePoints.push_back({ -sin(m_timeElapsed * 0.005) * 20, -cos(m_timeElapsed * 0.005) * 20 });
-			linePoints.push_back({ 50.0, 0.0 });
-			polyline.addLinePoints(std::move(linePoints));
+			{
+				std::vector<double2> linePoints;
+				linePoints.push_back({ -50.0, 0.0 });
+				linePoints.push_back({ sin(m_timeElapsed * 0.005) * 20, cos(m_timeElapsed * 0.005) * 20 });
+				linePoints.push_back({ -sin(m_timeElapsed * 0.005) * 20, -cos(m_timeElapsed * 0.005) * 20 });
+				linePoints.push_back({ 50.0, 0.0 });
+				polyline.addLinePoints(std::move(linePoints));
+			}
+			{
+				std::vector<CPolyline::EllipticalArcInfo> ellipticalArcs;
+				CPolyline::EllipticalArcInfo ellipse;
+				ellipse.center = double2(80.0, 0.0);
+				ellipse.majorAxis = double2(30.0, 0.0);
+				ellipse.eccentricity = 1.0;
+				ellipse.angleBounds.X = 0.0;
+				ellipse.angleBounds.Y = nbl::core::PI<double>();
+				ellipticalArcs.push_back(ellipse);
+				polyline.addEllipticalArcs(std::move(ellipticalArcs));
+			}
+			{
+				std::vector<double2> linePoints;
+				linePoints.push_back({ 110.0, 0.0 });
+				linePoints.push_back({ 110.0, 100.0 });
+				linePoints.push_back({ 150.0, 100.0 });
+				polyline.addLinePoints(std::move(linePoints));
+			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
