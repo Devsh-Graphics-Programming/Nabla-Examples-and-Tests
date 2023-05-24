@@ -43,32 +43,28 @@ int main()
 {
     constexpr std::string_view APP_NAME = "RGB18E7S3 utility test";
 
-	CommonAPI::InitOutput initOutput;
-    CommonAPI::InitWithNoExt(initOutput, video::EAT_VULKAN, APP_NAME.data());
+    system::IApplicationFramework::GlobalsInit();
+
+    CommonAPI::InitParams initParams;
+    initParams.apiType = video::EAT_VULKAN;
+    initParams.appName = APP_NAME.data();
+    initParams.swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS(0);
+    auto initOutput = CommonAPI::Init(std::move(initParams));
+
 	auto system = std::move(initOutput.system);
     auto gl = std::move(initOutput.apiConnection);
     auto logger = std::move(initOutput.logger);
     auto gpuPhysicalDevice = std::move(initOutput.physicalDevice);
     auto logicalDevice = std::move(initOutput.logicalDevice);
     auto queues = std::move(initOutput.queues);
-    auto renderpass = std::move(initOutput.renderpass);
+    auto renderpass = std::move(initOutput.renderToSwapchainRenderpass);
     auto commandPools = std::move(initOutput.commandPools);
     auto assetManager = std::move(initOutput.assetManager);
     auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
     auto utilities = std::move(initOutput.utilities);
+	auto defaultComputeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0];
 
     nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
-
-    auto createDescriptorPool = [&](const uint32_t count, asset::E_DESCRIPTOR_TYPE type)
-    {
-        constexpr uint32_t maxItemCount = 256u;
-        {
-            nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-            poolSize.count = count;
-            poolSize.type = type;
-            return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-        }
-    };
 
     auto computeShaderBundle = assetManager->getAsset("../computeShader.comp", {});
     {
@@ -123,58 +119,63 @@ int main()
         }
     }
 
-    auto ssboMemoryReqs = logicalDevice->getDeviceLocalGPUMemoryReqs();
-    ssboMemoryReqs.vulkanReqs.size = sizeof(SShaderStorageBufferObject);
-    ssboMemoryReqs.mappingCapability = video::IDeviceMemoryAllocation::EMCAF_READ_AND_WRITE;
-
     video::IGPUBuffer::SCreationParams ssboCreationParams;
-    ssboCreationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT)|asset::IBuffer::EUF_TRANSFER_DST_BIT;
-    ssboCreationParams.canUpdateSubRange = true;
-    ssboCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
+    ssboCreationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
     ssboCreationParams.queueFamilyIndexCount = 0u;
     ssboCreationParams.queueFamilyIndices = nullptr;
+    ssboCreationParams.size = sizeof(SShaderStorageBufferObject);
 
-    auto gpuDownloadSSBOmapped = logicalDevice->createGPUBufferOnDedMem(ssboCreationParams,ssboMemoryReqs);
+    auto gpuDownloadSSBOmapped = logicalDevice->createBuffer(std::move(ssboCreationParams));
+    auto downloadSSBOmemreqs = gpuDownloadSSBOmapped->getMemoryReqs();
+    downloadSSBOmemreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+    logicalDevice->allocate(downloadSSBOmemreqs, gpuDownloadSSBOmapped.get());
 
     video::IGPUDescriptorSetLayout::SBinding gpuBindingsLayout[ES_COUNT] =
     {
-        {ES_RGB, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_CPP_DECODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_GLSL_DECODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_CPP_ENCODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr},
-        {ES_RGB_GLSL_ENCODED, asset::EDT_STORAGE_BUFFER, 1u, asset::IShader::ESS_COMPUTE, nullptr}
+        { ES_RGB,               asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_CPP_DECODED,   asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_GLSL_DECODED,  asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_CPP_ENCODED,   asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr },
+        { ES_RGB_GLSL_ENCODED,  asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, asset::IShader::ESS_COMPUTE, 1u, nullptr }
     };
 
-    auto gpuCDescriptorPool = createDescriptorPool(ES_COUNT, asset::EDT_STORAGE_BUFFER);
+    core::smart_refctd_ptr<video::IDescriptorPool> gpuCDescriptorPool = nullptr;
+    {
+        video::IDescriptorPool::SCreateInfo createInfo = {};
+        createInfo.maxSets = 1;
+        createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = ES_COUNT;
+        gpuCDescriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+    }
+
     auto gpuCDescriptorSetLayout = logicalDevice->createDescriptorSetLayout(gpuBindingsLayout, gpuBindingsLayout + ES_COUNT);
-    auto gpuCDescriptorSet = logicalDevice->createDescriptorSet(gpuCDescriptorPool.get(), core::smart_refctd_ptr(gpuCDescriptorSetLayout));
+    auto gpuCDescriptorSet = gpuCDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuCDescriptorSetLayout));
     {
         video::IGPUDescriptorSet::SDescriptorInfo gpuDescriptorSetInfos[ES_COUNT];
 
         gpuDescriptorSetInfos[ES_RGB].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB].buffer.size = sizeof(SShaderStorageBufferObject::rgb);
-        gpuDescriptorSetInfos[ES_RGB].buffer.offset = 0;
+        gpuDescriptorSetInfos[ES_RGB].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb);
+        gpuDescriptorSetInfos[ES_RGB].info.buffer.offset = 0;
 
         gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_decoded);
-        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_decoded);
+        gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB].info.buffer.size;
 
         gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_decoded);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_decoded);
+        gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_DECODED].info.buffer.size;
 
         gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_encoded);
-        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.offset + gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_cpp_encoded);
+        gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.offset + gpuDescriptorSetInfos[ES_RGB_GLSL_DECODED].info.buffer.size;
 
         gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].desc = core::smart_refctd_ptr(gpuDownloadSSBOmapped);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_encoded);
-        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].buffer.size;
+        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].info.buffer.size = sizeof(SShaderStorageBufferObject::rgb_glsl_encoded);
+        gpuDescriptorSetInfos[ES_RGB_GLSL_ENCODED].info.buffer.offset = gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.offset + gpuDescriptorSetInfos[ES_RGB_CPP_ENCODED].info.buffer.size;
 
         video::IGPUDescriptorSet::SWriteDescriptorSet gpuWrites[ES_COUNT];
         {
             for (uint32_t binding = 0u; binding < ES_COUNT; binding++)
-                gpuWrites[binding] = { gpuCDescriptorSet.get(), binding, 0u, 1u, asset::EDT_STORAGE_BUFFER, gpuDescriptorSetInfos + binding };
+                gpuWrites[binding] = { gpuCDescriptorSet.get(), binding, 0u, 1u, asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER, gpuDescriptorSetInfos + binding };
             logicalDevice->updateDescriptorSets(ES_COUNT, gpuWrites, 0u, nullptr);
         }
     }
@@ -183,11 +184,11 @@ int main()
     auto gpuComputePipeline = logicalDevice->createComputePipeline(nullptr, std::move(gpuCPipelineLayout), std::move(gpuComputeShader));
 
     core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffer;
-    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
+    logicalDevice->createCommandBuffers(defaultComputeCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &commandBuffer);
     auto gpuFence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
     {
 
-        commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+        commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
         commandBuffer->bindComputePipeline(gpuComputePipeline.get());
         commandBuffer->bindDescriptorSets(asset::EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0, 1, &gpuCDescriptorSet.get());

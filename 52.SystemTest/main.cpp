@@ -2,18 +2,19 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#define _NBL_STATIC_LIB_
+#include "nabla.h"
+
 #include <iostream>
 #include <cstdio>
-#include <nabla.h>
-// TODO: get all these headers into "nabla.h"
-#include <nbl/ui/CWindowManagerWin32.h>
-#include <nbl/ui/CCursorControlWin32.h>
-#include <nbl/system/ISystem.h>
+
 #include "../common/CommonAPI.h"
 #include "nbl/system/CStdoutLogger.h"
 #include "nbl/system/CFileLogger.h"
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
+
+//! builtin resources archive test
+#include "nbl/builtin/CArchive.h"
+#include "yourNamespace/builtin/CArchive.h"
 
 using namespace nbl;
 using namespace core;
@@ -210,6 +211,7 @@ private:
 
 int main(int argc, char** argv)
 {
+	IApplicationFramework::GlobalsInit();
 	const path CWD = path(argv[0]).parent_path().generic_string() + "/";
 	const path mediaWD = CWD.generic_string() + "../../media/";
 
@@ -220,13 +222,13 @@ int main(int argc, char** argv)
 	{
 		system::ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
 		system->createFile(future, CWD/"log.txt", nbl::system::IFile::ECF_READ_WRITE);
-		auto file = future.get();
-		logger = core::make_smart_refctd_ptr<system::CFileLogger>(std::move(file),false);
+		if (future.wait())
+			logger = core::make_smart_refctd_ptr<system::CFileLogger>(future.copy(), false);
 	}
 
 	auto assetManager = core::make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(system));
 
-	auto winManager = core::make_smart_refctd_ptr<CWindowManagerWin32>();
+	auto winManager = IWindowManagerWin32::create();
 	
 
 	IWindow::SCreationParams params;
@@ -235,7 +237,6 @@ int main(int argc, char** argv)
 	params.height = 480;
 	params.x = 500;
 	params.y = 300;
-	params.system = core::smart_refctd_ptr(system);
 	params.flags = IWindow::ECF_NONE;
 	params.windowCaption = "Test Window";
 
@@ -246,11 +247,11 @@ int main(int argc, char** argv)
 	auto window = winManager->createWindow(std::move(params));
 	auto* cursorControl = window->getCursorControl();
 
-	system::ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
+	ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
 	system->createFile(future, CWD/"testFile.txt", core::bitflag(nbl::system::IFile::ECF_READ_WRITE)/*Growing mappable files are a TODO |IFile::ECF_MAPPABLE*/);
-	auto file = future.get();
-
+	if (auto pFile = future.acquire())
 	{
+		auto& file = *pFile;
 		const std::string fileData = "Test file data!";
 
 		system::IFile::success_t writeSuccess;
@@ -268,6 +269,52 @@ int main(int argc, char** argv)
 			assert(success);
 		}
 		assert(readStr == fileData);
+	}
+	else
+	{
+		assert(false);
+	}
+
+	//! builtin resources archive test
+	// Nabla case
+	{
+		const std::string nblBuiltInResoucesPath = std::filesystem::current_path().string() + "/../../../include";
+
+		core::smart_refctd_ptr<nbl::builtin::CArchive> archive = core::make_smart_refctd_ptr<nbl::builtin::CArchive>(nblBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
+		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("nbl/builtin/glsl/utils/acceleration_structures.glsl", "");
+
+		const size_t fileSize = testFile->getSize();
+		std::string readStr(fileSize, '\0');
+		system::IFile::success_t readSuccess;
+
+		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		{
+			const bool success = bool(readSuccess);
+			assert(success);
+		}
+		
+		const auto* testStream = readStr.c_str();
+		std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+	}
+	// Custom case
+	{
+		const std::string customBuiltInResoucesPath = std::filesystem::current_path().string() + "/../builtin/include";
+
+		core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(customBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
+		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("yourNamespace/data/test.txt", "");
+
+		const size_t fileSize = testFile->getSize();
+		std::string readStr(fileSize, '\0');
+		system::IFile::success_t readSuccess;
+
+		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		{
+			const bool success = bool(readSuccess);
+			assert(success);
+		}
+
+		const auto* testStream = readStr.c_str();
+		std::cout << testStream;
 	}
 
 	// polling for events!

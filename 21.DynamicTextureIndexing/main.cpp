@@ -49,8 +49,8 @@ public:
     std::array<nbl::video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
     nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
     nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-    std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-    std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+    nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
+    std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
     nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
     nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
     nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -101,6 +101,7 @@ public:
     core::vector<MeshPacker::PackerDataStore> packedMeshBuffer;
     core::vector<DrawIndexedIndirectInput> mdiCallParams;
     core::vector<core::smart_refctd_ptr<IGPUBuffer>> gpuIndirectDrawBuffer;
+    nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
     uint32_t ds1UboBinding = 0;
     int resourceIx;
@@ -154,7 +155,7 @@ public:
     {
         for (int i = 0; i < f.size(); i++)
         {
-            fbo[i] = core::smart_refctd_ptr(f[i]);
+            fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
         }
     }
     void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -163,7 +164,7 @@ public:
     }
     uint32_t getSwapchainImageCount() override
     {
-        return SC_IMG_COUNT;
+        return swapchain->getImageCount();
     }
     virtual nbl::asset::E_FORMAT getDepthFormat() override
     {
@@ -175,36 +176,42 @@ public:
     void onAppInitialized_impl() override
     {
         const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_STORAGE_BIT);
-        const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_UNORM, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
+        CommonAPI::InitParams initParams;
+        initParams.window = core::smart_refctd_ptr(window);
+        initParams.apiType = video::EAT_VULKAN;
+        initParams.appName = { "21.DynamicTextureIndexing" };
+        initParams.framesInFlight = FRAMES_IN_FLIGHT;
+        initParams.windowWidth = WIN_W;
+        initParams.windowHeight = WIN_H;
+        initParams.swapchainImageCount = SC_IMG_COUNT;
+        initParams.swapchainImageUsage = swapchainImageUsage;
+        initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
+        auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
-        CommonAPI::InitOutput initOutput;
-        initOutput.window = core::smart_refctd_ptr(window);
-        CommonAPI::InitWithDefaultExt(
-            initOutput,
-            video::EAT_OPENGL,
-            "DynamicTextureIndexing",
-            WIN_W, WIN_H, SC_IMG_COUNT,
-            swapchainImageUsage,
-            surfaceFormat,
-            nbl::asset::EF_D32_SFLOAT);
-
-        window = std::move(initOutput.window);
-        windowCb = std::move(initOutput.windowCb);
+        window = std::move(initParams.window);
+        windowCb = std::move(initParams.windowCb);
         gl = std::move(initOutput.apiConnection);
         surface = std::move(initOutput.surface);
         utilities = std::move(initOutput.utilities);
         logicalDevice = std::move(initOutput.logicalDevice);
         gpuPhysicalDevice = initOutput.physicalDevice;
         queues = std::move(initOutput.queues);
-        swapchain = std::move(initOutput.swapchain);
-        renderpass = std::move(initOutput.renderpass);
-        fbo = std::move(initOutput.fbo);
+        renderpass = std::move(initOutput.renderToSwapchainRenderpass);
         commandPools = std::move(initOutput.commandPools);
         system = std::move(initOutput.system);
         assetManager = std::move(initOutput.assetManager);
         cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
         logger = std::move(initOutput.logger);
         inputSystem = std::move(initOutput.inputSystem);
+        m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+        CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+        assert(swapchain);
+        fbo = CommonAPI::createFBOWithSwapchainImages(
+            swapchain->getImageCount(), WIN_W, WIN_H,
+            logicalDevice, swapchain, renderpass,
+            nbl::asset::EF_D32_SFLOAT
+        );
 
         descriptorPool = createDescriptorPool(1u);
 
@@ -351,14 +358,23 @@ public:
             assert(pmbData.mdiParameterCount == meshBuffersInRangeCnt);
 
             //create draw call inputs
-            mdiCallParams[i].indexBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], packedMeshBuffer[i].indexBuffer.buffer->getSize(), packedMeshBuffer[i].indexBuffer.buffer->getPointer());
+            video::IGPUBuffer::SCreationParams indexbufferCreationParams;
+            indexbufferCreationParams.size = packedMeshBuffer[i].indexBuffer.buffer->getSize();
+            indexbufferCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS(video::IGPUBuffer::EUF_INDEX_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT);
+            mdiCallParams[i].indexBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(indexbufferCreationParams), packedMeshBuffer[i].indexBuffer.buffer->getPointer());
 
             auto& cpuVtxBuff = packedMeshBuffer[i].vertexBufferBindings[0].buffer;
 
-            gpuIndirectDrawBuffer[i] = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], sizeof(CustomIndirectCommand) * pmbData.mdiParameterCount, packedMeshBuffer[i].MDIDataBuffer->getPointer());
+            video::IGPUBuffer::SCreationParams indirectbufferCreationParams;
+            indirectbufferCreationParams.size = sizeof(CustomIndirectCommand) * pmbData.mdiParameterCount;
+            indirectbufferCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS(video::IGPUBuffer::EUF_INDIRECT_BUFFER_BIT | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT);
+            gpuIndirectDrawBuffer[i] = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(indirectbufferCreationParams), packedMeshBuffer[i].MDIDataBuffer->getPointer());
             mdiCallParams[i].indirectDrawBuff = core::smart_refctd_ptr(gpuIndirectDrawBuffer[i]);
 
-            auto gpuVtxBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], cpuVtxBuff->getSize(), cpuVtxBuff->getPointer());
+            video::IGPUBuffer::SCreationParams vertexbufferCreationParams;
+            vertexbufferCreationParams.size = cpuVtxBuff->getSize();
+            vertexbufferCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS(video::IGPUBuffer::EUF_VERTEX_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT);
+            auto gpuVtxBuff = utilities->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_TRANSFER_UP], std::move(vertexbufferCreationParams), cpuVtxBuff->getPointer());
 
             for (uint32_t j = 0u; j < video::IGPUMeshBuffer::MAX_ATTR_BUF_BINDING_COUNT; j++)
             {
@@ -390,6 +406,7 @@ public:
         sp.TextureWrapV = ISampler::E_TEXTURE_CLAMP::ETC_REPEAT;
         sp.MinFilter = ISampler::E_TEXTURE_FILTER::ETF_LINEAR;
         sp.MaxFilter = ISampler::E_TEXTURE_FILTER::ETF_LINEAR;
+        sp.BorderColor = 0;
         auto sampler = logicalDevice->createSampler(sp);
         {
             asset::SPushConstantRange range[1] = { asset::IShader::ESS_VERTEX, 0u, sizeof(core::matrix4SIMD) };
@@ -454,10 +471,16 @@ public:
                 auto texture = texBind.first;
                 const uint32_t bind = texBind.second;
 
-
                 auto gpuTexture = cpu2gpu.getGPUObjectsFromAssets(&texture, &texture + 1, cpu2gpuParams)->front();
+                for (auto i = 0; i < video::IGPUObjectFromAssetConverter::EQU_COUNT; i++)
+                {
+                    if (cpu2gpuParams.perQueue[i].cmdbuf->getState() != video::IGPUCommandBuffer::ES_RECORDING)
+                    {
+                        cpu2gpuParams.perQueue[i].cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+                    }
+                }
 
-                info[bind].image.imageLayout = asset::EIL_UNDEFINED;
+                info[bind].image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
                 info[bind].image.sampler = core::smart_refctd_ptr(sampler);
                 info[bind].desc = core::smart_refctd_ptr(gpuTexture);
 
@@ -491,7 +514,7 @@ public:
         cpu2gpuParams.waitForCreationToComplete();
 
         core::vectorSIMDf cameraPosition(-4, 0, 0);
-        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 100000);
+        matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.1, 100000);
         camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 1.f, 1.f);
 
         uint64_t lastFPSTime = 0;
@@ -499,10 +522,11 @@ public:
         for (size_t i = 0ull; i < NBL_FRAMES_TO_AVERAGE; ++i)
             dtList[i] = 0.0;
 
-        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, commandBuffers);
 
-        for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+        const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
         {
+			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
             imageAcquire[i] = logicalDevice->createSemaphore();
             renderFinished[i] = logicalDevice->createSemaphore();
         }
@@ -522,7 +546,10 @@ public:
         auto& fence = frameComplete[resourceIx];
 
         if (fence)
-            while (logicalDevice->waitForFences(1u, &fence.get(), false, MAX_TIMEOUT) == video::IGPUFence::ES_TIMEOUT) {}
+        {
+            logicalDevice->blockForFences(1u, &fence.get());
+            logicalDevice->resetFences(1u, &fence.get());
+        }
         else
             fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
@@ -560,7 +587,10 @@ public:
         camera.endInputProcessing(nextPresentationTimeStamp);
 
         const auto& viewMatrix = camera.getViewMatrix();
-        const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
+        const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+            video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+            camera.getConcatenatedMatrix()
+        );
 
         commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
         commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
@@ -573,6 +603,11 @@ public:
         viewport.width = WIN_W;
         viewport.height = WIN_H;
         commandBuffer->setViewport(0u, 1u, &viewport);
+
+        VkRect2D scissor;
+        scissor.offset = { 0, 0 };
+        scissor.extent = { WIN_W,WIN_H };
+        commandBuffer->setScissor(0u, 1u, &scissor);
 
         swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &acquiredNextFBO);
 
@@ -589,7 +624,7 @@ public:
             clear[1].depthStencil.depth = 0.f;
 
             beginInfo.clearValueCount = 2u;
-            beginInfo.framebuffer = fbo[acquiredNextFBO];
+            beginInfo.framebuffer = fbo->begin()[acquiredNextFBO];
             beginInfo.renderpass = renderpass;
             beginInfo.renderArea = area;
             beginInfo.clearValues = clear;
@@ -600,8 +635,6 @@ public:
         core::matrix3x4SIMD modelMatrix;
         modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
 
-        core::matrix4SIMD mvp = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-
         commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline.get());
 
         for (uint32_t i = 0u; i < mdiCallParams.size(); i++)
@@ -611,7 +644,7 @@ public:
             commandBuffer->bindVertexBuffers(0u, 1u, mdiCallParams[i].vtxBindingsBuffers, &mdiCallParams[i].vtxBindingsOffsets[0]);
             commandBuffer->bindVertexBuffers(2u, 1u, mdiCallParams[i].vtxBindingsBuffers, &mdiCallParams[i].vtxBindingsOffsets[2]);
             commandBuffer->bindVertexBuffers(3u, 1u, mdiCallParams[i].vtxBindingsBuffers, &mdiCallParams[i].vtxBindingsOffsets[3]);
-            commandBuffer->pushConstants(gpuPipeline->getLayout(), video::IGPUShader::ESS_VERTEX, 0u, sizeof(core::matrix4SIMD), camera.getConcatenatedMatrix().pointer());
+            commandBuffer->pushConstants(gpuPipeline->getLayout(), video::IGPUShader::ESS_VERTEX, 0u, sizeof(core::matrix4SIMD), viewProjectionMatrix.pointer());
 
             commandBuffer->drawIndexedIndirect(mdiCallParams[i].indirectDrawBuff.get(), mdiCallParams[i].offset, mdiCallParams[i].maxCount, mdiCallParams[i].stride);
         }
@@ -620,7 +653,6 @@ public:
         commandBuffer->end();
 
         CommonAPI::Submit(logicalDevice.get(),
-            swapchain.get(),
             commandBuffer.get(),
             queues[CommonAPI::InitOutput::EQT_GRAPHICS],
             imageAcquire[resourceIx].get(),
@@ -633,7 +665,7 @@ public:
 
     void onAppTerminated_impl() override
     {
-        const auto& fboCreationParams = fbo[acquiredNextFBO]->getCreationParameters();
+        const auto& fboCreationParams = fbo->begin()[acquiredNextFBO]->getCreationParameters();
         auto gpuSourceImageView = fboCreationParams.attachments[0];
 
         bool status = ext::ScreenShot::createScreenShot(
@@ -643,8 +675,8 @@ public:
             gpuSourceImageView.get(),
             assetManager.get(),
             "ScreenShot.png",
-            asset::EIL_PRESENT_SRC,
-            static_cast<asset::E_ACCESS_FLAGS>(0u));
+            asset::IImage::EL_PRESENT_SRC,
+            asset::EAF_NONE);
 
         assert(status);
     }

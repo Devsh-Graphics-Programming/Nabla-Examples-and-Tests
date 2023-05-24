@@ -6,9 +6,8 @@
 #extension GL_GOOGLE_include_directive : require
 
 #define SPHERE_COUNT 8
-#define POLYGON_METHOD 2 // 0 area sampling, 1 solid angle sampling, 2 approximate projected solid angle sampling
+#define POLYGON_METHOD 1 // 0 area sampling, 1 solid angle sampling, 2 approximate projected solid angle sampling
 #include "common.glsl"
-
 
 #define RECTANGLE_COUNT 1
 const vec3 edge0 = normalize(vec3(2,0,-1));
@@ -30,12 +29,10 @@ void traceRay_extraShape(inout int objectID, inout float intersectionT, in vec3 
     }
 }
 
-//
-#define TRIANGLE_REFERENCE
 #include <nbl/builtin/glsl/sampling/projected_spherical_triangle.glsl>
 #include <nbl/builtin/glsl/barycentric/utils.glsl>
+#include <nbl/builtin/glsl/sampling/spherical_rectangle.glsl>
 
-//#include <nbl/builtin/glsl/sampling/projected_spherical_rectangle.glsl>
 float nbl_glsl_light_deferred_pdf(in Light light, in Ray_t ray)
 {
     const Rectangle rect = rectangles[Light_getObjectID(light)];
@@ -62,7 +59,7 @@ float nbl_glsl_light_deferred_pdf(in Light light, in Ray_t ray)
             return 1.f/rectSolidAngle;
         #elif POLYGON_METHOD==2
             // TODO: figure out what breaks for a directly visible light under MIS
-            if (rectSolidAngle>nbl_glsl_FLT_MIN)
+            if (rectSolidAngle > nbl_glsl_FLT_MIN)
             {
                 const vec2 bary = nbl_glsl_barycentric_reconstructBarycentrics(L*ray._mutable.intersectionT+_immutable.origin-rect.offset,mat2x3(rect.edge0,rect.edge1));
                 const uint i = bary.x>=0.f&&bary.y>=0.f&&(bary.x+bary.y)<=1.f ? 0u:1u;
@@ -75,9 +72,23 @@ float nbl_glsl_light_deferred_pdf(in Light light, in Ray_t ray)
                 return nbl_glsl_FLT_INF;
         #endif
     #else
-        #if POLYGON_METHOD==1
-        #elif POLYGON_METHOD==2
-        #endif
+        float pdf;
+        mat3 rectNormalBasis;
+        vec2 rectExtents;
+        Rectangle_getNormalBasis(rect, rectNormalBasis, rectExtents);
+        vec3 sphR0 = nbl_glsl_shapes_getSphericalRectangle(_immutable.origin, rect.offset, rectNormalBasis);
+        float solidAngle = nbl_glsl_shapes_SolidAngleOfRectangle(sphR0, rectExtents);
+        if (solidAngle > nbl_glsl_FLT_MIN)
+        {
+            #if POLYGON_METHOD==1
+            pdf = 1.f/solidAngle;
+            #else
+                #error
+            #endif  
+        }
+        else
+            pdf = nbl_glsl_FLT_INF;
+        return pdf;
     #endif
 #endif
 }
@@ -112,7 +123,7 @@ vec3 nbl_glsl_light_generate_and_pdf(out float pdf, out float newRayMaxT, in vec
             solidAngle[i] = nbl_glsl_shapes_SolidAngleOfTriangle(sphericalVertices[i],cos_vertices[i],sin_vertices[i],cos_a[i],cos_c[i],csc_b[i],csc_c[i]);
         vec3 L = vec3(0.f,0.f,0.f);
         const float rectangleSolidAngle = solidAngle[0]+solidAngle[1];
-        if (rectangleSolidAngle>nbl_glsl_FLT_MIN)
+        if (rectangleSolidAngle > nbl_glsl_FLT_MIN)
         {
             float rcpTriangleChoiceProb;
             const uint i = nbl_glsl_partitionRandVariable(solidAngle[0]/rectangleSolidAngle,xi.z,rcpTriangleChoiceProb) ? 1u:0u;
@@ -128,11 +139,25 @@ vec3 nbl_glsl_light_generate_and_pdf(out float pdf, out float newRayMaxT, in vec
         else
             pdf = nbl_glsl_FLT_INF;
     #else
-        #if POLYGON_METHOD==1
-            #error ""
-        #elif POLYGON_METHOD==2
-            #error ""
-        #endif
+        mat3 rectNormalBasis;
+        vec2 rectExtents;
+        Rectangle_getNormalBasis(rect, rectNormalBasis, rectExtents);
+        vec3 sphR0 = nbl_glsl_shapes_getSphericalRectangle(origin, rect.offset, rectNormalBasis);
+        vec3 L = vec3(0.f,0.f,0.f);
+        float solidAngle;
+        vec2 sphUv = nbl_glsl_sampling_generateSphericalRectangleSample(sphR0, rectExtents, xi.xy, solidAngle);
+        if (solidAngle > nbl_glsl_FLT_MIN)
+        {
+            #if POLYGON_METHOD==1
+            vec3 sph_sample = sphUv[0] * rect.edge0 + sphUv[1] * rect.edge1 + rect.offset;
+            L = normalize(sph_sample - origin);
+            pdf = 1.f/solidAngle;
+            #else
+                #error
+            #endif  
+        }
+        else
+            pdf = nbl_glsl_FLT_INF;
     #endif
     newRayMaxT = dot(N,origin2origin)/dot(N,L);
     return L;

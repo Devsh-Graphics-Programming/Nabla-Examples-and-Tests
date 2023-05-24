@@ -323,7 +323,7 @@ class LoDSystemApp : public ApplicationBase
         {
             for (int i = 0; i < f.size(); i++)
             {
-                fbos[i] = core::smart_refctd_ptr(f[i]);
+                fbos->begin()[i] = core::smart_refctd_ptr(f[i]);
             }
         }
         void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -332,7 +332,7 @@ class LoDSystemApp : public ApplicationBase
         }
         uint32_t getSwapchainImageCount() override
         {
-            return FBO_COUNT;
+            return swapchain->getImageCount();;
         }
         virtual nbl::asset::E_FORMAT getDepthFormat() override
         {
@@ -341,32 +341,48 @@ class LoDSystemApp : public ApplicationBase
         APP_CONSTRUCTOR(LoDSystemApp) 
         void onAppInitialized_impl() override
         {
-            initOutput.window = core::smart_refctd_ptr(window);
-            initOutput.system = core::smart_refctd_ptr(system);
-            
             const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
-            const video::ISurface::SFormat surfaceFormat(asset::EF_B8G8R8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
+            CommonAPI::InitParams initParams;
+            initParams.window = core::smart_refctd_ptr(window);
+            initParams.apiType = video::EAT_VULKAN;
+            initParams.appName = { "11.LoDSystem" };
+            initParams.framesInFlight = FRAMES_IN_FLIGHT;
+            initParams.windowWidth = WIN_W;
+            initParams.windowHeight = WIN_H;
+            initParams.swapchainImageCount = FBO_COUNT;
+            initParams.swapchainImageUsage = swapchainImageUsage;
+            initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
 
-            CommonAPI::InitWithDefaultExt(initOutput, video::EAT_OPENGL, "Level of Detail System", WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, asset::EF_D32_SFLOAT);
-            window = std::move(initOutput.window);
+            auto initOutput = CommonAPI::InitWithDefaultExt<CommonAPI::CommonAPIEventCallback, culling_system_t, video::CSubpassKiln, video::CDrawIndirectAllocator<>>(std::move(initParams));
+
+            window = std::move(initParams.window);
+            windowCallback = std::move(initParams.windowCb);
             gl = std::move(initOutput.apiConnection);
             surface = std::move(initOutput.surface);
             gpuPhysicalDevice = std::move(initOutput.physicalDevice);
             logicalDevice = std::move(initOutput.logicalDevice);
             queues = std::move(initOutput.queues);
-            swapchain = std::move(initOutput.swapchain);
-            renderpass = std::move(initOutput.renderpass);
-            fbos = std::move(initOutput.fbo);
+            renderpass = std::move(initOutput.renderToSwapchainRenderpass);
             commandPools = std::move(initOutput.commandPools);
             assetManager = std::move(initOutput.assetManager);
             logger = std::move(initOutput.logger);
             inputSystem = std::move(initOutput.inputSystem);
             system = std::move(initOutput.system);
-            windowCallback = std::move(initOutput.windowCb);
             cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
             utilities = std::move(initOutput.utilities);
+            m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+            CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+            assert(swapchain);
+            fbos = CommonAPI::createFBOWithSwapchainImages(
+                swapchain->getImageCount(), WIN_W, WIN_H,
+                logicalDevice, swapchain, renderpass,
+                nbl::asset::EF_D32_SFLOAT
+            );
 
             transferUpQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
+            auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
+            auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
 
             ttm = scene::ITransformTreeManager::create(utilities.get(),transferUpQueue);
             tt = scene::ITransformTreeWithNormalMatrices::create(logicalDevice.get(),MaxInstanceCount);
@@ -424,11 +440,25 @@ class LoDSystemApp : public ApplicationBase
                 cullingParams.indirectDispatchParams = { 0ull,culling_system_t::createDispatchIndirectBuffer(utilities.get(),transferUpQueue) };
                 {
                     video::IGPUBuffer::SCreationParams params;
-                    params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT;
-                    
-                    nodeList = {0ull,~0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(params,sizeof(uint32_t)+sizeof(scene::ITransformTree::node_t)*MaxInstanceCount)};
+                    params.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+                    params.size = sizeof(uint32_t) + sizeof(scene::ITransformTree::node_t) * MaxInstanceCount;
+                   
+                    nodeList = {0ull,~0ull, logicalDevice->createBuffer(std::move(params))};
                     nodeList.buffer->setObjectDebugName("transformTreeNodeList");
-                    cullingParams.instanceList = {0ull,~0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(params,sizeof(culling_system_t::InstanceToCull)*MaxInstanceCount)};
+                    auto nodeListMemReqs = nodeList.buffer->getMemoryReqs();
+                    nodeListMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+                    logicalDevice->allocate(nodeListMemReqs, nodeList.buffer.get());
+
+                    video::IGPUBuffer::SCreationParams cullparams;
+                    cullparams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+                    cullparams.size = sizeof(culling_system_t::InstanceToCull) * MaxInstanceCount;
+                    cullingParams.instanceList = {0ull,~0ull,logicalDevice->createBuffer(std::move(cullparams)) };
+
+                    auto cullbufMemReqs = cullingParams.instanceList.buffer->getMemoryReqs();
+                    cullbufMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+                    logicalDevice->allocate(cullbufMemReqs, cullingParams.instanceList.buffer.get());
+
+
                 }
                 cullingParams.scratchBufferRanges = culling_system_t::createScratchBuffer(utilities->getDefaultScanner(), MaxInstanceCount, MaxTotalVisibleDrawcallInstances);
                 cullingParams.drawCalls = drawIndirectAllocator->getDrawCommandMemoryBlock();
@@ -587,8 +617,9 @@ class LoDSystemApp : public ApplicationBase
                     {
                         tt->allocateNodes({instanceGUIDs.data(),instanceGUIDs.data()+objectCount});
 
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue,{0u,sizeof(uint32_t),nodeList.buffer},&objectCount);
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue,{sizeof(uint32_t),objectCount*sizeof(scene::ITransformTree::node_t),nodeList.buffer},instanceGUIDs.data());
+                        video::IGPUQueue::SSubmitInfo emptySubmit = {};
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({0u,sizeof(uint32_t),nodeList.buffer},&objectCount,transferUpQueue);
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({sizeof(uint32_t),objectCount*sizeof(scene::ITransformTree::node_t),nodeList.buffer},instanceGUIDs.data(), transferUpQueue);
 
                         scene::ITransformTreeManager::UpstreamRequest request;
                         request.tree = tt.get();
@@ -606,7 +637,7 @@ class LoDSystemApp : public ApplicationBase
                             instance.instanceGUID = instanceGUID;
                             instance.lodTableUvec4Offset = lodTables[typeDist(mt)];
                         }
-                        utilities->updateBufferRangeViaStagingBuffer(transferUpQueue, { 0u,instanceList.size()*sizeof(culling_system_t::InstanceToCull),cullingParams.instanceList.buffer }, instanceList.data());
+                        utilities->updateBufferRangeViaStagingBufferAutoSubmit({ 0u,instanceList.size()*sizeof(culling_system_t::InstanceToCull),cullingParams.instanceList.buffer }, instanceList.data(), transferUpQueue);
 
                         cullPushConstants.instanceCount += instanceList.size();
                     }
@@ -647,18 +678,21 @@ class LoDSystemApp : public ApplicationBase
                         }
 
                         core::smart_refctd_ptr<video::IGPUCommandBuffer> tferCmdBuf;
-                        logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
+                        logicalDevice->createCommandBuffers(defaultTransferUpCommandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &tferCmdBuf);
                         auto fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
-                        tferCmdBuf->begin(IGPUCommandBuffer::EU_NONE); // TODO some one time submit bit or something
+                        tferCmdBuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
                         {
                             auto ppHandler = utilities->getDefaultPropertyPoolHandler();
                             asset::SBufferBinding<video::IGPUBuffer> scratch;
                             {
                                 video::IGPUBuffer::SCreationParams scratchParams = {};
-                                scratchParams.canUpdateSubRange = true;
-                                scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-                                scratch = { 0ull,logicalDevice->createDeviceLocalGPUBufferOnDedMem(scratchParams,ppHandler->getMaxScratchSize()) };
+                                scratchParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+                                scratchParams.size = ppHandler->getMaxScratchSize();
+                                scratch = { 0ull,logicalDevice->createBuffer(std::move(scratchParams)) };
                                 scratch.buffer->setObjectDebugName("Scratch Buffer");
+                                auto scratchMemReqs = scratch.buffer->getMemoryReqs();
+                                scratchMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+                                logicalDevice->allocate(scratchMemReqs, scratch.buffer.get());
                             }
                             auto* pRequests = upstreamRequests;
                             uint32_t waitSemaphoreCount = 0u;
@@ -686,21 +720,28 @@ class LoDSystemApp : public ApplicationBase
                         auto& drawCallOffsetsInDWORDs = lodLibraryData.drawCallOffsetsIn20ByteStrides;
                         for (auto i = 0u; i < cullingParams.drawcallCount; i++)
                             drawCallOffsetsInDWORDs[i] = lodLibraryData.drawCallOffsetsIn20ByteStrides[i] * sizeof(asset::DrawElementsIndirectCommand_t) / sizeof(uint32_t);
+                        video::IGPUBuffer::SCreationParams drawsToScanBufferCreationParams = {}; 
+                        drawsToScanBufferCreationParams.size = cullingParams.drawcallCount * sizeof(uint32_t);
+                        drawsToScanBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                        video::IGPUBuffer::SCreationParams drawsToCountBufferCreationParams = {}; 
+                        drawsToCountBufferCreationParams.size = lodLibraryData.drawCountOffsets.size() * sizeof(uint32_t);
+                        drawsToCountBufferCreationParams.usage = core::bitflag(video::IGPUBuffer::EUF_TRANSFER_DST_BIT) | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+
                         cullingParams.transientInputDS = culling_system_t::createInputDescriptorSet(
                             logicalDevice.get(), cullingDSPool.get(),
                             culling_system_t::createInputDescriptorSetLayout(logicalDevice.get()),
                             cullingParams.indirectDispatchParams,
                             cullingParams.instanceList,
                             cullingParams.scratchBufferRanges,
-                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,cullingParams.drawcallCount * sizeof(uint32_t),drawCallOffsetsInDWORDs.data()) },
-                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,lodLibraryData.drawCountOffsets.size() * sizeof(uint32_t),lodLibraryData.drawCountOffsets.data()) }
+                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue, std::move(drawsToScanBufferCreationParams), drawCallOffsetsInDWORDs.data()) },
+                            { 0ull,~0ull,utilities->createFilledDeviceLocalBufferOnDedMem(transferUpQueue,std::move(drawsToCountBufferCreationParams),lodLibraryData.drawCountOffsets.data()) }
                         );
                     }
                 }
                 // prerecord the secondary cmdbuffer
                 {
-                    logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
-                    bakedCommandBuffer->begin(video::IGPUCommandBuffer::EU_RENDER_PASS_CONTINUE_BIT | video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
+                    logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), video::IGPUCommandBuffer::EL_SECONDARY, 1u, &bakedCommandBuffer);
+                    bakedCommandBuffer->begin(core::bitflag(video::IGPUCommandBuffer::EU_RENDER_PASS_CONTINUE_BIT) | video::IGPUCommandBuffer::EU_SIMULTANEOUS_USE_BIT);
                     // TODO: handle teh offsets
                     auto drawCountBlock = drawIndirectAllocator->getDrawCountMemoryBlock();
                     kiln.bake(bakedCommandBuffer.get(), renderpass.get(), 0u, drawIndirectAllocator->getDrawCommandMemoryBlock().buffer.get(), drawIndirectAllocator->supportsMultiDrawIndirectCount() ? drawCountBlock->buffer.get():nullptr);
@@ -718,10 +759,10 @@ class LoDSystemApp : public ApplicationBase
             camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 2.f, 1.f);
 
             oracle.reportBeginFrameRecord();
-            logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, commandBuffers);
-
+            const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
             for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
             {
+                logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
                 imageAcquire[i] = logicalDevice->createSemaphore();
                 renderFinished[i] = logicalDevice->createSemaphore();
             }
@@ -732,7 +773,7 @@ class LoDSystemApp : public ApplicationBase
             lodLibrary->clear();
             drawIndirectAllocator->clear();
 
-            const auto& fboCreationParams = fbos[acquiredNextFBO]->getCreationParameters();
+            const auto& fboCreationParams = fbos->begin()[acquiredNextFBO]->getCreationParameters();
             auto gpuSourceImageView = fboCreationParams.attachments[0];
 
             bool status = ext::ScreenShot::createScreenShot(
@@ -742,8 +783,8 @@ class LoDSystemApp : public ApplicationBase
                 gpuSourceImageView.get(),
                 assetManager.get(),
                 "ScreenShot.png",
-                asset::EIL_PRESENT_SRC,
-                static_cast<asset::E_ACCESS_FLAGS>(0u));
+                asset::IImage::EL_PRESENT_SRC,
+                asset::EAF_NONE);
 
             assert(status);
         }
@@ -763,7 +804,7 @@ class LoDSystemApp : public ApplicationBase
 
             //
             commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-            commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+            commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
             // late latch input
             const auto nextPresentationTimestamp = oracle.acquireNextImage(swapchain.get(), imageAcquire[resourceIx].get(), nullptr, &acquiredNextFBO);
@@ -850,7 +891,7 @@ class LoDSystemApp : public ApplicationBase
                     clear[1].depthStencil.depth = 0.f;
 
                     beginInfo.clearValueCount = 2u;
-                    beginInfo.framebuffer = fbos[acquiredNextFBO];
+                    beginInfo.framebuffer = fbos->begin()[acquiredNextFBO];
                     beginInfo.renderpass = renderpass;
                     beginInfo.renderArea = area;
                     beginInfo.clearValues = clear;
@@ -863,7 +904,7 @@ class LoDSystemApp : public ApplicationBase
                 commandBuffer->end();
             }
 
-            CommonAPI::Submit(logicalDevice.get(), swapchain.get(), commandBuffer.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
+            CommonAPI::Submit(logicalDevice.get(), commandBuffer.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
             CommonAPI::Present(logicalDevice.get(), swapchain.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], renderFinished[resourceIx].get(), acquiredNextFBO);
         }
 
@@ -883,9 +924,9 @@ class LoDSystemApp : public ApplicationBase
         std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
         nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
         nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-        std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
+        nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbos;
     
-        std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+        std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
         nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
         nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
         nbl::core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
@@ -914,6 +955,7 @@ class LoDSystemApp : public ApplicationBase
         core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
         core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
         core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
+        nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
         video::CDumbPresentationOracle oracle;
         uint32_t acquiredNextFBO = {};

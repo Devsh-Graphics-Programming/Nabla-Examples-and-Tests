@@ -144,6 +144,7 @@ int main()
 
 		auto createSpecializedShaderFromSource = [=](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage)
 		{
+			// TODO: Update: should use the compiler set from asset manager
 			auto spirv = device->getAssetManager()->getGLSLCompiler()->createSPIRVFromGLSL(source, stage, "main", "runtimeID");
 			return core::make_smart_refctd_ptr<asset::ICPUSpecializedShader>(std::move(spirv),asset::ICPUSpecializedShader::SInfo{ nullptr,nullptr,"main",stage });
 		};
@@ -151,7 +152,7 @@ int main()
 		auto createSpecializedShaderFromSourceWithIncludes = [&](const char* source, asset::ISpecializedShader::E_SHADER_STAGE stage, const char* origFilepath)
 		{
 			auto resolved_includes = device->getAssetManager()->getGLSLCompiler()->resolveIncludeDirectives(source, stage, origFilepath);
-			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getSPVorGLSL()->getPointer()), stage);
+			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getContent()->getPointer()), stage);
 		};
 		constexpr uint32_t kShaderCount = 2u;
 		core::smart_refctd_ptr<asset::ICPUSpecializedShader> shaders[kShaderCount] =

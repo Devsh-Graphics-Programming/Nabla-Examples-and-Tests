@@ -128,6 +128,7 @@ class MeshLoadersApp : public ApplicationBase
 	static constexpr uint32_t WIN_W = 1280;
 	static constexpr uint32_t WIN_H = 720;
 	static constexpr uint32_t FBO_COUNT = 2u;
+	static constexpr uint32_t FRAMES_IN_FLIGHT = 1u;
 	static constexpr size_t NBL_FRAMES_TO_AVERAGE = 100ull;
 
 public:
@@ -142,8 +143,8 @@ public:
 	std::array<nbl::video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
 	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbo;
-	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
+	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
+	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
 	nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
 	nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -176,6 +177,7 @@ public:
 	nbl::core::smart_refctd_ptr<video::IGPUMeshBuffer> gpuMeshBuffer2;
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> gpuGDescriptorSet1;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUSemaphore> render_finished_sem;
+	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
 	{
@@ -209,7 +211,7 @@ public:
 	{
 		for (int i = 0; i < f.size(); i++)
 		{
-			fbo[i] = core::smart_refctd_ptr(f[i]);
+			fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
 		}
 	}
 	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
@@ -218,7 +220,7 @@ public:
 	}
 	uint32_t getSwapchainImageCount() override
 	{
-		return FBO_COUNT;
+		return swapchain->getImageCount();
 	}
 	virtual nbl::asset::E_FORMAT getDepthFormat() override
 	{
@@ -229,31 +231,44 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::InitOutput initOutput;
-		initOutput.window = core::smart_refctd_ptr(window);
-		initOutput.system = core::smart_refctd_ptr(system);
+	const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
+		CommonAPI::InitParams initParams;
+		initParams.window = core::smart_refctd_ptr(window);
+		initParams.apiType = video::EAT_VULKAN;
+		initParams.appName = { "53.ComputeShaders" };
+		initParams.framesInFlight = FRAMES_IN_FLIGHT;
+		initParams.windowWidth = WIN_W;
+		initParams.windowHeight = WIN_H;
+		initParams.swapchainImageCount = FBO_COUNT;
+		initParams.swapchainImageUsage = swapchainImageUsage;
+		initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-		const video::ISurface::SFormat surfaceFormat(asset::EF_R8G8B8A8_SRGB, asset::ECP_COUNT, asset::EOTF_UNKNOWN);
-
-		CommonAPI::InitWithDefaultExt(initOutput, video::EAT_VULKAN, "ComputeShaders", WIN_W, WIN_H, FBO_COUNT, swapchainImageUsage, surfaceFormat, nbl::asset::EF_D32_SFLOAT);
-		window = std::move(initOutput.window);
+		window = std::move(initParams.window);
 		gl = std::move(initOutput.apiConnection);
 		surface = std::move(initOutput.surface);
 		gpuPhysicalDevice = std::move(initOutput.physicalDevice);
 		logicalDevice = std::move(initOutput.logicalDevice);
 		queues = std::move(initOutput.queues);
-		swapchain = std::move(initOutput.swapchain);
-		renderpass = std::move(initOutput.renderpass);
-		fbo[0] = std::move(initOutput.fbo[0]);
+		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		commandPools = std::move(initOutput.commandPools);
 		assetManager = std::move(initOutput.assetManager);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
-		windowCallback = std::move(initOutput.windowCb);
+		windowCallback = std::move(initParams.windowCb);
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+		auto defaultGraphicsCommandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][0];
 
-		logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_GRAPHICS].get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		assert(swapchain);
+		fbo = CommonAPI::createFBOWithSwapchainImages(
+			swapchain->getImageCount(), WIN_W, WIN_H,
+			logicalDevice, swapchain, renderpass,
+			nbl::asset::EF_D32_SFLOAT
+		);
+
+		logicalDevice->createCommandBuffers(defaultGraphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers);
 		auto commandBuffer = commandBuffers[0];
 
 		auto createDescriptorPool = [&](const uint32_t itemCount, E_DESCRIPTOR_TYPE descriptorType)
@@ -383,17 +398,18 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 		auto gpuGDescriptorPool = createDescriptorPool(1, EDT_UNIFORM_BUFFER);
 		auto gpuGDs1Layout = logicalDevice->createDescriptorSetLayout(&gpuUboBinding, &gpuUboBinding + 1);
-		auto dev_local_reqs = logicalDevice->getDeviceLocalGPUMemoryReqs();
-		dev_local_reqs.vulkanReqs.size = sizeof(SBasicViewParameters);
 
 		video::IGPUBuffer::SCreationParams gpuUBOCreationParams;
 		//gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
-		gpuUBOCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT;
-		gpuUBOCreationParams.sharingMode = asset::E_SHARING_MODE::ESM_EXCLUSIVE;
+		gpuUBOCreationParams.usage = asset::IBuffer::E_USAGE_FLAGS(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF);
 		gpuUBOCreationParams.queueFamilyIndexCount = 0u;
 		gpuUBOCreationParams.queueFamilyIndices = nullptr;
+		gpuUBOCreationParams.size = sizeof(SBasicViewParameters);
 
-		gpuUBO = logicalDevice->createGPUBufferOnDedMem(gpuUBOCreationParams, dev_local_reqs);
+		gpuUBO = logicalDevice->createBuffer(std::move(gpuUBOCreationParams));
+		auto gpuUBOmemreqs = gpuUBO->getMemoryReqs();
+		gpuUBOmemreqs.memoryTypeBits &= gpuPhysicalDevice->getDeviceLocalMemoryTypeBits();
+		logicalDevice->allocate(gpuUBOmemreqs, gpuUBO.get());
 
 		gpuGDescriptorSet1 = logicalDevice->createDescriptorSet(gpuGDescriptorPool.get(), gpuGDs1Layout);
 		{
@@ -512,7 +528,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		window->setCaption(captionData);
 
 		core::vectorSIMDf cameraPosition(0, 0, 0);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.001, 1000);
+		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.001, 1000);
 		camera = Camera(cameraPosition, core::vectorSIMDf(0, 0, -1), projectionMatrix, 10.f, 1.f);
 		lastTime = std::chrono::system_clock::now();
 		for (size_t i = 0ull; i < NBL_FRAMES_TO_AVERAGE; ++i)
@@ -521,7 +537,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 
 	void onAppTerminated_impl() override
 	{
-		const auto& fboCreationParams = fbo[0]->getCreationParameters();
+		const auto& fboCreationParams = fbo->begin()[0]->getCreationParameters();
 		auto gpuSourceImageView = fboCreationParams.attachments[0];
 
 		bool status = ext::ScreenShot::createScreenShot(logicalDevice.get(),
@@ -530,8 +546,8 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 			gpuSourceImageView.get(),
 			assetManager.get(),
 			"ScreenShot.png",
-			asset::EIL_PRESENT_SRC,
-			static_cast<asset::E_ACCESS_FLAGS>(0u));
+			asset::IImage::EL_PRESENT_SRC,
+			asset::EAF_NONE);
 
 		assert(status);
 	}
@@ -568,11 +584,14 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		camera.endInputProcessing(nextPresentationTimeStamp);
 
 		const auto& viewMatrix = camera.getViewMatrix();
-		const auto& viewProjectionMatrix = camera.getConcatenatedMatrix();
+		const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+			camera.getConcatenatedMatrix()
+		);
 
 		auto& commandBuffer = commandBuffers[0];
 		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		commandBuffer->begin(IGPUCommandBuffer::EU_NONE);
+		commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
 
 		asset::SViewport viewport;
 		viewport.minDepth = 1.f;
@@ -595,7 +614,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		clear[1].depthStencil.depth = 0.f;
 
 		beginInfo.clearValueCount = 2u;
-		beginInfo.framebuffer = fbo[0];
+		beginInfo.framebuffer = fbo->begin()[0];
 		beginInfo.renderpass = renderpass;
 		beginInfo.renderArea = area;
 		beginInfo.clearValues = clear;
@@ -662,7 +681,7 @@ APP_CONSTRUCTOR(MeshLoadersApp)
 		constexpr uint64_t MAX_TIMEOUT = 99999999999999ull; // ns
 		swapchain->acquireNextImage(MAX_TIMEOUT, img_acq_sem.get(), nullptr, &imgnum);
 
-		CommonAPI::Submit(logicalDevice.get(), swapchain.get(), commandBuffer.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], img_acq_sem.get(), render_finished_sem.get());
+		CommonAPI::Submit(logicalDevice.get(), commandBuffer.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], img_acq_sem.get(), render_finished_sem.get());
 		CommonAPI::Present(logicalDevice.get(), swapchain.get(), queues[CommonAPI::InitOutput::EQT_GRAPHICS], render_finished_sem.get(), imgnum);
 	}
 

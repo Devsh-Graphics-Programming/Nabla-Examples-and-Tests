@@ -1,39 +1,40 @@
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "nabla.h"
 
-#define _NBL_STATIC_LIB_
+
 #include <iostream>
 #include <cstdio>
-#include <nabla.h>
 
-#if defined(_NBL_PLATFORM_WINDOWS_)
-#	include <nbl/system/CColoredStdoutLoggerWin32.h>
-#endif // TODO more platforms
 
 using namespace nbl;
 using namespace core;
 using namespace asset;
 using namespace system;
 
-static inline nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
-{
-	using namespace nbl;
-	using namespace core;
-	using namespace system;
-	smart_refctd_ptr<ISystemCaller> caller = nullptr;
-
-	#ifdef _NBL_PLATFORM_WINDOWS_
-	caller = make_smart_refctd_ptr<nbl::system::CSystemCallerWin32>();
-	#endif
-
-	return make_smart_refctd_ptr<ISystem>(std::move(caller));
-}
 
 int main(int argc, char * argv[])
 {
-	auto system = createSystem();
+	// need to call this to Delay-Load DLLs properly
+	IApplicationFramework::GlobalsInit();
+
+	smart_refctd_ptr<ISystem> system = nullptr;
+	{
+	#ifdef _NBL_PLATFORM_WINDOWS_
+		system = make_smart_refctd_ptr<nbl::system::CSystemWin32>();
+	#elif defined(_NBL_PLATFORM_LINUX_)
+		system = make_smart_refctd_ptr<nbl::system::CSystemLinux>();
+	#else
+	#error "Unsupported Platform"
+	#endif
+	}
+
+	#if defined(_NBL_PLATFORM_WINDOWS_)
 	auto logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>();
+	#else
+	auto logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>();
+	#endif
 	auto assetManager = core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(system));
 
 	const bool isItDefaultImage = argc == 1;

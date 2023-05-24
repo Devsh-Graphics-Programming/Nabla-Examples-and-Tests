@@ -12,7 +12,15 @@ layout (location = 0) out vec4 outColor;
 
 layout (push_constant) uniform PC {
     layout (offset = 64) vec3 campos;
+    layout (offset = 80) uint testNum;
 } pc;
+
+#define TEST_GGX 1
+#define TEST_BECKMANN 2
+#define TEST_PHONG 3
+#define TEST_AS 4
+#define TEST_OREN_NAYAR 5
+#define TEST_LAMBERT 6
 
 #include <nbl/builtin/glsl/bxdf/brdf/specular/ggx.glsl>
 #include <nbl/builtin/glsl/bxdf/brdf/specular/beckmann.glsl>
@@ -46,23 +54,24 @@ void main()
 
         vec3 brdf = vec3(0.0);
 
-#ifdef TEST_GGX
-        brdf = nbl_glsl_ggx_height_correlated_cos_eval(_sample, inter_, cache.isotropic, ior, a2);
-#elif defined(TEST_BECKMANN)
-        brdf = nbl_glsl_beckmann_height_correlated_cos_eval(_sample, inter_, cache.isotropic, ior, a2);
-#elif defined(TEST_PHONG)
-        float n = nbl_glsl_alpha2_to_phong_exp(a2);
-        brdf = nbl_glsl_blinn_phong_cos_eval(_sample, inter_, cache.isotropic, n, ior);
-#elif defined(TEST_AS)
-        float nx = nbl_glsl_alpha2_to_phong_exp(a2);
-        float aa = 1.0-Alpha;
-        float ny = nbl_glsl_alpha2_to_phong_exp(aa*aa);
-        brdf = nbl_glsl_blinn_phong_cos_eval(_sample, inter, cache, nx, ny, ior);
-#elif defined(TEST_OREN_NAYAR)
-        brdf = albedo*nbl_glsl_oren_nayar_cos_eval(_sample, inter_, a2);
-#elif defined(TEST_LAMBERT)
-        brdf = albedo*nbl_glsl_lambertian_cos_eval(_sample);
-#endif
+        if (pc.testNum == TEST_GGX) {
+            brdf = nbl_glsl_ggx_height_correlated_cos_eval(_sample, inter_, cache.isotropic, ior, a2);
+        } else if (pc.testNum == TEST_BECKMANN) {
+            brdf = nbl_glsl_beckmann_height_correlated_cos_eval(_sample, inter_, cache.isotropic, ior, a2);
+        } else if (pc.testNum == TEST_PHONG) {
+            float n = nbl_glsl_alpha2_to_phong_exp(a2);
+            brdf = nbl_glsl_blinn_phong_cos_eval(_sample, inter_, cache.isotropic, n, ior);
+        } else if (pc.testNum == TEST_AS) {
+            float nx = nbl_glsl_alpha2_to_phong_exp(a2);
+            float aa = 1.0-Alpha;
+            float ny = nbl_glsl_alpha2_to_phong_exp(aa*aa);
+            brdf = nbl_glsl_blinn_phong_cos_eval(_sample, inter, cache, nx, ny, ior);
+        } else if (pc.testNum == TEST_OREN_NAYAR) {
+            brdf = albedo*nbl_glsl_oren_nayar_cos_eval(_sample, inter_, a2);
+        } else if (pc.testNum == TEST_LAMBERT) {
+            brdf = albedo*nbl_glsl_lambertian_cos_eval(_sample);
+        }
+
         const vec3 col = Intensity*brdf/dot(L,L);
         //red output means brdf>1.0
         //outColor = any(greaterThan(brdf,vec3(1.0))) ? vec4(1.0,0.0,0.0,1.0) : vec4(Intensity*brdf/dot(L,L), 1.0);

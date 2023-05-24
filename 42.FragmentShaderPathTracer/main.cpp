@@ -36,7 +36,10 @@ smart_refctd_ptr<IGPUImageView> createHDRImageView(nbl::core::smart_refctd_ptr<n
 		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 		imgInfo.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_SRC_BIT;
 
-		auto image = device->createGPUImageOnDedMem(std::move(imgInfo),device->getDeviceLocalGPUMemoryReqs());
+		auto image = device->createImage(std::move(imgInfo));
+		auto imageMemReqs = image->getMemoryReqs();
+		imageMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		device->allocate(imageMemReqs, image.get());
 
 		IGPUImageView::SCreationParams imgViewInfo;
 		imgViewInfo.image = std::move(image);
@@ -85,50 +88,30 @@ DispatchInfo_t getDispatchInfo(uint32_t imgWidth, uint32_t imgHeight) {
 
 int main()
 {
+	system::IApplicationFramework::GlobalsInit();
+
 	constexpr uint32_t WIN_W = 1280;
 	constexpr uint32_t WIN_H = 720;
 	constexpr uint32_t FBO_COUNT = 2u;
 	constexpr uint32_t FRAMES_IN_FLIGHT = 5u;
+	constexpr bool LOG_TIMESTAMP = false;
 	static_assert(FRAMES_IN_FLIGHT>FBO_COUNT);
 	
-	CommonAPI::SFeatureRequest<video::IAPIConnection::E_FEATURE> requiredInstanceFeatures = {};
-	requiredInstanceFeatures.count = 1u;
-	video::IAPIConnection::E_FEATURE requiredFeatures_Instance[] = { video::IAPIConnection::EF_SURFACE };
-	requiredInstanceFeatures.features = requiredFeatures_Instance;
-
-	CommonAPI::SFeatureRequest<video::IAPIConnection::E_FEATURE> optionalInstanceFeatures = {};
-
-	CommonAPI::SFeatureRequest<video::ILogicalDevice::E_FEATURE> requiredDeviceFeatures = {};
-	requiredDeviceFeatures.count = 1u;
-	video::ILogicalDevice::E_FEATURE requiredFeatures_Device[] = { video::ILogicalDevice::EF_SWAPCHAIN };
-	requiredDeviceFeatures.features = requiredFeatures_Device;
-
-	CommonAPI::SFeatureRequest< video::ILogicalDevice::E_FEATURE> optionalDeviceFeatures = {};
-	optionalDeviceFeatures.count = 2u;
-	video::ILogicalDevice::E_FEATURE optionalFeatures_Device[] = { video::ILogicalDevice::EF_RAY_TRACING_PIPELINE, video::ILogicalDevice::EF_RAY_QUERY };
-	optionalDeviceFeatures.features = optionalFeatures_Device;
-
 	const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_DST_BIT);
-	const video::ISurface::SFormat surfaceFormat;
-	
-	CommonAPI::InitOutput initOutput;
-	CommonAPI::Init(
-		initOutput,
-		video::EAT_VULKAN,
-		"Compute Shader PathTracer",
-		requiredInstanceFeatures,
-		optionalInstanceFeatures,
-		requiredDeviceFeatures,
-		optionalDeviceFeatures,
-		WIN_W, WIN_H,
-		FBO_COUNT,
-		swapchainImageUsage, 
-		surfaceFormat,
-		asset::EF_D32_SFLOAT);
+	CommonAPI::InitParams initParams;
+	initParams.apiType = video::EAT_VULKAN;
+	initParams.appName = { "Compute Shader PathTracer" };
+	initParams.framesInFlight = FRAMES_IN_FLIGHT;
+	initParams.windowWidth = WIN_W;
+	initParams.windowHeight = WIN_H;
+	initParams.swapchainImageCount = FBO_COUNT;
+	initParams.swapchainImageUsage = swapchainImageUsage;
+	initParams.depthFormat = asset::EF_D32_SFLOAT;
+	auto initOutput = CommonAPI::InitWithRaytracingExt(std::move(initParams));
 
 	auto system = std::move(initOutput.system);
-	auto window = std::move(initOutput.window);
-	auto windowCb = std::move(initOutput.windowCb);
+	auto window = std::move(initParams.window);
+	auto windowCb = std::move(initParams.windowCb);
 	auto gl = std::move(initOutput.apiConnection);
 	auto surface = std::move(initOutput.surface);
 	auto gpuPhysicalDevice = std::move(initOutput.physicalDevice);
@@ -137,24 +120,33 @@ int main()
 	auto graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
 	auto transferUpQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_UP];
 	auto computeQueue = queues[CommonAPI::InitOutput::EQT_COMPUTE];
-	auto swapchain = std::move(initOutput.swapchain);
-	auto renderpass = std::move(initOutput.renderpass);
-	auto fbo = std::move(initOutput.fbo);
+	auto renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 	auto assetManager = std::move(initOutput.assetManager);
 	auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 	auto logger = std::move(initOutput.logger);
 	auto inputSystem = std::move(initOutput.inputSystem);
 	auto utilities = std::move(initOutput.utilities);
-	auto graphicsCommandPool = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_GRAPHICS]);
-	auto computeCommandPool = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_COMPUTE]);
+	auto graphicsCommandPools = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_GRAPHICS]);
+	auto computeCommandPools = std::move(initOutput.commandPools[CommonAPI::InitOutput::EQT_COMPUTE]);
+	auto swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+	core::smart_refctd_ptr<video::ISwapchain> swapchain = nullptr;
+	CommonAPI::createSwapchain(std::move(device), swapchainCreationParams, WIN_W, WIN_H, swapchain);
+	assert(swapchain);
+	auto fbo = CommonAPI::createFBOWithSwapchainImages(
+		swapchain->getImageCount(), WIN_W, WIN_H,
+		device, swapchain, renderpass,
+		asset::EF_D32_SFLOAT
+	);
 
 	auto graphicsCmdPoolQueueFamIdx = graphicsQueue->getFamilyIndex();
 
 	nbl::video::IGPUObjectFromAssetConverter CPU2GPU;
 	
 	core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf[FRAMES_IN_FLIGHT];
-	device->createCommandBuffers(graphicsCommandPool.get(), nbl::video::IGPUCommandBuffer::EL_PRIMARY, FRAMES_IN_FLIGHT, cmdbuf);
-	
+	for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+		device->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, cmdbuf+i);	
+
 	constexpr uint32_t maxDescriptorCount = 256u;
 	constexpr uint32_t PoolSizesCount = 5u;
 	nbl::video::IDescriptorPool::SDescriptorPoolSize poolSizes[PoolSizesCount] = {
@@ -167,9 +159,14 @@ int main()
 
 	auto descriptorPool = device->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxDescriptorCount, PoolSizesCount, poolSizes);
 
+	const auto timestampQueryPool = device->createQueryPool({
+		.queryType = video::IQueryPool::EQT_TIMESTAMP,
+		.queryCount = 2u
+	});
+
 	// Camera 
 	core::vectorSIMDf cameraPosition(0, 5, -10);
-	matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.01f, 500.0f);
+	matrix4SIMD proj = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.01f, 500.0f);
 	Camera cam = Camera(cameraPosition, core::vectorSIMDf(0, 0, 0), proj);
 
 	IGPUDescriptorSetLayout::SBinding descriptorSet0Bindings[] = {
@@ -203,7 +200,7 @@ int main()
 		memcpy(info.m_backingBuffer->getPointer(),&kShaderParameters,sizeof(ShaderParameters));
 		info.m_entries = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ISpecializedShader::SInfo::SMapEntry>>(2u);
 		for (uint32_t i=0; i<2; i++)
-			info.m_entries->operator[](i) = {i,i*sizeof(uint32_t),sizeof(uint32_t)};
+			info.m_entries->operator[](i) = {i,(uint32_t)(i*sizeof(uint32_t)),sizeof(uint32_t)};
 
 
 		cpuComputeSpecializedShader->setSpecializationInfo(std::move(info));
@@ -279,8 +276,12 @@ int main()
 			IGPUBuffer::SCreationParams params = {};
 			const size_t size = sampleSequence->getSize();
 			params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT; 
-			gpuSequenceBuffer = device->createDeviceLocalGPUBufferOnDedMem(params, size);
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer());
+			params.size = size;
+			gpuSequenceBuffer = device->createBuffer(std::move(params));
+			auto gpuSequenceBufferMemReqs = gpuSequenceBuffer->getMemoryReqs();
+			gpuSequenceBufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			device->allocate(gpuSequenceBufferMemReqs, gpuSequenceBuffer.get());
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,size,gpuSequenceBuffer},sampleSequence->getPointer(), graphicsQueue);
 		}
 		gpuSequenceBufferView = device->createBufferView(gpuSequenceBuffer.get(), asset::EF_R32G32B32_UINT);
 	}
@@ -296,7 +297,7 @@ int main()
 		imgParams.arrayLayers = 1u;
 		imgParams.samples = IImage::ESCF_1_BIT;
 		imgParams.usage = core::bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_TRANSFER_DST_BIT;
-		imgParams.initialLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+		imgParams.initialLayout = asset::IImage::EL_UNDEFINED;
 
 		IGPUImage::SBufferCopy region = {};
 		region.bufferOffset = 0u;
@@ -323,13 +324,18 @@ int main()
 			IGPUBuffer::SCreationParams params = {};
 			const size_t size = random.size() * sizeof(uint32_t);
 			params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_TRANSFER_SRC_BIT; 
-			buffer = device->createDeviceLocalGPUBufferOnDedMem(params, size);
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data());
+			params.size = size;
+			buffer = device->createBuffer(std::move(params));
+			auto bufferMemReqs = buffer->getMemoryReqs();
+			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			device->allocate(bufferMemReqs, buffer.get());
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u,size,buffer},random.data(),graphicsQueue);
 		}
 
 		IGPUImageView::SCreationParams viewParams;
 		viewParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(graphicsQueue, std::move(imgParams), buffer.get(), 1u, &region);
+		// TODO: Replace this IGPUBuffer -> IGPUImage to using image upload utility
+		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(std::move(imgParams), buffer.get(), 1u, &region, graphicsQueue);
 		viewParams.viewType = IGPUImageView::ET_2D;
 		viewParams.format = EF_R32G32_UINT;
 		viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -339,8 +345,10 @@ int main()
 	}
 	
 	// Create Out Image TODO
-	smart_refctd_ptr<IGPUImageView> outHDRImageViews[FBO_COUNT] = {};
-	for(uint32_t i = 0; i < FBO_COUNT; ++i) {
+	constexpr uint32_t MAX_FBO_COUNT = 4u;
+	smart_refctd_ptr<IGPUImageView> outHDRImageViews[MAX_FBO_COUNT] = {};
+	assert(MAX_FBO_COUNT >= swapchain->getImageCount());
+	for(uint32_t i = 0; i < swapchain->getImageCount(); ++i) {
 		outHDRImageViews[i] = createHDRImageView(device, asset::EF_R16G16B16A16_SFLOAT, WIN_W, WIN_H);
 	}
 
@@ -359,7 +367,7 @@ int main()
 		{
 			info.desc = outHDRImageViews[i];
 			info.image.sampler = nullptr;
-			info.image.imageLayout = asset::E_IMAGE_LAYOUT::EIL_GENERAL;
+			info.image.imageLayout = asset::IImage::EL_GENERAL;
 		}
 		writeDescriptorSet.info = &info;
 		device->updateDescriptorSets(1u, &writeDescriptorSet, 0u, nullptr);
@@ -371,9 +379,13 @@ int main()
 	};
 
 	IGPUBuffer::SCreationParams gpuuboParams = {};
-	const size_t gpuuboParamsSize = sizeof(SBasicViewParametersAligned);
 	gpuuboParams.usage = core::bitflag(IGPUBuffer::EUF_UNIFORM_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	auto gpuubo = device->createDeviceLocalGPUBufferOnDedMem(gpuuboParams, gpuuboParamsSize);
+	gpuuboParams.size = sizeof(SBasicViewParametersAligned);
+	auto gpuubo = device->createBuffer(std::move(gpuuboParams));
+	auto gpuuboMemReqs = gpuubo->getMemoryReqs();
+	gpuuboMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+	device->allocate(gpuuboMemReqs, gpuubo.get());
+
 	auto uboDescriptorSet1 = device->createDescriptorSet(descriptorPool.get(), core::smart_refctd_ptr(gpuDescriptorSetLayout1));
 	{
 		video::IGPUDescriptorSet::SWriteDescriptorSet uboWriteDescriptorSet;
@@ -418,14 +430,14 @@ int main()
 		{
 			// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_FLOAT_OPAQUE_BLACK, ISampler::ETF_LINEAR, ISampler::ETF_LINEAR, ISampler::ESMM_LINEAR, 0u, false, ECO_ALWAYS };
 			samplerDescriptorInfo[0].image.sampler = sampler0;
-			samplerDescriptorInfo[0].image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
+			samplerDescriptorInfo[0].image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 		}
 		samplerDescriptorInfo[1].desc = gpuSequenceBufferView;
 		samplerDescriptorInfo[2].desc = gpuScrambleImageView;
 		{
 			// ISampler::SParams samplerParams = { ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETC_CLAMP_TO_EDGE, ISampler::ETBC_INT_OPAQUE_BLACK, ISampler::ETF_NEAREST, ISampler::ETF_NEAREST, ISampler::ESMM_NEAREST, 0u, false, ECO_ALWAYS };
 			samplerDescriptorInfo[2].image.sampler = sampler1;
-			samplerDescriptorInfo[2].image.imageLayout = EIL_SHADER_READ_ONLY_OPTIMAL;
+			samplerDescriptorInfo[2].image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 		}
 
 		device->updateDescriptorSets(kDescriptorCount, samplerWriteDescriptorSet, 0u, nullptr);
@@ -482,10 +494,14 @@ int main()
 			fence = device->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 		
 		const auto viewMatrix = cam.getViewMatrix();
-		const auto viewProjectionMatrix = cam.getConcatenatedMatrix();
+		const auto viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
+			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
+			cam.getConcatenatedMatrix()
+		);
 				
 		// safe to proceed
 		cb->begin(IGPUCommandBuffer::EU_NONE);
+		cb->resetQueryPool(timestampQueryPool.get(), 0u, 2u);
 
 		// renderpass 
 		uint32_t imgnum = 0u;
@@ -505,16 +521,16 @@ int main()
 			range.buffer = gpuubo;
 			range.offset = 0ull;
 			range.size = sizeof(viewParams);
-			utilities->updateBufferRangeViaStagingBuffer(graphicsQueue, range, &viewParams);
+			utilities->updateBufferRangeViaStagingBufferAutoSubmit(range, &viewParams, graphicsQueue);
 		}
 				
 		// TRANSITION outHDRImageViews[imgnum] to EIL_GENERAL (because of descriptorSets0 -> ComputeShader Writes into the image)
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[3u] = {};
-			imageBarriers[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_WRITE_BIT);
-			imageBarriers[0].oldLayout = asset::EIL_UNDEFINED;
-			imageBarriers[0].newLayout = asset::EIL_GENERAL;
+			imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
+			imageBarriers[0].newLayout = asset::IImage::EL_GENERAL;
 			imageBarriers[0].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[0].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[0].image = outHDRImageViews[imgnum]->getCreationParameters().image;
@@ -524,10 +540,10 @@ int main()
 			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[0].subresourceRange.layerCount = 1;
 
-			imageBarriers[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[1].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
-			imageBarriers[1].oldLayout = asset::EIL_UNDEFINED;
-			imageBarriers[1].newLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+			imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
+			imageBarriers[1].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 			imageBarriers[1].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[1].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[1].image = gpuScrambleImageView->getCreationParameters().image;
@@ -537,10 +553,10 @@ int main()
 			imageBarriers[1].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[1].subresourceRange.layerCount = 1;
 
-			 imageBarriers[2].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			 imageBarriers[2].barrier.srcAccessMask = asset::EAF_NONE;
 			 imageBarriers[2].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(asset::EAF_SHADER_READ_BIT);
-			 imageBarriers[2].oldLayout = asset::EIL_UNDEFINED;
-			 imageBarriers[2].newLayout = asset::EIL_SHADER_READ_ONLY_OPTIMAL;
+			 imageBarriers[2].oldLayout = asset::IImage::EL_UNDEFINED;
+			 imageBarriers[2].newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
 			 imageBarriers[2].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			 imageBarriers[2].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			 imageBarriers[2].image = gpuEnvmapImageView->getCreationParameters().image;
@@ -555,27 +571,29 @@ int main()
 
 		// cube envmap handle
 		{
+			cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_TOP_OF_PIPE_BIT, timestampQueryPool.get(), 0u);
 			cb->bindComputePipeline(gpuComputePipeline.get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 0u, 1u, &descriptorSets0[imgnum].get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 1u, 1u, &uboDescriptorSet1.get());
 			cb->bindDescriptorSets(EPBP_COMPUTE, gpuComputePipeline->getLayout(), 2u, 1u, &descriptorSet2.get());
 			cb->dispatch(dispatchInfo.workGroupCount[0], dispatchInfo.workGroupCount[1], dispatchInfo.workGroupCount[2]);
+			cb->writeTimestamp(asset::E_PIPELINE_STAGE_FLAGS::EPSF_BOTTOM_OF_PIPE_BIT, timestampQueryPool.get(), 1u);
 		}
 		// TODO: tone mapping and stuff
 
 		// Copy HDR Image to SwapChain
 		auto srcImgViewCreationParams = outHDRImageViews[imgnum]->getCreationParameters();
-		auto dstImgViewCreationParams = fbo[imgnum]->getCreationParameters().attachments[0]->getCreationParameters();
+		auto dstImgViewCreationParams = fbo->begin()[imgnum]->getCreationParameters().attachments[0]->getCreationParameters();
 		
 		// Getting Ready for Blit
 		// TRANSITION outHDRImageViews[imgnum] to EIL_TRANSFER_SRC_OPTIMAL
 		// TRANSITION `fbo[imgnum]->getCreationParameters().attachments[0]` to EIL_TRANSFER_DST_OPTIMAL
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[2u] = {};
-			imageBarriers[0].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[0].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[0].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-			imageBarriers[0].oldLayout = asset::EIL_UNDEFINED;
-			imageBarriers[0].newLayout = asset::EIL_TRANSFER_SRC_OPTIMAL;
+			imageBarriers[0].oldLayout = asset::IImage::EL_UNDEFINED;
+			imageBarriers[0].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
 			imageBarriers[0].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[0].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[0].image = srcImgViewCreationParams.image;
@@ -585,10 +603,10 @@ int main()
 			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
 			imageBarriers[0].subresourceRange.layerCount = 1;
 
-			imageBarriers[1].barrier.srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
+			imageBarriers[1].barrier.srcAccessMask = asset::EAF_NONE;
 			imageBarriers[1].barrier.dstAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-			imageBarriers[1].oldLayout = asset::EIL_UNDEFINED;
-			imageBarriers[1].newLayout = asset::EIL_TRANSFER_DST_OPTIMAL;
+			imageBarriers[1].oldLayout = asset::IImage::EL_UNDEFINED;
+			imageBarriers[1].newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 			imageBarriers[1].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[1].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[1].image = dstImgViewCreationParams.image;
@@ -620,16 +638,16 @@ int main()
 			auto srcImg = srcImgViewCreationParams.image;
 			auto dstImg = dstImgViewCreationParams.image;
 
-			cb->blitImage(srcImg.get(), EIL_TRANSFER_SRC_OPTIMAL, dstImg.get(), EIL_TRANSFER_DST_OPTIMAL, 1u, &blit , ISampler::ETF_NEAREST);
+			cb->blitImage(srcImg.get(), asset::IImage::EL_TRANSFER_SRC_OPTIMAL, dstImg.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, 1u, &blit , ISampler::ETF_NEAREST);
 		}
 		
 		// TRANSITION `fbo[imgnum]->getCreationParameters().attachments[0]` to EIL_PRESENT
 		{
 			IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
 			imageBarriers[0].barrier.srcAccessMask = asset::EAF_TRANSFER_WRITE_BIT;
-			imageBarriers[0].barrier.dstAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0u);
-			imageBarriers[0].oldLayout = asset::EIL_TRANSFER_DST_OPTIMAL;
-			imageBarriers[0].newLayout = asset::EIL_PRESENT_SRC;
+			imageBarriers[0].barrier.dstAccessMask = asset::EAF_NONE;
+			imageBarriers[0].oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
+			imageBarriers[0].newLayout = asset::IImage::EL_PRESENT_SRC;
 			imageBarriers[0].srcQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[0].dstQueueFamilyIndex = graphicsCmdPoolQueueFamIdx;
 			imageBarriers[0].image = dstImgViewCreationParams.image;
@@ -643,11 +661,21 @@ int main()
 
 		cb->end();
 		device->resetFences(1, &fence.get());
-		CommonAPI::Submit(device.get(), swapchain.get(), cb.get(), graphicsQueue, imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
+		CommonAPI::Submit(device.get(), cb.get(), graphicsQueue, imageAcquire[resourceIx].get(), renderFinished[resourceIx].get(), fence.get());
 		CommonAPI::Present(device.get(), swapchain.get(), graphicsQueue, renderFinished[resourceIx].get(), imgnum);
+		
+		if (LOG_TIMESTAMP)
+		{
+			std::array<uint64_t, 4> timestamps{};
+			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT) | video::IQueryPool::EQRF_WITH_AVAILABILITY_BIT | video::IQueryPool::EQRF_64_BIT;
+			device->getQueryPoolResults(timestampQueryPool.get(), 0u, 2u, sizeof(timestamps), timestamps.data(), sizeof(uint64_t) * 2ull, queryResultFlags);
+			const float timePassed = (timestamps[2] - timestamps[0]) * device->getPhysicalDevice()->getLimits().timestampPeriodInNanoSeconds;
+			logger->log("Time Passed (Seconds) = %f", system::ILogger::ELL_INFO, (timePassed * 1e-9));
+			logger->log("Timestamps availablity: %d, %d", system::ILogger::ELL_INFO, timestamps[1], timestamps[3]);
+		}
 	}
 	
-	const auto& fboCreationParams = fbo[0]->getCreationParameters();
+	const auto& fboCreationParams = fbo->begin()[0]->getCreationParameters();
 	auto gpuSourceImageView = fboCreationParams.attachments[0];
 
 	device->waitIdle();
