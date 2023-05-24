@@ -3,18 +3,30 @@
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
-using exclusive_scan = nbl::hlsl::subgroup::exclusive_scan;
-using binops = nbl::hlsl::binops;
+#define exclusive_scan_t(Binop) nbl::hlsl::subgroup::exclusive_scan<uint, nbl::hlsl::binops::Binop<uint>, nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::MemProxy> >
 
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
-void CSMain(uint gl_GlobalInvocationID: SV_DispatchThreadID)
+void main(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 {
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
-	outand.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::bitwise_and<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outxor.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::bitwise_xor<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outor.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::bitwise_or<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outadd.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::add<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outmul.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::mul<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outmin.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::min<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outmax.output[gl_GlobalInvocationID.x] = exclusive_scan< uint, binops::max<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	exclusive_scan_t(bitwise_and) exscan_and;
+	outand[0].output[gl_GlobalInvocationID.x] = exscan_and(sourceVal);
+	
+	exclusive_scan_t(bitwise_xor) exscan_xor;
+	outxor[0].output[gl_GlobalInvocationID.x] = exscan_xor(sourceVal);
+	
+	exclusive_scan_t(bitwise_or) exscan_or;
+	outor[0].output[gl_GlobalInvocationID.x] = exscan_or(sourceVal);
+	
+	exclusive_scan_t(add) exscan_add;
+	outadd[0].output[gl_GlobalInvocationID.x] = exscan_add(sourceVal);
+	
+	exclusive_scan_t(mul) exscan_mul;
+	outmul[0].output[gl_GlobalInvocationID.x] = exscan_mul(sourceVal);
+	
+	exclusive_scan_t(min) exscan_min;
+	outmin[0].output[gl_GlobalInvocationID.x] = exscan_min(sourceVal);
+	
+	exclusive_scan_t(max) exscan_max;
+	outmax[0].output[gl_GlobalInvocationID.x] = exscan_max(sourceVal);
 }

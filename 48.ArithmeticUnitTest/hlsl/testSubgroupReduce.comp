@@ -3,18 +3,31 @@
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
-using reduction = nbl::hlsl::subgroup::reduction;
-using binops = nbl::hlsl::binops;
+#define reduction_t(Binop) nbl::hlsl::subgroup::reduction<uint, nbl::hlsl::binops::Binop<uint>, nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::MemProxy> >
 
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
-void CSMain(uint gl_GlobalInvocationID: SV_DispatchThreadID)
+void main(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 {
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
-	outand.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_and<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outxor.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_xor<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outor.output[gl_GlobalInvocationID.x] = reduction< uint, binops::bitwise_or<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outadd.output[gl_GlobalInvocationID.x] = reduction< uint, binops::add<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outmul.output[gl_GlobalInvocationID.x] = reduction< uint, binops::mul<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outmin.output[gl_GlobalInvocationID.x] = reduction< uint, binops::min<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
-	outmax.output[gl_GlobalInvocationID.x] = reduction< uint, binops::max<uint>, SharedMemoryAdaptor<MemProxy> >(sourceVal);
+	
+	reduction_t(bitwise_and) r_and;
+	outand[0].output[gl_GlobalInvocationID.x] = r_and(sourceVal);
+	
+	reduction_t(bitwise_xor) r_xor;
+	outxor[0].output[gl_GlobalInvocationID.x] = r_xor(sourceVal);
+	
+	reduction_t(bitwise_or) r_or;
+	outor[0].output[gl_GlobalInvocationID.x] = r_or(sourceVal);
+	
+	reduction_t(add) r_add;
+	outadd[0].output[gl_GlobalInvocationID.x] = r_add(sourceVal);
+	
+	reduction_t(mul) r_mul;
+	outmul[0].output[gl_GlobalInvocationID.x] = r_mul(sourceVal);
+	
+	reduction_t(min) r_min;
+	outmin[0].output[gl_GlobalInvocationID.x] = r_min(sourceVal);
+	
+	reduction_t(max) r_max;
+	outmax[0].output[gl_GlobalInvocationID.x] = r_max(sourceVal);
 }

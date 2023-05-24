@@ -23,4 +23,4 @@ RWStructuredBuffer<Output> outbitcount : register(u8);
 //shared uint scratch[bitfieldDWORDs + 1];
 groupshared uint scratch[512];
 #define SHARED_MEM scratch
-#define _NBL_HLSL_WORKGROUP_SIZE_ 256
+#define _NBL_HLSL_WORKGROUP_SIZE_ 256U
