@@ -217,23 +217,6 @@ public:
 		auto inImage = CPU2GPU.getGPUObjectsFromAssets(&cpuImage, &cpuImage+1, cpu2gpuParams);
 		cpu2gpuParams.waitForCreationToComplete(false);
 		assert(inImage);
-#if 0
-		// Create an image view for input image
-		{
-			video::IGPUImageView::SCreationParams viewParams;
-			viewParams.format = cpuImage->getCreationParameters().format;
-			viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
-			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			viewParams.subresourceRange.baseMipLevel = 0u;
-			viewParams.subresourceRange.levelCount = 1u;
-			viewParams.subresourceRange.baseArrayLayer = 0u;
-			viewParams.subresourceRange.layerCount = 1u;
-			viewParams.image = inImage->begin()[0];
-
-			m_inImageView = logicalDevice->createImageView(std::move(viewParams));
-		}
-		assert(m_inImageView);
-#endif
 		m_inImageView = inImage->begin()[0];
 
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
