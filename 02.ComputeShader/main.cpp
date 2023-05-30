@@ -212,6 +212,11 @@ public:
 			exit(-1);
 		}
 		auto cpuImage = asset::IAsset::castDown<asset::ICPUImageView>(*cpuImageContents.begin());
+		// fix up usage flags to not get validation errors (TODO: Remove when Asset Converter 2.0 comes)
+		{
+			auto& usage = const_cast<core::bitflag<asset::IImage::E_USAGE_FLAGS>&>(cpuImage->getCreationParameters().image->getCreationParameters().usage);
+			usage |= asset::IImage::EUF_STORAGE_BIT; // to write dst mips
+		}
 
 		cpu2gpuParams.beginCommandBuffers();
 		auto inImage = CPU2GPU.getGPUObjectsFromAssets(&cpuImage, &cpuImage+1, cpu2gpuParams);
