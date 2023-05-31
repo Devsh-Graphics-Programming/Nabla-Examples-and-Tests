@@ -299,6 +299,15 @@ int main(int argc, char** argv)
 	}
 	// Custom case
 	{
+		#ifdef _NBL_SHARED_BUILD_
+		{
+			const auto brOutputDLLAbsoluteDirectory = std::filesystem::absolute(std::filesystem::path(_BR_DLL_DIRECTORY_)).string();
+			const HRESULT brLoad = nbl::system::CSystemWin32::delayLoadDLL(_BR_DLL_NAME_, { brOutputDLLAbsoluteDirectory.c_str(), "" });
+
+			assert(SUCCEEDED(brLoad));
+		};
+		#endif
+
 		nbl::core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
 		system->mount(core::smart_refctd_ptr(archive));
 

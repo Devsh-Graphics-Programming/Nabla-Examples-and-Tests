@@ -11,5 +11,14 @@ get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/sr
 get_filename_component(_OUTPUT_DIRECTORY_HEADER_ "${CMAKE_CURRENT_BINARY_DIR}/include" ABSOLUTE)
 
 LIST_BUILTIN_RESOURCE(SYSTEM_TEST_RESOURCES_TO_EMBED "data/test.txt" "aliasTest1" "aliasTest2")
-ADD_CUSTOM_BUILTIN_RESOURCES(systemTestBuiltinResourceData SYSTEM_TEST_RESOURCES_TO_EMBED "${_BUNDLE_SEARCH_DIRECTORY_}" "dir" "yourNamespace::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
+
+if(NBL_STATIC_BUILD)
+	ADD_CUSTOM_BUILTIN_RESOURCES(systemTestBuiltinResourceData SYSTEM_TEST_RESOURCES_TO_EMBED "${_BUNDLE_SEARCH_DIRECTORY_}" "dir" "yourNamespace::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
+else()
+	ADD_CUSTOM_BUILTIN_RESOURCES(systemTestBuiltinResourceData SYSTEM_TEST_RESOURCES_TO_EMBED "${_BUNDLE_SEARCH_DIRECTORY_}" "dir" "yourNamespace::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}" "SHARED")
+	target_compile_definitions(${EXECUTABLE_NAME} PUBLIC _BR_DLL_DIRECTORY_="$<TARGET_FILE_DIR:systemTestBuiltinResourceData>")
+	target_compile_definitions(${EXECUTABLE_NAME} PUBLIC _BR_DLL_NAME_="$<TARGET_FILE_NAME:systemTestBuiltinResourceData>")
+	target_link_options(${EXECUTABLE_NAME} PUBLIC "/DELAYLOAD:$<TARGET_FILE_NAME:systemTestBuiltinResourceData>")
+endif()
+
 LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} systemTestBuiltinResourceData)
