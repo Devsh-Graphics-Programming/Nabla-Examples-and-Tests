@@ -278,43 +278,76 @@ int main(int argc, char** argv)
 	//! builtin resources archive test
 	// Nabla case
 	{
-		const std::string nblBuiltInResoucesPath = std::filesystem::current_path().string() + "/../../../include";
-
-		core::smart_refctd_ptr<nbl::builtin::CArchive> archive = core::make_smart_refctd_ptr<nbl::builtin::CArchive>(nblBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
-		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("nbl/builtin/glsl/utils/acceleration_structures.glsl", "");
-
-		const size_t fileSize = testFile->getSize();
-		std::string readStr(fileSize, '\0');
-		system::IFile::success_t readSuccess;
-
-		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+		system->createFile(future, "nbl/builtin/glsl/utils/acceleration_structures.glsl", core::bitflag(IFileBase::ECF_READ));
+		if (auto pFile = future.acquire())
 		{
-			const bool success = bool(readSuccess);
-			assert(success);
+			auto& file = *pFile;
+
+			const size_t fileSize = file->getSize();
+			std::string readStr(fileSize, '\0');
+			system::IFile::success_t readSuccess;
+			file->read(readSuccess, readStr.data(), 0, readStr.length());
+			{
+				const bool success = bool(readSuccess);
+				assert(success);
+			}
+
+			const auto* testStream = readStr.c_str();
+			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 		}
-		
-		const auto* testStream = readStr.c_str();
-		std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 	}
 	// Custom case
 	{
-		const std::string customBuiltInResoucesPath = std::filesystem::current_path().string() + "/../builtin/include";
-
-		core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(customBuiltInResoucesPath.c_str(), core::smart_refctd_ptr(logger));
-		core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("yourNamespace/data/test.txt", "");
-
-		const size_t fileSize = testFile->getSize();
-		std::string readStr(fileSize, '\0');
-		system::IFile::success_t readSuccess;
-
-		testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+		#ifdef _NBL_SHARED_BUILD_
 		{
-			const bool success = bool(readSuccess);
-			assert(success);
+			const auto brOutputDLLAbsoluteDirectory = std::filesystem::absolute(std::filesystem::path(_BR_DLL_DIRECTORY_)).string();
+			const HRESULT brLoad = nbl::system::CSystemWin32::delayLoadDLL(_BR_DLL_NAME_, { brOutputDLLAbsoluteDirectory.c_str(), "" });
+
+			assert(SUCCEEDED(brLoad));
+		};
+		#endif
+
+		nbl::core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
+		system->mount(core::smart_refctd_ptr(archive));
+
+		// archive path test
+		{
+			nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+			system->createFile(future, "dir/data/test.txt", core::bitflag(IFileBase::ECF_READ));
+			if (auto pFile = future.acquire())
+			{
+				auto& file = *pFile;
+
+				const size_t fileSize = file->getSize();
+				std::string readStr(fileSize, '\0');
+				system::IFile::success_t readSuccess;
+				file->read(readSuccess, readStr.data(), 0, readStr.length());
+				{
+					const bool success = bool(readSuccess);
+					assert(success);
+				}
+
+				const auto* testStream = readStr.c_str();
+				std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+			}
 		}
 
-		const auto* testStream = readStr.c_str();
-		std::cout << testStream;
+		// archive alias test
+		{
+			nbl::core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to dir/data/test.txt
+
+			const size_t fileSize = testFile->getSize();
+			std::string readStr(fileSize, '\0');
+			system::IFile::success_t readSuccess;
+			testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+			{
+				const bool success = bool(readSuccess);
+				assert(success);
+			}
+			const auto* testStream = readStr.c_str();
+			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+		}
 	}
 
 	// polling for events!
