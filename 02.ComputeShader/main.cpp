@@ -198,16 +198,11 @@ public:
 			bindings[1].stageFlags = asset::IShader::ESS_COMPUTE;
 			bindings[1].samplers = nullptr;
 		}
-		m_descriptorSetLayout =
-			logicalDevice->createDescriptorSetLayout(bindings, bindings + bindingCount);
-
-		// Todo(achal): Uncomment once the KTX loader works
-#if 0
-		constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(
-			asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+		m_descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + bindingCount);
 
 		const char* pathToImage = "../../media/GLI/kueken7_rgba8_unorm.ktx";
 
+		constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES | asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 		asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
 		auto cpuImageBundle = assetManager->getAsset(pathToImage, loadParams);
 		auto cpuImageContents = cpuImageBundle.getContents();
@@ -216,84 +211,15 @@ public:
 			logger->log("Failed to read image at path %s", nbl::system::ILogger::ELL_ERROR, pathToImage);
 			exit(-1);
 		}
-		auto cpuImage = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(*cpuImageContents.begin());
-		__debugbreak();
-#endif
-
-		const uint32_t imageWidth = initParams.windowWidth;
-		const uint32_t imageHeight = initParams.windowHeight;
-		const uint32_t imageChannelCount = 4u;
-		const uint32_t mipLevels = 1u; // WILL NOT WORK FOR MORE THAN 1 MIPS, but doesn't matter since it is temporary until KTX loading works
-		const size_t imageSize = imageWidth * imageHeight * imageChannelCount * sizeof(uint8_t);
-		auto imagePixels = core::make_smart_refctd_ptr<asset::ICPUBuffer>(imageSize);
-
-		uint32_t* dstPixel = (uint32_t*)imagePixels->getPointer();
-		for (uint32_t y = 0u; y < imageHeight; ++y)
-		{
-			for (uint32_t x = 0u; x < imageWidth; ++x)
-			{
-				// Should be red in R8G8B8A8_UNORM
-				*dstPixel++ = 0x000000FF;
-			}
-		}
-
-		core::smart_refctd_ptr<asset::ICPUImage> inImage_CPU = nullptr;
-		{
-			video::IGPUImage::SCreationParams creationParams = {};
-			creationParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
-			creationParams.type = asset::IImage::ET_2D;
-			creationParams.format = asset::EF_R8G8B8A8_UNORM;
-			creationParams.extent = { imageWidth, imageHeight, 1u };
-			creationParams.mipLevels = mipLevels;
-			creationParams.arrayLayers = 1u;
-			creationParams.samples = asset::IImage::ESCF_1_BIT;
-			creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
-			if (apiConnection->getAPIType() == video::EAT_VULKAN)
-			{
-				const auto& formatUsages = physicalDevice->getImageFormatUsagesOptimalTiling()[creationParams.format];
-				assert(formatUsages.storageImage);
-				assert(formatUsages.sampledImage);
-				assert(asset::isFloatingPointFormat(creationParams.format) || asset::isNormalizedFormat(creationParams.format));
-			}
-			creationParams.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_DST_BIT;
-			creationParams.queueFamilyIndexCount = 0u;
-			creationParams.queueFamilyIndices = nullptr;
-			creationParams.initialLayout = asset::IImage::EL_UNDEFINED;
-
-			auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::ICPUImage::SBufferCopy>>(1ull);
-			imageRegions->begin()->bufferOffset = 0ull;
-			imageRegions->begin()->bufferRowLength = creationParams.extent.width;
-			imageRegions->begin()->bufferImageHeight = 0u;
-			imageRegions->begin()->imageSubresource = {};
-			imageRegions->begin()->imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			imageRegions->begin()->imageSubresource.layerCount = 1u;
-			imageRegions->begin()->imageOffset = { 0, 0, 0 };
-			imageRegions->begin()->imageExtent = { creationParams.extent.width, creationParams.extent.height, 1u };
-
-			inImage_CPU = asset::ICPUImage::create(std::move(creationParams));
-			inImage_CPU->setBufferAndRegions(core::smart_refctd_ptr<asset::ICPUBuffer>(imagePixels), imageRegions);
-		}
+		auto cpuImage = asset::IAsset::castDown<asset::ICPUImageView>(*cpuImageContents.begin());
+		// fix up usage flags to not get validation errors (TODO: Remove when Asset Converter 2.0 comes)
+		cpuImage->getCreationParameters().image->addImageUsageFlags(asset::IImage::EUF_STORAGE_BIT);
 
 		cpu2gpuParams.beginCommandBuffers();
-		auto inImage = CPU2GPU.getGPUObjectsFromAssets(&inImage_CPU, &inImage_CPU + 1, cpu2gpuParams);
+		auto inImage = CPU2GPU.getGPUObjectsFromAssets(&cpuImage, &cpuImage+1, cpu2gpuParams);
 		cpu2gpuParams.waitForCreationToComplete(false);
 		assert(inImage);
-
-		// Create an image view for input image
-		{
-			video::IGPUImageView::SCreationParams viewParams;
-			viewParams.format = inImage_CPU->getCreationParameters().format;
-			viewParams.viewType = asset::IImageView<video::IGPUImage>::ET_2D;
-			viewParams.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			viewParams.subresourceRange.baseMipLevel = 0u;
-			viewParams.subresourceRange.levelCount = 1u;
-			viewParams.subresourceRange.baseArrayLayer = 0u;
-			viewParams.subresourceRange.layerCount = 1u;
-			viewParams.image = inImage->begin()[0];
-
-			m_inImageView = logicalDevice->createImageView(std::move(viewParams));
-		}
-		assert(m_inImageView);
+		m_inImageView = inImage->begin()[0];
 
 		for (uint32_t i = 0u; i < swapchainImageCount; ++i)
 		{
