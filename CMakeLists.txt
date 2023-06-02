@@ -55,7 +55,7 @@ add_subdirectory(38.EXRSplit EXCLUDE_FROM_ALL)
 # if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
 #	add_subdirectory(39.DenoiserTonemapper EXCLUDE_FROM_ALL)
 # endif()
-add_subdirectory(40.GLITest EXCLUDE_FROM_ALL)
+# REUSE 40
 # add_subdirectory(41.VisibilityBuffer EXCLUDE_FROM_ALL) #TODO: waits for SPIRV-Cross issue about barycentrics
 add_subdirectory(42.FragmentShaderPathTracer EXCLUDE_FROM_ALL)
 add_subdirectory(43.SumAndCDFFilters EXCLUDE_FROM_ALL)
@@ -79,7 +79,6 @@ add_subdirectory(61.BlitFilterTest EXCLUDE_FROM_ALL)
 add_subdirectory(61.UI EXCLUDE_FROM_ALL)
 add_subdirectory(62.CAD EXCLUDE_FROM_ALL)
 add_subdirectory(62.SchusslerTest EXCLUDE_FROM_ALL)
-add_subdirectory(63.SierpinskiSDF EXCLUDE_FROM_ALL)
 add_subdirectory(0.ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 unset(NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET CACHE)
