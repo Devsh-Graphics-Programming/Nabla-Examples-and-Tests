@@ -183,17 +183,6 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 
 		auto defaultComputeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0];
 		auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
-		
-		auto createDescriptorPool = [&](const uint32_t count, asset::IDescriptor::E_TYPE type)
-		{
-			constexpr uint32_t maxItemCount = 256u;
-			{
-				nbl::video::IDescriptorPool::SCreateInfo createInfo;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(type)] = maxItemCount * count;
-				createInfo.maxSets = maxItemCount;
-				return logicalDevice->createDescriptorPool(std::move(createInfo));
-			}
-		};
 
 		nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -266,8 +255,6 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		}
 #endif // WRITE_ASSETS
 
-		auto gpuUBODescriptorPool = createDescriptorPool(1, asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER);
-
 		/*
 			For the testing puposes we can safely assume all meshbuffers within mesh loaded from PLY & STL has same DS1 layout (used for camera-specific data)
 		*/
@@ -288,20 +275,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 				So we can create just one DescriptorSet
 			*/
 
-			auto getDS1UboBinding = [&]()
-			{
-				uint32_t ds1UboBinding = 0u;
-				auto& descriptorRedirect = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER);
-
-				if (descriptorRedirect.getBindingCount() > 0)
-				{
-					return descriptorRedirect.getBinding(0).data;
-				}
-
-				return ds1UboBinding;
-			};
-
-			auto ds1UboBinding = getDS1UboBinding();
+			const uint32_t ds1UboBinding = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER).getBinding(asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t{ 0 }).data;
 
 			auto getNeededDS1UboByteSize = [&]()
 			{
@@ -324,6 +298,9 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 
 				gpuds1layout = (*gpu_array)[0];
 			}
+
+			const uint32_t setCount = 1;
+			auto gpuUBODescriptorPool = logicalDevice->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, &gpuds1layout.get(), &gpuds1layout.get()+1ull, &setCount);
 
 			video::IGPUBuffer::SCreationParams creationParams;
 			creationParams.usage = asset::IBuffer::E_USAGE_FLAGS(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF);
