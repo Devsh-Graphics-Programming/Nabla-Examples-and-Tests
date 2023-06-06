@@ -1050,6 +1050,7 @@ protected:
 				nbl::core::smart_refctd_ptr(result.logger),
 				params.apiFeaturesToEnable
 			);
+			assert(_apiConnection);
 
 			if (!headlessCompute)
 			{
