@@ -183,17 +183,6 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 
 		auto defaultComputeCommandPool = commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0];
 		auto defaultTransferUpCommandPool = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0];
-		
-		auto createDescriptorPool = [&](const uint32_t count, asset::E_DESCRIPTOR_TYPE type)
-		{
-			constexpr uint32_t maxItemCount = 256u;
-			{
-				nbl::video::IDescriptorPool::SDescriptorPoolSize poolSize;
-				poolSize.count = count;
-				poolSize.type = type;
-				return logicalDevice->createDescriptorPool(static_cast<nbl::video::IDescriptorPool::E_CREATE_FLAGS>(0), maxItemCount, 1u, &poolSize);
-			}
-		};
 
 		nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 		nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
@@ -266,8 +255,6 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 		}
 #endif // WRITE_ASSETS
 
-		auto gpuUBODescriptorPool = createDescriptorPool(1, asset::EDT_UNIFORM_BUFFER);
-
 		/*
 			For the testing puposes we can safely assume all meshbuffers within mesh loaded from PLY & STL has same DS1 layout (used for camera-specific data)
 		*/
@@ -288,26 +275,14 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 				So we can create just one DescriptorSet
 			*/
 
-			auto getDS1UboBinding = [&]()
-			{
-				uint32_t ds1UboBinding = 0u;
-				for (const auto& bnd : ds1layout->getBindings())
-					if (bnd.type == asset::EDT_UNIFORM_BUFFER)
-					{
-						ds1UboBinding = bnd.binding;
-						break;
-					}
-				return ds1UboBinding;
-			};
-
-			const uint32_t ds1UboBinding = getDS1UboBinding();
+			const uint32_t ds1UboBinding = ds1layout->getDescriptorRedirect(asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER).getBinding(asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t{ 0 }).data;
 
 			auto getNeededDS1UboByteSize = [&]()
 			{
 				size_t neededDS1UboSize = 0ull;
 				{
 					for (const auto& shaderInputs : pipelineMetadata->m_inputSemantics)
-						if (shaderInputs.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::ET_UNIFORM_BUFFER && shaderInputs.descriptorSection.uniformBufferObject.set == 1u && shaderInputs.descriptorSection.uniformBufferObject.binding == ds1UboBinding)
+						if (shaderInputs.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::E_TYPE::ET_UNIFORM_BUFFER && shaderInputs.descriptorSection.uniformBufferObject.set == 1u && shaderInputs.descriptorSection.uniformBufferObject.binding == ds1UboBinding)
 							neededDS1UboSize = std::max<size_t>(neededDS1UboSize, shaderInputs.descriptorSection.uniformBufferObject.relByteoffset + shaderInputs.descriptorSection.uniformBufferObject.bytesize);
 				}
 				return neededDS1UboSize;
@@ -324,6 +299,9 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 				gpuds1layout = (*gpu_array)[0];
 			}
 
+			const uint32_t setCount = 1;
+			auto gpuUBODescriptorPool = logicalDevice->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, &gpuds1layout.get(), &gpuds1layout.get()+1ull, &setCount);
+
 			video::IGPUBuffer::SCreationParams creationParams;
 			creationParams.usage = asset::IBuffer::E_USAGE_FLAGS(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF);
 			creationParams.queueFamilyIndices = 0u;
@@ -335,19 +313,19 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 			gpuuboMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			logicalDevice->allocate(gpuuboMemReqs, gpuubo.get());
 
-			auto gpuds1 = logicalDevice->createDescriptorSet(gpuUBODescriptorPool.get(), std::move(gpuds1layout));
+			auto gpuds1 = gpuUBODescriptorPool->createDescriptorSet(std::move(gpuds1layout));
 			{
 				video::IGPUDescriptorSet::SWriteDescriptorSet write;
 				write.dstSet = gpuds1.get();
 				write.binding = ds1UboBinding;
 				write.count = 1u;
 				write.arrayElement = 0u;
-				write.descriptorType = asset::EDT_UNIFORM_BUFFER;
+				write.descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 				video::IGPUDescriptorSet::SDescriptorInfo info;
 				{
 					info.desc = gpuubo;
-					info.buffer.offset = 0ull;
-					info.buffer.size = uboDS1ByteSize;
+					info.info.buffer.offset = 0ull;
+					info.info.buffer.size = uboDS1ByteSize;
 				}
 				write.info = &info;
 				logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
@@ -532,7 +510,7 @@ APP_CONSTRUCTOR(PLYSTLDemo)
 			core::vector<uint8_t> uboData(gpuubo->getSize());
 			for (const auto& shaderInputs : pipelineMetadata->m_inputSemantics)
 			{
-				if (shaderInputs.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::ET_UNIFORM_BUFFER && shaderInputs.descriptorSection.uniformBufferObject.set == 1u && shaderInputs.descriptorSection.uniformBufferObject.binding == ds1UboBinding)
+				if (shaderInputs.descriptorSection.type == asset::IRenderpassIndependentPipelineMetadata::ShaderInput::E_TYPE::ET_UNIFORM_BUFFER && shaderInputs.descriptorSection.uniformBufferObject.set == 1u && shaderInputs.descriptorSection.uniformBufferObject.binding == ds1UboBinding)
 				{
 					switch (shaderInputs.type)
 					{
