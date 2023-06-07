@@ -13,8 +13,10 @@
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
 
 //! builtin resources archive test
+#ifdef _BR_TEST_
 #include "nbl/builtin/CArchive.h"
 #include "yourNamespace/builtin/CArchive.h"
+#endif
 
 using namespace nbl;
 using namespace core;
