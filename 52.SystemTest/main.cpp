@@ -276,6 +276,7 @@ int main(int argc, char** argv)
 	}
 
 	//! builtin resources archive test
+	#ifdef _BR_TEST_
 	// Nabla case
 	{
 		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
@@ -349,6 +350,7 @@ int main(int argc, char** argv)
 			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 		}
 	}
+	#endif // _BR_TEST_
 
 	// polling for events!
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;
