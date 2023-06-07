@@ -33,7 +33,7 @@ float4 main(PSInput input) : SV_TARGET
             const float2 majorAxis = input.start_end.zw;
             const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
             const float eccentricity = (float)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
-            const float2 ellipseBounds = input.ellipseBounds_bezierP3P4.xy;
+            const float2 ellipseBounds = input.ellipseBounds_bezierP2P3.xy;
             float distance = nbl::hlsl::shapes::EllipseOutlineBounded_t::construct(center, majorAxis, ellipseBounds, eccentricity, lineThickness).signedDistance(input.position.xy);
 
             const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -54,7 +54,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             const float2 a = input.start_end.xy;
             const float2 b = input.start_end.zw;
-            const float2 c = input.ellipseBounds_bezierP3P4.xy;
+            const float2 c = input.ellipseBounds_bezierP2P3.xy;
             const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
 
             float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
@@ -66,8 +66,8 @@ float4 main(PSInput input) : SV_TARGET
         {
             const float2 a = input.start_end.xy;
             const float2 b = input.start_end.zw;
-            const float2 c = input.ellipseBounds_bezierP3P4.xy;
-            const float2 d = input.ellipseBounds_bezierP3P4.zw;
+            const float2 c = input.ellipseBounds_bezierP2P3.xy;
+            const float2 d = input.ellipseBounds_bezierP2P3.zw;
             const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
 
             float distance = nbl::hlsl::shapes::CubicBezier::construct(a, b, c, d, lineThickness).signedDistance(input.position.xy);

@@ -56,7 +56,7 @@ PSInput main(uint vertexID : SV_VertexID)
         // construct a cage, working in ellipse screen space (ellipse centered in 0,0 and major axis aligned with x-axis) :
         const float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
         const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
-        outV.ellipseBounds_bezierP3P4.xy = angleBounds;
+        outV.ellipseBounds_bezierP2P3.xy = angleBounds;
 
         // TODO: Optimize
         float majorAxisLength = length(transformedMajorAxis);
@@ -173,7 +173,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
         outV.start_end.xy = transformedPoints[0u];
         outV.start_end.zw = transformedPoints[1u];
-        outV.ellipseBounds_bezierP3P4.xy = transformedPoints[2u];
+        outV.ellipseBounds_bezierP2P3.xy = transformedPoints[2u];
 
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
@@ -204,8 +204,8 @@ PSInput main(uint vertexID : SV_VertexID)
 
         outV.start_end.xy = transformedPoints[0u];
         outV.start_end.zw = transformedPoints[1u];
-        outV.ellipseBounds_bezierP3P4.xy = transformedPoints[2u];
-        outV.ellipseBounds_bezierP3P4.zw = transformedPoints[3u];
+        outV.ellipseBounds_bezierP2P3.xy = transformedPoints[2u];
+        outV.ellipseBounds_bezierP2P3.zw = transformedPoints[3u];
 
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);

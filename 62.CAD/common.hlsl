@@ -57,15 +57,15 @@ struct LineStyle
 // TODO: Remove these two when we include our builtin shaders
 #define nbl_hlsl_PI 3.14159265359
 #define	nbl_hlsl_FLT_EPSILON 5.96046447754e-08
-#define UINT32_MAX      0xffffffffu
+#define UINT32_MAX 0xffffffffu
 
 struct PSInput
 {
     float4 position : SV_Position;
     [[vk::location(0)]] float4 color : COLOR; 
-    [[vk::location(1)]] nointerpolation float4 start_end : COLOR1; 
+    [[vk::location(1)]] nointerpolation float4 start_end : COLOR1;
     [[vk::location(2)]] nointerpolation uint4 lineWidth_eccentricity_objType_writeToAlpha : COLOR2;
-    [[vk::location(3)]] nointerpolation float4 ellipseBounds_bezierP3P4 : COLOR3;
+    [[vk::location(3)]] nointerpolation float4 ellipseBounds_bezierP2P3 : COLOR3;
 };
 
 [[vk::binding(0,0)]] ConstantBuffer<Globals> globals : register(b0);
