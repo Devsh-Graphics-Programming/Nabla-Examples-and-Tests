@@ -183,6 +183,16 @@ public:
 		return m_ellipses[idx];
 	}
 
+	const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const
+	{
+		return m_quadBeziers[idx];
+	}
+
+	const CubicBezierInfo& getCubicBezierInfoAt(const uint32_t idx) const
+	{
+		return m_cubicBeziers[idx];
+	}
+
 	const double2& getLinePointAt(const uint32_t idx) const
 	{
 		return m_linePoints[idx];
@@ -206,13 +216,16 @@ public:
 
 	void addLinePoints(std::vector<double2>&& linePoints)
 	{
+		if (linePoints.size() <= 1u)
+			return;
+
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::LINE;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
 			newSection.type = ObjectType::LINE;
 			newSection.index = m_linePoints.size();
-			newSection.count = linePoints.size();
+			newSection.count = linePoints.size() - 1u;
 			m_sections.push_back(newSection);
 		}
 		else
@@ -253,6 +266,42 @@ public:
 		addEllipticalArcs_Internal(std::move(packedEllipses));
 	}
 
+	void addQuadBeziers(std::vector<QuadraticBezierInfo>&& quadBeziers)
+	{
+		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
+		if (addNewSection)
+		{
+			SectionInfo newSection = {};
+			newSection.type = ObjectType::QUAD_BEZIER;
+			newSection.index = m_quadBeziers.size();
+			newSection.count = quadBeziers.size();
+			m_sections.push_back(newSection);
+		}
+		else
+		{
+			m_sections[m_sections.size() - 1u].count += quadBeziers.size();
+		}
+		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
+	}
+
+	void addCubicBeziers(std::vector<CubicBezierInfo>&& cubicBeziers)
+	{
+		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::CUBIC_BEZIER;
+		if (addNewSection)
+		{
+			SectionInfo newSection = {};
+			newSection.type = ObjectType::CUBIC_BEZIER;
+			newSection.index = m_cubicBeziers.size();
+			newSection.count = cubicBeziers.size();
+			m_sections.push_back(newSection);
+		}
+		else
+		{
+			m_sections[m_sections.size() - 1u].count += cubicBeziers.size();
+		}
+		m_cubicBeziers.insert(m_cubicBeziers.end(), cubicBeziers.begin(), cubicBeziers.end());
+	}
+
 protected:
 
 	void addEllipticalArcs_Internal(std::vector<PackedEllipseInfo>&& ellipses)
@@ -276,6 +325,8 @@ protected:
 	std::vector<SectionInfo> m_sections;
 	std::vector<double2> m_linePoints;
 	std::vector<PackedEllipseInfo> m_ellipses;
+	std::vector<QuadraticBezierInfo> m_quadBeziers;
+	std::vector<CubicBezierInfo> m_cubicBeziers;
 };
 
 template <typename BufferType>
@@ -401,7 +452,6 @@ public:
 		uint32_t previousSectionIdx = 0u;
 		uint32_t previousObjectInSection = 0u;
 
-
 		// Fill all back faces (and draw when overflow)
 		// backface is our slang for even provoking vertex
 		{
@@ -412,32 +462,15 @@ public:
 			{
 				bool shouldSubmit = false;
 				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-				if (currentSection.type == ObjectType::LINE)
+				addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
+				
+				if (currentObjectInSection >= currentSection.count)
 				{
-					addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
-					// if currentObjectInSection was not equal to max then we know we should submit
-					const auto lineCount = currentSection.count - 1u;
-					if (currentObjectInSection >= lineCount)
-					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
-					}
-					else
-						shouldSubmit = true;
+					currentSectionIdx++;
+					currentObjectInSection = 0u;
 				}
-				else if (currentSection.type == ObjectType::ELLIPSE)
-				{
-					addEllipses_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
-					// if currentObjectInSection was not equal to max then we know we should submit
-					const auto ellipseCount = currentSection.count;
-					if (currentObjectInSection >= ellipseCount)
-					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
-					}
-					else
-						shouldSubmit = true;
-				}
+				else
+					shouldSubmit = true;
 
 				if (shouldSubmit)
 				{
@@ -469,48 +502,25 @@ public:
 				{
 					bool shouldSubmit = false;
 					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-					if (currentSection.type == ObjectType::LINE)
+
+					// we only care about indices because the geometry and drawData is already in memory
+					const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+					const auto objectsRemaining = currentSection.count - currentObjectInSection;
+					const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+
+					addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
+
+					currentObjectInSection += objectsToUpload;
+
+					if (currentObjectInSection >= currentSection.count)
 					{
-						// we only care about indices because the geometry and drawData is already in memory
-						const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-						const auto lineCount = currentSection.count - 1u;
-						const auto objectsRemaining = lineCount - currentObjectInSection;
-						const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
-
-						addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
-						currentObjectInSection += objectsToUpload;
-
-						if (currentObjectInSection >= lineCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
-
-						startDrawObjectCount += objectsToUpload;
+						currentSectionIdx++;
+						currentObjectInSection = 0u;
 					}
-					else if (currentSection.type == ObjectType::ELLIPSE)
-					{
-						// we only care about indices because the geometry and drawData is already in memory
-						const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-						const auto ellipseCount = currentSection.count;
-						const auto objectsRemaining = ellipseCount - currentObjectInSection;
-						const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+					else
+						shouldSubmit = true;
 
-						addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
-						currentObjectInSection += objectsToUpload;
-
-						if (currentObjectInSection >= ellipseCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
-
-						startDrawObjectCount += objectsToUpload;
-					}
+					startDrawObjectCount += objectsToUpload;
 
 					if (shouldSubmit)
 					{
@@ -525,7 +535,7 @@ public:
 					}
 				}
 			}
-			// remaining front faces where their geometry is non-existent in memory due to previous submit cleats
+			// remaining front faces where their geometry is non-existent in memory due to previous submit clears
 			{
 				const uint32_t lastSectionIdx = previousSectionIdx;
 				const uint32_t lastObjectInSection = previousObjectInSection;
@@ -537,35 +547,18 @@ public:
 				{
 					bool shouldSubmit = false;
 					auto currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-					if (currentSection.type == ObjectType::LINE)
-					{
-						if (currentSectionIdx == lastSectionIdx)
-							currentSection.count = lastObjectInSection + 1u; // because this is point count
+					if (currentSectionIdx == lastSectionIdx)
+						currentSection.count = lastObjectInSection;
 
-						addLines_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
-						// if currentObjectInSection was not equal to max then we know we should submit
-						const auto lineCount = currentSection.count - 1u;
-						if (currentObjectInSection >= lineCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
-					}
-					else if (currentSection.type == ObjectType::ELLIPSE)
+					addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
+
+					if (currentObjectInSection >= currentSection.count)
 					{
-						addEllipses_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
-						// if currentObjectInSection was not equal to max then we know we should submit
-						const auto ellipseCount = currentSection.count;
-						if (currentObjectInSection >= ellipseCount)
-						{
-							currentSectionIdx++;
-							currentObjectInSection = 0u;
-						}
-						else
-							shouldSubmit = true;
+						currentSectionIdx++;
+						currentObjectInSection = 0u;
 					}
+					else
+						shouldSubmit = true;
 
 					if (shouldSubmit)
 					{
@@ -575,11 +568,6 @@ public:
 						intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 						resetIndexCounters();
 						resetGeometryCounters();
-
-						startDrawObjectCount = 0u;
-						previousSectionIdx = currentSectionIdx;
-						previousObjectInSection = currentObjectInSection;
-
 						shouldSubmit = false;
 					}
 				}
@@ -730,9 +718,24 @@ protected:
 	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	{
+		if (section.type == ObjectType::LINE)
+			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else if (section.type == ObjectType::ELLIPSE)
+			addEllipses_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else if (section.type == ObjectType::QUAD_BEZIER)
+			addQuadBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else if (section.type == ObjectType::CUBIC_BEZIER)
+			addCubicBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		else
+			assert(false); // we don't handle other object types
+	}
+
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
-		assert(section.count >= 2u);
+		assert(section.count >= 1u);
 		assert(section.type == ObjectType::LINE);
 
 		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(double2);
@@ -742,7 +745,7 @@ protected:
 		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferLines);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
-		const auto lineCount = section.count - 1u;
+		const auto lineCount = section.count;
 		const auto remainingObjects = lineCount - currentObjectInSection;
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
@@ -814,6 +817,94 @@ protected:
 			auto& ellipse = polyline.getEllipseInfoAt(section.index + currentObjectInSection);
 			memcpy(dst, &ellipse, ellipsesByteSize);
 			currentGeometryBufferSize += ellipsesByteSize;
+		}
+
+		currentObjectInSection += objectsToUpload;
+	}
+
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	{
+		assert(section.type == ObjectType::QUAD_BEZIER);
+
+		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
+
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
+		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+
+		const auto beziersCount = section.count;
+		const auto remainingObjects = beziersCount - currentObjectInSection;
+		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
+
+		// Add Indices
+		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+
+		// Add DrawObjs
+		DrawObject drawObj = {};
+		drawObj.type = ObjectType::QUAD_BEZIER;
+		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+		drawObj.styleIdx = styleIdx;
+		for (uint32_t i = 0u; i < objectsToUpload; ++i)
+		{
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+			currentDrawObjectCount += 1u;
+			drawObj.address += sizeof(QuadraticBezierInfo);
+		}
+
+		// Add Geometry
+		if (objectsToUpload > 0u)
+		{
+			const auto beziersByteSize = sizeof(QuadraticBezierInfo) * (objectsToUpload);
+			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			auto& quadBezier = polyline.getQuadBezierInfoAt(section.index + currentObjectInSection);
+			memcpy(dst, &quadBezier, beziersByteSize);
+			currentGeometryBufferSize += beziersByteSize;
+		}
+
+		currentObjectInSection += objectsToUpload;
+	}
+
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addCubicBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	{
+		assert(section.type == ObjectType::CUBIC_BEZIER);
+
+		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(CubicBezierInfo);
+
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
+		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+
+		const auto beziersCount = section.count;
+		const auto remainingObjects = beziersCount - currentObjectInSection;
+		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
+
+		// Add Indices
+		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+
+		// Add DrawObjs
+		DrawObject drawObj = {};
+		drawObj.type = ObjectType::CUBIC_BEZIER;
+		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+		drawObj.styleIdx = styleIdx;
+		for (uint32_t i = 0u; i < objectsToUpload; ++i)
+		{
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+			currentDrawObjectCount += 1u;
+			drawObj.address += sizeof(CubicBezierInfo);
+		}
+
+		// Add Geometry
+		if (objectsToUpload > 0u)
+		{
+			const auto beziersByteSize = sizeof(CubicBezierInfo) * (objectsToUpload);
+			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			auto& cubicBezier = polyline.getCubicBezierInfoAt(section.index + currentObjectInSection);
+			memcpy(dst, &cubicBezier, beziersByteSize);
+			currentGeometryBufferSize += beziersByteSize;
 		}
 
 		currentObjectInSection += objectsToUpload;
@@ -1800,9 +1891,28 @@ public:
 				linePoints.push_back({ 150.0, 100.0 });
 				polyline.addLinePoints(std::move(linePoints));
 			}
+			{
+				std::vector<CubicBezierInfo> cubicBeziers;
+				CubicBezierInfo cubic1;
+				cubic1.p[0] = double2(20.0, 0.0);
+				cubic1.p[1] = double2(20.0, 100.0);
+				cubic1.p[2] = double2(80.0, 100.0);
+				cubic1.p[3] = double2(80.0, 0.0);
+				cubicBeziers.push_back(cubic1);
+				polyline.addCubicBeziers(std::move(cubicBeziers));
+			}
+			{
+				std::vector<QuadraticBezierInfo> quadBeziers;
+				QuadraticBezierInfo quadratic1;
+				quadratic1.p[0] = double2(20.0, 0.0);
+				quadratic1.p[1] = double2(20.0, 50.0);
+				quadratic1.p[2] = double2(80.0, 0.0);
+				quadBeziers.push_back(quadratic1);
+				polyline.addQuadBeziers(std::move(quadBeziers));
+			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;
