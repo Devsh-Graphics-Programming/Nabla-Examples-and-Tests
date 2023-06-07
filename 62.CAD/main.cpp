@@ -52,7 +52,6 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(PackedEllipseInfo) == 48u);
 static_assert(sizeof(Globals) == 152u);
 static_assert(sizeof(LineStyle) == 32u);
 
@@ -135,9 +134,6 @@ private:
 	double2 m_origin = {};
 };
 
-constexpr double maxEllipticalArcAngle = nbl::core::PI<double>() / 2.0f;
-static_assert(maxEllipticalArcAngle <= nbl::core::PI<double>()); // !important cause our shaders will be messed up with arcs > 180 degrees
-
 // It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
 // This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
 class CPolyline
@@ -178,19 +174,9 @@ public:
 		return m_sections[idx];
 	}
 
-	const PackedEllipseInfo& getEllipseInfoAt(const uint32_t idx) const
-	{
-		return m_ellipses[idx];
-	}
-
 	const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const
 	{
 		return m_quadBeziers[idx];
-	}
-
-	const CubicBezierInfo& getCubicBezierInfoAt(const uint32_t idx) const
-	{
-		return m_cubicBeziers[idx];
 	}
 
 	const double2& getLinePointAt(const uint32_t idx) const
@@ -202,16 +188,14 @@ public:
 	{
 		m_sections.clear();
 		m_linePoints.clear();
-		m_ellipses.clear();
 	}
 
 	// Reserves memory with worst case
-	void reserveMemory(uint32_t noOfLines, uint32_t noOfEllipses)
+	void reserveMemory(uint32_t noOfLines, uint32_t noOfBeziers)
 	{
-		m_sections.reserve(noOfLines + noOfEllipses); // worst case
-		m_linePoints.reserve(noOfLines * 2u); // worst case
-		const uint32_t maxEllipseParts = std::ceil((2.0 * nbl::core::PI<double>()) / maxEllipticalArcAngle);
-		m_ellipses.reserve(noOfEllipses * maxEllipseParts); // "* maxEllipseParts" because we will chop up the arcs
+		m_sections.reserve(noOfLines + noOfBeziers);
+		m_linePoints.reserve(noOfLines * 2u);
+		m_quadBeziers.reserve(noOfBeziers);
 	}
 
 	void addLinePoints(std::vector<double2>&& linePoints)
@@ -237,33 +221,7 @@ public:
 
 	void addEllipticalArcs(std::vector<EllipticalArcInfo>&& ellipses)
 	{
-		std::vector<PackedEllipseInfo> packedEllipses;
-		// We will chop up the ellipses
-		const uint32_t maxEllipseParts = std::ceil((2.0 * nbl::core::PI<double>()) / maxEllipticalArcAngle);
-		for (uint32_t i = 0u; i < ellipses.size(); ++i)
-		{
-			const auto& mainEllipse = ellipses[i];
-			assert(mainEllipse.isValid());
-			const double endAngle = mainEllipse.angleBounds.Y;
-			double startAngle = mainEllipse.angleBounds.X;
-			for (uint32_t e = 0u; e < maxEllipseParts && startAngle < endAngle; e++)
-			{
-				double maxNextAngle = startAngle + maxEllipticalArcAngle;
-				double nextEndAngle = core::min(maxNextAngle, mainEllipse.angleBounds.Y);
-
-				constexpr double twoPi = core::PI<double>() * 2.0;
-				PackedEllipseInfo packedInfo = {};
-				packedInfo.center = mainEllipse.center;
-				packedInfo.majorAxis = mainEllipse.majorAxis;
-				packedInfo.angleBoundsPacked.X = static_cast<uint32_t>((startAngle / twoPi) * UINT32_MAX);
-				packedInfo.angleBoundsPacked.Y = static_cast<uint32_t>((nextEndAngle / twoPi) * UINT32_MAX);
-				packedInfo.eccentricityPacked = static_cast<uint32_t>(mainEllipse.eccentricity * UINT32_MAX);
-				packedEllipses.push_back(packedInfo);
-
-				startAngle = nextEndAngle;
-			}
-		}
-		addEllipticalArcs_Internal(std::move(packedEllipses));
+		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
 	void addQuadBeziers(std::vector<QuadraticBezierInfo>&& quadBeziers)
@@ -284,49 +242,11 @@ public:
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
 
-	void addCubicBeziers(std::vector<CubicBezierInfo>&& cubicBeziers)
-	{
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::CUBIC_BEZIER;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::CUBIC_BEZIER;
-			newSection.index = m_cubicBeziers.size();
-			newSection.count = cubicBeziers.size();
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += cubicBeziers.size();
-		}
-		m_cubicBeziers.insert(m_cubicBeziers.end(), cubicBeziers.begin(), cubicBeziers.end());
-	}
-
 protected:
-
-	void addEllipticalArcs_Internal(std::vector<PackedEllipseInfo>&& ellipses)
-	{
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::ELLIPSE;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::ELLIPSE;
-			newSection.index = m_ellipses.size();
-			newSection.count = ellipses.size();
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += ellipses.size();
-		}
-		m_ellipses.insert(m_ellipses.end(), ellipses.begin(), ellipses.end());
-	}
 
 	std::vector<SectionInfo> m_sections;
 	std::vector<double2> m_linePoints;
-	std::vector<PackedEllipseInfo> m_ellipses;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
-	std::vector<CubicBezierInfo> m_cubicBeziers;
 };
 
 template <typename BufferType>
@@ -722,12 +642,8 @@ protected:
 	{
 		if (section.type == ObjectType::LINE)
 			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
-		else if (section.type == ObjectType::ELLIPSE)
-			addEllipses_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			addQuadBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
-		else if (section.type == ObjectType::CUBIC_BEZIER)
-			addCubicBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
 		else
 			assert(false); // we don't handle other object types
 	}
@@ -779,50 +695,6 @@ protected:
 	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addEllipses_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
-	{
-		assert(section.type == ObjectType::ELLIPSE);
-
-		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(PackedEllipseInfo);
-
-		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
-		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-
-		const auto ellipseCount = section.count;
-		const auto remainingObjects = ellipseCount - currentObjectInSection;
-		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
-
-		// Add Indices
-		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
-
-		// Add DrawObjs
-		DrawObject drawObj = {};
-		drawObj.type = ObjectType::ELLIPSE;
-		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-		drawObj.styleIdx = styleIdx;
-		for (uint32_t i = 0u; i < objectsToUpload; ++i)
-		{
-			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-			memcpy(dst, &drawObj, sizeof(DrawObject));
-			currentDrawObjectCount += 1u;
-			drawObj.address += sizeof(PackedEllipseInfo);
-		}
-
-		// Add Geometry
-		if (objectsToUpload > 0u)
-		{
-			const auto ellipsesByteSize = sizeof(PackedEllipseInfo) * (objectsToUpload);
-			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			auto& ellipse = polyline.getEllipseInfoAt(section.index + currentObjectInSection);
-			memcpy(dst, &ellipse, ellipsesByteSize);
-			currentGeometryBufferSize += ellipsesByteSize;
-		}
-
-		currentObjectInSection += objectsToUpload;
-	}
-
-	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
 		assert(section.type == ObjectType::QUAD_BEZIER);
@@ -860,50 +732,6 @@ protected:
 			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 			auto& quadBezier = polyline.getQuadBezierInfoAt(section.index + currentObjectInSection);
 			memcpy(dst, &quadBezier, beziersByteSize);
-			currentGeometryBufferSize += beziersByteSize;
-		}
-
-		currentObjectInSection += objectsToUpload;
-	}
-
-	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addCubicBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
-	{
-		assert(section.type == ObjectType::CUBIC_BEZIER);
-
-		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(CubicBezierInfo);
-
-		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
-		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-
-		const auto beziersCount = section.count;
-		const auto remainingObjects = beziersCount - currentObjectInSection;
-		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
-
-		// Add Indices
-		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
-
-		// Add DrawObjs
-		DrawObject drawObj = {};
-		drawObj.type = ObjectType::CUBIC_BEZIER;
-		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-		drawObj.styleIdx = styleIdx;
-		for (uint32_t i = 0u; i < objectsToUpload; ++i)
-		{
-			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-			memcpy(dst, &drawObj, sizeof(DrawObject));
-			currentDrawObjectCount += 1u;
-			drawObj.address += sizeof(CubicBezierInfo);
-		}
-
-		// Add Geometry
-		if (objectsToUpload > 0u)
-		{
-			const auto beziersByteSize = sizeof(CubicBezierInfo) * (objectsToUpload);
-			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			auto& cubicBezier = polyline.getCubicBezierInfoAt(section.index + currentObjectInSection);
-			memcpy(dst, &cubicBezier, beziersByteSize);
 			currentGeometryBufferSize += beziersByteSize;
 		}
 
@@ -1051,17 +879,6 @@ class CADApp : public ApplicationBase
 
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
 
-	constexpr size_t getMaxMemoryNeeded(uint32_t numberOfLines, uint32_t numberOfEllipses)
-	{
-		size_t mem = sizeof(Globals);
-		uint32_t allObjectsCount = numberOfLines + numberOfEllipses;
-		mem += allObjectsCount * 6u * sizeof(uint32_t); // Index Buffer 6 indices per object cage
-		mem += allObjectsCount * sizeof(DrawObject); // One DrawObject struct per object
-		mem += numberOfLines * 4u * sizeof(double2); // 4 points per line max (generated before/after for calculations)
-		mem += numberOfEllipses * sizeof(PackedEllipseInfo);
-		return mem;
-	}
-
 	void initDrawObjects(uint32_t maxObjects = 128u)
 	{
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
@@ -1073,7 +890,8 @@ class CADApp : public ApplicationBase
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects);
 			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
 
-			size_t geometryBufferSize = maxObjects * sizeof(PackedEllipseInfo);
+			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
+			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
 			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
 		}
 
@@ -1890,16 +1708,6 @@ public:
 				linePoints.push_back({ 110.0, 100.0 });
 				linePoints.push_back({ 150.0, 100.0 });
 				polyline.addLinePoints(std::move(linePoints));
-			}
-			{
-				std::vector<CubicBezierInfo> cubicBeziers;
-				CubicBezierInfo cubic1;
-				cubic1.p[0] = double2(20.0, 0.0);
-				cubic1.p[1] = double2(20.0, 100.0);
-				cubic1.p[2] = double2(80.0, 100.0);
-				cubic1.p[3] = double2(80.0, 0.0);
-				cubicBeziers.push_back(cubic1);
-				polyline.addCubicBeziers(std::move(cubicBeziers));
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
