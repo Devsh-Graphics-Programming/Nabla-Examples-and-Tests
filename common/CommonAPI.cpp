@@ -244,7 +244,7 @@ nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IG
 
 		auto img = swapchain->createImage(i);
 		{
-			nbl::video::IGPUImageView::SCreationParams view_params;
+			nbl::video::IGPUImageView::SCreationParams view_params = {};
 			view_params.format = img->getCreationParameters().format;
 			view_params.viewType = asset::IImageView<nbl::video::IGPUImage>::ET_2D;
 			view_params.subresourceRange.aspectMask = asset::IImage::EAF_COLOR_BIT;
@@ -259,7 +259,7 @@ nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IG
 		}
 
 		if (useDepth) {
-			nbl::video::IGPUImage::SCreationParams imgParams;
+			nbl::video::IGPUImage::SCreationParams imgParams = {};
 			imgParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 			imgParams.type = asset::IImage::ET_2D;
 			imgParams.format = depthFormat;

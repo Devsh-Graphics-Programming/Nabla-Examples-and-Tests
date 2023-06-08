@@ -13,8 +13,10 @@
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
 
 //! builtin resources archive test
+#ifdef _BR_TEST_
 #include "nbl/builtin/CArchive.h"
 #include "yourNamespace/builtin/CArchive.h"
+#endif
 
 using namespace nbl;
 using namespace core;
@@ -276,6 +278,7 @@ int main(int argc, char** argv)
 	}
 
 	//! builtin resources archive test
+	#ifdef _BR_TEST_
 	// Nabla case
 	{
 		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
@@ -349,6 +352,7 @@ int main(int argc, char** argv)
 			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 		}
 	}
+	#endif // _BR_TEST_
 
 	// polling for events!
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;

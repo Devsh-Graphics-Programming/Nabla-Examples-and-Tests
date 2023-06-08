@@ -229,16 +229,13 @@ public:
 		cpu2gpuParams.waitForCreationToComplete();
 		auto& gpuParams = gpuImage->getCreationParameters();
 
-		IImageView<IGPUImage>::SCreationParams gpuImageViewParams = {
-			IGPUImageView::ECF_NONE,
-			gpuImage,
-			IImageView<IGPUImage>::ET_2D,
-			gpuParams.format,
-			{},
-			{
-				IImage::EAF_COLOR_BIT, 0, gpuParams.mipLevels, 0, gpuParams.arrayLayers
-			}
-		};
+		IImageView<IGPUImage>::SCreationParams gpuImageViewParams = {};
+		// Compute mipmap creation in Asset Converter tends to create some extra raw UINT views with STORAGE of the original image,
+		// so we need to declare that we won't be using STORAGE on this view or we wouldn't be able to use the SRGB format for it
+		gpuImageViewParams.subUsages = IGPUImage::EUF_SAMPLED_BIT;
+		gpuImageViewParams.image = gpuImage;
+		gpuImageViewParams.viewType = IGPUImageView::ET_2D;
+		gpuImageViewParams.format = gpuParams.format;
 		auto gpuImageView = logicalDevice->createImageView(std::move(gpuImageViewParams));
 
 		/*
