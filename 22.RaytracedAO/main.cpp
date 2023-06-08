@@ -127,6 +127,7 @@ struct PersistentState
 {
 	bool isBeauty;
 	bool isInteractiveMode;
+	bool isInteractiveViewMatrixLH;
 	uint32_t startSensorID;
 	std::string zipPath;
 	std::string xmlPath;
@@ -154,6 +155,9 @@ struct PersistentState
 					offset += sizeof(bool);
 
 					memcpy(&isInteractiveMode, readBuffer.get() + offset, sizeof(bool));
+					offset += sizeof(bool);
+
+					memcpy(&isInteractiveViewMatrixLH, readBuffer.get() + offset, sizeof(bool));
 					offset += sizeof(bool);
 
 					memcpy(&startSensorID, readBuffer.get() + offset, sizeof(uint32_t));
@@ -201,6 +205,9 @@ struct PersistentState
 			memcpy(writeBuffer.get() + offset, &isInteractiveMode, sizeof(bool));
 			offset += sizeof(bool);
 
+			memcpy(writeBuffer.get() + offset, &isInteractiveViewMatrixLH, sizeof(bool));
+			offset += sizeof(bool);
+
 			memcpy(writeBuffer.get() + offset, &startSensorID, sizeof(uint32_t));
 			offset += sizeof(uint32_t);
 
@@ -237,6 +244,7 @@ private:
 		const size_t result =
 			sizeof(bool)					+ // isBeauty
 			sizeof(bool)					+ // isInteractiveMode
+			sizeof(bool)                    + // isInteractiveViewMatrixLH
 			sizeof(uint32_t)				+ // startSensorID
 			sizeof(ProcessSensorsBehaviour) + // processSensorsBehaviour
 			sizeof(core::matrix3x4SIMD)		+ // interactiveCameraViewMatrix
@@ -705,6 +713,25 @@ int main(int argc, char** argv)
 			{
 				if (!applicationState.interactiveCameraViewMatrix.getInverse(relativeTransform))
 					printf("[ERROR]: Previously saved interactive camera's view matrix is not invertible.\n");
+
+				if (applicationState.isInteractiveViewMatrixLH)
+				{
+					// invert signs in the first col only
+					relativeTransform.rows[0].x *= -1.f;
+					relativeTransform.rows[1].x *= -1.f;
+					relativeTransform.rows[2].x *= -1.f;
+				}
+				else
+				{
+					// invert signs both in the first and third cols
+					relativeTransform.rows[0].x *= -1.f;
+					relativeTransform.rows[1].x *= -1.f;
+					relativeTransform.rows[2].x *= -1.f;
+
+					relativeTransform.rows[0].z *= -1.f;
+					relativeTransform.rows[1].z *= -1.f;
+					relativeTransform.rows[2].z *= -1.f;
+				}
 			}
 			
 			if (relativeTransform.getPseudoDeterminant().x < 0.f)
@@ -718,7 +745,7 @@ int main(int argc, char** argv)
 			
 			std::cout << "\t Camera Position = <" << mainCamPos.x << "," << mainCamPos.y << "," << mainCamPos.z << ">" << std::endl;
 
-			auto tpose = core::transpose(sensor.transform.matrix);
+			auto tpose = core::transpose(core::matrix4SIMD(relativeTransform));
 			mainCamUp = tpose.rows[1];
 			mainCamView = tpose.rows[2];
 		}
@@ -1255,6 +1282,7 @@ int main(int argc, char** argv)
 				applicationState.isBeauty = receiver.isRenderingBeauty();
 				applicationState.isInteractiveMode = true;
 				applicationState.startSensorID = activeSensor;
+				applicationState.isInteractiveViewMatrixLH = !sensors[activeSensor].rightHandedCamera;
 				applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
 
 				applicationState.writeToDisk();
@@ -1269,6 +1297,7 @@ int main(int argc, char** argv)
 					applicationState.isBeauty = receiver.isRenderingBeauty();
 					applicationState.isInteractiveMode = true;
 					applicationState.startSensorID = activeSensor;
+					applicationState.isInteractiveViewMatrixLH = !sensors[activeSensor].rightHandedCamera;
 					applicationState.interactiveCameraViewMatrix = sensors[activeSensor].interactiveCamera->getViewMatrix();
 
 					applicationState.writeToDisk();
