@@ -2,14 +2,6 @@
 
 #include "common.hlsl"
 
-float2 intersectLines2D(in float2 p1, in float2 v1, in float2 p2, in float2 v2)
-{
-    float det = v1.y * v2.x - v1.x * v2.y;
-    float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
-    float2 t = mul(inv, p1 - p2);
-    return p2 + mul(v2, t.y);
-}
-
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -104,6 +96,18 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (vertexIdx == 3u)
             outV.position = float4(+1, +1, 0, 1);
     }
+    /*
+        TODO[Lucas]:
+        Another `else if` for CurveBox Object Type,
+        What you basically need to do here is transform the box min,max and set `outV.position` correctly based on that + vertexIdx
+        and you need to do certain outV.setXXX() functions to set the correct (transformed) data to frag shader
+    
+        Another note: you may know that for transparency we draw objects twice
+        only when `writeToAlpha` is true (even provoking vertex), sdf calculations will happen and alpha will be set
+        otherwise it's just a second draw to "Resolve" and the only important thing on "Resolves" is the same `outV.position` as the previous draw (basically the same cage)
+        So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
+    */
+    
     
 // Make the cage fullscreen for testing:
 #if 0

@@ -11,6 +11,10 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
+// TODO[Lucas]: have a function for quadratic equation solving
+// Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
+// See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+
 float4 main(PSInput input) : SV_TARGET
 {
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -48,6 +52,12 @@ float4 main(PSInput input) : SV_TARGET
             const float antiAliasingFactor = globals.antiAliasingFactor;
             localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
+        /*
+        TODO[Lucas]:
+            Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
+            and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
+            you will use input.getXXX() to get values needed for this computation
+        */
     }
 
     uint2 fragCoord = uint2(input.position.xy);

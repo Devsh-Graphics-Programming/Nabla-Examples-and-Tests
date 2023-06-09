@@ -249,6 +249,52 @@ protected:
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 };
 
+// Basically 2D CSG
+// TODO[Lucas]:
+class Hatch
+{
+	/*
+		This class will input a list of Polylines (core::SRange) 
+		and then output bunch of HatchBoxes
+		The hatch box generation algorithm will be used here
+	*/
+
+	/*
+		Here are additional info you need for the hatch box generation algorithm:
+		
+		1. Curve-Curve Intersection
+			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
+			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
+			whose roots are the parameter values of the points of intersection
+			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
+			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+
+		2. Implicitization
+			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
+			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
+			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
+			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
+			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
+			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
+
+		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
+			(Talk with Matt, he figure out the math)
+	*/
+
+	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
+	struct CurveBox
+	{
+		// aabb (double2 min, max)
+		// reference to min curve (could be left curve if sweeping in y dir) and it's tmin tmax
+		// reference to max curve (could be right curve if sweeping in y dir) and it's tmin tmax
+		// any reference to texture or colour or style used to fill it Or we could fill that in It's drawObj (latter is better if we could alias with lineStyle address)
+	};
+
+	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
+	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
+	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
+};
+
 template <typename BufferType>
 struct DrawBuffers
 {
@@ -497,6 +543,15 @@ public:
 		return intendedNextSubmit;
 	}
 
+	// TODO[Lucas]: drawHatch function with similar signature to drawPolyline
+	// If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
+	// But we don't have that so we have to follow a similar auto submission as the "drawPolyline" function with some mutations:
+	// We have to find the MAX number of "CurveBoxes" we could draw, and since both the "Curves" and "CurveBoxes" reside in geometry buffer,
+	// it has to be taken into account when calculating "how many curve boxes we could draw and when we need to submit/clear"
+	// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
+	// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
+	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
+
 	video::IGPUQueue::SSubmitInfo finalizeIndexCopiesToGPU(
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
@@ -582,7 +637,6 @@ public:
 	{
 		return currentGeometryBufferSize;
 	}
-
 
 	void reset()
 	{
@@ -737,6 +791,19 @@ protected:
 
 		currentObjectInSection += objectsToUpload;
 	}
+
+	// TODO[Lucas] addHatch_Internal with similar signature to functions above. 
+	/*
+	* this does:
+		- iterates through the "Boxes" in a hatch
+		- finds the curves referenced by it and copies both the boxes and the curves into correct places of the geometry buffer
+		- constructs drawObjs and copies them into correct place of the drawobj buffer
+		- and correctly advances the memory tracker and counters
+		- it will iterate to a point where it ends OR there is not enough memory left
+		- For example we might have enough memory left for 10 curve boxes in the geometry buffer, 
+			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem, 
+			the solution is simple when we iterate on curve boxes and keep track of what curves we have already copied into mem (a map from cpuCurveIndex to geomBufferOffset)
+	*/
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
