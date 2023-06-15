@@ -100,15 +100,15 @@ class BlitFilterTestApp : public ApplicationBase
 
 	public:
 		CBlitImageFilterTest(
-			core::smart_refctd_ptr<asset::ICPUImage>&&	inImage,
-			BlitFilterTestApp*							parentApp,
-			const core::vectorSIMDu32&					outImageDim,
-			const asset::E_FORMAT						outImageFormat,
-			const char*									writeImagePath,
-			const typename blit_utils_t::convolution_kernels_t&  convolutionKernels,
-			const IBlitUtilities::E_ALPHA_SEMANTIC		alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
-			const float									referenceAlpha = 0.5f,
-			const uint32_t								alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
+			core::smart_refctd_ptr<asset::ICPUImage>&&				inImage,
+			BlitFilterTestApp*										parentApp,
+			const core::vectorSIMDu32&								outImageDim,
+			const asset::E_FORMAT									outImageFormat,
+			const char*												writeImagePath,
+			const typename blit_utils_t::convolution_kernels_t&		convolutionKernels,
+			const IBlitUtilities::E_ALPHA_SEMANTIC					alphaSemantic = asset::IBlitUtilities::EAS_NONE_OR_PREMULTIPLIED,
+			const float												referenceAlpha = 0.5f,
+			const uint32_t											alphaBinCount = asset::IBlitUtilities::DefaultAlphaBinCount)
 			: ITest(std::move(inImage), parentApp), m_outImageDim(outImageDim), m_outImageFormat(outImageFormat),
 			m_convolutionKernels(convolutionKernels), m_writeImagePath(writeImagePath),
 			m_alphaSemantic(alphaSemantic), m_referenceAlpha(referenceAlpha), m_alphaBinCount(alphaBinCount)
@@ -1004,6 +1004,8 @@ public:
 
 		if (TestCPUBlitFilter)
 		{
+			using namespace asset;
+
 			logger->log("CBlitImageFilter", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 2;
@@ -1020,9 +1022,14 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width/2, inExtent.height/4, 1, 1);
 					const auto outImageFormat = asset::EF_R8G8B8A8_SRGB;
 
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<SMitchellFunction<>>>;
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>>;
 
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
 					tests[0] = std::make_unique<CBlitImageFilterTest<BlitUtilities>>
 					(
@@ -1047,8 +1054,14 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width*2, inExtent.height*4, 1, 1);
 					const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SKaiserFunction>>;
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
+						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
+						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
+						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>>;
+
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SKaiserFunction>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
 					tests[1] = std::make_unique<CBlitImageFilterTest<BlitUtilities>>
 					(
@@ -1298,6 +1311,8 @@ public:
 
 		if (TestGPUBlitFilter)
 		{
+			using namespace asset;
+
 			logger->log("CComputeBlit", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 6;
@@ -1322,9 +1337,16 @@ public:
 					resamplingX.stretchAndScale(0.35f);
 
 					using LutDataType = uint16_t;
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>
+						>
+					>;
 
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX));
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX));
 
 					tests[0] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
@@ -1347,9 +1369,16 @@ public:
 					const core::vectorSIMDu32 outImageDim(inExtent.width / 3u, inExtent.height / 7u, inExtent.depth, layerCount);
 
 					using LutDataType = float;
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SKaiserFunction>>;
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>
+						>
+					>;
 
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SKaiserFunction>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
 					tests[1] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
@@ -1384,9 +1413,16 @@ public:
 					resamplingY.stretchAndScale(9.f/16.f);
 
 					using LutDataType = uint16_t;
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SBoxFunction>>;
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>
+						>
+					>;
 
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX), std::move(reconstructionY), std::move(resamplingY));
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SBoxFunction>>(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX), std::move(reconstructionY), std::move(resamplingY));
 
 					tests[2] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
@@ -1413,9 +1449,16 @@ public:
 					const auto alphaBinCount = 1024;
 
 					using LutDataType = float;
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>
+						>
+					>;
 
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
 					tests[3] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
@@ -1443,8 +1486,15 @@ public:
 					const core::vectorSIMDu32 outImageDim(256u, 128u, 64u, layerCount);
 
 					using LutDataType = uint16_t;
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim);
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>
+						>
+					>;
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim);
 
 					tests[4] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
@@ -1472,9 +1522,16 @@ public:
 					const auto alphaBinCount = 4096;
 
 					using LutDataType = float;
-					using BlitUtilities = asset::CBlitUtilities<asset::CWeightFunction1D<asset::SMitchellFunction<>>>;
+					using BlitUtilities = CBlitUtilities<
+						CChannelIndependentWeightFunction1D<
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
+							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>
+						>
+					>;
 
-					auto convolutionKernels = BlitUtilities::getConvolutionKernels(inImageDim, outImageDim);
+					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim);
 
 					tests[5] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
 					(
