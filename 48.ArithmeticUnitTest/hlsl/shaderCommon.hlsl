@@ -4,11 +4,17 @@
 // t -> For buffers where each thread accesses its own index
 
 // Instead of register(...) we can also use [[vk::binding(uint)]]
+
+#pragma shader_stage(compute)
+
+#include "../common.glsl"
+//#define NBL_GL_KHR_shader_subgroup_arithmetic
+
 StructuredBuffer<uint> inputValue : register(t0); // read-only
 
 struct Output {
 	uint subgroupSize;
-	uint output[512];
+	uint output[BUFFER_DWORD_COUNT];
 };
 
 RWStructuredBuffer<Output> outand : register(u1);
@@ -20,7 +26,7 @@ RWStructuredBuffer<Output> outmin : register(u6);
 RWStructuredBuffer<Output> outmax : register(u7);
 RWStructuredBuffer<Output> outbitcount : register(u8);
 
-//shared uint scratch[bitfieldDWORDs + 1];
-groupshared uint scratch[512];
-#define SHARED_MEM scratch
 #define _NBL_HLSL_WORKGROUP_SIZE_ 256U
+//groupshared uint scratch[bitfieldDWORDs + 1];
+groupshared uint scratch[_NBL_HLSL_WORKGROUP_SIZE_ + 32];
+#define SHARED_MEM scratch

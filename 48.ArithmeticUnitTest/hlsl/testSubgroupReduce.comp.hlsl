@@ -8,6 +8,15 @@
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 {
+	outand[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outxor[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outor[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outadd[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outmul[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outmin[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outmax[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outbitcount[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
 	
 	reduction_t(bitwise_and) r_and;
@@ -30,4 +39,6 @@ void main(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 	
 	reduction_t(max) r_max;
 	outmax[0].output[gl_GlobalInvocationID.x] = r_max(sourceVal);
+	
+	outbitcount[0].output[gl_GlobalInvocationID.x] = WaveActiveMax(sourceVal);
 }

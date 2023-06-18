@@ -8,6 +8,15 @@
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint gl_GlobalInvocationID: SV_DispatchThreadID)
 {
+	outand[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outxor[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outor[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outadd[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outmul[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outmin[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outmax[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outbitcount[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
 	exclusive_scan_t(bitwise_and) exscan_and;
 	outand[0].output[gl_GlobalInvocationID.x] = exscan_and(sourceVal);
