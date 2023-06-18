@@ -49,6 +49,55 @@ static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(con
 	}
 }
 
+namespace nbl::asset
+{
+
+namespace impl
+{
+
+// Make all instantiations of `is_instantiation_of_CConvolutionWeightFunction1D` have a false value, but..
+template <typename T>
+struct is_instantiation_of_CConvolutionWeightFunction1D : std::false_type {};
+
+// ..specialize the one we want, to be true.
+template <SimpleWeightFunction1D WeightFunction1DA, SimpleWeightFunction1D WeightFunction1DB>
+struct is_instantiation_of_CConvolutionWeightFunction1D<CConvolutionWeightFunction1D<WeightFunction1DA, WeightFunction1DB>> : std::true_type {};
+
+template <typename T>
+struct is_instantiation_of_CChannelIndependentWeightFunction1D : std::false_type {};
+
+template <WeightFunction1D FirstWeightFunction1D, WeightFunction1D... OtherWeightFunctions>
+struct is_instantiation_of_CChannelIndependentWeightFunction1D<CChannelIndependentWeightFunction1D<FirstWeightFunction1D, OtherWeightFunctions...>>
+	: std::bool_constant<(is_instantiation_of_CConvolutionWeightFunction1D<FirstWeightFunction1D>::value) && (is_instantiation_of_CConvolutionWeightFunction1D<OtherWeightFunctions>::value && ...)>
+{};
+
+} // namespace impl
+
+
+template <typename T>
+concept DetectCConvConcept = requires(T t)
+{
+	requires impl::is_instantiation_of_CConvolutionWeightFunction1D<T>::value;
+};
+
+template <DetectCConvConcept T>
+void check_CConv_detection(const T& t)
+{
+}
+
+template <typename T>
+concept DetectCChannelIndepConcept = requires(T t)
+{
+	requires impl::is_instantiation_of_CChannelIndependentWeightFunction1D<T>::value;
+};
+
+template <DetectCChannelIndepConcept T>
+void check_CChannelIndep_detection(const T& t)
+{
+}
+
+} // namespace asset
+
 class BlitFilterTestApp : public ApplicationBase
 {
 	constexpr static uint32_t SC_IMG_COUNT = 3u;
@@ -948,6 +997,33 @@ public:
 		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
+
+		using weight_t = CWeightFunction1D<SMitchellFunction<>>;
+		using conv_t = CConvolutionWeightFunction1D<weight_t, weight_t>;
+		conv_t c = conv_t(weight_t(), weight_t());
+
+		int d;
+		auto e = weight_t();
+		auto f = CChannelIndependentWeightFunction1D(
+			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
+			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
+			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
+			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()));
+		auto g = CChannelIndependentWeightFunction1D(conv_t(weight_t(), weight_t()), conv_t(weight_t(), weight_t()), conv_t(weight_t(), weight_t()), conv_t(weight_t(), weight_t()));
+		auto h = CChannelIndependentWeightFunction1D(
+			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
+			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()));
+		auto i = CChannelIndependentWeightFunction1D(weight_t(), weight_t());
+		
+		asset::check_CConv_detection(c);
+		asset::check_CChannelIndep_detection(f);
+		asset::check_CChannelIndep_detection(g);
+		asset::check_CChannelIndep_detection(h);
+		// asset::check_CChannelIndep_detection(i);
+
+		std::cout << decltype(h)::ChannelCount << std::endl;
+
+		__debugbreak();
 
 
 		constexpr bool TestCPUBlitFilter = true;
