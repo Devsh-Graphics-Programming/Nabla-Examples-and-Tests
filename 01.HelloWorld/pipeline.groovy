@@ -3,12 +3,12 @@ import org.DevshGraphicsProgramming.IBuilder
 
 class CExampleBuilder extends IBuilder
 {
-	public CExampleBuilder(Agent _agent, _targetBaseName, _projectDirectoryName)
+	public CExampleBuilder(Agent _agent, _targetBaseName, _projectPathRelativeToNabla)
 	{
 		super(_agent)
 		
 		targetBaseName = _targetBaseName
-		projectDirectoryName = _projectDirectoryName
+		projectPathRelativeToNabla = _projectPathRelativeToNabla
 	}
 	
 	@Override
@@ -26,7 +26,7 @@ class CExampleBuilder extends IBuilder
 		def nameOfBuildDirectory = getNameOfBuildDirectory(buildType)
 		def nameOfConfig = getNameOfConfig(config)
 		
-		agent.execute("cmake --build ../../${nameOfBuildDirectory}/examples_tests/${projectDirectoryName} --target ${targetBaseName} --config ${nameOfConfig} -j12 -v")
+		agent.execute("cmake --build ../../${nameOfBuildDirectory}/${projectPathRelativeToNabla} --target ${targetBaseName} --config ${nameOfConfig} -j12 -v")
 		
 		return true
 	}
@@ -44,12 +44,12 @@ class CExampleBuilder extends IBuilder
 	}
 	
 	public final def targetBaseName //! base name of CMake target
-	public final def projectDirectoryName //! parent directory name
+	public final def projectPathRelativeToNabla //! relative path of the project to Nabla root
 }
 
-def create(Agent _agent, _targetBaseName, _projectDirectoryName)
+def create(Agent _agent, _targetBaseName, _projectPathRelativeToNabla)
 {
-	return new CExampleBuilder(_agent, _targetBaseName, _projectDirectoryName)
+	return new CExampleBuilder(_agent, _targetBaseName, _projectPathRelativeToNabla)
 }
 
 return this
