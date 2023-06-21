@@ -49,55 +49,6 @@ static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(con
 	}
 }
 
-namespace nbl::asset
-{
-
-namespace impl
-{
-
-// Make all instantiations of `is_instantiation_of_CConvolutionWeightFunction1D` have a false value, but..
-template <typename T>
-struct is_instantiation_of_CConvolutionWeightFunction1D : std::false_type {};
-
-// ..specialize the one we want, to be true.
-template <SimpleWeightFunction1D WeightFunction1DA, SimpleWeightFunction1D WeightFunction1DB>
-struct is_instantiation_of_CConvolutionWeightFunction1D<CConvolutionWeightFunction1D<WeightFunction1DA, WeightFunction1DB>> : std::true_type {};
-
-template <typename T>
-struct is_instantiation_of_CChannelIndependentWeightFunction1D : std::false_type {};
-
-template <WeightFunction1D FirstWeightFunction1D, WeightFunction1D... OtherWeightFunctions>
-struct is_instantiation_of_CChannelIndependentWeightFunction1D<CChannelIndependentWeightFunction1D<FirstWeightFunction1D, OtherWeightFunctions...>>
-	: std::bool_constant<(is_instantiation_of_CConvolutionWeightFunction1D<FirstWeightFunction1D>::value) && (is_instantiation_of_CConvolutionWeightFunction1D<OtherWeightFunctions>::value && ...)>
-{};
-
-} // namespace impl
-
-
-template <typename T>
-concept DetectCConvConcept = requires(T t)
-{
-	requires impl::is_instantiation_of_CConvolutionWeightFunction1D<T>::value;
-};
-
-template <DetectCConvConcept T>
-void check_CConv_detection(const T& t)
-{
-}
-
-template <typename T>
-concept DetectCChannelIndepConcept = requires(T t)
-{
-	requires impl::is_instantiation_of_CChannelIndependentWeightFunction1D<T>::value;
-};
-
-template <DetectCChannelIndepConcept T>
-void check_CChannelIndep_detection(const T& t)
-{
-}
-
-} // namespace asset
-
 class BlitFilterTestApp : public ApplicationBase
 {
 	constexpr static uint32_t SC_IMG_COUNT = 3u;
@@ -177,7 +128,7 @@ class BlitFilterTestApp : public ApplicationBase
 				return false;
 			}
 
-			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, BlitUtilities, float>;
+			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, BlitUtilities>;
 			typename BlitFilter::state_type blitFilterState(m_convolutionKernels);
 
 			blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
@@ -196,7 +147,7 @@ class BlitFilterTestApp : public ApplicationBase
 			blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 			blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
-			if (!blit_utils_t::template computeScaledKernelPhasedLUT<float>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
+			if (!blit_utils_t::computeScaledKernelPhasedLUT(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
 			{
 				m_parentApp->logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
 				return false;
@@ -436,7 +387,7 @@ class BlitFilterTestApp : public ApplicationBase
 		const char* m_writeImagePath;
 	};
 
-	template <typename LutDataType, typename BlitUtilities>
+	template <typename BlitUtilities>
 	class CComputeBlitTest : public ITest
 	{
 		using blit_utils_t = BlitUtilities;
@@ -457,7 +408,7 @@ class BlitFilterTestApp : public ApplicationBase
 		bool run() override
 		{
 			assert(m_inImage->getCreationParameters().mipLevels == 1);
-			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, blit_utils_t, LutDataType>;
+			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, blit_utils_t>;
 
 			const asset::E_FORMAT inImageFormat = m_inImage->getCreationParameters().format;
 			const asset::E_FORMAT outImageFormat = inImageFormat;
@@ -528,7 +479,7 @@ class BlitFilterTestApp : public ApplicationBase
 				blitFilterState.scratchMemoryByteSize = BlitFilter::getRequiredScratchByteSize(&blitFilterState);
 				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
-				if (!BlitFilter::blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
+				if (!BlitFilter::blit_utils_t::computeScaledKernelPhasedLUT(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
 					m_parentApp->logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
 
 				m_parentApp->logger->log("CPU begin..");
@@ -710,10 +661,10 @@ class BlitFilterTestApp : public ApplicationBase
 				// create scaledKernelPhasedLUT and its view
 				core::smart_refctd_ptr<video::IGPUBufferView> scaledKernelPhasedLUTView = nullptr;
 				{
-					const auto lutSize = blit_utils_t::template getScaledKernelPhasedLUTSize<LutDataType>(inExtent, m_outImageDim, inImageType, m_convolutionKernels);
+					const auto lutSize = blit_utils_t::getScaledKernelPhasedLUTSize(inExtent, m_outImageDim, inImageType, m_convolutionKernels);
 
 					uint8_t* lutMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(lutSize, 32));
-					if (!blit_utils_t::template computeScaledKernelPhasedLUT<LutDataType>(lutMemory, inExtent, m_outImageDim, inImageType, m_convolutionKernels))
+					if (!blit_utils_t::computeScaledKernelPhasedLUT(lutMemory, inExtent, m_outImageDim, inImageType, m_convolutionKernels))
 					{
 						m_parentApp->logger->log("Failed to compute scaled kernel phased LUT for the GPU case!", system::ILogger::ELL_ERROR);
 						return false;
@@ -735,9 +686,9 @@ class BlitFilterTestApp : public ApplicationBase
 					m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, lutMemory, m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]);
 
 					asset::E_FORMAT bufferViewFormat;
-					if constexpr (std::is_same_v<LutDataType, uint16_t>)
+					if constexpr (std::is_same_v<blit_utils_t::lut_value_type, uint16_t>)
 						bufferViewFormat = asset::EF_R16G16B16A16_SFLOAT;
-					else if constexpr (std::is_same_v<LutDataType, float>)
+					else if constexpr (std::is_same_v<blit_utils_t::lut_value_type, float>)
 						bufferViewFormat = asset::EF_R32G32B32A32_SFLOAT;
 					else
 						assert(false);
@@ -998,34 +949,6 @@ public:
 		logger = std::move(initOutput.logger);
 		inputSystem = std::move(initOutput.inputSystem);
 
-		using weight_t = CWeightFunction1D<SMitchellFunction<>>;
-		using conv_t = CConvolutionWeightFunction1D<weight_t, weight_t>;
-		conv_t c = conv_t(weight_t(), weight_t());
-
-		int d;
-		auto e = weight_t();
-		auto f = CChannelIndependentWeightFunction1D(
-			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
-			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
-			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
-			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()));
-		auto g = CChannelIndependentWeightFunction1D(conv_t(weight_t(), weight_t()), conv_t(weight_t(), weight_t()), conv_t(weight_t(), weight_t()), conv_t(weight_t(), weight_t()));
-		auto h = CChannelIndependentWeightFunction1D(
-			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()),
-			CConvolutionWeightFunction1D<weight_t, weight_t>(weight_t(), weight_t()));
-		auto i = CChannelIndependentWeightFunction1D(weight_t(), weight_t());
-		
-		asset::check_CConv_detection(c);
-		asset::check_CChannelIndep_detection(f);
-		asset::check_CChannelIndep_detection(g);
-		asset::check_CChannelIndep_detection(h);
-		// asset::check_CChannelIndep_detection(i);
-
-		std::cout << decltype(h)::ChannelCount << std::endl;
-
-		__debugbreak();
-
-
 		constexpr bool TestCPUBlitFilter = true;
 		constexpr bool TestFlattenFilter = true;
 		constexpr bool TestSwizzleAndConvertFilter = true;
@@ -1098,12 +1021,7 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width/2, inExtent.height/4, 1, 1);
 					const auto outImageFormat = asset::EF_R8G8B8A8_SRGB;
 
-					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>>;
+					using BlitUtilities = CBlitUtilities<CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
@@ -1130,12 +1048,7 @@ public:
 					const auto outImageDim = core::vectorSIMDu32(inExtent.width*2, inExtent.height*4, 1, 1);
 					const auto outImageFormat = asset::EF_R32G32B32A32_SFLOAT;
 
-					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
-						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
-						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
-						CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>>;
+					using BlitUtilities = CBlitUtilities<CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SKaiserFunction>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
@@ -1414,17 +1327,14 @@ public:
 
 					using LutDataType = uint16_t;
 					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<asset::SMitchellFunction<>>, CWeightFunction1D<asset::SMitchellFunction<>>>
-						>
-					>;
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						LutDataType>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX));
 
-					tests[0] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
+					tests[0] = std::make_unique<CComputeBlitTest<BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
@@ -1446,17 +1356,15 @@ public:
 
 					using LutDataType = float;
 					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>
-						>
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SKaiserFunction>, CWeightFunction1D<SKaiserFunction>>>,
+						LutDataType
 					>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SKaiserFunction>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
-					tests[1] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
+					tests[1] = std::make_unique<CComputeBlitTest<BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
@@ -1490,17 +1398,15 @@ public:
 
 					using LutDataType = uint16_t;
 					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>
-						>
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SBoxFunction>, CWeightFunction1D<SBoxFunction>>>,
+						LutDataType
 					>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SBoxFunction>>(inImageDim, outImageDim, std::move(reconstructionX), std::move(resamplingX), std::move(reconstructionY), std::move(resamplingY));
 
-					tests[2] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
+					tests[2] = std::make_unique<CComputeBlitTest<BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
@@ -1526,17 +1432,15 @@ public:
 
 					using LutDataType = float;
 					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>
-						>
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						LutDataType
 					>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(core::vectorSIMDu32(inExtent.width, inExtent.height, inExtent.depth, 1), outImageDim);
 
-					tests[3] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
+					tests[3] = std::make_unique<CComputeBlitTest<BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
@@ -1563,16 +1467,15 @@ public:
 
 					using LutDataType = uint16_t;
 					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>
-						>
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						LutDataType
 					>;
+
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim);
 
-					tests[4] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
+					tests[4] = std::make_unique<CComputeBlitTest<BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
@@ -1599,17 +1502,15 @@ public:
 
 					using LutDataType = float;
 					using BlitUtilities = CBlitUtilities<
-						CChannelIndependentWeightFunction1D<
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>,
-							CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>
-						>
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						CDefaultChannelIndependentWeightFunction1D<CConvolutionWeightFunction1D<CWeightFunction1D<SMitchellFunction<>>, CWeightFunction1D<SMitchellFunction<>>>>,
+						LutDataType
 					>;
 
 					auto convolutionKernels = BlitUtilities::getConvolutionKernels<CWeightFunction1D<SMitchellFunction<>>>(inImageDim, outImageDim);
 
-					tests[5] = std::make_unique<CComputeBlitTest<LutDataType, BlitUtilities>>
+					tests[5] = std::make_unique<CComputeBlitTest<BlitUtilities>>
 					(
 						std::move(inImage),
 						this,
