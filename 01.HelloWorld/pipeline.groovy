@@ -7,9 +7,6 @@ class CExampleBuilder extends IBuilder
 	public CExampleBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
-		
-		targetBaseName = _targetBaseName
-		projectPathRelativeToNabla = _projectPathRelativeToNabla
 	}
 	
 	@Override
