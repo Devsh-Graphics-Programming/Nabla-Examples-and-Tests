@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CExampleBuilder extends IBuilder
+class CRGB18E7S3Builder extends IBuilder
 {
-	public CExampleBuilder(Agent _agent, _info)
+	public CRGB18E7S3Builder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CExampleBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CExampleBuilder(_agent, _info)
+	return new CRGB18E7S3Builder(_agent, _info)
 }
 
 return this

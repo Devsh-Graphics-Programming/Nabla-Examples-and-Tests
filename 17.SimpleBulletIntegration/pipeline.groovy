@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CExampleBuilder extends IBuilder
+class CSimpleBulletIntegrationBuilder extends IBuilder
 {
-	public CExampleBuilder(Agent _agent, _info)
+	public CSimpleBulletIntegrationBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CExampleBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CExampleBuilder(_agent, _info)
+	return new CSimpleBulletIntegrationBuilder(_agent, _info)
 }
 
 return this

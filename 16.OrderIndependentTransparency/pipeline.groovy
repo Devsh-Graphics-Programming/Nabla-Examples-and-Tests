@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CExampleBuilder extends IBuilder
+class COrderIndependentTransparencyBuilder extends IBuilder
 {
-	public CExampleBuilder(Agent _agent, _info)
+	public COrderIndependentTransparencyBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CExampleBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CExampleBuilder(_agent, _info)
+	return new COrderIndependentTransparencyBuilder(_agent, _info)
 }
 
 return this
