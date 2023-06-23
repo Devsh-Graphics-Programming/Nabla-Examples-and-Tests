@@ -24,7 +24,7 @@ class CExampleBuilder extends IBuilder
 		def nameOfBuildDirectory = getNameOfBuildDirectory(buildType)
 		def nameOfConfig = getNameOfConfig(config)
 		
-		agent.execute("cmake --build ../../${nameOfBuildDirectory}/${info.targetProjectPathRelativeToRoot} --target ${info.targetBaseName} --config ${nameOfConfig} -j12 -v")
+		agent.execute("cmake --build ${info.rootProjectPath}/${nameOfBuildDirectory}/${info.targetProjectPathRelativeToRoot} --target ${info.targetBaseName} --config ${nameOfConfig} -j12 -v")
 		
 		return true
 	}
