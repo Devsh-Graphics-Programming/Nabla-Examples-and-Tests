@@ -86,7 +86,19 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setBezierP1(transformedPoints[1u]);
         outV.setBezierP2(transformedPoints[2u]);
         
-        // TODO[Erfan]: tight cage generation for quadratic bezier
+        // TODO[Payton]:
+        // This is where you will be operation and generating the cage based on the bezier points
+        // As you can see right now to get away with just drawing the bezier I make the single "cage" fullscreen so we make sure we can see the fragment shadedr work.
+        // But to we need to implement tight cages to avoid this huge overdraw.
+        // So we will decide the position of the vertex (in ndc space) based on:
+            // vertexId + sectionIdx + antiAliasedLineWidth + transformedPoints
+        // make sure to work in screen space first (because antiAliasedLineWidth and transformedPoints are in screenSpace) and then transform back to ndc
+            // see how we generate a single cage for the line above
+        // We will split Quadratic Beziers into 3 sections always.
+        // The reason we do this in vertex shader (do calc in screen and transform back to ndc) is because the lineWidth can have fixed size in screenspace
+            // imagine zooming in/out but the line width is 2 pixels always
+            // the vertices should obviously move outwards in screen when we zoom in, but they shouldn't get bigger so we can't simply transform them by applying a simple projection matrix like we do in graphics 101
+            // so vertex positioning is dependant on the projection matrix and we do this here instead of moving vertices each frame on the cpu and then uploading them to gpu
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)

@@ -755,6 +755,12 @@ protected:
 
 		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
 
+		// TODO[Payton]: we may not always be able to draw a complete Polyline (due to low mem remaining)
+		// that's why we use "currentObjectInSection" idx, to figure out how many objects in the section is left to draw
+		// and after copying the correct data into it's places and moving the correct counters, we do "currentObjectInSection += the number of objects we where able to copy and issue for draw later"
+		// and the number of objects we're able to copy is dependant on "index" memory left, "drawObject" memory left, and "geometry" memory left
+		// but now this logic will change; we will now require 18 indices, 3 draw objects instead of 6 and 1 to draw a quad bezier, geometry buffer requirements won't change.
+		// for simplicity let's not support drawing partial beziers and require the mem to have at least spapce for 18 indices and 3 draw objs to draw a single quad bezier.
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
 		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
@@ -768,6 +774,7 @@ protected:
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
+		// TODO[Payton] you will now copy 3 drawObjs per bezier, and pack that along with the "sectionIdx", make sure to fix filling this drawObj.type_section packed uint32 for other object types
 		drawObj.type = ObjectType::QUAD_BEZIER;
 		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
 		drawObj.styleIdx = styleIdx;

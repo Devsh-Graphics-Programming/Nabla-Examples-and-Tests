@@ -9,6 +9,11 @@ enum class ObjectType : uint32_t
 
 struct DrawObject
 {
+    // TODO[Payton]: instead of ObjectType make it a uint32_t that packs two uint16_t's 
+    // implement hlsl functions equivalent to glsl's packHalf2x16 and unpackHalf2x16 and put them in builtin shaders (ask Arek)
+    // now the first of these two uint16_t's is the ObjectType again
+    // the second one is the "sectionIdx" of the object type, because we may split the same object (bezier) into multiple parts
+    // make sure to pack this value correctly while filling the drawObj buffer, for non quad bezier types the second uint16_t will be just 0
     ObjectType type;
     uint32_t styleIdx;
     uint64_t address;
