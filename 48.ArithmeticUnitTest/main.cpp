@@ -182,7 +182,7 @@ struct emulatedWorkgroupScanInclusive
 };
 
 #include "common.glsl"
-//#define HLSL
+#define HLSL
 constexpr uint32_t kBufferSize = (/*uint subgroupSize*/1u + /*uint output[]*/BUFFER_DWORD_COUNT) * sizeof(uint32_t);
 
 //returns true if result matches
@@ -216,9 +216,9 @@ bool validateResults(ILogicalDevice* device, IUtilities* utilities, IGPUQueue* t
 		if (tmp[localInvocationIndex]!=dataFromBuffer[workgroupOffset+localInvocationIndex])
 		{
 			logger->log(
-				"Failed test #%d  (%s)  (%s) Expected %s got %s",system::ILogger::ELL_ERROR,
+				"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",system::ILogger::ELL_ERROR,
 				workgroupSize,Arithmetic<OP<uint32_t>>::name,OP<uint32_t>::name,
-				std::to_string(tmp[localInvocationIndex]),std::to_string(dataFromBuffer[workgroupOffset+localInvocationIndex])
+				tmp[localInvocationIndex], dataFromBuffer[workgroupOffset + localInvocationIndex], workgroupOffset, localInvocationIndex
 			);
 			success = false;
 			break;
@@ -396,21 +396,21 @@ public:
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
 #ifdef HLSL
 		{
-			getShaderGLSL("../hlsl/testSubgroupReduce.comp.hlsl")/*,
-			getShaderGLSL("../hlsl/testSubgroupExclusive.comp.hlsl"),
-			getShaderGLSL("../hlsl/testSubgroupInclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupInclusive.comp.hlsl")/*,
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupInclusive.comp.hlsl"),
 			getShaderGLSL("../hlsl/testWorkgroupReduce.comp.hlsl"),
 			getShaderGLSL("../hlsl/testWorkgroupExclusive.comp.hlsl"),
 			getShaderGLSL("../hlsl/testWorkgroupInclusive.comp.hlsl")*/
 		};
 #else
 		{
-			getShaderGLSL("../testSubgroupReduce.comp"),
+			getShaderGLSL("../testSubgroupReduce.comp")/*,
 			getShaderGLSL("../testSubgroupExclusive.comp"),
 			getShaderGLSL("../testSubgroupInclusive.comp"),
 			getShaderGLSL("../testWorkgroupReduce.comp"),
 			getShaderGLSL("../testWorkgroupExclusive.comp"),
-			getShaderGLSL("../testWorkgroupInclusive.comp")
+			getShaderGLSL("../testWorkgroupInclusive.comp")*/
 		};
 #endif
 
@@ -462,7 +462,7 @@ public:
 			bool passed = true;
 
 			const video::IGPUDescriptorSet* ds = descriptorSet.get();
-			passed = runTest<emulatedSubgroupReduction>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[0u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
+			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[0u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);
 			/*passed = runTest<emulatedSubgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[1u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);
