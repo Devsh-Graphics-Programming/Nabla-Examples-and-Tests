@@ -79,7 +79,10 @@ struct max_op
 	static inline constexpr const char* name = "max";
 };
 template<typename T>
-struct ballot : add_op<T> {};
+struct ballot : add_op<T> 
+{
+	static inline constexpr const char* name = "bitcount";
+};
 
 
 //subgroup method emulations on the CPU, to verify the results of the GPU methods
@@ -396,7 +399,7 @@ public:
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
 #ifdef HLSL
 		{
-			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupInclusive.comp.hlsl")/*,
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupExclusive.comp.hlsl")/*,
 			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupExclusive.comp.hlsl"),
 			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupInclusive.comp.hlsl"),
 			getShaderGLSL("../hlsl/testWorkgroupReduce.comp.hlsl"),
@@ -462,7 +465,7 @@ public:
 			bool passed = true;
 
 			const video::IGPUDescriptorSet* ds = descriptorSet.get();
-			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[0u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
+			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[0u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
 			logTestOutcome(passed, workgroupSize);
 			/*passed = runTest<emulatedSubgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[1u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);

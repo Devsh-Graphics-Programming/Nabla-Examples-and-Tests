@@ -1,3 +1,4 @@
+#include "../examples_tests/48.ArithmeticUnitTest/hlsl/wgsize.hlsl"
 static uint3 gl_GlobalInvocationID;
 static uint3 gl_WorkGroupID;
 static uint gl_LocalInvocationIndex;
@@ -7,7 +8,7 @@ static uint gl_LocalInvocationIndex;
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
-#define exclusive_scan_t(Binop) nbl::hlsl::subgroup::exclusive_scan<uint, nbl::hlsl::binops::Binop<uint>, nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::MemProxy> >
+#define exclusive_scan_t(Binop) nbl::hlsl::subgroup::exclusive_scan<uint, nbl::hlsl::binops::Binop<uint>, nbl::hlsl::SharedMemory>
 
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint3 globalId : SV_DispatchThreadID, 

@@ -8,7 +8,8 @@
 #pragma shader_stage(compute)
 
 #include "../examples_tests/48.ArithmeticUnitTest/common.glsl"
-#define NBL_GL_KHR_shader_subgroup_arithmetic
+#include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
+//#define NBL_GL_KHR_shader_subgroup_arithmetic
 //#define NBL_GL_KHR_shader_subgroup_shuffle
 
 StructuredBuffer<uint> inputValue : register(t0); // read-only
@@ -27,7 +28,10 @@ RWStructuredBuffer<Output> outmin : register(u6);
 RWStructuredBuffer<Output> outmax : register(u7);
 RWStructuredBuffer<Output> outbitcount : register(u8);
 
-#define _NBL_HLSL_WORKGROUP_SIZE_ 256U
 #define scratchSize (_NBL_HLSL_WORKGROUP_SIZE_ << 1) + (nbl::hlsl::workgroup::MaxWorkgroupSize >> 1) + 1
 groupshared uint scratch[scratchSize];
 #define SHARED_MEM scratch
+groupshared uint broadcastScratch[bitfieldDWORDs + 1];
+#define BROADCAST_MEM broadcastScratch
+groupshared uint shuffleScratch[_NBL_HLSL_WORKGROUP_SIZE_];
+#define SHUFFLE_MEM shuffleScratch
