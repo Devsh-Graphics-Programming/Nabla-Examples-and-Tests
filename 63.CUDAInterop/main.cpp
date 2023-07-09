@@ -62,50 +62,27 @@ void vk2cuda(
 
 	{
 		auto createBuffer = [&](core::smart_refctd_ptr<asset::ICPUBuffer>const& cpuBuf) {
-			struct CUCleaner : video::ICleanup
-			{
-				CUexternalMemory mem = nullptr;
-				CUdeviceptr ptr = {};
-				core::smart_refctd_ptr <video::CCUDAHandler> cudaHandler = nullptr;
-				core::smart_refctd_ptr <video::CCUDADevice> cudaDevice = nullptr;
-
-				~CUCleaner()
-				{
-					auto& cu = cudaHandler->getCUDAFunctionTable();
-					ASSERT_SUCCESS(cu.pcuMemFree_v2(ptr));
-					ASSERT_SUCCESS(cu.pcuDestroyExternalMemory(mem));
-				}
-			};
-
-			auto cleaner = std::make_unique<CUCleaner>();
-			cleaner->cudaHandler = cudaHandler;
-			cleaner->cudaDevice = cudaDevice;
-			CUexternalMemory* mem = &cleaner->mem;
-			CUdeviceptr* ptr = &cleaner->ptr;
 			auto buf = util->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_COMPUTE],
 				{ {.size = size, .usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT},
-				{{.preDestroyCleanup = std::move(cleaner), .externalMemoryHandType = video::IDeviceMemoryBacked::EHT_OPAQUE_WIN32}} },
+				{{.externalMemoryHandType = video::IDeviceMemoryBacked::EHT_OPAQUE_WIN32}} },
 				cpuBuf->getPointer());
 			assert(buf.get());
-			CUDA_EXTERNAL_MEMORY_HANDLE_DESC handleDesc = {
-				.type = CU_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_WIN32,
-				.handle = {.win32 = {.handle = buf->getExternalHandle()}},
-				.size = buf->getMemoryReqs().size,
-			};
-			CUDA_EXTERNAL_MEMORY_BUFFER_DESC bufferDesc = { .size = buf->getMemoryReqs().size };
-			ASSERT_SUCCESS(cu.pcuImportExternalMemory(mem, &handleDesc));
-			ASSERT_SUCCESS(cu.pcuExternalMemoryGetMappedBuffer(ptr, *mem, &bufferDesc));
-			return std::tuple< core::smart_refctd_ptr<video::IGPUBuffer>, CUexternalMemory, CUdeviceptr>{std::move(buf), * mem, * ptr};
+			return buf;
 		};
 
-		auto [buf0, mem0, ptr0] = createBuffer(cpubuffers[0]);
-		auto [buf1, mem1, ptr1] = createBuffer(cpubuffers[1]);
-		auto [buf2, mem2, ptr2] = createBuffer(cpubuffers[2]);
+		auto buf0 = createBuffer(cpubuffers[0]);
+		auto buf1 = createBuffer(cpubuffers[1]);
+		auto buf2 = createBuffer(cpubuffers[2]);
+		
+		video::CCUDADevice::SSharedCUDAMemory mem0, mem1, mem2;
 
-		void* parameters[] = { &ptr0, &ptr1, &ptr2, &numElements };
+		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(buf0.get(), &mem0));
+		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(buf1.get(), &mem1));
+		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(buf2.get(), &mem2));
 
+		void* parameters[] = { &mem0.ptr, &mem1.ptr, &mem2.ptr, &numElements };
 		ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, gridDim[0], gridDim[1], gridDim[2], blockDim[0], blockDim[1], blockDim[2], 0, stream, parameters, nullptr));
-		ASSERT_SUCCESS(cu.pcuMemcpyDtoHAsync_v2(cpubuffers[2]->getPointer(), ptr2, size, stream));
+		ASSERT_SUCCESS(cu.pcuMemcpyDtoHAsync_v2(cpubuffers[2]->getPointer(), mem2.ptr, size, stream));
 		ASSERT_SUCCESS(cu.pcuCtxSynchronize());
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
@@ -116,6 +93,7 @@ void vk2cuda(
 			assert(abs(C[i] - A[i] - B[i]) < 0.01f);
 	}
 }
+
 
 void cuda2vk(
 	core::smart_refctd_ptr<video::CCUDAHandler> cudaHandler,
@@ -137,79 +115,20 @@ void cuda2vk(
 			reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand();
 
 	{
-		auto createBuffer = [&]{
-			struct CUCleaner : video::ICleanup
-			{
-				CUdeviceptr ptr = {};
-				size_t sz = 0;
-				CUmemGenericAllocationHandle mem = 0;
-				core::smart_refctd_ptr<video::CCUDAHandler> cudaHandler = nullptr;
-				core::smart_refctd_ptr<video::CCUDADevice> cudaDevice = nullptr;
+		video::CCUDADevice::SSharedCUDAMemory mem0, mem1, mem2;
+		ASSERT_SUCCESS(cudaDevice->createExportableMemory(size, sizeof(float), &mem0));
+		ASSERT_SUCCESS(cudaDevice->createExportableMemory(size, sizeof(float), &mem1));
+		ASSERT_SUCCESS(cudaDevice->createExportableMemory(size, sizeof(float), &mem2));
 
-				~CUCleaner()
-				{
-					auto& cu = cudaHandler->getCUDAFunctionTable();
-					ASSERT_SUCCESS(cu.pcuMemUnmap(ptr, sz));
-					ASSERT_SUCCESS(cu.pcuMemAddressFree(ptr, sz));
-					ASSERT_SUCCESS(cu.pcuMemRelease(mem));
-				}
-			};
-			auto& cu = cudaHandler->getCUDAFunctionTable();
-			auto cleaner = std::make_unique<CUCleaner>();
-			cleaner->cudaHandler = cudaHandler;
-			cleaner->cudaDevice = cudaDevice;
-
-			CUdeviceptr* ptr = &cleaner->ptr;
-			CUmemGenericAllocationHandle* mem = &cleaner->mem;
-			void* handle = 0;
-			size_t* sz = &cleaner->sz;
-			size_t granularity = 0;
-
-			uint32_t metaData[16] = { 48 };
-			CUmemAllocationProp prop = {
-				.type = CU_MEM_ALLOCATION_TYPE_PINNED,
-				.requestedHandleTypes = CU_MEM_HANDLE_TYPE_WIN32,
-				.location = {.type = CU_MEM_LOCATION_TYPE_DEVICE, .id = cudaDevice->getInternalObject() },
-				.win32HandleMetaData = metaData,
-			};
-
-			ASSERT_SUCCESS(cu.pcuMemGetAllocationGranularity(&granularity, &prop, CU_MEM_ALLOC_GRANULARITY_MINIMUM));
-			*sz = ((size - 1) / granularity + 1) * granularity;
-			ASSERT_SUCCESS(cu.pcuMemCreate(mem, *sz, &prop, 0));
-			ASSERT_SUCCESS(cu.pcuMemExportToShareableHandle(&handle, *mem, CU_MEM_HANDLE_TYPE_WIN32, 0));
-			ASSERT_SUCCESS(cu.pcuMemAddressReserve(ptr, *sz, 0, 0, 0));
-			ASSERT_SUCCESS(cu.pcuMemMap(*ptr, *sz, 0, *mem, 0));
-			CUmemAccessDesc accessDesc = {
-				.location = prop.location,
-				.flags = CU_MEM_ACCESS_FLAGS_PROT_READWRITE,
-			};
-			ASSERT_SUCCESS(cu.pcuMemSetAccess(*ptr, *sz, &accessDesc, 1));
-
-			auto buf = logicalDevice->createBuffer(
-				{ {.size = *sz, .usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT },
-				{ {.preDestroyCleanup = std::move(cleaner), .externalMemoryHandType = video::IDeviceMemoryBacked::EHT_OPAQUE_WIN32, .externalHandle = handle}} });
-
-			assert(buf.get());
-
-			auto reqs = buf->getMemoryReqs();
-			reqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto alloc = logicalDevice->allocate(reqs, buf.get());
-			assert(alloc.memory && alloc.offset != video::IDeviceMemoryAllocator::InvalidMemoryOffset);
-			return std::tuple< core::smart_refctd_ptr<video::IGPUBuffer>, CUdeviceptr>{std::move(buf), * ptr};
-		};
-
-		auto [buf0, ptr0] = createBuffer();
-		auto [buf1, ptr1] = createBuffer();
-		auto [buf2, ptr2] = createBuffer();
-
-		void* parameters[] = { &ptr0, &ptr1, &ptr2, &numElements };
-		
-		ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptr0, cpubuffers[0]->getPointer(), size, stream));
-		ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptr1, cpubuffers[1]->getPointer(), size, stream));
+		void* parameters[] = { &mem0.ptr, &mem1.ptr, &mem2.ptr, &numElements };
+		ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(mem0.ptr, cpubuffers[0]->getPointer(), size, stream));
+		ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(mem1.ptr, cpubuffers[1]->getPointer(), size, stream));
 		ASSERT_SUCCESS(cu.pcuCtxSynchronize());
 		ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, gridDim[0], gridDim[1], gridDim[2], blockDim[0], blockDim[1], blockDim[2], 0, stream, parameters, nullptr));
 		ASSERT_SUCCESS(cu.pcuCtxSynchronize());
-		util->downloadBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<video::IGPUBuffer>{.offset = 0, .size = size, .buffer = buf2}, cpubuffers[2]->getPointer(), queues[CommonAPI::InitOutput::EQT_COMPUTE]);
+
+		auto buf = cudaDevice->exportGPUBuffer(mem2, logicalDevice);
+		util->downloadBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<video::IGPUBuffer>{.offset = 0, .size = size, .buffer = buf}, cpubuffers[2]->getPointer(), queues[CommonAPI::InitOutput::EQT_COMPUTE]);
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
 		float* B = reinterpret_cast<float*>(cpubuffers[1]->getPointer());
@@ -260,6 +179,7 @@ int main(int argc, char** argv)
 	ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
 
 	vk2cuda(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data(), kernel, stream);
+
 	cuda2vk(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data(), kernel, stream);
 	
 	ASSERT_SUCCESS(cu.pcuModuleUnload(module));
