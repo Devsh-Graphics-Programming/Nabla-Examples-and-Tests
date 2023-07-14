@@ -9,8 +9,6 @@
 
 #include "../examples_tests/48.ArithmeticUnitTest/common.glsl"
 #include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
-//#define NBL_GL_KHR_shader_subgroup_arithmetic
-//#define NBL_GL_KHR_shader_subgroup_shuffle
 
 StructuredBuffer<uint> inputValue : register(t0); // read-only
 
@@ -33,5 +31,8 @@ groupshared uint scratch[scratchSize];
 #define SHARED_MEM scratch
 groupshared uint broadcastScratch[bitfieldDWORDs + 1];
 #define BROADCAST_MEM broadcastScratch
+
+#ifndef NBL_GL_KHR_shader_subgroup_shuffle
 groupshared uint shuffleScratch[_NBL_HLSL_WORKGROUP_SIZE_];
 #define SHUFFLE_MEM shuffleScratch
+#endif

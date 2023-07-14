@@ -51,6 +51,6 @@ void main(uint3 globalId : SV_DispatchThreadID,
 	inclusive_scan_t(max) iscan_max;
 	outmax[0].output[gl_GlobalInvocationID.x] = iscan_max(sourceVal);
 	
-	//nbl::hlsl::workgroup::ballot<nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::MemProxy>, false>((sourceVal & 0x1u) == 0x1u);
-	//outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount<nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::MemProxy> >();
+	nbl::hlsl::workgroup::ballot<nbl::hlsl::SharedMemory, true>((sourceVal & 0x1u) == 0x1u);
+	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount<nbl::hlsl::SharedMemory>();
 }
