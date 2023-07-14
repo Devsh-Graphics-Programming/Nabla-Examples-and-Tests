@@ -9,13 +9,13 @@ static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
-	CASE_0, // Zooming In/Out
-	CASE_1, // Rotating Line
-	CASE_2, // Straight Line Moving up and down
-	CASE_3, // Ellipses
+	CASE_0, // Simple Line, Camera Zoom In/Out
+	CASE_1,	// Overdraw Fragment Shader Stress Test
+	CASE_2, // NOT USED
+	CASE_3, // CURVES AND LINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_1;
 
 
 struct double4x4
@@ -900,8 +900,8 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	constexpr static uint32_t WIN_W = 1280u;
-	constexpr static uint32_t WIN_H = 720u;
+	constexpr static uint32_t WIN_W = 1600u;
+	constexpr static uint32_t WIN_H = 900u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -952,8 +952,9 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
 
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
+	CPolyline bigPolyline;
 
-	void initDrawObjects(uint32_t maxObjects = 128u)
+	void initDrawObjects(uint32_t maxObjects = 20480u)
 	{
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
@@ -961,7 +962,7 @@ class CADApp : public ApplicationBase
 
 			size_t maxIndices = maxObjects * 6u * 2u;
 			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
-			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects);
+			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects * 5u);
 			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
 
 			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
@@ -1422,6 +1423,28 @@ public:
 		m_Camera.setSize(200.0);
 
 		m_timeElapsed = 0.0;
+
+		if constexpr (mode == ExampleMode::CASE_1)
+		{
+			std::vector<double2> linePoints;
+			for (uint32_t i = 0u; i < 40u; ++i)
+			{
+				for (uint32_t i = 0u; i < 256u; ++i)
+				{
+					double y = -112.0 + i * 1.1;
+					linePoints.push_back({ -200.0, y });
+					linePoints.push_back({ +200.0, y });
+				}
+				for (uint32_t i = 0u; i < 256u; ++i)
+				{
+					double x = -200.0 + i * 1.5;
+					linePoints.push_back({ x, -100.0 });
+					linePoints.push_back({ x, +100.0 });
+				}
+			}
+			bigPolyline.addLinePoints(std::move(linePoints));
+		}
+
 	}
 
 	void onAppTerminated_impl() override
@@ -1675,76 +1698,35 @@ public:
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			//std::vector<double2> linePoints;
-			//linePoints.push_back({ -50.0, 0.0 });
-			//linePoints.push_back({ 0.0, 0.0 });
-			//linePoints.push_back({ 80.0, 10.0 });
-			//linePoints.push_back({ 40.0, 40.0 });
-			//linePoints.push_back({ 0.0, 40.0 });
-			//linePoints.push_back({ 30.0, 80.0 });
-			//linePoints.push_back({ -30.0, 50.0 });
-			//linePoints.push_back({ -30.0, 110.0 });
-			//linePoints.push_back({ +30.0, -112.0 });
-			//currentDrawBuffers.addLines(std::move(linePoints));
+			LineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 5.0f;
+			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+
+			CPolyline polyline;
+			{
+				std::vector<double2> linePoints;
+				linePoints.push_back({ -50.0, -50.0 });
+				linePoints.push_back({ 50.0, 50.0 });
+				polyline.addLinePoints(std::move(linePoints));
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			//std::vector<double2> linePoints;
-			//linePoints.push_back({ 0.0, 0.0 });
-			//linePoints.push_back({ 30.0, 30.0 });
-			//currentDrawBuffers.addLines(std::move(linePoints));
+			LineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 0.8f;
+			style.color = float4(0.619f, 0.325f, 0.709f, 0.2f);
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
-			//std::vector<double2> linePoints;
-			//linePoints.push_back({ -70.0, cos(m_timeElapsed * 0.00003) * 10 });
-			//linePoints.push_back({ 70.0, cos(m_timeElapsed * 0.00003) * 10 });
-			//currentDrawBuffers.addLines(std::move(linePoints));
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
-			//constexpr double twoPi = core::PI<double>() * 2.0;
-			//PackedEllipseInfo ellipse = {};
-			//const double a = m_timeElapsed * 0.001;
-			//// ellipse.majorAxis = { 40.0 * cos(a), 40.0 * sin(a) };
-			//ellipse.majorAxis = double2{ 30.0, 0.0 };
-			//ellipse.center = double2{ 0, 0 };
-			//ellipse.eccentricityPacked = (0.6 * UINT32_MAX);
-
-			//ellipse.angleBoundsPacked = uint2{
-			//	static_cast<uint32_t>(((0.0) / twoPi) * UINT32_MAX),
-			//	static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX)
-			//};
-			////currentDrawBuffers.addEllipse(ellipse);
-
-			//ellipse.angleBoundsPacked = uint2{
-			//	static_cast<uint32_t>(((core::PI<double>() * 0.5) / twoPi) * UINT32_MAX),
-			//	static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX)
-			//};
-			////currentDrawBuffers.addEllipse(ellipse);
-			//ellipse.angleBoundsPacked = uint2{
-			//	static_cast<uint32_t>(((core::PI<double>()) / twoPi) * UINT32_MAX),
-			//	static_cast<uint32_t>(((core::PI<double>() * 1.5) / twoPi) * UINT32_MAX)
-			//};
-			////currentDrawBuffers.addEllipse(ellipse);
-			//ellipse.majorAxis = double2{ 50.0, 0.0 };
-			//double start = 0.0 * core::PI<double>();
-			//double end = abs(sin(m_timeElapsed * 0.0005)) * core::PI<double>();
-			//ellipse.angleBoundsPacked = uint2{
-			//	static_cast<uint32_t>(((start) / twoPi) * UINT32_MAX),
-			//	static_cast<uint32_t>(((end) / twoPi) * UINT32_MAX)
-			//};
-			//currentDrawBuffers.addEllipse(ellipse, firstStyleIdx);
-			//ellipse.majorAxis = double2{ 30.0 * sin(m_timeElapsed * 0.0005), 30.0 * cos(m_timeElapsed * 0.0005) };
-			//ellipse.center = double2{ 50, 50 };
-			//ellipse.angleBoundsPacked = uint2{
-			//	static_cast<uint32_t>(((core::PI<double>() * 0) / twoPi) * UINT32_MAX),
-			//	static_cast<uint32_t>(((core::PI<double>() * 2.0 / 3.0) / twoPi) * UINT32_MAX)
-			//};
-			//currentDrawBuffers.addEllipse(ellipse, firstStyleIdx);
-
-			// intendedNextSubmit = submitInBetweenDraws(m_resourceIx, submissionQueue, submissionFence, intendedNextSubmit);
-
 			LineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
@@ -1896,7 +1878,7 @@ public:
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.0001)) * 7000);
+			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
 		}
 
 		inputSystem->getDefaultMouse(&mouse);
