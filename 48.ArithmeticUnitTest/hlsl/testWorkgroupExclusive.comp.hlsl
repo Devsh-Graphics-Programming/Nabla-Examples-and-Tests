@@ -1,10 +1,10 @@
-#include "../examples_tests/48.ArithmeticUnitTest/hlsl/wgsize.hlsl"
+#include "../hlsl/wgsize.hlsl"
 static uint3 gl_GlobalInvocationID;
 static uint3 gl_WorkGroupID;
 static uint gl_LocalInvocationIndex;
 
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
-#include "../examples_tests/48.ArithmeticUnitTest/hlsl/shaderCommon.hlsl"
+#include "../hlsl/shaderCommon.hlsl"
 #include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"

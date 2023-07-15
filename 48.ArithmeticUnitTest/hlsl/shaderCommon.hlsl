@@ -7,7 +7,7 @@
 
 #pragma shader_stage(compute)
 
-#include "../examples_tests/48.ArithmeticUnitTest/common.glsl"
+#include "../common.glsl"
 #include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
 
 StructuredBuffer<uint> inputValue : register(t0); // read-only

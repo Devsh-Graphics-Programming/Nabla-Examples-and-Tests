@@ -186,7 +186,7 @@ struct emulatedWorkgroupScanInclusive
 
 #include "common.glsl"
 #define HLSL
-constexpr uint32_t kBufferSize = (/*uint subgroupSize*/1u + /*uint output[]*/BUFFER_DWORD_COUNT) * sizeof(uint32_t);
+constexpr uint32_t kBufferSize = (1u + BUFFER_DWORD_COUNT) * sizeof(uint32_t);
 
 //returns true if result matches
 template<template<class> class Arithmetic, template<class> class OP>
@@ -327,8 +327,7 @@ public:
 		{
 			std::mt19937 randGenerator(std::time(0));
 			for (uint32_t i = 0u; i < BUFFER_DWORD_COUNT; i++)
-				//inputData[i] = randGenerator();
-				inputData[i] = 1;
+				inputData[i] = randGenerator();
 		}
 
 		IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
@@ -399,12 +398,12 @@ public:
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
 #ifdef HLSL
 		{
-			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupExclusive.comp.hlsl")/*,
-			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupExclusive.comp.hlsl"),
-			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupInclusive.comp.hlsl"),
+			getShaderGLSL("../hlsl/testSubgroupReduce.comp.hlsl"),
+			getShaderGLSL("../hlsl/testSubgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../hlsl/testSubgroupInclusive.comp.hlsl"),
 			getShaderGLSL("../hlsl/testWorkgroupReduce.comp.hlsl"),
+			getShaderGLSL("../hlsl/testWorkgroupInclusive.comp.hlsl"),
 			getShaderGLSL("../hlsl/testWorkgroupExclusive.comp.hlsl"),
-			getShaderGLSL("../hlsl/testWorkgroupInclusive.comp.hlsl")*/
 		};
 #else
 		{
@@ -422,6 +421,7 @@ public:
 		auto getGPUShader = [&](ICPUSpecializedShader* shader, uint32_t wg_count) -> auto
 		{
 #ifdef HLSL
+			// REVIEW: Not sure how to create overriden copies and define the workgroup size
 			core::smart_refctd_ptr<ICPUSpecializedShader> shdr = core::smart_refctd_ptr<ICPUSpecializedShader>(shader);
 			return cpu2gpu.getGPUObjectsFromAssets(&shdr, &shdr + 1, cpu2gpuParams)->front();
 #else
@@ -452,31 +452,29 @@ public:
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
-		
-		uint32_t workgroupSize = 256u;
-		//for (uint32_t workgroupSize=45u; workgroupSize<=1024u; workgroupSize++)
+		uint32_t workgroupSize = std::stoul(argv[1]);
+		// REVIEW: One test here because there is no shader override for externally defining _NBL_HLSL_WORKGROUP_SIZE_ yet
+		//for (uint32_t workgroupSize=45u; workgroupSize<=256u; workgroupSize++)
 		{
 			core::smart_refctd_ptr<IGPUComputePipeline> pipelines[kTestTypeCount];
 			for (uint32_t i = 0u; i < kTestTypeCount; i++) {
 				pipelines[i] = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(pipelineLayout), std::move(getGPUShader(shaders[i].get(), workgroupSize)));
-				//auto gpush = cpu2gpu.getGPUObjectsFromAssets(shaders + i, shaders + i + 1, cpu2gpuParams);
-				//pipelines[i] = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(pipelineLayout), core::smart_refctd_ptr(gpush->front()));
 			}
 			bool passed = true;
 
 			const video::IGPUDescriptorSet* ds = descriptorSet.get();
-			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[0u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			passed = runTest<emulatedSubgroupReduction>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[0u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);
-			/*passed = runTest<emulatedSubgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[1u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
+			passed = runTest<emulatedSubgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[1u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);
 			passed = runTest<emulatedSubgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[2u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);
 			passed = runTest<emulatedWorkgroupReduction>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[3u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
 			logTestOutcome(passed, workgroupSize);
-			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[4u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[4u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
 			logTestOutcome(passed, workgroupSize);
-			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[5u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
-			logTestOutcome(passed, workgroupSize);*/
+			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[5u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			logTestOutcome(passed, workgroupSize);
 		}
 		computeQueue->endCapture();
 	}
