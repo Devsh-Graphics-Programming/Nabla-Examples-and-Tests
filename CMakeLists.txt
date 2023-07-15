@@ -6,8 +6,8 @@ if(NBL_BUILD_ANDROID)
 	nbl_android_create_media_storage_apk()
 endif()
 
-# PCH for Nabla framework examples
-add_subdirectory(common/CommonPCH EXCLUDE_FROM_ALL) # it must be included before examples
+# PCH & CommonAPI library for Nabla framework examples, must be included before example targets
+add_subdirectory(common EXCLUDE_FROM_ALL)
 #message(FATAL_ERROR ${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET})
 
 # Nabla framework examples
@@ -82,3 +82,5 @@ add_subdirectory(62.SchusslerTest EXCLUDE_FROM_ALL)
 add_subdirectory(0.ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 
 unset(NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET CACHE)
+
+nbl_install_media_spec("${CMAKE_CURRENT_SOURCE_DIR}/media" "examples_tests")
