@@ -6,6 +6,8 @@
 #include <nabla.h>
 
 #include "nbl/video/CCUDAHandler.h"
+#include "nbl/video/CCUDASharedMemory.h"
+#include "nbl/video/CCUDASharedSemaphore.h"
 
 #include "../common/CommonAPI.h"
 
@@ -64,7 +66,7 @@ void vk2cuda(
 		auto createBuffer = [&](core::smart_refctd_ptr<asset::ICPUBuffer>const& cpuBuf) {
 			auto buf = util->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_COMPUTE],
 				{ {.size = size, .usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT},
-				{{.externalHandleType = video::IDeviceMemoryBacked::EHT_OPAQUE_WIN32}} },
+				{{.externalHandleTypes = video::IDeviceMemoryBacked::EHT_OPAQUE_WIN32}} },
 				cpuBuf->getPointer());
 			assert(buf.get());
 			return buf;
@@ -76,14 +78,15 @@ void vk2cuda(
 			createBuffer(cpubuffers[2]),
 		};
 
-		std::array<core::smart_refctd_ptr<video::CCUDADevice::SSharedCUDAMemory>, 3> mem = {};
+		std::array<core::smart_refctd_ptr<video::CCUDASharedMemory>, 3> mem = {};
 		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(&mem[0], buf[0].get()));
 		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(&mem[1], buf[1].get()));
 		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(&mem[2], buf[2].get()));
 
-		void* parameters[] = { &mem[0]->ptr, &mem[1]->ptr, &mem[2]->ptr, &numElements };
+		CUdeviceptr ptrs[] = { mem[0]->getDevicePtr(), mem[1]->getDevicePtr(), mem[2]->getDevicePtr() };
+		void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &numElements};
 		ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, gridDim[0], gridDim[1], gridDim[2], blockDim[0], blockDim[1], blockDim[2], 0, stream, parameters, nullptr));
-		ASSERT_SUCCESS(cu.pcuMemcpyDtoHAsync_v2(cpubuffers[2]->getPointer(), mem[2]->ptr, size, stream));
+		ASSERT_SUCCESS(cu.pcuMemcpyDtoHAsync_v2(cpubuffers[2]->getPointer(), ptrs[2], size, stream));
 		ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
@@ -95,6 +98,7 @@ void vk2cuda(
 	}
 }
 
+
 struct CUDA2VK
 {
 	core::smart_refctd_ptr<video::CCUDAHandler> cudaHandler;
@@ -104,8 +108,8 @@ struct CUDA2VK
 	nbl::video::IGPUQueue** queues;
 
 	std::array<core::smart_refctd_ptr<asset::ICPUBuffer>, 2> cpubuffers;
-	std::array<core::smart_refctd_ptr<video::CCUDADevice::SSharedCUDAMemory>, 3> mem = {};
-	core::smart_refctd_ptr<video::CCUDADevice::SExternalCUDASemaphore> cusema;
+	std::array<core::smart_refctd_ptr<video::CCUDASharedMemory>, 3> mem = {};
+	core::smart_refctd_ptr<video::CCUDASharedSemaphore> cusema;
 	core::smart_refctd_ptr<video::IGPUBuffer> importedbuf, stagingbuf;
 	core::smart_refctd_ptr<video::IGPUSemaphore> sema;
 	core::smart_refctd_ptr<video::IGPUCommandPool> commandPool;
@@ -138,14 +142,14 @@ struct CUDA2VK
 			for (auto i = 0; i < numElements; i++)
 				reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand();
 
-		sema = logicalDevice->createSemaphore({ .externalHandleType = video::IGPUSemaphore::EHT_OPAQUE_WIN32 });
+		sema = logicalDevice->createSemaphore({ .externalHandleTypes = video::IGPUSemaphore::EHT_OPAQUE_WIN32 });
 		ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cusema, sema.get()));
 
 		ASSERT_SUCCESS(cudaDevice->createExportableMemory(&mem[0], size, sizeof(float)));
 		ASSERT_SUCCESS(cudaDevice->createExportableMemory(&mem[1], size, sizeof(float)));
 		ASSERT_SUCCESS(cudaDevice->createExportableMemory(&mem[2], size, sizeof(float)));
 		importedbuf = cudaDevice->exportGPUBuffer(mem[2].get(), logicalDevice);
-
+		assert(importedbuf);
 		fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
 		commandPool = logicalDevice->createCommandPool(queues[CommonAPI::InitOutput::EQT_COMPUTE]->getFamilyIndex(), {});
 		bool re = logicalDevice->createCommandBuffers(commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, &cmd);
@@ -169,12 +173,14 @@ struct CUDA2VK
 		auto& cu = cudaHandler->getCUDAFunctionTable();
 		// Launch kernel
 		{
-			void* parameters[] = { &mem[0]->ptr, &mem[1]->ptr, &mem[2]->ptr, &numElements };
-			ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(mem[0]->ptr, cpubuffers[0]->getPointer(), size, stream));
-			ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(mem[1]->ptr, cpubuffers[1]->getPointer(), size, stream));
+			CUdeviceptr ptrs[] = { mem[0]->getDevicePtr(), mem[1]->getDevicePtr(), mem[2]->getDevicePtr() };
+			void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &numElements };
+			ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpubuffers[0]->getPointer(), size, stream));
+			ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpubuffers[1]->getPointer(), size, stream));
 			ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, gridDim[0], gridDim[1], gridDim[2], blockDim[0], blockDim[1], blockDim[2], 0, stream, parameters, nullptr));
 			CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = {};
-			ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&cusema->semaphore, &signalParams, 1, stream)); // Signal the imported semaphore
+			auto semaphore = cusema->getInternalObject();
+			ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream)); // Signal the imported semaphore
 		}
 
 		// After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
@@ -195,7 +201,7 @@ struct CUDA2VK
 			};
 			bool re = true;
 			re &= cmd->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-			re &= cmd->pipelineBarrier(asset::EPSF_ALL_COMMANDS_BIT, asset::EPSF_ALL_COMMANDS_BIT, asset::EDF_NONE, 0u, nullptr, 1u, &barrier, 0u, nullptr); 	// Ownership transfer?
+			// re &= cmd->pipelineBarrier(asset::EPSF_ALL_COMMANDS_BIT, asset::EPSF_ALL_COMMANDS_BIT, asset::EDF_NONE, 0u, nullptr, 1u, &barrier, 0u, nullptr); 	// Ownership transfer?
 			asset::SBufferCopy region = { .size = importedbuf->getSize() };
 			re &= cmd->copyBuffer(importedbuf.get(), stagingbuf.get(), 1, &region);
 			re &= cmd->end();
@@ -275,9 +281,11 @@ int main(int argc, char** argv)
 	ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
 	ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
 
-	vk2cuda(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data(), kernel, stream);
 
+	vk2cuda(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data(), kernel, stream);
 	(new CUDA2VK(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data()))->launchKernel(kernel, stream);
+
+	ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
 
 	ASSERT_SUCCESS(cu.pcuModuleUnload(module));
 	ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
