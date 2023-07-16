@@ -1,4 +1,3 @@
-#include "../hlsl/wgsize.hlsl"
 static uint3 gl_GlobalInvocationID;
 static uint3 gl_WorkGroupID;
 static uint gl_LocalInvocationIndex;

@@ -390,9 +390,7 @@ public:
 			lparams.workingDirectory = std::filesystem::current_path();
 			auto bundle = assetManager->getAsset(filePath, lparams);
 			assert(!bundle.getContents().empty() && bundle.getAssetType() == IAsset::ET_SPECIALIZED_SHADER);
-			auto shader = core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(*bundle.getContents().begin());
-			shader->setSpecializationInfo(ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-			return shader;
+			return core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(*bundle.getContents().begin());
 		};
 
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
@@ -421,9 +419,9 @@ public:
 		auto getGPUShader = [&](ICPUSpecializedShader* shader, uint32_t wg_count) -> auto
 		{
 #ifdef HLSL
-			// REVIEW: Not sure how to create overriden copies and define the workgroup size
-			core::smart_refctd_ptr<ICPUSpecializedShader> shdr = core::smart_refctd_ptr<ICPUSpecializedShader>(shader);
-			return cpu2gpu.getGPUObjectsFromAssets(&shdr, &shdr + 1, cpu2gpuParams)->front();
+			auto overriddenUnspecialized = CHLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_HLSL_WORKGROUP_SIZE_ %d\n", wg_count);
+			auto cs = core::make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(overriddenUnspecialized), std::move(ISpecializedShader::SInfo(nullptr, nullptr, "main")));
+			return cpu2gpu.getGPUObjectsFromAssets(&cs, &cs + 1, cpu2gpuParams)->front();
 #else
 			auto overridenUnspecialized = CGLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_GLSL_WORKGROUP_SIZE_ %d\n", wg_count);
 			ISpecializedShader::SInfo specInfo = shader->getSpecializationInfo();
@@ -452,10 +450,9 @@ public:
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
-		uint32_t workgroupSize = std::stoul(argv[1]);
-		// REVIEW: One test here because there is no shader override for externally defining _NBL_HLSL_WORKGROUP_SIZE_ yet
-		//for (uint32_t workgroupSize=45u; workgroupSize<=256u; workgroupSize++)
+		for (uint32_t workgroupSize=45u; workgroupSize<=1024; workgroupSize++)
 		{
+			logger->log("Testing Workgroup Size %u", system::ILogger::ELL_INFO, workgroupSize);
 			core::smart_refctd_ptr<IGPUComputePipeline> pipelines[kTestTypeCount];
 			for (uint32_t i = 0u; i < kTestTypeCount; i++) {
 				pipelines[i] = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(pipelineLayout), std::move(getGPUShader(shaders[i].get(), workgroupSize)));
