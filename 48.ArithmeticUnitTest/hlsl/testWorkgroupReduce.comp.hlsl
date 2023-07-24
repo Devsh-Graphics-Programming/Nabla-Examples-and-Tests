@@ -7,7 +7,7 @@ static uint gl_LocalInvocationIndex;
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
-#define reduction_t(Binop) nbl::hlsl::workgroup::reduction<uint, nbl::hlsl::binops::Binop<uint>, nbl::hlsl::SharedMemory>
+#define reduction_t(Binop) nbl::hlsl::workgroup::reduction<uint, nbl::hlsl::binops::Binop<uint>, SharedMemory>
 
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint3 globalId : SV_DispatchThreadID, 
@@ -50,6 +50,6 @@ void main(uint3 globalId : SV_DispatchThreadID,
 	reduction_t(max) r_max;
 	outmax[0].output[gl_GlobalInvocationID.x] = r_max(sourceVal);
 	
-	nbl::hlsl::workgroup::ballot<nbl::hlsl::SharedMemory, false>((sourceVal & 0x1u) == 0x1u);
-	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotBitCount<nbl::hlsl::SharedMemory>();
+	nbl::hlsl::workgroup::ballot<SharedMemory, false>((sourceVal & 0x1u) == 0x1u);
+	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotBitCount<SharedMemory>();
 }

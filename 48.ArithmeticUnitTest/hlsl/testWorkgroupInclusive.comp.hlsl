@@ -7,7 +7,7 @@ static uint gl_LocalInvocationIndex;
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
-#define inclusive_scan_t(Binop) nbl::hlsl::workgroup::inclusive_scan<uint, nbl::hlsl::binops::Binop<uint>, nbl::hlsl::SharedMemory>
+#define inclusive_scan_t(Binop) nbl::hlsl::workgroup::inclusive_scan<uint, nbl::hlsl::binops::Binop<uint>, SharedMemory>
 
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint3 globalId : SV_DispatchThreadID, 
@@ -50,6 +50,6 @@ void main(uint3 globalId : SV_DispatchThreadID,
 	inclusive_scan_t(max) iscan_max;
 	outmax[0].output[gl_GlobalInvocationID.x] = iscan_max(sourceVal);
 	
-	nbl::hlsl::workgroup::ballot<nbl::hlsl::SharedMemory, true>((sourceVal & 0x1u) == 0x1u);
-	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount<nbl::hlsl::SharedMemory>();
+	nbl::hlsl::workgroup::ballot<SharedMemory, true>((sourceVal & 0x1u) == 0x1u);
+	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount<SharedMemory>();
 }

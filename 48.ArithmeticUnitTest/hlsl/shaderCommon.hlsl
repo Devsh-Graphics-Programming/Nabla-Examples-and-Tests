@@ -10,6 +10,20 @@
 #include "../common.glsl"
 #include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
 
+// Must define all groupshared memory before including shared_memory_accessor since it creates all the proxy structs
+#define scratchSize (_NBL_HLSL_WORKGROUP_SIZE_ << 1) + (nbl::hlsl::workgroup::MaxWorkgroupSize >> 1) + 1
+groupshared uint scratch[scratchSize];
+#define SHARED_MEM scratch
+groupshared uint broadcastScratch[bitfieldDWORDs + 1];
+#define BROADCAST_MEM broadcastScratch
+
+#ifndef NBL_GL_KHR_shader_subgroup_shuffle
+groupshared uint shuffleScratch[_NBL_HLSL_WORKGROUP_SIZE_];
+#define SHUFFLE_MEM shuffleScratch
+
+#include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
+
+
 StructuredBuffer<uint> inputValue : register(t0); // read-only
 
 struct Output {
@@ -26,13 +40,38 @@ RWStructuredBuffer<Output> outmin : register(u6);
 RWStructuredBuffer<Output> outmax : register(u7);
 RWStructuredBuffer<Output> outbitcount : register(u8);
 
-#define scratchSize (_NBL_HLSL_WORKGROUP_SIZE_ << 1) + (nbl::hlsl::workgroup::MaxWorkgroupSize >> 1) + 1
-groupshared uint scratch[scratchSize];
-#define SHARED_MEM scratch
-groupshared uint broadcastScratch[bitfieldDWORDs + 1];
-#define BROADCAST_MEM broadcastScratch
+struct MainScratchProxy
+{
+	uint get(uint ix)
+	{
+		return SHARED_MEM[ix];
+	}
 
-#ifndef NBL_GL_KHR_shader_subgroup_shuffle
-groupshared uint shuffleScratch[_NBL_HLSL_WORKGROUP_SIZE_];
-#define SHUFFLE_MEM shuffleScratch
+	void set(uint ix, uint value)
+	{
+		SHARED_MEM[ix] = value;
+	}
+	
+	uint atomicAdd(in uint ix, uint data)
+	{
+		uint orig;
+		InterlockedAdd(SHARED_MEM[ix], data, orig);
+		return orig;
+	}
+	
+	uint atomicOr(in uint ix, uint data)
+	{
+		uint orig;
+		InterlockedOr(SHARED_MEM[ix], data, orig);
+		return orig;
+	}
+};
+
+struct SharedMemory
+{
+	nbl::hlsl::SharedMemoryAdaptor<MainScratchProxy> main;
+	nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::BroadcastScratchProxy> broadcast;
+	nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::ShuffleScratchProxy> shuffle;
+};
+
 #endif
