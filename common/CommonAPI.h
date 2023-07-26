@@ -666,7 +666,7 @@ public:
 		uint32_t height,
 		nbl::asset::E_FORMAT format)
 	{
-		nbl::video::IGPUImage::SCreationParams gpu_image_params;
+		nbl::video::IGPUImage::SCreationParams gpu_image_params = {};
 		gpu_image_params.mipLevels = 1;
 		gpu_image_params.extent = { width, height, 1 };
 		gpu_image_params.format = format;
@@ -679,7 +679,7 @@ public:
 		imagereqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 		auto imageMem = device->allocate(imagereqs, image.get());
 
-		nbl::video::IGPUImageView::SCreationParams creation_params;
+		nbl::video::IGPUImageView::SCreationParams creation_params = {};
 		creation_params.format = image->getCreationParameters().format;
 		creation_params.image = image;
 		creation_params.viewType = nbl::video::IGPUImageView::ET_2D;
@@ -1050,6 +1050,7 @@ protected:
 				nbl::core::smart_refctd_ptr(result.logger),
 				params.apiFeaturesToEnable
 			);
+			assert(_apiConnection);
 
 			if (!headlessCompute)
 			{

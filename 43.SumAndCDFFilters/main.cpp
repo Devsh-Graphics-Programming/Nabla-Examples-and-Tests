@@ -314,6 +314,9 @@ public:
 			state.scratchMemoryByteSize = blitImageFilter.getRequiredScratchByteSize(&state);
 			state.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(state.scratchMemoryByteSize, 32));
 
+			const bool succ = state.recomputeScaledKernelPhasedLUT();
+			assert(succ);
+
 			if (!blitImageFilter.execute(core::execution::par_unseq,&state))
 				logger->log("Something went wrong while performing discrete convolution operation!", nbl::system::ILogger::ELL_WARNING);
 

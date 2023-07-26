@@ -12,6 +12,12 @@
 #include "nbl/system/CFileLogger.h"
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
 
+//! builtin resources archive test
+#ifdef _BR_TEST_
+#include "nbl/builtin/CArchive.h"
+#include "yourNamespace/builtin/CArchive.h"
+#endif
+
 using namespace nbl;
 using namespace core;
 using namespace ui;
@@ -270,6 +276,83 @@ int main(int argc, char** argv)
 	{
 		assert(false);
 	}
+
+	//! builtin resources archive test
+	#ifdef _BR_TEST_
+	// Nabla case
+	{
+		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+		system->createFile(future, "nbl/builtin/glsl/utils/acceleration_structures.glsl", core::bitflag(IFileBase::ECF_READ));
+		if (auto pFile = future.acquire())
+		{
+			auto& file = *pFile;
+
+			const size_t fileSize = file->getSize();
+			std::string readStr(fileSize, '\0');
+			system::IFile::success_t readSuccess;
+			file->read(readSuccess, readStr.data(), 0, readStr.length());
+			{
+				const bool success = bool(readSuccess);
+				assert(success);
+			}
+
+			const auto* testStream = readStr.c_str();
+			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+		}
+	}
+	// Custom case
+	{
+		#ifdef _NBL_SHARED_BUILD_
+		{
+			const auto brOutputDLLAbsoluteDirectory = std::filesystem::absolute(std::filesystem::path(_BR_DLL_DIRECTORY_)).string();
+			const HRESULT brLoad = nbl::system::CSystemWin32::delayLoadDLL(_BR_DLL_NAME_, { brOutputDLLAbsoluteDirectory.c_str(), "" });
+
+			assert(SUCCEEDED(brLoad));
+		};
+		#endif
+
+		nbl::core::smart_refctd_ptr<yourNamespace::builtin::CArchive> archive = core::make_smart_refctd_ptr<yourNamespace::builtin::CArchive>(core::smart_refctd_ptr(logger));
+		system->mount(core::smart_refctd_ptr(archive));
+
+		// archive path test
+		{
+			nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+			system->createFile(future, "dir/data/test.txt", core::bitflag(IFileBase::ECF_READ));
+			if (auto pFile = future.acquire())
+			{
+				auto& file = *pFile;
+
+				const size_t fileSize = file->getSize();
+				std::string readStr(fileSize, '\0');
+				system::IFile::success_t readSuccess;
+				file->read(readSuccess, readStr.data(), 0, readStr.length());
+				{
+					const bool success = bool(readSuccess);
+					assert(success);
+				}
+
+				const auto* testStream = readStr.c_str();
+				std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+			}
+		}
+
+		// archive alias test
+		{
+			nbl::core::smart_refctd_ptr<system::IFile> testFile = archive->getFile("aliasTest1", ""); // alias to dir/data/test.txt
+
+			const size_t fileSize = testFile->getSize();
+			std::string readStr(fileSize, '\0');
+			system::IFile::success_t readSuccess;
+			testFile->read(readSuccess, readStr.data(), 0, readStr.length());
+			{
+				const bool success = bool(readSuccess);
+				assert(success);
+			}
+			const auto* testStream = readStr.c_str();
+			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+		}
+	}
+	#endif // _BR_TEST_
 
 	// polling for events!
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;

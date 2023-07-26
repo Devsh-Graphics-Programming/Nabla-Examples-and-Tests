@@ -6,7 +6,7 @@ float2 intersectLines2D(in float2 p1, in float2 v1, in float2 p2, in float2 v2)
 {
     float det = v1.y * v2.x - v1.x * v2.y;
     float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
-    float2 t = mul(inv, p1-p2);
+    float2 t = mul(inv, p1 - p2);
     return p2 + mul(v2, t.y);
 }
 
@@ -18,9 +18,9 @@ PSInput main(uint vertexID : SV_VertexID)
     DrawObject drawObj = drawObjects[objectID];
     LineStyle lineStyle = lineStyles[drawObj.styleIdx];
     ObjectType objType = drawObj.type;
-    
+
     PSInput outV;
-    
+
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
     outV.color = lineStyle.color;
@@ -53,10 +53,10 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedMajorAxis = (float2)((ndcMajorAxis) * 0.5 * globals.resolution); // Transform to Screen Space
         outV.start_end.zw = transformedMajorAxis;
 
-        // construct a cage, working in ellipse screen space :
+        // construct a cage, working in ellipse screen space (ellipse centered in 0,0 and major axis aligned with x-axis) :
         const float2 angleBounds = ((float2)(angleBoundsPacked_eccentricityPacked_pad.xy) / UINT32_MAX) * (2.0 * nbl_hlsl_PI);
         const float eccentricity = (float)(angleBoundsPacked_eccentricityPacked_pad.z) / UINT32_MAX;
-        outV.ellipseBounds = angleBounds;
+        outV.ellipseBounds_bezierP2P3.xy = angleBounds;
 
         // TODO: Optimize
         float majorAxisLength = length(transformedMajorAxis);
@@ -80,11 +80,11 @@ PSInput main(uint vertexID : SV_VertexID)
 
         if (vertexIdx == 0u)
         {
-            outV.position.xy = start - (normalToStartPoint) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = start - (normalToStartPoint)*antiAliasedLineWidth * 0.5f;
         }
         else if (vertexIdx == 1u)
         {
-            // find the angle in which the tangent of the ellipse is equal to startToEnd:
+            // find the theta (input to ellipse) in which the tangent of the ellipse is equal to startToEnd:
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
@@ -93,11 +93,11 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (vertexIdx == 2u)
         {
-            outV.position.xy = end - (normalToEndPoint) * antiAliasedLineWidth * 0.5f;
+            outV.position.xy = end - (normalToEndPoint)*antiAliasedLineWidth * 0.5f;
         }
         else
         {
-            // find the angle in which the tangent of the ellipse is equal to startToEnd:
+            // find the theta (input to ellipse) in which the tangent of the ellipse is equal to startToEnd:
             float theta = atan2(eccentricity * startToEnd.x, -startToEnd.y) + nbl_hlsl_PI;
             float2 perp = normalize(float2(startToEnd.y, -startToEnd.x));
             float2 p = float2(ab * float2(cos(theta), sin(theta)));
@@ -105,11 +105,11 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position.xy = intersection;
         }
 
-        // Transform from ellipse screen space to actual screen space
+        // Transform from ellipse screen space to actual screen space with a rotation and translation
         float2 dir = normalize(transformedMajorAxis);
-        outV.position.xy = mul(float2x2(dir.x, dir.y, dir.y, -dir.x), outV.position.xy);
+        outV.position.xy = mul(float2x2(dir.x, dir.y, dir.y, -dir.x), outV.position.xy); // transforming ellipse -> screen space we need to also invert y other than rotate, hence the inversion of signs in the last row
         outV.position.xy += transformedCenter;
-        
+
         // Transform to ndc
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
@@ -123,7 +123,7 @@ PSInput main(uint vertexID : SV_VertexID)
         points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
 
         float2 transformedPoints[2u];
-        for(uint i = 0u; i < 2u; ++i)
+        for (uint i = 0u; i < 2u; ++i)
         {
             double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
@@ -154,6 +154,68 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
         outV.position.w = 1u;
     }
+    else if (objType == ObjectType::QUAD_BEZIER)
+    {
+        double3x3 transformation = (double3x3)globals.viewProjection;
+
+        double2 points[3u];
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
+        points[2u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 2u, 8u);
+
+        // transform these points into screen space and pass to fragment
+        float2 transformedPoints[3u];
+        for (uint i = 0u; i < 3u; ++i)
+        {
+            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
+            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+        }
+
+        outV.start_end.xy = transformedPoints[0u];
+        outV.start_end.zw = transformedPoints[1u];
+        outV.ellipseBounds_bezierP2P3.xy = transformedPoints[2u];
+
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
+    }
+    else if (objType == ObjectType::CUBIC_BEZIER)
+    {
+        double3x3 transformation = (double3x3)globals.viewProjection;
+
+        double2 points[4u];
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
+        points[2u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 2u, 8u);
+        points[3u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 3u, 8u);
+
+        // transform these points into screen space and pass to fragment
+        float2 transformedPoints[4u];
+        for (uint i = 0u; i < 4u; ++i)
+        {
+            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
+            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+        }
+
+        outV.start_end.xy = transformedPoints[0u];
+        outV.start_end.zw = transformedPoints[1u];
+        outV.ellipseBounds_bezierP2P3.xy = transformedPoints[2u];
+        outV.ellipseBounds_bezierP2P3.zw = transformedPoints[3u];
+
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
+    }
 
 #if 0
     if (vertexIdx == 0u)
@@ -166,5 +228,5 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position = float4(+1, +1, 0, 1);
 #endif
 
-	return outV;
+    return outV;
 }

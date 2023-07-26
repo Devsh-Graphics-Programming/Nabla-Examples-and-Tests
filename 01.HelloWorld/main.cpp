@@ -221,7 +221,7 @@ public:
 		// create API connection
 		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
 		{
-			nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
+			nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
 			apiFeaturesToEnable.swapchainMode = swapChainMode;
 			apiFeaturesToEnable.validations = true;
 			apiFeaturesToEnable.debugUtils = true;
