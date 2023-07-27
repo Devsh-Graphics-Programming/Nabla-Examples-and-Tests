@@ -39,65 +39,10 @@ if (auto re = expr; NVRTC_SUCCESS != re) { \
 	abort(); \
 }
 
-constexpr uint32_t gridDim[3] = { 4096,1,1 };
-constexpr uint32_t blockDim[3] = { 1024,1,1 };
+constexpr uint32_t gridDim[3] = { 256,1,1 };
+constexpr uint32_t blockDim[3] = { 256,1,1 };
 size_t numElements = gridDim[0] * blockDim[0];
 size_t size = sizeof(float) * numElements;
-
-void vk2cuda(
-	core::smart_refctd_ptr<video::CCUDAHandler> cudaHandler, 
-	core::smart_refctd_ptr<video::CCUDADevice> cudaDevice, 
-	video::IUtilities * util,
-	video::ILogicalDevice* logicalDevice,
-	nbl::video::IGPUQueue ** queues,
-	CUfunction kernel,
-	CUstream stream,
-	int=0)
-{
-	auto& cu = cudaHandler->getCUDAFunctionTable();
-	core::smart_refctd_ptr<asset::ICPUBuffer> cpubuffers[3] = { core::make_smart_refctd_ptr<asset::ICPUBuffer>(size),
-																core::make_smart_refctd_ptr<asset::ICPUBuffer>(size),
-																core::make_smart_refctd_ptr<asset::ICPUBuffer>(size) };
-	for (auto j = 0; j < 2; j++)
-		for (auto i = 0; i < numElements; i++)
-			reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand();
-
-	{
-		auto createBuffer = [&](core::smart_refctd_ptr<asset::ICPUBuffer>const& cpuBuf) {
-			auto buf = util->createFilledDeviceLocalBufferOnDedMem(queues[CommonAPI::InitOutput::EQT_COMPUTE],
-				{ {.size = size, .usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT},
-				{{.externalHandleTypes = video::IDeviceMemoryBacked::EHT_OPAQUE_WIN32}} },
-				cpuBuf->getPointer());
-			assert(buf.get());
-			return buf;
-		};
-
-		core::smart_refctd_ptr<video::IGPUBuffer> buf[3] = {
-			createBuffer(cpubuffers[0]),
-			createBuffer(cpubuffers[1]),
-			createBuffer(cpubuffers[2]),
-		};
-
-		std::array<core::smart_refctd_ptr<video::CCUDASharedMemory>, 3> mem = {};
-		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(&mem[0], buf[0].get()));
-		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(&mem[1], buf[1].get()));
-		ASSERT_SUCCESS(cudaDevice->importGPUBuffer(&mem[2], buf[2].get()));
-
-		CUdeviceptr ptrs[] = { mem[0]->getDevicePtr(), mem[1]->getDevicePtr(), mem[2]->getDevicePtr() };
-		void* parameters[] = { &ptrs[0], &ptrs[1], &ptrs[2], &numElements};
-		ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, gridDim[0], gridDim[1], gridDim[2], blockDim[0], blockDim[1], blockDim[2], 0, stream, parameters, nullptr));
-		ASSERT_SUCCESS(cu.pcuMemcpyDtoHAsync_v2(cpubuffers[2]->getPointer(), ptrs[2], size, stream));
-		ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
-
-		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
-		float* B = reinterpret_cast<float*>(cpubuffers[1]->getPointer());
-		float* C = reinterpret_cast<float*>(cpubuffers[2]->getPointer());
-
-		for (auto i = 0; i < numElements; i++)
-			assert(abs(C[i] - A[i] - B[i]) < 0.01f);
-	}
-}
-
 
 struct CUDA2VK
 {
@@ -111,6 +56,7 @@ struct CUDA2VK
 	std::array<core::smart_refctd_ptr<video::CCUDASharedMemory>, 3> mem = {};
 	core::smart_refctd_ptr<video::CCUDASharedSemaphore> cusema;
 	core::smart_refctd_ptr<video::IGPUBuffer> importedbuf, stagingbuf;
+	core::smart_refctd_ptr<video::IGPUImage> importedimg, stagingimg;
 	core::smart_refctd_ptr<video::IGPUSemaphore> sema;
 	core::smart_refctd_ptr<video::IGPUCommandPool> commandPool;
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> cmd;
@@ -138,32 +84,86 @@ struct CUDA2VK
 		for (auto& buf : cpubuffers)
 			buf = core::make_smart_refctd_ptr<asset::ICPUBuffer>(size);
 
-		for (auto j = 0; j < 2; j++)
-			for (auto i = 0; i < numElements; i++)
-				reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand();
+		//for (auto j = 0; j < 2; j++)
+		//	for (auto i = 0; i < numElements; i++)
+		//		reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand() / float(RAND_MAX);
+
+		memset(cpubuffers[1]->getPointer(), 0, size);
+		uint16_t (*ptr)[2] = reinterpret_cast<uint16_t(*)[2]>(cpubuffers[0]->getPointer());
+		for (auto i = 0; i < gridDim[0]; i++)
+			for (auto j = 0; j < blockDim[0]; j++)
+			{
+				ptr[i * blockDim[0] + j][0] = i;
+				ptr[i * blockDim[0] + j][1] = j;
+			}
 
 		sema = logicalDevice->createSemaphore({ .externalHandleTypes = video::IGPUSemaphore::EHT_OPAQUE_WIN32 });
 		ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cusema, sema.get()));
 
-		ASSERT_SUCCESS(cudaDevice->createExportableMemory(&mem[0], size, sizeof(float)));
-		ASSERT_SUCCESS(cudaDevice->createExportableMemory(&mem[1], size, sizeof(float)));
-		ASSERT_SUCCESS(cudaDevice->createExportableMemory(&mem[2], size, sizeof(float)));
-		importedbuf = cudaDevice->exportGPUBuffer(mem[2].get(), logicalDevice);
+		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[0], { size, sizeof(float), CU_MEM_LOCATION_TYPE_DEVICE }));
+		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[1], { size, sizeof(float), CU_MEM_LOCATION_TYPE_DEVICE }));
+		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[2], { size, sizeof(float), CU_MEM_LOCATION_TYPE_DEVICE }));
+
+		importedbuf = mem[2]->exportAsBuffer(logicalDevice, asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT);
+		importedimg = mem[2]->exportAsImage(logicalDevice,
+			asset::IImage::SCreationParams{
+				.type = asset::IImage::ET_2D,
+				.samples = asset::IImage::ESCF_1_BIT,
+				.format  = asset::EF_R32_SFLOAT,
+				.extent = { gridDim[0], blockDim[0], 1 },
+				.mipLevels = 1,
+				.arrayLayers = 1,
+				.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT,
+			});
+
 		assert(importedbuf);
 		fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
 		commandPool = logicalDevice->createCommandPool(queues[CommonAPI::InitOutput::EQT_COMPUTE]->getFamilyIndex(), {});
 		bool re = logicalDevice->createCommandBuffers(commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, &cmd);
 		assert(re);
 
-		stagingbuf = logicalDevice->createBuffer({ {.size = importedbuf->getSize(), .usage = asset::IBuffer::EUF_TRANSFER_DST_BIT} });
-		auto req = stagingbuf->getMemoryReqs();
-		req.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
-		auto allocation = logicalDevice->allocate(req, stagingbuf.get());
-		assert(allocation.memory && allocation.offset != video::ILogicalDevice::InvalidMemoryOffset);
-		assert(stagingbuf->getBoundMemory()->isMappable());
-		logicalDevice->mapMemory(video::IDeviceMemoryAllocation::MappedMemoryRange(stagingbuf->getBoundMemory(), stagingbuf->getBoundMemoryOffset(), stagingbuf->getSize()), video::IDeviceMemoryAllocation::EMCAF_READ);
-		assert(stagingbuf->getBoundMemory()->getMappedPointer());
-		memset(stagingbuf->getBoundMemory()->getMappedPointer(), 0, stagingbuf->getSize());
+		auto createStaging = [logicalDevice=logicalDevice]()
+		{
+			auto buf = logicalDevice->createBuffer({ {.size = size, .usage = asset::IBuffer::EUF_TRANSFER_DST_BIT} });
+			auto req = buf->getMemoryReqs();
+			req.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
+			auto allocation = logicalDevice->allocate(req, buf.get());
+			assert(allocation.memory && allocation.offset != video::ILogicalDevice::InvalidMemoryOffset);
+			assert(buf->getBoundMemory()->isMappable());
+			logicalDevice->mapMemory(video::IDeviceMemoryAllocation::MappedMemoryRange(buf->getBoundMemory(), buf->getBoundMemoryOffset(), req.size), video::IDeviceMemoryAllocation::EMCAF_READ);
+			assert(buf->getBoundMemory()->getMappedPointer());
+			memset(buf->getBoundMemory()->getMappedPointer(), 0, req.size);
+			return buf;
+		};
+
+		auto createStagingImg = [logicalDevice = logicalDevice]()
+		{
+			video::IGPUImage::SCreationParams params = {{
+				.type = asset::IImage::ET_2D,
+				.samples = asset::IImage::ESCF_1_BIT,
+				.format = asset::EF_R32_SFLOAT,
+				.extent = { gridDim[0], blockDim[0], 1 },
+				.mipLevels = 1,
+				.arrayLayers = 1,
+				.usage = asset::IImage::EUF_TRANSFER_DST_BIT 
+			}};
+			params.tiling = video::IGPUImage::ET_LINEAR;
+
+			auto img = logicalDevice->createImage(std::move(params));
+			auto req = img->getMemoryReqs();
+			req.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
+			auto allocation = logicalDevice->allocate(req, img.get());
+			assert(allocation.memory && allocation.offset != video::ILogicalDevice::InvalidMemoryOffset);
+			assert(img->getBoundMemory()->isMappable());
+			size_t sz = img->getImageDataSizeInBytes();
+			logicalDevice->mapMemory(video::IDeviceMemoryAllocation::MappedMemoryRange(img->getBoundMemory(), img->getBoundMemoryOffset(), req.size), video::IDeviceMemoryAllocation::EMCAF_READ);
+			assert(img->getBoundMemory()->getMappedPointer());
+			memset(img->getBoundMemory()->getMappedPointer(), 0, req.size);
+			return img;
+		};
+
+		stagingbuf = createStaging();
+		stagingimg = createStagingImg();
 	}
 
 	void launchKernel(CUfunction kernel, CUstream stream)
@@ -189,21 +189,54 @@ struct CUDA2VK
 			asset::E_PIPELINE_STAGE_FLAGS waitStages[] = { asset::EPSF_ALL_COMMANDS_BIT };
 			video::IGPUCommandBuffer* cmdBuffers[] = { cmd.get() };
 
-			video::IGPUCommandBuffer::SBufferMemoryBarrier barrier = {
-				.barrier = {
-					.dstAccessMask = asset::E_ACCESS_FLAGS::EAF_ALL_ACCESSES_BIT_DEVSH ,
-				},
+			video::IGPUCommandBuffer::SBufferMemoryBarrier bufBarrier = {
+				.barrier = { .dstAccessMask = asset::E_ACCESS_FLAGS::EAF_ALL_ACCESSES_BIT_DEVSH },
 				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR,
 				.dstQueueFamilyIndex = queue->getFamilyIndex(),
 				.buffer = importedbuf,
 				.offset = 0,
 				.size = VK_WHOLE_SIZE,
 			};
+
+			video::IGPUCommandBuffer::SImageMemoryBarrier imgBarriers[2] = {{
+				.barrier = { .dstAccessMask = asset::E_ACCESS_FLAGS::EAF_ALL_ACCESSES_BIT_DEVSH },
+				.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
+				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR,
+				.dstQueueFamilyIndex = queue->getFamilyIndex(),
+				.image = importedimg,
+				.subresourceRange = {
+					.aspectMask = asset::IImage::EAF_COLOR_BIT,
+					.levelCount = 1u,
+					.layerCount = 1u,
+				}}, {
+				.barrier = {.dstAccessMask = asset::E_ACCESS_FLAGS::EAF_ALL_ACCESSES_BIT_DEVSH },
+				.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL,
+				.image = stagingimg,
+				.subresourceRange = {
+					.aspectMask = asset::IImage::EAF_COLOR_BIT,
+					.levelCount = 1u,
+					.layerCount = 1u,
+				}}
+			};
+
 			bool re = true;
 			re &= cmd->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-			// re &= cmd->pipelineBarrier(asset::EPSF_ALL_COMMANDS_BIT, asset::EPSF_ALL_COMMANDS_BIT, asset::EDF_NONE, 0u, nullptr, 1u, &barrier, 0u, nullptr); 	// Ownership transfer?
+			/*Acquire?*/
+			re &= cmd->pipelineBarrier(asset::EPSF_ALL_COMMANDS_BIT, asset::EPSF_ALL_COMMANDS_BIT, asset::EDF_NONE, 0u, nullptr, 1u, &bufBarrier, 2u, imgBarriers); 	// Ownership transfer?
 			asset::SBufferCopy region = { .size = importedbuf->getSize() };
 			re &= cmd->copyBuffer(importedbuf.get(), stagingbuf.get(), 1, &region);
+			asset::IImage::SImageCopy imgRegion = { 
+				.srcSubresource = {
+					.aspectMask = imgBarriers[0].subresourceRange.aspectMask,
+					.layerCount = imgBarriers[0].subresourceRange.layerCount,
+				},
+				.dstSubresource = {
+					.aspectMask = imgBarriers[1].subresourceRange.aspectMask,
+					.layerCount = imgBarriers[1].subresourceRange.layerCount,
+				},
+				.extent = importedimg->getCreationParameters().extent
+			};
+			re &= cmd->copyImage(importedimg.get(), imgBarriers[0].newLayout, stagingimg.get(), imgBarriers[1].newLayout, 1, &imgRegion);
 			re &= cmd->end();
 
 			video::IGPUQueue::SSubmitInfo submitInfo = {
@@ -217,7 +250,7 @@ struct CUDA2VK
 			re &= queue->submit(1, &submitInfo, fence.get());
 			assert(re);
 		}
-
+        
 		ASSERT_SUCCESS(cu.pcuLaunchHostFunc(stream, [](void* userData) { decltype(this)(userData)->kernelCallback(); }, this));
 	}
 
@@ -232,9 +265,16 @@ struct CUDA2VK
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
 		float* B = reinterpret_cast<float*>(cpubuffers[1]->getPointer());
-		float* C = reinterpret_cast<float*>(stagingbuf->getBoundMemory()->getMappedPointer());
+		float* CBuf = reinterpret_cast<float*>(stagingbuf->getBoundMemory()->getMappedPointer());
+		float* CImg = reinterpret_cast<float*>(stagingimg->getBoundMemory()->getMappedPointer());
+
+		assert(!memcmp(CBuf, CImg, size));
+
 		for (auto i = 0; i < numElements; i++)
-			assert(abs(C[i] - A[i] - B[i]) < 0.01f);
+		{
+			assert(abs(CBuf[i] - A[i] - B[i]) < 0.01f);
+			assert(abs(CImg[i] - A[i] - B[i]) < 0.01f);
+		}
 		
 		std::cout << "Success\n";
 
@@ -258,6 +298,7 @@ int main(int argc, char** argv)
 	auto& queues = initOutput.queues;
 	auto& logger = initOutput.logger;
 	
+
 	assert(physicalDevice->getLimits().externalMemory);
 	auto cudaHandler = video::CCUDAHandler::create(system.get(), core::smart_refctd_ptr<system::ILogger>(logger));
 	assert(cudaHandler);
@@ -281,8 +322,6 @@ int main(int argc, char** argv)
 	ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
 	ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
 
-
-	vk2cuda(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data(), kernel, stream);
 	(new CUDA2VK(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data()))->launchKernel(kernel, stream);
 
 	ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
