@@ -7,6 +7,10 @@
 
 #pragma shader_stage(compute)
 
+#ifndef _NBL_HLSL_WORKGROUP_SIZE_
+#define _NBL_HLSL_WORKGROUP_SIZE_ 256
+#endif
+
 #include "../common.glsl"
 #include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
 
@@ -16,10 +20,6 @@ groupshared uint scratch[scratchSize];
 #define SHARED_MEM scratch
 groupshared uint broadcastScratch[bitfieldDWORDs + 1];
 #define BROADCAST_MEM broadcastScratch
-
-#ifndef NBL_GL_KHR_shader_subgroup_shuffle
-groupshared uint shuffleScratch[_NBL_HLSL_WORKGROUP_SIZE_];
-#define SHUFFLE_MEM shuffleScratch
 
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
@@ -71,7 +71,4 @@ struct SharedMemory
 {
 	nbl::hlsl::SharedMemoryAdaptor<MainScratchProxy> main;
 	nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::BroadcastScratchProxy> broadcast;
-	nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::ShuffleScratchProxy> shuffle;
 };
-
-#endif
