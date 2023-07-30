@@ -7,7 +7,7 @@ static uint gl_LocalInvocationIndex;
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
-#define reduction_t(Binop) nbl::hlsl::subgroup::reduction<uint, nbl::hlsl::binops::Binop<uint>, SharedMemory>
+#define reduction_t(Binop) nbl::hlsl::subgroup::reduction<uint, nbl::hlsl::binops::Binop<uint> >
 
 [numthreads(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1)]
 void main(uint3 globalId : SV_DispatchThreadID, 

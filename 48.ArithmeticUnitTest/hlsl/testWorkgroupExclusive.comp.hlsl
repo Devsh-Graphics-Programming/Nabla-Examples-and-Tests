@@ -4,7 +4,6 @@ static uint gl_LocalInvocationIndex;
 
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
 #include "../hlsl/shaderCommon.hlsl"
-#include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 

@@ -12,24 +12,25 @@
 #endif
 
 #include "../common.glsl"
+
+#include "nbl/builtin/hlsl/glsl_compat.hlsl"
 #include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
 
-// Must define all groupshared memory before including shared_memory_accessor since it creates all the proxy structs
+// Must define all groupshared memory before including shared_memory_accessor since all the proxy structs are defined there
 #define scratchSize (_NBL_HLSL_WORKGROUP_SIZE_ << 1) + (nbl::hlsl::workgroup::MaxWorkgroupSize >> 1) + 1
 groupshared uint scratch[scratchSize];
 #define SHARED_MEM scratch
-groupshared uint broadcastScratch[bitfieldDWORDs + 1];
+groupshared uint broadcastScratch[uballotBitfieldCount + 1];
 #define BROADCAST_MEM broadcastScratch
 
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
-
-
-StructuredBuffer<uint> inputValue : register(t0); // read-only
 
 struct Output {
 	uint subgroupSize;
 	uint output[BUFFER_DWORD_COUNT];
 };
+
+StructuredBuffer<uint> inputValue : register(t0); // read-only
 
 RWStructuredBuffer<Output> outand : register(u1);
 RWStructuredBuffer<Output> outxor : register(u2);
@@ -54,16 +55,12 @@ struct MainScratchProxy
 	
 	uint atomicAdd(in uint ix, uint data)
 	{
-		uint orig;
-		InterlockedAdd(SHARED_MEM[ix], data, orig);
-		return orig;
+		return nbl::hlsl::glsl::atomicAdd(SHARED_MEM[ix], data);
 	}
 	
 	uint atomicOr(in uint ix, uint data)
 	{
-		uint orig;
-		InterlockedOr(SHARED_MEM[ix], data, orig);
-		return orig;
+		return nbl::hlsl::glsl::atomicOr(SHARED_MEM[ix], data);
 	}
 };
 

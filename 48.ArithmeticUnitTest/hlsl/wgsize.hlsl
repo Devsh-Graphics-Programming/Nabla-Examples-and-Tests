@@ -1,1 +1,0 @@
-#define _NBL_HLSL_WORKGROUP_SIZE_ 256U
