@@ -4,7 +4,7 @@ enum class ObjectType : uint32_t
 {
     LINE = 0u,
     QUAD_BEZIER = 1u,
-    //TODO[Lucas]: another object type for a "CurveBox"
+    CURVE_BOX = 2u,
 };
 
 struct DrawObject
@@ -19,19 +19,24 @@ struct QuadraticBezierInfo
     double2 p[3]; // 16*3=48bytes
 };
 
-// TODO[Lucas]:
-/*
-You need a struct here that represents a curve which is referenced by a "CurveBox"
-Which is basically the same as QuadraticBezierInfo, if the middle point is "nan" it means it's a line connected by p0 and p2
-*/
+// Curve which is referenced by a "CurveBox"
+struct Curve 
+{
+    // if the middle point is "nan" it means it's a line connected by p0 and p2
+    double2 p[3]; // 16*3=48bytes
+};
 
-// TODO[Lucas]:
-/*
-You need another struct here that represents a "CurveBox" which
-0. have a aabb (double2 min, max) which will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-1. references two Curves by `uint64_t address` into the geometry buffer
-2. It will also contain tmin,tmax for both curves (becuase we subdivide curves into smaller monotonic parts we need this info to help us discard invalid solutions)
-*/
+struct CurveBox 
+{
+    // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
+    double2 aabbMin, aabbMax; // 32
+    // each addr references a Curve address into the geometry buffer
+    uint64_t curveAddress1; // 40
+    uint64_t curveAddress2; // 48
+    // because we subdivide curves into smaller monotonic parts we need this info to help us discard invalid solutions
+    double curveTmin1, curveTmax1; // 64
+    double curveTmin2, curveTmax2; // 92
+};
 
 struct Globals
 {

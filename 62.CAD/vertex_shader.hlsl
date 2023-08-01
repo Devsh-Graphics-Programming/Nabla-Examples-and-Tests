@@ -542,9 +542,10 @@ PSInput main(uint vertexID : SV_VertexID)
         otherwise it's just a second draw to "Resolve" and the only important thing on "Resolves" is the same `outV.position` as the previous draw (basically the same cage)
         So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
     */
-    
-    
-// Make the cage fullscreen for testing:
+    // TODO: likely going to do the precomputation skip optimization later ^^
+
+
+    // Make the cage fullscreen for testing:
 #if 0
     if (vertexIdx == 0u)
         outV.position = float4(-1, -1, 0, 1);
