@@ -4,6 +4,9 @@
 #include "../common/CommonAPI.h"
 
 
+
+
+
 static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
@@ -910,6 +913,9 @@ class CADApp : public ApplicationBase
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
+	core::smart_refctd_ptr<video::IQueryPool> PixelInvocPool;
+	core::smart_refctd_ptr<video::IGPUBuffer> queryResultsBuffer;
+
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
@@ -1154,10 +1160,31 @@ public:
 		return logicalDevice->createRenderpass(rp_params);
 	}
 
+	float MinT = 0;
+	float T = 0;
+	uint32_t PrevSamples = 99999999999;
+	void getAndLogQueryPoolResults()
+	{
+		{
+			uint32_t samples_passed[1] = {};
+			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT);
+			logicalDevice->getQueryPoolResults(PixelInvocPool.get(), 0u, 1u, sizeof(samples_passed), samples_passed, sizeof(uint32_t), queryResultFlags);
+			logger->log("[WAIT] SamplesPassed[0] = %d", system::ILogger::ELL_INFO, samples_passed[0]);
+			std::cout << MinT << ", " << PrevSamples << std::endl;
+			if (PrevSamples > samples_passed[0]) {
+				PrevSamples = samples_passed[0];
+				MinT = (sin(T) + 1.01f) / 4.03f;
+			}
+		}
+	}
+
+
+
 	APP_CONSTRUCTOR(CADApp);
 
 	void onAppInitialized_impl() override
 	{
+
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
@@ -1178,6 +1205,7 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
 		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
 		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -1196,6 +1224,15 @@ public:
 		windowManager = std::move(initOutput.windowManager);
 		// renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+		{
+			video::IQueryPool::SCreationParams queryPoolCreationParams = {};
+			queryPoolCreationParams.queryType = video::IQueryPool::EQT_PIPELINE_STATISTICS;
+			queryPoolCreationParams.queryCount = 1u;
+			queryPoolCreationParams.pipelineStatisticsFlags = video::IQueryPool::EPSF_FRAGMENT_SHADER_INVOCATIONS_BIT;
+			PixelInvocPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
+		}
+
 
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
@@ -1258,7 +1295,7 @@ public:
 			shaders[2u] = gpuShaders->begin()[2u];
 		}
 
-		initDrawObjects();
+		initDrawObjects(1024u * 1024u);
 
 		video::IGPUDescriptorSetLayout::SBinding bindings[4u] = {};
 		bindings[0u].binding = 0u;
@@ -1443,6 +1480,7 @@ public:
 
 	void beginFrameRender()
 	{
+		T += 0.001f;
 		auto& cb = m_cmdbuf[m_resourceIx];
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
@@ -1464,7 +1502,7 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
-
+		globalData._pad = 0.145f;// (sin(T) + 1.01f) / 4.03f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1629,6 +1667,9 @@ public:
 
 		pipelineBarriersBeforeDraw(cb.get());
 
+		cb->resetQueryPool(PixelInvocPool.get(), 0u, 1u);
+		cb->beginQuery(PixelInvocPool.get(), 0);
+
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
 		const uint32_t currentIndexCount = drawBuffers[m_resourceIx].getIndexCount();
@@ -1642,7 +1683,7 @@ public:
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
-
+		cb->endQuery(PixelInvocPool.get(), 0);
 		cb->endRenderPass();
 
 		cb->end();
@@ -1777,12 +1818,12 @@ public:
 					//polyline.addQuadBeziers(std::move(quadBeziers));
 				//}
 				srand(95);
-				for (int i = 0; i < 25; i++) {
+				for (int i = 0; i < 10; i++) {
 					std::vector<QuadraticBezierInfo> quadBeziers;
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2(Left, Base);
-					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), Base + i * 10 + 25);
-					quadratic1.p[2] = double2(Right, Base);
+					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
 					quadBeziers.push_back(quadratic1);
 					polyline.addQuadBeziers(std::move(quadBeziers));
 				}
@@ -1852,7 +1893,11 @@ public:
 			cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
 
+		
 		cmdbuf->endRenderPass();
+
+
+
 
 		cmdbuf->end();
 
@@ -1884,6 +1929,7 @@ public:
 
 	void workLoopBody() override
 	{
+
 		m_resourceIx++;
 		if (m_resourceIx >= FRAMES_IN_FLIGHT)
 			m_resourceIx = 0;
@@ -1942,6 +1988,8 @@ public:
 			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
 			m_renderFinished[m_resourceIx].get(),
 			m_SwapchainImageIx);
+
+		getAndLogQueryPoolResults();
 	}
 
 	bool keepRunning() override
