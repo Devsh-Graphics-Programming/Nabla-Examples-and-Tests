@@ -211,7 +211,7 @@ public:
 			asset::IShaderCompiler::SCompilerOptions compilerOptions = {};
 			// compilerOptions.entryPoint = "main";
 			compilerOptions.stage = computeUnspec->getStage();
-			compilerOptions.genDebugInfo = true; // should be true for introspection
+			compilerOptions.debugInfoFlags = asset::IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT; // should be DIF_SOURCE_BIT for introspection
 			compilerOptions.preprocessorOptions.sourceIdentifier = computeUnspec->getFilepathHint(); // already preprocessed but for logging it's best to fill sourceIdentifier
 			computeUnspecSPIRV = compilerSet->compileToSPIRV(computeUnspec.get(), compilerOptions);
 
@@ -319,7 +319,7 @@ public:
 			asset::IShaderCompiler::SCompilerOptions compilerOptions = {};
 			// compilerOptions.entryPoint = specializedShader->getSpecializationInfo().entryPoint;
 			compilerOptions.stage = unspecShader->getStage();
-			compilerOptions.genDebugInfo = true;
+			compilerOptions.debugInfoFlags = asset::IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
 			compilerOptions.preprocessorOptions.sourceIdentifier = unspecShader->getFilepathHint(); // already preprocessed but for logging it's best to fill sourceIdentifier
 			compilerOptions.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
 			auto unspecSPIRV = compilerSet->compileToSPIRV(unspecShader, compilerOptions);

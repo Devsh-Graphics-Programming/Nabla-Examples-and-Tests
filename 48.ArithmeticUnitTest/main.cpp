@@ -353,7 +353,7 @@ public:
 
 		IGPUDescriptorSetLayout::SBinding binding[totalBufferCount];
 		for (uint32_t i = 0u; i < totalBufferCount; i++)
-			binding[i] = { i,EDT_STORAGE_BUFFER,1u,IShader::ESS_COMPUTE,nullptr };
+			binding[i] = { i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER, IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, IShader::ESS_COMPUTE, 1u, nullptr };
 		auto gpuDSLayout = logicalDevice->createDescriptorSetLayout(binding, binding + totalBufferCount);
 
 		constexpr uint32_t pushconstantSize = 8u * totalBufferCount;
@@ -361,20 +361,21 @@ public:
 		auto pipelineLayout = logicalDevice->createPipelineLayout(pcRange, pcRange + 1u, core::smart_refctd_ptr(gpuDSLayout));
 
 		auto descPool = logicalDevice->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, &gpuDSLayout.get(), &gpuDSLayout.get() + 1u);
-		auto descriptorSet = logicalDevice->createDescriptorSet(descPool.get(), core::smart_refctd_ptr(gpuDSLayout));
+		auto descriptorSet = descPool->createDescriptorSet(core::smart_refctd_ptr(gpuDSLayout));
 		{
 			IGPUDescriptorSet::SDescriptorInfo infos[totalBufferCount];
 			infos[0].desc = gpuinputDataBuffer;
-			infos[0].buffer = { 0u,kBufferSize };
+			infos[0].info.buffer = { 0u,kBufferSize };
+
 			for (uint32_t i = 1u; i <= outputBufferCount; i++)
 			{
 				infos[i].desc = buffers[i - 1];
-				infos[i].buffer = { 0u,kBufferSize };
+				infos[i].info.buffer = { 0u,kBufferSize };
 
 			}
 			IGPUDescriptorSet::SWriteDescriptorSet writes[totalBufferCount];
 			for (uint32_t i = 0u; i < totalBufferCount; i++)
-				writes[i] = { descriptorSet.get(),i,0u,1u,EDT_STORAGE_BUFFER,infos + i };
+				writes[i] = { descriptorSet.get(),i,0u,1u,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,infos + i };
 			logicalDevice->updateDescriptorSets(totalBufferCount, writes, 0u, nullptr);
 		}
 
