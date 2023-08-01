@@ -440,7 +440,7 @@ public:
 			{
 				bool shouldSubmit = false;
 				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-				addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
+				addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
 
 				if (currentObjectInSection >= currentSection.count)
 				{
@@ -482,13 +482,13 @@ public:
 					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
 
 					// we only care about indices because the geometry and drawData is already in memory
-					const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-					const auto objectsRemaining = currentSection.count - currentObjectInSection;
-					const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+					const uint32_t uploadableCages = (maxIndices - currentIndexCount) / 6u;
+					const auto cagesRemaining = (currentSection.count - currentObjectInSection) * getCageCountPerPolylineObject(currentSection.type);
+					const auto cagesToUpload = core::min(uploadableCages, cagesRemaining);
 
-					addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
+					addPolylineObjectIndices_Internal(true, startDrawObjectCount, cagesToUpload);
 
-					currentObjectInSection += objectsToUpload;
+					currentObjectInSection += cagesToUpload;
 
 					if (currentObjectInSection >= currentSection.count)
 					{
@@ -498,7 +498,7 @@ public:
 					else
 						shouldSubmit = true;
 
-					startDrawObjectCount += objectsToUpload;
+					startDrawObjectCount += cagesToUpload;
 
 					if (shouldSubmit)
 					{
@@ -528,7 +528,7 @@ public:
 					if (currentSectionIdx == lastSectionIdx)
 						currentSection.count = lastObjectInSection;
 
-					addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
+					addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
 
 					if (currentObjectInSection >= currentSection.count)
 					{
@@ -703,8 +703,18 @@ protected:
 		return currentLineStylesCount++;
 	}
 
+	uint32_t getCageCountPerPolylineObject(ObjectType type)
+	{
+		if (type == ObjectType::LINE)
+			return 1u;
+		else if (type == ObjectType::QUAD_BEZIER)
+			return 3u;
+		assert(false);
+		return 0u;
+	};
+
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	void addPolylineObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
 		if (section.type == ObjectType::LINE)
 			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
@@ -732,7 +742,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
@@ -776,7 +786,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * 3);
+		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * 3);
 
 		// Add DrawObjs
 		for (uint16_t i2 = 0; i2 < 3; i2++) {
@@ -820,7 +830,7 @@ protected:
 	*/
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
+	void addPolylineObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
 	{
 		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
 		for (uint32_t i = 0u; i < objectCount; ++i)

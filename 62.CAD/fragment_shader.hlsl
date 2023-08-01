@@ -98,5 +98,5 @@ float4 main(PSInput input) : SV_TARGET
 #endif
 
     float4 col = input.getColor();
-    return float4(col.xyz, localAlpha);
+    return float4(col.xyz, col.w * alpha);
 }
