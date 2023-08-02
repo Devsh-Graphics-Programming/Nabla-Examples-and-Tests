@@ -1,6 +1,7 @@
 #pragma shader_stage(vertex)
 
 #include "common.hlsl"
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 float2 Tangent(float2 p0, float2 p1, float2 p2, float t)
 {
@@ -27,11 +28,7 @@ float TforTan(float2 p0, float2 p1, float2 p2, float2 DirNormalized)
 
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
-    float tt = t * t;
-    float oneMinusT = 1.0 - t;
-    float oneMinusTT = oneMinusT * oneMinusT;
-    float2 position = p0 * oneMinusTT + 2.0 * p1 * oneMinusT * t + p2 * tt;
-    return position;
+    return nbl::hlsl::shapes::QuadraticBezier::construct(p0, p1, p2, 0.0).evaluate(t);
 }
 
 
@@ -61,6 +58,7 @@ float2 CalculateIntersection(float2 line1Start, float2 line2Start, float2 line1E
     return intersectionPoint;
 }
 
+// doesnt hlsl already have this?
 float3 normalize(float3 A) {
     return A / sqrt(dot(A, A));
 }
@@ -531,6 +529,8 @@ PSInput main(uint vertexID : SV_VertexID)
 
 
     }
+    else if (objType == ObjectType::CURVE_BOX)
+    {
     /*
         TODO[Lucas]:
         Another `else if` for CurveBox Object Type,
@@ -543,6 +543,7 @@ PSInput main(uint vertexID : SV_VertexID)
         So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
     */
     // TODO: likely going to do the precomputation skip optimization later ^^
+    }
 
 
     // Make the cage fullscreen for testing:

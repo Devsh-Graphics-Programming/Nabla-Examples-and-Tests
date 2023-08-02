@@ -11,9 +11,35 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-// TODO[Lucas]: have a function for quadratic equation solving
-// Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
-// See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+// TODO move these somewhere in the builtin hlsl shaders
+
+// bhaskara: x = (-b ± √(b² – 4ac)) / (2a)
+// impl based on ttps://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+// returns the roots, and number of filled in real values under numRealValues
+double2 SolveQuadric(double3 c, out int numRealValues)
+{
+    double b = c.y / (2 * c.z);
+    double q = c.x / c.z;
+    double delta = b * b - q;
+
+    // Δ = 0
+    if (delta == 0.0)
+    {
+        numRealValues = 1;
+        return double2(-b, 0.0);
+    }
+    // Δ < 0 (no real values)
+    if (delta < 0)
+    {
+        numRealValues = 0;
+        return 0.0;
+    }
+
+    // Δ > 0 (two distinct real values)
+    double sqrtD = sqrt(delta);
+    numRealValues = 2;
+    return double2(sqrtD - b, sqrtD + b);
+}
 
 float4 main(PSInput input) : SV_TARGET
 {
