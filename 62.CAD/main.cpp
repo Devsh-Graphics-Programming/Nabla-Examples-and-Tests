@@ -152,10 +152,7 @@ public:
 	// each section consists of multiple connected lines or multiple connected ellipses
 	struct SectionInfo
 	{
-		union {
-			ObjectType type;
-			uint16_t sectionIdx;
-		};
+		ObjectType	type;
 		uint32_t	index; // can't make this a void* cause of vector resize
 		uint32_t	count;
 	};
@@ -746,7 +743,7 @@ protected:
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
-		drawObj.type = uint32_t(static_cast<uint16_t>(ObjectType::LINE) | 0 << 16);
+		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::LINE) | 0 << 16);
 		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
 		drawObj.styleIdx = styleIdx;
 		for (uint32_t i = 0u; i < objectsToUpload; ++i)
@@ -791,7 +788,7 @@ protected:
 		// Add DrawObjs
 		for (uint16_t i2 = 0; i2 < 3; i2++) {
 			DrawObject drawObj = {};
-			drawObj.type = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (i2 << 16));
+			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (i2 << 16));
 			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
 			drawObj.styleIdx = styleIdx;
 			for (uint32_t i = 0u; i < objectsToUpload; ++i)

@@ -202,8 +202,8 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint objectID = vertexID >> 2;
 
     DrawObject drawObj = drawObjects[objectID];
-    ObjectType objType = (ObjectType)(((uint32_t)drawObj.type) & 0x0000FFFF);
-    uint32_t SubobjectIdx = (((uint32_t)drawObj.type) >> 16);
+    ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
+    uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
 
     outV.setObjType(objType);
@@ -313,7 +313,7 @@ PSInput main(uint vertexID : SV_VertexID)
        if (MaxCurve * screenSpaceLineWidth / 2.0f > 0.5f) {
            float4 Pos0;
            float4 Pos1;
-           if (SubobjectIdx == 0 && bezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
+           if (subsectionIdx == 0 && bezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
                if (vertexIdx == 0u)
                    outV.position = float4(Pos0.xy, 0.0, 1.0f);
                else if (vertexIdx == 1u)
@@ -377,7 +377,7 @@ PSInput main(uint vertexID : SV_VertexID)
            }
            float2 Line0V1;
            float2 Line0V2;
-           switch (SubobjectIdx) {
+           switch (subsectionIdx) {
            case 0:
 
 
@@ -478,7 +478,7 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         float2 Line0V1;
         float2 Line0V2;
-        switch (SubobjectIdx) {
+        switch (subsectionIdx) {
         case 0:
 
 
