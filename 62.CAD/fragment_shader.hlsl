@@ -14,9 +14,9 @@ void endInvocationInterlockEXT();
 // TODO move these somewhere in the builtin hlsl shaders
 
 // bhaskara: x = (-b ± √(b² – 4ac)) / (2a)
-// impl based on ttps://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+// impl based on https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 // returns the roots, and number of filled in real values under numRealValues
-double2 SolveQuadric(double3 c, out int numRealValues)
+double2 SolveQuadratic(double3 c, out int numRealValues)
 {
     double b = c.y / (2 * c.z);
     double q = c.x / c.z;

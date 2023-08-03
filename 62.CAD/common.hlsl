@@ -69,15 +69,9 @@ struct PSInput
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
-    
-    // TODO: Should I keep following the "COLORx" pattern?
-
-    // Curves are split in the vertex shader based on their tmin and tmax
-    // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
-    // curveMin = smaller x / left, curveMax = bigger x / right)
-    // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
-    [[vk::location(4)]] nointerpolation double2 curveMin[3] : CURVE_LEFT;
-    [[vk::location(5)]] nointerpolation double2 curveMax[3] : CURVE_RIGHT;
+    [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
+    [[vk::location(5)]] nointerpolation float4 data5 : COLOR5;
+    [[vk::location(6)]] nointerpolation float4 data6 : COLOR6;
     
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
@@ -106,26 +100,31 @@ struct PSInput
     void setBezierP0(float2 p0) { data2.xy = p0; }
     void setBezierP1(float2 p1) { data2.zw = p1; }
     
-    // data3 (zw reserved for later)
+    // data3 xy
     float2 getBezierP2() { return data3.xy; }
     void setBezierP2(float2 p2) { data3.xy = p2; }
 
-    // curveMin & curveMax
-    double2 getCurveMinP0() { return curveMin[0]; }
-    double2 getCurveMinP1() { return curveMin[1]; }
-    double2 getCurveMinP2() { return curveMin[2]; }
+    // Curves are split in the vertex shader based on their tmin and tmax
+    // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
+    // curveMin = smaller x / left, curveMax = bigger x / right)
+    // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
-    double2 getCurveMaxP0() { return curveMax[0]; }
-    double2 getCurveMaxP1() { return curveMax[1]; }
-    double2 getCurveMaxP2() { return curveMax[2]; }
+    // data3 zw, data4, data5, data6 xy
+    float2 getCurveMinP0() { return data3.zw; }
+    float2 getCurveMinP1() { return data4.xy; }
+    float2 getCurveMinP2() { return data4.zw; }
+    float2 getCurveMaxP0() { return data5.xy; }
+    float2 getCurveMaxP1() { return data5.zw; }
+    float2 getCurveMaxP2() { return data6.xy; }
     
-    void setCurveMinP0(double2 p) { curveMin[0] = p; }
-    void setCurveMinP1(double2 p) { curveMin[1] = p; }
-    void setCurveMinP2(double2 p) { curveMin[2] = p; }
+    void setCurveMinP0(float2 p) { data3.zw = p; }
+    void setCurveMinP1(float2 p) { data4.xy = p; }
+    void setCurveMinP2(float2 p) { data4.zw = p; }
+    void setCurveMaxP0(float2 p) { data5.xy = p; }
+    void setCurveMaxP1(float2 p) { data5.zw = p; }
+    void setCurveMaxP2(float2 p) { data6.xy = p; }
 
-    void setCurveMaxP0(double2 p) { curveMax[0] = p; }
-    void setCurveMaxP1(double2 p) { curveMax[1] = p; }
-    void setCurveMaxP2(double2 p) { curveMax[2] = p; }
+    // data6 zw is reserved for later use
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

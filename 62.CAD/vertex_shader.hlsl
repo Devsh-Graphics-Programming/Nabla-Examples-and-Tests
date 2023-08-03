@@ -192,7 +192,60 @@ bool bezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 
     return true;
 }
 
+// https://pomax.github.io/bezierinfo/#splitting
+// Splits curve in 2
+/*
+left=[]
+right=[]
+function drawCurvePoint(points[], t):
+  if(points.length==1):
+    left.add(points[0])
+    right.add(points[0])
+    draw(points[0])
+  else:
+    newpoints=array(points.size-1)
+    for(i=0; i<newpoints.length; i++):
+      if(i==0):
+        left.add(points[i])
+      if(i==newpoints.length-1):
+        right.add(points[i+1])
+      newpoints[i] = (1-t) * points[i] + t * points[i+1]
+    drawCurvePoint(newpoints, t)
+*/
+Curve splitCurveTakeLeft(Curve curve, double t) 
+{
+    Curve outputCurve;
+    outputCurve.p[0] = curve.p[0];
+    outputCurve.p[1] = (1-t) * curve.p[0] + t * curve.p[1];
+    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
 
+    return outputCurve;
+}
+Curve splitCurveTakeRight(Curve curve, double t) 
+{
+    Curve outputCurve;
+    outputCurve.p[0] = curve.p[2];
+    outputCurve.p[1] = (1-t) * curve.p[1] + t * curve.p[2];
+    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
+
+    return outputCurve;
+}
+
+Curve splitCurveRange(Curve curve, double left, double right) 
+{
+    return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
+}
+
+double2 transformPointNdc(double2 point2d)
+{
+    double4x4 transformation = globals.viewProjection;
+    return mul(transformation, double4(point2d, 1, 1)).xy;
+}
+float2 transformPointScreenSpace(double2 point2d) 
+{
+    double2 ndc = transformPointNdc(point2d);
+    return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
+}
 
 PSInput main(uint vertexID : SV_VertexID)
 {
@@ -217,8 +270,6 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = (double3x3)globals.viewProjection;
-
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
@@ -226,8 +277,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
         {
-            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
-            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+            transformedPoints[i] = transformPointScreenSpace(points[i]);
         }
 
         const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
@@ -260,8 +310,6 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = (double3x3)globals.viewProjection;
-
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
@@ -271,8 +319,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedPoints[3u];
         for (uint i = 0u; i < 3u; ++i)
         {
-            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
-            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+            transformedPoints[i] = transformPointScreenSpace(points[i]);
         }
 
         outV.setBezierP0(transformedPoints[0u]);
@@ -531,18 +578,72 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::CURVE_BOX)
     {
-    /*
-        TODO[Lucas]:
-        Another `else if` for CurveBox Object Type,
-        What you basically need to do here is transform the box min,max and set `outV.position` correctly based on that + vertexIdx
-        and you need to do certain outV.setXXX() functions to set the correct (transformed) data to frag shader
+        outV.setColor(lineStyle.color);
+        outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        Another note: you may know that for transparency we draw objects twice
-        only when `writeToAlpha` is true (even provoking vertex), sdf calculations will happen and alpha will be set
-        otherwise it's just a second draw to "Resolve" and the only important thing on "Resolves" is the same `outV.position` as the previous draw (basically the same cage)
-        So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
-    */
-    // TODO: likely going to do the precomputation skip optimization later ^^
+        CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
+        Curve minCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress1, 48u);
+        Curve maxCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress2, 48u);
+
+        // splitting the curve based on tmin and tmax
+        minCurve = splitCurveRange(minCurve, curveBox.curveTmin1, curveBox.curveTmax1);
+        maxCurve = splitCurveRange(maxCurve, curveBox.curveTmin2, curveBox.curveTmax2);
+
+        // transform these points into screen space and pass to fragment
+        // TODO: handle case where middle is nan
+        float2 minCurveTransformed[3u];
+        float2 maxCurveTransformed[3u];
+        for (uint i = 0u; i < 3u; ++i)
+        {
+            minCurveTransformed[i] = transformPointScreenSpace(minCurve.p[i]);
+            maxCurveTransformed[i] = transformPointScreenSpace(maxCurve.p[i]);
+        }
+
+        outV.setCurveMinP0(minCurveTransformed[0]);
+        outV.setCurveMinP1(minCurveTransformed[1]);
+        outV.setCurveMinP2(minCurveTransformed[2]);
+        outV.setCurveMaxP0(maxCurveTransformed[0]);
+        outV.setCurveMaxP1(maxCurveTransformed[1]);
+        outV.setCurveMaxP2(maxCurveTransformed[2]);
+
+        float2 aabbMin = (float2) transformPointNdc(curveBox.aabbMin);
+        float2 aabbMax = (float2) transformPointNdc(curveBox.aabbMax);
+        
+        // 0 __ 1
+        //  | /
+        //  |/
+        // 2
+        //     3
+        //   /|
+        //  / |
+        //  --
+        // 4  5
+        if (vertexIdx == 0u)
+            outV.position = float4(aabbMin.x, aabbMin.y, 0.0, 1.0f);
+        else if (vertexIdx == 1u)
+            outV.position = float4(aabbMax.x, aabbMin.y, 0.0, 1.0f);
+        else if (vertexIdx == 2u)
+            outV.position = float4(aabbMin.x, aabbMax.y, 0.0, 1.0f);
+            
+        else if (vertexIdx == 3u)
+            outV.position = float4(aabbMax.x, aabbMin.y, 0.0, 1.0f);
+        else if (vertexIdx == 4u)
+            outV.position = float4(aabbMin.x, aabbMax.y, 0.0, 1.0f);
+        else if (vertexIdx == 5u)
+            outV.position = float4(aabbMax.x, aabbMax.y, 0.0, 1.0f);
+
+        /*
+            TODO[Lucas]:
+            Another `else if` for CurveBox Object Type,
+            What you basically need to do here is transform the box min,max and set `outV.position` correctly based on that + vertexIdx
+            and you need to do certain outV.setXXX() functions to set the correct (transformed) data to frag shader
+
+            Another note: you may know that for transparency we draw objects twice
+            only when `writeToAlpha` is true (even provoking vertex), sdf calculations will happen and alpha will be set
+            otherwise it's just a second draw to "Resolve" and the only important thing on "Resolves" is the same `outV.position` as the previous draw (basically the same cage)
+            So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
+        */
+        // TODO: likely going to do the precomputation skip optimization later ^^
     }
 
 
