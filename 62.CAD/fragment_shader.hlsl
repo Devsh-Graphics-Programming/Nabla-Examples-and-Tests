@@ -11,37 +11,6 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-// TODO move these somewhere in the builtin hlsl shaders
-
-// bhaskara: x = (-b ± √(b² – 4ac)) / (2a)
-// impl based on https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
-// returns the roots, and number of filled in real values under numRealValues
-double2 SolveQuadratic(double3 c, out int numRealValues)
-{
-    // TODO: This is already implemented under CubicBezier::solve_quadric?
-    double b = c.y / (2 * c.z);
-    double q = c.x / c.z;
-    double delta = b * b - q;
-
-    // Δ = 0
-    if (delta == 0.0)
-    {
-        numRealValues = 1;
-        return double2(-b, 0.0);
-    }
-    // Δ < 0 (no real values)
-    if (delta < 0)
-    {
-        numRealValues = 0;
-        return 0.0;
-    }
-
-    // Δ > 0 (two distinct real values)
-    double sqrtD = sqrt(delta);
-    numRealValues = 2;
-    return double2(sqrtD - b, sqrtD + b);
-}
-
 float4 main(PSInput input) : SV_TARGET
 {
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -60,6 +29,35 @@ float4 main(PSInput input) : SV_TARGET
     // for hatches in the fragment shader we don't need to do the alpha stuff we do to avoid polyline self intersection
     if (objType == ObjectType::CURVE_BOX)
     {
+        float2 positionFullscreen = (input.position.xy - 0.5) / float2(globals.resolution);
+
+        nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
+            objType.getCurveMinP0(),
+            objType.getCurveMinP1(),
+            objType.getCurveMinP2(),
+            0.0
+        );
+        nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
+            objType.getCurveMaxP0(),
+            objType.getCurveMaxP1(),
+            objType.getCurveMaxP2(),
+            0.0
+        );
+        // TODO: Use flexible major coordinate
+        const uint majorCoordinate = 0;
+        float minT = curveMin.tForMajorCoordinate(majorCoordinate, positionFullscreen[1 - majorCoordinate]);
+        float min = curveMin.evaluate(minT)[majorCoordinate];
+        float maxT = curveMax.tForMajorCoordinate(majorCoordinate, positionFullscreen[1 - majorCoordinate]);
+        float max = curveMax.evaluate(maxT)[majorCoordinate];
+        
+        // TODO: anti aliasing
+        float4 col = input.getColor();
+        float alpha = 0.0;
+        if (positionFullscreen[majorCoordinate] >= min && positionFullscreen[majorCoordinate] <= max)
+        {
+            alpha = 1.0;
+        }
+        return float4(col.xyz, col.w * alpha);
     }
     else // if (objType != ObjectType::CURVE_BOX)
     {
