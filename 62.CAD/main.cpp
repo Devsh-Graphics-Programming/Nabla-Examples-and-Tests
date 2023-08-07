@@ -29,6 +29,14 @@ struct double4x4
 	double _r3[4u];
 };
 
+struct double4
+{
+	double x;
+	double y;
+	double z;
+	double w;
+};
+
 struct float4
 {
 	float4() {}
@@ -55,7 +63,7 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(Globals) == 152u);
+static_assert(sizeof(Globals) == 192u);
 static_assert(sizeof(LineStyle) == 32u);
 
 using namespace nbl;
@@ -1536,7 +1544,7 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
-		globalData._pad = 0.145f;// (sin(T) + 1.01f) / 4.03f;
+		globalData.clipEnabled = 0;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
