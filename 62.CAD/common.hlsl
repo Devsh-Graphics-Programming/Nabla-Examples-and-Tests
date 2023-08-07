@@ -44,7 +44,8 @@ struct Globals
     double screenToWorldRatio; // 136 - TODO: make a float, no point making it a double
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
-    float _pad; // 152
+    int clipEnabled; // 152
+    double4 clip; // 192
 };
 
 struct LineStyle
