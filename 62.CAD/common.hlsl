@@ -45,6 +45,7 @@ struct Globals
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
     int clipEnabled; // 152
+    int2 _pad; // 164
     double4 clip; // 192
 };
 

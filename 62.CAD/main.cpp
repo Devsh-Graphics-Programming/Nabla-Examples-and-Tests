@@ -37,6 +37,12 @@ struct double4
 	double w;
 };
 
+struct int2
+{
+	int x;
+	int y;
+};
+
 struct float4
 {
 	float4() {}
