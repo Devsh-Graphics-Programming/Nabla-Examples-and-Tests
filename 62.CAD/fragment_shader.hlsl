@@ -80,7 +80,9 @@ float4 main(PSInput input) : SV_TARGET
     }
 
     endInvocationInterlockEXT();
-
+    
+    if (writeToAlpha || alpha == 0.0f)
+        discard;
 #else
     alpha = localAlpha;
     if (!writeToAlpha)
