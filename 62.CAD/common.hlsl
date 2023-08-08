@@ -9,7 +9,7 @@ enum class ObjectType : uint32_t
 
 struct DrawObject
 {
-    uint32_t type;
+    uint32_t type_subsectionIdx; // packed to uint16 into uint32
     uint32_t styleIdx;
     uint64_t address;
 };

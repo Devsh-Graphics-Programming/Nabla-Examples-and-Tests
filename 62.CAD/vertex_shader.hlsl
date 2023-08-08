@@ -3,27 +3,15 @@
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
-float2 Tangent(float2 p0, float2 p1, float2 p2, float t)
+// TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
+float cross2D(float2 a, float2 b)
 {
-    float2 tangent = 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
-    return tangent;
+    return determinant(float2x2(a,b));
 }
 
-float TforTan(float2 p0, float2 p1, float2 p2, float2 DirNormalized)
+float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 {
-    float a = -2 * (p1.x - p0.x) + 2 * (p2.x - p1.x);
-        float b = 2 * (p1.x - p0.x);
-        float c = -2 * (p1.y - p0.y) + 2 * (p2.y - p1.y);
-        float d = 2 * (p1.y - p0.y);
-        float e = DirNormalized.x;
-        float f = DirNormalized.y;
-
-        float num = float(d * e - b * f);
-        float den = float(a * f - c * e);
-        float t;
-    if (den == 0) return 0;
-    else t = num / den;
-    return t;
+    return 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
 }
 
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
@@ -31,67 +19,52 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
     return nbl::hlsl::shapes::QuadraticBezier::construct(p0, p1, p2, 0.0).evaluate(t);
 }
 
-
-float2 CalculateIntersection(float2 line1Start, float2 line2Start, float2 line1End, float2 line2End)
+//Compute bezier in one dimension, as the OBB X and Y are at different T's
+float QuadraticBezier1D(float v0, float v1, float v2, float t)
 {
-    float2 intersectionPoint;
+    float s = 1.0 - t;
 
-    float2 line1Direction = normalize(line1End - line1Start);
-    float2 line2Direction = normalize(line2End - line2Start);
+    return v0 * (s * s) +
+        v1 * (s * t * 2.0) +
+        v2 * (t * t);
+}
 
-    float line1Denominator = line2Direction.y * line1Direction.x - line2Direction.x * line1Direction.y;
+// Caller should make sure the lines are not parallel, i.e. cross2D(direction1, direction2) != 0, otherwise a division-by-zero will cause NaN values
+float2 LineLineIntersection(float2 p1, float2 p2, float2 v1, float2 v2)
+{
+    // Here we're doing part of a matrix calculation because we're interested in only the intersection point not both t values
+    /*
+        float det = v1.y * v2.x - v1.x * v2.y;
+        float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
+        float2 t = mul(inv, p1 - p2);
+        return p2 + mul(v2, t.y);
+    */
+    float denominator = v1.y * v2.x - v1.x * v2.y;
+    float numerator = dot(float2(v2.y, -v2.x), p1 - p2); 
 
-    if (abs(line1Denominator) < 0.0001)
-    {
-        // Lines are parallel, return a default value or handle accordingly.
-        intersectionPoint = float2(0, 0); // Default value, adjust as needed.
-    }
-    else
-    {
-        float2 line2StartToLine1Start = line1Start - line2Start;
-        float line2Numerator = line2Direction.x * line2StartToLine1Start.y - line2Direction.y * line2StartToLine1Start.x;
-
-        float t = line2Numerator / line1Denominator;
-        intersectionPoint = line1Start + t * line1Direction;
-    }
+    float t = numerator / denominator;
+    float2 intersectionPoint = p1 + t * v1;
 
     return intersectionPoint;
 }
 
-// doesnt hlsl already have this?
-float3 normalize(float3 A) {
-    return A / sqrt(dot(A, A));
-}
-
-
 bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 translation, out float2x2 rotation)
 {
-
-
     float2 p1 = p11 - p01;
     float2 p2 = p21 - p01;
-
-
 
     float2 a = p2 - 2.0 * p1;
     float2 b = 2.0 * p1;
 
-
-
     float2 mean = a / 3.0 + b / 2.0;
-
-
 
     float axy = a.x * a.y;
     float bxy = a.x * b.y + b.x * a.y;
     float cxy = b.x * b.y;
 
-
-
     float2 aB = a * a;
     float2 bB = a * b * 2.0;
     float2 cB = b * b;
-
 
     float xy = axy / 5.0 + bxy / 4.0 + cxy / 3.0;
     float xx = aB.x / 5.0 + bB.x / 4.0 + cB.x / 3.0;
@@ -100,7 +73,6 @@ bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 trans
     float cov_00 = xx - mean.x * mean.x;
     float cov_01 = xy - mean.x * mean.y;
     float cov_11 = yy - mean.y * mean.y;
-
 
     float eigen_a = 1.0;
     float eigen_b_neghalf = -(cov_00 + cov_11) * -0.5;
@@ -115,11 +87,8 @@ bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 trans
     float lambda0 = (eigen_b_neghalf - discr) / eigen_a;
     float lambda1 = (eigen_b_neghalf + discr) / eigen_a;
 
-
     float2 eigenvector0 = float2(cov_01, lambda0 - cov_00);
     float2 eigenvector1 = float2(cov_01, lambda1 - cov_00);
-
-    // result
 
     rotation[0] = normalize(eigenvector0);
     rotation[1] = normalize(eigenvector1);
@@ -128,16 +97,9 @@ bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 trans
 
     return true;
 }
-float bezierEval(float v0, float v1, float v2, float t)
-{
-    float s = 1.0 - t;
 
-    return v0 * (s * s) +
-        v1 * (s * t * 2.0) +
-        v2 * (t * t);
-}
-
-float4 bezierAABB(float2 p01, float2 p11, float2 p21)
+// from shadertoy: https://www.shadertoy.com/view/stfSzS
+float4 BezierAABB(float2 p01, float2 p11, float2 p21)
 {
     float2 p0 = p01;
     float2 p1 = p11;
@@ -146,14 +108,13 @@ float4 bezierAABB(float2 p01, float2 p11, float2 p21)
     float2 mi = min(p0, p2);
     float2 ma = max(p0, p2);
 
-
     float2 a = p0 - 2.0 * p1 + p2;
     float2 b = p1 - p0;
-    float2 t = -b / a;             // solution for linear equation at + b = 0    
+    float2 t = -b / a; // solution for linear equation at + b = 0
 
     if (t.x > 0.0 && t.x < 1.0) // x-coord
     {
-        float q = bezierEval(p0.x, p1.x, p2.x, t.x);
+        float q = QuadraticBezier1D(p0.x, p1.x, p2.x, t.x);
 
         mi.x = min(mi.x, q);
         ma.x = max(ma.x, q);
@@ -161,29 +122,28 @@ float4 bezierAABB(float2 p01, float2 p11, float2 p21)
 
     if (t.y > 0.0 && t.y < 1.0) // y-coord
     {
-        float q = bezierEval(p0.y, p1.y, p2.y, t.y);
+        float q = QuadraticBezier1D(p0.y, p1.y, p2.y, t.y);
 
         mi.y = min(mi.y, q);
         ma.y = max(ma.y, q);
     }
 
-    // result
-
     return float4(mi, ma);
 }
 
-bool bezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 Pos1, float screenSpaceLineWidth)
+// from shadertoy: https://www.shadertoy.com/view/stfSzS
+// OBB generation via Principal Component Analysis
+bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 Pos1, float screenSpaceLineWidth)
 {
     float2x2 rotation;
     float2 translation;
 
-    if (estimateTransformation(p0, p1, p2, translation, rotation) == false)
+    if (EstimateTransformation(p0, p1, p2, translation, rotation) == false)
         return false;
 
-
-    float4 aabb = bezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));
+    float4 aabb = BezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));
     aabb.xy -= screenSpaceLineWidth;
-   aabb.zw += screenSpaceLineWidth;
+    aabb.zw += screenSpaceLineWidth;
     float2 center = translation + mul((aabb.xy + aabb.zw) / 2.0f, rotation);
     float2 Extent = ((aabb.zw - aabb.xy) / 2.0f).xy;
     Pos0 = float4(center + mul(Extent, rotation), center + mul(float2(Extent.x, -Extent.y), rotation));
@@ -253,8 +213,8 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint objectID = vertexID >> 2;
 
     DrawObject drawObj = drawObjects[objectID];
-    ObjectType objType = (ObjectType)(((uint32_t)drawObj.type) & 0x0000FFFF);
-    uint32_t SubobjectIdx = (((uint32_t)drawObj.type) >> 16);
+    ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
+    uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
 
     outV.setObjType(objType);
@@ -326,254 +286,189 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setBezierP1(transformedPoints[1u]);
         outV.setBezierP2(transformedPoints[2u]);
 
-        int flip = cross(float3(transformedPoints[0u] - transformedPoints[1u], 0), float3(transformedPoints[2u] - transformedPoints[1u], 0)).z > 0 ? -1 : 1;
-
-        float2 Center = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f);
-        float2 CenterT = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f));
-        float2 CenterN = normalize(float2(-CenterT.y, CenterT.x));
-        float2 tangent;
-        float2 normal;
-        CenterN *= flip;
-
-
-        float2 p0;
-        float2 p1;
-
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;
         float Radius = length(Mid - transformedPoints[0u]) / 2.0f;
-        float2 C1 = lerp(transformedPoints[0u], transformedPoints[2u], 0.25f);
-        float2 C2 = lerp(transformedPoints[0u], transformedPoints[2u], 0.75f);
         
+        
+        /*
+            B
+          xxxxx
+        xxx    xxx
+      xxx         xx
+    xxx            xx
+   xx               xx
+  xx                 xx
+  x                   xx
+A x                    x C
+        */
         float2 vectorAB = transformedPoints[1u] - transformedPoints[0u];
         float2 vectorAC = transformedPoints[2u] - transformedPoints[1u];
 
-        // The area of the triangle is half of the absolute value of the cross product
-       float area = abs(vectorAB.x * vectorAC.y - vectorAB.y * vectorAC.x) * 0.5;
-       float MaxCurve;
-       if (length(transformedPoints[1u] - C1) > Radius && length(transformedPoints[1u] - C2) > Radius) {
-           MaxCurve = pow(length(transformedPoints[1u] - Mid), 3) / (area * area);
-       } else {
-           MaxCurve = max(area / pow(length(transformedPoints[0u] - transformedPoints[1u]), 3), area / pow(length(transformedPoints[2u] - transformedPoints[1u]), 3));
-       }
-       if (MaxCurve * screenSpaceLineWidth / 2.0f > 0.5f) {
-           float4 Pos0;
-           float4 Pos1;
-           if (SubobjectIdx == 0 && bezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
-               if (vertexIdx == 0u)
-                   outV.position = float4(Pos0.xy, 0.0, 1.0f);
-               else if (vertexIdx == 1u)
-                   outV.position = float4(Pos0.zw, 0.0, 1.0f);
-               else if (vertexIdx == 2u)
-                   outV.position = float4(Pos1.zw, 0.0, 1.0f);
-               else if (vertexIdx == 3u)
-                   outV.position = float4(Pos1.xy, 0.0, 1.0f);
-           } else {
-               outV.position = float4(0, 0, 0.0, 1.0f);
-           }
-       }
-       else {
+        //T with max curve
+        float MaxCurveT = dot(-(transformedPoints[1u] - transformedPoints[0u]), transformedPoints[2u] - 2.0f * transformedPoints[1u] + transformedPoints[0u]) / pow(length(transformedPoints[2u] - 2.0f * transformedPoints[1u] + transformedPoints[0u]),2.0f);
 
-#if 1
-           float2 Line1V1 = Center - CenterN * screenSpaceLineWidth / 2.0f + CenterT * 1000.0f;
-           float2 Line1V2 = Center - CenterN * screenSpaceLineWidth / 2.0f - CenterT * 1000.0f;
-           float2 Line2V1;
-           float2 Line2V2;
-           float2 Line3V1;
-           float2 Line3V2;
-           {
-               float T = 0.145f;
-               tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T));
-               normal = normalize(float2(-tangent.y, tangent.x));
-               normal *= flip;
+        float area = abs(vectorAB.x * vectorAC.y - vectorAB.y * vectorAC.x) * 0.5;
+        float MaxCurve;
+        if (length(transformedPoints[1u] - lerp(transformedPoints[0u], transformedPoints[2u], 0.25f)) > Radius && length(transformedPoints[1u] - lerp(transformedPoints[0u], transformedPoints[2u], 0.75f)) > Radius)
+            MaxCurve = pow(length(transformedPoints[1u] - Mid), 3) / (area * area);
+        else 
+            MaxCurve = max(area / pow(length(transformedPoints[0u] - transformedPoints[1u]), 3), area / pow(length(transformedPoints[2u] - transformedPoints[1u]), 3));
 
-               Line2V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-               Line2V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-
-               p0 = CalculateIntersection(Line1V1, Line2V1, Line1V2, Line2V2);
-           }
-           {
-               float T = 1.0f - 0.145f;
-
-               tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T));
-               normal = normalize(float2(-tangent.y, tangent.x));
-               normal *= flip;
-
-               Line3V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-               Line3V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-
-               p1 = CalculateIntersection(Line1V1, Line3V1, Line1V2, Line3V2);
-           }
-
-           float2 IP0;
-           float2 IP1;
-
-           {
-               tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286));
-               normal = normalize(float2(-tangent.y, tangent.x));
-               normal *= flip;
-               IP0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286) + normal * screenSpaceLineWidth / 2.0f;
-           }
-
-           {
-               tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - 0.286));
-               normal = normalize(float2(-tangent.y, tangent.x));
-               normal *= flip;
-               IP1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - 0.286) + normal * screenSpaceLineWidth / 2.0f;
-           }
-           float2 Line0V1;
-           float2 Line0V2;
-           switch (SubobjectIdx) {
-           case 0:
-
-
-               tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.0f));
-               normal = normalize(float2(-tangent.y, tangent.x));
-               normal *= cross(float3(transformedPoints[0u] - transformedPoints[1u], 0), float3(transformedPoints[2u] - transformedPoints[1u], 0)).z > 0 ? -1 : 1;
-
-               Line0V1 = transformedPoints[0u] - normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
-               Line0V2 = transformedPoints[0u] + normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
-
-               if (vertexIdx == 0u)
-                   outV.position = float4(CalculateIntersection(Line2V1, Line0V1, Line2V2, Line0V2), 0.0, 1.0f);
-               else if (vertexIdx == 1u)
-                   outV.position = float4(transformedPoints[0u] + normal * screenSpaceLineWidth / 2.0f - tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
-               else if (vertexIdx == 2u)
-                   outV.position = float4(p0, 0.0, 1.0f);
-               else if (vertexIdx == 3u)
-                   outV.position = float4(IP0, 0.0, 1.0f);
-               break;
-           case 1:
-               if (vertexIdx == 0u)
-                   outV.position = float4(p0, 0.0, 1.0f);
-               else if (vertexIdx == 1u)
-                   outV.position = float4(IP0, 0.0, 1.0f);
-               else if (vertexIdx == 2u)
-                   outV.position = float4(p1, 0.0, 1.0f);
-               else if (vertexIdx == 3u)
-                   outV.position = float4(IP1, 0.0, 1.0f);
-               break;
-           case 2:
-               tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f));
-               normal = normalize(float2(-tangent.y, tangent.x));
-               normal *= flip;
-
-               Line0V1 = transformedPoints[2u] - normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
-               Line0V2 = transformedPoints[2u] + normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
-
-               if (vertexIdx == 0u)
-                   outV.position = float4(CalculateIntersection(Line3V1, Line0V1, Line3V2, Line0V2), 0.0, 1.0f);
-               else if (vertexIdx == 1u)
-                   outV.position = float4(transformedPoints[2u] + normal * screenSpaceLineWidth / 2.0f + tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
-               else if (vertexIdx == 2u)
-                   outV.position = float4(p1, 0.0, 1.0f);
-               else if (vertexIdx == 3u)
-                   outV.position = float4(IP1, 0.0, 1.0f);
-           }
-#endif
-       }
-#if 0
-       //Adaptive
-
-        float2 Line1V1 = Center - CenterN * screenSpaceLineWidth / 2.0f + CenterT * 1000.0f;
-        float2 Line1V2 = Center - CenterN * screenSpaceLineWidth / 2.0f - CenterT * 1000.0f;
-        float2 Line2V1;
-        float2 Line2V2;
-        float2 Line3V1;
-        float2 Line3V2;
+        if (MaxCurve * screenSpaceLineWidth > 16)
         {
-            float2 BaseLine = lerp((Center - transformedPoints[0u]), (transformedPoints[1u] - transformedPoints[0u]),0.5f);
-            float T = saturate(TforTan(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], BaseLine));
-            tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T));
-            normal = normalize(float2(-tangent.y, tangent.x));
-            normal *= flip;
-
-            Line2V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-            Line2V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-
-            p0 = CalculateIntersection(Line1V1, Line2V1, Line1V2, Line2V2);
-        }
+            //OBB Fallback
+            float4 Pos0;
+            float4 Pos1;
+            if (subsectionIdx == 0 && BezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f))
+            {
+                if (vertexIdx == 0u)
+                    outV.position = float4(Pos0.xy, 0.0, 1.0f);
+                else if (vertexIdx == 1u)
+                    outV.position = float4(Pos0.zw, 0.0, 1.0f);
+                else if (vertexIdx == 2u)
+                    outV.position = float4(Pos1.zw, 0.0, 1.0f);
+                else if (vertexIdx == 3u)
+                    outV.position = float4(Pos1.xy, 0.0, 1.0f);
+            }
+            else
+                outV.position = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        } 
+        else 
         {
-            float2 BaseLine = lerp((Center - transformedPoints[2u]), (transformedPoints[1u] - transformedPoints[2u]), 0.5f);
-            float T = saturate(TforTan(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], BaseLine));
-            tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T));
-            normal = normalize(float2(-tangent.y, tangent.x));
-            normal *= flip;
-
-            Line3V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-            Line3V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], T) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
-
-            p1 = CalculateIntersection(Line1V1, Line3V1, Line1V2, Line3V2);
-        }
-
-        float2 IP0;
-        float2 IP1;
-
-        {
-            tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.35f));
-            normal = normalize(float2(-tangent.y, tangent.x));
-            normal *= flip;
-            IP0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.35f) + normal * screenSpaceLineWidth / 2.0f;
-        }
-
-        {
-            tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.65f));
-            normal = normalize(float2(-tangent.y, tangent.x));
-            normal *= flip;
-            IP1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.65f) + normal * screenSpaceLineWidth / 2.0f;
-        }
-        float2 Line0V1;
-        float2 Line0V2;
-        switch (SubobjectIdx) {
-        case 0:
-
-
-            tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.0f));
-            normal = normalize(float2(-tangent.y, tangent.x));
-            normal *= flip;
+            // this optimal value is hardcoded based on tests and benchmarks of pixel shader invocation
+            // this is the place where we use it's tangent in the bezier to form sides the cages
+            const float optimalT = 0.145f;
             
-            Line0V1 = transformedPoints[0u] - normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
-            Line0V2 = transformedPoints[0u] + normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
+            //Whether or not to flip the the interior cage nodes
+            int flip = cross2D(transformedPoints[0u] - transformedPoints[1u], transformedPoints[2u] - transformedPoints[1u]) > 0.0f ? -1 : 1;
+
+            // Mid means bezier t = 0.5f;
+            float2 MidPos = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f);
+            float2 MidTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f));
+            float2 MidNormal = float2(-MidTangent.y, MidTangent.x) * flip;
             
-            if (vertexIdx == 0u)
-                outV.position = float4(CalculateIntersection(Line2V1, Line0V1, Line2V2, Line0V2), 0.0, 1.0f);
-            else if (vertexIdx == 1u)
-                outV.position = float4(transformedPoints[0u] + normal * screenSpaceLineWidth / 2.0f - tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
-            else if (vertexIdx == 2u)
-                outV.position = float4(p0, 0.0, 1.0f);
-            else if (vertexIdx == 3u)
-                outV.position = float4(IP0, 0.0, 1.0f);
-            break;
-        case 1:
-            if (vertexIdx == 0u)
-                outV.position = float4(p0, 0.0, 1.0f);
-            else if (vertexIdx == 1u)
-                outV.position = float4(IP0, 0.0, 1.0f);
-            else if (vertexIdx == 2u)
-                outV.position = float4(p1, 0.0, 1.0f);
-            else if (vertexIdx == 3u)
-                outV.position = float4(IP1, 0.0, 1.0f);
-            break;
-        case 2:
-            tangent = normalize(Tangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f));
-            normal = normalize(float2(-tangent.y, tangent.x));
-            normal *= flip;
+            //re-used data
+            float2 tangent;
+            float2 normal;
+            //exterior cage points
+            float2 p0;
+            float2 p1;
+            //Internal cage points
+            float2 IP0;
+            float2 IP1;
+            
+            float2 Line1V1 = MidPos - MidNormal * screenSpaceLineWidth / 2.0f + MidTangent * 1000.0f;
+            float2 Line1V2 = MidPos - MidNormal * screenSpaceLineWidth / 2.0f - MidTangent * 1000.0f;
+            float2 Line2V1;
+            float2 Line2V2;
+            float2 Line3V1;
+            float2 Line3V2;
+            
+            // Exteriors
+            {
+                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
+                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
 
-            Line0V1 = transformedPoints[2u] - normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
-            Line0V2 = transformedPoints[2u] + normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
+                Line2V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
+                Line2V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
+                //Calculating intersection between tangent line of the center(Line1) and the tangent line of the left side of bezier
+                p0 = LineLineIntersection(Line1V1, Line2V1, Line1V2 - Line1V1, Line2V2 - Line2V1);
+            }
+            {
+                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT));
+                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
 
-            if (vertexIdx == 0u)
-                outV.position = float4(CalculateIntersection(Line3V1, Line0V1, Line3V2, Line0V2), 0.0, 1.0f);
-            else if (vertexIdx == 1u)
-                outV.position = float4(transformedPoints[2u] + normal * screenSpaceLineWidth / 2.0f + tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
-            else if (vertexIdx == 2u)
-                outV.position = float4(p1, 0.0, 1.0f);
-            else if (vertexIdx == 3u)
-                outV.position = float4(IP1, 0.0, 1.0f);
+                Line3V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
+                Line3V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
+                //Calculating intersection between tangent line of the center(Line1) and the tangent line of the right side of bezier
+                p1 = LineLineIntersection(Line1V1, Line3V1, Line1V2 - Line1V1, Line3V2 - Line3V1);
+            }
+            
+            // Middle Cage -> Exterior
+            {
+                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286));
+                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                IP0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286) + normal * screenSpaceLineWidth / 2.0f;
+            }
+            {
+                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f));
+                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                IP1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f) + normal * screenSpaceLineWidth / 2.0f;
+            }
+            // Middle Cage -> Adaptive Interior
+            if (MaxCurve * screenSpaceLineWidth / 2.0f > 0.5f)
+            {
+                float2 TanMaxCurve = (normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], MaxCurveT)));
+                float2 MaxCurvePos = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], MaxCurveT);
+                float2 TP0 = transformedPoints[0u] - MaxCurvePos;
+                float2 TP1 = transformedPoints[1u] - MaxCurvePos;
+                float2 TP2 = transformedPoints[2u] - MaxCurvePos;
+                float angle = atan2(TanMaxCurve.y, TanMaxCurve.x);
+                float cos_angle = cos(angle);
+                float sin_angle = sin(angle);
+                float2x2 rotmat = float2x2(cos_angle, sin_angle, -sin_angle, cos_angle);
+                TP0 = mul(rotmat, TP0);
+                TP1 = mul(rotmat, TP1);
+                TP2 = mul(rotmat, TP2);
+
+                float m1 = (TP1.y - TP0.y) / (TP1.x - TP0.x);
+                float m2 = (TP2.y - TP1.y) / (TP2.x - TP1.x);
+
+                float a = (m1 - m2) / (-2.0f * TP2.x + 2.0f * TP0.x);
+
+                float y = (a * pow(screenSpaceLineWidth / 2.0f, 2)) + (1.0f / (4.0f * a));
+                IP0 = mul(float2(0, y), rotmat) + MaxCurvePos;
+                IP1 = IP0;
+            }
+
+            if (subsectionIdx == 0u)
+            {
+                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.0f));
+                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+
+                float2 Line0V1 = transformedPoints[0u] - normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
+                float2 Line0V2 = transformedPoints[0u] + normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
+
+                if (vertexIdx == 0u)
+                    outV.position = float4(LineLineIntersection(Line2V1, Line0V1, Line2V2 - Line2V1, Line0V2 - Line0V1), 0.0, 1.0f);
+                else if (vertexIdx == 1u)
+                    outV.position = float4(transformedPoints[0u] + normal * screenSpaceLineWidth / 2.0f - tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
+                else if (vertexIdx == 2u)
+                    outV.position = float4(p0, 0.0, 1.0f);
+                else if (vertexIdx == 3u)
+                    outV.position = float4(IP0, 0.0, 1.0f);
+            }
+            else if (subsectionIdx == 1u)
+            {
+                if (vertexIdx == 0u)
+                    outV.position = float4(p0, 0.0, 1.0f);
+                else if (vertexIdx == 1u)
+                    outV.position = float4(IP0, 0.0, 1.0f);
+                else if (vertexIdx == 2u)
+                    outV.position = float4(p1, 0.0, 1.0f);
+                else if (vertexIdx == 3u)
+                    outV.position = float4(IP1, 0.0, 1.0f);
+            }
+            else if (subsectionIdx == 2u)
+            {
+                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f));
+                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+
+                float2 Line0V1 = transformedPoints[2u] - normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
+                float2 Line0V2 = transformedPoints[2u] + normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
+
+                if (vertexIdx == 0u)
+                    outV.position = float4(LineLineIntersection(Line3V1, Line0V1, Line3V2 - Line3V1, Line0V2 - Line0V1), 0.0, 1.0f);
+                else if (vertexIdx == 1u)
+                    outV.position = float4(transformedPoints[2u] + normal * screenSpaceLineWidth / 2.0f + tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
+                else if (vertexIdx == 2u)
+                    outV.position = float4(p1, 0.0, 1.0f);
+                else if (vertexIdx == 3u)
+                    outV.position = float4(IP1, 0.0, 1.0f);
+            }
         }
-#endif
 
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
-
 
     }
     else if (objType == ObjectType::CURVE_BOX)
@@ -649,14 +544,16 @@ PSInput main(uint vertexID : SV_VertexID)
 
     // Make the cage fullscreen for testing:
 #if 0
-    if (vertexIdx == 0u)
-        outV.position = float4(-1, -1, 0, 1);
-    else if (vertexIdx == 1u)
-        outV.position = float4(-1, +1, 0, 1);
-    else if (vertexIdx == 2u)
-        outV.position = float4(+1, -1, 0, 1);
-    else if (vertexIdx == 3u)
-        outV.position = float4(+1, +1, 0, 1);
+    if (subsectionIdx == 0) {
+        if (vertexIdx == 0u)
+            outV.position = float4(-1, -1, 0, 1);
+        else if (vertexIdx == 1u)
+            outV.position = float4(-1, +1, 0, 1);
+        else if (vertexIdx == 2u)
+            outV.position = float4(+1, -1, 0, 1);
+        else if (vertexIdx == 3u)
+            outV.position = float4(+1, +1, 0, 1);
+    }
 #endif
 
     return outV;
