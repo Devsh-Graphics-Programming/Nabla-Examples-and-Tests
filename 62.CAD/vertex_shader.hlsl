@@ -15,36 +15,38 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
     return p0 * oneMinusTT + 2.0f * p1 * oneMinusT * t + p2 * tt;
 }
 
-
-float2 CalculateIntersection(float2 line1Start, float2 line2Start, float2 line1End, float2 line2End)
+//Compute bezier in one dimension, as the OBB X and Y are at different T's
+float QuadraticBezier1D(float v0, float v1, float v2, float t)
 {
-    float2 intersectionPoint;
+    float s = 1.0 - t;
 
-    float2 line1Direction = normalize(line1End - line1Start);
-    float2 line2Direction = normalize(line2End - line2Start);
+    return v0 * (s * s) +
+        v1 * (s * t * 2.0) +
+        v2 * (t * t);
+}
 
-    float line1Denominator = line2Direction.y * line1Direction.x - line2Direction.x * line1Direction.y;
+// Caller should make sure the lines are not parallel, i.e. cross2D(direction1, direction2) != 0, otherwise a division-by-zero will cause NaN values
+float2 LineLineIntersection(float2 p1, float2 p2, float2 v1, float2 v2)
+{
+    // Here we're doing part of a matrix calculation because we're interested in only the intersection point not both t values
+    /*
+        float det = v1.y * v2.x - v1.x * v2.y;
+        float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
+        float2 t = mul(inv, p1 - p2);
+        return p2 + mul(v2, t.y);
+    */
+    float denominator = v1.y * v2.x - v1.x * v2.y;
+    float numerator = dot(float2(v2.y, -v2.x), p1 - p2); 
 
-    if (abs(line1Denominator) < 0.0001)
-    {
-        // Lines are parallel, return a default value or handle accordingly.
-        intersectionPoint = float2(0, 0); // Default value, adjust as needed.
-    }
-    else
-    {
-        float2 line2StartToLine1Start = line1Start - line2Start;
-        float line2Numerator = line2Direction.x * line2StartToLine1Start.y - line2Direction.y * line2StartToLine1Start.x;
-
-        float t = line2Numerator / line1Denominator;
-        intersectionPoint = line1Start + t * line1Direction;
-    }
+    float t = numerator / denominator;
+    float2 intersectionPoint = p1 + t * v1;
 
     return intersectionPoint;
 }
 
 
 //from shadertoy: https://www.shadertoy.com/view/stfSzS
-bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 translation, out float2x2 rotation)
+bool EstimateTransformation(float2 p01, float2 p11, float2 p21, out float2 translation, out float2x2 rotation)
 {
     float2 p1 = p11 - p01;
     float2 p2 = p21 - p01;
@@ -93,17 +95,8 @@ bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 trans
 
     return true;
 }
-//Compute bezier in one dimension, as the OBB X and Y are at different T's
-float bezierEval(float v0, float v1, float v2, float t)
-{
-    float s = 1.0 - t;
 
-    return v0 * (s * s) +
-        v1 * (s * t * 2.0) +
-        v2 * (t * t);
-}
-
-float4 bezierAABB(float2 p01, float2 p11, float2 p21)
+float4 BezierAABB(float2 p01, float2 p11, float2 p21)
 {
     float2 p0 = p01;
     float2 p1 = p11;
@@ -118,7 +111,7 @@ float4 bezierAABB(float2 p01, float2 p11, float2 p21)
 
     if (t.x > 0.0 && t.x < 1.0) // x-coord
     {
-        float q = bezierEval(p0.x, p1.x, p2.x, t.x);
+        float q = QuadraticBezier1D(p0.x, p1.x, p2.x, t.x);
 
         mi.x = min(mi.x, q);
         ma.x = max(ma.x, q);
@@ -126,7 +119,7 @@ float4 bezierAABB(float2 p01, float2 p11, float2 p21)
 
     if (t.y > 0.0 && t.y < 1.0) // y-coord
     {
-        float q = bezierEval(p0.y, p1.y, p2.y, t.y);
+        float q = QuadraticBezier1D(p0.y, p1.y, p2.y, t.y);
 
         mi.y = min(mi.y, q);
         ma.y = max(ma.y, q);
@@ -135,15 +128,16 @@ float4 bezierAABB(float2 p01, float2 p11, float2 p21)
     return float4(mi, ma);
 }
 
-bool bezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 Pos1, float screenSpaceLineWidth)
+// OBB generation via Principal Component Analysis?
+bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 Pos1, float screenSpaceLineWidth)
 {
     float2x2 rotation;
     float2 translation;
 
-    if (estimateTransformation(p0, p1, p2, translation, rotation) == false)
+    if (EstimateTransformation(p0, p1, p2, translation, rotation) == false)
         return false;
 
-    float4 aabb = bezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));
+    float4 aabb = BezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));
     aabb.xy -= screenSpaceLineWidth;
     aabb.zw += screenSpaceLineWidth;
     float2 center = translation + mul((aabb.xy + aabb.zw) / 2.0f, rotation);
@@ -276,7 +270,7 @@ PSInput main(uint vertexID : SV_VertexID)
             //OBB Fallback
             float4 Pos0;
             float4 Pos1;
-            if (subsectionIdx == 0 && bezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
+            if (subsectionIdx == 0 && BezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
                 if (vertexIdx == 0u)
                     outV.position = float4(Pos0.xy, 0.0, 1.0f);
                 else if (vertexIdx == 1u)
@@ -304,7 +298,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 Line2V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.145f) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
                 Line2V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.145f) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
                 //Calculating intersection between tangent line of the center(Line1) and the tangent line of the left side of bezier
-                p0 = CalculateIntersection(Line1V1, Line2V1, Line1V2, Line2V2);
+                p0 = LineLineIntersection(Line1V1, Line2V1, Line1V2 - Line1V1, Line2V2 - Line2V1);
             }
             {
                 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.855f));
@@ -313,7 +307,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 Line3V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.855f) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
                 Line3V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.855f) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
                 //Calculating intersection between tangent line of the center(Line1) and the tangent line of the right side of bezier
-                p1 = CalculateIntersection(Line1V1, Line3V1, Line1V2, Line3V2);
+                p1 = LineLineIntersection(Line1V1, Line3V1, Line1V2 - Line1V1, Line3V2 - Line3V1);
             }
 
             {
@@ -362,7 +356,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 Line0V2 = transformedPoints[0u] + normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(CalculateIntersection(Line2V1, Line0V1, Line2V2, Line0V2), 0.0, 1.0f);
+                    outV.position = float4(LineLineIntersection(Line2V1, Line0V1, Line2V2 - Line2V1, Line0V2 - Line0V1), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[0u] + normal * screenSpaceLineWidth / 2.0f - tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)
@@ -388,7 +382,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 Line0V2 = transformedPoints[2u] + normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(CalculateIntersection(Line3V1, Line0V1, Line3V2, Line0V2), 0.0, 1.0f);
+                    outV.position = float4(LineLineIntersection(Line3V1, Line0V1, Line3V2 - Line3V1, Line0V2 - Line0V1), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[2u] + normal * screenSpaceLineWidth / 2.0f + tangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)
