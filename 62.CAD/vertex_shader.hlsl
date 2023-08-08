@@ -138,7 +138,7 @@ bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 
     float2x2 rotation;
     float2 translation;
 
-    if (EstimateTransformation(p0, p1, p2, translation, rotation) == false)
+    if (estimateTransformation(p0, p1, p2, translation, rotation) == false)
         return false;
 
     float4 aabb = BezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));

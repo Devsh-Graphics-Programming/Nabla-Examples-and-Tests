@@ -32,15 +32,15 @@ float4 main(PSInput input) : SV_TARGET
         float2 positionFullscreen = (input.position.xy - 0.5) / float2(globals.resolution);
 
         nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
-            objType.getCurveMinP0(),
-            objType.getCurveMinP1(),
-            objType.getCurveMinP2(),
+            input.getCurveMinP0(),
+            input.getCurveMinP1(),
+            input.getCurveMinP2(),
             0.0
         );
         nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
-            objType.getCurveMaxP0(),
-            objType.getCurveMaxP1(),
-            objType.getCurveMaxP2(),
+            input.getCurveMaxP0(),
+            input.getCurveMaxP1(),
+            input.getCurveMaxP2(),
             0.0
         );
         // TODO: Use flexible major coordinate
@@ -132,8 +132,8 @@ float4 main(PSInput input) : SV_TARGET
         //    alpha = previousAlpha;
         //}
 #endif
-    }
 
-    float4 col = input.getColor();
-    return float4(col.xyz, col.w * alpha);
-}
+        float4 col = input.getColor();
+        return float4(col.xyz, col.w * alpha);
+    }
+}   
