@@ -115,7 +115,7 @@ public:
 
 		return ret;
 	}
-	double2 InitialPos;
+
 	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
 	{
 		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
@@ -126,12 +126,6 @@ public:
 			{
 				m_bounds = m_bounds + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
 				m_bounds = double2{ core::max(m_aspectRatio, m_bounds.X), core::max(1.0, m_bounds.Y) };
-			}
-
-			if (ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT)
-			{
-				InitialPos = double2(ev.clickEvent.clickPosX, ev.clickEvent.clickPosY);
-//				m_origin = m_origin + double2(ev.movementEvent.relativeMovementX, ev.movementEvent.relativeMovementY);
 			}
 		}
 	}
@@ -700,13 +694,12 @@ protected:
 		return currentLineStylesCount++;
 	}
 
-	uint32_t getCageCountPerPolylineObject(ObjectType type)
+	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
 	{
 		if (type == ObjectType::LINE)
 			return 1u;
 		else if (type == ObjectType::QUAD_BEZIER)
 			return 3u;
-		assert(false);
 		return 0u;
 	};
 
@@ -770,11 +763,13 @@ protected:
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
+		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
+		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
 
 		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
 
-		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 18u;
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerQuadBezier;
 		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
@@ -783,16 +778,17 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * 3);
+		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
 
 		// Add DrawObjs
-		for (uint16_t i2 = 0; i2 < 3; i2++) {
-			DrawObject drawObj = {};
-			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (i2 << 16));
-			drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-			drawObj.styleIdx = styleIdx;
-			for (uint32_t i = 0u; i < objectsToUpload; ++i)
+		for (uint32_t i = 0u; i < objectsToUpload; ++i)
+		{
+			for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
 			{
+				DrawObject drawObj = {};
+				drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (subObject << 16));
+				drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+				drawObj.styleIdx = styleIdx;
 				void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 				memcpy(dst, &drawObj, sizeof(DrawObject));
 				currentDrawObjectCount += 1u;
@@ -920,8 +916,7 @@ class CADApp : public ApplicationBase
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
-	core::smart_refctd_ptr<video::IQueryPool> PixelInvocPool;
-	core::smart_refctd_ptr<video::IGPUBuffer> queryResultsBuffer;
+	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
 
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
@@ -1169,15 +1164,13 @@ public:
 		return logicalDevice->createRenderpass(rp_params);
 	}
 
-	float MinT = 0;
-	float T = 0;
-	uint32_t PrevSamples = 99999999999;
 	void getAndLogQueryPoolResults()
 	{
+#ifdef BEZIER_CAGE_ADAPTIVE_T_FIND // results for bezier show an optimal number of 0.14 for T
 		{
 			uint32_t samples_passed[1] = {};
 			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT);
-			logicalDevice->getQueryPoolResults(PixelInvocPool.get(), 0u, 1u, sizeof(samples_passed), samples_passed, sizeof(uint32_t), queryResultFlags);
+			logicalDevice->getQueryPoolResults(pipelineStatsPool.get(), 0u, 1u, sizeof(samples_passed), samples_passed, sizeof(uint32_t), queryResultFlags);
 			logger->log("[WAIT] SamplesPassed[0] = %d", system::ILogger::ELL_INFO, samples_passed[0]);
 			std::cout << MinT << ", " << PrevSamples << std::endl;
 			if (PrevSamples > samples_passed[0]) {
@@ -1185,15 +1178,13 @@ public:
 				MinT = (sin(T) + 1.01f) / 4.03f;
 			}
 		}
+#endif
 	}
-
-
 
 	APP_CONSTRUCTOR(CADApp);
 
 	void onAppInitialized_impl() override
 	{
-
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
@@ -1239,7 +1230,7 @@ public:
 			queryPoolCreationParams.queryType = video::IQueryPool::EQT_PIPELINE_STATISTICS;
 			queryPoolCreationParams.queryCount = 1u;
 			queryPoolCreationParams.pipelineStatisticsFlags = video::IQueryPool::EPSF_FRAGMENT_SHADER_INVOCATIONS_BIT;
-			PixelInvocPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
+			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
 		}
 
 
@@ -1511,7 +1502,6 @@ public:
 
 	void beginFrameRender()
 	{
-		T += 0.001f;
 		auto& cb = m_cmdbuf[m_resourceIx];
 		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
 		auto& fence = m_frameComplete[m_resourceIx];
@@ -1533,7 +1523,6 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
-		globalData._pad = 0.145f;// (sin(T) + 1.01f) / 4.03f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1698,8 +1687,8 @@ public:
 
 		pipelineBarriersBeforeDraw(cb.get());
 
-		cb->resetQueryPool(PixelInvocPool.get(), 0u, 1u);
-		cb->beginQuery(PixelInvocPool.get(), 0);
+		cb->resetQueryPool(pipelineStatsPool.get(), 0u, 1u);
+		cb->beginQuery(pipelineStatsPool.get(), 0);
 
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
@@ -1714,7 +1703,7 @@ public:
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
-		cb->endQuery(PixelInvocPool.get(), 0);
+		cb->endQuery(pipelineStatsPool.get(), 0);
 		cb->endRenderPass();
 
 		cb->end();
@@ -1798,14 +1787,14 @@ public:
 				float Left = -100;
 				float Right = 100;
 				float Base = -25;
-			//	for (int i = 0; i < 25; i++) {
+				//for (int i = 0; i < 25; i++) {
 				//	std::vector<QuadraticBezierInfo> quadBeziers;
-//					QuadraticBezierInfo quadratic1;
-	//				quadratic1.p[0] = double2(Left, Base);
-		//			quadratic1.p[1] = double2(0, Base + i * 10);
-			//		quadratic1.p[2] = double2(Right, Base);
+				//	QuadraticBezierInfo quadratic1;
+				//	quadratic1.p[0] = double2(Left, Base);
+				//	quadratic1.p[1] = double2(0, Base + i * 10);
+				//	quadratic1.p[2] = double2(Right, Base);
 				//	quadBeziers.push_back(quadratic1);
-					//polyline.addQuadBeziers(std::move(quadBeziers));
+				//	polyline.addQuadBeziers(std::move(quadBeziers));
 				//}
 				srand(95);
 				for (int i = 0; i < 10; i++) {

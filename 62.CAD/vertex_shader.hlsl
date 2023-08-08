@@ -276,7 +276,7 @@ PSInput main(uint vertexID : SV_VertexID)
             //OBB Fallback
             float4 Pos0;
             float4 Pos1;
-            if (SubobjectIdx == 0 && bezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
+            if (subsectionIdx == 0 && bezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], Pos0, Pos1, screenSpaceLineWidth / 2.0f)) {
                 if (vertexIdx == 0u)
                     outV.position = float4(Pos0.xy, 0.0, 1.0f);
                 else if (vertexIdx == 1u)
@@ -353,7 +353,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
             float2 Line0V1;
             float2 Line0V2;
-            switch (SubobjectIdx) {
+            switch (subsectionIdx) {
             case 0:
                 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.0f));
                 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
@@ -418,7 +418,7 @@ PSInput main(uint vertexID : SV_VertexID)
     
 // Make the cage fullscreen for testing:
 #if 0
-    if (SubobjectIdx == 0) {
+    if (subsectionIdx == 0) {
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)
