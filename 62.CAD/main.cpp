@@ -781,19 +781,19 @@ protected:
 		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
 
 		// Add DrawObjs
+		DrawObject drawObj = {};
+		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
 		for (uint32_t i = 0u; i < objectsToUpload; ++i)
 		{
 			for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
 			{
-				DrawObject drawObj = {};
 				drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (subObject << 16));
-				drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
 				drawObj.styleIdx = styleIdx;
 				void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 				memcpy(dst, &drawObj, sizeof(DrawObject));
 				currentDrawObjectCount += 1u;
-				drawObj.address += sizeof(QuadraticBezierInfo);
 			}
+			drawObj.address += sizeof(QuadraticBezierInfo);
 		}
 
 		// Add Geometry
