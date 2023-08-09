@@ -4,7 +4,10 @@
 #include "../common/CommonAPI.h"
 
 
-static constexpr bool DebugMode = false;
+
+
+
+static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
@@ -15,7 +18,7 @@ enum class ExampleMode
 	CASE_3, // CURVES AND LINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_1;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 
 struct double4x4
@@ -65,7 +68,7 @@ double dot(const double2& a, const double2& b)
 }
 double2 normalize(const double2& x)
 {
-	double len = dot(x,x);
+	double len = dot(x, x);
 #ifdef __NBL_FAST_MATH
 	return x * core::inversesqrt<double>(len);
 #else
@@ -122,7 +125,7 @@ public:
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
 				m_bounds = m_bounds + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
-				m_bounds = double2 {core::max(m_aspectRatio, m_bounds.X), core::max(1.0, m_bounds.Y)};
+				m_bounds = double2{ core::max(m_aspectRatio, m_bounds.X), core::max(1.0, m_bounds.Y) };
 			}
 		}
 	}
@@ -254,14 +257,14 @@ protected:
 class Hatch
 {
 	/*
-		This class will input a list of Polylines (core::SRange) 
+		This class will input a list of Polylines (core::SRange)
 		and then output bunch of HatchBoxes
 		The hatch box generation algorithm will be used here
 	*/
 
 	/*
 		Here are additional info you need for the hatch box generation algorithm:
-		
+
 		1. Curve-Curve Intersection
 			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
 			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
@@ -428,8 +431,8 @@ public:
 			{
 				bool shouldSubmit = false;
 				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-				addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
-				
+				addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
+
 				if (currentObjectInSection >= currentSection.count)
 				{
 					currentSectionIdx++;
@@ -470,13 +473,13 @@ public:
 					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
 
 					// we only care about indices because the geometry and drawData is already in memory
-					const uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-					const auto objectsRemaining = currentSection.count - currentObjectInSection;
-					const auto objectsToUpload = core::min(uploadableObjects, objectsRemaining);
+					const uint32_t uploadableCages = (maxIndices - currentIndexCount) / 6u;
+					const auto cagesRemaining = (currentSection.count - currentObjectInSection) * getCageCountPerPolylineObject(currentSection.type);
+					const auto cagesToUpload = core::min(uploadableCages, cagesRemaining);
 
-					addObjectIndices_Internal(true, startDrawObjectCount, objectsToUpload);
+					addPolylineObjectIndices_Internal(true, startDrawObjectCount, cagesToUpload);
 
-					currentObjectInSection += objectsToUpload;
+					currentObjectInSection += cagesToUpload;
 
 					if (currentObjectInSection >= currentSection.count)
 					{
@@ -486,7 +489,7 @@ public:
 					else
 						shouldSubmit = true;
 
-					startDrawObjectCount += objectsToUpload;
+					startDrawObjectCount += cagesToUpload;
 
 					if (shouldSubmit)
 					{
@@ -516,7 +519,7 @@ public:
 					if (currentSectionIdx == lastSectionIdx)
 						currentSection.count = lastObjectInSection;
 
-					addObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
+					addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
 
 					if (currentObjectInSection >= currentSection.count)
 					{
@@ -691,8 +694,17 @@ protected:
 		return currentLineStylesCount++;
 	}
 
+	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
+	{
+		if (type == ObjectType::LINE)
+			return 1u;
+		else if (type == ObjectType::QUAD_BEZIER)
+			return 3u;
+		return 0u;
+	};
+
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	void addPolylineObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
 		if (section.type == ObjectType::LINE)
 			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
@@ -720,11 +732,11 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
-		drawObj.type = ObjectType::LINE;
+		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::LINE) | 0 << 16);
 		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
 		drawObj.styleIdx = styleIdx;
 		for (uint32_t i = 0u; i < objectsToUpload; ++i)
@@ -751,17 +763,13 @@ protected:
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
+		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
+		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
 
 		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
 
-		// TODO[Payton]: we may not always be able to draw a complete Polyline (due to low mem remaining)
-		// that's why we use "currentObjectInSection" idx, to figure out how many objects in the section is left to draw
-		// and after copying the correct data into it's places and moving the correct counters, we do "currentObjectInSection += the number of objects we where able to copy and issue for draw later"
-		// and the number of objects we're able to copy is dependant on "index" memory left, "drawObject" memory left, and "geometry" memory left
-		// but now this logic will change; we will now require 18 indices, 3 draw objects instead of 6 and 1 to draw a quad bezier, geometry buffer requirements won't change.
-		// for simplicity let's not support drawing partial beziers and require the mem to have at least spapce for 18 indices and 3 draw objs to draw a single quad bezier.
-		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerQuadBezier;
 		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
@@ -770,19 +778,21 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
-		// TODO[Payton] you will now copy 3 drawObjs per bezier, and pack that along with the "sectionIdx", make sure to fix filling this drawObj.type_section packed uint32 for other object types
-		drawObj.type = ObjectType::QUAD_BEZIER;
 		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-		drawObj.styleIdx = styleIdx;
 		for (uint32_t i = 0u; i < objectsToUpload; ++i)
 		{
-			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
-			memcpy(dst, &drawObj, sizeof(DrawObject));
-			currentDrawObjectCount += 1u;
+			for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
+			{
+				drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (subObject << 16));
+				drawObj.styleIdx = styleIdx;
+				void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+				memcpy(dst, &drawObj, sizeof(DrawObject));
+				currentDrawObjectCount += 1u;
+			}
 			drawObj.address += sizeof(QuadraticBezierInfo);
 		}
 
@@ -807,19 +817,19 @@ protected:
 		- constructs drawObjs and copies them into correct place of the drawobj buffer
 		- and correctly advances the memory tracker and counters
 		- it will iterate to a point where it ends OR there is not enough memory left
-		- For example we might have enough memory left for 10 curve boxes in the geometry buffer, 
-			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem, 
+		- For example we might have enough memory left for 10 curve boxes in the geometry buffer,
+			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem,
 			the solution is simple when we iterate on curve boxes and keep track of what curves we have already copied into mem (a map from cpuCurveIndex to geomBufferOffset)
 	*/
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
+	void addPolylineObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
 	{
 		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
 		for (uint32_t i = 0u; i < objectCount; ++i)
 		{
 			index_buffer_type objIndex = startObject + i;
-			if(oddProvokingVertex)
+			if (oddProvokingVertex)
 			{
 				indices[i * 6] = objIndex * 4u + 1u;
 				indices[i * 6 + 1u] = objIndex * 4u + 0u;
@@ -906,6 +916,8 @@ class CADApp : public ApplicationBase
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
+	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
+
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
@@ -954,7 +966,8 @@ class CADApp : public ApplicationBase
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
 	CPolyline bigPolyline;
 
-	void initDrawObjects(uint32_t maxObjects = 20480u)
+
+	void initDrawObjects(uint32_t maxObjects = 128u)
 	{
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
@@ -970,7 +983,7 @@ class CADApp : public ApplicationBase
 			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
 		}
 
-		for(uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+		for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
 		{
 			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
@@ -991,8 +1004,8 @@ class CADApp : public ApplicationBase
 		promotionRequest.usages = {};
 		promotionRequest.usages.storageImageAtomic = true;
 		pseudoStencilFormat = physicalDevice->promoteImageFormat(promotionRequest, video::IGPUImage::ET_OPTIMAL);
-		
-		for(uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
+
+		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
 			video::IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
@@ -1007,7 +1020,7 @@ class CADApp : public ApplicationBase
 			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
 			imgInfo.initialLayout = video::IGPUImage::EL_UNDEFINED;
 			imgInfo.tiling = video::IGPUImage::ET_OPTIMAL;
-			
+
 			auto image = logicalDevice->createImage(std::move(imgInfo));
 			auto imageMemReqs = image->getMemoryReqs();
 			imageMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
@@ -1151,6 +1164,23 @@ public:
 		return logicalDevice->createRenderpass(rp_params);
 	}
 
+	void getAndLogQueryPoolResults()
+	{
+#ifdef BEZIER_CAGE_ADAPTIVE_T_FIND // results for bezier show an optimal number of 0.14 for T
+		{
+			uint32_t samples_passed[1] = {};
+			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT);
+			logicalDevice->getQueryPoolResults(pipelineStatsPool.get(), 0u, 1u, sizeof(samples_passed), samples_passed, sizeof(uint32_t), queryResultFlags);
+			logger->log("[WAIT] SamplesPassed[0] = %d", system::ILogger::ELL_INFO, samples_passed[0]);
+			std::cout << MinT << ", " << PrevSamples << std::endl;
+			if (PrevSamples > samples_passed[0]) {
+				PrevSamples = samples_passed[0];
+				MinT = (sin(T) + 1.01f) / 4.03f;
+			}
+		}
+#endif
+	}
+
 	APP_CONSTRUCTOR(CADApp);
 
 	void onAppInitialized_impl() override
@@ -1175,6 +1205,7 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
 		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
 		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -1194,10 +1225,19 @@ public:
 		// renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
 
+		{
+			video::IQueryPool::SCreationParams queryPoolCreationParams = {};
+			queryPoolCreationParams.queryType = video::IQueryPool::EQT_PIPELINE_STATISTICS;
+			queryPoolCreationParams.queryCount = 1u;
+			queryPoolCreationParams.pipelineStatisticsFlags = video::IQueryPool::EPSF_FRAGMENT_SHADER_INVOCATIONS_BIT;
+			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
+		}
+
+
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassFinal = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_PRESENT_SRC);
-		
+
 		commandPools = std::move(initOutput.commandPools);
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		const auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
@@ -1223,13 +1263,13 @@ public:
 		auto loadSPIRVShader = [&](const std::string& filePath, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<asset::ICPUShader>
 		{
 			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> file_future;
-			system->createFile(file_future, filePath, core::bitflag(system::IFile::ECF_READ)|system::IFile::ECF_MAPPABLE);
-			if (auto shader_file=file_future.acquire())
+			system->createFile(file_future, filePath, core::bitflag(system::IFile::ECF_READ) | system::IFile::ECF_MAPPABLE);
+			if (auto shader_file = file_future.acquire())
 			{
 				auto shaderSizeInBytes = (*shader_file)->getSize();
 				auto shaderData = (*shader_file)->getMappedPointer();
 				// copy the data in so it survives past the destruction of the mapped file
-				auto vertexShaderSPIRVBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<>>(shaderSizeInBytes,shaderData);
+				auto vertexShaderSPIRVBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<>>(shaderSizeInBytes, shaderData);
 				return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
 			}
 			return nullptr;
@@ -1255,7 +1295,7 @@ public:
 			shaders[2u] = gpuShaders->begin()[2u];
 		}
 
-		initDrawObjects();
+		initDrawObjects(1024u * 1024u);
 
 		video::IGPUDescriptorSetLayout::SBinding bindings[4u] = {};
 		bindings[0u].binding = 0u;
@@ -1278,7 +1318,7 @@ public:
 		bindings[3u].count = 1u;
 		bindings[3u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings+4u);
+		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + 4u);
 
 		nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool = nullptr;
 		{
@@ -1286,7 +1326,7 @@ public:
 			createInfo.flags = nbl::video::IDescriptorPool::ECF_NONE;
 			createInfo.maxSets = 128u;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 2*FRAMES_IN_FLIGHT;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 2 * FRAMES_IN_FLIGHT;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
 
 			descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
@@ -1483,7 +1523,6 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
-
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1648,6 +1687,9 @@ public:
 
 		pipelineBarriersBeforeDraw(cb.get());
 
+		cb->resetQueryPool(pipelineStatsPool.get(), 0u, 1u);
+		cb->beginQuery(pipelineStatsPool.get(), 0);
+
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
 		const uint32_t currentIndexCount = drawBuffers[m_resourceIx].getIndexCount();
@@ -1661,7 +1703,7 @@ public:
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
-
+		cb->endQuery(pipelineStatsPool.get(), 0);
 		cb->endRenderPass();
 
 		cb->end();
@@ -1739,31 +1781,35 @@ public:
 
 
 			CPolyline polyline;
+			
 			{
-				std::vector<double2> linePoints;
-				linePoints.push_back({ -50.0, 0.0 });
-				linePoints.push_back({ sin(m_timeElapsed * 0.005) * 20, cos(m_timeElapsed * 0.005) * 20 });
-				linePoints.push_back({ -sin(m_timeElapsed * 0.005) * 20, -cos(m_timeElapsed * 0.005) * 20 });
-				linePoints.push_back({ 50.0, 0.0 });
-				polyline.addLinePoints(std::move(linePoints));
+
+				float Left = -100;
+				float Right = 100;
+				float Base = -25;
+				//for (int i = 0; i < 25; i++) {
+				//	std::vector<QuadraticBezierInfo> quadBeziers;
+				//	QuadraticBezierInfo quadratic1;
+				//	quadratic1.p[0] = double2(Left, Base);
+				//	quadratic1.p[1] = double2(0, Base + i * 10);
+				//	quadratic1.p[2] = double2(Right, Base);
+				//	quadBeziers.push_back(quadratic1);
+				//	polyline.addQuadBeziers(std::move(quadBeziers));
+				//}
+				srand(95);
+				for (int i = 0; i < 10; i++) {
+					std::vector<QuadraticBezierInfo> quadBeziers;
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadBeziers.push_back(quadratic1);
+					polyline.addQuadBeziers(std::move(quadBeziers));
+				}
+
 			}
 			{
-				std::vector<CPolyline::EllipticalArcInfo> ellipticalArcs;
-				CPolyline::EllipticalArcInfo ellipse;
-				ellipse.center = double2(80.0, 0.0);
-				ellipse.majorAxis = double2(30.0, 0.0);
-				ellipse.eccentricity = 1.0;
-				ellipse.angleBounds.X = 0.0;
-				ellipse.angleBounds.Y = nbl::core::PI<double>();
-				ellipticalArcs.push_back(ellipse);
-				polyline.addEllipticalArcs(std::move(ellipticalArcs));
-			}
-			{
-				std::vector<double2> linePoints;
-				linePoints.push_back({ 110.0, 0.0 });
-				linePoints.push_back({ 110.0, 100.0 });
-				linePoints.push_back({ 150.0, 100.0 });
-				polyline.addLinePoints(std::move(linePoints));
+
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
@@ -1835,7 +1881,11 @@ public:
 			cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
 
+		
 		cmdbuf->endRenderPass();
+
+
+
 
 		cmdbuf->end();
 
@@ -1867,6 +1917,7 @@ public:
 
 	void workLoopBody() override
 	{
+
 		m_resourceIx++;
 		if (m_resourceIx >= FRAMES_IN_FLIGHT)
 			m_resourceIx = 0;
@@ -1925,6 +1976,8 @@ public:
 			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
 			m_renderFinished[m_resourceIx].get(),
 			m_SwapchainImageIx);
+
+		getAndLogQueryPoolResults();
 	}
 
 	bool keepRunning() override

@@ -26,7 +26,7 @@ float4 main(PSInput input) : SV_TARGET
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     bool writeToAlpha = input.getWriteToAlpha() == 1u;
-    
+
     if (writeToAlpha)
     {
         if (objType == ObjectType::LINE)
@@ -34,7 +34,7 @@ float4 main(PSInput input) : SV_TARGET
             const float2 start = input.getLineStart();
             const float2 end = input.getLineEnd();
             const float lineThickness = input.getLineThickness();
-            
+
             float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
 
             const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -80,7 +80,7 @@ float4 main(PSInput input) : SV_TARGET
     }
 
     endInvocationInterlockEXT();
-
+    
     if (writeToAlpha || alpha == 0.0f)
         discard;
 #else
