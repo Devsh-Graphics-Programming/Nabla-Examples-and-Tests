@@ -17,6 +17,7 @@ struct DrawObject
 struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
+    // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
 };
 
 // TODO[Lucas]:
@@ -47,6 +48,7 @@ struct LineStyle
     float4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
+    // TODO[Przemek]: Anything info related to the stipple pattern will be here
     float _pad[2u];
 };
 

@@ -227,6 +227,8 @@ public:
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
+	// TODO[Przemek]: This uses the struct from the shader common.hlsl if you need to precompute stuff make a duplicate of this struct here first (for the user input to fill)
+	// and then do the precomputation here and store in m_quadBeziers which holds the actual structs that will be fed to the GPU
 	void addQuadBeziers(std::vector<QuadraticBezierInfo>&& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
@@ -402,7 +404,11 @@ public:
 	}
 
 	uint32_t getIndexCount() const { return currentIndexCount; }
-
+	
+	// TODO[Przemek]: look at the `drawPolyline` function and you may have to change that as well. if you found out the user input `const LineStyle& lineStyle` for stippling needs processing/computation to be ready to be fed into gpu
+	//	 then have two sturcts (one for cpu side and one that is private to this class and will be fed to gpu)
+	//	 don't force yourself to understand this function completely, it will change soon when I change CSG algo, 
+	//	 just be aware that this drawPolyline function will result in calls to addQuadBeziers_Internal and addLineStyle_Internal and will submit draws if there is no memory left and continue where it left off
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
@@ -654,7 +660,7 @@ protected:
 	SubmitFunc submitDraws;
 
 	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
-
+	
 	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
 		const LineStyle& lineStyle,
 		uint32_t& outLineStyleIdx,
@@ -676,6 +682,7 @@ protected:
 
 	uint32_t addLineStyle_Internal(const LineStyle& lineStyle)
 	{
+		// TODO[Przemek]: styles are added here, store info about stipple patterns here, assume max input of the stipple array is 15 max (the -1, +2, 0., +4, .. patterns)
 		LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 		{
@@ -763,6 +770,7 @@ protected:
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
+		// TODO[Przemek]: Beziers are added here, understand how this function works, may come in handy
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
 		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);

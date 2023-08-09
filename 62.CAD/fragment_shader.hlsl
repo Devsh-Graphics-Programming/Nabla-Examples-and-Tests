@@ -46,7 +46,9 @@ float4 main(PSInput input) : SV_TARGET
             const float2 b = input.getBezierP1();
             const float2 c = input.getBezierP2();
             const float lineThickness = input.getLineThickness();
-
+            
+            // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
+            // You'll be also working in the builtin shaders that provide thesee
             float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
 
             const float antiAliasingFactor = globals.antiAliasingFactor;
