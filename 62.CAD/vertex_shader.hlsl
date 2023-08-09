@@ -21,6 +21,16 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
     return p0 * oneMinusTT + 2.0f * p1 * oneMinusT * t + p2 * tt;
 }
 
+// https://math.stackexchange.com/questions/220900/bezier-curvature/2971112#2971112
+float QuadraticBezierCurvature(float2 p0, float2 p1, float2 p2, float t)
+{
+    // based on formula of curvature of a parametric curve
+    float2 firstDerivative = 2 * (1-t) * (p1 - p0) + 2 * t * (p2 - p1);
+    float2 secondDerivative = 2 * (p2 - 2*p1 + p0);
+    float k = length(cross2D(firstDerivative, secondDerivative))/pow(length(firstDerivative),3);
+    return k;
+}
+
 //Compute bezier in one dimension, as the OBB X and Y are at different T's
 float QuadraticBezier1D(float v0, float v1, float v2, float t)
 {
@@ -135,20 +145,31 @@ float4 BezierAABB(float2 p01, float2 p11, float2 p21)
 }
 
 // from shadertoy: https://www.shadertoy.com/view/stfSzS
-// OBB generation via Principal Component Analysis
 bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, out float4 Pos0, out float4 Pos1, float screenSpaceLineWidth)
 {
+    // try to find transformation of OBB via principal-component-analysis
     float2x2 rotation;
     float2 translation;
 
     if (EstimateTransformation(p0, p1, p2, translation, rotation) == false)
         return false;
-
+            
+    // transform Bezier's control-points into the local-space of the OBB
+    //
+    // 1) instead of using inverse of rot-matrix we can just use transpose of rot-matrix
+    //    because rot-matrix is "orthonormal" (each column has unit length and is perpendicular
+    //    to every other column)
+    // 
+    // 2) resulting vector of [transpose(rot) * v] is same as [v * rot] !!!
+    
+    // compute AABB of curve in local-space
     float4 aabb = BezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));
     aabb.xy -= screenSpaceLineWidth;
     aabb.zw += screenSpaceLineWidth;
     float2 center = translation + mul((aabb.xy + aabb.zw) / 2.0f, rotation);
     float2 Extent = ((aabb.zw - aabb.xy) / 2.0f).xy;
+    
+    // transform AABB back to world-space
     Pos0 = float4(center + mul(Extent, rotation), center + mul(float2(Extent.x, -Extent.y), rotation));
     Pos1 = float4(center + mul(-Extent, rotation), center + mul(-float2(Extent.x, -Extent.y), rotation));
 
@@ -243,32 +264,24 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;
         float Radius = length(Mid - transformedPoints[0u]) / 2.0f;
         
-        
+        //T with max curve https://math.stackexchange.com/questions/220900/bezier-curvature/2971112#2971112
+        float MaxCurvatureT = dot(-(transformedPoints[1u] - transformedPoints[0u]), transformedPoints[2u] - 2.0f * transformedPoints[1u] + transformedPoints[0u]) / pow(length(transformedPoints[2u] - 2.0f * transformedPoints[1u] + transformedPoints[0u]),2.0f);
+
+        // TODO: Optimization Opportunity by finding MaxCurvatureT later when needed: https://algorithmist.wordpress.com/2010/12/01/quad-bezier-curvature/
         /*
-            B
-          xxxxx
-        xxx    xxx
-      xxx         xx
-    xxx            xx
-   xx               xx
-  xx                 xx
-  x                   xx
-A x                    x C
-        */
         float2 vectorAB = transformedPoints[1u] - transformedPoints[0u];
         float2 vectorAC = transformedPoints[2u] - transformedPoints[1u];
-
-        //T with max curve
-        float MaxCurveT = dot(-(transformedPoints[1u] - transformedPoints[0u]), transformedPoints[2u] - 2.0f * transformedPoints[1u] + transformedPoints[0u]) / pow(length(transformedPoints[2u] - 2.0f * transformedPoints[1u] + transformedPoints[0u]),2.0f);
-
         float area = abs(vectorAB.x * vectorAC.y - vectorAB.y * vectorAC.x) * 0.5;
-        float MaxCurve;
+        float MaxCurvature;
         if (length(transformedPoints[1u] - lerp(transformedPoints[0u], transformedPoints[2u], 0.25f)) > Radius && length(transformedPoints[1u] - lerp(transformedPoints[0u], transformedPoints[2u], 0.75f)) > Radius)
-            MaxCurve = pow(length(transformedPoints[1u] - Mid), 3) / (area * area);
+            MaxCurvature = pow(length(transformedPoints[1u] - Mid), 3) / (area * area);
         else 
-            MaxCurve = max(area / pow(length(transformedPoints[0u] - transformedPoints[1u]), 3), area / pow(length(transformedPoints[2u] - transformedPoints[1u]), 3));
-
-        if (MaxCurve * screenSpaceLineWidth > 16)
+            MaxCurvature = max(area / pow(length(transformedPoints[0u] - transformedPoints[1u]), 3), area / pow(length(transformedPoints[2u] - transformedPoints[1u]), 3));
+        */
+        float MaxCurvature = QuadraticBezierCurvature(transformedPoints[0u],transformedPoints[1u],transformedPoints[2u], MaxCurvatureT);
+        
+        // Some heuristic based on MaxCurvature and screenSpaceWidth, number 16 can be adjusted
+        if (MaxCurvature * screenSpaceLineWidth > 16.0f)
         {
             //OBB Fallback
             float4 Pos0;
@@ -285,7 +298,7 @@ A x                    x C
                     outV.position = float4(Pos1.xy, 0.0, 1.0f);
             }
             else
-                outV.position = float4(0.0f, 0.0f, 0.0f, 1.0f);
+                outV.position = float4(0.0f, 0.0f, 0.0f, 0.0f);
         } 
         else 
         {
@@ -301,9 +314,6 @@ A x                    x C
             float2 MidTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f));
             float2 MidNormal = float2(-MidTangent.y, MidTangent.x) * flip;
             
-            //re-used data
-            float2 tangent;
-            float2 normal;
             //exterior cage points
             float2 p0;
             float2 p1;
@@ -320,8 +330,8 @@ A x                    x C
             
             // Exteriors
             {
-                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
-                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
+                float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
 
                 Line2V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
                 Line2V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
@@ -329,8 +339,8 @@ A x                    x C
                 p0 = LineLineIntersection(Line1V1, Line2V1, Line1V2 - Line1V1, Line2V2 - Line2V1);
             }
             {
-                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT));
-                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT));
+                float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
 
                 Line3V1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) + tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
                 Line3V2 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) - tangent * 1000.0f - normal * screenSpaceLineWidth / 2.0f;
@@ -338,22 +348,30 @@ A x                    x C
                 p1 = LineLineIntersection(Line1V1, Line3V1, Line1V2 - Line1V1, Line3V2 - Line3V1);
             }
             
-            // Middle Cage -> Exterior
-            {
-                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286));
-                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
-                IP0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286) + normal * screenSpaceLineWidth / 2.0f;
-            }
-            {
-                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f));
-                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
-                IP1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f) + normal * screenSpaceLineWidth / 2.0f;
-            }
             // Middle Cage -> Adaptive Interior
-            if (MaxCurve * screenSpaceLineWidth / 2.0f > 0.5f)
+            // We only do this adaptive thing (in the else case) when "MinRadiusOfOsculatingCircle = RadiusOfMaxCurvature < screenSpaceLineWidth/4" OR "MaxCurvature > 4/screenSpaceLineWidth";
+            //  which means there is a self intersection because of large lineWidth relative to the curvature
+            // the reason for division by 4.0f is 1. screenSpaceLineWidth is expanded on both sides and the fact that diameter/2=radius, 
+            if (MaxCurvature * screenSpaceLineWidth < 4.0f)
             {
-                float2 TanMaxCurve = (normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], MaxCurveT)));
-                float2 MaxCurvePos = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], MaxCurveT);
+                {
+                    float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286f));
+                    float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                    IP0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286) + normal * screenSpaceLineWidth / 2.0f;
+                }
+                {
+                    float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f));
+                    float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                    IP1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f) + normal * screenSpaceLineWidth / 2.0f;
+                }
+            }
+            else
+            {
+                // First fine the tangent and position at the max curvature t
+                float2 TanMaxCurve = BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], MaxCurvatureT);
+                float2 MaxCurvePos = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], MaxCurvatureT);
+                
+                // then transform the control points to get a nice parabola equation for our bezier (MaxCurvePos is at 0,0 and it's tangent is the new x axis)
                 float2 TP0 = transformedPoints[0u] - MaxCurvePos;
                 float2 TP1 = transformedPoints[1u] - MaxCurvePos;
                 float2 TP2 = transformedPoints[2u] - MaxCurvePos;
@@ -365,11 +383,11 @@ A x                    x C
                 TP1 = mul(rotmat, TP1);
                 TP2 = mul(rotmat, TP2);
 
-                float m1 = (TP1.y - TP0.y) / (TP1.x - TP0.x);
-                float m2 = (TP2.y - TP1.y) / (TP2.x - TP1.x);
+                // finding a in y(x)=ax^2 for the transformed bezier
+                float a = TP0.y / (TP0.x * TP0.x);
 
-                float a = (m1 - m2) / (-2.0f * TP2.x + 2.0f * TP0.x);
-
+                // Find intersection of the normal line of max curvature and the formula for the "inner" outline 
+                // Based on our own desmos findings https://www.desmos.com/calculator/lqz6pkpqtm
                 float y = (a * pow(screenSpaceLineWidth / 2.0f, 2)) + (1.0f / (4.0f * a));
                 IP0 = mul(float2(0, y), rotmat) + MaxCurvePos;
                 IP1 = IP0;
@@ -377,8 +395,8 @@ A x                    x C
 
             if (subsectionIdx == 0u)
             {
-                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.0f));
-                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.0f));
+                float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
 
                 float2 Line0V1 = transformedPoints[0u] - normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
                 float2 Line0V2 = transformedPoints[0u] + normal * 1000.0f - tangent * screenSpaceLineWidth / 2.0f;
@@ -405,8 +423,8 @@ A x                    x C
             }
             else if (subsectionIdx == 2u)
             {
-                tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f));
-                normal = normalize(float2(-tangent.y, tangent.x)) * flip;
+                float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f));
+                float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
 
                 float2 Line0V1 = transformedPoints[2u] - normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
                 float2 Line0V2 = transformedPoints[2u] + normal * 1000.0f + tangent * screenSpaceLineWidth / 2.0f;
