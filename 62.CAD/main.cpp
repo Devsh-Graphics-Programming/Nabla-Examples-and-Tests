@@ -18,7 +18,7 @@ enum class ExampleMode
 	CASE_3, // CURVES AND LINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 
 struct double4x4
@@ -151,6 +151,65 @@ private:
 	double2 m_origin = {};
 };
 
+// Basically 2D CSG
+// TODO[Lucas]:
+class Hatch
+{
+public:
+	struct Curve
+	{
+		// Quadratic bezier curve (3 control points)
+		// if the middle point is "nan" it means it's a line connected by p0 and p2
+		double2 p[3];
+	};
+
+	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
+	struct CurveHatchBox
+	{
+		double2 aabbMin, aabbMax;
+		// References into the curves vector of the hatch
+		uint32_t minCurve, maxCurve;
+		double minCurveTmin, minCurveTmax;
+		double maxCurveTmin, maxCurveTmax;
+	};
+
+	std::vector<Curve> curves;
+	std::vector<CurveHatchBox> hatchBoxes;
+
+	/*
+		This class will input a list of Polylines (core::SRange)
+		and then output bunch of HatchBoxes
+		The hatch box generation algorithm will be used here
+	*/
+	/*
+		Here are additional info you need for the hatch box generation algorithm:
+
+		1. Curve-Curve Intersection
+			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
+			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
+			whose roots are the parameter values of the points of intersection
+			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
+			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+
+		2. Implicitization
+			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
+			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
+			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
+			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
+			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
+			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
+
+		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
+			(Talk with Matt, he figure out the math)
+	*/
+	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
+	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
+	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
+
+	// TODO: Creating hatches from polylines with the above algo
+private:
+};
+
 // It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
 // This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
 class CPolyline
@@ -201,18 +260,26 @@ public:
 		return m_linePoints[idx];
 	}
 
+	const Hatch& getHatchAt(const uint32_t idx) const
+	{
+		return m_hatches[idx];
+	}
+
 	void clearEverything()
 	{
 		m_sections.clear();
 		m_linePoints.clear();
+		m_quadBeziers.clear();
+		m_hatches.clear();
 	}
 
 	// Reserves memory with worst case
-	void reserveMemory(uint32_t noOfLines, uint32_t noOfBeziers)
+	void reserveMemory(uint32_t noOfLines, uint32_t noOfBeziers, uint32_t noOfHatches)
 	{
-		m_sections.reserve(noOfLines + noOfBeziers);
+		m_sections.reserve(noOfLines + noOfBeziers + noOfHatches);
 		m_linePoints.reserve(noOfLines * 2u);
 		m_quadBeziers.reserve(noOfBeziers);
+		m_hatches.reserve(noOfHatches);
 	}
 
 	void addLinePoints(std::vector<double2>&& linePoints)
@@ -259,57 +326,23 @@ public:
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
 
+	// (temporary)
+	std::vector<Hatch> m_hatches;
+
+	void addHatch(Hatch&& hatch)
+	{
+		SectionInfo newSection = {};
+		newSection.type = ObjectType::CURVE_BOX;
+		newSection.index = m_hatches.size();
+		newSection.count = 1;
+		m_sections.push_back(newSection);
+		m_hatches.push_back(std::move(hatch));
+	}
 protected:
 
 	std::vector<SectionInfo> m_sections;
 	std::vector<double2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
-};
-
-// Basically 2D CSG
-// TODO[Lucas]:
-class Hatch
-{
-	/*
-		This class will input a list of Polylines (core::SRange)
-		and then output bunch of HatchBoxes
-		The hatch box generation algorithm will be used here
-	*/
-
-	/*
-		Here are additional info you need for the hatch box generation algorithm:
-
-		1. Curve-Curve Intersection
-			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
-			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
-			whose roots are the parameter values of the points of intersection
-			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
-
-		2. Implicitization
-			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
-			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
-			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
-			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
-			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
-
-		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
-			(Talk with Matt, he figure out the math)
-	*/
-
-	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
-	struct CurveBox
-	{
-		// aabb (double2 min, max)
-		// reference to min curve (could be left curve if sweeping in y dir) and it's tmin tmax
-		// reference to max curve (could be right curve if sweeping in y dir) and it's tmin tmax
-		// any reference to texture or colour or style used to fill it Or we could fill that in It's drawObj (latter is better if we could alias with lineStyle address)
-	};
-
-	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
-	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
-	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
 };
 
 template <typename BufferType>
@@ -724,6 +757,9 @@ protected:
 			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			addQuadBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+		// (temporary)
+		else if (section.type == ObjectType::CURVE_BOX)
+			addHatch_Internal(polyline.getHatchAt(section.index), currentObjectInSection, styleIdx);
 		else
 			assert(false); // we don't handle other object types
 	}
@@ -778,7 +814,7 @@ protected:
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
 	{
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
-		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
+		constexpr uint32_t IndicesPerQuadBezier = 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
 
 		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
@@ -823,6 +859,7 @@ protected:
 		currentObjectInSection += objectsToUpload;
 	}
 
+
 	// TODO[Lucas] addHatch_Internal with similar signature to functions above. 
 	/*
 	* this does:
@@ -835,6 +872,75 @@ protected:
 			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem,
 			the solution is simple when we iterate on curve boxes and keep track of what curves we have already copied into mem (a map from cpuCurveIndex to geomBufferOffset)
 	*/
+
+	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
+	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t styleIdx)
+	{
+		std::unordered_map<uint32_t, uint64_t> uploadedCurves;
+		uploadedCurves.reserve(hatch.curves.size());
+
+		constexpr uint32_t IndicesPerHatchBox = 6u;
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
+		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+
+		uint32_t i = 0;
+		for (; i + currentObjectInSection < hatch.hatchBoxes.size() && i < uploadableObjects; i++)
+		{
+			if (currentGeometryBufferSize + 2 * sizeof(Curve) + sizeof(CurveBox) >= maxGeometryBufferSize)
+			{
+				break;
+			}
+
+			Hatch::CurveHatchBox hatchBox = hatch.hatchBoxes[i + currentObjectInSection];
+			auto getCurveAddress = [&](uint32_t curveIdx)
+			{
+				// TODO: this cache is probably pretty bad
+				auto cached = uploadedCurves.find(curveIdx);
+				if (cached != uploadedCurves.end())
+				{
+					return cached->second;
+				}
+
+				// curve not uploaded already
+				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				memcpy(dst, &hatch.curves[curveIdx], sizeof(Curve));
+				uploadedCurves.insert(std::pair<uint32_t, uint64_t>(curveIdx, currentGeometryBufferSize));
+				currentGeometryBufferSize += sizeof(Curve);
+			};
+
+			uint64_t hatchBoxAddress;
+			{
+				uint64_t minCurve = getCurveAddress(hatchBox.minCurve);
+				uint64_t maxCurve = getCurveAddress(hatchBox.maxCurve);
+
+				CurveBox curveBox;
+				curveBox.aabbMin = hatchBox.aabbMin;
+				curveBox.aabbMax = hatchBox.aabbMax;
+				curveBox.curveAddress1 = minCurve;
+				curveBox.curveTmin1 = hatchBox.minCurveTmin;
+				curveBox.curveTmax1 = hatchBox.minCurveTmax;
+				curveBox.curveAddress2 = maxCurve;
+				curveBox.curveTmin2 = hatchBox.maxCurveTmin;
+				curveBox.curveTmax2 = hatchBox.maxCurveTmax;
+
+				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				memcpy(dst, &curveBox, sizeof(CurveBox));
+				hatchBoxAddress = currentGeometryBufferSize;
+				currentGeometryBufferSize += sizeof(CurveBox);
+			}
+
+			DrawObject drawObj = {};
+			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
+			drawObj.styleIdx = styleIdx;
+			drawObj.address = hatchBoxAddress;
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+		}
+
+		// Add Indices
+		addHatchIndices_Internal(currentDrawObjectCount, i);
+		currentObjectInSection += i;
+	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
 	void addPolylineObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
@@ -866,6 +972,23 @@ protected:
 				indices[i * 6 + 4u] = objIndex * 4u + 1u;
 			}
 			indices[i * 6 + 5u] = objIndex * 4u + 3u;
+		}
+		currentIndexCount += objectCount * 6u;
+	}
+
+	void addHatchIndices_Internal(uint32_t startObject, uint32_t objectCount)
+	{
+		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
+
+		for (uint32_t i = 0u; i < objectCount; ++i)
+		{
+			index_buffer_type objIndex = startObject + i;
+			indices[i * 6 + 0u] = objIndex;
+			indices[i * 6 + 1u] = objIndex;
+			indices[i * 6 + 2u] = objIndex;
+			indices[i * 6 + 3u] = objIndex;
+			indices[i * 6 + 4u] = objIndex;
+			indices[i * 6 + 5u] = objIndex;
 		}
 		currentIndexCount += objectCount * 6u;
 	}
@@ -1498,6 +1621,28 @@ public:
 			}
 			bigPolyline.addLinePoints(std::move(linePoints));
 		}
+		else if constexpr (mode == ExampleMode::CASE_2)
+		{
+			Hatch hatch = {};
+			Hatch::Curve minCurve = { { { -200.0, -100.0 }, { -230.0, 0.0 }, { -200.0, 100.0 }  } };
+			Hatch::Curve maxCurve = { { { 200.0, -100.0 }, { 230.0, 0.0 }, { 200.0, 100.0 }  } };
+			hatch.curves.push_back(minCurve);
+			hatch.curves.push_back(maxCurve);
+
+			Hatch::CurveHatchBox hatchBox = {};
+			hatchBox.aabbMin = nbl::core::vector2d<double>(-230.0, -100.0);
+			hatchBox.aabbMax = nbl::core::vector2d<double>(230.0, 100.0);
+			hatchBox.minCurve = 0;
+			hatchBox.minCurveTmin = 0.0;
+			hatchBox.minCurveTmax = 1.0;
+			hatchBox.maxCurve = 1;
+			hatchBox.maxCurveTmin = 0.0;
+			hatchBox.maxCurveTmax = 1.0;
+
+			hatch.hatchBoxes.push_back(hatchBox);
+
+			bigPolyline.addHatch(std::move(hatch));
+		}
 
 	}
 
@@ -1781,6 +1926,12 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
+			LineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 0.8f;
+			style.color = float4(0.619f, 0.325f, 0.709f, 0.2f);
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{

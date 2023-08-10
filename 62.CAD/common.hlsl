@@ -72,8 +72,6 @@ struct PSInput
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    [[vk::location(5)]] nointerpolation float4 data5 : COLOR5;
-    [[vk::location(6)]] nointerpolation float4 data6 : COLOR6;
     
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
@@ -111,22 +109,20 @@ struct PSInput
     // curveMin = smaller x / left, curveMax = bigger x / right)
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
-    // data3 zw, data4, data5, data6 xy
-    float2 getCurveMinP0() { return data3.zw; }
-    float2 getCurveMinP1() { return data4.xy; }
-    float2 getCurveMinP2() { return data4.zw; }
-    float2 getCurveMaxP0() { return data5.xy; }
-    float2 getCurveMaxP1() { return data5.zw; }
-    float2 getCurveMaxP2() { return data6.xy; }
+    // data2, data3, data4
+    float2 getCurveMinP0() { return data2.xy; }
+    float2 getCurveMinP1() { return data2.zw; }
+    float2 getCurveMinP2() { return data3.xy; }
+    float2 getCurveMaxP0() { return data3.zw; }
+    float2 getCurveMaxP1() { return data4.xy; }
+    float2 getCurveMaxP2() { return data4.zw; }
     
-    void setCurveMinP0(float2 p) { data3.zw = p; }
-    void setCurveMinP1(float2 p) { data4.xy = p; }
-    void setCurveMinP2(float2 p) { data4.zw = p; }
-    void setCurveMaxP0(float2 p) { data5.xy = p; }
-    void setCurveMaxP1(float2 p) { data5.zw = p; }
-    void setCurveMaxP2(float2 p) { data6.xy = p; }
-
-    // data6 zw is reserved for later use
+    void setCurveMinP0(float2 p) { data2.xy = p; }
+    void setCurveMinP1(float2 p) { data2.zw = p; }
+    void setCurveMinP2(float2 p) { data3.xy = p; }
+    void setCurveMaxP0(float2 p) { data3.zw = p; }
+    void setCurveMaxP1(float2 p) { data4.xy = p; }
+    void setCurveMaxP2(float2 p) { data4.zw = p; }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

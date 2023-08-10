@@ -16,7 +16,7 @@ float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
-    return nbl::hlsl::shapes::QuadraticBezier::construct(p0, p1, p2, 0.0).evaluate(t);
+    return nbl::hlsl::shapes::QuadraticBezier::construct(p0, p1, p2).evaluate(t);
 }
 
 //Compute bezier in one dimension, as the OBB X and Y are at different T's
@@ -504,27 +504,13 @@ A x                    x C
         float2 aabbMin = (float2) transformPointNdc(curveBox.aabbMin);
         float2 aabbMax = (float2) transformPointNdc(curveBox.aabbMax);
         
-        // 0 __ 1
-        //  | /
-        //  |/
-        // 2
-        //     3
-        //   /|
-        //  / |
-        //  --
-        // 4  5
         if (vertexIdx == 0u)
             outV.position = float4(aabbMin.x, aabbMin.y, 0.0, 1.0f);
         else if (vertexIdx == 1u)
             outV.position = float4(aabbMax.x, aabbMin.y, 0.0, 1.0f);
         else if (vertexIdx == 2u)
             outV.position = float4(aabbMin.x, aabbMax.y, 0.0, 1.0f);
-            
         else if (vertexIdx == 3u)
-            outV.position = float4(aabbMax.x, aabbMin.y, 0.0, 1.0f);
-        else if (vertexIdx == 4u)
-            outV.position = float4(aabbMin.x, aabbMax.y, 0.0, 1.0f);
-        else if (vertexIdx == 5u)
             outV.position = float4(aabbMax.x, aabbMax.y, 0.0, 1.0f);
 
         /*

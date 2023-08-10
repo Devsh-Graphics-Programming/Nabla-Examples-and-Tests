@@ -34,14 +34,12 @@ float4 main(PSInput input) : SV_TARGET
         nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
             input.getCurveMinP0(),
             input.getCurveMinP1(),
-            input.getCurveMinP2(),
-            0.0
+            input.getCurveMinP2()
         );
         nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
             input.getCurveMaxP0(),
             input.getCurveMaxP1(),
-            input.getCurveMaxP2(),
-            0.0
+            input.getCurveMaxP2()
         );
         // TODO: Use flexible major coordinate
         const uint majorCoordinate = 0;
@@ -81,7 +79,7 @@ float4 main(PSInput input) : SV_TARGET
                 const float2 c = input.getBezierP2();
                 const float lineThickness = input.getLineThickness();
 
-                float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+                float distance = nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
 
                 const float antiAliasingFactor = globals.antiAliasingFactor;
                 localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
