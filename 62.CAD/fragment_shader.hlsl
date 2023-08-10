@@ -25,82 +25,70 @@ float4 main(PSInput input) : SV_TARGET
 
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
-    bool writeToAlpha = input.getWriteToAlpha() == 1u;
-
-    if (writeToAlpha)
+    bool currentMainObjectIdx = input.getMainObjectIdx() == 1u;
+    
+    if (objType == ObjectType::LINE)
     {
-        if (objType == ObjectType::LINE)
-        {
-            const float2 start = input.getLineStart();
-            const float2 end = input.getLineEnd();
-            const float lineThickness = input.getLineThickness();
+        const float2 start = input.getLineStart();
+        const float2 end = input.getLineEnd();
+        const float lineThickness = input.getLineThickness();
 
-            float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
+        float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
 
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        }
-        else if (objType == ObjectType::QUAD_BEZIER)
-        {
-            const float2 a = input.getBezierP0();
-            const float2 b = input.getBezierP1();
-            const float2 c = input.getBezierP2();
-            const float lineThickness = input.getLineThickness();
-            
-            // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
-            // You'll be also working in the builtin shaders that provide thesee
-            float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        }
-        /*
-        TODO[Lucas]:
-            Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
-            and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
-            you will use input.getXXX() to get values needed for this computation
-        */
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
+    else if (objType == ObjectType::QUAD_BEZIER)
+    {
+        const float2 a = input.getBezierP0();
+        const float2 b = input.getBezierP1();
+        const float2 c = input.getBezierP2();
+        const float lineThickness = input.getLineThickness();
+        
+        // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
+        // You'll be also working in the builtin shaders that provide thesee
+        float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+    }
+    /*
+    TODO[Lucas]:
+        Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
+        and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
+        you will use input.getXXX() to get values needed for this computation
+    */
 
     uint2 fragCoord = uint2(input.position.xy);
 
     float alpha = 0.0f; // new alpha
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-    beginInvocationInterlockEXT();
+    //beginInvocationInterlockEXT();
 
-    alpha = asfloat(pseudoStencil[fragCoord]);
-    if (writeToAlpha)
-    {
-        if (localAlpha > alpha)
-            pseudoStencil[fragCoord] = asuint(localAlpha);
-    }
-    else
-    {
-        if (alpha != 0.0f)
-            pseudoStencil[fragCoord] = asuint(0.0f);
-    }
+    //alpha = asfloat(pseudoStencil[fragCoord]);
+    //if (writeToAlpha)
+    //{
+    //    if (localAlpha > alpha)
+    //        pseudoStencil[fragCoord] = asuint(localAlpha);
+    //}
+    //else
+    //{
+    //    if (alpha != 0.0f)
+    //        pseudoStencil[fragCoord] = asuint(0.0f);
+    //}
 
-    endInvocationInterlockEXT();
+    //endInvocationInterlockEXT();
     
-    if (writeToAlpha || alpha == 0.0f)
-        discard;
+    //if (writeToAlpha || alpha == 0.0f)
+    //    discard;
 #else
     alpha = localAlpha;
     if (!writeToAlpha)
         discard;
-    //if (writeToAlpha)
-    //{
-    //    InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
-    //}
-    //else
-    //{
-    //    uint previousAlpha;
-    //    InterlockedExchange(pseudoStencil[fragCoord], 0u, previousAlpha);
-    //    alpha = previousAlpha;
-    //}
+    // Tried InterlockedMax and InterlockedExchange, didn't work and had artifacts because there is no guarantees around the ordering of fragment shader
 #endif
 
     float4 col = input.getColor();
-    return float4(col.xyz, col.w * alpha);
+    return float4(col.xyz, col.w * localAlpha);
 }

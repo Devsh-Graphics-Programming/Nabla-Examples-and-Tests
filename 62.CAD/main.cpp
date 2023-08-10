@@ -3,10 +3,6 @@
 
 #include "../common/CommonAPI.h"
 
-
-
-
-
 static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
@@ -130,6 +126,30 @@ public:
 		}
 	}
 
+	void keyboardProcess(const IKeyboardEventChannel::range_t& events)
+	{
+		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+		{
+			auto ev = *eventIt;
+
+			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
+			{
+				m_origin.Y += 1;
+			}
+			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
+			{
+				m_origin.X -= 1;
+			}
+			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
+			{
+				m_origin.Y -= 1;
+			}
+			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
+			{
+				m_origin.X += 1;
+			}
+		}
+	}
 private:
 
 	double m_aspectRatio = 0.0;
@@ -304,6 +324,7 @@ template <typename BufferType>
 struct DrawBuffers
 {
 	core::smart_refctd_ptr<BufferType> indexBuffer;
+	core::smart_refctd_ptr<BufferType> mainObjectsBuffer;
 	core::smart_refctd_ptr<BufferType> drawObjectsBuffer;
 	core::smart_refctd_ptr<BufferType> geometryBuffer;
 	core::smart_refctd_ptr<BufferType> lineStylesBuffer;
@@ -347,6 +368,24 @@ public:
 		auto indexBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.indexBuffer.get());
 
 		cpuDrawBuffers.indexBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(indexBufferSize);
+	}
+
+	void allocateMainObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t mainObjects)
+	{
+		maxMainObjects = mainObjects;
+		size_t mainObjectsBufferSize = mainObjects * sizeof(MainObject);
+
+		video::IGPUBuffer::SCreationParams mainObjectsCreationParams = {};
+		mainObjectsCreationParams.size = mainObjectsBufferSize;
+		mainObjectsCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+		gpuDrawBuffers.mainObjectsBuffer = logicalDevice->createBuffer(std::move(mainObjectsCreationParams));
+		gpuDrawBuffers.mainObjectsBuffer->setObjectDebugName("mainObjectsBuffer");
+
+		video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.mainObjectsBuffer->getMemoryReqs();
+		memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		auto mainObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.mainObjectsBuffer.get());
+
+		cpuDrawBuffers.mainObjectsBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(mainObjectsBufferSize);
 	}
 
 	void allocateDrawObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t drawObjects)
@@ -419,133 +458,38 @@ public:
 	{
 		uint32_t styleIdx;
 		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		
+		MainObject mainObj = {};
+		mainObj.styleIdx = styleIdx;
+		uint32_t mainObjIdx;
+		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 		const auto sectionsCount = polyline.getSectionsCount();
 
-		// We keep track of the last section and object, to know which geometries are still available in memory
-		uint32_t startDrawObjectCount = currentDrawObjectCount;
-		uint32_t previousSectionIdx = 0u;
-		uint32_t previousObjectInSection = 0u;
+		uint32_t currentSectionIdx = 0u;
+		uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
 
-		// Fill all back faces (and draw when overflow)
-		// backface is our slang for even provoking vertex
+		while (currentSectionIdx < sectionsCount)
 		{
-			uint32_t currentSectionIdx = 0u;
-			uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
+			bool shouldSubmit = false;
+			const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
+			addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, mainObjIdx);
 
-			while (currentSectionIdx < sectionsCount)
+			if (currentObjectInSection >= currentSection.count)
 			{
-				bool shouldSubmit = false;
-				const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-				addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, false);
-
-				if (currentObjectInSection >= currentSection.count)
-				{
-					currentSectionIdx++;
-					currentObjectInSection = 0u;
-				}
-				else
-					shouldSubmit = true;
-
-				if (shouldSubmit)
-				{
-					intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-					resetIndexCounters();
-					resetGeometryCounters();
-
-					startDrawObjectCount = 0u;
-					previousSectionIdx = currentSectionIdx;
-					previousObjectInSection = currentObjectInSection;
-
-					shouldSubmit = false;
-				}
+				currentSectionIdx++;
+				currentObjectInSection = 0u;
 			}
-		}
+			else
+				shouldSubmit = true;
 
-		// Fill all front faces (and draw when overflow)
-		// frontface is our slang for odd provoking vertex
-		{
-			// all front faces only using index buffer for those object that are already in cpu memory (ready for upload)
+			if (shouldSubmit)
 			{
-				uint32_t currentSectionIdx = previousSectionIdx;
-				uint32_t currentObjectInSection = previousObjectInSection;
-
-				while (currentSectionIdx < sectionsCount)
-				{
-					bool shouldSubmit = false;
-					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-
-					// we only care about indices because the geometry and drawData is already in memory
-					const uint32_t uploadableCages = (maxIndices - currentIndexCount) / 6u;
-					const auto cagesRemaining = (currentSection.count - currentObjectInSection) * getCageCountPerPolylineObject(currentSection.type);
-					const auto cagesToUpload = core::min(uploadableCages, cagesRemaining);
-
-					addPolylineObjectIndices_Internal(true, startDrawObjectCount, cagesToUpload);
-
-					currentObjectInSection += cagesToUpload;
-
-					if (currentObjectInSection >= currentSection.count)
-					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
-					}
-					else
-						shouldSubmit = true;
-
-					startDrawObjectCount += cagesToUpload;
-
-					if (shouldSubmit)
-					{
-						intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-						intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-						intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-						intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-						resetIndexCounters();
-						// we don't reset the geometry counters cause we overflowed on index memory not geometry memory
-
-						shouldSubmit = false;
-					}
-				}
-			}
-			// remaining front faces where their geometry is non-existent in memory due to previous submit clears
-			{
-				const uint32_t lastSectionIdx = previousSectionIdx;
-				const uint32_t lastObjectInSection = previousObjectInSection;
-
-				uint32_t currentSectionIdx = 0u;
-				uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
-
-				while (currentSectionIdx < lastSectionIdx || (currentSectionIdx == lastSectionIdx && lastObjectInSection > 0u))
-				{
-					bool shouldSubmit = false;
-					auto currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-					if (currentSectionIdx == lastSectionIdx)
-						currentSection.count = lastObjectInSection;
-
-					addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, styleIdx, true);
-
-					if (currentObjectInSection >= currentSection.count)
-					{
-						currentSectionIdx++;
-						currentObjectInSection = 0u;
-					}
-					else
-						shouldSubmit = true;
-
-					if (shouldSubmit)
-					{
-						intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-						intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-						intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-						intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-						resetIndexCounters();
-						resetGeometryCounters();
-						shouldSubmit = false;
-					}
-				}
+				intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+				resetIndexCounters();
+				resetGeometryCounters();
+				// We don't reset counters for linestyles and mainObjects because we will be reusing them
+				shouldSubmit = false;
 			}
 		}
 
@@ -560,6 +504,57 @@ public:
 	// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
 	// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
 	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
+
+	video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeMainObjectCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+
+		return intendedNextSubmit;
+	}
+
+	size_t getCurrentIndexBufferSize() const
+	{
+		return sizeof(index_buffer_type) * currentIndexCount;
+	}
+
+	size_t getCurrentLineStylesBufferSize() const
+	{
+		return sizeof(LineStyle) * currentLineStylesCount;
+	}
+
+	size_t getCurrentMainObjectsBufferSize() const
+	{
+		return sizeof(MainObject) * currentMainObjectCount;
+	}
+
+	size_t getCurrentDrawObjectsBufferSize() const
+	{
+		return sizeof(DrawObject) * currentDrawObjectCount;
+	}
+
+	size_t getCurrentGeometryBufferSize() const
+	{
+		return currentGeometryBufferSize;
+	}
+
+	void reset()
+	{
+		resetAllCounters();
+	}
+
+	DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
+	DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
+
+protected:
+
+	SubmitFunc submitDraws;
+	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
 
 	video::IGPUQueue::SSubmitInfo finalizeIndexCopiesToGPU(
 		video::IGPUQueue* submissionQueue,
@@ -591,12 +586,27 @@ public:
 		return intendedNextSubmit;
 	}
 
+	video::IGPUQueue::SSubmitInfo finalizeMainObjectCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		// Copy MainObjects
+		uint32_t remainingMainObjects = currentMainObjectCount - inMemMainObjectCount;
+		asset::SBufferRange<video::IGPUBuffer> mainObjectsRange = { sizeof(MainObject) * inMemMainObjectCount, sizeof(MainObject) * remainingMainObjects, gpuDrawBuffers.mainObjectsBuffer };
+		const MainObject* srcMainObjData = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer()) + inMemMainObjectCount;
+		if (mainObjectsRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(mainObjectsRange, srcMainObjData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemMainObjectCount = currentMainObjectCount;
+		return intendedNextSubmit;
+	}
+
 	video::IGPUQueue::SSubmitInfo finalizeGeometryCopiesToGPU(
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		// Copy DrawBuffers
+		// Copy DrawObjects
 		uint32_t remainingDrawObjects = currentDrawObjectCount - inMemDrawObjectCount;
 		asset::SBufferRange<video::IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
 		const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
@@ -615,52 +625,36 @@ public:
 		return intendedNextSubmit;
 	}
 
-	video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
+	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
+		const MainObject& mainObject,
+		uint32_t& outMainObjectIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-
+		outMainObjectIdx = addMainObject_Internal(mainObject);
+		if (outMainObjectIdx == InvalidMainObjectIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outMainObjectIdx = addMainObject_Internal(mainObject);
+			assert(outMainObjectIdx != InvalidMainObjectIdx);
+		}
 		return intendedNextSubmit;
 	}
 
-	size_t getCurrentIndexBufferSize() const
+	uint32_t addMainObject_Internal(const MainObject& mainObject)
 	{
-		return sizeof(index_buffer_type) * currentIndexCount;
+		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
+		if (currentMainObjectCount >= maxMainObjects)
+			return InvalidMainObjectIdx;
+
+		void* dst = mainObjsArray + currentMainObjectCount;
+		memcpy(dst, &mainObject, sizeof(MainObject));
+		return currentMainObjectCount++;
 	}
 
-	size_t getCurrentLineStylesBufferSize() const
-	{
-		return sizeof(LineStyle) * currentLineStylesCount;
-	}
-
-	size_t getCurrentDrawObjectsBufferSize() const
-	{
-		return sizeof(DrawObject) * currentDrawObjectCount;
-	}
-
-	size_t getCurrentGeometryBufferSize() const
-	{
-		return currentGeometryBufferSize;
-	}
-
-	void reset()
-	{
-		resetAllCounters();
-	}
-
-	DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
-	DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
-
-protected:
-
-	SubmitFunc submitDraws;
-
-	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
-	
 	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
 		const LineStyle& lineStyle,
 		uint32_t& outLineStyleIdx,
@@ -710,19 +704,17 @@ protected:
 		return 0u;
 	};
 
-	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addPolylineObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	void addPolylineObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		if (section.type == ObjectType::LINE)
-			addLines_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+			addLines_Internal(polyline, section, currentObjectInSection, mainObjIdx);
 		else if (section.type == ObjectType::QUAD_BEZIER)
-			addQuadBeziers_Internal(polyline, section, currentObjectInSection, styleIdx, oddProvokingVertex);
+			addQuadBeziers_Internal(polyline, section, currentObjectInSection, mainObjIdx);
 		else
 			assert(false); // we don't handle other object types
 	}
 
-	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		assert(section.count >= 1u);
 		assert(section.type == ObjectType::LINE);
@@ -739,19 +731,19 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload);
+		addPolylineObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
+		drawObj.mainObjIndex = mainObjIdx;
 		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::LINE) | 0 << 16);
-		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
-		drawObj.styleIdx = styleIdx;
+		drawObj.geometryAddress = geometryBufferAddress + currentGeometryBufferSize;
 		for (uint32_t i = 0u; i < objectsToUpload; ++i)
 		{
 			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 			currentDrawObjectCount += 1u;
-			drawObj.address += sizeof(double2);
+			drawObj.geometryAddress += sizeof(double2);
 		}
 
 		// Add Geometry
@@ -767,8 +759,7 @@ protected:
 		currentObjectInSection += objectsToUpload;
 	}
 
-	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t styleIdx, bool oddProvokingVertex)
+	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		// TODO[Przemek]: Beziers are added here, understand how this function works, may come in handy
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
@@ -786,22 +777,22 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(oddProvokingVertex, currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
+		addPolylineObjectIndices_Internal(currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
-		drawObj.address = geometryBufferAddress + currentGeometryBufferSize;
+		drawObj.mainObjIndex = mainObjIdx;
+		drawObj.geometryAddress = geometryBufferAddress + currentGeometryBufferSize;
 		for (uint32_t i = 0u; i < objectsToUpload; ++i)
 		{
 			for (uint16_t subObject = 0; subObject < CagesPerQuadBezier; subObject++)
 			{
 				drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::QUAD_BEZIER) | (subObject << 16));
-				drawObj.styleIdx = styleIdx;
 				void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 				memcpy(dst, &drawObj, sizeof(DrawObject));
 				currentDrawObjectCount += 1u;
 			}
-			drawObj.address += sizeof(QuadraticBezierInfo);
+			drawObj.geometryAddress += sizeof(QuadraticBezierInfo);
 		}
 
 		// Add Geometry
@@ -831,8 +822,9 @@ protected:
 	*/
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addPolylineObjectIndices_Internal(bool oddProvokingVertex, uint32_t startObject, uint32_t objectCount)
+	void addPolylineObjectIndices_Internal(uint32_t startObject, uint32_t objectCount)
 	{
+		constexpr bool oddProvokingVertex = true; // was useful before, might probably deprecate it later for simplicity or it might be useful for some tricks later on
 		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
 		for (uint32_t i = 0u; i < objectCount; ++i)
 		{
@@ -866,16 +858,24 @@ protected:
 
 	void resetAllCounters()
 	{
+		resetMainObjectCounters();
 		resetGeometryCounters();
 		resetIndexCounters();
 		resetStyleCounters();
 	}
 
+	void resetMainObjectCounters()
+	{
+		inMemMainObjectCount = 0u;
+		currentMainObjectCount = 0u;
+	}
+
 	void resetGeometryCounters()
 	{
 		inMemDrawObjectCount = 0u;
-		inMemGeometryBufferSize = 0u;
 		currentDrawObjectCount = 0u;
+
+		inMemGeometryBufferSize = 0u;
 		currentGeometryBufferSize = 0u;
 	}
 
@@ -898,6 +898,10 @@ protected:
 	uint32_t currentIndexCount = 0u;
 	uint32_t maxIndices = 0u;
 
+	uint32_t inMemMainObjectCount = 0u;
+	uint32_t currentMainObjectCount = 0u;
+	uint32_t maxMainObjects = 0u;
+
 	uint32_t inMemDrawObjectCount = 0u;
 	uint32_t currentDrawObjectCount = 0u;
 	uint32_t maxDrawObjects = 0u;
@@ -906,11 +910,11 @@ protected:
 	uint32_t currentLineStylesCount = 0u;
 	uint32_t maxLineStyles = 0u;
 
-	uint64_t geometryBufferAddress = 0u;
-
 	uint64_t inMemGeometryBufferSize = 0u;
 	uint64_t currentGeometryBufferSize = 0u;
 	uint64_t maxGeometryBufferSize = 0u;
+
+	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
 };
 
 class CADApp : public ApplicationBase
@@ -975,6 +979,7 @@ class CADApp : public ApplicationBase
 	CPolyline bigPolyline;
 
 
+	// TODO: Needs better info about regular scenes and main limiters to improve the allocations in this function
 	void initDrawObjects(uint32_t maxObjects = 128u)
 	{
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
@@ -983,6 +988,7 @@ class CADApp : public ApplicationBase
 
 			size_t maxIndices = maxObjects * 6u * 2u;
 			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
+			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice, maxObjects);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects * 5u);
 			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
 
@@ -1305,7 +1311,7 @@ public:
 
 		initDrawObjects(1024u * 1024u);
 
-		video::IGPUDescriptorSetLayout::SBinding bindings[4u] = {};
+		video::IGPUDescriptorSetLayout::SBinding bindings[5u] = {};
 		bindings[0u].binding = 0u;
 		bindings[0u].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
 		bindings[0u].count = 1u;
@@ -1326,7 +1332,12 @@ public:
 		bindings[3u].count = 1u;
 		bindings[3u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + 4u);
+		bindings[4u].binding = 4u;
+		bindings[4u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+		bindings[4u].count = 1u;
+		bindings[4u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+
+		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + 5u);
 
 		nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool = nullptr;
 		{
@@ -1334,7 +1345,7 @@ public:
 			createInfo.flags = nbl::video::IDescriptorPool::ECF_NONE;
 			createInfo.maxSets = 128u;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 2 * FRAMES_IN_FLIGHT;
+			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 3 * FRAMES_IN_FLIGHT;
 			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
 
 			descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
@@ -1343,7 +1354,7 @@ public:
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 		{
 			descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
-			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[4u] = {};
+			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[5u] = {};
 			descriptorInfos[0u].info.buffer.offset = 0u;
 			descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
 			descriptorInfos[0u].desc = globalsBuffer[i];
@@ -1360,7 +1371,11 @@ public:
 			descriptorInfos[3u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
 			descriptorInfos[3u].desc = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer;
 
-			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[4u] = {};
+			descriptorInfos[4u].info.buffer.offset = 0u;
+			descriptorInfos[4u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
+			descriptorInfos[4u].desc = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer;
+
+			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[5u] = {};
 			descriptorUpdates[0u].dstSet = descriptorSets[i].get();
 			descriptorUpdates[0u].binding = 0u;
 			descriptorUpdates[0u].arrayElement = 0u;
@@ -1389,7 +1404,14 @@ public:
 			descriptorUpdates[3u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
 			descriptorUpdates[3u].info = &descriptorInfos[3u];
 
-			logicalDevice->updateDescriptorSets(4u, descriptorUpdates, 0u, nullptr);
+			descriptorUpdates[4u].dstSet = descriptorSets[i].get();
+			descriptorUpdates[4u].binding = 4u;
+			descriptorUpdates[4u].arrayElement = 0u;
+			descriptorUpdates[4u].count = 1u;
+			descriptorUpdates[4u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			descriptorUpdates[4u].info = &descriptorInfos[4u];
+
+			logicalDevice->updateDescriptorSets(5u, descriptorUpdates, 0u, nullptr);
 		}
 
 		graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
@@ -1778,8 +1800,8 @@ public:
 		else if (mode == ExampleMode::CASE_3)
 		{
 			LineStyle style = {};
-			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 5.0f;
+			style.screenSpaceLineWidth = 13.0f;
+			style.worldSpaceLineWidth = 0.0f;
 			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			LineStyle style2 = {};
@@ -1950,7 +1972,7 @@ public:
 		, logger.get());
 		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 			{
-				// TODO:
+				m_Camera.keyboardProcess(events);
 			}
 		, logger.get());
 

@@ -190,10 +190,11 @@ PSInput main(uint vertexID : SV_VertexID)
     PSInput outV;
 
     outV.setObjType(objType);
-    outV.setWriteToAlpha((vertexIdx % 2u == 0u) ? 1u : 0u);
+    outV.setMainObjectIdx(drawObj.mainObjIndex);
 
     // We only need these for Outline type objects like lines and bezier curves
-    LineStyle lineStyle = lineStyles[drawObj.styleIdx];
+    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
+    LineStyle lineStyle = lineStyles[mainObj.styleIdx];
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
@@ -205,8 +206,8 @@ PSInput main(uint vertexID : SV_VertexID)
         double3x3 transformation = (double3x3)globals.viewProjection;
 
         double2 points[2u];
-        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
-        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
 
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
@@ -248,9 +249,9 @@ PSInput main(uint vertexID : SV_VertexID)
         double3x3 transformation = (double3x3)globals.viewProjection;
 
         double2 points[3u];
-        points[0u] = vk::RawBufferLoad<double2>(drawObj.address, 8u);
-        points[1u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2), 8u);
-        points[2u] = vk::RawBufferLoad<double2>(drawObj.address + sizeof(double2) * 2u, 8u);
+        points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
 
         // transform these points into screen space and pass to fragment
         float2 transformedPoints[3u];
@@ -314,9 +315,9 @@ PSInput main(uint vertexID : SV_VertexID)
             //Whether or not to flip the the interior cage nodes
             int flip = cross2D(transformedPoints[0u] - transformedPoints[1u], transformedPoints[2u] - transformedPoints[1u]) > 0.0f ? -1 : 1;
 
-            // Mid means bezier t = 0.5f;
-            float2 midPos = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f);
-            float2 midTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.5f));
+            const float middleT = 0.5f;
+            float2 midPos = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], middleT);
+            float2 midTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], middleT));
             float2 midNormal = float2(-midTangent.y, midTangent.x) * flip;
             
             /*
