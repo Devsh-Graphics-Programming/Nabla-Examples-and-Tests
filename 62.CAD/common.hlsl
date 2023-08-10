@@ -62,7 +62,8 @@ struct LineStyle
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
 static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
-static const uint32_t InvalidMainObjectIdx = (1u << MainObjectIdxBits) - 1u;
+static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
+static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 
 #ifndef __cplusplus
 

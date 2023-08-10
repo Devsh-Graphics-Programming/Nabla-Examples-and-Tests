@@ -647,12 +647,15 @@ protected:
 	uint32_t addMainObject_Internal(const MainObject& mainObject)
 	{
 		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
+		// TODO[Erfan]: What happens if maxMainObjects >= 
 		if (currentMainObjectCount >= maxMainObjects)
 			return InvalidMainObjectIdx;
 
 		void* dst = mainObjsArray + currentMainObjectCount;
 		memcpy(dst, &mainObject, sizeof(MainObject));
-		return currentMainObjectCount++;
+		uint32_t ret = (currentMainObjectCount % MaxIndexableMainObjects); // just to wrap around if it ever exceeded (we pack this id into 24 bits)
+		currentMainObjectCount++;
+		return ret;
 	}
 
 	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
