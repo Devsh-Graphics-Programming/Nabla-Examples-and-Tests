@@ -981,6 +981,7 @@ class CADApp : public ApplicationBase
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
 	CPolyline bigPolyline;
 
+	bool fragmentShaderInterlockEnabled = false;
 
 	// TODO: Needs better info about regular scenes and main limiters to improve the allocations in this function
 	void initDrawObjects(uint32_t maxObjects = 128u)
@@ -1017,7 +1018,7 @@ class CADApp : public ApplicationBase
 		asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
 
 		video::IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
-		promotionRequest.originalFormat = asset::EF_R8_UINT;
+		promotionRequest.originalFormat = asset::EF_R32_UINT;
 		promotionRequest.usages = {};
 		promotionRequest.usages.storageImageAtomic = true;
 		pseudoStencilFormat = physicalDevice->promoteImageFormat(promotionRequest, video::IGPUImage::ET_OPTIMAL);
@@ -1241,6 +1242,8 @@ public:
 		windowManager = std::move(initOutput.windowManager);
 		// renderpass = std::move(initOutput.renderToSwapchainRenderpass);
 		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+
+		fragmentShaderInterlockEnabled = logicalDevice->getEnabledFeatures().fragmentShaderPixelInterlock;
 
 		{
 			video::IQueryPool::SCreationParams queryPoolCreationParams = {};
@@ -1578,8 +1581,9 @@ public:
 			imageBarriers[0].subresourceRange.layerCount = 1;
 			cb->pipelineBarrier(nbl::asset::EPSF_TOP_OF_PIPE_BIT, nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
 
+			uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
 			asset::SClearColorValue clear = {};
-			clear.uint32[0] = 0u;
+			clear.uint32[0] = pseudoStencilInvalidValue;
 
 			asset::IImage::SSubresourceRange subresourceRange = {};
 			subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -1804,7 +1808,7 @@ public:
 		{
 			LineStyle style = {};
 			style.screenSpaceLineWidth = 13.0f;
-			style.worldSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 4.0f;
 			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			LineStyle style2 = {};
@@ -1814,6 +1818,7 @@ public:
 
 
 			CPolyline polyline;
+			CPolyline polyline2;
 			
 			{
 
@@ -1830,7 +1835,7 @@ public:
 				//	polyline.addQuadBeziers(std::move(quadBeziers));
 				//}
 				srand(95);
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 2; i++) {
 					std::vector<QuadraticBezierInfo> quadBeziers;
 					QuadraticBezierInfo quadratic1;
 					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
@@ -1847,14 +1852,15 @@ public:
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
 				QuadraticBezierInfo quadratic1;
-				quadratic1.p[0] = double2(20.0, 0.0);
+				quadratic1.p[0] = double2(0.0, 0.0);
 				quadratic1.p[1] = double2(20.0, 50.0);
 				quadratic1.p[2] = double2(80.0, 0.0);
 				quadBeziers.push_back(quadratic1);
-				polyline.addQuadBeziers(std::move(quadBeziers));
+				polyline2.addQuadBeziers(std::move(quadBeziers));
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style, submissionQueue, submissionFence, intendedNextSubmit);
 			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
@@ -1913,12 +1919,8 @@ public:
 			cmdbuf->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
-
 		
 		cmdbuf->endRenderPass();
-
-
-
 
 		cmdbuf->end();
 

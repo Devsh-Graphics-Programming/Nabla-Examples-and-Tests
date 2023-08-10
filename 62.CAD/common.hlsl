@@ -62,10 +62,30 @@ struct LineStyle
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
 static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
+static const uint32_t AlphaBits = 32u - MainObjectIdxBits;
 static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 
 #ifndef __cplusplus
+
+uint bitfieldInsert(uint base, uint insert, int offset, int bits)
+{
+	const uint mask = (1u << bits) - 1u;
+	const uint shifted_mask = mask << offset;
+
+	insert &= mask;
+	base &= (~shifted_mask);
+	base |= (insert << offset);
+
+	return base;
+}
+
+uint bitfieldExtract(uint value, int offset, int bits)
+{
+	uint retval = value;
+	retval >>= offset;
+	return retval & ((1u<<bits) - 1u);
+}
 
 // TODO: Remove these two when we include our builtin shaders
 #define nbl_hlsl_PI 3.14159265359
@@ -115,7 +135,7 @@ struct PSInput
     
     void setLineThickness(float lineThickness) { data1.x = asuint(lineThickness); }
     void setObjType(ObjectType objType) { data1.y = (uint) objType; }
-    void setMainObjectIdx(uint mainGeomIdx) { data1.z = mainGeomIdx; }
+    void setMainObjectIdx(uint mainObjIdx) { data1.z = mainObjIdx; }
     
     // data2
     float2 getLineStart() { return data2.xy; }

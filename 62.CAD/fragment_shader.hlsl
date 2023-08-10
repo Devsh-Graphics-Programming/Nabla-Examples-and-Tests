@@ -25,7 +25,7 @@ float4 main(PSInput input) : SV_TARGET
 
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
-    bool currentMainObjectIdx = input.getMainObjectIdx() == 1u;
+    uint currentMainObjectIdx = input.getMainObjectIdx();
     
     if (objType == ObjectType::LINE)
     {
@@ -60,35 +60,34 @@ float4 main(PSInput input) : SV_TARGET
     */
 
     uint2 fragCoord = uint2(input.position.xy);
-
-    float alpha = 0.0f; // new alpha
-
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-    //beginInvocationInterlockEXT();
-
-    //alpha = asfloat(pseudoStencil[fragCoord]);
-    //if (writeToAlpha)
-    //{
-    //    if (localAlpha > alpha)
-    //        pseudoStencil[fragCoord] = asuint(localAlpha);
-    //}
-    //else
-    //{
-    //    if (alpha != 0.0f)
-    //        pseudoStencil[fragCoord] = asuint(0.0f);
-    //}
-
-    //endInvocationInterlockEXT();
+    float4 col;
     
-    //if (writeToAlpha || alpha == 0.0f)
-    //    discard;
-#else
-    alpha = localAlpha;
-    if (!writeToAlpha)
-        discard;
-    // Tried InterlockedMax and InterlockedExchange, didn't work and had artifacts because there is no guarantees around the ordering of fragment shader
-#endif
+#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
+    
+    beginInvocationInterlockEXT();
 
-    float4 col = input.getColor();
-    return float4(col.xyz, col.w * localAlpha);
+    const uint packedData = pseudoStencil[fragCoord];
+
+    const uint localQuantizedAlpha = (uint)(localAlpha*255.f);
+    const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
+    const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
+    const bool resolve = currentMainObjectIdx!=mainObjectIdx;
+    if (resolve || localQuantizedAlpha>quantizedAlpha)
+        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+
+    endInvocationInterlockEXT();
+    
+    if (!resolve)
+        discard;
+    
+    // draw with previous geometry's style's color :kek:
+    col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
+    col.w *= float(quantizedAlpha)/255.f;
+#else
+    col = input.getColor();
+    col.w *= localAlpha;
+#endif
+    
+    return float4(col);
 }

@@ -413,7 +413,6 @@ PSInput main(uint vertexID : SV_VertexID)
     
 // Make the cage fullscreen for testing:
 #if 0
-    if (subsectionIdx == 0) {
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)
@@ -422,7 +421,6 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position = float4(+1, -1, 0, 1);
         else if (vertexIdx == 3u)
             outV.position = float4(+1, +1, 0, 1);
-    }
 #endif
 
     return outV;
