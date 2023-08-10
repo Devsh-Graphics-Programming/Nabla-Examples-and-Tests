@@ -16,6 +16,7 @@ struct MainObject
 
 struct DrawObject
 {
+    // TODO: use struct bitfields in after DXC update and see if the invalid spirv bug still exists
     uint32_t type_subsectionIdx; // packed to uint16 into uint32
     uint32_t mainObjIndex;
     uint64_t geometryAddress;
