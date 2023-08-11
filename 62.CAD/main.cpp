@@ -1779,9 +1779,12 @@ public:
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
-		cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
-		nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
+		if (fragmentShaderInterlockEnabled)
+		{
+			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
+			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
+		}
 
 		if constexpr (DebugMode)
 		{
@@ -1881,25 +1884,31 @@ public:
 				float Left = -100;
 				float Right = 100;
 				float Base = -25;
-				//for (int i = 0; i < 25; i++) {
-				//	std::vector<QuadraticBezierInfo> quadBeziers;
-				//	QuadraticBezierInfo quadratic1;
-				//	quadratic1.p[0] = double2(Left, Base);
-				//	quadratic1.p[1] = double2(0, Base + i * 10);
-				//	quadratic1.p[2] = double2(Right, Base);
-				//	quadBeziers.push_back(quadratic1);
-				//	polyline.addQuadBeziers(std::move(quadBeziers));
-				//}
 				srand(95);
-				for (int i = 0; i < 2; i++) {
-					std::vector<QuadraticBezierInfo> quadBeziers;
+				std::vector<QuadraticBezierInfo> quadBeziers;
+				//for (int i = 0; i < 10; i++) {
+				//	QuadraticBezierInfo quadratic1;
+				//	quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				//	quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+				//	quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				//	quadBeziers.push_back(quadratic1);
+				//}
+				
+				{
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[0] = double2(50,0);
+					quadratic1.p[1] = double2(50,100);
+					quadratic1.p[2] = double2(100,100);
 					quadBeziers.push_back(quadratic1);
-					polyline.addQuadBeziers(std::move(quadBeziers));
 				}
+				{
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2(100, 100);
+					quadratic1.p[1] = double2(200, -200);
+					quadratic1.p[2] = double2(300, 300);
+					quadBeziers.push_back(quadratic1);
+				}
+				polyline.addQuadBeziers(std::move(quadBeziers));
 
 			}
 			{
@@ -1907,16 +1916,32 @@ public:
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
-				QuadraticBezierInfo quadratic1;
-				quadratic1.p[0] = double2(0.0, 0.0);
-				quadratic1.p[1] = double2(20.0, 50.0);
-				quadratic1.p[2] = double2(80.0, 0.0);
-				quadBeziers.push_back(quadratic1);
+				{
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2(0.0, 0.0);
+					quadratic1.p[1] = double2(20.0, 50.0);
+					quadratic1.p[2] = double2(80.0, 0.0);
+					quadBeziers.push_back(quadratic1);
+				}
+				{
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2(80.0, 0.0);
+					quadratic1.p[1] = double2(220.0, 50.0);
+					quadratic1.p[2] = double2(180.0, 200.0);
+					quadBeziers.push_back(quadratic1);
+				}
+				{
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2(180.0, 200.0);
+					quadratic1.p[1] = double2(-20.0, 100.0);
+					quadratic1.p[2] = double2(30.0, -50.0);
+					quadBeziers.push_back(quadratic1);
+				}
 				polyline2.addQuadBeziers(std::move(quadBeziers));
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
 			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);

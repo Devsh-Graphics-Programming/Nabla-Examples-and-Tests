@@ -1,4 +1,4 @@
-The Algorithm used here for AntiAliasing and Transparency for 2D Lines and Curves relies on `VK_EXT_fragment_shader_interlock`; enabling these capability provides a critical section for fragment shaders to avoid overlapping pixels being processed at the same time, and certain guarantees about the ordering of fragment shader invocations of fragments of overlapping pixels.
+The Algorithm used here for AntiAliasing and Transparency for 2D Lines and Curves relies on `VK_EXT_fragment_shader_interlock`; enabling this capability provides a critical section for fragment shaders to avoid overlapping pixels being processed at the same time, and certain guarantees about the ordering of fragment shader invocations of fragments of overlapping pixels.
 
 Such a guarantee is useful for applications like blending in the fragment shader, where an application requires that fragment values to be composited in the framebuffer in primitive order.
 
