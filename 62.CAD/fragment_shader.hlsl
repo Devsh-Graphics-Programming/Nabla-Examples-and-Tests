@@ -47,7 +47,7 @@ float4 main(PSInput input) : SV_TARGET
         
         // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
         // You'll be also working in the builtin shaders that provide thesee
-        float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+        float distance = nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
