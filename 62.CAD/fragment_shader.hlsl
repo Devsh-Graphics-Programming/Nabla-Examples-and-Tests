@@ -72,7 +72,7 @@ float4 main(PSInput input) : SV_TARGET
     const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
-    const bool resolve = currentMainObjectIdx!=mainObjectIdx;
+    const bool resolve = currentMainObjectIdx!=mainObjectIdx && localQuantizedAlpha > 0;
     if (resolve || localQuantizedAlpha>quantizedAlpha)
         pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
 

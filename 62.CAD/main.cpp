@@ -2,8 +2,9 @@
 #include <nabla.h>
 
 #include "../common/CommonAPI.h"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
-static constexpr bool DebugMode = true;
+static constexpr bool DebugMode = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
@@ -976,7 +977,11 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
 	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugGraphicsPipeline;
+	core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout;
 	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
+
+	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> resolveAlphaGraphicsPipeline;
+	core::smart_refctd_ptr<video::IGPUPipelineLayout> resolveAlphaPipeLayout;
 
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
 	CPolyline bigPolyline;
@@ -1279,197 +1284,211 @@ public:
 
 		video::IGPUObjectFromAssetConverter CPU2GPU;
 
-		// Used to load SPIR-V directly, if HLSL Compiler doesn't work
-		auto loadSPIRVShader = [&](const std::string& filePath, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<asset::ICPUShader>
-		{
-			system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> file_future;
-			system->createFile(file_future, filePath, core::bitflag(system::IFile::ECF_READ) | system::IFile::ECF_MAPPABLE);
-			if (auto shader_file = file_future.acquire())
-			{
-				auto shaderSizeInBytes = (*shader_file)->getSize();
-				auto shaderData = (*shader_file)->getMappedPointer();
-				// copy the data in so it survives past the destruction of the mapped file
-				auto vertexShaderSPIRVBuffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<>>(shaderSizeInBytes, shaderData);
-				return core::make_smart_refctd_ptr<asset::ICPUShader>(std::move(vertexShaderSPIRVBuffer), stage, asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, std::string(filePath));
-			}
-			return nullptr;
-		};
-
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[3u] = {};
+		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[4u] = {};
 		{
 			asset::IAssetLoader::SAssetLoadParams params = {};
 			params.logger = logger.get();
-			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[3u] = {};
+			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[4u] = {};
 			constexpr auto vertexShaderPath = "../vertex_shader.hlsl";
 			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
 			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
+			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
 			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(vertexShaderPath, params).getContents().begin());
 			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(fragmentShaderPath, params).getContents().begin());
 			cpuShaders[2u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(debugfragmentShaderPath, params).getContents().begin());
+			cpuShaders[3u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(resolveAlphasShaderPath, params).getContents().begin());
 			cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
 			cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
 			cpuShaders[2u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 3u, cpu2gpuParams);
+			cpuShaders[3u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
+			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 4u, cpu2gpuParams);
 			shaders[0u] = gpuShaders->begin()[0u];
 			shaders[1u] = gpuShaders->begin()[1u];
 			shaders[2u] = gpuShaders->begin()[2u];
+			shaders[3u] = gpuShaders->begin()[3u];
 		}
 
 		initDrawObjects(1024u * 1024u);
 
-		video::IGPUDescriptorSetLayout::SBinding bindings[5u] = {};
-		bindings[0u].binding = 0u;
-		bindings[0u].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
-		bindings[0u].count = 1u;
-		bindings[0u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-		bindings[1u].binding = 1u;
-		bindings[1u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-		bindings[1u].count = 1u;
-		bindings[1u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-		bindings[2u].binding = 2u;
-		bindings[2u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-		bindings[2u].count = 1u;
-		bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
-
-		bindings[3u].binding = 3u;
-		bindings[3u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-		bindings[3u].count = 1u;
-		bindings[3u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-		bindings[4u].binding = 4u;
-		bindings[4u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-		bindings[4u].count = 1u;
-		bindings[4u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-		auto descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + 5u);
-
-		nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool = nullptr;
+		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
-			nbl::video::IDescriptorPool::SCreateInfo createInfo = {};
-			createInfo.flags = nbl::video::IDescriptorPool::ECF_NONE;
-			createInfo.maxSets = 128u;
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 3 * FRAMES_IN_FLIGHT;
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
+			video::IGPUDescriptorSetLayout::SBinding bindings[5u] = {};
+			bindings[0u].binding = 0u;
+			bindings[0u].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
+			bindings[0u].count = 1u;
+			bindings[0u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-			descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+			bindings[1u].binding = 1u;
+			bindings[1u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[1u].count = 1u;
+			bindings[1u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+
+			bindings[2u].binding = 2u;
+			bindings[2u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+			bindings[2u].count = 1u;
+			bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
+
+			bindings[3u].binding = 3u;
+			bindings[3u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[3u].count = 1u;
+			bindings[3u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+
+			bindings[4u].binding = 4u;
+			bindings[4u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[4u].count = 1u;
+			bindings[4u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+
+			descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + 5u);
+
+			nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool = nullptr;
+			{
+				nbl::video::IDescriptorPool::SCreateInfo createInfo = {};
+				createInfo.flags = nbl::video::IDescriptorPool::ECF_NONE;
+				createInfo.maxSets = 128u;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 3 * FRAMES_IN_FLIGHT;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
+
+				descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
+			}
+
+			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+			{
+				descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[5u] = {};
+				descriptorInfos[0u].info.buffer.offset = 0u;
+				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
+				descriptorInfos[0u].desc = globalsBuffer[i];
+
+				descriptorInfos[1u].info.buffer.offset = 0u;
+				descriptorInfos[1u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
+				descriptorInfos[1u].desc = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer;
+
+				descriptorInfos[2u].info.image.imageLayout = asset::IImage::E_LAYOUT::EL_GENERAL;
+				descriptorInfos[2u].info.image.sampler = nullptr;
+				descriptorInfos[2u].desc = pseudoStencilImageView[i];
+
+				descriptorInfos[3u].info.buffer.offset = 0u;
+				descriptorInfos[3u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
+				descriptorInfos[3u].desc = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer;
+
+				descriptorInfos[4u].info.buffer.offset = 0u;
+				descriptorInfos[4u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
+				descriptorInfos[4u].desc = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer;
+
+				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[5u] = {};
+				descriptorUpdates[0u].dstSet = descriptorSets[i].get();
+				descriptorUpdates[0u].binding = 0u;
+				descriptorUpdates[0u].arrayElement = 0u;
+				descriptorUpdates[0u].count = 1u;
+				descriptorUpdates[0u].descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
+				descriptorUpdates[0u].info = &descriptorInfos[0u];
+
+				descriptorUpdates[1u].dstSet = descriptorSets[i].get();
+				descriptorUpdates[1u].binding = 1u;
+				descriptorUpdates[1u].arrayElement = 0u;
+				descriptorUpdates[1u].count = 1u;
+				descriptorUpdates[1u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+				descriptorUpdates[1u].info = &descriptorInfos[1u];
+
+				descriptorUpdates[2u].dstSet = descriptorSets[i].get();
+				descriptorUpdates[2u].binding = 2u;
+				descriptorUpdates[2u].arrayElement = 0u;
+				descriptorUpdates[2u].count = 1u;
+				descriptorUpdates[2u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+				descriptorUpdates[2u].info = &descriptorInfos[2u];
+
+				descriptorUpdates[3u].dstSet = descriptorSets[i].get();
+				descriptorUpdates[3u].binding = 3u;
+				descriptorUpdates[3u].arrayElement = 0u;
+				descriptorUpdates[3u].count = 1u;
+				descriptorUpdates[3u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+				descriptorUpdates[3u].info = &descriptorInfos[3u];
+
+				descriptorUpdates[4u].dstSet = descriptorSets[i].get();
+				descriptorUpdates[4u].binding = 4u;
+				descriptorUpdates[4u].arrayElement = 0u;
+				descriptorUpdates[4u].count = 1u;
+				descriptorUpdates[4u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+				descriptorUpdates[4u].info = &descriptorInfos[4u];
+
+				logicalDevice->updateDescriptorSets(5u, descriptorUpdates, 0u, nullptr);
+			}
+
+			graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 		}
 
-		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+		// Shared Blend Params between pipelines
+		asset::SBlendParams blendParams = {};
+		blendParams.blendParams[0u].blendEnable = true;
+		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
+		blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
+		blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		blendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+
+		// Create Alpha Resovle Pipeline
 		{
-			descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
-			video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[5u] = {};
-			descriptorInfos[0u].info.buffer.offset = 0u;
-			descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
-			descriptorInfos[0u].desc = globalsBuffer[i];
+			auto fsTriangleProtoPipe = nbl::ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
+			std::get<asset::SBlendParams>(fsTriangleProtoPipe) = blendParams;
 
-			descriptorInfos[1u].info.buffer.offset = 0u;
-			descriptorInfos[1u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
-			descriptorInfos[1u].desc = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer;
+			auto constants = std::get<asset::SPushConstantRange>(fsTriangleProtoPipe);
+			resolveAlphaPipeLayout = logicalDevice->createPipelineLayout(&constants, &constants+1, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+			auto fsTriangleRenderPassIndependantPipe = nbl::ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fsTriangleProtoPipe, core::smart_refctd_ptr(shaders[3u]), core::smart_refctd_ptr(resolveAlphaPipeLayout));
 
-			descriptorInfos[2u].info.image.imageLayout = asset::IImage::E_LAYOUT::EL_GENERAL;
-			descriptorInfos[2u].info.image.sampler = nullptr;
-			descriptorInfos[2u].desc = pseudoStencilImageView[i];
-
-			descriptorInfos[3u].info.buffer.offset = 0u;
-			descriptorInfos[3u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-			descriptorInfos[3u].desc = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer;
-
-			descriptorInfos[4u].info.buffer.offset = 0u;
-			descriptorInfos[4u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-			descriptorInfos[4u].desc = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer;
-
-			video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[5u] = {};
-			descriptorUpdates[0u].dstSet = descriptorSets[i].get();
-			descriptorUpdates[0u].binding = 0u;
-			descriptorUpdates[0u].arrayElement = 0u;
-			descriptorUpdates[0u].count = 1u;
-			descriptorUpdates[0u].descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
-			descriptorUpdates[0u].info = &descriptorInfos[0u];
-
-			descriptorUpdates[1u].dstSet = descriptorSets[i].get();
-			descriptorUpdates[1u].binding = 1u;
-			descriptorUpdates[1u].arrayElement = 0u;
-			descriptorUpdates[1u].count = 1u;
-			descriptorUpdates[1u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			descriptorUpdates[1u].info = &descriptorInfos[1u];
-
-			descriptorUpdates[2u].dstSet = descriptorSets[i].get();
-			descriptorUpdates[2u].binding = 2u;
-			descriptorUpdates[2u].arrayElement = 0u;
-			descriptorUpdates[2u].count = 1u;
-			descriptorUpdates[2u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-			descriptorUpdates[2u].info = &descriptorInfos[2u];
-
-			descriptorUpdates[3u].dstSet = descriptorSets[i].get();
-			descriptorUpdates[3u].binding = 3u;
-			descriptorUpdates[3u].arrayElement = 0u;
-			descriptorUpdates[3u].count = 1u;
-			descriptorUpdates[3u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			descriptorUpdates[3u].info = &descriptorInfos[3u];
-
-			descriptorUpdates[4u].dstSet = descriptorSets[i].get();
-			descriptorUpdates[4u].binding = 4u;
-			descriptorUpdates[4u].arrayElement = 0u;
-			descriptorUpdates[4u].count = 1u;
-			descriptorUpdates[4u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			descriptorUpdates[4u].info = &descriptorInfos[4u];
-
-			logicalDevice->updateDescriptorSets(5u, descriptorUpdates, 0u, nullptr);
+			video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineCreateInfo = {};
+			graphicsPipelineCreateInfo.renderpassIndependent = fsTriangleRenderPassIndependantPipe;
+			graphicsPipelineCreateInfo.renderpass = renderpassFinal;
+			resolveAlphaGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
 		}
 
-		graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
-
-		video::IGPURenderpassIndependentPipeline::SCreationParams renderpassIndependantPipeInfo = {};
-		renderpassIndependantPipeInfo.layout = graphicsPipelineLayout;
-		renderpassIndependantPipeInfo.shaders[0u] = shaders[0u];
-		renderpassIndependantPipeInfo.shaders[1u] = shaders[1u];
-		// renderpassIndependantPipeInfo.vertexInput; no gpu vertex buffers
-		renderpassIndependantPipeInfo.blend.blendParams[0u].blendEnable = true;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].colorBlendOp = asset::EBO_ADD;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
-		renderpassIndependantPipeInfo.blend.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
-
-		renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
-		renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
-		renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
-		renderpassIndependantPipeInfo.rasterization.stencilTestEnable = false;
-		renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_FILL;
-		renderpassIndependantPipeInfo.rasterization.faceCullingMode = asset::EFCM_NONE;
-
-		core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependant;
-		bool succ = logicalDevice->createRenderpassIndependentPipelines(
-			nullptr,
-			core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
-			&renderpassIndependant);
-		assert(succ);
-
-		video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineCreateInfo = {};
-		graphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependant;
-		graphicsPipelineCreateInfo.renderpass = renderpassFinal;
-		graphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
-
-		if constexpr (DebugMode)
+		// Create Main Graphics Pipelines 
 		{
-			core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependantDebug;
-			renderpassIndependantPipeInfo.shaders[1u] = shaders[2u];
-			renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_LINE;
-			succ = logicalDevice->createRenderpassIndependentPipelines(
+			video::IGPURenderpassIndependentPipeline::SCreationParams renderpassIndependantPipeInfo = {};
+			renderpassIndependantPipeInfo.layout = graphicsPipelineLayout;
+			renderpassIndependantPipeInfo.shaders[0u] = shaders[0u];
+			renderpassIndependantPipeInfo.shaders[1u] = shaders[1u];
+			// renderpassIndependantPipeInfo.vertexInput; no gpu vertex buffers
+			renderpassIndependantPipeInfo.blend = blendParams;
+
+			renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
+			renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
+			renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
+			renderpassIndependantPipeInfo.rasterization.stencilTestEnable = false;
+			renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_FILL;
+			renderpassIndependantPipeInfo.rasterization.faceCullingMode = asset::EFCM_NONE;
+
+			core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependant;
+			bool succ = logicalDevice->createRenderpassIndependentPipelines(
 				nullptr,
 				core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
-				&renderpassIndependantDebug);
+				&renderpassIndependant);
 			assert(succ);
 
-			video::IGPUGraphicsPipeline::SCreationParams debugGraphicsPipelineCreateInfo = {};
-			debugGraphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependantDebug;
-			debugGraphicsPipelineCreateInfo.renderpass = renderpassFinal;
-			debugGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(debugGraphicsPipelineCreateInfo));
+			video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineCreateInfo = {};
+			graphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependant;
+			graphicsPipelineCreateInfo.renderpass = renderpassFinal;
+			graphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
+
+			if constexpr (DebugMode)
+			{
+				core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependantDebug;
+				renderpassIndependantPipeInfo.shaders[1u] = shaders[2u];
+				renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_LINE;
+				succ = logicalDevice->createRenderpassIndependentPipelines(
+					nullptr,
+					core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
+					&renderpassIndependantDebug);
+				assert(succ);
+
+				video::IGPUGraphicsPipeline::SCreationParams debugGraphicsPipelineCreateInfo = {};
+				debugGraphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependantDebug;
+				debugGraphicsPipelineCreateInfo.renderpass = renderpassFinal;
+				debugGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(debugGraphicsPipelineCreateInfo));
+			}
 		}
 
 		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
@@ -1735,8 +1754,13 @@ public:
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+		cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
+		nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
+
 		if constexpr (DebugMode)
 		{
+			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
