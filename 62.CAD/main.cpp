@@ -1866,8 +1866,8 @@ public:
 		else if (mode == ExampleMode::CASE_3)
 		{
 			LineStyle style = {};
-			style.screenSpaceLineWidth = 13.0f;
-			style.worldSpaceLineWidth = 4.0f;
+			style.screenSpaceLineWidth = 4.0f;
+			style.worldSpaceLineWidth = 0.0f;
 			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			LineStyle style2 = {};
@@ -1886,28 +1886,28 @@ public:
 				float Base = -25;
 				srand(95);
 				std::vector<QuadraticBezierInfo> quadBeziers;
-				//for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 10; i++) {
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadBeziers.push_back(quadratic1);
+				}
+				
+				//{
 				//	QuadraticBezierInfo quadratic1;
-				//	quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-				//	quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-				//	quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				//	quadratic1.p[0] = double2(50,0);
+				//	quadratic1.p[1] = double2(50,100);
+				//	quadratic1.p[2] = double2(100,100);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-				
-				{
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2(50,0);
-					quadratic1.p[1] = double2(50,100);
-					quadratic1.p[2] = double2(100,100);
-					quadBeziers.push_back(quadratic1);
-				}
-				{
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2(100, 100);
-					quadratic1.p[1] = double2(200, -200);
-					quadratic1.p[2] = double2(300, 300);
-					quadBeziers.push_back(quadratic1);
-				}
+				//{
+				//	QuadraticBezierInfo quadratic1;
+				//	quadratic1.p[0] = double2(100, 100);
+				//	quadratic1.p[1] = double2(200, -200);
+				//	quadratic1.p[2] = double2(300, 300);
+				//	quadBeziers.push_back(quadratic1);
+				//}
 				polyline.addQuadBeziers(std::move(quadBeziers));
 
 			}
