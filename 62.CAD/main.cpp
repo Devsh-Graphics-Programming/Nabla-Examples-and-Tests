@@ -487,6 +487,7 @@ public:
 			if (shouldSubmit)
 			{
 				intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+				intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 				resetIndexCounters();
 				resetGeometryCounters();
 				// We don't reset counters for linestyles and mainObjects because we will be reusing them
@@ -985,11 +986,12 @@ class CADApp : public ApplicationBase
 
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
 	CPolyline bigPolyline;
+	CPolyline bigPolyline2;
 
 	bool fragmentShaderInterlockEnabled = false;
 
 	// TODO: Needs better info about regular scenes and main limiters to improve the allocations in this function
-	void initDrawObjects(uint32_t maxObjects = 128u)
+	void initDrawObjects(uint32_t maxObjects)
 	{
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
@@ -1308,8 +1310,7 @@ public:
 			shaders[3u] = gpuShaders->begin()[3u];
 		}
 
-		initDrawObjects(1024u * 1024u);
-
+		initDrawObjects(20480u);
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
@@ -1519,25 +1520,49 @@ public:
 
 		m_timeElapsed = 0.0;
 
+
 		if constexpr (mode == ExampleMode::CASE_1)
 		{
-			std::vector<double2> linePoints;
-			for (uint32_t i = 0u; i < 40u; ++i)
 			{
-				for (uint32_t i = 0u; i < 256u; ++i)
+				std::vector<double2> linePoints;
+				for (uint32_t i = 0u; i < 20u; ++i)
 				{
-					double y = -112.0 + i * 1.1;
-					linePoints.push_back({ -200.0, y });
-					linePoints.push_back({ +200.0, y });
+					for (uint32_t i = 0u; i < 256u; ++i)
+					{
+						double y = -112.0 + i * 1.1;
+						linePoints.push_back({ -200.0, y });
+						linePoints.push_back({ +200.0, y });
+					}
+					for (uint32_t i = 0u; i < 256u; ++i)
+					{
+						double x = -200.0 + i * 1.5;
+						linePoints.push_back({ x, -100.0 });
+						linePoints.push_back({ x, +100.0 });
+					}
 				}
-				for (uint32_t i = 0u; i < 256u; ++i)
-				{
-					double x = -200.0 + i * 1.5;
-					linePoints.push_back({ x, -100.0 });
-					linePoints.push_back({ x, +100.0 });
-				}
+				bigPolyline.addLinePoints(std::move(linePoints));
 			}
-			bigPolyline.addLinePoints(std::move(linePoints));
+			{
+				std::vector<double2> linePoints;
+				for (uint32_t i = 0u; i < 20u; ++i)
+				{
+					for (uint32_t i = 0u; i < 256u; ++i)
+					{
+						double y = -112.0 + i * 1.1;
+						double x = -200.0 + i * 1.5;
+						linePoints.push_back({ -200.0 + x, y });
+						linePoints.push_back({ +200.0 + x, y });
+					}
+					for (uint32_t i = 0u; i < 256u; ++i)
+					{
+						double y = -112.0 + i * 1.1;
+						double x = -200.0 + i * 1.5;
+						linePoints.push_back({ x, -100.0 + y });
+						linePoints.push_back({ x, +100.0 + y });
+					}
+				}
+				bigPolyline2.addLinePoints(std::move(linePoints));
+			}
 		}
 
 	}
@@ -1572,7 +1597,7 @@ public:
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
-
+		cb->beginDebugMarker("Frame");
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
@@ -1767,6 +1792,7 @@ public:
 		cb->endQuery(pipelineStatsPool.get(), 0);
 		cb->endRenderPass();
 
+		cb->endDebugMarker();
 		cb->end();
 
 	}
@@ -1823,7 +1849,13 @@ public:
 			style.worldSpaceLineWidth = 0.8f;
 			style.color = float4(0.619f, 0.325f, 0.709f, 0.2f);
 
+			LineStyle style2 = {};
+			style2.screenSpaceLineWidth = 0.0f;
+			style2.worldSpaceLineWidth = 0.8f;
+			style2.color = float4(0.119f, 0.825f, 0.709f, 0.5f);
+
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -1976,7 +2008,6 @@ public:
 
 	void workLoopBody() override
 	{
-
 		m_resourceIx++;
 		if (m_resourceIx >= FRAMES_IN_FLIGHT)
 			m_resourceIx = 0;
