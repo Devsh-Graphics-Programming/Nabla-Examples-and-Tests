@@ -62,8 +62,10 @@ float4 main(PSInput input) : SV_TARGET
     uint2 fragCoord = uint2(input.position.xy);
     float4 col;
     
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
+    if (localAlpha <= 0)
+        discard;
     
+#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
     beginInvocationInterlockEXT();
 
     const uint packedData = pseudoStencil[fragCoord];
@@ -72,7 +74,7 @@ float4 main(PSInput input) : SV_TARGET
     const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
-    const bool resolve = currentMainObjectIdx!=mainObjectIdx && localQuantizedAlpha > 0;
+    const bool resolve = currentMainObjectIdx!=mainObjectIdx;
     if (resolve || localQuantizedAlpha>quantizedAlpha)
         pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
 
