@@ -212,7 +212,10 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 
-    DrawObject drawObj = drawObjects[objectID];
+    DrawObject drawObj = (DrawObject) 0; //drawObjects[objectID];
+    drawObj.type_subsectionIdx = 2u;
+    drawObj.styleIdx = 0;
+
     ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
@@ -476,9 +479,22 @@ A x                    x C
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
-        Curve minCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress1, 48u);
-        Curve maxCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress2, 48u);
+        CurveBox curveBox = (CurveBox) 0;
+        curveBox.curveTmax1 = 1.0;
+        curveBox.curveTmax2 = 1.0;
+        curveBox.aabbMin = double2(-230.0, -100.0);
+        curveBox.aabbMax = double2(230.0, 100.0);
+        Curve minCurve = (Curve) 0;
+        minCurve.p[0] = double2(-200.0, -100.0);
+        minCurve.p[1] = double2(-230.0, 0.0);
+        minCurve.p[2] = double2(-200.0, 100.0);
+        Curve maxCurve = (Curve) 0;
+        maxCurve.p[0] = double2(200.0, -100.0);
+        maxCurve.p[1] = double2(230.0, 0.0);
+        maxCurve.p[2] = double2(200.0, 100.0);
+        //CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
+        //Curve minCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress1, 48u);
+        //Curve maxCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress2, 48u);
 
         // splitting the curve based on tmin and tmax
         minCurve = splitCurveRange(minCurve, curveBox.curveTmin1, curveBox.curveTmax1);

@@ -519,6 +519,13 @@ public:
 					bool shouldSubmit = false;
 					const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
 
+					// TODO use a custom drawHatch function instead
+					if (currentSection.type == ObjectType::CURVE_BOX)
+					{
+						currentSectionIdx++;
+						continue;
+					}
+
 					// we only care about indices because the geometry and drawData is already in memory
 					const uint32_t uploadableCages = (maxIndices - currentIndexCount) / 6u;
 					const auto cagesRemaining = (currentSection.count - currentObjectInSection) * getCageCountPerPolylineObject(currentSection.type);
@@ -983,12 +990,12 @@ protected:
 		for (uint32_t i = 0u; i < objectCount; ++i)
 		{
 			index_buffer_type objIndex = startObject + i;
-			indices[i * 6 + 0u] = objIndex;
-			indices[i * 6 + 1u] = objIndex;
-			indices[i * 6 + 2u] = objIndex;
-			indices[i * 6 + 3u] = objIndex;
-			indices[i * 6 + 4u] = objIndex;
-			indices[i * 6 + 5u] = objIndex;
+			indices[i * 6 + 0u] = objIndex * 4u;
+			indices[i * 6 + 1u] = objIndex * 4u + 1u;
+			indices[i * 6 + 2u] = objIndex * 4u + 2u;
+			indices[i * 6 + 3u] = objIndex * 4u + 1u;
+			indices[i * 6 + 4u] = objIndex * 4u + 2u;
+			indices[i * 6 + 5u] = objIndex * 4u + 3u;
 		}
 		currentIndexCount += objectCount * 6u;
 	}
@@ -1322,6 +1329,8 @@ public:
 
 	void onAppInitialized_impl() override
 	{
+		std::this_thread::sleep_for(std::chrono::seconds(5));
+
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 

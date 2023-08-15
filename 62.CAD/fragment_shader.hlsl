@@ -29,7 +29,7 @@ float4 main(PSInput input) : SV_TARGET
     // for hatches in the fragment shader we don't need to do the alpha stuff we do to avoid polyline self intersection
     if (objType == ObjectType::CURVE_BOX)
     {
-        float2 positionFullscreen = (input.position.xy - 0.5) / float2(globals.resolution);
+        float2 positionFullscreen = input.position.xy;
 
         nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
             input.getCurveMinP0(),
@@ -43,19 +43,27 @@ float4 main(PSInput input) : SV_TARGET
         );
         // TODO: Use flexible major coordinate
         const uint majorCoordinate = 0;
-        float minT = curveMin.tForMajorCoordinate(majorCoordinate, positionFullscreen[1 - majorCoordinate]);
-        float min = curveMin.evaluate(minT)[majorCoordinate];
-        float maxT = curveMax.tForMajorCoordinate(majorCoordinate, positionFullscreen[1 - majorCoordinate]);
-        float max = curveMax.evaluate(maxT)[majorCoordinate];
+        float minT = curveMin.tForMajorCoordinate(1-majorCoordinate, positionFullscreen[1-majorCoordinate]);
+        float minEv = curveMin.evaluate(minT)[majorCoordinate];
+        float maxT = curveMax.tForMajorCoordinate(1-majorCoordinate, positionFullscreen[1-majorCoordinate]);
+        float maxEv = curveMax.evaluate(maxT)[majorCoordinate];
         
         // TODO: anti aliasing
         float4 col = input.getColor();
         float alpha = 0.0;
-        if (positionFullscreen[majorCoordinate] >= min && positionFullscreen[majorCoordinate] <= max)
-        {
-            alpha = 1.0;
-        }
-        return float4(col.xyz, col.w * alpha);
+        //if (positionFullscreen[majorCoordinate] >= min && positionFullscreen[majorCoordinate] <= max)
+        //{
+        //    alpha = 1.0;
+        //}
+        
+        //if (positionFullscreen[majorCoordinate] > minEv)
+        //{
+        //    alpha = 1.0;
+        //}
+
+        return float4(float2(
+            (minEv - positionFullscreen[majorCoordinate]) < 0 ? 1.0 : 0.0, 
+            (maxEv - positionFullscreen[majorCoordinate]) > 0 ? 1.0 : 0.0), 0.0, 1.0);
     }
     else // if (objType != ObjectType::CURVE_BOX)
     {
