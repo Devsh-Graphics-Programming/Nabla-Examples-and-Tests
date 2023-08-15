@@ -24,10 +24,34 @@ float4 main(PSInput input) : SV_TARGET
     
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
-    bool writeToAlpha = input.getWriteToAlpha() == 1u;
+    uint currentMainObjectIdx = input.getMainObjectIdx();
+    
+    if (objType == ObjectType::LINE)
+    {
+        const float2 start = input.getLineStart();
+        const float2 end = input.getLineEnd();
+        const float lineThickness = input.getLineThickness();
 
-    // for hatches in the fragment shader we don't need to do the alpha stuff we do to avoid polyline self intersection
-    if (objType == ObjectType::CURVE_BOX)
+        float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
+
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+    }
+    else if (objType == ObjectType::QUAD_BEZIER)
+    {
+        const float2 a = input.getBezierP0();
+        const float2 b = input.getBezierP1();
+        const float2 c = input.getBezierP2();
+        const float lineThickness = input.getLineThickness();
+        
+        // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
+        // You'll be also working in the builtin shaders that provide thesee
+        float distance = nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+    }
+    else if (objType == ObjectType::CURVE_BOX) 
     {
         float2 positionFullscreen = input.position.xy;
 
@@ -53,93 +77,50 @@ float4 main(PSInput input) : SV_TARGET
         float alpha = 0.0;
         //if (positionFullscreen[majorCoordinate] >= min && positionFullscreen[majorCoordinate] <= max)
         //{
-        //    alpha = 1.0;
+        //    localAlpha = 1.0;
         //}
         
         //if (positionFullscreen[majorCoordinate] > minEv)
         //{
-        //    alpha = 1.0;
+        //    localAlpha = 1.0;
         //}
 
         return float4(float2(
             (minEv - positionFullscreen[majorCoordinate]) < 0 ? 1.0 : 0.0, 
             (maxEv - positionFullscreen[majorCoordinate]) > 0 ? 1.0 : 0.0), 0.0, 1.0);
     }
-    else // if (objType != ObjectType::CURVE_BOX)
-    {
-        if (writeToAlpha)
-        {
-            if (objType == ObjectType::LINE)
-            {
-                const float2 start = input.getLineStart();
-                const float2 end = input.getLineEnd();
-                const float lineThickness = input.getLineThickness();
 
-                float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
-
-                const float antiAliasingFactor = globals.antiAliasingFactor;
-                localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-            }
-            else if (objType == ObjectType::QUAD_BEZIER)
-            {
-                const float2 a = input.getBezierP0();
-                const float2 b = input.getBezierP1();
-                const float2 c = input.getBezierP2();
-                const float lineThickness = input.getLineThickness();
-
-                float distance = nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
-
-                const float antiAliasingFactor = globals.antiAliasingFactor;
-                localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-            }
-            /*
-            TODO[Lucas]:
-                Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
-                and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
-                you will use input.getXXX() to get values needed for this computation
-            */
-        }
-
-        uint2 fragCoord = uint2(input.position.xy);
-
-        float alpha = 0.0f; // new alpha
-
+    uint2 fragCoord = uint2(input.position.xy);
+    float4 col;
+    
+    if (localAlpha <= 0)
+        discard;
+    
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
         beginInvocationInterlockEXT();
 
-        alpha = asfloat(pseudoStencil[fragCoord]);
-        if (writeToAlpha)
-        {
-            if (localAlpha > alpha)
-                pseudoStencil[fragCoord] = asuint(localAlpha);
-        }
-        else
-        {
-            if (alpha != 0.0f)
-                pseudoStencil[fragCoord] = asuint(0.0f);
-        }
+    const uint packedData = pseudoStencil[fragCoord];
 
-        endInvocationInterlockEXT();
-        
-        if (writeToAlpha || alpha == 0.0f)
-            discard;
+    const uint localQuantizedAlpha = (uint)(localAlpha*255.f);
+    const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
+    const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
+    const bool resolve = currentMainObjectIdx!=mainObjectIdx;
+    if (resolve || localQuantizedAlpha>quantizedAlpha)
+        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+
+    endInvocationInterlockEXT();
+    
+    if (!resolve)
+        discard;
+    
+    // draw with previous geometry's style's color :kek:
+    col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
+    col.w *= float(quantizedAlpha)/255.f;
 #else
-        alpha = localAlpha;
-        if (!writeToAlpha)
-            discard;
-        //if (writeToAlpha)
-        //{
-        //    InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
-        //}
-        //else
-        //{
-        //    uint previousAlpha;
-        //    InterlockedExchange(pseudoStencil[fragCoord], 0u, previousAlpha);
-        //    alpha = previousAlpha;
-        //}
+    col = input.getColor();
+    col.w *= localAlpha;
 #endif
-
-        float4 col = input.getColor();
-        return float4(col.xyz, col.w * alpha);
-    }
-}   
+    
+    return float4(col);
+}

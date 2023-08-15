@@ -7,16 +7,25 @@ enum class ObjectType : uint32_t
     CURVE_BOX = 2u,
 };
 
+// Consists of multiple DrawObjects
+struct MainObject
+{
+    // TODO[Erfan]: probably have objectType here as well?
+    uint32_t styleIdx;
+};
+
 struct DrawObject
 {
+    // TODO: use struct bitfields in after DXC update and see if the invalid spirv bug still exists
     uint32_t type_subsectionIdx; // packed to uint16 into uint32
-    uint32_t styleIdx;
-    uint64_t address;
+    uint32_t mainObjIndex;
+    uint64_t geometryAddress;
 };
 
 struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
+    // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
 };
 
 // Curve which is referenced by a "CurveBox"
@@ -54,10 +63,36 @@ struct LineStyle
     float4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
+    // TODO[Przemek]: Anything info related to the stipple pattern will be here
     float _pad[2u];
 };
 
+//TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
+static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
+static const uint32_t AlphaBits = 32u - MainObjectIdxBits;
+static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
+static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+
 #ifndef __cplusplus
+
+uint bitfieldInsert(uint base, uint insert, int offset, int bits)
+{
+	const uint mask = (1u << bits) - 1u;
+	const uint shifted_mask = mask << offset;
+
+	insert &= mask;
+	base &= (~shifted_mask);
+	base |= (insert << offset);
+
+	return base;
+}
+
+uint bitfieldExtract(uint value, int offset, int bits)
+{
+	uint retval = value;
+	retval >>= offset;
+	return retval & ((1u<<bits) - 1u);
+}
 
 // TODO: Remove these two when we include our builtin shaders
 #define nbl_hlsl_PI 3.14159265359
@@ -76,6 +111,10 @@ struct PSInput
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
+    // TODO[Przemek]: We only had color and thickness to worry about before and as you can see we pass them between vertex and fragment shader (so that fragment shader doesn't have to fetch the linestyles from memory again)
+    // but for cases where you found out line styles would be too large to do this kinda stuff with inter-shader memory then only pass the linestyleIdx from vertex shader to fragment shader and fetch the whole lineStyles struct in fragment shader
+    // Note: Lucas is also modifying here (added data4,5,6,..) so If need be, I suggest replace a variable like set/getColor to set/getLineStyleIdx to reduce conflicts 
+    
     // data0
     void setColor(in float4 color) { data0 = color; }
     float4 getColor() { return data0; }
@@ -83,11 +122,11 @@ struct PSInput
     // data1 (w component reserved for later)
     float getLineThickness() { return asfloat(data1.x); }
     ObjectType getObjType() { return (ObjectType) data1.y; }
-    uint getWriteToAlpha() { return data1.z; }
+    uint getMainObjectIdx() { return data1.z; }
     
     void setLineThickness(float lineThickness) { data1.x = asuint(lineThickness); }
     void setObjType(ObjectType objType) { data1.y = (uint) objType; }
-    void setWriteToAlpha(uint writeToAlpha) { data1.z = writeToAlpha; }
+    void setMainObjectIdx(uint mainObjIdx) { data1.z = mainObjIdx; }
     
     // data2
     float2 getLineStart() { return data2.xy; }
@@ -129,4 +168,5 @@ struct PSInput
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 [[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
+[[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
 #endif
