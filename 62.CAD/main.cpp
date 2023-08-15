@@ -764,7 +764,7 @@ protected:
 			addQuadBeziers_Internal(polyline, section, currentObjectInSection, mainObjIdx);
 		// (temporary)
 		else if (section.type == ObjectType::CURVE_BOX)
-			addHatch_Internal(polyline.getHatchAt(section.index), currentObjectInSection, styleIdx);
+			addHatch_Internal(polyline.getHatchAt(section.index), currentObjectInSection, mainObjIdx);
 		else
 			assert(false); // we don't handle other object types
 	}
@@ -876,7 +876,7 @@ protected:
 			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem,
 			the solution is simple when we iterate on curve boxes and keep track of what curves we have already copied into mem (a map from cpuCurveIndex to geomBufferOffset)
 	*/
-	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t styleIdx)
+	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex)
 	{
 		std::unordered_map<uint32_t, uint64_t> uploadedCurves;
 		uploadedCurves.reserve(hatch.curves.size());
@@ -933,8 +933,8 @@ protected:
 
 			DrawObject drawObj = {};
 			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
-			drawObj.styleIdx = styleIdx;
-			drawObj.address = hatchBoxAddress;
+			drawObj.mainObjIndex = mainObjIndex;
+			drawObj.geometryAddress = hatchBoxAddress;
 			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 		}

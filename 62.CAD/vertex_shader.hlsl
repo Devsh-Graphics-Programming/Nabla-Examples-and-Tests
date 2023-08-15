@@ -226,9 +226,7 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 
-    DrawObject drawObj = (DrawObject) 0; //drawObjects[objectID];
-    drawObj.type_subsectionIdx = 2u;
-    drawObj.styleIdx = 0;
+    DrawObject drawObj = drawObjects[objectID];
 
     ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
