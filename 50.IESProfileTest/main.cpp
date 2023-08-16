@@ -36,30 +36,70 @@ int main()
     auto* glslc = am->getGLSLCompiler();
     auto* gc = am->getGeometryCreator();
 
-    struct SPushConsts
-    {
-        core::matrix4SIMD VP;
-        core::vectorSIMDf campos;
-    };
-
     core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
-    {
-        asset::SPushConstantRange rng[2];
-        rng[0].offset = 0u;
-        rng[0].size = sizeof(SPushConsts::VP);
-        rng[0].stageFlags = asset::ISpecializedShader::ESS_VERTEX;
-        rng[1].offset = offsetof(SPushConsts,campos);
-        rng[1].size = sizeof(SPushConsts::campos);
-        rng[1].stageFlags = asset::ISpecializedShader::ESS_FRAGMENT;
 
-        layout = driver->createGPUPipelineLayout(rng, rng+2);
-    }
+    
+        asset::IAssetLoader::SAssetLoadParams lparams;
+        auto assetLoaded = device->getAssetManager()->getAsset("../test.ies", lparams);
+        auto assetCand = *assetLoaded.getContents().begin();
+        auto cpuImage = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(std::move(assetCand));
 
-    asset::IAssetLoader::SAssetLoadParams lparams;
-    auto assetLoaded = device->getAssetManager()->getAsset("../test.ies", lparams);
-    auto assetCand = *assetLoaded.getContents().begin();
-    auto cpuImage = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(std::move(assetCand));
+        asset::IAssetLoader::SAssetLoadParams loadingParams;
+        auto image_raw = static_cast<asset::ICPUImage*>(cpuImage.get());
 
+        auto gpuImage = driver->getGPUObjectsFromAssets(&image_raw, &image_raw + 1)->front();
+        auto& gpuParams = gpuImage->getCreationParameters();
+
+        asset::IImageView<IGPUImage>::SCreationParams gpuImageViewParams = { static_cast<IGPUImageView::E_CREATE_FLAGS>(0), gpuImage, asset::IImageView<IGPUImage>::ET_2D, gpuParams.format, {}, {static_cast<asset::IImage::E_ASPECT_FLAGS>(0u), 0, gpuParams.mipLevels, 0, gpuParams.arrayLayers} };
+        auto gpuImageView = driver->createGPUImageView(std::move(gpuImageViewParams));
+
+
+        size_t ds0SamplerBinding = 0, ds1UboBinding = 0;
+        /*
+            SBinding for the texture (sampler).
+        */
+
+        IGPUDescriptorSetLayout::SBinding gpuSamplerBinding;
+        gpuSamplerBinding.binding = ds0SamplerBinding;
+        gpuSamplerBinding.type = asset::EDT_COMBINED_IMAGE_SAMPLER;
+        gpuSamplerBinding.count = 1u;
+        gpuSamplerBinding.stageFlags = static_cast<IGPUSpecializedShader::E_SHADER_STAGE>(IGPUSpecializedShader::ESS_FRAGMENT);
+        gpuSamplerBinding.samplers = nullptr;
+
+        /*
+            Creating specific descriptor set layouts from specialized bindings.
+            Those layouts needs to attached to pipeline layout if required by user.
+            IrrlichtBaW provides 4 places for descriptor set layout usage.
+        */
+        auto gpuDs3Layout = driver->createGPUDescriptorSetLayout(&gpuSamplerBinding, &gpuSamplerBinding + 1);
+
+        /*
+            Creating descriptor sets - texture (sampler) and basic view parameters (UBO).
+            Specifying info and write parameters for updating certain descriptor set to the driver.
+
+            We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
+        */
+
+        auto gpuDescriptorSet3 = driver->createGPUDescriptorSet(gpuDs3Layout);
+        {
+            video::IGPUDescriptorSet::SWriteDescriptorSet write;
+            write.dstSet = gpuDescriptorSet3.get();
+            write.binding = ds0SamplerBinding;
+            write.count = 1u;
+            write.arrayElement = 0u;
+            write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+            IGPUDescriptorSet::SDescriptorInfo info;
+            {
+                info.desc = std::move(gpuImageView);
+                asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS };
+                info.image = { driver->createGPUSampler(samplerParams),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
+            }
+            write.info = &info;
+            driver->updateDescriptorSets(1u, &write, 0u, nullptr);
+        }
+
+        layout = driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, std::move(gpuDs3Layout));
+    
     core::smart_refctd_ptr<video::IGPUMeshBuffer> quad;
     core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> pipeline;
     {
@@ -123,7 +163,6 @@ int main()
     auto* fbo = driver->addFrameBuffer();
     fbo->attach(video::EFAP_COLOR_ATTACHMENT0, core::smart_refctd_ptr(imageView));
 
-    SPushConsts pc;
     uint32_t ssNum = 0u;
     while (device->run())
     {
@@ -133,6 +172,7 @@ int main()
         driver->beginScene(true, false, video::SColor(255, 0, 0, 0));
 
         driver->bindGraphicsPipeline(pipeline.get()); 
+        driver->bindDescriptorSets(video::EPBP_GRAPHICS, pipeline->getLayout(), 3u, 1u, &gpuDescriptorSet3.get(), nullptr);
         driver->drawMeshBuffer(quad.get());
 
         driver->blitRenderTargets(fbo, nullptr, false, false);
