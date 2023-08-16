@@ -7,7 +7,10 @@
 layout (location = 0) in vec3 Pos;
 layout (location = 3) in vec3 Normal;
 
+layout (location = 0) out vec3 outPos;
+
 void main()
 {
+    outPos = Pos;
     gl_Position = vec4(Pos, 1.0);
 }
