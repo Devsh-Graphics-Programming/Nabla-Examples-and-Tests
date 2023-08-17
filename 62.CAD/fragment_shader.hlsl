@@ -49,7 +49,7 @@ float4 main(PSInput input) : SV_TARGET
         
         // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
         // You'll be also working in the builtin shaders that provide thesee
-        float distance = nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+        float distance = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
@@ -94,14 +94,15 @@ float4 main(PSInput input) : SV_TARGET
     const float2 P1 = input.getBezierP1();
     const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
-    nbl::hlsl::shapes::QuadraticBezier curve = nbl::hlsl::shapes::QuadraticBezier::construct(P0, P1, P2);
-    nbl::hlsl::shapes::QuadraticBezierOutline curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline::construct(P0, P1, P2, lineThickness);
+    nbl::hlsl::shapes::QuadraticBezierOutline<float> curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(P0, P1, P2, lineThickness);
 
     float tA = curveOutline.ud(input.position.xy).y;
 
-    float bezierCurveArcLen = nbl::hlsl::shapes::arcLen(1.0, curve);
-    float arcLen = nbl::hlsl::shapes::arcLen(tA, curve);
-    float resultColorIntensity = arcLen / bezierCurveArcLen;
+    float bezierCurveArcLen = curveOutline.bezier.calcArcLen(1.0);
+    float arcLen = curveOutline.bezier.calcArcLen(tA);
+
+    //float resultColorIntensity = arcLen / bezierCurveArcLen;
+    float resultColorIntensity = curveOutline.bezier.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen);
 
     col = float4(0.0, resultColorIntensity, 0.0, 1.0);
 #else

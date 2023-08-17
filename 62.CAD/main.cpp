@@ -4,9 +4,6 @@
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
-static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
-
 enum class ExampleMode
 {
 	CASE_0, // Simple Line, Camera Zoom In/Out
@@ -17,7 +14,8 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
-
+static constexpr bool DebugMode = false;
+static constexpr bool FragmentShaderPixelInterlock = (mode == ExampleMode::CASE_4) ? false : true;
 
 struct double4x4
 {
@@ -1944,26 +1942,19 @@ public:
 		else if (mode == ExampleMode::CASE_4)
 		{
 			LineStyle style = {};
-			style.screenSpaceLineWidth = 10.0f;
+			style.screenSpaceLineWidth = 20.0f;
 			style.worldSpaceLineWidth = 0.0f;
-			style.color = float4(0.7f, 0.3f, 0.1f, 1.0f);
 
 			CPolyline polyline;
-
 			{
-				float Left = -100;
-				float Right = 100;
-				float Base = -25;
 				srand(95);
 				std::vector<QuadraticBezierInfo> quadBeziers;
-				for (int i = 0; i < 1; i++)
-				{
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadBeziers.push_back(quadratic1);
-				}
+				QuadraticBezierInfo quadratic1;
+				quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				quadratic1.p[1] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				quadBeziers.push_back(quadratic1);
+
 				polyline.addQuadBeziers(std::move(quadBeziers));
 
 			}
