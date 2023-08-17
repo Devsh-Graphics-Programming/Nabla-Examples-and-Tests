@@ -11,6 +11,8 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
+#define NBL_DRAW_ARC_LENGTH
+
 // TODO[Lucas]: have a function for quadratic equation solving
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
@@ -86,10 +88,26 @@ float4 main(PSInput input) : SV_TARGET
     // draw with previous geometry's style's color :kek:
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha)/255.f;
+#elif defined(NBL_DRAW_ARC_LENGTH)
+    //idk if it is right place to do that.. shout i put that code in another file?
+    const float2 P0 = input.getBezierP0();
+    const float2 P1 = input.getBezierP1();
+    const float2 P2 = input.getBezierP2();
+    const float lineThickness = input.getLineThickness();
+    nbl::hlsl::shapes::QuadraticBezier curve = nbl::hlsl::shapes::QuadraticBezier::construct(P0, P1, P2);
+    nbl::hlsl::shapes::QuadraticBezierOutline curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline::construct(P0, P1, P2, lineThickness);
+
+    float tA = curveOutline.ud(input.position.xy).y;
+
+    float bezierCurveArcLen = nbl::hlsl::shapes::arcLen(1.0, curve);
+    float arcLen = nbl::hlsl::shapes::arcLen(tA, curve);
+    float resultColorIntensity = arcLen / bezierCurveArcLen;
+
+    col = float4(0.0, resultColorIntensity, 0.0, 1.0);
 #else
     col = input.getColor();
     col.w *= localAlpha;
 #endif
-    
+
     return float4(col);
 }

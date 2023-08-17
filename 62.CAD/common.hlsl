@@ -26,6 +26,7 @@ struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
     // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
+    double2 arcLen;
 };
 
 // TODO[Lucas]:

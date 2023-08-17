@@ -5,7 +5,7 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -13,9 +13,10 @@ enum class ExampleMode
 	CASE_1,	// Overdraw Fragment Shader Stress Test
 	CASE_2, // NOT USED
 	CASE_3, // CURVES AND LINES
+	CASE_4, // ARC LENGTH
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 
 struct double4x4
@@ -897,7 +898,6 @@ protected:
 	}
 
 	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> device;
 
 	uint32_t inMemIndexCount = 0u;
 	uint32_t currentIndexCount = 0u;
@@ -1912,9 +1912,6 @@ public:
 
 			}
 			{
-
-			}
-			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
 				{
 					QuadraticBezierInfo quadratic1;
@@ -1944,6 +1941,36 @@ public:
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
 			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
 		}
+		else if (mode == ExampleMode::CASE_4)
+		{
+			LineStyle style = {};
+			style.screenSpaceLineWidth = 10.0f;
+			style.worldSpaceLineWidth = 0.0f;
+			style.color = float4(0.7f, 0.3f, 0.1f, 1.0f);
+
+			CPolyline polyline;
+
+			{
+				float Left = -100;
+				float Right = 100;
+				float Base = -25;
+				srand(95);
+				std::vector<QuadraticBezierInfo> quadBeziers;
+				for (int i = 0; i < 1; i++)
+				{
+					QuadraticBezierInfo quadratic1;
+					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadBeziers.push_back(quadratic1);
+				}
+				polyline.addQuadBeziers(std::move(quadBeziers));
+
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+		}
+
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;
 	}
