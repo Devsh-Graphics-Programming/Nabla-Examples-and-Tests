@@ -17,7 +17,7 @@ float plot(float cand, float pct, float bold){
 }
 
 float f(vec2 uv) {
-    float angle = (atan(uv.y,uv.x) + M_PI)/(2.0*M_PI);
+    float angle = (atan(-uv.y/abs(uv.x)) + M_PI/2.0)/(M_PI);
     return texture(tex0,vec2(angle,0.5)).x;
 }
 
