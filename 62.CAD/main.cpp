@@ -1948,14 +1948,12 @@ public:
 			CPolyline polyline;
 			{
 				srand(95);
-				std::vector<QuadraticBezierInfo> quadBeziers;
-				QuadraticBezierInfo quadratic1;
-				quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-				quadratic1.p[1] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-				quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-				quadBeziers.push_back(quadratic1);
+				QuadraticBezierInfo quadratic;
+				quadratic.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				quadratic.p[1] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				quadratic.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
 
-				polyline.addQuadBeziers(std::move(quadBeziers));
+				polyline.addQuadBeziers({quadratic});
 
 			}
 
