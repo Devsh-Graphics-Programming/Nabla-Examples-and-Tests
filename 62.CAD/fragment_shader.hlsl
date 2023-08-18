@@ -66,7 +66,8 @@ float4 main(PSInput input) : SV_TARGET
     
     if (localAlpha <= 0)
         discard;
-    
+
+  
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
     beginInvocationInterlockEXT();
 
@@ -89,7 +90,7 @@ float4 main(PSInput input) : SV_TARGET
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha)/255.f;
 #elif defined(NBL_DRAW_ARC_LENGTH)
-    //idk if it is right place to do that.. shout i put that code in another file?
+    // idk if it is right place to do that.. shout i put that code in another file?
     const float2 P0 = input.getBezierP0();
     const float2 P1 = input.getBezierP1();
     const float2 P2 = input.getBezierP2();
@@ -101,10 +102,10 @@ float4 main(PSInput input) : SV_TARGET
     float bezierCurveArcLen = curveOutline.bezier.calcArcLen(1.0);
     float arcLen = curveOutline.bezier.calcArcLen(tA);
 
-    //float resultColorIntensity = arcLen / bezierCurveArcLen;
+    // float resultColorIntensity = arcLen / bezierCurveArcLen;
     float resultColorIntensity = curveOutline.bezier.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen);
 
-    col = float4(0.0, resultColorIntensity, 0.0, 1.0);
+    col = float4(0.0, resultColorIntensity, 0.0, 1.0);  
 #else
     col = input.getColor();
     col.w *= localAlpha;

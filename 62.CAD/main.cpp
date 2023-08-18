@@ -15,7 +15,7 @@ enum class ExampleMode
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = (mode == ExampleMode::CASE_4) ? false : true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 struct double4x4
 {
