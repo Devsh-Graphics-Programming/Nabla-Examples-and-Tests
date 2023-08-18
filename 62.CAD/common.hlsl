@@ -28,23 +28,12 @@ struct QuadraticBezierInfo
     // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
 };
 
-// Curve which is referenced by a "CurveBox"
-struct Curve 
-{
-    // if the middle point is "nan" it means it's a line connected by p0 and p2
-    double2 p[3]; // 16*3=48bytes
-};
-
 struct CurveBox 
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
     double2 aabbMin, aabbMax; // 32
-    // each addr references a Curve address into the geometry buffer
-    uint64_t curveAddress1; // 40
-    uint64_t curveAddress2; // 48
-    // because we subdivide curves into smaller monotonic parts we need this info to help us discard invalid solutions
-    double curveTmin1, curveTmax1; // 64
-    double curveTmin2, curveTmax2; // 92
+    double2 curveMin[3]; // 80
+    double2 curveMax[3]; // 128
 };
 
 struct Globals
@@ -107,6 +96,8 @@ struct PSInput
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
+    // For curve box, has the UV within the AABB
+    [[vk::location(5)]] float2 uv : UV;
     
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias

@@ -888,42 +888,42 @@ protected:
 		uint32_t i = 0;
 		for (; i + currentObjectInSection < hatch.hatchBoxes.size() && i < uploadableObjects; i++)
 		{
-			if (currentGeometryBufferSize + 2 * sizeof(Curve) + sizeof(CurveBox) >= maxGeometryBufferSize)
-			{
-				break;
-			}
-
+			//if (currentGeometryBufferSize + 2 * sizeof(Curve) + sizeof(CurveBox) >= maxGeometryBufferSize)
+			//{
+			//	break;
+			//}
+			//
+			//auto getCurveAddress = [&](uint32_t curveIdx)
+			//{
+			//	// TODO: this cache is probably pretty bad
+			//	auto cached = uploadedCurves.find(curveIdx);
+			//	if (cached != uploadedCurves.end())
+			//	{
+			//		return cached->second;
+			//	}
+			//
+			//	// curve not uploaded already
+			//	void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			//	memcpy(dst, &hatch.curves[curveIdx], sizeof(Curve));
+			//	uploadedCurves.insert(std::pair<uint32_t, uint64_t>(curveIdx, currentGeometryBufferSize));
+			//	currentGeometryBufferSize += sizeof(Curve);
+			//};
 			Hatch::CurveHatchBox hatchBox = hatch.hatchBoxes[i + currentObjectInSection];
-			auto getCurveAddress = [&](uint32_t curveIdx)
-			{
-				// TODO: this cache is probably pretty bad
-				auto cached = uploadedCurves.find(curveIdx);
-				if (cached != uploadedCurves.end())
-				{
-					return cached->second;
-				}
-
-				// curve not uploaded already
-				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-				memcpy(dst, &hatch.curves[curveIdx], sizeof(Curve));
-				uploadedCurves.insert(std::pair<uint32_t, uint64_t>(curveIdx, currentGeometryBufferSize));
-				currentGeometryBufferSize += sizeof(Curve);
-			};
 
 			uint64_t hatchBoxAddress;
 			{
-				uint64_t minCurve = getCurveAddress(hatchBox.minCurve);
-				uint64_t maxCurve = getCurveAddress(hatchBox.maxCurve);
+				//uint64_t minCurve = getCurveAddress(hatchBox.minCurve);
+				//uint64_t maxCurve = getCurveAddress(hatchBox.maxCurve);
 
 				CurveBox curveBox;
 				curveBox.aabbMin = hatchBox.aabbMin;
 				curveBox.aabbMax = hatchBox.aabbMax;
-				curveBox.curveAddress1 = minCurve;
-				curveBox.curveTmin1 = hatchBox.minCurveTmin;
-				curveBox.curveTmax1 = hatchBox.minCurveTmax;
-				curveBox.curveAddress2 = maxCurve;
-				curveBox.curveTmin2 = hatchBox.maxCurveTmin;
-				curveBox.curveTmax2 = hatchBox.maxCurveTmax;
+				//curveBox.curveAddress1 = minCurve;
+				//curveBox.curveTmin1 = hatchBox.minCurveTmin;
+				//curveBox.curveTmax1 = hatchBox.minCurveTmax;
+				//curveBox.curveAddress2 = maxCurve;
+				//curveBox.curveTmin2 = hatchBox.maxCurveTmin;
+				//curveBox.curveTmax2 = hatchBox.maxCurveTmax;
 
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, &curveBox, sizeof(CurveBox));

@@ -186,29 +186,29 @@ function drawCurvePoint(points[], t):
       newpoints[i] = (1-t) * points[i] + t * points[i+1]
     drawCurvePoint(newpoints, t)
 */
-Curve splitCurveTakeLeft(Curve curve, double t) 
-{
-    Curve outputCurve;
-    outputCurve.p[0] = curve.p[0];
-    outputCurve.p[1] = (1-t) * curve.p[0] + t * curve.p[1];
-    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
-
-    return outputCurve;
-}
-Curve splitCurveTakeRight(Curve curve, double t) 
-{
-    Curve outputCurve;
-    outputCurve.p[0] = curve.p[2];
-    outputCurve.p[1] = (1-t) * curve.p[1] + t * curve.p[2];
-    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
-
-    return outputCurve;
-}
-
-Curve splitCurveRange(Curve curve, double left, double right) 
-{
-    return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
-}
+//Curve splitCurveTakeLeft(Curve curve, double t) 
+//{
+//    Curve outputCurve;
+//    outputCurve.p[0] = curve.p[0];
+//    outputCurve.p[1] = (1-t) * curve.p[0] + t * curve.p[1];
+//    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
+//
+//    return outputCurve;
+//}
+//Curve splitCurveTakeRight(Curve curve, double t) 
+//{
+//    Curve outputCurve;
+//    outputCurve.p[0] = curve.p[2];
+//    outputCurve.p[1] = (1-t) * curve.p[1] + t * curve.p[2];
+//    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
+//
+//    return outputCurve;
+//}
+//
+//Curve splitCurveRange(Curve curve, double left, double right) 
+//{
+//    return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
+//}
 
 double2 transformPointNdc(double2 point2d)
 {
@@ -226,7 +226,10 @@ PSInput main(uint vertexID : SV_VertexID)
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 
-    DrawObject drawObj = drawObjects[objectID];
+    DrawObject drawObj = (DrawObject) 0; // drawObjects[objectID];
+    drawObj.type_subsectionIdx = 2u;
+    drawObj.mainObjIndex = 0u;
+    drawObj.geometryAddress = 0u;
 
     ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
@@ -236,8 +239,8 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
     // We only need these for Outline type objects like lines and bezier curves
-    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
-    LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+    MainObject mainObj = mainObjects[0]; //drawObj.mainObjIndex];
+    LineStyle lineStyle = lineStyles[0]; //mainObj.styleIdx];
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
@@ -450,55 +453,32 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
+
         CurveBox curveBox = (CurveBox) 0;
-        curveBox.curveTmax1 = 1.0;
-        curveBox.curveTmax2 = 1.0;
         curveBox.aabbMin = double2(-230.0, -100.0);
         curveBox.aabbMax = double2(230.0, 100.0);
-        Curve minCurve = (Curve) 0;
-        minCurve.p[0] = double2(-200.0, -100.0);
-        minCurve.p[1] = double2(-230.0, 0.0);
-        minCurve.p[2] = double2(-200.0, 100.0);
-        Curve maxCurve = (Curve) 0;
-        maxCurve.p[0] = double2(200.0, -100.0);
-        maxCurve.p[1] = double2(230.0, 0.0);
-        maxCurve.p[2] = double2(200.0, 100.0);
+        curveBox.curveMin[0] = double2(0.0, 1.0);
+        curveBox.curveMin[1] = double2(0.1, 0.3);
+        curveBox.curveMin[2] = double2(0.2, 0.0);
+        curveBox.curveMax[0] = double2(0.8, 1.0);
+        curveBox.curveMax[1] = double2(0.9, 0.3);
+        curveBox.curveMax[2] = double2(1.0, 0.0);
         //CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
-        //Curve minCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress1, 48u);
-        //Curve maxCurve = vk::RawBufferLoad<Curve>(curveBox.curveAddress2, 48u);
 
-        // splitting the curve based on tmin and tmax
-        minCurve = splitCurveRange(minCurve, curveBox.curveTmin1, curveBox.curveTmax1);
-        maxCurve = splitCurveRange(maxCurve, curveBox.curveTmin2, curveBox.curveTmax2);
+        outV.setCurveMinP0((float2) curveBox.curveMin[0]);
+        outV.setCurveMinP1((float2) curveBox.curveMin[1]);
+        outV.setCurveMinP2((float2) curveBox.curveMin[2]);
+        outV.setCurveMaxP0((float2) curveBox.curveMax[0]);
+        outV.setCurveMaxP1((float2) curveBox.curveMax[1]);
+        outV.setCurveMaxP2((float2) curveBox.curveMax[2]);
 
-        // transform these points into screen space and pass to fragment
-        // TODO: handle case where middle is nan
-        float2 minCurveTransformed[3u];
-        float2 maxCurveTransformed[3u];
-        for (uint i = 0u; i < 3u; ++i)
-        {
-            minCurveTransformed[i] = transformPointScreenSpace(minCurve.p[i]);
-            maxCurveTransformed[i] = transformPointScreenSpace(maxCurve.p[i]);
-        }
+        const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
+        const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
+        outV.position = float4((float2) coord, 0.f, 1.f);
 
-        outV.setCurveMinP0(minCurveTransformed[0]);
-        outV.setCurveMinP1(minCurveTransformed[1]);
-        outV.setCurveMinP2(minCurveTransformed[2]);
-        outV.setCurveMaxP0(maxCurveTransformed[0]);
-        outV.setCurveMaxP1(maxCurveTransformed[1]);
-        outV.setCurveMaxP2(maxCurveTransformed[2]);
 
-        float2 aabbMin = (float2) transformPointNdc(curveBox.aabbMin);
-        float2 aabbMax = (float2) transformPointNdc(curveBox.aabbMax);
-        
-        if (vertexIdx == 0u)
-            outV.position = float4(aabbMin.x, aabbMin.y, 0.0, 1.0f);
-        else if (vertexIdx == 1u)
-            outV.position = float4(aabbMax.x, aabbMin.y, 0.0, 1.0f);
-        else if (vertexIdx == 2u)
-            outV.position = float4(aabbMin.x, aabbMax.y, 0.0, 1.0f);
-        else if (vertexIdx == 3u)
-            outV.position = float4(aabbMax.x, aabbMax.y, 0.0, 1.0f);
+        const bool flipMajor = false;
+        outV.uv = (float2) (flipMajor ? maxCorner.yx : maxCorner.xy);
 
         /*
             TODO[Lucas]:

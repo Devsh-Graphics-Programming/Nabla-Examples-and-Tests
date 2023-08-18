@@ -53,7 +53,7 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        float2 positionFullscreen = input.position.xy;
+        float2 positionFullscreen = input.uv;
 
         nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
             input.getCurveMinP0(),
@@ -65,12 +65,13 @@ float4 main(PSInput input) : SV_TARGET
             input.getCurveMaxP1(),
             input.getCurveMaxP2()
         );
-        // TODO: Use flexible major coordinate
-        const uint majorCoordinate = 0;
-        float minT = curveMin.tForMajorCoordinate(1-majorCoordinate, positionFullscreen[1-majorCoordinate]);
-        float minEv = curveMin.evaluate(minT)[majorCoordinate];
-        float maxT = curveMax.tForMajorCoordinate(1-majorCoordinate, positionFullscreen[1-majorCoordinate]);
-        float maxEv = curveMax.evaluate(maxT)[majorCoordinate];
+        const uint major = 1;
+
+        uint minor = 1-major;
+        float minT = curveMin.tForMajorCoordinate(major, positionFullscreen[major]);
+        float minEv = curveMin.evaluate(minT)[minor];
+        float maxT = curveMax.tForMajorCoordinate(major, positionFullscreen[major]);
+        float maxEv = curveMax.evaluate(maxT)[minor];
         
         // TODO: anti aliasing
         float4 col = input.getColor();
@@ -85,9 +86,21 @@ float4 main(PSInput input) : SV_TARGET
         //    localAlpha = 1.0;
         //}
 
-        return float4(float2(
-            (minEv - positionFullscreen[majorCoordinate]) < 0 ? 1.0 : 0.0, 
-            (maxEv - positionFullscreen[majorCoordinate]) > 0 ? 1.0 : 0.0), 0.0, 1.0);
+        float3 outputColor = float3(float2(
+            (minEv - positionFullscreen[minor]) < 0 ? 1.0 : 0.0, 
+            (maxEv - positionFullscreen[minor]) > 0 ? 1.0 : 0.0
+        ), 0.0);
+        //float3 outputColor = float3(minT, maxT, 0.0);
+        float distance = min(
+            nbl::hlsl::shapes::QuadraticBezierOutline::construct(curveMin, 1.0).signedDistance(input.uv),
+            nbl::hlsl::shapes::QuadraticBezierOutline::construct(curveMax, 1.0).signedDistance(input.uv)
+        );
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        
+        //return float4(positionFullscreen, 0.0, 1.0);
+        //return float4(minT, maxT, 0.0, 1.0);
+        //return float4(minEv, maxEv, 0.0, 1.0);
+        return float4(outputColor, 1.0);
     }
 
     uint2 fragCoord = uint2(input.position.xy);
