@@ -73,34 +73,16 @@ float4 main(PSInput input) : SV_TARGET
         float maxT = curveMax.tForMajorCoordinate(major, positionFullscreen[major]);
         float maxEv = curveMax.evaluate(maxT)[minor];
         
-        // TODO: anti aliasing
         float4 col = input.getColor();
-        float alpha = 0.0;
-        //if (positionFullscreen[majorCoordinate] >= min && positionFullscreen[majorCoordinate] <= max)
-        //{
-        //    localAlpha = 1.0;
-        //}
-        
-        //if (positionFullscreen[majorCoordinate] > minEv)
-        //{
-        //    localAlpha = 1.0;
-        //}
-
-        float3 outputColor = float3(float2(
-            (minEv - positionFullscreen[minor]) < 0 ? 1.0 : 0.0, 
-            (maxEv - positionFullscreen[minor]) > 0 ? 1.0 : 0.0
-        ), 0.0);
-        //float3 outputColor = float3(minT, maxT, 0.0);
-        float distance = min(
-            nbl::hlsl::shapes::QuadraticBezierOutline::construct(curveMin, 1.0).signedDistance(input.uv),
-            nbl::hlsl::shapes::QuadraticBezierOutline::construct(curveMax, 1.0).signedDistance(input.uv)
-        );
         const float antiAliasingFactor = globals.antiAliasingFactor;
-        
-        //return float4(positionFullscreen, 0.0, 1.0);
-        //return float4(minT, maxT, 0.0, 1.0);
-        //return float4(minEv, maxEv, 0.0, 1.0);
-        return float4(outputColor, 1.0);
+        float distance = min(positionFullscreen[minor] - minEv, maxEv - positionFullscreen[minor]);
+        if (distance >= 0)
+        {
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance); //1.0;
+        }
+
+        col.w *= localAlpha;
+        return float4(col);
     }
 
     uint2 fragCoord = uint2(input.position.xy);
