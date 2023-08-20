@@ -13,7 +13,7 @@
 
 #include "../common.glsl"
 
-#include "nbl/builtin/hlsl/glsl_compat.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/basic.hlsl"
 #include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
 
 // Must define all groupshared memory before including shared_memory_accessor since all the proxy structs are defined there

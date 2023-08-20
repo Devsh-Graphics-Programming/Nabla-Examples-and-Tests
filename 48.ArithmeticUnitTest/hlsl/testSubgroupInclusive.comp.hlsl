@@ -18,13 +18,13 @@ void main(uint3 globalId : SV_DispatchThreadID,
 	gl_WorkGroupID = groupId;
 	gl_LocalInvocationIndex = invIdx;
 	
-	outand[0].subgroupSize = nbl::hlsl::subgroup::Size();
-	outxor[0].subgroupSize = nbl::hlsl::subgroup::Size();
-	outor[0].subgroupSize = nbl::hlsl::subgroup::Size();
-	outadd[0].subgroupSize = nbl::hlsl::subgroup::Size();
-	outmul[0].subgroupSize = nbl::hlsl::subgroup::Size();
-	outmin[0].subgroupSize = nbl::hlsl::subgroup::Size();
-	outmax[0].subgroupSize = nbl::hlsl::subgroup::Size();
+	outand[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
+	outxor[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
+	outor[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
+	outadd[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
+	outmul[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
+	outmin[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
+	outmax[0].subgroupSize = nbl::hlsl::glsl::subgroup::gl_SubgroupSize();
 	
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
 	
