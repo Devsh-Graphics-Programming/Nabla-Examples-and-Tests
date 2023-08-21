@@ -53,7 +53,9 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        float2 positionFullscreen = input.uv;
+        const float2 positionFullscreen = input.uv;
+        const uint major = 0;
+        const uint minor = 1-major;
 
         nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
             input.getCurveMinP0(),
@@ -65,16 +67,15 @@ float4 main(PSInput input) : SV_TARGET
             input.getCurveMaxP1(),
             input.getCurveMaxP2()
         );
-        const uint major = 1;
 
-        uint minor = 1-major;
-        float minT = curveMin.tForMajorCoordinate(major, positionFullscreen[major]);
+        float minT = sqrt(input.curveMinDetRcp2) - input.curveMinBRcp;
         float minEv = curveMin.evaluate(minT)[minor];
-        float maxT = curveMax.tForMajorCoordinate(major, positionFullscreen[major]);
+        float maxT = sqrt(input.curveMinDetRcp2) - input.curveMinBRcp;
         float maxEv = curveMax.evaluate(maxT)[minor];
         
         float4 col = input.getColor();
         const float antiAliasingFactor = globals.antiAliasingFactor;
+        // TODO: anti aliasing
         float distance = min(positionFullscreen[minor] - minEv, maxEv - positionFullscreen[minor]);
         if (distance >= 0)
         {
