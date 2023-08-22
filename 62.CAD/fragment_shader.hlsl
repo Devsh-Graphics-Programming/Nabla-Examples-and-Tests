@@ -96,6 +96,7 @@ float4 main(PSInput input) : SV_TARGET
     const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
     nbl::hlsl::shapes::QuadraticBezierOutline<float> curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(P0, P1, P2, lineThickness);
+    curveOutline.bezier.preCompValues.calculate(P0, P1, P2);
 
     float tA = curveOutline.ud(input.position.xy).y;
 

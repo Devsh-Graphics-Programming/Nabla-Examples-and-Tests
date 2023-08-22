@@ -10,7 +10,7 @@ enum class ExampleMode
 	CASE_1,	// Overdraw Fragment Shader Stress Test
 	CASE_2, // NOT USED
 	CASE_3, // CURVES AND LINES
-	CASE_4, // ARC LENGTH
+	CASE_4, // STIPPLE PATTERN
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
@@ -58,10 +58,10 @@ using namespace nbl;
 using namespace ui;
 
 // TODO: Use a math lib?
-double dot(const double2& a, const double2& b)
-{
-	return a.X * b.X + a.Y * b.Y;
-}
+//double dot(const double2& a, const double2& b)
+//{
+//	return a.X * b.X + a.Y * b.Y;
+//}
 double2 normalize(const double2& x)
 {
 	double len = dot(x, x);
@@ -1952,6 +1952,13 @@ public:
 				quadratic.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
 				quadratic.p[1] = double2((rand() % 200 - 100), (rand() % 200 - 100));
 				quadratic.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+
+				float stipplePattern[4u] = { 4.0f, -2.0f, 2.0f, -1.0f };
+				float stipplePatternRedundant[4u] = { 4.0f, -2.0f, 2.0f, 5.0f };
+
+				std::memcpy(quadratic.stipplePattern, stipplePattern, sizeof(stipplePattern));
+				// TODO: test if in this case redundant components will be merged
+				//std::memcpy(quadratic.stipplePatternRedundant, stipplePattern, sizeof(stipplePattern));
 
 				polyline.addQuadBeziers({quadratic});
 

@@ -22,10 +22,52 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
+#ifdef __cplusplus
+double dot(const double2& A, const double2& B)
+{
+    return A.X * B.X + A.Y * B.Y;
+}
+#endif
+
+template <typename float_t>
+struct QuadBezierAnalyticArcLengthCalculator
+{
+#ifdef __cplusplus
+    using vec2 = nbl::core::vector2d<float_t>;
+#else
+    using vec2 = vector<float_t, 2>;
+#endif
+
+    void calculateValues(double2 P[3])
+    {
+        double2 A = P[0] - 2.0 * P[1] + P[2];
+        double2 B = 2.0 * (P[1] - P[0]);
+        double2 C = P[0];
+        lenA2 = dot(A, A);
+        AdotB = dot(A, B);
+
+        a = 4.0 * lenA2;
+        b = 4.0 * AdotB;
+        c = dot(B, B);
+
+        b_over_4a = AdotB / a;
+    }
+
+    float_t lenA2;
+    float_t AdotB;
+
+    float_t a;
+    float_t b;
+    float_t c;
+
+    float_t b_over_4a;
+};
+
 struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
     // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
+    float stipplePattern[4u]; // for now max pattern component cnt is 4
     double2 arcLen;
 };
 
@@ -58,6 +100,7 @@ struct LineStyle
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
     // TODO[Przemek]: Anything info related to the stipple pattern will be here
+    //float stipplePattern[4u]; // for now max pattern component cnt is 4
     float _pad[2u];
 };
 
