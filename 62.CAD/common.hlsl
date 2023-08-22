@@ -38,11 +38,17 @@ struct QuadBezierAnalyticArcLengthCalculator
     using vec2 = vector<float_t, 2>;
 #endif
 
-    void calculateValues(double2 P[3])
+    QuadBezierAnalyticArcLengthCalculator construct(float_t lenA2, float_t AdotB, float_t a, float_t b, float_t  c, float_t b_over_4a)
     {
-        double2 A = P[0] - 2.0 * P[1] + P[2];
-        double2 B = 2.0 * (P[1] - P[0]);
-        double2 C = P[0];
+        QuadBezierAnalyticArcLengthCalculator ret = { lenA2, AdotB, a, b, c, b_over_4a };
+        return ret;
+    }
+
+    void calc(vec2 P0, vec2 P1, vec2 P2)
+    {
+        vec2 A = P0 - 2.0 * P1 + P2;
+        vec2 B = 2.0 * (P1 - P0);
+        vec2 C = P0;
         lenA2 = dot(A, A);
         AdotB = dot(A, B);
 

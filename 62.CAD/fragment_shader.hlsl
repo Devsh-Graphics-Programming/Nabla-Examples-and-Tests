@@ -96,7 +96,16 @@ float4 main(PSInput input) : SV_TARGET
     const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
     nbl::hlsl::shapes::QuadraticBezierOutline<float> curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(P0, P1, P2, lineThickness);
-    curveOutline.bezier.preCompValues.calculate(P0, P1, P2);
+
+    QuadBezierAnalyticArcLengthCalculator<float> preCompValues;
+    preCompValues.calc(P0, P1, P2);
+
+    curveOutline.bezier.preCompValues.lenA2 = preCompValues.lenA2;
+    curveOutline.bezier.preCompValues.AdotB = preCompValues.AdotB;
+    curveOutline.bezier.preCompValues.a = preCompValues.a;
+    curveOutline.bezier.preCompValues.b = preCompValues.b;
+    curveOutline.bezier.preCompValues.c = preCompValues.c;
+    curveOutline.bezier.preCompValues.b_over_4a = preCompValues.b_over_4a;
 
     float tA = curveOutline.ud(input.position.xy).y;
 
