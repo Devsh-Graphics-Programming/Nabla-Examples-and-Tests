@@ -96,13 +96,8 @@ struct PSInput
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    // CurveBox curve data, sent in quadratic coefficients & interpolated in HW
-    [[vk::location(5)]] float curveMinDetRcp2 : COLOR5;
-    [[vk::location(6)]] float curveMinBRcp : COLOR6;
-    [[vk::location(7)]] float curveMaxDetRcp2 : COLOR7;
-    [[vk::location(8)]] float curveMaxBRcp : COLOR8;
     // For curve box, has the UV within the AABB
-    [[vk::location(9)]] float2 uv : UV;
+    [[vk::location(5)]] float2 uv : UV;
     
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
@@ -139,6 +134,10 @@ struct PSInput
     float2 getBezierP2() { return data3.xy; }
     void setBezierP2(float2 p2) { data3.xy = p2; }
 
+    // Curves are split in the vertex shader based on their tmin and tmax
+    // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
+    // curveMin = smaller x / left, curveMax = bigger x / right)
+    // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
     float2 getCurveMinP0() { return data2.xy; }

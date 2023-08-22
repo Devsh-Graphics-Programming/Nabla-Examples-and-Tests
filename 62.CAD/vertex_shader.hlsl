@@ -465,37 +465,17 @@ PSInput main(uint vertexID : SV_VertexID)
         curveBox.curveMax[2] = double2(1.0, 0.0);
         //CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
 
+        outV.setCurveMinP0((float2) curveBox.curveMin[0]);
+        outV.setCurveMinP1((float2) curveBox.curveMin[1]);
+        outV.setCurveMinP2((float2) curveBox.curveMin[2]);
+        outV.setCurveMaxP0((float2) curveBox.curveMax[0]);
+        outV.setCurveMaxP1((float2) curveBox.curveMax[1]);
+        outV.setCurveMaxP2((float2) curveBox.curveMax[2]);
+
         const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
-
-        const uint major = 0;
-        const uint minor = 1-major;
-        {
-            nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
-                curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
-            float a = curveMin.A()[major] - (float) maxCorner[major];
-            float b = curveMin.B()[major] - (float) maxCorner[major];
-            float c = curveMin.C()[major] - (float) maxCorner[major];
-
-            const float det = b*b-4.f*a*c;
-            const float rcp = 0.5f/a;
-            outV.curveMinDetRcp2 = det * rcp * rcp;
-            outV.curveMinBRcp = b * rcp;
-        }
-        {
-            nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
-                curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
-            float a = curveMax.A()[major] - (float) maxCorner[major];
-            float b = curveMax.B()[major] - (float) maxCorner[major];
-            float c = curveMax.C()[major] - (float) maxCorner[major];
-
-            const float det = b*b-4.f*a*c;
-            const float rcp = 0.5f/a;
-            outV.curveMaxDetRcp2 = det * rcp * rcp;
-            outV.curveMaxBRcp = b * rcp;
-        }
-
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
+
 
         const bool flipMajor = false;
         outV.uv = (float2) (flipMajor ? maxCorner.yx : maxCorner.xy);
