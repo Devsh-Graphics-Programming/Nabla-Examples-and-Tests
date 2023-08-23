@@ -465,20 +465,27 @@ PSInput main(uint vertexID : SV_VertexID)
         curveBox.curveMax[2] = double2(1.0, 0.0);
         //CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
 
-        outV.setCurveMinP0((float2) curveBox.curveMin[0]);
-        outV.setCurveMinP1((float2) curveBox.curveMin[1]);
-        outV.setCurveMinP2((float2) curveBox.curveMin[2]);
-        outV.setCurveMaxP0((float2) curveBox.curveMax[0]);
-        outV.setCurveMaxP1((float2) curveBox.curveMax[1]);
-        outV.setCurveMaxP2((float2) curveBox.curveMax[2]);
-
         const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
 
+        const uint major = 1;
+        const uint minor = 1-major;
 
-        const bool flipMajor = false;
-        outV.uv = (float2) (flipMajor ? maxCorner.yx : maxCorner.xy);
+        nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
+            curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
+        nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
+            curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
+
+        // Swizzled X = major
+        // Swizzled Y = minor
+        outV.uv = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
+        outV.setCurveMinA(major == 1 ? curveMin.A().yx : curveMin.A().xy);
+        outV.setCurveMinB(major == 1 ? curveMin.B().yx : curveMin.B().xy);
+        outV.setCurveMinC(major == 1 ? curveMin.C().yx : curveMin.C().xy);
+        outV.setCurveMaxA(major == 1 ? curveMax.A().yx : curveMax.A().xy);
+        outV.setCurveMaxB(major == 1 ? curveMax.B().yx : curveMax.B().xy);
+        outV.setCurveMaxC(major == 1 ? curveMax.C().yx : curveMax.C().xy);
 
         /*
             TODO[Lucas]:

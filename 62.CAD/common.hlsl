@@ -140,19 +140,19 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    float2 getCurveMinP0() { return data2.xy; }
-    float2 getCurveMinP1() { return data2.zw; }
-    float2 getCurveMinP2() { return data3.xy; }
-    float2 getCurveMaxP0() { return data3.zw; }
-    float2 getCurveMaxP1() { return data4.xy; }
-    float2 getCurveMaxP2() { return data4.zw; }
+    float2 getCurveMinA() { return data2.xy; }
+    float2 getCurveMinB() { return data2.zw; }
+    float2 getCurveMinC() { return data3.xy; }
+    float2 getCurveMaxA() { return data3.zw; }
+    float2 getCurveMaxB() { return data4.xy; }
+    float2 getCurveMaxC() { return data4.zw; }
     
-    void setCurveMinP0(float2 p) { data2.xy = p; }
-    void setCurveMinP1(float2 p) { data2.zw = p; }
-    void setCurveMinP2(float2 p) { data3.xy = p; }
-    void setCurveMaxP0(float2 p) { data3.zw = p; }
-    void setCurveMaxP1(float2 p) { data4.xy = p; }
-    void setCurveMaxP2(float2 p) { data4.zw = p; }
+    void setCurveMinA(float2 p) { data2.xy = p; }
+    void setCurveMinB(float2 p) { data2.zw = p; }
+    void setCurveMinC(float2 p) { data3.xy = p; }
+    void setCurveMaxA(float2 p) { data3.zw = p; }
+    void setCurveMaxB(float2 p) { data4.xy = p; }
+    void setCurveMaxC(float2 p) { data4.zw = p; }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

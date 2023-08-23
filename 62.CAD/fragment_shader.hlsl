@@ -11,6 +11,19 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
+float tForMajorCoordinate(float a, float b, float c, float x) 
+{ 
+    float2 roots = nbl::hlsl::shapes::SolveQuadratic(a - x, b - x, c - x);
+    // assert(roots.x == roots.y);
+    // assert(!isnan(roots.x));
+    return roots.x;
+}
+
+float evaluateBezier(float A, float B, float C, float t) 
+{ 
+    return A * A * t + B * t + C;
+}
+
 float4 main(PSInput input) : SV_TARGET
 {
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -55,27 +68,15 @@ float4 main(PSInput input) : SV_TARGET
     {
         float2 positionFullscreen = input.uv;
 
-        nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
-            input.getCurveMinP0(),
-            input.getCurveMinP1(),
-            input.getCurveMinP2()
-        );
-        nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
-            input.getCurveMaxP0(),
-            input.getCurveMaxP1(),
-            input.getCurveMaxP2()
-        );
-        const uint major = 1;
-
-        uint minor = 1-major;
-        float minT = curveMin.tForMajorCoordinate(major, positionFullscreen[major]);
-        float minEv = curveMin.evaluate(minT)[minor];
-        float maxT = curveMax.tForMajorCoordinate(major, positionFullscreen[major]);
-        float maxEv = curveMax.evaluate(maxT)[minor];
+        float minT = tForMajorCoordinate(input.getCurveMinA().x, input.getCurveMinB().x, input.getCurveMinC().x, positionFullscreen.x);
+        float minEv = evaluateBezier(input.getCurveMinA().y, input.getCurveMinB().y, input.getCurveMinC().y, minT);
+        
+        float maxT = tForMajorCoordinate(input.getCurveMaxA().x, input.getCurveMaxB().x, input.getCurveMaxC().x, positionFullscreen.x);
+        float maxEv = evaluateBezier(input.getCurveMaxA().y, input.getCurveMaxB().y, input.getCurveMaxC().y, maxT);
         
         float4 col = input.getColor();
         const float antiAliasingFactor = globals.antiAliasingFactor;
-        float distance = min(positionFullscreen[minor] - minEv, maxEv - positionFullscreen[minor]);
+        float distance = min(positionFullscreen.y - minEv, maxEv - positionFullscreen.y);
         if (distance >= 0)
         {
             localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance); //1.0;
