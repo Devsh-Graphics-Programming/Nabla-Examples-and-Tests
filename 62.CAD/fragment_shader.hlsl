@@ -11,9 +11,10 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-float tForMajorCoordinate(float a, float b, float c) 
+float tForMajorCoordinate(float detRcp2, float bRcp) 
 { 
-    float2 roots = nbl::hlsl::shapes::SolveQuadratic(a, b, c);
+    float detSqrt = sqrt(detRcp2);
+    float2 roots = float2(-detSqrt,detSqrt)-bRcp;
     // assert(roots.x == roots.y);
     // assert(!isnan(roots.x));
     return roots.x;
@@ -68,18 +69,20 @@ float4 main(PSInput input) : SV_TARGET
     {
         float2 positionFullscreen = input.uv;
 
-        float minT = tForMajorCoordinate(input.minCurveQuadraticCoefficients.x, input.minCurveQuadraticCoefficients.y, input.minCurveQuadraticCoefficients.z);
+        float minT = tForMajorCoordinate(input.minCurveDetRcp2_BRcp.x, input.minCurveDetRcp2_BRcp.y);
         float minEv = evaluateBezier(input.getCurveMinA().y, input.getCurveMinB().y, input.getCurveMinC().y, minT);
         
-        float maxT = tForMajorCoordinate(input.maxCurveQuadraticCoefficients.x, input.maxCurveQuadraticCoefficients.y, input.maxCurveQuadraticCoefficients.z);
+        float maxT = tForMajorCoordinate(input.maxCurveDetRcp2_BRcp.x, input.maxCurveDetRcp2_BRcp.y);
         float maxEv = evaluateBezier(input.getCurveMaxA().y, input.getCurveMaxB().y, input.getCurveMaxC().y, maxT);
         
         float4 col = input.getColor();
         const float antiAliasingFactor = globals.antiAliasingFactor;
         float distance = min(positionFullscreen.y - minEv, maxEv - positionFullscreen.y);
+
+        // TODO: AA using ddx ddy
         if (distance >= 0)
         {
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance); //1.0;
+            localAlpha = 1.0;
         }
 
         col.w *= localAlpha;

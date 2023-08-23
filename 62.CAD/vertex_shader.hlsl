@@ -486,29 +486,31 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveMaxA(major == 1 ? curveMax.A().yx : curveMax.A().xy);
         outV.setCurveMaxB(major == 1 ? curveMax.B().yx : curveMax.B().xy);
         outV.setCurveMaxC(major == 1 ? curveMax.C().yx : curveMax.C().xy);
-        outV.minCurveQuadraticCoefficients = float3(
-            outV.getCurveMinA().x - outV.uv.x,
-            outV.getCurveMinB().x - outV.uv.x,
-            outV.getCurveMinC().x - outV.uv.x
-        );
-        outV.maxCurveQuadraticCoefficients = float3(
-            outV.getCurveMaxA().x - outV.uv.x,
-            outV.getCurveMaxB().x - outV.uv.x,
-            outV.getCurveMaxC().x - outV.uv.x
-        );
+        
+        {
+            float a = outV.getCurveMinA().x - outV.uv.x;
+            float b = outV.getCurveMinB().x - outV.uv.x;
+            float c = outV.getCurveMinC().x - outV.uv.x;
 
-        /*
-            TODO[Lucas]:
-            Another `else if` for CurveBox Object Type,
-            What you basically need to do here is transform the box min,max and set `outV.position` correctly based on that + vertexIdx
-            and you need to do certain outV.setXXX() functions to set the correct (transformed) data to frag shader
+            float det = b*b-4.f*a*c;;
+            float rcp = 0.5f/a;
+            outV.minCurveDetRcp2_BRcp = float2(
+                det * rcp * rcp,
+                b * rcp
+            );
+        }
+        {
+            float a = outV.getCurveMaxA().x - outV.uv.x;
+            float b = outV.getCurveMaxB().x - outV.uv.x;
+            float c = outV.getCurveMaxC().x - outV.uv.x;
 
-            Another note: you may know that for transparency we draw objects twice
-            only when `writeToAlpha` is true (even provoking vertex), sdf calculations will happen and alpha will be set
-            otherwise it's just a second draw to "Resolve" and the only important thing on "Resolves" is the same `outV.position` as the previous draw (basically the same cage)
-            So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
-        */
-        // TODO: likely going to do the precomputation skip optimization later ^^
+            float det = b*b-4.f*a*c;;
+            float rcp = 0.5f/a;
+            outV.maxCurveDetRcp2_BRcp = float2(
+                det * rcp * rcp,
+                b * rcp
+            );
+        }
     }
 
 

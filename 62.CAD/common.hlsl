@@ -102,10 +102,26 @@ struct PSInput
     
     // A, B, C quadratic coefficients from the min & max curves,
     // swizzled to the major cordinate and with the major UV coordinate subtracted
-    // These can be fed directly into the solve quadratic equation
-    // curveMin.C()[major] - uv[major]
-    [[vk::location(6)]] float3 minCurveQuadraticCoefficients : MIN_QUADRATIC_COEFFICIENTS;
-    [[vk::location(7)]] float3 maxCurveQuadraticCoefficients : MAX_QUADRATIC_COEFFICIENTS;
+    // These can be used to solve the quadratic equation
+    //
+    // a, b, c = curveMin.a,b,c()[major] - uv[major]
+    // 
+    // SolveQuadratic:
+    // det = b*b-4.f*a*c;
+    // rcp = 0.5f/a;
+    // detSqrt = sqrt(det)*rcp;
+    // tmp = b*rcp;
+    // res = float2(-detSqrt,detSqrt)-tmp;
+    //
+    // Collapsed version:
+    // detrcp2 = det * rcp * rcp
+    // brcp = b * rcp
+    //
+    // (In fragment shader)
+    // detSqrt = sqrt(detrcp2)
+    // res = float2(-detSqrt,detSqrt)-bRcp;
+    [[vk::location(6)]] float2 minCurveDetRcp2_BRcp : MIN_QUADRATIC_COEFFICIENTS;
+    [[vk::location(7)]] float2 maxCurveDetRcp2_BRcp : MAX_QUADRATIC_COEFFICIENTS;
     
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
