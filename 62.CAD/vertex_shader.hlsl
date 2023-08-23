@@ -486,6 +486,16 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveMaxA(major == 1 ? curveMax.A().yx : curveMax.A().xy);
         outV.setCurveMaxB(major == 1 ? curveMax.B().yx : curveMax.B().xy);
         outV.setCurveMaxC(major == 1 ? curveMax.C().yx : curveMax.C().xy);
+        outV.minCurveQuadraticCoefficients = float3(
+            outV.getCurveMinA().x - outV.uv.x,
+            outV.getCurveMinB().x - outV.uv.x,
+            outV.getCurveMinC().x - outV.uv.x
+        );
+        outV.maxCurveQuadraticCoefficients = float3(
+            outV.getCurveMaxA().x - outV.uv.x,
+            outV.getCurveMaxB().x - outV.uv.x,
+            outV.getCurveMaxC().x - outV.uv.x
+        );
 
         /*
             TODO[Lucas]:

@@ -97,7 +97,15 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     // For curve box, has the UV within the AABB
+    // UV, curve min & curve max are all 
     [[vk::location(5)]] float2 uv : UV;
+    
+    // A, B, C quadratic coefficients from the min & max curves,
+    // swizzled to the major cordinate and with the major UV coordinate subtracted
+    // These can be fed directly into the solve quadratic equation
+    // curveMin.C()[major] - uv[major]
+    [[vk::location(6)]] float3 minCurveQuadraticCoefficients : MIN_QUADRATIC_COEFFICIENTS;
+    [[vk::location(7)]] float3 maxCurveQuadraticCoefficients : MAX_QUADRATIC_COEFFICIENTS;
     
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias

@@ -2025,7 +2025,7 @@ public:
 			LineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 0.8f;
-			style.color = float4(0.619f, 0.325f, 0.709f, 0.2f);
+			style.color = float4(0.619f, 0.325f, 0.709f, 0.9f);
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}

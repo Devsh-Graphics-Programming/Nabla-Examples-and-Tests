@@ -11,9 +11,9 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-float tForMajorCoordinate(float a, float b, float c, float x) 
+float tForMajorCoordinate(float a, float b, float c) 
 { 
-    float2 roots = nbl::hlsl::shapes::SolveQuadratic(a - x, b - x, c - x);
+    float2 roots = nbl::hlsl::shapes::SolveQuadratic(a, b, c);
     // assert(roots.x == roots.y);
     // assert(!isnan(roots.x));
     return roots.x;
@@ -68,10 +68,10 @@ float4 main(PSInput input) : SV_TARGET
     {
         float2 positionFullscreen = input.uv;
 
-        float minT = tForMajorCoordinate(input.getCurveMinA().x, input.getCurveMinB().x, input.getCurveMinC().x, positionFullscreen.x);
+        float minT = tForMajorCoordinate(input.minCurveQuadraticCoefficients.x, input.minCurveQuadraticCoefficients.y, input.minCurveQuadraticCoefficients.z);
         float minEv = evaluateBezier(input.getCurveMinA().y, input.getCurveMinB().y, input.getCurveMinC().y, minT);
         
-        float maxT = tForMajorCoordinate(input.getCurveMaxA().x, input.getCurveMaxB().x, input.getCurveMaxC().x, positionFullscreen.x);
+        float maxT = tForMajorCoordinate(input.maxCurveQuadraticCoefficients.x, input.maxCurveQuadraticCoefficients.y, input.maxCurveQuadraticCoefficients.z);
         float maxEv = evaluateBezier(input.getCurveMaxA().y, input.getCurveMaxB().y, input.getCurveMaxC().y, maxT);
         
         float4 col = input.getColor();
