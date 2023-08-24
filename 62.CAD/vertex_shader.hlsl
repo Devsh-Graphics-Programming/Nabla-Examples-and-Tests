@@ -488,8 +488,8 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveMaxC(major == 1 ? curveMax.C().yx : curveMax.C().xy);
         
         {
-            float a = outV.getCurveMinA().x - outV.uv.x;
-            float b = outV.getCurveMinB().x - outV.uv.x;
+            float a = outV.getCurveMinA().x;
+            float b = outV.getCurveMinB().x;
             float c = outV.getCurveMinC().x - outV.uv.x;
 
             float det = b*b-4.f*a*c;;
@@ -500,8 +500,8 @@ PSInput main(uint vertexID : SV_VertexID)
             );
         }
         {
-            float a = outV.getCurveMaxA().x - outV.uv.x;
-            float b = outV.getCurveMaxB().x - outV.uv.x;
+            float a = outV.getCurveMaxA().x;
+            float b = outV.getCurveMaxB().x;
             float c = outV.getCurveMaxC().x - outV.uv.x;
 
             float det = b*b-4.f*a*c;;
