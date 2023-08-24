@@ -281,24 +281,30 @@ int main(int argc, char** argv)
 	#ifdef _BR_TEST_
 	// Nabla case
 	{
-		nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
-		system->createFile(future, "nbl/builtin/glsl/utils/acceleration_structures.glsl", core::bitflag(IFileBase::ECF_READ));
-		if (auto pFile = future.acquire())
+		auto testFile = [&](const std::string& hashPath) -> void
 		{
-			auto& file = *pFile;
-
-			const size_t fileSize = file->getSize();
-			std::string readStr(fileSize, '\0');
-			system::IFile::success_t readSuccess;
-			file->read(readSuccess, readStr.data(), 0, readStr.length());
+			nbl::system::ISystem::future_t<core::smart_refctd_ptr<IFile>> future;
+			system->createFile(future, hashPath.c_str(), core::bitflag(IFileBase::ECF_READ));
+			if (auto pFile = future.acquire())
 			{
-				const bool success = bool(readSuccess);
-				assert(success);
-			}
+				auto& file = *pFile;
 
-			const auto* testStream = readStr.c_str();
-			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
-		}
+				const size_t fileSize = file->getSize();
+				std::string readStr(fileSize, '\0');
+				system::IFile::success_t readSuccess;
+				file->read(readSuccess, readStr.data(), 0, readStr.length());
+				{
+					const bool success = bool(readSuccess);
+					assert(success);
+				}
+
+				const auto* testStream = readStr.c_str();
+				std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
+			}
+		};
+
+		testFile("nbl/builtin/glsl/utils/acceleration_structures.glsl"); // nbl internal BRs
+		testFile("dxc/nbl/builtin/hlsl/spirv_intrinsics/spirv.hpp"); // dxc internal BRs ("dxc" part is mount point, left part is an alias). If you were to use pure archive like below not getFile directly from Nabla system then no need to add "dxc" at the beginning of the hash path
 	}
 	// Custom case
 	{
