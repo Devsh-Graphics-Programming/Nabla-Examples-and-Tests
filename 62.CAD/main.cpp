@@ -48,11 +48,17 @@ struct float4
 typedef nbl::core::vector2d<double> double2;
 typedef nbl::core::vector2d<uint32_t> uint2;
 
+// TODO: Use a math lib?
+double dot(const double2& a, const double2& b)
+{
+	return a.X * b.X + a.Y * b.Y;
+}
+
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(Globals) == 152u);
-static_assert(sizeof(LineStyle) == 32u);
+//static_assert(sizeof(LineStyle) == 4u);
 
 using namespace nbl;
 using namespace ui;
@@ -1953,15 +1959,19 @@ public:
 				quadratic.p[1] = double2((rand() % 200 - 100), (rand() % 200 - 100));
 				quadratic.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
 
-				float stipplePattern[4u] = { 4.0f, -2.0f, 2.0f, -1.0f };
+				/*quadratic.p[0] = double2(-200.0, 0);
+				quadratic.p[1] = double2(0.0, 100.0);
+				quadratic.p[2] = double2(200.0, 0);*/
+
+				float stipplePattern[4u] = { 50.0f, -50.0f, 10.0f, -50.0f };
 				float stipplePatternRedundant[4u] = { 4.0f, -2.0f, 2.0f, 5.0f };
 
-				std::memcpy(quadratic.stipplePattern, stipplePattern, sizeof(stipplePattern));
+				style.stipplePatternInfo.size = 4;
+				std::memcpy(style.stipplePatternInfo.stipplePattern, stipplePattern, sizeof(stipplePattern));
 				// TODO: test if in this case redundant components will be merged
-				//std::memcpy(quadratic.stipplePatternRedundant, stipplePattern, sizeof(stipplePattern));
+				//std::memcpy(style.stipplePattern, stipplePatternRedundant, sizeof(stipplePattern));
 
 				polyline.addQuadBeziers({quadratic});
-
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
