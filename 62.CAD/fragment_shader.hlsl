@@ -3,6 +3,7 @@
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/rounded_line.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/algorithm.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -16,6 +17,47 @@ void endInvocationInterlockEXT();
 // TODO[Lucas]: have a function for quadratic equation solving
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+
+struct ArrayAccessor
+{
+    float arr[14];
+    using value_type = float;
+
+    float operator[](const uint ix)
+    {
+        return arr[ix];
+    }
+};
+
+template<typename float_t>
+bool isArcLenInDrawSection(float_t arcLenForT, StipplePatternInfo stipplePatternInfo)
+{
+    const int prefixSumMaxSz = 14;
+    float_t prefixSum[prefixSumMaxSz];
+    prefixSum[0] = stipplePatternInfo.stipplePattern[0];
+    const int prefixSumSz = stipplePatternInfo.size-1;
+    
+    // can be precomputed cpu side i guess?
+    for (int i = 1; i < prefixSumSz; i++)
+        prefixSum[i] = abs(stipplePatternInfo.stipplePattern[i]) + prefixSum[i-1];
+
+    float_t stipplePatternLen = prefixSum[prefixSumSz-1] + abs(stipplePatternInfo.stipplePattern[stipplePatternInfo.size-1]);
+    
+    for (int i = 0; i < prefixSumSz; i++)
+        prefixSum[i] /= stipplePatternLen;
+    
+    float_t tMappedToPattern = frac(arcLenForT/stipplePatternLen);
+    
+    ArrayAccessor stippleAccessor = { prefixSum };
+    uint patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, stipplePatternInfo.size, tMappedToPattern);
+    if(patternIdx == stipplePatternInfo.size)
+        patternIdx--;
+    
+    if (stipplePatternInfo.stipplePattern[patternIdx] < 0.0)
+        return false;
+    else
+        return true;
+}
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -90,32 +132,38 @@ float4 main(PSInput input) : SV_TARGET
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha)/255.f;
 #elif defined(NBL_DRAW_ARC_LENGTH)
-    // idk if it is right place to do that.. shout i put that code in another file?
     const float2 P0 = input.getBezierP0();
     const float2 P1 = input.getBezierP1();
     const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
     nbl::hlsl::shapes::QuadraticBezierOutline<float> curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(P0, P1, P2, lineThickness);
 
-    QuadBezierAnalyticArcLengthCalculator<float> preCompValues;
-    preCompValues.calc(P0, P1, P2);
+    QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = QuadBezierAnalyticArcLengthCalculator<float>::construct(P0, P1, P2);
 
-    curveOutline.bezier.preCompValues.lenA2 = preCompValues.lenA2;
-    curveOutline.bezier.preCompValues.AdotB = preCompValues.AdotB;
-    curveOutline.bezier.preCompValues.a = preCompValues.a;
-    curveOutline.bezier.preCompValues.b = preCompValues.b;
-    curveOutline.bezier.preCompValues.c = preCompValues.c;
-    curveOutline.bezier.preCompValues.b_over_4a = preCompValues.b_over_4a;
+    nbl::hlsl::shapes::QuadraticBezier<float>::ArcLengthPrecomputedValues preCompValues;
+    preCompValues.lenA2 = preCompValues_calculator.lenA2;
+    preCompValues.AdotB = preCompValues_calculator.AdotB;
+    preCompValues.a = preCompValues_calculator.a;
+    preCompValues.b = preCompValues_calculator.b;
+    preCompValues.c = preCompValues_calculator.c;
+    preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
 
     float tA = curveOutline.ud(input.position.xy).y;
 
-    float bezierCurveArcLen = curveOutline.bezier.calcArcLen(1.0);
-    float arcLen = curveOutline.bezier.calcArcLen(tA);
+    float bezierCurveArcLen = curveOutline.bezier.calcArcLen(1.0, preCompValues);
+    float arcLen = curveOutline.bezier.calcArcLen(tA, preCompValues);
+
+    float alpha;
+    bool isVisible = isArcLenInDrawSection<float>(arcLen, lineStyles[0].stipplePatternInfo);
+    if (isVisible)
+        alpha = 1.0;
+    else
+        alpha = 0.0;
 
     // float resultColorIntensity = arcLen / bezierCurveArcLen;
-    float resultColorIntensity = curveOutline.bezier.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen);
+    float resultColorIntensity = curveOutline.bezier.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen, preCompValues);
 
-    col = float4(0.0, resultColorIntensity, 0.0, 1.0);  
+    col = float4(0.0, resultColorIntensity, 0.0, alpha);
 #else
     col = input.getColor();
     col.w *= localAlpha;
