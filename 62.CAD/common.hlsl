@@ -22,6 +22,13 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
+#ifdef __cplusplus
+double dot(const double2& A, const double2& B)
+{
+    return A.X * B.X + A.Y * B.Y;
+}
+#endif
+
 template <typename float_t>
 struct QuadBezierAnalyticArcLengthCalculator
 {
@@ -31,26 +38,9 @@ struct QuadBezierAnalyticArcLengthCalculator
     using vec2 = vector<float_t, 2>;
 #endif
 
-    static QuadBezierAnalyticArcLengthCalculator construct(float_t lenA2, float_t AdotB, float_t a, float_t b, float_t  c, float_t b_over_4a)
+    QuadBezierAnalyticArcLengthCalculator construct(float_t lenA2, float_t AdotB, float_t a, float_t b, float_t  c, float_t b_over_4a)
     {
         QuadBezierAnalyticArcLengthCalculator ret = { lenA2, AdotB, a, b, c, b_over_4a };
-        return ret;
-    }
-    
-    static QuadBezierAnalyticArcLengthCalculator construct(vec2 P0, vec2 P1, vec2 P2)
-    {
-        QuadBezierAnalyticArcLengthCalculator ret;
-        vec2 A = P0 - 2.0 * P1 + P2;
-        vec2 B = 2.0 * (P1 - P0);
-        vec2 C = P0;
-        ret.lenA2 = dot(A, A);
-        ret.AdotB = dot(A, B);
-
-        ret.a = 4.0 * ret.lenA2;
-        ret.b = 4.0 * ret.AdotB;
-        ret.c = dot(B, B);
-
-        ret.b_over_4a = ret.AdotB / ret.a;
         return ret;
     }
 
@@ -83,6 +73,7 @@ struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
     // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
+    float stipplePattern[4u]; // for now max pattern component cnt is 4
     double2 arcLen;
 };
 
@@ -109,19 +100,13 @@ struct Globals
     float _pad; // 152
 };
 
-struct StipplePatternInfo
-{
-    int size;
-    float stipplePattern[15u];
-};
-
 struct LineStyle
 {
     float4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
     // TODO[Przemek]: Anything info related to the stipple pattern will be here
-    StipplePatternInfo stipplePatternInfo;
+    //float stipplePattern[4u]; // for now max pattern component cnt is 4
     float _pad[2u];
 };
 
