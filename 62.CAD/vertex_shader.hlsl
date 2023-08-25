@@ -239,8 +239,8 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
     // We only need these for Outline type objects like lines and bezier curves
-    MainObject mainObj = mainObjects[0]; //drawObj.mainObjIndex];
-    LineStyle lineStyle = lineStyles[0]; //mainObj.styleIdx];
+    MainObject mainObj = mainObjects[drawObj.mainObjIndex];
+    LineStyle lineStyle = lineStyles[mainObj.styleIdx];
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
@@ -453,17 +453,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-
-        CurveBox curveBox = (CurveBox) 0;
-        curveBox.aabbMin = double2(-230.0, -100.0);
-        curveBox.aabbMax = double2(230.0, 100.0);
-        curveBox.curveMin[0] = double2(0.0, 1.0);
-        curveBox.curveMin[1] = double2(0.1, 0.3);
-        curveBox.curveMin[2] = double2(0.2, 0.0);
-        curveBox.curveMax[0] = double2(0.8, 1.0);
-        curveBox.curveMax[1] = double2(0.9, 0.3);
-        curveBox.curveMax[2] = double2(1.0, 0.0);
-        //CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.address, 92u);
+        CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.geometryAddress, 92u);
 
         const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
