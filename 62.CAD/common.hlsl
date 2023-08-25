@@ -68,7 +68,6 @@ struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
     // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
-    float stipplePattern[4u]; // for now max pattern component cnt is 4
     double2 arcLen;
 };
 
@@ -95,21 +94,20 @@ struct Globals
     float _pad; // 152
 };
 
-// TODO: directly into `linestyle`, no struct
-struct StipplePatternInfo
-{
-    int size;
-    float stipplePattern[15u];
-};
-
 struct LineStyle
 {
+    // common data
     float4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
-    // TODO[Przemek]: Anything info related to the stipple pattern will be here
-    StipplePatternInfo stipplePatternInfo;
-    float _pad[2u];
+    
+    // stipple pattern data
+    static const uint STIPPLE_PATTERN_MAX_SZ = 15u;
+    uint stipplePatternSize;
+    float stipplePatternLen;
+    float stipplePattern[STIPPLE_PATTERN_MAX_SZ-1];
+    float phaseShift;
+    float _pad[1u];
 };
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla

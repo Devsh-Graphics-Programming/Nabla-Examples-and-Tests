@@ -29,31 +29,17 @@ struct ArrayAccessor
     }
 };
 
+// TODO: calc in world space
+// TODO: implement as functor used by ud
 template<typename float_t>
-bool isArcLenInDrawSection(float_t arcLenForT, StipplePatternInfo stipplePatternInfo)
+bool isArcLenInDrawSection(float_t arcLenForT, LineStyle style)
 {
-    const int prefixSumMaxSz = 14;
-    float_t prefixSum[prefixSumMaxSz];
-    prefixSum[0] = stipplePatternInfo.stipplePattern[0];
-    const int prefixSumSz = stipplePatternInfo.size-1;
+    float_t tMappedToPattern = frac(arcLenForT * style.stipplePatternLen + style.phaseShift);
     
-    // can be precomputed cpu side i guess?
-    for (int i = 1; i < prefixSumSz; i++)
-        prefixSum[i] = abs(stipplePatternInfo.stipplePattern[i]) + prefixSum[i-1];
-
-    float_t stipplePatternLen = prefixSum[prefixSumSz-1] + abs(stipplePatternInfo.stipplePattern[stipplePatternInfo.size-1]);
+    ArrayAccessor stippleAccessor = { style.stipplePattern };
+    uint patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, style.stipplePatternSize, tMappedToPattern);
     
-    for (int i = 0; i < prefixSumSz; i++)
-        prefixSum[i] /= stipplePatternLen;
-    
-    float_t tMappedToPattern = frac(arcLenForT/stipplePatternLen);
-    
-    ArrayAccessor stippleAccessor = { prefixSum };
-    uint patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, stipplePatternInfo.size, tMappedToPattern);
-    if(patternIdx == stipplePatternInfo.size)
-        patternIdx--;
-    
-    if (stipplePatternInfo.stipplePattern[patternIdx] < 0.0)
+    if (patternIdx&0x1)
         return false;
     else
         return true;
@@ -154,7 +140,7 @@ float4 main(PSInput input) : SV_TARGET
     float arcLen = curveOutline.bezier.calcArcLen(tA, preCompValues);
 
     float alpha;
-    bool isVisible = isArcLenInDrawSection<float>(arcLen, lineStyles[0].stipplePatternInfo);
+    bool isVisible = isArcLenInDrawSection<float>(arcLen, lineStyles[mainObjects[currentMainObjectIdx].styleIdx]);
     if (isVisible)
         alpha = 1.0;
     else

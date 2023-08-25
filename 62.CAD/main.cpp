@@ -47,6 +47,7 @@ struct float4
 
 typedef nbl::core::vector2d<double> double2;
 typedef nbl::core::vector2d<uint32_t> uint2;
+typedef uint32_t uint;
 
 // TODO: Use a math lib?
 double dot(const double2& a, const double2& b)
@@ -1942,31 +1943,144 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
+			auto precomputeStipplePatternData = [](const core::vector<float>& stipplePattern, LineStyle& style)
+				{
+					assert(stipplePattern.size() <= LineStyle::STIPPLE_PATTERN_MAX_SZ);
+
+					if(stipplePattern.size() == 0)
+					{
+						style.stipplePatternSize = 1;
+						style.stipplePattern[0] = 1.0f;
+						style.stipplePatternLen = 1.0f;
+						style.phaseShift = 0.0;
+
+						return;
+					}
+
+					core::vector<float> stipplePatternTransformed;
+
+					// merge redundant values
+					for (auto it = stipplePattern.begin(); it != stipplePattern.end();)
+					{
+						float redundantConsecutiveValuesSum = 0.0f;
+						bool isFirstValPositive = (std::abs(*it) == *it);
+
+						do
+						{
+							redundantConsecutiveValuesSum += *it;
+							it++;
+						} while (it != stipplePattern.end() && (isFirstValPositive == (std::abs(*it) == *it)));
+
+						stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
+					}
+
+					// merge first and last value if their sign matches
+					float phaseShift = 0.0f;
+					float isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
+					float isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
+					if (isFirstComponentNegative == isLastComponentNegative)
+					{
+						phaseShift = stipplePatternTransformed[0];
+						stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
+						stipplePatternTransformed.pop_back();
+					}
+
+					if (stipplePatternTransformed.size() == 1)
+					{
+						style.stipplePatternSize = 1;
+						style.stipplePattern[0] = 1.0f;
+						style.stipplePatternLen = 1.0f;
+						style.phaseShift = 0.0;
+
+						return;
+					}
+
+					// rotate values if first value is negative value
+					if (isFirstComponentNegative)
+					{
+						phaseShift += stipplePatternTransformed[0];
+						std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
+					}
+
+					// calculate normalized prefix sum
+					const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
+					const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
+
+					float prefixSum[PREFIX_SUM_MAX_SZ];
+					prefixSum[0] = stipplePatternTransformed[0];
+
+					for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
+						prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
+
+					float stipplePatternLen = 1.0f/(prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+
+					for (int i = 0; i < PREFIX_SUM_SZ; i++)
+						prefixSum[i] *= stipplePatternLen;
+
+					style.stipplePatternSize = PREFIX_SUM_SZ;
+					std::memcpy(style.stipplePattern, prefixSum, sizeof(prefixSum));
+						// TODO: stipplePattern and phaseShift need to be normalized!
+					style.stipplePatternLen = stipplePatternLen;
+					style.phaseShift = phaseShift*stipplePatternLen;
+				};
+
+			constexpr uint32_t CURVE_CNT = 1u;
+
 			LineStyle style = {};
 			style.screenSpaceLineWidth = 20.0f;
 			style.worldSpaceLineWidth = 0.0f;
 
+			core::vector<LineStyle> styles(CURVE_CNT, style);
+
 			CPolyline polyline;
 			{
-				srand(95);
-				QuadraticBezierInfo quadratic;
-				quadratic.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-				quadratic.p[1] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-				quadratic.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+				double2 P0(-90, 68);
+				double2 P1(-41, 118);
+				double2 P2(88, 19);
 
-				float stipplePattern[4u] = { 50.0f, -50.0f, 10.0f, -50.0f };
-				//float stipplePatternRedundant[4u] = { 4.0f, -2.0f, 2.0f, 5.0f };
+				const double2 translationVector(0, -20);
 
-				style.stipplePatternInfo.size = 4;
-				std::memcpy(style.stipplePatternInfo.stipplePattern, stipplePattern, sizeof(stipplePattern));
-				// TODO: test if in this case redundant components will be merged
-				//std::memcpy(quadratic.stipplePatternRedundant, stipplePattern, sizeof(stipplePattern));
+				core::vector<QuadraticBezierInfo> quadratics(CURVE_CNT);
+				for (auto& quadratic : quadratics)
+				{
+					quadratic.p[0] = P0;
+					quadratic.p[1] = P1;
+					quadratic.p[2] = P2;
 
-				polyline.addQuadBeziers({quadratic});
+					P0 += translationVector;
+					P1 += translationVector;
+					P2 += translationVector;
+				}
+
+				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
+
+				// TODO: test every case
+				// TODO: fix multiple styles
+
+					//test curve
+				stipplePatterns[0] = { 25.0f, -50.0f, 10.0f, -50.0f, 25.0f };
+				//stipplePatterns[0] = { -25.0f, 50.0f, -10.0f, 50.0f, -25.0f };
+				stipplePatterns[0] = { 50.0f, -50.0f, 10.0f, -50.0f };
+				
+				//stipplePatterns[0] = { 50.0f, -50.0f, 10.0f, -50.0f };
+				//stipplePatterns[1] = { 10.0f, 20.0f, 20.0f, -40.0f, -10.0f, 10.0f, -30.0f, -15.0f, -3.0f, -2.0f }; // lots of redundant values, should look exactly like stipplePattern0
+				//stipplePatterns[2] = { 25.0f, -50.0f, 10.0f, -50.0f, 25.0f };									   // should look exactly like curve with stipplePattern0 but shifted
+				//stipplePatterns[2] = { 25.0f, 25.0f };															   // no pattern
+				//stipplePatterns[2] = { -10.0f, 10.0f };
+
+				for(int i = 0u; i < CURVE_CNT; i++)
+					precomputeStipplePatternData(stipplePatterns[i], styles[i]);
+
+				//polyline.addQuadBeziers(std::move(quadratics)); why doesn't it work????
+				for (auto& quadratic : quadratics)
+				{
+					polyline.addQuadBeziers({quadratic});
+				}
 
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			for(uint32_t i = 0u; i < CURVE_CNT; i++)
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, styles[i], submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
