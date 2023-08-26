@@ -34,6 +34,7 @@ struct ArrayAccessor
 template<typename float_t>
 bool isArcLenInDrawSection(float_t arcLenForT, LineStyle style)
 {
+    // TODO: use screenToWorldRatio from globals
     float_t tMappedToPattern = frac(arcLenForT * style.stipplePatternLen + style.phaseShift);
     
     ArrayAccessor stippleAccessor = { style.stipplePattern };
@@ -70,14 +71,15 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
-        const float2 a = input.getBezierP0();
-        const float2 b = input.getBezierP1();
-        const float2 c = input.getBezierP2();
+        const float2 P0 = input.getBezierP0();
+        const float2 P1 = input.getBezierP1();
+        const float2 P2 = input.getBezierP2();
         const float lineThickness = input.getLineThickness();
         
         // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
         // You'll be also working in the builtin shaders that provide thesee
-        float distance = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+        //float distance = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+        float distance = nbl::hlsl::shapes::Quadratic<float>::construct(P0, P1, P2).signedDistance(input.position.xy, lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
@@ -122,11 +124,13 @@ float4 main(PSInput input) : SV_TARGET
     const float2 P1 = input.getBezierP1();
     const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
-    nbl::hlsl::shapes::QuadraticBezierOutline<float> curveOutline = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(P0, P1, P2, lineThickness);
+    
+    nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::construct(P0, P1, P2);
 
     QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = QuadBezierAnalyticArcLengthCalculator<float>::construct(P0, P1, P2);
 
-    nbl::hlsl::shapes::QuadraticBezier<float>::ArcLengthPrecomputedValues preCompValues;
+    // TODO: precompute in vertex shader
+    nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
     preCompValues.lenA2 = preCompValues_calculator.lenA2;
     preCompValues.AdotB = preCompValues_calculator.AdotB;
     preCompValues.a = preCompValues_calculator.a;
@@ -134,10 +138,10 @@ float4 main(PSInput input) : SV_TARGET
     preCompValues.c = preCompValues_calculator.c;
     preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
 
-    float tA = curveOutline.ud(input.position.xy).y;
+    float tA = quadratic.ud(input.position.xy).y;
 
-    float bezierCurveArcLen = curveOutline.bezier.calcArcLen(1.0, preCompValues);
-    float arcLen = curveOutline.bezier.calcArcLen(tA, preCompValues);
+    float bezierCurveArcLen = quadratic.calcArcLen(1.0, preCompValues);
+    float arcLen = quadratic.calcArcLen(tA, preCompValues);
 
     float alpha;
     bool isVisible = isArcLenInDrawSection<float>(arcLen, lineStyles[mainObjects[currentMainObjectIdx].styleIdx]);
@@ -147,7 +151,7 @@ float4 main(PSInput input) : SV_TARGET
         alpha = 0.0;
 
     // float resultColorIntensity = arcLen / bezierCurveArcLen;
-    float resultColorIntensity = curveOutline.bezier.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen, preCompValues);
+    float resultColorIntensity = quadratic.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen, preCompValues);
 
     col = float4(0.0, resultColorIntensity, 0.0, alpha);
 #else

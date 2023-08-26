@@ -1974,6 +1974,16 @@ public:
 						stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
 					}
 
+					if (stipplePatternTransformed.size() == 1)
+					{
+						style.stipplePatternSize = 1;
+						style.stipplePattern[0] = 1.0f;
+						style.stipplePatternLen = 1.0f;
+						style.phaseShift = 0.0;
+
+						return;
+					}
+
 					// merge first and last value if their sign matches
 					float phaseShift = 0.0f;
 					float isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
@@ -2059,8 +2069,9 @@ public:
 
 					//test curve
 				stipplePatterns[0] = { 25.0f, -50.0f, 10.0f, -50.0f, 25.0f };
-				//stipplePatterns[0] = { -25.0f, 50.0f, -10.0f, 50.0f, -25.0f };
+				stipplePatterns[0] = { -25.0f, 50.0f, -10.0f, 50.0f, -25.0f };
 				stipplePatterns[0] = { 50.0f, -50.0f, 10.0f, -50.0f };
+				//stipplePatterns[0] = { 25.0f, 25.0f };
 				
 				//stipplePatterns[0] = { 50.0f, -50.0f, 10.0f, -50.0f };
 				//stipplePatterns[1] = { 10.0f, 20.0f, 20.0f, -40.0f, -10.0f, 10.0f, -30.0f, -15.0f, -3.0f, -2.0f }; // lots of redundant values, should look exactly like stipplePattern0
