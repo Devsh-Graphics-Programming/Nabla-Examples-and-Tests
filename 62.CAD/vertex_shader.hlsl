@@ -254,6 +254,10 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setBezierP0(transformedPoints[0u]);
         outV.setBezierP1(transformedPoints[1u]);
         outV.setBezierP2(transformedPoints[2u]);
+        
+        QuadBezierAnalyticArcLengthCalculator<float> preCompData
+            = QuadBezierAnalyticArcLengthCalculator<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+        outV.setPrecomputedArcLenData(preCompData);
 
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;
         float Radius = length(Mid - transformedPoints[0u]) / 2.0f;
@@ -396,7 +400,6 @@ PSInput main(uint vertexID : SV_VertexID)
         }
 
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
-
     }
     /*
         TODO[Lucas]:

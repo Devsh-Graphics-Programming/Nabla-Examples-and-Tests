@@ -78,8 +78,8 @@ float4 main(PSInput input) : SV_TARGET
         
         // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
         // You'll be also working in the builtin shaders that provide thesee
-        //float distance = nbl::hlsl::shapes::QuadraticBezierOutline<float>::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
-        float distance = nbl::hlsl::shapes::Quadratic<float>::construct(P0, P1, P2).signedDistance(input.position.xy, lineThickness);
+        nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(P0, P1, P2);
+        float distance = nbl::hlsl::shapes::Quadratic<float>::construct(quadraticBezier).signedDistance(input.position.xy, lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
@@ -125,9 +125,10 @@ float4 main(PSInput input) : SV_TARGET
     const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
     
-    nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::construct(P0, P1, P2);
+    nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(P0, P1, P2);
+    nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::construct(quadraticBezier);
 
-    QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = QuadBezierAnalyticArcLengthCalculator<float>::construct(P0, P1, P2);
+    QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
 
     // TODO: precompute in vertex shader
     nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;

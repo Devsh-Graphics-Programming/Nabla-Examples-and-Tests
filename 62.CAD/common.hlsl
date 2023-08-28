@@ -149,6 +149,9 @@ struct PSInput
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
+        // QuadBezierAnalyticArcLengthCalculator<float>
+    [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
+    [[vk::location(5)]] nointerpolation float4 data5 : COLOR5;
     
     // TODO[Lucas]: you will need more data here, this struct is what gets sent from vshader to fshader
     /*
@@ -201,6 +204,29 @@ struct PSInput
     // data3 (zw reserved for later)
     float2 getBezierP2() { return data3.xy; }
     void setBezierP2(float2 p2) { data3.xy = p2; }
+    
+    // data4, data5
+    //QuadBezierAnalyticArcLengthCalculator<float> getPrecomputedArcLenData() { return data4; }
+    
+    //float_t lenA2;
+    //float_t AdotB;
+
+    //float_t a;
+    //float_t b;
+    //float_t c;
+
+    //float_t b_over_4a;
+    
+    void setPrecomputedArcLenData(QuadBezierAnalyticArcLengthCalculator<float> preCompData) 
+    { 
+        data4 = float4(preCompData.lenA2, preCompData.AdotB, preCompData.a, preCompData.b);
+        data5.xy = float2(preCompData.c, preCompData.b_over_4a);
+    }
+    
+    QuadBezierAnalyticArcLengthCalculator<float> getPrecomputedArcLenData()
+    {
+        return QuadBezierAnalyticArcLengthCalculator<float>::construct(data4.x, data4.y, data4.z, data4.w, data5.x, data5.y);
+    }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
