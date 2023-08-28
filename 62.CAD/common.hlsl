@@ -1,4 +1,6 @@
-
+#ifndef __cplusplus
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#endif
 
 enum class ObjectType : uint32_t
 {
@@ -151,7 +153,6 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
         // QuadBezierAnalyticArcLengthCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    [[vk::location(5)]] nointerpolation float4 data5 : COLOR5;
     
     // TODO[Lucas]: you will need more data here, this struct is what gets sent from vshader to fshader
     /*
@@ -193,39 +194,34 @@ struct PSInput
     // data2
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
-    float2 getBezierP0() { return data2.xy; }
-    float2 getBezierP1() { return data2.zw; }
     
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
-    void setBezierP0(float2 p0) { data2.xy = p0; }
-    void setBezierP1(float2 p1) { data2.zw = p1; }
     
-    // data3 (zw reserved for later)
-    float2 getBezierP2() { return data3.xy; }
-    void setBezierP2(float2 p2) { data3.xy = p2; }
+    // data2 + data3.xy
+    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+    }
     
-    // data4, data5
-    //QuadBezierAnalyticArcLengthCalculator<float> getPrecomputedArcLenData() { return data4; }
+    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    {
+        data2.xy = quadratic.A;
+        data2.zw = quadratic.B;
+        data3.xy = quadratic.C;
+    }
     
-    //float_t lenA2;
-    //float_t AdotB;
-
-    //float_t a;
-    //float_t b;
-    //float_t c;
-
-    //float_t b_over_4a;
+    // data3.zw + data4
     
     void setPrecomputedArcLenData(QuadBezierAnalyticArcLengthCalculator<float> preCompData) 
     { 
-        data4 = float4(preCompData.lenA2, preCompData.AdotB, preCompData.a, preCompData.b);
-        data5.xy = float2(preCompData.c, preCompData.b_over_4a);
+        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
+        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
     
     QuadBezierAnalyticArcLengthCalculator<float> getPrecomputedArcLenData()
     {
-        return QuadBezierAnalyticArcLengthCalculator<float>::construct(data4.x, data4.y, data4.z, data4.w, data5.x, data5.y);
+        return QuadBezierAnalyticArcLengthCalculator<float>::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
 };
 

@@ -250,13 +250,12 @@ PSInput main(uint vertexID : SV_VertexID)
             double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
         }
-
-        outV.setBezierP0(transformedPoints[0u]);
-        outV.setBezierP1(transformedPoints[1u]);
-        outV.setBezierP2(transformedPoints[2u]);
         
-        QuadBezierAnalyticArcLengthCalculator<float> preCompData
-            = QuadBezierAnalyticArcLengthCalculator<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+        nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+        nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
+        QuadBezierAnalyticArcLengthCalculator<float> preCompData = QuadBezierAnalyticArcLengthCalculator<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+
+        outV.setQuadratic(quadratic);
         outV.setPrecomputedArcLenData(preCompData);
 
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;

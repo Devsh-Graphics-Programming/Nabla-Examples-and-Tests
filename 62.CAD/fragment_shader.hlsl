@@ -71,15 +71,11 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
-        const float2 P0 = input.getBezierP0();
-        const float2 P1 = input.getBezierP1();
-        const float2 P2 = input.getBezierP2();
         const float lineThickness = input.getLineThickness();
         
         // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
         // You'll be also working in the builtin shaders that provide thesee
-        nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(P0, P1, P2);
-        float distance = nbl::hlsl::shapes::Quadratic<float>::construct(quadraticBezier).signedDistance(input.position.xy, lineThickness);
+        float distance = input.getQuadratic().signedDistance(input.position.xy, lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
@@ -120,13 +116,9 @@ float4 main(PSInput input) : SV_TARGET
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha)/255.f;
 #elif defined(NBL_DRAW_ARC_LENGTH)
-    const float2 P0 = input.getBezierP0();
-    const float2 P1 = input.getBezierP1();
-    const float2 P2 = input.getBezierP2();
     const float lineThickness = input.getLineThickness();
     
-    nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(P0, P1, P2);
-    nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::construct(quadraticBezier);
+    nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
 
     QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
 
