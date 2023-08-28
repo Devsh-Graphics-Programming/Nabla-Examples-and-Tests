@@ -26,9 +26,9 @@ template <typename float_t>
 struct QuadBezierAnalyticArcLengthCalculator
 {
 #ifdef __cplusplus
-    using vec2 = nbl::core::vector2d<float_t>;
+    using float2_t = nbl::core::vector2d<float_t>;
 #else
-    using vec2 = vector<float_t, 2>;
+    using float2_t = vector<float_t, 2>;
 #endif
 
     static QuadBezierAnalyticArcLengthCalculator construct(float_t lenA2, float_t AdotB, float_t a, float_t b, float_t  c, float_t b_over_4a)
@@ -37,12 +37,12 @@ struct QuadBezierAnalyticArcLengthCalculator
         return ret;
     }
     
-    static QuadBezierAnalyticArcLengthCalculator construct(vec2 P0, vec2 P1, vec2 P2)
+    static QuadBezierAnalyticArcLengthCalculator construct(float2_t P0, float2_t P1, float2_t P2)
     {
         QuadBezierAnalyticArcLengthCalculator ret;
-        vec2 A = P0 - 2.0 * P1 + P2;
-        vec2 B = 2.0 * (P1 - P0);
-        vec2 C = P0;
+        float2_t A = P0 - 2.0 * P1 + P2;
+        float2_t B = 2.0 * (P1 - P0);
+        float2_t C = P0;
         ret.lenA2 = dot(A, A);
         ret.AdotB = dot(A, B);
 
