@@ -888,27 +888,12 @@ protected:
 		currentObjectInSection += objectsToUpload;
 	}
 
-
-	// TODO[Lucas] addHatch_Internal with similar signature to functions above. 
-	/*
-	* this does:
-		- iterates through the "Boxes" in a hatch
-		- finds the curves referenced by it and copies both the boxes and the curves into correct places of the geometry buffer
-		- constructs drawObjs and copies them into correct place of the drawobj buffer
-		- and correctly advances the memory tracker and counters
-		- it will iterate to a point where it ends OR there is not enough memory left
-		- For example we might have enough memory left for 10 curve boxes in the geometry buffer,
-			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem,
-			the solution is simple when we iterate on curve boxes and keep track of what curves we have already copied into mem (a map from cpuCurveIndex to geomBufferOffset)
-	*/
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex)
 	{
-		std::unordered_map<uint32_t, uint64_t> uploadedCurves;
-		uploadedCurves.reserve(hatch.curves.size());
-
 		constexpr uint32_t IndicesPerHatchBox = 6u;
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferSize - currentGeometryBufferSize);
 
 		uint32_t i = 0;
 		for (; i + currentObjectInSection < hatch.hatchBoxes.size() && i < uploadableObjects; i++)
@@ -925,7 +910,7 @@ protected:
 
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, &curveBox, sizeof(CurveBox));
-				hatchBoxAddress = currentGeometryBufferSize;
+				hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
 				currentGeometryBufferSize += sizeof(CurveBox);
 			}
 
@@ -939,6 +924,7 @@ protected:
 
 		// Add Indices
 		addHatchIndices_Internal(currentDrawObjectCount, i);
+		currentDrawObjectCount += i;
 		currentObjectInSection += i;
 	}
 
