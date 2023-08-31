@@ -177,24 +177,14 @@ private:
 class Hatch
 {
 public:
-	struct Curve
-	{
-		// Quadratic bezier curve (3 control points)
-		// if the middle point is "nan" it means it's a line connected by p0 and p2
-		double2 p[3];
-	};
-
 	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
 	struct CurveHatchBox
 	{
 		double2 aabbMin, aabbMax;
-		// References into the curves vector of the hatch
-		uint32_t minCurve, maxCurve;
-		double minCurveTmin, minCurveTmax;
-		double maxCurveTmin, maxCurveTmax;
+		double2 curveMin[3];
+		double2 curveMax[3];
 	};
 
-	std::vector<Curve> curves;
 	std::vector<CurveHatchBox> hatchBoxes;
 
 	/*
@@ -905,8 +895,8 @@ protected:
 				CurveBox curveBox;
 				curveBox.aabbMin = hatchBox.aabbMin;
 				curveBox.aabbMax = hatchBox.aabbMax;
-				auto minCurve = hatch.curves[hatchBox.minCurve];
-				auto maxCurve = hatch.curves[hatchBox.maxCurve];
+				memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(double2) * 3);
+				memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(double2) * 3);
 
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, &curveBox, sizeof(CurveBox));
@@ -1047,7 +1037,7 @@ class CADApp : public ApplicationBase
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
 	constexpr static uint32_t WIN_W = 1600u;
-	constexpr static uint32_t WIN_H = 900u;
+	constexpr static uint32_t WIN_H = 720u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -1991,20 +1981,15 @@ public:
 
 			Hatch hatch = {};
 			{
-				Hatch::Curve minCurve = { { { -200.0, -100.0 }, { -230.0, 0.0 }, { -200.0, 100.0 }  } };
-				Hatch::Curve maxCurve = { { { 200.0, -100.0 }, { 230.0, 0.0 }, { 200.0, 100.0 }  } };
-				hatch.curves.push_back(minCurve);
-				hatch.curves.push_back(maxCurve);
-
 				Hatch::CurveHatchBox hatchBox = {};
 				hatchBox.aabbMin = nbl::core::vector2d<double>(-230.0, -100.0);
 				hatchBox.aabbMax = nbl::core::vector2d<double>(230.0, 100.0);
-				hatchBox.minCurve = 0;
-				hatchBox.minCurveTmin = 0.0;
-				hatchBox.minCurveTmax = 1.0;
-				hatchBox.maxCurve = 1;
-				hatchBox.maxCurveTmin = 0.0;
-				hatchBox.maxCurveTmax = 1.0;
+				hatchBox.curveMin[0] = nbl::core::vector2d<double>(0.0, 1.0);
+				hatchBox.curveMin[1] = nbl::core::vector2d<double>(0.1, 0.3);
+				hatchBox.curveMin[2] = nbl::core::vector2d<double>(0.2, 0.0);
+				hatchBox.curveMax[0] = nbl::core::vector2d<double>(0.8, 1.0);
+				hatchBox.curveMax[1] = nbl::core::vector2d<double>(0.9, 0.3);
+				hatchBox.curveMax[2] = nbl::core::vector2d<double>(1.0, 0.0);
 
 				hatch.hatchBoxes.push_back(hatchBox);
 			}
