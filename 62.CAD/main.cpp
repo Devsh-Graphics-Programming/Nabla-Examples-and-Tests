@@ -281,26 +281,19 @@ public:
 		return m_linePoints[idx];
 	}
 
-	const Hatch& getHatchAt(const uint32_t idx) const
-	{
-		return m_hatches[idx];
-	}
-
 	void clearEverything()
 	{
 		m_sections.clear();
 		m_linePoints.clear();
 		m_quadBeziers.clear();
-		m_hatches.clear();
 	}
 
 	// Reserves memory with worst case
-	void reserveMemory(uint32_t noOfLines, uint32_t noOfBeziers, uint32_t noOfHatches)
+	void reserveMemory(uint32_t noOfLines, uint32_t noOfBeziers)
 	{
-		m_sections.reserve(noOfLines + noOfBeziers + noOfHatches);
+		m_sections.reserve(noOfLines + noOfBeziers);
 		m_linePoints.reserve(noOfLines * 2u);
 		m_quadBeziers.reserve(noOfBeziers);
-		m_hatches.reserve(noOfHatches);
 	}
 
 	void addLinePoints(std::vector<double2>&& linePoints)
@@ -349,18 +342,6 @@ public:
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
 
-	// (temporary)
-	std::vector<Hatch> m_hatches;
-
-	void addHatch(Hatch&& hatch)
-	{
-		SectionInfo newSection = {};
-		newSection.type = ObjectType::CURVE_BOX;
-		newSection.index = m_hatches.size();
-		newSection.count = 1;
-		m_sections.push_back(newSection);
-		m_hatches.push_back(std::move(hatch));
-	}
 protected:
 
 	std::vector<SectionInfo> m_sections;
@@ -553,6 +534,53 @@ public:
 	// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
 	// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
 	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
+	video::IGPUQueue::SSubmitInfo drawHatch(
+		const Hatch& hatch,
+		const LineStyle& lineStyle,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		uint32_t styleIdx;
+		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		
+		MainObject mainObj = {};
+		mainObj.styleIdx = styleIdx;
+		uint32_t mainObjIdx;
+		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+		const auto sectionsCount = 1; //hatch.hatchBoxes.size();
+
+		uint32_t currentSectionIdx = 0u;
+		uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
+
+		while (currentSectionIdx < sectionsCount)
+		{
+			bool shouldSubmit = false;
+			addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
+
+			const auto sectionObjectCount = hatch.hatchBoxes.size();
+			if (currentObjectInSection >= sectionObjectCount)
+			{
+				currentSectionIdx++;
+				currentObjectInSection = 0u;
+			}
+			else
+				shouldSubmit = true;
+
+			if (shouldSubmit)
+			{
+				intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+				intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+				resetIndexCounters();
+				resetGeometryCounters();
+				// We don't reset counters for linestyles and mainObjects because we will be reusing them
+				shouldSubmit = false;
+			}
+		}
+
+		return intendedNextSubmit;
+	}
 
 	video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
 		video::IGPUQueue* submissionQueue,
@@ -762,9 +790,6 @@ protected:
 			addLines_Internal(polyline, section, currentObjectInSection, mainObjIdx);
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			addQuadBeziers_Internal(polyline, section, currentObjectInSection, mainObjIdx);
-		// (temporary)
-		else if (section.type == ObjectType::CURVE_BOX)
-			addHatch_Internal(polyline.getHatchAt(section.index), currentObjectInSection, mainObjIdx);
 		else
 			assert(false); // we don't handle other object types
 	}
@@ -1674,28 +1699,6 @@ public:
 				bigPolyline2.addLinePoints(std::move(linePoints));
 			}
 		}
-		else if constexpr (mode == ExampleMode::CASE_2)
-		{
-			Hatch hatch = {};
-			Hatch::Curve minCurve = { { { -200.0, -100.0 }, { -230.0, 0.0 }, { -200.0, 100.0 }  } };
-			Hatch::Curve maxCurve = { { { 200.0, -100.0 }, { 230.0, 0.0 }, { 200.0, 100.0 }  } };
-			hatch.curves.push_back(minCurve);
-			hatch.curves.push_back(maxCurve);
-
-			Hatch::CurveHatchBox hatchBox = {};
-			hatchBox.aabbMin = nbl::core::vector2d<double>(-230.0, -100.0);
-			hatchBox.aabbMax = nbl::core::vector2d<double>(230.0, 100.0);
-			hatchBox.minCurve = 0;
-			hatchBox.minCurveTmin = 0.0;
-			hatchBox.minCurveTmax = 1.0;
-			hatchBox.maxCurve = 1;
-			hatchBox.maxCurveTmin = 0.0;
-			hatchBox.maxCurveTmax = 1.0;
-
-			hatch.hatchBoxes.push_back(hatchBox);
-
-			bigPolyline.addHatch(std::move(hatch));
-		}
 
 	}
 
@@ -2000,7 +2003,27 @@ public:
 			style.worldSpaceLineWidth = 0.8f;
 			style.color = float4(0.619f, 0.325f, 0.709f, 0.9f);
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			Hatch hatch = {};
+			{
+				Hatch::Curve minCurve = { { { -200.0, -100.0 }, { -230.0, 0.0 }, { -200.0, 100.0 }  } };
+				Hatch::Curve maxCurve = { { { 200.0, -100.0 }, { 230.0, 0.0 }, { 200.0, 100.0 }  } };
+				hatch.curves.push_back(minCurve);
+				hatch.curves.push_back(maxCurve);
+
+				Hatch::CurveHatchBox hatchBox = {};
+				hatchBox.aabbMin = nbl::core::vector2d<double>(-230.0, -100.0);
+				hatchBox.aabbMax = nbl::core::vector2d<double>(230.0, 100.0);
+				hatchBox.minCurve = 0;
+				hatchBox.minCurveTmin = 0.0;
+				hatchBox.minCurveTmax = 1.0;
+				hatchBox.maxCurve = 1;
+				hatchBox.maxCurveTmin = 0.0;
+				hatchBox.maxCurveTmax = 1.0;
+
+				hatch.hatchBoxes.push_back(hatchBox);
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
