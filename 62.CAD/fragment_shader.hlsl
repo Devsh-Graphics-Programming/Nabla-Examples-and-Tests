@@ -12,20 +12,33 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-#define NBL_DRAW_ARC_LENGTH
+//#define NBL_DRAW_ARC_LENGTH
 
 // TODO[Lucas]: have a function for quadratic equation solving
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
 template<typename float_t>
+struct DefaultClipper
+{
+    using float2_t = vector<float_t, 2>;
+    
+    inline float2_t operator()(const float t)
+    {
+        return clamp(t, 0.0, 1.0);
+    }
+};
+
+template<typename float_t>
 struct BezierLineStyleClipper
 {
     using float2_t = vector<float_t, 2>;
 
-    static BezierLineStyleClipper<float_t> construct(uint32_t styleIdx)
+    static BezierLineStyleClipper<float_t> construct(uint32_t styleIdx, 
+                                                     typename nbl::hlsl::shapes::Quadratic<float_t> quadratic,
+                                                     typename nbl::hlsl::shapes::Quadratic<float_t>::ArcLengthPrecomputedValues preCompValues)
     {
-        BezierLineStyleClipper<float_t> ret = { styleIdx };
+        BezierLineStyleClipper<float_t> ret = { styleIdx, quadratic, preCompValues };
         return ret;
     }
     
@@ -39,8 +52,8 @@ struct BezierLineStyleClipper
             return lineStyles[styleIdx].stipplePattern[ix];
         }
     };
-                                              // kinda dumb to pass quadratic here, will think of another solution
-    inline float2_t operator()(const float t, typename nbl::hlsl::shapes::Quadratic<float_t> quadratic, typename nbl::hlsl::shapes::Quadratic<float_t>::ArcLengthPrecomputedValues preCompValues)
+    
+    float2_t operator()(const float t)
     {
         const float arcLen = quadratic.calcArcLen(t, preCompValues);
         float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
@@ -73,6 +86,8 @@ struct BezierLineStyleClipper
     }
   
     uint32_t styleIdx;
+    typename nbl::hlsl::shapes::Quadratic<float_t> quadratic;
+    typename nbl::hlsl::shapes::Quadratic<float_t>::ArcLengthPrecomputedValues preCompValues;
 };
 
 float4 main(PSInput input) : SV_TARGET
@@ -100,8 +115,7 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
-#define NBL_DRAW_STIPPLE_PATTERN_LINES
-#ifdef NBL_DRAW_STIPPLE_PATTERN_LINES
+        nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
         QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
         nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
         preCompValues.lenA2 = preCompValues_calculator.lenA2;
@@ -111,20 +125,26 @@ float4 main(PSInput input) : SV_TARGET
         preCompValues.c = preCompValues_calculator.c;
         preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
         
+        const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float lineThickness = input.getLineThickness();
-        BezierLineStyleClipper<float> clipper = BezierLineStyleClipper<float>::construct(mainObjects[currentMainObjectIdx].styleIdx);
-        float distance = input.getQuadratic().signedDistance2(input.position.xy, lineThickness, preCompValues, clipper);
+        float distance;
+        
+        if (lineStyles[styleIdx].stipplePatternSize == 0u)
+        {
+            DefaultClipper<float> clipper;
+            distance = input.getQuadratic().signedDistance2(input.position.xy, lineThickness, preCompValues, clipper);    
+        }
+        else
+        {
+            const float lineThickness = input.getLineThickness();
+            BezierLineStyleClipper<float> clipper = BezierLineStyleClipper<float>::construct(styleIdx, quadratic, preCompValues);
+            distance = input.getQuadratic().signedDistance2(input.position.xy, lineThickness, preCompValues, clipper);
+        }
+        
+        
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-#else
-        const float lineThickness = input.getLineThickness();
-        float distance = input.getQuadratic().signedDistance(input.position.xy, lineThickness);
-
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-#endif
-
     }
     /*
     TODO[Lucas]:
@@ -143,12 +163,12 @@ float4 main(PSInput input) : SV_TARGET
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
     beginInvocationInterlockEXT();
 
-    const uint packedData = pseudoStencil[fragCoord];
+    const uint32_t packedData = pseudoStencil[fragCoord];
 
-    const uint localQuantizedAlpha = (uint)(localAlpha*255.f);
-    const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha*255.f);
+    const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
-    const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
+    const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
     const bool resolve = currentMainObjectIdx!=mainObjectIdx;
     if (resolve || localQuantizedAlpha>quantizedAlpha)
         pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);

@@ -59,7 +59,25 @@ double dot(const double2& a, const double2& b)
 
 bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
-	return false;
+	const bool areParametersEqual =
+		lhs.color == rhs.color &&
+		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
+		lhs.stipplePatternSize == rhs.stipplePatternSize &&
+		lhs.recpiprocalStipplePatternLen == lhs.recpiprocalStipplePatternLen &&
+		lhs.phaseShift == lhs.phaseShift;
+
+	if (!areParametersEqual)
+		return false;
+
+	if (lhs.stipplePatternSize == -1)
+		return true;
+
+	assert(lhs.stipplePatternSize <= LineStyle::STIPPLE_PATTERN_MAX_SZ && lhs.stipplePatternSize >= 0);
+
+	const bool isStipplePatternArrayEqual = std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize);
+
+	return areParametersEqual && isStipplePatternArrayEqual;
 }
 
 static_assert(sizeof(DrawObject) == 16u);
@@ -463,6 +481,9 @@ public:
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
+		if (!lineStyle.isVisible())
+			return intendedNextSubmit;
+
 		uint32_t styleIdx;
 		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		
@@ -1953,11 +1974,7 @@ public:
 
 					if(stipplePattern.size() == 0)
 					{
-						style.stipplePatternSize = 1;
-						style.stipplePattern[0] = 1.0f;
-						style.recpiprocalStipplePatternLen = 1.0f;
-						style.phaseShift = 0.0;
-
+						style.stipplePatternSize = 0;
 						return;
 					}
 
@@ -1980,11 +1997,7 @@ public:
 
 					if (stipplePatternTransformed.size() == 1)
 					{
-						style.stipplePatternSize = 1;
-						style.stipplePattern[0] = 1.0f;
-						style.recpiprocalStipplePatternLen = 1.0f;
-						style.phaseShift = 0.0;
-
+						style.stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? -1 : 0;
 						return;
 					}
 
@@ -2001,11 +2014,7 @@ public:
 
 					if (stipplePatternTransformed.size() == 1)
 					{
-						style.stipplePatternSize = 1;
-						style.stipplePattern[0] = 1.0f;
-						style.recpiprocalStipplePatternLen = 1.0f;
-						style.phaseShift = 0.0;
-
+						style.stipplePatternSize = isFirstComponentNegative ? -1 : 0;
 						return;
 					}
 
@@ -2038,8 +2047,8 @@ public:
 					style.phaseShift = phaseShift*recpiprocalStipplePatternLen;
 				};
 
-			constexpr uint32_t CURVE_CNT = 10u;
-			constexpr uint32_t SPECIAL_CASE_CNT = 2u;
+			constexpr uint32_t CURVE_CNT = 11u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 3u;
 
 			LineStyle style = {};
 			style.screenSpaceLineWidth = 3.0f;
@@ -2074,7 +2083,7 @@ public:
 						curveIdx++;
 					}
 
-					//special case (lines)
+					// special case (line 1)
 					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].Y;
 					double lineY = prevLineLowestY - 10.0;
 
@@ -2082,12 +2091,24 @@ public:
 					quadratics[curveIdx].p[1] = double2(-20, lineY);
 					quadratics[curveIdx].p[2] = double2(88, lineY);
 
+					// special case (line 1)
 					lineY -= 10.0;
 					curveIdx++;
 
 					quadratics[curveIdx].p[0] = double2(-90, lineY);
-					quadratics[curveIdx].p[1] = double2(0, lineY);
+					quadratics[curveIdx].p[1] = double2(20, lineY);
 					quadratics[curveIdx].p[2] = double2(88, lineY);
+
+					// special case (A.x == 0)
+					curveIdx++;
+					quadratics[curveIdx].p[0] = double2(0.0, 0.0);
+					quadratics[curveIdx].p[1] = double2(3.0, 4.14);
+					quadratics[curveIdx].p[2] = double2(6.0, 4.0);
+					styles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+
+						// make sure A.x == 0
+					double2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
+					assert(A.X == 0);
 				}
 
 				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
@@ -2098,21 +2119,23 @@ public:
 				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
 					// test case 2:stipplePattern[0] but shifted curve but shifted to left by 2.5f
 				stipplePatterns[2] = { 2.5f, -5.0f, 1.0f, -5.0f, 2.5f };
-					// test case 3: starts and ends with negative value, stipplePattern[2] reversed
+					// test case 3: starts and ends with negative value, stipplePattern[2] reversed (I'm suspisious about that, need more testing)
 						// doesn't work, uninvited circle at beggining of the curve, solve with clipping (precalc tMin, tMax)
 				stipplePatterns[3] = { -2.5f, 5.0f, -1.0f, 5.0f, -2.5f };
 					// test case 4: starts with "don't draw section"
 				stipplePatterns[4] = { -5.0f, 5.0f };
-					// test case 5: continous curuve
-				stipplePatterns[5] = { 25.0f, 25.0f };
-					// test case 6: invisible curve (doesn't work)
-				stipplePatterns[6] = { -1.0f };
-					// test case 7: invisible curve (doesn't work)
-				stipplePatterns[7] = { -1.0f, -5.0f, -10.0f };
+					// test case 5: invisible curve (shouldn't be send to GPU)
+				stipplePatterns[5] = { -1.0f };
+					// test case 6: invisible curve (shouldn't be send to GPU)
+				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
+					// test case 7: continous curuve
+				stipplePatterns[7] = { 25.0f, 25.0f };
 					// test case 8: A = 0 (line), control point is not between end points (doesn't work)
 				stipplePatterns[8] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 9: A = 0 (line), control point is between end points (doesn't work)
 				stipplePatterns[9] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 9: curve with A.x = 0
+				stipplePatterns[10] = { 0.5f, -0.5f, 0.1f, -0.5f };
 
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{

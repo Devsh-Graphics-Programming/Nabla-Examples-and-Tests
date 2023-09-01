@@ -104,12 +104,15 @@ struct LineStyle
     float worldSpaceLineWidth;
     
     // stipple pattern data
-    static const uint STIPPLE_PATTERN_MAX_SZ = 15u;
-    uint stipplePatternSize;
+    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+    int32_t stipplePatternSize;
     float recpiprocalStipplePatternLen;
     float stipplePattern[STIPPLE_PATTERN_MAX_SZ-1];
     float phaseShift;
     float _pad[1u];
+#ifdef __cplusplus
+    bool isVisible() const { return stipplePatternSize != -1; }
+#endif
 };
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
