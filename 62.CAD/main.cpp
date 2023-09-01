@@ -15,7 +15,7 @@ enum class ExampleMode
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 struct double4x4
 {
@@ -56,6 +56,11 @@ double dot(const double2& a, const double2& b)
 }
 
 #include "common.hlsl"
+
+bool operator==(const LineStyle& lhs, const LineStyle& rhs)
+{
+	return false;
+}
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(Globals) == 152u);
@@ -687,10 +692,9 @@ protected:
 		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 		{
 			const LineStyle& itr = stylesArray[i];
-			if (lineStyle.screenSpaceLineWidth == itr.screenSpaceLineWidth)
-				if (lineStyle.worldSpaceLineWidth == itr.worldSpaceLineWidth)
-					if (lineStyle.color == itr.color)
-						return i;
+
+			if(itr == lineStyle)
+				return i;
 		}
 
 		if (currentLineStylesCount >= maxLineStyles)
@@ -1951,7 +1955,7 @@ public:
 					{
 						style.stipplePatternSize = 1;
 						style.stipplePattern[0] = 1.0f;
-						style.stipplePatternLen = 1.0f;
+						style.recpiprocalStipplePatternLen = 1.0f;
 						style.phaseShift = 0.0;
 
 						return;
@@ -1978,7 +1982,7 @@ public:
 					{
 						style.stipplePatternSize = 1;
 						style.stipplePattern[0] = 1.0f;
-						style.stipplePatternLen = 1.0f;
+						style.recpiprocalStipplePatternLen = 1.0f;
 						style.phaseShift = 0.0;
 
 						return;
@@ -1999,7 +2003,7 @@ public:
 					{
 						style.stipplePatternSize = 1;
 						style.stipplePattern[0] = 1.0f;
-						style.stipplePatternLen = 1.0f;
+						style.recpiprocalStipplePatternLen = 1.0f;
 						style.phaseShift = 0.0;
 
 						return;
@@ -2022,76 +2026,104 @@ public:
 					for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
 						prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
-					float stipplePatternLen = 1.0f/(prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+					float recpiprocalStipplePatternLen = 1.0f/(prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
 					for (int i = 0; i < PREFIX_SUM_SZ; i++)
-						prefixSum[i] *= stipplePatternLen;
+						prefixSum[i] *= recpiprocalStipplePatternLen;
 
 					style.stipplePatternSize = PREFIX_SUM_SZ;
 					std::memcpy(style.stipplePattern, prefixSum, sizeof(prefixSum));
 						// TODO: stipplePattern and phaseShift need to be normalized!
-					style.stipplePatternLen = stipplePatternLen;
-					style.phaseShift = phaseShift*stipplePatternLen;
+					style.recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
+					style.phaseShift = phaseShift*recpiprocalStipplePatternLen;
 				};
 
-			constexpr uint32_t CURVE_CNT = 1u;
+			constexpr uint32_t CURVE_CNT = 10u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 2u;
 
 			LineStyle style = {};
-			style.screenSpaceLineWidth = 20.0f;
+			style.screenSpaceLineWidth = 3.0f;
 			style.worldSpaceLineWidth = 0.0f;
+			style.color = float4(0.0f, 0.3f, 0.0f, 0.5f);
 
-			core::vector<LineStyle> styles(CURVE_CNT, style);
+			std::vector<LineStyle> styles(CURVE_CNT, style);
+			std::vector<CPolyline> polylines(CURVE_CNT);
 
-			CPolyline polyline;
 			{
-				double2 P0(-90, 68);
-				double2 P1(-41, 118);
-				double2 P2(88, 19);
+				std::vector<QuadraticBezierInfo> quadratics(CURVE_CNT);
 
-				const double2 translationVector(0, -20);
-
-				core::vector<QuadraticBezierInfo> quadratics(CURVE_CNT);
-				for (auto& quadratic : quadratics)
+				// setting controll points
 				{
-					quadratic.p[0] = P0;
-					quadratic.p[1] = P1;
-					quadratic.p[2] = P2;
+					double2 P0(-90, 68);
+					double2 P1(-41, 118);
+					double2 P2(88, 19);
 
-					P0 += translationVector;
-					P1 += translationVector;
-					P2 += translationVector;
+					const double2 translationVector(0, -10);
+
+					uint32_t curveIdx = 0;
+					while(curveIdx < CURVE_CNT - SPECIAL_CASE_CNT)
+					{
+						quadratics[curveIdx].p[0] = P0;
+						quadratics[curveIdx].p[1] = P1;
+						quadratics[curveIdx].p[2] = P2;
+
+						P0 += translationVector;
+						P1 += translationVector;
+						P2 += translationVector;
+
+						curveIdx++;
+					}
+
+					//special case (lines)
+					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].Y;
+					double lineY = prevLineLowestY - 10.0;
+
+					quadratics[curveIdx].p[0] = double2(-90, lineY);
+					quadratics[curveIdx].p[1] = double2(-20, lineY);
+					quadratics[curveIdx].p[2] = double2(88, lineY);
+
+					lineY -= 10.0;
+					curveIdx++;
+
+					quadratics[curveIdx].p[0] = double2(-90, lineY);
+					quadratics[curveIdx].p[1] = double2(0, lineY);
+					quadratics[curveIdx].p[2] = double2(88, lineY);
 				}
 
 				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
 
-				// TODO: test every case
-				// TODO: fix multiple styles
+					// test case 0: test curve
+				stipplePatterns[0] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 1: lots of redundant values, should look exactly like stipplePattern[0]
+				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
+					// test case 2:stipplePattern[0] but shifted curve but shifted to left by 2.5f
+				stipplePatterns[2] = { 2.5f, -5.0f, 1.0f, -5.0f, 2.5f };
+					// test case 3: starts and ends with negative value, stipplePattern[2] reversed
+						// doesn't work, uninvited circle at beggining of the curve, solve with clipping (precalc tMin, tMax)
+				stipplePatterns[3] = { -2.5f, 5.0f, -1.0f, 5.0f, -2.5f };
+					// test case 4: starts with "don't draw section"
+				stipplePatterns[4] = { -5.0f, 5.0f };
+					// test case 5: continous curuve
+				stipplePatterns[5] = { 25.0f, 25.0f };
+					// test case 6: invisible curve (doesn't work)
+				stipplePatterns[6] = { -1.0f };
+					// test case 7: invisible curve (doesn't work)
+				stipplePatterns[7] = { -1.0f, -5.0f, -10.0f };
+					// test case 8: A = 0 (line), control point is not between end points (doesn't work)
+				stipplePatterns[8] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 9: A = 0 (line), control point is between end points (doesn't work)
+				stipplePatterns[9] = { 5.0f, -5.0f, 1.0f, -5.0f };
 
-					//test curve
-				stipplePatterns[0] = { 25.0f, -50.0f, 10.0f, -50.0f, 25.0f };
-				stipplePatterns[0] = { -25.0f, 50.0f, -10.0f, 50.0f, -25.0f };
-				stipplePatterns[0] = { 50.0f, -50.0f, 10.0f, -50.0f };
-				//stipplePatterns[0] = { 25.0f, 25.0f };
-				
-				//stipplePatterns[0] = { 50.0f, -50.0f, 10.0f, -50.0f };
-				//stipplePatterns[1] = { 10.0f, 20.0f, 20.0f, -40.0f, -10.0f, 10.0f, -30.0f, -15.0f, -3.0f, -2.0f }; // lots of redundant values, should look exactly like stipplePattern0
-				//stipplePatterns[2] = { 25.0f, -50.0f, 10.0f, -50.0f, 25.0f };									   // should look exactly like curve with stipplePattern0 but shifted
-				//stipplePatterns[2] = { 25.0f, 25.0f };															   // no pattern
-				//stipplePatterns[2] = { -10.0f, 10.0f };
-
-				for(int i = 0u; i < CURVE_CNT; i++)
-					precomputeStipplePatternData(stipplePatterns[i], styles[i]);
-
-				//polyline.addQuadBeziers(std::move(quadratics)); why doesn't it work????
-				for (auto& quadratic : quadratics)
+				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					polyline.addQuadBeziers({quadratic});
+					precomputeStipplePatternData(stipplePatterns[i], styles[i]);
+					polylines[i].addQuadBeziers({ quadratics[i] });
 				}
 
 			}
 
 			for(uint32_t i = 0u; i < CURVE_CNT; i++)
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, styles[i], submissionQueue, submissionFence, intendedNextSubmit);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], styles[i], submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
