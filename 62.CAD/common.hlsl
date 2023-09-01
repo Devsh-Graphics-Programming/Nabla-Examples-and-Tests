@@ -106,7 +106,7 @@ struct LineStyle
     // stipple pattern data
     static const uint STIPPLE_PATTERN_MAX_SZ = 15u;
     uint stipplePatternSize;
-    float stipplePatternLen;
+    float recpiprocalStipplePatternLen;
     float stipplePattern[STIPPLE_PATTERN_MAX_SZ-1];
     float phaseShift;
     float _pad[1u];

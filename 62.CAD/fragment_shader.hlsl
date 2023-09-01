@@ -18,33 +18,62 @@ void endInvocationInterlockEXT();
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
-struct ArrayAccessor
-{
-    float arr[14];
-    using value_type = float;
-
-    float operator[](const uint ix)
-    {
-        return arr[ix];
-    }
-};
-
-// TODO: calc in world space
-// TODO: implement as functor used by ud
 template<typename float_t>
-bool isArcLenInDrawSection(float_t arcLenForT, LineStyle style)
+struct BezierLineStyleClipper
 {
-    // TODO: use screenToWorldRatio from globals
-    float_t tMappedToPattern = frac(arcLenForT * style.stipplePatternLen + style.phaseShift);
+    using float2_t = vector<float_t, 2>;
+
+    static BezierLineStyleClipper<float_t> construct(uint32_t styleIdx)
+    {
+        BezierLineStyleClipper<float_t> ret = { styleIdx };
+        return ret;
+    }
     
-    ArrayAccessor stippleAccessor = { style.stipplePattern };
-    uint patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, style.stipplePatternSize, tMappedToPattern);
-    
-    if (patternIdx&0x1)
-        return false;
-    else
-        return true;
-}
+    struct ArrayAccessor
+    {
+        uint32_t styleIdx;
+        using value_type = float;
+
+        float operator[](const uint32_t ix)
+        {
+            return lineStyles[styleIdx].stipplePattern[ix];
+        }
+    };
+                                              // kinda dumb to pass quadratic here, will think of another solution
+    inline float2_t operator()(const float t, typename nbl::hlsl::shapes::Quadratic<float_t> quadratic, typename nbl::hlsl::shapes::Quadratic<float_t>::ArcLengthPrecomputedValues preCompValues)
+    {
+        const float arcLen = quadratic.calcArcLen(t, preCompValues);
+        float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
+        ArrayAccessor stippleAccessor = { styleIdx };
+        uint32_t patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, lineStyles[styleIdx].stipplePatternSize, tMappedToPattern);
+        
+        if(patternIdx & 0x1)
+        {   
+            float t0NormalizedLen = (patternIdx == 0) ? 1.0 : lineStyles[styleIdx].stipplePattern[patternIdx-1];
+            float t1NormalizedLen = (patternIdx == lineStyles[styleIdx].stipplePatternSize) ? 1.0 : lineStyles[styleIdx].stipplePattern[patternIdx];
+            t0NormalizedLen -= tMappedToPattern;
+            t1NormalizedLen -= tMappedToPattern;
+            
+            // TODO: move to globals
+            const float worldToScreenRatio = 1.0f/globals.screenToWorldRatio;
+            
+            float t0 = t0NormalizedLen / worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
+            float t1 = t1NormalizedLen / worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
+            
+            t0 = quadratic.calcArcLenInverse(arcLen + t0, 0.000001f, 0.5f, preCompValues);
+            t1 = quadratic.calcArcLenInverse(arcLen + t1, 0.000001f, 0.5f, preCompValues);
+            
+            t0 = clamp(t0, 0.0, 1.0);
+            t1 = clamp(t1, 0.0, 1.0);
+            
+            return float2(t0, t1);
+        }
+        else
+            return clamp(t, 0.0, 1.0).xx;
+    }
+  
+    uint32_t styleIdx;
+};
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -56,7 +85,7 @@ float4 main(PSInput input) : SV_TARGET
 
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
-    uint currentMainObjectIdx = input.getMainObjectIdx();
+    uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     
     if (objType == ObjectType::LINE)
     {
@@ -71,14 +100,31 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
-        const float lineThickness = input.getLineThickness();
+#define NBL_DRAW_STIPPLE_PATTERN_LINES
+#ifdef NBL_DRAW_STIPPLE_PATTERN_LINES
+        QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
+        nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
+        preCompValues.lenA2 = preCompValues_calculator.lenA2;
+        preCompValues.AdotB = preCompValues_calculator.AdotB;
+        preCompValues.a = preCompValues_calculator.a;
+        preCompValues.b = preCompValues_calculator.b;
+        preCompValues.c = preCompValues_calculator.c;
+        preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
         
-        // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
-        // You'll be also working in the builtin shaders that provide thesee
+        const float lineThickness = input.getLineThickness();
+        BezierLineStyleClipper<float> clipper = BezierLineStyleClipper<float>::construct(mainObjects[currentMainObjectIdx].styleIdx);
+        float distance = input.getQuadratic().signedDistance2(input.position.xy, lineThickness, preCompValues, clipper);
+
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+#else
+        const float lineThickness = input.getLineThickness();
         float distance = input.getQuadratic().signedDistance(input.position.xy, lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+#endif
+
     }
     /*
     TODO[Lucas]:
@@ -116,13 +162,9 @@ float4 main(PSInput input) : SV_TARGET
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha)/255.f;
 #elif defined(NBL_DRAW_ARC_LENGTH)
-    const float lineThickness = input.getLineThickness();
     
     nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-
     QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
-
-    // TODO: precompute in vertex shader
     nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
     preCompValues.lenA2 = preCompValues_calculator.lenA2;
     preCompValues.AdotB = preCompValues_calculator.AdotB;
@@ -130,23 +172,16 @@ float4 main(PSInput input) : SV_TARGET
     preCompValues.b = preCompValues_calculator.b;
     preCompValues.c = preCompValues_calculator.c;
     preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
-
+    
     float tA = quadratic.ud(input.position.xy).y;
 
     float bezierCurveArcLen = quadratic.calcArcLen(1.0, preCompValues);
     float arcLen = quadratic.calcArcLen(tA, preCompValues);
+    
+    float resultColorIntensity = quadratic.calcArcLenInverse(arcLen, 0.000001f, arcLen / bezierCurveArcLen, preCompValues);
 
-    float alpha;
-    bool isVisible = isArcLenInDrawSection<float>(arcLen, lineStyles[mainObjects[currentMainObjectIdx].styleIdx]);
-    if (isVisible)
-        alpha = 1.0;
-    else
-        alpha = 0.0;
-
-    // float resultColorIntensity = arcLen / bezierCurveArcLen;
-    float resultColorIntensity = quadratic.calcArcLenInverse(arcLen, 0.000001, arcLen / bezierCurveArcLen, preCompValues);
-
-    col = float4(0.0, resultColorIntensity, 0.0, alpha);
+    col = float4(0.0f, resultColorIntensity, 0.0f, 1.0f);
+    
 #else
     col = input.getColor();
     col.w *= localAlpha;
