@@ -450,7 +450,15 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        CurveBox curveBox = vk::RawBufferLoad<CurveBox>(drawObj.geometryAddress, 92u);
+        CurveBox curveBox;
+        curveBox.aabbMin = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        curveBox.curveMin[0] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2, 8u);
+        curveBox.curveMin[1] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 3, 8u);
+        curveBox.curveMin[2] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 4, 8u);
+        curveBox.curveMax[0] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 5, 8u);
+        curveBox.curveMax[1] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 6, 8u);
+        curveBox.curveMax[2] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 7, 8u);
 
         const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
@@ -473,7 +481,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveMaxA(major == 1 ? curveMax.A().yx : curveMax.A().xy);
         outV.setCurveMaxB(major == 1 ? curveMax.B().yx : curveMax.B().xy);
         outV.setCurveMaxC(major == 1 ? curveMax.C().yx : curveMax.C().xy);
-        
+
         {
             float a = outV.getCurveMinA().x;
             float b = outV.getCurveMinB().x;

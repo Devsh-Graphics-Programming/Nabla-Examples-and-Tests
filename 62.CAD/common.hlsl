@@ -31,7 +31,8 @@ struct QuadraticBezierInfo
 struct CurveBox 
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    double2 aabbMin, aabbMax; // 32
+    double2 aabbMin;
+    double2 aabbMax; // 32
     double2 curveMin[3]; // 80
     double2 curveMax[3]; // 128
 };
@@ -122,7 +123,7 @@ struct PSInput
     // res = float2(-detSqrt,detSqrt)-bRcp;
     [[vk::location(6)]] float2 minCurveDetRcp2_BRcp : MIN_QUADRATIC_COEFFICIENTS;
     [[vk::location(7)]] float2 maxCurveDetRcp2_BRcp : MAX_QUADRATIC_COEFFICIENTS;
-    
+
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
