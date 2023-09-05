@@ -80,9 +80,123 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 	return areParametersEqual && isStipplePatternArrayEqual;
 }
 
+// holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
+class CPULineStyle
+{
+public:
+	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+
+	// common data
+		// private and setters/getters instead?
+	float4 color;
+	float screenSpaceLineWidth;
+	float worldSpaceLineWidth;
+
+	void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
+	{
+		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
+
+		if (stipplePatternCPURepresentation.size() == 0)
+		{
+			stipplePatternSize = 0;
+			return;
+		}
+
+		nbl::core::vector<float> stipplePatternTransformed;
+
+		// merge redundant values
+		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
+		{
+			float redundantConsecutiveValuesSum = 0.0f;
+			bool isFirstValPositive = (std::abs(*it) == *it);
+
+			do
+			{
+				redundantConsecutiveValuesSum += *it;
+				it++;
+			} while (it != stipplePatternCPURepresentation.end() && (isFirstValPositive == (std::abs(*it) == *it)));
+
+			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
+		}
+
+		if (stipplePatternTransformed.size() == 1)
+		{
+			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? -1 : 0;
+			return;
+		}
+
+		// merge first and last value if their sign matches
+		phaseShift = 0.0f;
+		float isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
+		float isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
+		if (isFirstComponentNegative == isLastComponentNegative)
+		{
+			phaseShift = stipplePatternTransformed[0];
+			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
+			stipplePatternTransformed.pop_back();
+		}
+
+		if (stipplePatternTransformed.size() == 1)
+		{
+			stipplePatternSize = isFirstComponentNegative ? -1 : 0;
+			return;
+		}
+
+		// rotate values if first value is negative value
+		if (isFirstComponentNegative)
+		{
+			phaseShift += stipplePatternTransformed[0];
+			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
+		}
+
+		// calculate normalized prefix sum
+		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
+		const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
+
+		float prefixSum[PREFIX_SUM_MAX_SZ];
+		prefixSum[0] = stipplePatternTransformed[0];
+
+		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
+			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
+
+		recpiprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+
+		for (int i = 0; i < PREFIX_SUM_SZ; i++)
+			prefixSum[i] *= recpiprocalStipplePatternLen;
+
+		stipplePatternSize = PREFIX_SUM_SZ;
+		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
+		// TODO: stipplePattern and phaseShift need to be normalized!
+		recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
+		phaseShift = phaseShift * recpiprocalStipplePatternLen;
+	}
+
+	LineStyle getAsGPUData() const
+	{
+		LineStyle ret;
+		ret.color = color;
+		ret.screenSpaceLineWidth = screenSpaceLineWidth;
+		ret.worldSpaceLineWidth = worldSpaceLineWidth;
+		ret.stipplePatternSize = stipplePatternSize;
+		ret.recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
+		std::memcpy(ret.stipplePattern, stipplePattern, STIPPLE_PATTERN_MAX_SZ*sizeof(float));
+		ret.phaseShift = phaseShift;
+
+		return ret;
+	}
+
+private:
+
+	// gpu stipple pattern data form
+	int32_t stipplePatternSize;
+	float recpiprocalStipplePatternLen;
+	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+	float phaseShift;
+};
+
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(Globals) == 152u);
-//static_assert(sizeof(LineStyle) == 32u);
+static_assert(sizeof(LineStyle) == 96u);
 
 using namespace nbl;
 using namespace ui;
@@ -272,8 +386,6 @@ public:
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
-	// TODO[Przemek]: This uses the struct from the shader common.hlsl if you need to precompute stuff make a duplicate of this struct here first (for the user input to fill)
-	// and then do the precomputation here and store in m_quadBeziers which holds the actual structs that will be fed to the GPU
 	void addQuadBeziers(std::vector<QuadraticBezierInfo>&& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
@@ -469,10 +581,6 @@ public:
 
 	uint32_t getIndexCount() const { return currentIndexCount; }
 	
-	// TODO[Przemek]: look at the `drawPolyline` function and you may have to change that as well. if you found out the user input `const LineStyle& lineStyle` for stippling needs processing/computation to be ready to be fed into gpu
-	//	 then have two sturcts (one for cpu side and one that is private to this class and will be fed to gpu)
-	//	 don't force yourself to understand this function completely, it will change soon when I change CSG algo, 
-	//	 just be aware that this drawPolyline function will result in calls to addQuadBeziers_Internal and addLineStyle_Internal and will submit draws if there is no memory left and continue where it left off
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
@@ -708,7 +816,6 @@ protected:
 
 	uint32_t addLineStyle_Internal(const LineStyle& lineStyle)
 	{
-		// TODO[Przemek]: styles are added here, store info about stipple patterns here, assume max input of the stipple array is 15 max (the -1, +2, 0., +4, .. patterns)
 		LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 		{
@@ -792,7 +899,6 @@ protected:
 
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
-		// TODO[Przemek]: Beziers are added here, understand how this function works, may come in handy
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
 		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
@@ -2047,15 +2153,15 @@ public:
 					style.phaseShift = phaseShift*recpiprocalStipplePatternLen;
 				};
 
-			constexpr uint32_t CURVE_CNT = 11u;
-			constexpr uint32_t SPECIAL_CASE_CNT = 3u;
+			constexpr uint32_t CURVE_CNT = 12u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 4u;
 
-			LineStyle style = {};
-			style.screenSpaceLineWidth = 3.0f;
-			style.worldSpaceLineWidth = 0.0f;
-			style.color = float4(0.0f, 0.3f, 0.0f, 0.5f);
+			CPULineStyle cpuLineStyle;
+			cpuLineStyle.screenSpaceLineWidth = 2.0f;
+			cpuLineStyle.worldSpaceLineWidth = 0.0f;
+			cpuLineStyle.color = float4(0.0f, 0.3f, 0.0f, 0.5f);
 
-			std::vector<LineStyle> styles(CURVE_CNT, style);
+			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
 			std::vector<CPolyline> polylines(CURVE_CNT);
 
 			{
@@ -2083,15 +2189,15 @@ public:
 						curveIdx++;
 					}
 
-					// special case (line 1)
+					// special case 0 (line)
 					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].Y;
 					double lineY = prevLineLowestY - 10.0;
 
-					quadratics[curveIdx].p[0] = double2(-90, lineY);
+					quadratics[curveIdx].p[0] = double2(-40, lineY);
 					quadratics[curveIdx].p[1] = double2(-20, lineY);
-					quadratics[curveIdx].p[2] = double2(88, lineY);
+					quadratics[curveIdx].p[2] = double2(0, lineY);
 
-					// special case (line 1)
+					// special case 1 (line 1)
 					lineY -= 10.0;
 					curveIdx++;
 
@@ -2099,16 +2205,24 @@ public:
 					quadratics[curveIdx].p[1] = double2(20, lineY);
 					quadratics[curveIdx].p[2] = double2(88, lineY);
 
-					// special case (A.x == 0)
+					// special case 2 (A.x == 0)
 					curveIdx++;
 					quadratics[curveIdx].p[0] = double2(0.0, 0.0);
 					quadratics[curveIdx].p[1] = double2(3.0, 4.14);
 					quadratics[curveIdx].p[2] = double2(6.0, 4.0);
-					styles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
 						// make sure A.x == 0
 					double2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
 					assert(A.X == 0);
+
+					// special case 3
+					curveIdx++;
+					quadratics[curveIdx].p[0] = double2(-200.0, 20.0);
+					quadratics[curveIdx].p[1] = double2(-120.0, 10.0);
+					quadratics[curveIdx].p[2] = double2(-200.0, -20.0);
+					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+					 
 				}
 
 				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
@@ -2136,17 +2250,20 @@ public:
 				stipplePatterns[9] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 9: curve with A.x = 0
 				stipplePatterns[10] = { 0.5f, -0.5f, 0.1f, -0.5f };
+					// test case 10: long parabola
+				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
 
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					precomputeStipplePatternData(stipplePatterns[i], styles[i]);
+					//precomputeStipplePatternData(stipplePatterns[i], styles[i]);
+					cpuLineStyles[i].prepareGPUStipplePatternData(stipplePatterns[i]);
 					polylines[i].addQuadBeziers({ quadratics[i] });
 				}
 
 			}
 
-			for(uint32_t i = 0u; i < CURVE_CNT; i++)
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], styles[i], submissionQueue, submissionFence, intendedNextSubmit);
+			for (uint32_t i = 0u; i < CURVE_CNT; i++)
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i].getAsGPUData(), submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);

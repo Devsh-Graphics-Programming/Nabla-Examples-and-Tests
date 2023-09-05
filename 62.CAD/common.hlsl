@@ -24,52 +24,9 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
-template <typename float_t>
-struct QuadBezierAnalyticArcLengthCalculator
-{
-#ifdef __cplusplus
-    using float2_t = nbl::core::vector2d<float_t>;
-#else
-    using float2_t = vector<float_t, 2>;
-#endif
-
-    static QuadBezierAnalyticArcLengthCalculator construct(float_t lenA2, float_t AdotB, float_t a, float_t b, float_t  c, float_t b_over_4a)
-    {
-        QuadBezierAnalyticArcLengthCalculator ret = { lenA2, AdotB, a, b, c, b_over_4a };
-        return ret;
-    }
-    
-    static QuadBezierAnalyticArcLengthCalculator construct(float2_t P0, float2_t P1, float2_t P2)
-    {
-        QuadBezierAnalyticArcLengthCalculator ret;
-        float2_t A = P0 - 2.0 * P1 + P2;
-        float2_t B = 2.0 * (P1 - P0);
-        float2_t C = P0;
-        ret.lenA2 = dot(A, A);
-        ret.AdotB = dot(A, B);
-
-        ret.a = 4.0 * ret.lenA2;
-        ret.b = 4.0 * ret.AdotB;
-        ret.c = dot(B, B);
-
-        ret.b_over_4a = ret.AdotB / ret.a;
-        return ret;
-    }
-
-    float_t lenA2;
-    float_t AdotB;
-
-    float_t a;
-    float_t b;
-    float_t c;
-
-    float_t b_over_4a;
-};
-
 struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
-    // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
     double2 arcLen;
 };
 
@@ -98,21 +55,25 @@ struct Globals
 
 struct LineStyle
 {
+    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+
     // common data
     float4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
     
     // stipple pattern data
-    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
     int32_t stipplePatternSize;
     float recpiprocalStipplePatternLen;
-    float stipplePattern[STIPPLE_PATTERN_MAX_SZ-1];
+    float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
     float phaseShift;
-    float _pad[1u];
 #ifdef __cplusplus
     bool isVisible() const { return stipplePatternSize != -1; }
 #endif
+    inline bool hasStipples()
+    {
+        return stipplePatternSize > 0 ? true : false;
+    }
 };
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
@@ -177,10 +138,6 @@ struct PSInput
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
-    // TODO[Przemek]: We only had color and thickness to worry about before and as you can see we pass them between vertex and fragment shader (so that fragment shader doesn't have to fetch the linestyles from memory again)
-    // but for cases where you found out line styles would be too large to do this kinda stuff with inter-shader memory then only pass the linestyleIdx from vertex shader to fragment shader and fetch the whole lineStyles struct in fragment shader
-    // Note: Lucas is also modifying here (added data4,5,6,..) so If need be, I suggest replace a variable like set/getColor to set/getLineStyleIdx to reduce conflicts 
-    
     // data0
     void setColor(in float4 color) { data0 = color; }
     float4 getColor() { return data0; }
@@ -216,15 +173,15 @@ struct PSInput
     
     // data3.zw + data4
     
-    void setPrecomputedArcLenData(QuadBezierAnalyticArcLengthCalculator<float> preCompData) 
-    { 
+    void setPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator preCompData) 
+    {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
     
-    QuadBezierAnalyticArcLengthCalculator<float> getPrecomputedArcLenData()
+    nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator getAnalyticArcLengthCalculator()
     {
-        return QuadBezierAnalyticArcLengthCalculator<float>::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
 };
 

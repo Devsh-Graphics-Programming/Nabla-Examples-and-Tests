@@ -36,9 +36,9 @@ struct BezierLineStyleClipper
 
     static BezierLineStyleClipper<float_t> construct(uint32_t styleIdx, 
                                                      typename nbl::hlsl::shapes::Quadratic<float_t> quadratic,
-                                                     typename nbl::hlsl::shapes::Quadratic<float_t>::ArcLengthPrecomputedValues preCompValues)
+                                                     typename nbl::hlsl::shapes::Quadratic<float_t>::AnalyticArcLengthCalculator arcLenCalc)
     {
-        BezierLineStyleClipper<float_t> ret = { styleIdx, quadratic, preCompValues };
+        BezierLineStyleClipper<float_t> ret = { styleIdx, quadratic, arcLenCalc };
         return ret;
     }
     
@@ -55,7 +55,7 @@ struct BezierLineStyleClipper
     
     float2_t operator()(const float t)
     {
-        const float arcLen = quadratic.calcArcLen(t, preCompValues);
+        const float arcLen = arcLenCalc.calcArcLen(t);
         float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
         ArrayAccessor stippleAccessor = { styleIdx };
         uint32_t patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, lineStyles[styleIdx].stipplePatternSize, tMappedToPattern);
@@ -73,8 +73,8 @@ struct BezierLineStyleClipper
             float t0 = t0NormalizedLen / worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             float t1 = t1NormalizedLen / worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             
-            t0 = quadratic.calcArcLenInverse(arcLen + t0, 0.000001f, 0.5f, preCompValues);
-            t1 = quadratic.calcArcLenInverse(arcLen + t1, 0.000001f, 0.5f, preCompValues);
+            t0 = arcLenCalc.calcArcLenInverse(arcLen + t0, 0.000001f, 0.5f, quadratic);
+            t1 = arcLenCalc.calcArcLenInverse(arcLen + t1, 0.000001f, 0.5f, quadratic);
             
             t0 = clamp(t0, 0.0, 1.0);
             t1 = clamp(t1, 0.0, 1.0);
@@ -87,7 +87,7 @@ struct BezierLineStyleClipper
   
     uint32_t styleIdx;
     typename nbl::hlsl::shapes::Quadratic<float_t> quadratic;
-    typename nbl::hlsl::shapes::Quadratic<float_t>::ArcLengthPrecomputedValues preCompValues;
+    typename nbl::hlsl::shapes::Quadratic<float_t>::AnalyticArcLengthCalculator arcLenCalc;
 };
 
 float4 main(PSInput input) : SV_TARGET
@@ -116,32 +116,23 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::QUAD_BEZIER)
     {
         nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-        QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
-        nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
-        preCompValues.lenA2 = preCompValues_calculator.lenA2;
-        preCompValues.AdotB = preCompValues_calculator.AdotB;
-        preCompValues.a = preCompValues_calculator.a;
-        preCompValues.b = preCompValues_calculator.b;
-        preCompValues.c = preCompValues_calculator.c;
-        preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
+        nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator arcLenCalc = input.getAnalyticArcLengthCalculator();
         
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float lineThickness = input.getLineThickness();
         float distance;
         
-        if (lineStyles[styleIdx].stipplePatternSize == 0u)
+        if (!lineStyles[styleIdx].hasStipples())
         {
             DefaultClipper<float> clipper;
-            distance = input.getQuadratic().signedDistance2(input.position.xy, lineThickness, preCompValues, clipper);    
+            distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);    
         }
         else
         {
             const float lineThickness = input.getLineThickness();
-            BezierLineStyleClipper<float> clipper = BezierLineStyleClipper<float>::construct(styleIdx, quadratic, preCompValues);
-            distance = input.getQuadratic().signedDistance2(input.position.xy, lineThickness, preCompValues, clipper);
+            BezierLineStyleClipper<float> clipper = BezierLineStyleClipper<float>::construct(styleIdx, quadratic, arcLenCalc);
+            distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);
         }
-        
-        
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);

@@ -253,7 +253,7 @@ PSInput main(uint vertexID : SV_VertexID)
         
         nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
         nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
-        QuadBezierAnalyticArcLengthCalculator<float> preCompData = QuadBezierAnalyticArcLengthCalculator<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+        nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator::construct(quadratic);
 
         outV.setQuadratic(quadratic);
         outV.setPrecomputedArcLenData(preCompData);
