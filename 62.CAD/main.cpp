@@ -218,6 +218,174 @@ public:
 	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
 
 	// TODO: Creating hatches from polylines with the above algo
+
+	class Segment 
+	{
+	public:
+		const QuadraticBezierInfo* originalBezier;
+		// because beziers are broken down,  depending on the type this is t_start or t_end
+		double t_start;
+		double t_end; // beziers get broken down
+
+		double intersect(const Segment& other) const
+		{
+			const double [t_self,t_other] = Bezier::intersect(*originalBezier,*other.originalBezier);
+			// note the use of `<` and not `<=` because we don't want to report intersection with segment ends
+			if (t_start<t_self && t_self<t_end && other.t_start<t_other && t_other<other.t_end)
+				return t;
+			return core::nan<double>();
+		}
+
+		bool isStraightLineConstantMajor()
+		{
+			// TODO impl this
+			return false;
+		}
+	};
+
+	double2 evaluteBezier(QuadraticBezierInfo* bezier, double t)
+	{
+		double2 position = bezier->p[0] * (1.0 - t) * (1.0 - t) 
+					+ 2.0 * bezier->p[1] * (1.0 - t) * t
+					+       bezier->p[2] * t         * t;
+		return position;
+	}
+
+	Hatch(core::SRange<CPolyline> lines)
+	{
+		std::stack<Segment> starts; // Next segments sorted by start points
+		std::stack<Segment> ends; // Next segments sorted by end points
+		double maxMajor;
+
+		const int major = 1; // Major = Y
+		const int minor = 1-major; // Minor = Opposite of major (X)
+		auto getMajor = [](double2 value) { return major == 0  ? value.X : value.Y; };
+		auto getMinor = [](double2 value) { return minor == 0  ? value.X : value.Y; };
+
+		{
+			// TODO make all the lines monotonic?
+			std::vector<Segment> segments;
+			for (CPolyline& line : lines)
+			{
+				for (uint32_t secIdx = 0; secIdx < line.getSectionsCount(); secIdx ++)
+				{
+					auto section = line.getSectionInfoAt(secIdx);
+					if (section.type == ObjectType::LINE)
+						// TODO other types of lines
+						{}
+					else if (section.type == ObjectType::QUAD_BEZIER)
+					{
+						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
+						{
+							auto bezier = &line.getQuadBezierInfoAt(itemIdx);
+							Segment segment;
+							segment.originalBezier = bezier;
+							segment.t_start = 0.0;
+							segment.t_end = 1.0;
+							segments.push_back(segment);
+						}
+					}
+				}
+			}
+
+			// TODO better way to do this
+			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[0]) < getMajor(b.originalBezier->p[0]); });
+			for (Segment& segment : segments)
+				starts.push(segment);
+
+			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[2]) < getMajor(b.originalBezier->p[2]); });
+			for (Segment& segment : segments)
+				ends.push(segment);
+			maxMajor = getMajor(segments.back().originalBezier.p[2]);
+		}
+
+		// Sweep line algorithm
+		std::priority_queue<double> intersections; // Next intersection points as major coordinate
+		std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
+
+		auto addToCandidateSet = [&activeCandidates, &intersections](const Segment& entry)
+		{
+			if (entry.isStraightLineConstantMajor())
+				return;
+			// Look for intersections among active candidates
+			// TODO shouldn't this filter out when lines don't intersect?
+
+			// this is a little O(n^2) but only in the `n=candidates.size()`
+			for (const auto& segment : activeCandidates)
+			{
+				// find intersections entry vs segment
+				if (double t = entry.intersect(segment))
+					intersections.insert(getMajor(evaluteBezier(entry.originalBezier, t)));
+			}
+			activeCandidates.push_back(entry);
+		};
+
+		double lastMajor = 0.0;
+		while (lastMajor!=maxMajor)
+		{
+			double newMajor;
+
+			const Segment start = starts.peek();
+			const double minMajorStart = getMajor(evaluteBezier(start.originalBezier, start.t_start));
+			if (minMajorStart<Ends.peek())
+			{
+				if (minMajorStart<intersectionMajors.peek()) // find-min O(1)
+				{
+					starts.pop();
+					addToCandidateSet(start);
+					newMajor = minMajorStart;
+				}
+				else
+				{
+					newMajor = intersectionMajors.peek();
+					intersectionMajors.pop();
+				}
+			}
+			else if (intersectionMajors.peek()<Ends.peek())
+			{
+				newMajor = intersectionMajors.peek();
+				intersectionMajors.pop(); // O(log(n))
+			}
+			else
+			{
+				newMajor = Ends.peek();
+				Ends.pop();
+			}
+
+			// spawn quads
+			if (newMajor>lastMajor)
+			{
+				// advance and trim all of the beziers in the candidate set
+				auto oit = candidates.begin();
+				for (auto iit=candidates.begin(); iit!=candidates.end(); iit++)
+				{
+					const double new_t_start = iit->originalBezier->intersectOrtho(newMajor,chooseMajor);
+					// don't remove if not scrolled past the end of the segment
+					if (new_t_start<iit->t_end)
+					{
+						if (oit!=iit) // little optimization
+							*oit = *iit;
+						oit->t_start = new_t_start;
+						oit++;
+					}
+				}
+				std::sort(candidates.begin(),oit,candidateComparator);
+				// trim
+				const auto newSize = std::distance(candidates.begin(),oit);
+				// because n4ce works on loops, this must be true
+				assert((newSize % 2u)==0u);
+				for (auto i=0u; i<newSize;)
+				{
+					auto& left = candidates[i++];
+					auto& right = candidates[i++];
+					// TODO : spawn the quads
+					// (create CurveBox struct and add it)
+				}
+				candidates.resize(newSize);
+				lastMajor = newMajor;
+			}
+		}
+	}
 private:
 };
 
@@ -1988,8 +2156,8 @@ public:
 				hatchBox.curveMin[1] = nbl::core::vector2d<double>(0.1, 0.3);
 				hatchBox.curveMin[2] = nbl::core::vector2d<double>(0.2, 0.0);
 				hatchBox.curveMax[0] = nbl::core::vector2d<double>(0.8, 1.0);
-				hatchBox.curveMax[1] = nbl::core::vector2d<double>(0.9, 0.3);
-				hatchBox.curveMax[2] = nbl::core::vector2d<double>(1.0, 0.0);
+				hatchBox.curveMax[1] = nbl::core::vector2d<double>(0.9, 0.7);
+				hatchBox.curveMax[2] = nbl::core::vector2d<double>(1.0, 0.5);
 
 				hatch.hatchBoxes.push_back(hatchBox);
 			}
