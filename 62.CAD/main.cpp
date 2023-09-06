@@ -172,223 +172,6 @@ private:
 	double2 m_origin = {};
 };
 
-// Basically 2D CSG
-// TODO[Lucas]:
-class Hatch
-{
-public:
-	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
-	struct CurveHatchBox
-	{
-		double2 aabbMin, aabbMax;
-		double2 curveMin[3];
-		double2 curveMax[3];
-	};
-
-	std::vector<CurveHatchBox> hatchBoxes;
-
-	/*
-		This class will input a list of Polylines (core::SRange)
-		and then output bunch of HatchBoxes
-		The hatch box generation algorithm will be used here
-	*/
-	/*
-		Here are additional info you need for the hatch box generation algorithm:
-
-		1. Curve-Curve Intersection
-			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
-			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
-			whose roots are the parameter values of the points of intersection
-			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
-
-		2. Implicitization
-			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
-			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
-			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
-			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
-			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
-
-		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
-			(Talk with Matt, he figure out the math)
-	*/
-	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
-	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
-	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
-
-	// TODO: Creating hatches from polylines with the above algo
-
-	class Segment 
-	{
-	public:
-		const QuadraticBezierInfo* originalBezier;
-		// because beziers are broken down,  depending on the type this is t_start or t_end
-		double t_start;
-		double t_end; // beziers get broken down
-
-		double intersect(const Segment& other) const
-		{
-			const double [t_self,t_other] = Bezier::intersect(*originalBezier,*other.originalBezier);
-			// note the use of `<` and not `<=` because we don't want to report intersection with segment ends
-			if (t_start<t_self && t_self<t_end && other.t_start<t_other && t_other<other.t_end)
-				return t;
-			return core::nan<double>();
-		}
-
-		bool isStraightLineConstantMajor()
-		{
-			// TODO impl this
-			return false;
-		}
-	};
-
-	double2 evaluteBezier(QuadraticBezierInfo* bezier, double t)
-	{
-		double2 position = bezier->p[0] * (1.0 - t) * (1.0 - t) 
-					+ 2.0 * bezier->p[1] * (1.0 - t) * t
-					+       bezier->p[2] * t         * t;
-		return position;
-	}
-
-	Hatch(core::SRange<CPolyline> lines)
-	{
-		std::stack<Segment> starts; // Next segments sorted by start points
-		std::stack<Segment> ends; // Next segments sorted by end points
-		double maxMajor;
-
-		const int major = 1; // Major = Y
-		const int minor = 1-major; // Minor = Opposite of major (X)
-		auto getMajor = [](double2 value) { return major == 0  ? value.X : value.Y; };
-		auto getMinor = [](double2 value) { return minor == 0  ? value.X : value.Y; };
-
-		{
-			// TODO make all the lines monotonic?
-			std::vector<Segment> segments;
-			for (CPolyline& line : lines)
-			{
-				for (uint32_t secIdx = 0; secIdx < line.getSectionsCount(); secIdx ++)
-				{
-					auto section = line.getSectionInfoAt(secIdx);
-					if (section.type == ObjectType::LINE)
-						// TODO other types of lines
-						{}
-					else if (section.type == ObjectType::QUAD_BEZIER)
-					{
-						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
-						{
-							auto bezier = &line.getQuadBezierInfoAt(itemIdx);
-							Segment segment;
-							segment.originalBezier = bezier;
-							segment.t_start = 0.0;
-							segment.t_end = 1.0;
-							segments.push_back(segment);
-						}
-					}
-				}
-			}
-
-			// TODO better way to do this
-			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[0]) < getMajor(b.originalBezier->p[0]); });
-			for (Segment& segment : segments)
-				starts.push(segment);
-
-			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[2]) < getMajor(b.originalBezier->p[2]); });
-			for (Segment& segment : segments)
-				ends.push(segment);
-			maxMajor = getMajor(segments.back().originalBezier.p[2]);
-		}
-
-		// Sweep line algorithm
-		std::priority_queue<double> intersections; // Next intersection points as major coordinate
-		std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
-
-		auto addToCandidateSet = [&activeCandidates, &intersections](const Segment& entry)
-		{
-			if (entry.isStraightLineConstantMajor())
-				return;
-			// Look for intersections among active candidates
-			// TODO shouldn't this filter out when lines don't intersect?
-
-			// this is a little O(n^2) but only in the `n=candidates.size()`
-			for (const auto& segment : activeCandidates)
-			{
-				// find intersections entry vs segment
-				if (double t = entry.intersect(segment))
-					intersections.insert(getMajor(evaluteBezier(entry.originalBezier, t)));
-			}
-			activeCandidates.push_back(entry);
-		};
-
-		double lastMajor = 0.0;
-		while (lastMajor!=maxMajor)
-		{
-			double newMajor;
-
-			const Segment start = starts.peek();
-			const double minMajorStart = getMajor(evaluteBezier(start.originalBezier, start.t_start));
-			if (minMajorStart<Ends.peek())
-			{
-				if (minMajorStart<intersectionMajors.peek()) // find-min O(1)
-				{
-					starts.pop();
-					addToCandidateSet(start);
-					newMajor = minMajorStart;
-				}
-				else
-				{
-					newMajor = intersectionMajors.peek();
-					intersectionMajors.pop();
-				}
-			}
-			else if (intersectionMajors.peek()<Ends.peek())
-			{
-				newMajor = intersectionMajors.peek();
-				intersectionMajors.pop(); // O(log(n))
-			}
-			else
-			{
-				newMajor = Ends.peek();
-				Ends.pop();
-			}
-
-			// spawn quads
-			if (newMajor>lastMajor)
-			{
-				// advance and trim all of the beziers in the candidate set
-				auto oit = candidates.begin();
-				for (auto iit=candidates.begin(); iit!=candidates.end(); iit++)
-				{
-					const double new_t_start = iit->originalBezier->intersectOrtho(newMajor,chooseMajor);
-					// don't remove if not scrolled past the end of the segment
-					if (new_t_start<iit->t_end)
-					{
-						if (oit!=iit) // little optimization
-							*oit = *iit;
-						oit->t_start = new_t_start;
-						oit++;
-					}
-				}
-				std::sort(candidates.begin(),oit,candidateComparator);
-				// trim
-				const auto newSize = std::distance(candidates.begin(),oit);
-				// because n4ce works on loops, this must be true
-				assert((newSize % 2u)==0u);
-				for (auto i=0u; i<newSize;)
-				{
-					auto& left = candidates[i++];
-					auto& right = candidates[i++];
-					// TODO : spawn the quads
-					// (create CurveBox struct and add it)
-				}
-				candidates.resize(newSize);
-				lastMajor = newMajor;
-			}
-		}
-	}
-private:
-};
-
 // It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
 // This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
 class CPolyline
@@ -505,6 +288,238 @@ protected:
 	std::vector<SectionInfo> m_sections;
 	std::vector<double2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+};
+
+// Basically 2D CSG
+// TODO[Lucas]:
+class Hatch
+{
+public:
+	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
+	struct CurveHatchBox
+	{
+		double2 aabbMin, aabbMax;
+		double2 curveMin[3];
+		double2 curveMax[3];
+	};
+
+	std::vector<CurveHatchBox> hatchBoxes;
+
+	/*
+		This class will input a list of Polylines (core::SRange)
+		and then output bunch of HatchBoxes
+		The hatch box generation algorithm will be used here
+	*/
+	/*
+		Here are additional info you need for the hatch box generation algorithm:
+
+		1. Curve-Curve Intersection
+			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
+			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
+			whose roots are the parameter values of the points of intersection
+			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
+			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+
+		2. Implicitization
+			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
+			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
+			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
+			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
+			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
+			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
+
+		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
+			(Talk with Matt, he figure out the math)
+	*/
+	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
+	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
+	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
+
+	// TODO: Creating hatches from polylines with the above algo
+
+	class Segment 
+	{
+	public:
+		const QuadraticBezierInfo* originalBezier;
+		// because beziers are broken down,  depending on the type this is t_start or t_end
+		double t_start;
+		double t_end; // beziers get broken down
+
+		double intersect(const Segment& other) const
+		{
+			// TODO
+			return 0.0;
+			// const double [t_self,t_other] = Bezier::intersect(*originalBezier,*other.originalBezier);
+			// // note the use of `<` and not `<=` because we don't want to report intersection with segment ends
+			// if (t_start<t_self && t_self<t_end && other.t_start<t_other && t_other<other.t_end)
+			// 	return t;
+			// return core::nan<double>();
+		}
+
+		bool isStraightLineConstantMajor() const
+		{
+			// TODO impl this
+			return false;
+		}
+	};
+
+	double2 evaluteBezier(const QuadraticBezierInfo* bezier, double t)
+	{
+		double2 position = bezier->p[0] * (1.0 - t) * (1.0 - t) 
+					+ 2.0 * bezier->p[1] * (1.0 - t) * t
+					+       bezier->p[2] * t         * t;
+		return position;
+	}
+
+	Hatch(core::SRange<CPolyline> lines)
+	{
+		std::stack<Segment> starts; // Next segments sorted by start points
+		std::stack<Segment> ends; // Next segments sorted by end points
+		double maxMajor;
+
+		const int major = 1; // Major = Y
+		const int minor = 1-major; // Minor = Opposite of major (X)
+		auto getMajor = [](double2 value) { return major == 0  ? value.X : value.Y; };
+		auto getMinor = [](double2 value) { return minor == 0  ? value.X : value.Y; };
+
+		{
+			// TODO make all the lines monotonic?
+			std::vector<Segment> segments;
+			for (CPolyline& line : lines)
+			{
+				for (uint32_t secIdx = 0; secIdx < line.getSectionsCount(); secIdx ++)
+				{
+					auto section = line.getSectionInfoAt(secIdx);
+					if (section.type == ObjectType::LINE)
+						// TODO other types of lines
+						{}
+					else if (section.type == ObjectType::QUAD_BEZIER)
+					{
+						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
+						{
+							auto bezier = &line.getQuadBezierInfoAt(itemIdx);
+							Segment segment;
+							segment.originalBezier = bezier;
+							segment.t_start = 0.0;
+							segment.t_end = 1.0;
+							segments.push_back(segment);
+						}
+					}
+				}
+			}
+
+			// TODO better way to do this
+			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[0]) < getMajor(b.originalBezier->p[0]); });
+			for (Segment& segment : segments)
+				starts.push(segment);
+
+			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[2]) < getMajor(b.originalBezier->p[2]); });
+			for (Segment& segment : segments)
+				ends.push(segment);
+			maxMajor = getMajor(segments.back().originalBezier->p[2]);
+		}
+
+		// Sweep line algorithm
+		std::priority_queue<double> intersections; // Next intersection points as major coordinate
+		std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
+
+		auto addToCandidateSet = [&](const Segment& entry)
+		{
+			if (entry.isStraightLineConstantMajor())
+				return;
+			// Look for intersections among active candidates
+			// TODO shouldn't this filter out when lines don't intersect?
+
+			// this is a little O(n^2) but only in the `n=candidates.size()`
+			for (const auto& segment : activeCandidates)
+			{
+				// find intersections entry vs segment
+				if (double t = entry.intersect(segment))
+					intersections.push(getMajor(evaluteBezier(entry.originalBezier, t)));
+			}
+			activeCandidates.push_back(entry);
+		};
+
+		// if we weren't spawning quads, we could just have unsorted `vector<Bezier*>`
+		auto candidateComparator = [](const Segment& lhs, const Segment& rhs)
+		{
+		// order them by minor coordinate, and derivatives at `t_start`
+			// do the comparisons (TODO)
+			return true;
+			// lhs.originalBezier->evaluate(t_start)[chooseMinor]
+			// lhs.originalBezier->evaluate_dydx(t_start)
+			// lhs.originalBezier->evaluate_d2ydx2(t_start)
+		};
+
+		double lastMajor = 0.0;
+		while (lastMajor!=maxMajor)
+		{
+			double newMajor;
+
+			const Segment start = starts.top();
+			const double minMajorStart = getMajor(evaluteBezier(start.originalBezier, start.t_start));
+			const double maxMajorEnds = getMajor(evaluteBezier(ends.top().originalBezier, ends.top().t_end));
+			if (minMajorStart< maxMajorEnds)
+			{
+				if (minMajorStart<intersections.top()) // find-min O(1)
+				{
+					starts.pop();
+					addToCandidateSet(start);
+					newMajor = minMajorStart;
+				}
+				else
+				{
+					newMajor = intersections.top();
+					intersections.pop();
+				}
+			}
+			else if (intersections.top()< maxMajorEnds)
+			{
+				newMajor = intersections.top();
+				intersections.pop(); // O(log(n))
+			}
+			else
+			{
+				newMajor = maxMajorEnds;
+				ends.pop();
+			}
+
+			// spawn quads
+			if (newMajor>lastMajor)
+			{
+				// advance and trim all of the beziers in the candidate set
+				auto oit = activeCandidates.begin();
+				for (auto iit= activeCandidates.begin(); iit!= activeCandidates.end(); iit++)
+				{
+					// TODO: intersectOrtho
+					const double new_t_start = 0.0; //iit->originalBezier->intersectOrtho(newMajor, major);
+					// don't remove if not scrolled past the end of the segment
+					if (new_t_start<iit->t_end)
+					{
+						if (oit!=iit) // little optimization
+							*oit = *iit;
+						oit->t_start = new_t_start;
+						oit++;
+					}
+				}
+				std::sort(activeCandidates.begin(),oit,candidateComparator);
+				// trim
+				const auto newSize = std::distance(activeCandidates.begin(),oit);
+				// because n4ce works on loops, this must be true
+				assert((newSize % 2u)==0u);
+				for (auto i=0u; i<newSize;)
+				{
+					auto& left = activeCandidates[i++];
+					auto& right = activeCandidates[i++];
+					// TODO : spawn the quads
+					// (create CurveBox struct and add it)
+				}
+				activeCandidates.resize(newSize);
+				lastMajor = newMajor;
+			}
+		}
+	}
+private:
 };
 
 template <typename BufferType>
