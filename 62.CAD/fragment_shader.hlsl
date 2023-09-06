@@ -18,27 +18,16 @@ void endInvocationInterlockEXT();
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
-template<typename float_t>
-struct DefaultClipper
-{
-    using float2_t = vector<float_t, 2>;
-    
-    inline float2_t operator()(const float t)
-    {
-        return clamp(t, 0.0, 1.0);
-    }
-};
-
-template<typename float_t>
-struct BezierLineStyleClipper
+template<typename float_t, typename ArcLenCalculator>
+struct LineStyleClipper
 {
     using float2_t = vector<float_t, 2>;
 
-    static BezierLineStyleClipper<float_t> construct(uint32_t styleIdx, 
+    static LineStyleClipper<float_t, ArcLenCalculator> construct(uint32_t styleIdx, 
                                                      typename nbl::hlsl::shapes::Quadratic<float_t> quadratic,
-                                                     typename nbl::hlsl::shapes::Quadratic<float_t>::AnalyticArcLengthCalculator arcLenCalc)
+                                                     ArcLenCalculator arcLenCalc)
     {
-        BezierLineStyleClipper<float_t> ret = { styleIdx, quadratic, arcLenCalc };
+        LineStyleClipper<float_t, ArcLenCalculator> ret = { styleIdx, quadratic, arcLenCalc };
         return ret;
     }
     
@@ -87,8 +76,10 @@ struct BezierLineStyleClipper
   
     uint32_t styleIdx;
     typename nbl::hlsl::shapes::Quadratic<float_t> quadratic;
-    typename nbl::hlsl::shapes::Quadratic<float_t>::AnalyticArcLengthCalculator arcLenCalc;
+    ArcLenCalculator arcLenCalc;
 };
+
+typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator> BezierLineStyleClipper_float;
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -124,13 +115,12 @@ float4 main(PSInput input) : SV_TARGET
         
         if (!lineStyles[styleIdx].hasStipples())
         {
-            DefaultClipper<float> clipper;
-            distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);    
+            distance = quadratic.signedDistance(input.position.xy, lineThickness);
         }
         else
         {
             const float lineThickness = input.getLineThickness();
-            BezierLineStyleClipper<float> clipper = BezierLineStyleClipper<float>::construct(styleIdx, quadratic, arcLenCalc);
+            BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(styleIdx, quadratic, arcLenCalc);
             distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);
         }
 
