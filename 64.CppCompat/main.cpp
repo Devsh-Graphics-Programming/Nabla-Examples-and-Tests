@@ -9,17 +9,13 @@
 #include <nabla.h>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.h>
 #include <nbl/builtin/hlsl/cpp_compat/vector.h>
-
+#include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
 using namespace nbl;
 using namespace core;
 using namespace ui;
 using namespace hlsl;
-/*
-    Uncomment for more detailed logging
-*/
 
-// #define NBL_MORE_LOGS
 
 
 struct S {
@@ -45,12 +41,13 @@ int main()
         float3 v;
         float4 u;
 
-        static_assert(std::is_same_v<float4x4, decltype(a * b)>);
-        static_assert(std::is_same_v<float3x3, decltype(b * a)>);
-        static_assert(std::is_same_v<float4, decltype(a * v)>);
-        static_assert(std::is_same_v<float4, decltype(v * b)>);
-        static_assert(std::is_same_v<float3, decltype(u * a)>);
-        static_assert(std::is_same_v<float3, decltype(b * u)>);
+        static_assert(std::is_same_v<float4x4, decltype(mul(a, b))>);
+        static_assert(std::is_same_v<float3x3, decltype(mul(b, a))>);
+        static_assert(std::is_same_v<float4, decltype(mul(a, v))>);
+        static_assert(std::is_same_v<float4, decltype(mul(v, b))>);
+        static_assert(std::is_same_v<float3, decltype(mul(u, a))>);
+        static_assert(std::is_same_v<float3, decltype(mul(b, u))>);
+
     }
 
     static_assert(offsetof(T, a) == 0);
@@ -62,4 +59,10 @@ int main()
     static_assert(offsetof(T, g) == offsetof(T, f) + sizeof(T::f));
     static_assert(offsetof(T, h) == offsetof(T, g) + sizeof(T::g));
     
+    float3 x;
+    float2x3 y;
+    float3x3 z;
+    barycentric::reconstructBarycentrics(x, y);
+    barycentric::reconstructBarycentrics(x, z);
+
 }
