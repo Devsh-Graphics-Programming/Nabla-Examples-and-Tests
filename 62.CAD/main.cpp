@@ -1703,12 +1703,17 @@ public:
 		logicalDevice->waitIdle();
 	}
 
-	double getScreenToWorldRatio(const double4x4& viewProjectionMatrix, uint2 windowSize)
+	float getScreenToWorldRatio(const double4x4& viewProjectionMatrix, uint2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix._r0[0u] * (windowSize.X / 2.0);
 		double idx_1_1 = viewProjectionMatrix._r1[1u] * (windowSize.Y / 2.0);
 		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return core::sqrt(core::abs(det_2x2_mat));
+		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
+	}
+
+	inline float convertToWorldToScreenRatio(float screenToWorldRatio)
+	{
+		return 1.0f / screenToWorldRatio;
 	}
 
 	void beginFrameRender()
@@ -1734,6 +1739,7 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
+		globalData.worldToScreenRatio = convertToWorldToScreenRatio(globalData.screenToWorldRatio);
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -2074,87 +2080,8 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
-			auto precomputeStipplePatternData = [](const core::vector<float>& stipplePattern, LineStyle& style)
-				{
-					assert(stipplePattern.size() <= LineStyle::STIPPLE_PATTERN_MAX_SZ);
-
-					if(stipplePattern.size() == 0)
-					{
-						style.stipplePatternSize = 0;
-						return;
-					}
-
-					core::vector<float> stipplePatternTransformed;
-
-					// merge redundant values
-					for (auto it = stipplePattern.begin(); it != stipplePattern.end();)
-					{
-						float redundantConsecutiveValuesSum = 0.0f;
-						bool isFirstValPositive = (std::abs(*it) == *it);
-
-						do
-						{
-							redundantConsecutiveValuesSum += *it;
-							it++;
-						} while (it != stipplePattern.end() && (isFirstValPositive == (std::abs(*it) == *it)));
-
-						stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
-					}
-
-					if (stipplePatternTransformed.size() == 1)
-					{
-						style.stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? -1 : 0;
-						return;
-					}
-
-					// merge first and last value if their sign matches
-					float phaseShift = 0.0f;
-					float isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
-					float isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
-					if (isFirstComponentNegative == isLastComponentNegative)
-					{
-						phaseShift = stipplePatternTransformed[0];
-						stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
-						stipplePatternTransformed.pop_back();
-					}
-
-					if (stipplePatternTransformed.size() == 1)
-					{
-						style.stipplePatternSize = isFirstComponentNegative ? -1 : 0;
-						return;
-					}
-
-					// rotate values if first value is negative value
-					if (isFirstComponentNegative)
-					{
-						phaseShift += stipplePatternTransformed[0];
-						std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
-					}
-
-					// calculate normalized prefix sum
-					const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
-					const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
-
-					float prefixSum[PREFIX_SUM_MAX_SZ];
-					prefixSum[0] = stipplePatternTransformed[0];
-
-					for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
-						prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
-
-					float recpiprocalStipplePatternLen = 1.0f/(prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
-
-					for (int i = 0; i < PREFIX_SUM_SZ; i++)
-						prefixSum[i] *= recpiprocalStipplePatternLen;
-
-					style.stipplePatternSize = PREFIX_SUM_SZ;
-					std::memcpy(style.stipplePattern, prefixSum, sizeof(prefixSum));
-						// TODO: stipplePattern and phaseShift need to be normalized!
-					style.recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
-					style.phaseShift = phaseShift*recpiprocalStipplePatternLen;
-				};
-
-			constexpr uint32_t CURVE_CNT = 12u;
-			constexpr uint32_t SPECIAL_CASE_CNT = 4u;
+			constexpr uint32_t CURVE_CNT = 15u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 5u;
 
 			CPULineStyle cpuLineStyle;
 			cpuLineStyle.screenSpaceLineWidth = 1.0f;
@@ -2194,18 +2121,26 @@ public:
 					double lineY = prevLineLowestY - 10.0;
 
 					quadratics[curveIdx].p[0] = double2(-100, lineY);
-					quadratics[curveIdx].p[1] = double2(0, lineY+1);
+					quadratics[curveIdx].p[1] = double2(0, lineY);
 					quadratics[curveIdx].p[2] = double2(100, lineY);
 
-					// special case 1 (line 1, not evenly spaced points)
+					// special case 1 (line, not evenly spaced points)
 					lineY -= 10.0;
 					curveIdx++;
 
 					quadratics[curveIdx].p[0] = double2(-90, lineY);
-					quadratics[curveIdx].p[1] = double2(20, lineY+6);
+					quadratics[curveIdx].p[1] = double2(20, lineY);
 					quadratics[curveIdx].p[2] = double2(88, lineY);
 
-					// special case 2 (A.x == 0)
+					// special case 2 (folded line)
+					lineY -= 10.0;
+					curveIdx++;
+
+					quadratics[curveIdx].p[0] = double2(-100, lineY);
+					quadratics[curveIdx].p[1] = double2(200, lineY);
+					quadratics[curveIdx].p[2] = double2(100, lineY);
+
+					// special case 3 (A.x == 0)
 					curveIdx++;
 					quadratics[curveIdx].p[0] = double2(0.0, 0.0);
 					quadratics[curveIdx].p[1] = double2(3.0, 4.14);
@@ -2216,16 +2151,17 @@ public:
 					double2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
 					assert(A.X == 0);
 
-					// special case 3 (symetric parabola)
+					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = double2(-10.0, 20.0);
-					quadratics[curveIdx].p[1] = double2(-20.0, 80.0);
+					quadratics[curveIdx].p[0] = double2(-100.0, 20.0);
+					quadratics[curveIdx].p[1] = double2(-20.0, 0.0);
 					quadratics[curveIdx].p[2] = double2(-100.0, -20.0);
 					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
-					 
 				}
 
 				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
+
+				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
 					// test case 0: test curve
 				stipplePatterns[0] = { 5.0f, -5.0f, 1.0f, -5.0f };
@@ -2234,7 +2170,6 @@ public:
 					// test case 2:stipplePattern[0] but shifted curve but shifted to left by 2.5f
 				stipplePatterns[2] = { 2.5f, -5.0f, 1.0f, -5.0f, 2.5f };
 					// test case 3: starts and ends with negative value, stipplePattern[2] reversed (I'm suspisious about that, need more testing)
-						// doesn't work, uninvited circle at beggining of the curve, solve with clipping (precalc tMin, tMax)
 				stipplePatterns[3] = { -2.5f, 5.0f, -1.0f, 5.0f, -2.5f };
 					// test case 4: starts with "don't draw section"
 				stipplePatterns[4] = { -5.0f, 5.0f };
@@ -2243,19 +2178,24 @@ public:
 					// test case 6: invisible curve (shouldn't be send to GPU)
 				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
 					// test case 7: continous curuve
-				stipplePatterns[7] = { 25.0f, 25.0f, -1.0f };
+				stipplePatterns[7] = { 25.0f, 25.0f };
+					// test case 8: empty pattern (draw line with no pattern)
+				stipplePatterns[8] = {};
+					// test case 9: max pattern size
+				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
 					// test case 8: A = 0 (line), control point is not between end points (doesn't work)
-				stipplePatterns[8] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 9: A = 0 (line), control point is between end points (doesn't work)
-				stipplePatterns[9] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 9: curve with A.x = 0
-				stipplePatterns[10] = { 0.5f, -0.5f, 0.1f, -0.5f };
-					// test case 10: long parabola
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 9: A = 0 (line), folds itself (doesn't work)
+				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 9: curve with A.x = 0
+				stipplePatterns[13] = { 0.5f, -0.5f, 0.1f, -0.5f };
+					// test case 10: long parabola
+				stipplePatterns[14] = { 5.0f, -5.0f, 1.0f, -5.0f };
 
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					//precomputeStipplePatternData(stipplePatterns[i], styles[i]);
 					cpuLineStyles[i].prepareGPUStipplePatternData(stipplePatterns[i]);
 					polylines[i].addQuadBeziers({ quadratics[i] });
 				}

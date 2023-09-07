@@ -47,7 +47,8 @@ You need another struct here that represents a "CurveBox" which
 struct Globals
 {
     double4x4 viewProjection; // 128 
-    double screenToWorldRatio; // 136 - TODO: make a float, no point making it a double
+    float screenToWorldRatio; // 132
+    float worldToScreenRatio; // 136
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
     float _pad; // 152
