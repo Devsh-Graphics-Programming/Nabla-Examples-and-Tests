@@ -64,8 +64,8 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
 		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
 		lhs.stipplePatternSize == rhs.stipplePatternSize &&
-		lhs.recpiprocalStipplePatternLen == lhs.recpiprocalStipplePatternLen &&
-		lhs.phaseShift == lhs.phaseShift;
+		lhs.recpiprocalStipplePatternLen == rhs.recpiprocalStipplePatternLen &&
+		lhs.phaseShift == rhs.phaseShift;
 
 	if (!areParametersEqual)
 		return false;
@@ -127,11 +127,11 @@ public:
 
 		// merge first and last value if their sign matches
 		phaseShift = 0.0f;
-		float isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
-		float isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
+		bool isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
+		bool isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
 		if (isFirstComponentNegative == isLastComponentNegative)
 		{
-			phaseShift = stipplePatternTransformed[0];
+			phaseShift = std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
 			stipplePatternTransformed.pop_back();
 		}
@@ -145,8 +145,8 @@ public:
 		// rotate values if first value is negative value
 		if (isFirstComponentNegative)
 		{
-			phaseShift += stipplePatternTransformed[0];
 			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
+			phaseShift += std::abs(stipplePatternTransformed[0]);
 		}
 
 		// calculate normalized prefix sum
@@ -159,6 +159,7 @@ public:
 		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
 			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
+		auto dbgPatternSize = prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]);
 		recpiprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
 		for (int i = 0; i < PREFIX_SUM_SZ; i++)
@@ -166,20 +167,19 @@ public:
 
 		stipplePatternSize = PREFIX_SUM_SZ;
 		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
-		// TODO: stipplePattern and phaseShift need to be normalized!
-		recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
+
 		phaseShift = phaseShift * recpiprocalStipplePatternLen;
 	}
 
 	LineStyle getAsGPUData() const
 	{
 		LineStyle ret;
+		std::memcpy(ret.stipplePattern, stipplePattern, STIPPLE_PATTERN_MAX_SZ*sizeof(float));
 		ret.color = color;
 		ret.screenSpaceLineWidth = screenSpaceLineWidth;
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
-		std::memcpy(ret.stipplePattern, stipplePattern, STIPPLE_PATTERN_MAX_SZ*sizeof(float));
 		ret.phaseShift = phaseShift;
 
 		return ret;
@@ -2157,7 +2157,7 @@ public:
 			constexpr uint32_t SPECIAL_CASE_CNT = 4u;
 
 			CPULineStyle cpuLineStyle;
-			cpuLineStyle.screenSpaceLineWidth = 2.0f;
+			cpuLineStyle.screenSpaceLineWidth = 1.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
 			cpuLineStyle.color = float4(0.0f, 0.3f, 0.0f, 0.5f);
 
@@ -2189,20 +2189,20 @@ public:
 						curveIdx++;
 					}
 
-					// special case 0 (line)
+					// special case 0 (line, evenly spaced points)
 					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].Y;
 					double lineY = prevLineLowestY - 10.0;
 
-					quadratics[curveIdx].p[0] = double2(-40, lineY);
-					quadratics[curveIdx].p[1] = double2(-20, lineY);
-					quadratics[curveIdx].p[2] = double2(0, lineY);
+					quadratics[curveIdx].p[0] = double2(-100, lineY);
+					quadratics[curveIdx].p[1] = double2(0, lineY+1);
+					quadratics[curveIdx].p[2] = double2(100, lineY);
 
-					// special case 1 (line 1)
+					// special case 1 (line 1, not evenly spaced points)
 					lineY -= 10.0;
 					curveIdx++;
 
 					quadratics[curveIdx].p[0] = double2(-90, lineY);
-					quadratics[curveIdx].p[1] = double2(20, lineY);
+					quadratics[curveIdx].p[1] = double2(20, lineY+6);
 					quadratics[curveIdx].p[2] = double2(88, lineY);
 
 					// special case 2 (A.x == 0)
@@ -2216,11 +2216,11 @@ public:
 					double2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
 					assert(A.X == 0);
 
-					// special case 3
+					// special case 3 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = double2(-200.0, 20.0);
-					quadratics[curveIdx].p[1] = double2(-120.0, 10.0);
-					quadratics[curveIdx].p[2] = double2(-200.0, -20.0);
+					quadratics[curveIdx].p[0] = double2(-10.0, 20.0);
+					quadratics[curveIdx].p[1] = double2(-20.0, 80.0);
+					quadratics[curveIdx].p[2] = double2(-100.0, -20.0);
 					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 					 
 				}
@@ -2243,7 +2243,7 @@ public:
 					// test case 6: invisible curve (shouldn't be send to GPU)
 				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
 					// test case 7: continous curuve
-				stipplePatterns[7] = { 25.0f, 25.0f };
+				stipplePatterns[7] = { 25.0f, 25.0f, -1.0f };
 					// test case 8: A = 0 (line), control point is not between end points (doesn't work)
 				stipplePatterns[8] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 9: A = 0 (line), control point is between end points (doesn't work)

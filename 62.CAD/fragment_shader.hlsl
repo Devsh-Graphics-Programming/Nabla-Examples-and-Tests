@@ -44,6 +44,7 @@ struct LineStyleClipper
     
     float2_t operator()(const float t)
     {
+        //const float arcLen = arcLenCalc.calcArcLen(t);
         const float arcLen = arcLenCalc.calcArcLen(t);
         float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
         ArrayAccessor stippleAccessor = { styleIdx };
@@ -123,7 +124,7 @@ float4 main(PSInput input) : SV_TARGET
             BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(styleIdx, quadratic, arcLenCalc);
             distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);
         }
-
+        
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
