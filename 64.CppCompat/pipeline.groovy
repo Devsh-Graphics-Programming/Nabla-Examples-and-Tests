@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class COBBBuilder extends IBuilder
+class CCPPCompat extends IBuilder
 {
-	public COBBBuilder(Agent _agent, _info)
+	public CCPPCompat(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class COBBBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new COBBBuilder(_agent, _info)
+	return new CCPPCompat(_agent, _info)
 }
 
 return this
