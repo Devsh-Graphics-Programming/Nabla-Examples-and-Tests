@@ -3,6 +3,7 @@
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/core/SRange.h"
 
 enum class ExampleMode
 {
@@ -14,7 +15,7 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
 struct double4x4
@@ -92,7 +93,9 @@ public:
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
 
-	void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
+		// TODO[Erfan]: review the logic of this func
+	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
+	//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
 	{
 		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
 
@@ -184,6 +187,8 @@ public:
 
 		return ret;
 	}
+
+	inline bool isVisible() const { return stipplePatternSize != -1; }
 
 private:
 
@@ -584,16 +589,16 @@ public:
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
-		const LineStyle& lineStyle,
+		const CPULineStyle& cpuLineStyle,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		if (!lineStyle.isVisible())
+		if (!cpuLineStyle.isVisible())
 			return intendedNextSubmit;
 
 		uint32_t styleIdx;
-		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = addLineStyle_SubmitIfNeeded(cpuLineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		
 		MainObject mainObj = {};
 		mainObj.styleIdx = styleIdx;
@@ -796,32 +801,33 @@ protected:
 	}
 
 	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
-		const LineStyle& lineStyle,
+		const CPULineStyle& cpuLineStyle,
 		uint32_t& outLineStyleIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		outLineStyleIdx = addLineStyle_Internal(lineStyle);
+		outLineStyleIdx = addLineStyle_Internal(cpuLineStyle);
 		if (outLineStyleIdx == InvalidLineStyleIdx)
 		{
 			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 			resetAllCounters();
-			outLineStyleIdx = addLineStyle_Internal(lineStyle);
+			outLineStyleIdx = addLineStyle_Internal(cpuLineStyle);
 			assert(outLineStyleIdx != InvalidLineStyleIdx);
 		}
 		return intendedNextSubmit;
 	}
 
-	uint32_t addLineStyle_Internal(const LineStyle& lineStyle)
+	uint32_t addLineStyle_Internal(const CPULineStyle& cpuLineStyle)
 	{
+		LineStyle gpuLineStyle = cpuLineStyle.getAsGPUData();
 		LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 		{
 			const LineStyle& itr = stylesArray[i];
 
-			if(itr == lineStyle)
+			if(itr == gpuLineStyle)
 				return i;
 		}
 
@@ -829,7 +835,7 @@ protected:
 			return InvalidLineStyleIdx;
 
 		void* dst = stylesArray + currentLineStylesCount;
-		memcpy(dst, &lineStyle, sizeof(LineStyle));
+		memcpy(dst, &gpuLineStyle, sizeof(LineStyle));
 		return currentLineStylesCount++;
 	}
 
@@ -1711,11 +1717,6 @@ public:
 		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
 	}
 
-	inline float convertToWorldToScreenRatio(float screenToWorldRatio)
-	{
-		return 1.0f / screenToWorldRatio;
-	}
-
 	void beginFrameRender()
 	{
 		auto& cb = m_cmdbuf[m_resourceIx];
@@ -1739,7 +1740,7 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
-		globalData.worldToScreenRatio = convertToWorldToScreenRatio(globalData.screenToWorldRatio);
+		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1967,7 +1968,7 @@ public:
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			LineStyle style = {};
+			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -1984,12 +1985,12 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			LineStyle style = {};
+			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 0.8f;
 			style.color = float4(0.619f, 0.325f, 0.709f, 0.2f);
 
-			LineStyle style2 = {};
+			CPULineStyle style2 = {};
 			style2.screenSpaceLineWidth = 0.0f;
 			style2.worldSpaceLineWidth = 0.8f;
 			style2.color = float4(0.119f, 0.825f, 0.709f, 0.5f);
@@ -2002,12 +2003,12 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
-			LineStyle style = {};
+			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
-			LineStyle style2 = {};
+			CPULineStyle style2 = {};
 			style2.screenSpaceLineWidth = 5.0f;
 			style2.worldSpaceLineWidth = 0.0f;
 			style2.color = float4(0.2f, 0.6f, 0.2f, 0.5f);
@@ -2123,14 +2124,15 @@ public:
 					quadratics[curveIdx].p[0] = double2(-100, lineY);
 					quadratics[curveIdx].p[1] = double2(0, lineY);
 					quadratics[curveIdx].p[2] = double2(100, lineY);
+					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 
 					// special case 1 (line, not evenly spaced points)
 					lineY -= 10.0;
 					curveIdx++;
 
-					quadratics[curveIdx].p[0] = double2(-90, lineY);
+					quadratics[curveIdx].p[0] = double2(-100, lineY);
 					quadratics[curveIdx].p[1] = double2(20, lineY);
-					quadratics[curveIdx].p[2] = double2(88, lineY);
+					quadratics[curveIdx].p[2] = double2(100, lineY);
 
 					// special case 2 (folded line)
 					lineY -= 10.0;
@@ -2139,6 +2141,7 @@ public:
 					quadratics[curveIdx].p[0] = double2(-100, lineY);
 					quadratics[curveIdx].p[1] = double2(200, lineY);
 					quadratics[curveIdx].p[2] = double2(100, lineY);
+
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
@@ -2183,9 +2186,9 @@ public:
 				stipplePatterns[8] = {};
 					// test case 9: max pattern size
 				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
-					// test case 8: A = 0 (line), control point is not between end points (doesn't work)
+					// test case 8: A = 0 (line), evenly distributed controll points (doesn't work)
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 9: A = 0 (line), control point is between end points (doesn't work)
+					// test case 9: A = 0 (line), not evenly distributed controll points (doesn't work)
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 9: A = 0 (line), folds itself (doesn't work)
 				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
@@ -2196,14 +2199,13 @@ public:
 
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					cpuLineStyles[i].prepareGPUStipplePatternData(stipplePatterns[i]);
+					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
 					polylines[i].addQuadBeziers({ quadratics[i] });
 				}
 
 			}
-
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i].getAsGPUData(), submissionQueue, submissionFence, intendedNextSubmit);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);

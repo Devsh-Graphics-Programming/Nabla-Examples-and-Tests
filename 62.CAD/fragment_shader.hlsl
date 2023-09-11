@@ -18,16 +18,16 @@ void endInvocationInterlockEXT();
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
-template<typename float_t, typename ArcLenCalculator>
+template<typename float_t, typename CurveType>
 struct LineStyleClipper
 {
     using float2_t = vector<float_t, 2>;
 
-    static LineStyleClipper<float_t, ArcLenCalculator> construct(uint32_t styleIdx, 
-                                                     typename nbl::hlsl::shapes::Quadratic<float_t> quadratic,
-                                                     ArcLenCalculator arcLenCalc)
+    static LineStyleClipper<float_t, CurveType> construct(uint32_t styleIdx, 
+                                                          CurveType curve,
+                                                          typename CurveType::ArcLenCalculator arcLenCalc)
     {
-        LineStyleClipper<float_t, ArcLenCalculator> ret = { styleIdx, quadratic, arcLenCalc };
+        LineStyleClipper<float_t, CurveType> ret = { styleIdx, curve, arcLenCalc };
         return ret;
     }
     
@@ -59,8 +59,8 @@ struct LineStyleClipper
             float t0 = t0NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             float t1 = t1NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             
-            t0 = arcLenCalc.calcArcLenInverse(arcLen + t0, 0.000001f, 0.5f, quadratic);
-            t1 = arcLenCalc.calcArcLenInverse(arcLen + t1, 0.000001f, 0.5f, quadratic);
+            t0 = arcLenCalc.calcArcLenInverse(curve, arcLen + t0, 0.000001f, 0.5f);
+            t1 = arcLenCalc.calcArcLenInverse(curve, arcLen + t1, 0.000001f, 0.5f);
             
             t0 = clamp(t0, 0.0, 1.0);
             t1 = clamp(t1, 0.0, 1.0);
@@ -72,11 +72,11 @@ struct LineStyleClipper
     }
   
     uint32_t styleIdx;
-    typename nbl::hlsl::shapes::Quadratic<float_t> quadratic;
-    ArcLenCalculator arcLenCalc;
+    CurveType curve;
+    typename CurveType::ArcLenCalculator arcLenCalc;
 };
 
-typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator> BezierLineStyleClipper_float;
+typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float> > BezierLineStyleClipper_float;
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -104,7 +104,7 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::QUAD_BEZIER)
     {
         nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-        nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator arcLenCalc = input.getAnalyticArcLengthCalculator();
+        nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator arcLenCalc = input.getQuadraticArcLenCalculator();
         
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float lineThickness = input.getLineThickness();
@@ -162,7 +162,7 @@ float4 main(PSInput input) : SV_TARGET
 #elif defined(NBL_DRAW_ARC_LENGTH)
     
     nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-    QuadBezierAnalyticArcLengthCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
+    QuadBezierArcLenCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
     nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
     preCompValues.lenA2 = preCompValues_calculator.lenA2;
     preCompValues.AdotB = preCompValues_calculator.AdotB;

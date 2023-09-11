@@ -68,9 +68,7 @@ struct LineStyle
     float recpiprocalStipplePatternLen;
     float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
     float phaseShift;
-#ifdef __cplusplus
-    bool isVisible() const { return stipplePatternSize != -1; }
-#endif
+    
     inline bool hasStipples()
     {
         return stipplePatternSize > 0 ? true : false;
@@ -116,7 +114,7 @@ struct PSInput
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
-        // QuadBezierAnalyticArcLengthCalculator<float>
+        // ArcLenCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     
     // TODO[Lucas]: you will need more data here, this struct is what gets sent from vshader to fshader
@@ -174,15 +172,15 @@ struct PSInput
     
     // data3.zw + data4
     
-    void setPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator preCompData) 
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData) 
     {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
     
-    nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator getAnalyticArcLengthCalculator()
+    nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator getQuadraticArcLenCalculator()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
 };
 

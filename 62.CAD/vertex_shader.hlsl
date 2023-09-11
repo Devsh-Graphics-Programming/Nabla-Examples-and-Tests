@@ -253,10 +253,10 @@ PSInput main(uint vertexID : SV_VertexID)
         
         nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
         nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
-        nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::AnalyticArcLengthCalculator::construct(quadratic);
+        nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(quadratic);
 
         outV.setQuadratic(quadratic);
-        outV.setPrecomputedArcLenData(preCompData);
+        outV.setQuadraticPrecomputedArcLenData(preCompData);
 
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;
         float Radius = length(Mid - transformedPoints[0u]) / 2.0f;
@@ -414,7 +414,7 @@ PSInput main(uint vertexID : SV_VertexID)
     
     
 // Make the cage fullscreen for testing:
-#if 0
+#if 1
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)
