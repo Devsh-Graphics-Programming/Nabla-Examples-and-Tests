@@ -345,6 +345,36 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
+		// TODO: Optimize this
+		QuadraticBezierInfo splitCurveTakeLeft(QuadraticBezierInfo curve, double t)
+		{
+			QuadraticBezierInfo outputCurve;
+		    outputCurve.p[0] = curve.p[0];
+		    outputCurve.p[1] = (1-t) * curve.p[0] + t * curve.p[1];
+		    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
+		
+		    return outputCurve;
+		}
+		QuadraticBezierInfo splitCurveTakeRight(QuadraticBezierInfo curve, double t)
+		{
+			QuadraticBezierInfo outputCurve;
+		    outputCurve.p[0] = curve.p[2];
+		    outputCurve.p[1] = (1-t) * curve.p[1] + t * curve.p[2];
+		    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
+		
+		    return outputCurve;
+		}
+		
+		QuadraticBezierInfo splitCurveRange(QuadraticBezierInfo curve, double left, double right)
+		{
+		    return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
+		}
+
+		QuadraticBezierInfo getSplitCurve()
+		{
+			return splitCurveRange(*originalBezier, t_start, t_end);
+		}
+
 		double intersect(const Segment& other) const
 		{
 			// TODO
@@ -363,12 +393,75 @@ public:
 		}
 	};
 
+	// TODO: put these inside of Segment
+
+	double intersectOrtho(const QuadraticBezierInfo* bezier, double coordinate, int major)
+	{
+		// TODO: implement this
+		return 0.0;
+	}
+
 	double2 evaluteBezier(const QuadraticBezierInfo* bezier, double t)
 	{
 		double2 position = bezier->p[0] * (1.0 - t) * (1.0 - t) 
 					+ 2.0 * bezier->p[1] * (1.0 - t) * t
 					+       bezier->p[2] * t         * t;
 		return position;
+	}
+
+	double getCurveRoot(double p0, double p1, double p2)
+	{
+		double a = p0 - 2.0 * p1 + p2;
+		double b = 2.0 * (p1 - p0);
+		double c = p0;
+		
+		double det = b * b - 4 * a * c;
+		double rcp = 0.5 / a;
+
+		double detSqrt = sqrt(det) * rcp;
+		double tmp = b * rcp;
+
+		double2 roots = double2(-detSqrt, detSqrt) - tmp;
+		assert(roots.X == roots.Y);
+		assert(!std::isnan(roots.X)); // checks if it's not nan
+		return roots.X;
+	}
+
+	// https://pomax.github.io/bezierinfo/#extremities
+	double2 getRoots(const QuadraticBezierInfo* bezier)
+	{
+		// Quadratic coefficients
+		double2 A = bezier->p[0] - 2.0 * bezier->p[1] + bezier->p[2];
+		double2 B = 2.0 * (bezier->p[1] - bezier->p[0]);
+		double2 C = bezier->p[0];
+
+		return { getCurveRoot(A.X, B.X, C.X), getCurveRoot(A.Y, B.Y, C.Y) };
+	}
+
+	// https://pomax.github.io/bezierinfo/#boundingbox
+	std::pair<double2, double2> getBezierBoundingBox(const QuadraticBezierInfo* bezier)
+	{
+		double2 roots = Hatch::getRoots(bezier);
+		double searchT[4];
+		searchT[0] = 0.0;
+		searchT[1] = 1.0;
+		searchT[2] = roots.X;
+		searchT[3] = roots.Y;
+
+		double2 min = double2(std::numeric_limits<double>::infinity());
+		double2 max = double2(-std::numeric_limits<double>::infinity());
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			double t = searchT[i];
+			if (t < 0.0 || t > 1.0) 
+				continue;
+			double2 value = Hatch::evaluteBezier(bezier, t);
+			min = double2(std::min(min.X, value.X), std::min(min.Y, value.Y));
+			max = double2(std::max(max.X, value.X), std::max(max.Y, value.Y));
+		}
+
+		return std::pair<double2, double2>(min, max);
 	}
 
 	Hatch(core::SRange<CPolyline> lines)
@@ -491,8 +584,7 @@ public:
 				auto oit = activeCandidates.begin();
 				for (auto iit= activeCandidates.begin(); iit!= activeCandidates.end(); iit++)
 				{
-					// TODO: intersectOrtho
-					const double new_t_start = 0.0; //iit->originalBezier->intersectOrtho(newMajor, major);
+					const double new_t_start = Hatch::intersectOrtho(iit->originalBezier, newMajor, major);
 					// don't remove if not scrolled past the end of the segment
 					if (new_t_start<iit->t_end)
 					{
@@ -511,8 +603,20 @@ public:
 				{
 					auto& left = activeCandidates[i++];
 					auto& right = activeCandidates[i++];
-					// TODO : spawn the quads
-					// (create CurveBox struct and add it)
+
+					CurveHatchBox curveBox;
+					QuadraticBezierInfo curveMin = left.getSplitCurve();
+					QuadraticBezierInfo curveMax = right.getSplitCurve();
+
+					auto curveMinAabb = Hatch::getBezierBoundingBox(&curveMin);
+					auto curveMaxAabb = Hatch::getBezierBoundingBox(&curveMax);
+					curveBox.aabbMin = double2(std::min(curveMinAabb.first.X, curveMaxAabb.first.X), std::min(curveMinAabb.first.Y, curveMaxAabb.first.Y));
+					curveBox.aabbMax = double2(std::min(curveMinAabb.second.X, curveMaxAabb.second.X), std::min(curveMinAabb.second.Y, curveMaxAabb.second.Y));
+
+					memcpy(&curveBox.curveMin[0], &curveMin.p[0], sizeof(double2) * 3);
+					memcpy(&curveBox.curveMax[0], &curveMax.p[0], sizeof(double2) * 3);
+
+					hatchBoxes.push_back(curveBox);
 				}
 				activeCandidates.resize(newSize);
 				lastMajor = newMajor;
@@ -2162,21 +2266,20 @@ public:
 			style.worldSpaceLineWidth = 0.8f;
 			style.color = float4(0.619f, 0.325f, 0.709f, 0.9f);
 
-			Hatch hatch = {};
-			{
-				Hatch::CurveHatchBox hatchBox = {};
-				hatchBox.aabbMin = nbl::core::vector2d<double>(-230.0, -100.0);
-				hatchBox.aabbMax = nbl::core::vector2d<double>(230.0, 100.0);
-				hatchBox.curveMin[0] = nbl::core::vector2d<double>(0.0, 1.0);
-				hatchBox.curveMin[1] = nbl::core::vector2d<double>(0.1, 0.3);
-				hatchBox.curveMin[2] = nbl::core::vector2d<double>(0.2, 0.0);
-				hatchBox.curveMax[0] = nbl::core::vector2d<double>(0.8, 1.0);
-				hatchBox.curveMax[1] = nbl::core::vector2d<double>(0.9, 0.7);
-				hatchBox.curveMax[2] = nbl::core::vector2d<double>(1.0, 0.5);
+			CPolyline polyline;
+			std::vector<QuadraticBezierInfo> beziers;
+			beziers.push_back({
+				nbl::core::vector2d<double>(0.0, 1.0),
+				nbl::core::vector2d<double>(0.1, 0.3),
+				nbl::core::vector2d<double>(0.2, 0.0)});
+			beziers.push_back({
+				nbl::core::vector2d<double>(0.8, 1.0),
+				nbl::core::vector2d<double>(0.9, 0.7),
+				nbl::core::vector2d<double>(1.0, 0.5)});
+			polyline.addQuadBeziers(std::move(beziers));
 
-				hatch.hatchBoxes.push_back(hatchBox);
-			}
-
+			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+			Hatch hatch(polylines);
 			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)
