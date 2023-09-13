@@ -378,7 +378,7 @@ public:
 		double intersect(const Segment& other) const
 		{
 			// TODO
-			return 0.0;
+			return core::nan<double>();
 			// const double [t_self,t_other] = Bezier::intersect(*originalBezier,*other.originalBezier);
 			// // note the use of `<` and not `<=` because we don't want to report intersection with segment ends
 			// if (t_start<t_self && t_self<t_end && other.t_start<t_other && t_other<other.t_end)
@@ -476,7 +476,6 @@ public:
 		auto getMinor = [](double2 value) { return minor == 0  ? value.X : value.Y; };
 
 		{
-			// TODO make all the lines monotonic?
 			std::vector<Segment> segments;
 			for (CPolyline& line : lines)
 			{
