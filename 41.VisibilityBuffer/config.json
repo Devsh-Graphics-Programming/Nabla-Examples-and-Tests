@@ -1,0 +1,24 @@
+{
+  "gpu": "any",
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": false,
+  "mediaAccess": false,
+  "scriptPath": "",
+  "dependencies": [ 
+    ""
+  ],
+  "data": [
+    {
+      "dependencies": [ 
+        ""
+      ],
+      "command": [
+        ""
+      ],
+      "outputs": [
+        ""
+      ]
+    }
+  ]
+}
