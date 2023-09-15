@@ -335,7 +335,347 @@ public:
 	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
 	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
 
-	// TODO: Creating hatches from polylines with the above algo
+	// TODO: start using this struct
+	struct QuadraticBezier
+	{
+		double2 A;
+		double2 B;
+		double2 C;
+	};
+
+	template<class _Ty, size_t _Size>
+	struct EquationSolveResult
+	{
+		size_t uniqueRoots = 0u;
+		std::array<_Ty, _Size> roots = {};
+	};
+
+	static EquationSolveResult<double, 2> SolveQuadric(double c[3])
+	{
+		double p, q, D;
+
+		/* normal form: x^2 + px + q = 0 */
+
+		p = c[1] / (2 * c[2]);
+		q = c[0] / c[2];
+
+		D = p * p - q;
+
+		if (D == 0.0)
+		{
+			return { 1, { -p } };
+		}
+		else if (D < 0)
+			return { 0, {}  };
+		else /* if (D > 0) */
+		{
+			double sqrt_D = sqrt(D);
+			return { 2, { sqrt_D - p, -sqrt_D - p } };
+		}
+	}
+
+	// From https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+	// TODO: Refactor this code (needs better names among other things)
+	static EquationSolveResult<double, 3> SolveCubic(double c[4])
+	{
+		int     i;
+		double  sub;
+		double  A, B, C;
+		double  sq_A, p, q;
+		double  cb_p, D;
+		EquationSolveResult<double, 3> s;
+
+		/* normal form: x^3 + Ax^2 + Bx + C = 0 */
+
+		A = c[2] / c[3];
+		B = c[1] / c[3];
+		C = c[0] / c[3];
+
+		/*  substitute x = y - A/3 to eliminate quadric term:
+		x^3 +px + q = 0 */
+
+		sq_A = A * A;
+		p = 1.0 / 3 * (-1.0 / 3 * sq_A + B);
+		q = 1.0 / 2 * (2.0 / 27 * A * sq_A - 1.0 / 3 * A * B + C);
+
+		/* use Cardano's formula */
+
+		cb_p = p * p * p;
+		D = q * q + cb_p;
+
+		if (D == 0.0)
+		{
+			if (q == 0.0) /* one triple solution */
+			{
+				s = { 1, { 0 } };
+			}
+			else /* one single and one double solution */
+			{
+				double u = cbrt(-q);
+				s = { 2, { 2 * u, -u } };
+			}
+		}
+		else if (D < 0) /* Casus irreducibilis: three real solutions */
+		{
+			double phi = 1.0 / 3 * acos(-q / sqrt(-cb_p));
+			double t = 2 * sqrt(-p);
+
+			s = { 3, { t * cos(phi), -t * cos(phi + nbl::core::PI<double>() / 3), -t * cos(phi - nbl::core::PI<double>() / 3) } };
+		}
+		else /* one real solution */
+		{
+			double sqrt_D = sqrt(D);
+			double u = cbrt(sqrt_D - q);
+			double v = -cbrt(sqrt_D + q);
+
+			s = { 2, { u + v }  };
+		}
+
+		/* resubstitute */
+
+		sub = 1.0 / 3 * A;
+
+		for (i = 0; i < s.uniqueRoots; ++i)
+			s.roots[i] -= sub;
+
+		return s;
+	}
+
+
+	static EquationSolveResult<double, 4> SolveQuartic(double c[5])
+	{
+		double  coeffs[4];
+		double  z, u, v, sub;
+		double  A, B, C, D;
+		double  sq_A, p, q, r;
+		int     i;
+		EquationSolveResult<double, 4> s;
+
+		/* normal form: x^4 + Ax^3 + Bx^2 + Cx + D = 0 */
+
+		A = c[3] / c[4];
+		B = c[2] / c[4];
+		C = c[1] / c[4];
+		D = c[0] / c[4];
+
+		/*  substitute x = y - A/4 to eliminate cubic term:
+		x^4 + px^2 + qx + r = 0 */
+
+		sq_A = A * A;
+		p = -3.0 / 8 * sq_A + B;
+		q = 1.0 / 8 * sq_A * A - 1.0 / 2 * A * B + C;
+		r = -3.0 / 256 * sq_A * sq_A + 1.0 / 16 * sq_A * B - 1.0 / 4 * A * C + D;
+
+		if (r == 0.0)
+		{
+			/* no absolute term: y(y^3 + py + q) = 0 */
+
+			coeffs[0] = q;
+			coeffs[1] = p;
+			coeffs[2] = 0;
+			coeffs[3] = 1;
+
+			auto cubic = SolveCubic(coeffs);
+			s = { cubic.uniqueRoots + 1, {} };
+			std::copy(cubic.roots.begin(), cubic.roots.end(), s.roots.begin());
+			s.roots[cubic.uniqueRoots] = 0;
+		}
+		else
+		{
+			/* solve the resolvent cubic ... */
+
+			coeffs[0] = 1.0 / 2 * r * p - 1.0 / 8 * q * q;
+			coeffs[1] = -r;
+			coeffs[2] = -1.0 / 2 * p;
+			coeffs[3] = 1;
+
+			auto cubic = SolveCubic(coeffs);
+			s = { cubic.uniqueRoots, {} };
+			std::copy(cubic.roots.begin(), cubic.roots.end(), s.roots.begin());
+
+			/* ... and take the one real solution ... */
+
+			z = s.roots[0];
+
+			/* ... to build two quadric equations */
+
+			u = z * z - r;
+			v = 2 * z - p;
+
+			if (u == 0.0)
+				u = 0;
+			else if (u > 0)
+				u = sqrt(u);
+			else
+				return { 0, {}  };
+
+			if (v == 0.0)
+				v = 0;
+			else if (v > 0)
+				v = sqrt(v);
+			else
+				return { 0, {} };
+
+			coeffs[0] = z - u;
+			coeffs[1] = q < 0 ? -v : v;
+			coeffs[2] = 1;
+
+			auto quadric1 = SolveQuadric(coeffs);
+
+			coeffs[0] = z + u;
+			coeffs[1] = q < 0 ? v : -v;
+			coeffs[2] = 1;
+
+			auto quadric2 = SolveQuadric(coeffs);
+
+			s = { quadric1.uniqueRoots + quadric2.uniqueRoots, {} };
+			std::copy(quadric1.roots.begin(), quadric1.roots.end(), s.roots.begin());
+			std::copy(quadric2.roots.begin(), quadric2.roots.end(), s.roots.begin() + quadric1.uniqueRoots);
+		}
+
+		/* resubstitute */
+
+		sub = 1.0 / 4 * A;
+
+		for (i = 0; i < s.uniqueRoots; ++i)
+			s.roots[i] -= sub;
+
+		return s;
+	}
+
+	static constexpr double QUARTIC_THRESHHOLD = 1e-10;
+
+	static std::array<double, 2> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
+	{
+		std::array<double, 2> t; // only two candidates in range, ever
+
+		const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
+		const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
+		if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
+		{
+			double params[5] = { e, d, c, b, a };
+			auto res = Hatch::SolveQuartic(params);
+			std::copy(res.roots.data(), res.roots.data() + t.size(), t.begin());
+		}
+		else if (abs(b) > quadCoeffMag)
+		{
+			double params[4] = { d, c, b, a };
+			auto res = Hatch::SolveCubic(params);
+			std::copy(res.roots.data(), res.roots.data() + t.size(), t.begin());
+		}
+		else
+		{
+			double params[3] = { c, b, a };
+			auto res = Hatch::SolveQuadric(params);
+			std::copy(res.roots.data(), res.roots.data() + t.size(), t.begin());
+		}
+
+		// TODO: check that this clamp works with t[i] as NaN
+		for (auto i = 0; i < 2; i++)
+			t[i] = nbl::core::clamp(t[i], t_start, t_end);
+
+		// fix up a fuckup where both roots are NaN or were on the same side of the valid integral
+		if (!(t[0] != t[1]))
+			t[0] = t[0] != t_start ? t_start : t_end;
+
+		// TODO: do some Halley or Householder method steps on t
+		//while ()
+		//{
+		//}
+
+		// neither t still not in range, your beziers don't intersect
+		return t;
+	}
+
+	// TODO: put these inside of Segment?
+
+	// (only works for monotonic curves)
+	static double getCurveRoot(double p0, double p1, double p2)
+	{
+		double a = p0 - 2.0 * p1 + p2;
+		double b = 2.0 * (p1 - p0);
+		double c = p0;
+
+		double det = b * b - 4 * a * c;
+		double rcp = 0.5 / a;
+
+		double detSqrt = sqrt(det) * rcp;
+		double tmp = b * rcp;
+
+		double2 roots = double2(-detSqrt, detSqrt) - tmp;
+		assert(roots.X == roots.Y);
+		assert(!std::isnan(roots.X)); // checks if it's not nan
+		return roots.X;
+	}
+
+	static double intersectOrtho(const QuadraticBezierInfo* bezier, double coordinate, int major)
+	{
+		// https://pomax.github.io/bezierinfo/#intersections
+		double p[3];
+		for (uint32_t i = 0; i < 3; i++)
+			p[i] = major ? bezier->p[i].Y : bezier->p[i].X;
+
+		for (uint32_t i = 0; i < 3; i++)
+			p[i] += coordinate;
+
+		return Hatch::getCurveRoot(p[0], p[1], p[2]);
+	}
+
+	static double2 evaluteBezier(const QuadraticBezierInfo* bezier, double t)
+	{
+		double2 position = bezier->p[0] * (1.0 - t) * (1.0 - t)
+			+ 2.0 * bezier->p[1] * (1.0 - t) * t
+			+ bezier->p[2] * t * t;
+		return position;
+	}
+
+	// https://pomax.github.io/bezierinfo/#pointvectors
+	static double2 tangent(const QuadraticBezierInfo* bezier, double t)
+	{
+		// TODO: figure out a tangent algorithm for when this becomes A, B, C
+		auto derivativeOrder1First = 2.0 * (bezier->p[1] - bezier->p[0]);
+		auto derivativeOrder1Second = 2.0 * (bezier->p[2] - bezier->p[1]);
+		auto tangent = (1.0 - t) * derivativeOrder1First + t * derivativeOrder1Second;
+		auto len = sqrt(tangent.X * tangent.X + tangent.Y * tangent.Y);
+		return tangent / len;
+	}
+
+	// https://pomax.github.io/bezierinfo/#extremities
+	static double2 getRoots(const QuadraticBezierInfo* bezier)
+	{
+		// Quadratic coefficients
+		double2 A = bezier->p[0] - 2.0 * bezier->p[1] + bezier->p[2];
+		double2 B = 2.0 * (bezier->p[1] - bezier->p[0]);
+		double2 C = bezier->p[0];
+
+		return { getCurveRoot(A.X, B.X, C.X), getCurveRoot(A.Y, B.Y, C.Y) };
+	}
+
+	// https://pomax.github.io/bezierinfo/#boundingbox
+	static std::pair<double2, double2> getBezierBoundingBox(const QuadraticBezierInfo* bezier)
+	{
+		double2 roots = Hatch::getRoots(bezier);
+		double searchT[4];
+		searchT[0] = 0.0;
+		searchT[1] = 1.0;
+		searchT[2] = roots.X;
+		searchT[3] = roots.Y;
+
+		double2 min = double2(std::numeric_limits<double>::infinity());
+		double2 max = double2(-std::numeric_limits<double>::infinity());
+
+		for (uint32_t i = 0; i < 4; i++)
+		{
+			double t = searchT[i];
+			if (t < 0.0 || t > 1.0)
+				continue;
+			double2 value = Hatch::evaluteBezier(bezier, t);
+			min = double2(std::min(min.X, value.X), std::min(min.Y, value.Y));
+			max = double2(std::max(max.X, value.X), std::max(max.Y, value.Y));
+		}
+
+		return std::pair<double2, double2>(min, max);
+	}
 
 	class Segment 
 	{
@@ -345,34 +685,17 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
-		// TODO: Optimize this
-		QuadraticBezierInfo splitCurveTakeLeft(QuadraticBezierInfo curve, double t)
-		{
-			QuadraticBezierInfo outputCurve;
-		    outputCurve.p[0] = curve.p[0];
-		    outputCurve.p[1] = (1-t) * curve.p[0] + t * curve.p[1];
-		    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
-		
-		    return outputCurve;
-		}
-		QuadraticBezierInfo splitCurveTakeRight(QuadraticBezierInfo curve, double t)
-		{
-			QuadraticBezierInfo outputCurve;
-		    outputCurve.p[0] = curve.p[2];
-		    outputCurve.p[1] = (1-t) * curve.p[1] + t * curve.p[2];
-		    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
-		
-		    return outputCurve;
-		}
-		
-		QuadraticBezierInfo splitCurveRange(QuadraticBezierInfo curve, double left, double right)
-		{
-		    return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
-		}
-
 		QuadraticBezierInfo getSplitCurve()
 		{
-			return splitCurveRange(*originalBezier, t_start, t_end);
+			double2 a = originalBezier->p[0] - 2.0 * originalBezier->p[1] + originalBezier->p[2];
+			double2 b = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
+			double2 c = originalBezier->p[0];
+
+			return { 
+				a * (t_end - t_start) * (t_end - t_start),
+				(t_end - t_start) * (2 * a * t_start + b),
+				Hatch::evaluteBezier(originalBezier, t_start)
+			};
 		}
 
 		double intersect(const Segment& other) const
@@ -392,77 +715,6 @@ public:
 			return false;
 		}
 	};
-
-	// TODO: put these inside of Segment
-
-	double intersectOrtho(const QuadraticBezierInfo* bezier, double coordinate, int major)
-	{
-		// TODO: implement this
-		return 0.0;
-	}
-
-	double2 evaluteBezier(const QuadraticBezierInfo* bezier, double t)
-	{
-		double2 position = bezier->p[0] * (1.0 - t) * (1.0 - t) 
-					+ 2.0 * bezier->p[1] * (1.0 - t) * t
-					+       bezier->p[2] * t         * t;
-		return position;
-	}
-
-	double getCurveRoot(double p0, double p1, double p2)
-	{
-		double a = p0 - 2.0 * p1 + p2;
-		double b = 2.0 * (p1 - p0);
-		double c = p0;
-		
-		double det = b * b - 4 * a * c;
-		double rcp = 0.5 / a;
-
-		double detSqrt = sqrt(det) * rcp;
-		double tmp = b * rcp;
-
-		double2 roots = double2(-detSqrt, detSqrt) - tmp;
-		assert(roots.X == roots.Y);
-		assert(!std::isnan(roots.X)); // checks if it's not nan
-		return roots.X;
-	}
-
-	// https://pomax.github.io/bezierinfo/#extremities
-	double2 getRoots(const QuadraticBezierInfo* bezier)
-	{
-		// Quadratic coefficients
-		double2 A = bezier->p[0] - 2.0 * bezier->p[1] + bezier->p[2];
-		double2 B = 2.0 * (bezier->p[1] - bezier->p[0]);
-		double2 C = bezier->p[0];
-
-		return { getCurveRoot(A.X, B.X, C.X), getCurveRoot(A.Y, B.Y, C.Y) };
-	}
-
-	// https://pomax.github.io/bezierinfo/#boundingbox
-	std::pair<double2, double2> getBezierBoundingBox(const QuadraticBezierInfo* bezier)
-	{
-		double2 roots = Hatch::getRoots(bezier);
-		double searchT[4];
-		searchT[0] = 0.0;
-		searchT[1] = 1.0;
-		searchT[2] = roots.X;
-		searchT[3] = roots.Y;
-
-		double2 min = double2(std::numeric_limits<double>::infinity());
-		double2 max = double2(-std::numeric_limits<double>::infinity());
-
-		for (uint32_t i = 0; i < 4; i++)
-		{
-			double t = searchT[i];
-			if (t < 0.0 || t > 1.0) 
-				continue;
-			double2 value = Hatch::evaluteBezier(bezier, t);
-			min = double2(std::min(min.X, value.X), std::min(min.Y, value.Y));
-			max = double2(std::max(max.X, value.X), std::max(max.Y, value.Y));
-		}
-
-		return std::pair<double2, double2>(min, max);
-	}
 
 	Hatch(core::SRange<CPolyline> lines)
 	{
@@ -533,14 +785,30 @@ public:
 		};
 
 		// if we weren't spawning quads, we could just have unsorted `vector<Bezier*>`
-		auto candidateComparator = [](const Segment& lhs, const Segment& rhs)
+		auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
 		{
-		// order them by minor coordinate, and derivatives at `t_start`
-			// do the comparisons (TODO)
-			return true;
-			// lhs.originalBezier->evaluate(t_start)[chooseMinor]
-			// lhs.originalBezier->evaluate_dydx(t_start)
-			// lhs.originalBezier->evaluate_d2ydx2(t_start)
+			// btw you probably want the beziers in Quadratic At^2+B+C form, not control points
+			double _lhs = getMajor(evaluteBezier(lhs.originalBezier, lhs.t_start));
+			double _rhs = getMajor(evaluteBezier(rhs.originalBezier, lhs.t_start));
+			if (_lhs == _rhs)
+			{
+				// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
+				// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
+				double2 lTan = tangent(lhs.originalBezier, lhs.t_start);
+				double2 rTan = tangent(lhs.originalBezier, rhs.t_start);
+				_lhs = getMinor(lTan) * getMajor(rTan);
+				_rhs = getMinor(rTan) * getMajor(lTan);
+				if (_lhs == _rhs)
+				{
+					// TODO: this is getting the polynominal A for the bezier
+					// when bezier gets converted to A, B, C polynominal this is just ->A
+					double2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+					double2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+					_lhs = getMinor(lAcc) * getMajor(rTan);
+					_rhs = getMinor(rTan) * getMajor(lAcc);
+				}
+			}
+			return _lhs < _rhs;
 		};
 
 		double lastMajor = 0.0;
