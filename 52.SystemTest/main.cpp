@@ -304,7 +304,8 @@ int main(int argc, char** argv)
 		};
 
 		testFile("nbl/builtin/glsl/utils/acceleration_structures.glsl"); // nbl internal BRs
-		testFile("dxc/nbl/builtin/hlsl/spirv_intrinsics/spirv.hpp"); // dxc internal BRs ("dxc" part is mount point, left part is an alias). If you were to use pure archive like below not getFile directly from Nabla system then no need to add "dxc" at the beginning of the hash path
+		testFile("spirv/1.2/spirv.hpp"); // dxc internal BRs
+		testFile("boost/preprocessor.hpp"); // boost preprocessor internal BRs
 	}
 	// Custom case
 	{
