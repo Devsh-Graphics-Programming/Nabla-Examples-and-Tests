@@ -12,7 +12,7 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-//#define NBL_DRAW_ARC_LENGTH
+#define NBL_DRAW_ARC_LENGTH
 
 // TODO[Lucas]: have a function for quadratic equation solving
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
@@ -70,7 +70,7 @@ struct LineStyleClipper
         else
             return clamp(t, 0.0, 1.0).xx;
     }
-  
+    
     uint32_t styleIdx;
     CurveType curve;
     typename CurveType::ArcLenCalculator arcLenCalc;
@@ -110,7 +110,7 @@ float4 main(PSInput input) : SV_TARGET
         const float lineThickness = input.getLineThickness();
         float distance;
         
-        if (!lineStyles[styleIdx].hasStipples())
+        if (lineStyles[styleIdx].hasStipples())
         {
             distance = quadratic.signedDistance(input.position.xy, lineThickness);
         }
@@ -130,7 +130,7 @@ float4 main(PSInput input) : SV_TARGET
         and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
         you will use input.getXXX() to get values needed for this computation
     */
-
+    
     uint2 fragCoord = uint2(input.position.xy);
     float4 col;
     
@@ -160,25 +160,43 @@ float4 main(PSInput input) : SV_TARGET
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha)/255.f;
 #elif defined(NBL_DRAW_ARC_LENGTH)
-    
     nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-    QuadBezierArcLenCalculator<float> preCompValues_calculator = input.getPrecomputedArcLenData();
-    nbl::hlsl::shapes::Quadratic<float>::ArcLengthPrecomputedValues preCompValues;
-    preCompValues.lenA2 = preCompValues_calculator.lenA2;
-    preCompValues.AdotB = preCompValues_calculator.AdotB;
-    preCompValues.a = preCompValues_calculator.a;
-    preCompValues.b = preCompValues_calculator.b;
-    preCompValues.c = preCompValues_calculator.c;
-    preCompValues.b_over_4a = preCompValues_calculator.b_over_4a;
+    nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator arcLenCalc = input.getQuadraticArcLenCalculator();
     
-    float tA = quadratic.ud(input.position.xy).y;
-
-    float bezierCurveArcLen = quadratic.calcArcLen(1.0, preCompValues);
-    float arcLen = quadratic.calcArcLen(tA, preCompValues);
+    const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+    //BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(styleIdx, quadratic, arcLenCalc);
+    nbl::hlsl::shapes::Quadratic<float>::DefaultClipper clipper = nbl::hlsl::shapes::Quadratic<float>::DefaultClipper::construct();
+    const float lineThickness = input.getLineThickness();
     
-    float resultColorIntensity = quadratic.calcArcLenInverse(arcLen, 0.000001f, arcLen / bezierCurveArcLen, preCompValues);
+    float tA = quadratic.ud(input.position.xy, lineThickness, clipper).y;
 
-    col = float4(0.0f, resultColorIntensity, 0.0f, 1.0f);
+    float bezierCurveArcLen = arcLenCalc.calcArcLen(1.0);
+    float arcLen = arcLenCalc.calcArcLen(tA);
+    
+    float resultColorIntensity = abs(arcLenCalc.calcArcLenInverse(quadratic, arcLen, 0.000001f, arcLen / bezierCurveArcLen) - tA);
+    //float resultColorIntensity = tA;
+    //float resultColorIntensity = abs(arcLen / bezierCurveArcLen - tA);
+    
+    if(isnan(resultColorIntensity))
+        resultColorIntensity = 1.0f;
+        
+    if(resultColorIntensity > exp2(-23))
+        resultColorIntensity = 1.0f;
+        
+    col = float4(resultColorIntensity, 0.0f, 0.0f, 1.0f);
+    //col.w *= localAlpha;
+    
+    //col = float4(arcLen, bezierCurveArcLen, 0.0f, 1.0f);
+    
+    float lenTan = sqrt(tA*(arcLenCalc.a*tA + arcLenCalc.b) + arcLenCalc.c);
+    float logTermA = arcLenCalc.b + 2.0f * sqrt(arcLenCalc.a) * sqrt(arcLenCalc.c);
+    float logTermB = arcLenCalc.b + 2.0f * arcLenCalc.a * tA + 2.0f * sqrt(arcLenCalc.a) * lenTan;
+    
+    //col = float4(tA * (arcLenCalc.a * tA + arcLenCalc.b) + arcLenCalc.c, arcLen, sqrt(arcLenCalc.c), 1.0);
+    //col = float4(logTermA, logTermB, arcLen, 1.0);
+    //col = float4(tA, 0.0f, 0.0f, 1.0f);
+    //col = float4(arcLenCalc.a, arcLenCalc.b, arcLenCalc.c, arcLen);
+    //col = float4(tA, 0.0f, 0.0f, 1.0f);
     
 #else
     col = input.getColor();

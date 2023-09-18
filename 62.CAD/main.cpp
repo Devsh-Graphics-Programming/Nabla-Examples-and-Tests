@@ -16,7 +16,7 @@ enum class ExampleMode
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
 static constexpr bool DebugMode = true;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 struct double4x4
 {
@@ -190,7 +190,8 @@ public:
 
 	inline bool isVisible() const { return stipplePatternSize != -1; }
 
-private:
+	// TODO: private:
+public:
 
 	// gpu stipple pattern data form
 	int32_t stipplePatternSize;
@@ -2085,7 +2086,7 @@ public:
 			constexpr uint32_t SPECIAL_CASE_CNT = 5u;
 
 			CPULineStyle cpuLineStyle;
-			cpuLineStyle.screenSpaceLineWidth = 1.0f;
+			cpuLineStyle.screenSpaceLineWidth = 5.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
 			cpuLineStyle.color = float4(0.0f, 0.3f, 0.0f, 0.5f);
 
@@ -2101,7 +2102,7 @@ public:
 					double2 P1(-41, 118);
 					double2 P2(88, 19);
 
-					const double2 translationVector(0, -10);
+					const double2 translationVector(0, -5);
 
 					uint32_t curveIdx = 0;
 					while(curveIdx < CURVE_CNT - SPECIAL_CASE_CNT)
@@ -2157,7 +2158,7 @@ public:
 					// special case 4 (symetric parabola)
 					curveIdx++;
 					quadratics[curveIdx].p[0] = double2(-100.0, 20.0);
-					quadratics[curveIdx].p[1] = double2(-20.0, 0.0);
+					quadratics[curveIdx].p[1] = double2(2000.0, 0.0);
 					quadratics[curveIdx].p[2] = double2(-100.0, -20.0);
 					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
@@ -2167,7 +2168,8 @@ public:
 				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
 					// test case 0: test curve
-				stipplePatterns[0] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				//stipplePatterns[0] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[0] = { 0.0f, -5.0f, 2.0f, -5.0f };
 					// test case 1: lots of redundant values, should look exactly like stipplePattern[0]
 				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
 					// test case 2:stipplePattern[0] but shifted curve but shifted to left by 2.5f
@@ -2186,23 +2188,28 @@ public:
 				stipplePatterns[8] = {};
 					// test case 9: max pattern size
 				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
-					// test case 8: A = 0 (line), evenly distributed controll points (doesn't work)
+					// test case 10: A = 0 (line), evenly distributed controll points (doesn't work)
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 9: A = 0 (line), not evenly distributed controll points (doesn't work)
+					// test case 11: A = 0 (line), not evenly distributed controll points
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 9: A = 0 (line), folds itself (doesn't work)
+					// test case 12: A = 0 (line), folds itself
 				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 9: curve with A.x = 0
-				stipplePatterns[13] = { 0.5f, -0.5f, 0.1f, -0.5f };
-					// test case 10: long parabola
+					// test case 13: curve with A.x = 0
+				//stipplePatterns[13] = { 0.5f, -0.5f, 0.1f, -0.5f };
+				stipplePatterns[13] = { 0.0f, -0.5f, 0.2f, -0.5f };
+					// test case 14: long parabola
 				stipplePatterns[14] = { 5.0f, -5.0f, 1.0f, -5.0f };
 
+				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
 					polylines[i].addQuadBeziers({ quadratics[i] });
-				}
 
+					activIdx.push_back(i);
+					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
+						cpuLineStyles[i].stipplePatternSize = -1;
+				}
 			}
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], submissionQueue, submissionFence, intendedNextSubmit);
