@@ -7,12 +7,14 @@
   "cmake": {
     "requiredOptions": [ "NBL_BUILD_CEGUI" ]
   }, 
-  "features": {
-    "backend": [],
-    "platform": [],
-    "buildModes": [],
-    "gpuArchitectures": []
-  },
+  "features": [
+    {
+      "backend": "",
+      "platform": "",
+      "buildModes": [],
+      "gpuArchitectures": []
+    }
+  ],
   "dependencies": [],
   "data": [
     {

@@ -7,12 +7,14 @@
   "cmake": {
     "requiredOptions": []
   },
-  "features": {
-    "backend": [],
-    "platform": [],
-    "buildModes": [],
-    "gpuArchitectures": []
-  },
+  "features": [
+    {
+      "backend": "",
+      "platform": "",
+      "buildModes": [],
+      "gpuArchitectures": []
+    }
+  ],
   "dependencies": [],
   "data": [
     {
