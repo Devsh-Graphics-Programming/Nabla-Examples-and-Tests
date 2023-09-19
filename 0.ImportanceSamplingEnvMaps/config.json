@@ -5,8 +5,13 @@
   "isExecuted": false,
   "mediaAccess": false,
   "scriptPath": "",
-  "requiredCMakeRules": [],
-  "usedExtensions": [],
+  "cmake": {
+    "requiredOptions": []
+  },
+  "features": {
+    "backend": [],
+    "windowingSystem": []
+  },
   "dependencies": [],
   "data": [
     {

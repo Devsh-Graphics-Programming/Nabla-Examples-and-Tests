@@ -5,21 +5,21 @@
   "isExecuted": false,
   "mediaAccess": false,
   "scriptPath": "",
-  "requiredCMakeRules": [ "NBL_BUILD_MITSUBA_LOADER",  "NBL_BUILD_RADEON_RAYS" ],
-  "usedExtensions": [],
-  "dependencies": [ 
-    ""
-  ],
+  "cmake": {
+    "requiredOptions": [ "NBL_BUILD_MITSUBA_LOADER",  "NBL_BUILD_RADEON_RAYS" ]
+  }, 
+  "features": {
+    "backend": [],
+    "windowingSystem": []
+  },
+  "dependencies": [],
   "data": [
     {
       "dependencies": [ 
-        ""
       ],
       "command": [
-        ""
       ],
       "outputs": [
-        ""
       ]
     }
   ]
