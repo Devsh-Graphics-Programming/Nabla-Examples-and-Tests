@@ -307,6 +307,7 @@ public:
 		double2 curveMax[3];
 	};
 
+	std::vector<QuadraticBezierInfo> beziers;
 	std::vector<CurveHatchBox> hatchBoxes;
 
 	// TODO: start using this struct instead of the one with p0, p1 and p2
@@ -869,9 +870,20 @@ public:
 					{
 						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
 						{
-							auto bezier = &line.getQuadBezierInfoAt(itemIdx);
+							auto bezier = line.getQuadBezierInfoAt(itemIdx);
+							// Beziers must be monotonically increasing
+							if (getMajor(Hatch::evaluteBezier(&bezier, 0.0)) < getMajor(Hatch::evaluteBezier(&bezier, 1.0)))
+							{
+								auto tmp = bezier.p[2];
+								bezier.p[2] = bezier.p[0];
+								bezier.p[0] = tmp;
+								assert(getMajor(Hatch::evaluteBezier(&bezier, 0.0)) >= getMajor(Hatch::evaluteBezier(&bezier, 1.0)));
+							}
+
+							beziers.push_back(bezier);
+							auto hatchBezier = &beziers[beziers.size() - 1];
 							Segment segment;
-							segment.originalBezier = bezier;
+							segment.originalBezier = hatchBezier;
 							segment.t_start = 0.0;
 							segment.t_end = 1.0;
 							segments.push_back(segment);
