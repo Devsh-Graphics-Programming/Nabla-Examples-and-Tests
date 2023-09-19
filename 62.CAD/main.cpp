@@ -872,12 +872,12 @@ public:
 						{
 							auto bezier = line.getQuadBezierInfoAt(itemIdx);
 							// Beziers must be monotonically increasing
-							if (getMajor(Hatch::evaluteBezier(&bezier, 0.0)) < getMajor(Hatch::evaluteBezier(&bezier, 1.0)))
+							if (getMajor(Hatch::evaluteBezier(&bezier, 0.0)) > getMajor(Hatch::evaluteBezier(&bezier, 1.0)))
 							{
 								auto tmp = bezier.p[2];
 								bezier.p[2] = bezier.p[0];
 								bezier.p[0] = tmp;
-								assert(getMajor(Hatch::evaluteBezier(&bezier, 0.0)) >= getMajor(Hatch::evaluteBezier(&bezier, 1.0)));
+								assert(getMajor(Hatch::evaluteBezier(&bezier, 0.0)) <= getMajor(Hatch::evaluteBezier(&bezier, 1.0)));
 							}
 
 							beziers.push_back(bezier);
