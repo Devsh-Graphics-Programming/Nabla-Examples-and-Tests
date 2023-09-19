@@ -7,8 +7,8 @@
 #include <cstdio>
 #include <assert.h>
 #include <nabla.h>
-#include <nbl/builtin/hlsl/cpp_compat/matrix.h>
-#include <nbl/builtin/hlsl/cpp_compat/vector.h>
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
 using namespace nbl;
@@ -33,6 +33,8 @@ struct T {
     float4   h;
 };
 
+
+
 int main()
 {
     {
@@ -40,7 +42,16 @@ int main()
         float3x4 b;
         float3 v;
         float4 u;
+        mul(a, b);
+        mul(b, a);
+        mul(a, v);
+        mul(v, b);
+        mul(u, a);
+        mul(b, u);
 
+        float4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+        a - a;
+        b + b;
         static_assert(std::is_same_v<float4x4, decltype(mul(a, b))>);
         static_assert(std::is_same_v<float3x3, decltype(mul(b, a))>);
         static_assert(std::is_same_v<float4, decltype(mul(a, v))>);
@@ -49,6 +60,11 @@ int main()
         static_assert(std::is_same_v<float3, decltype(mul(b, u))>);
 
     }
+
+    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(float4x4() = float4x4())>>);
+    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(float4x4() + float4x4())>>);
+    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(float4x4() - float4x4())>>);
+    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(mul(float4x4(), float4x4()))>>);
 
     static_assert(offsetof(T, a) == 0);
     static_assert(offsetof(T, b) == offsetof(T, a) + sizeof(T::a));
