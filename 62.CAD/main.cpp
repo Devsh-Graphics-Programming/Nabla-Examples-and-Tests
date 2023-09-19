@@ -1,4 +1,4 @@
-#define _NBL_STATIC_LIB_
+﻿#define _NBL_STATIC_LIB_
 #include <nabla.h>
 
 #include "../common/CommonAPI.h"
@@ -291,7 +291,11 @@ protected:
 };
 
 // Basically 2D CSG
-// TODO[Lucas]:
+/*
+	This class will input a list of Polylines (core::SRange)
+	and then output bunch of HatchBoxes
+	The hatch box generation algorithm will be used here
+*/
 class Hatch
 {
 public:
@@ -305,37 +309,7 @@ public:
 
 	std::vector<CurveHatchBox> hatchBoxes;
 
-	/*
-		This class will input a list of Polylines (core::SRange)
-		and then output bunch of HatchBoxes
-		The hatch box generation algorithm will be used here
-	*/
-	/*
-		Here are additional info you need for the hatch box generation algorithm:
-
-		1. Curve-Curve Intersection
-			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
-			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
-			whose roots are the parameter values of the points of intersection
-			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
-
-		2. Implicitization
-			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
-			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
-			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
-			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
-			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
-
-		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
-			(Talk with Matt, he figure out the math)
-	*/
-	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
-	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
-	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
-
-	// TODO: start using this struct
+	// TODO: start using this struct instead of the one with p0, p1 and p2
 	struct QuadraticBezier
 	{
 		double2 A;
@@ -350,6 +324,11 @@ public:
 		std::array<_Ty, _Size> roots = {};
 	};
 
+	// TODO: refactor these into other places
+
+	// From https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+	// TODO: Refactor this code (needs better names among other things)
+	// These are not fully safe on NaNs or when handling precision, as pointed out by devsh in the Discord
 	static EquationSolveResult<double, 2> SolveQuadric(double c[3])
 	{
 		double p, q, D;
@@ -374,8 +353,6 @@ public:
 		}
 	}
 
-	// From https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
-	// TODO: Refactor this code (needs better names among other things)
 	static EquationSolveResult<double, 3> SolveCubic(double c[4])
 	{
 		int     i;
@@ -545,9 +522,10 @@ public:
 
 	static constexpr double QUARTIC_THRESHHOLD = 1e-10;
 
+	// Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
 	static std::array<double, 2> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
 	{
-		std::array<double, 2> t; // only two candidates in range, ever
+		std::array<double, 2> t = { -1.0, -1.0 }; // only two candidates in range, ever
 
 		const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
 		const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
@@ -587,7 +565,51 @@ public:
 		return t;
 	}
 
-	// TODO: put these inside of Segment?
+	// returns two possible values of t in the second curve where the curves intersect
+	static std::array<double, 2> intersectionAlgorithm(const QuadraticBezierInfo* first, const QuadraticBezierInfo* second)
+	{
+		// Algorithm based on Computer Aided Geometric Design: 
+		// https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub#page99
+		// Chapter 17.6 describes the implicitization of a curve, which transforms it into the following format:
+		// Ax^2 + Bxy + Cy^2 + Dx + Ey + F = 0
+		// 
+		// We then substitute x and y for the other curve's quadratic formulas.
+		// This gives us a quartic equation:
+		// At^4 + Bt^3 + Ct^2 + Dt + E = 0
+		//
+		// The roots for t then become our intersections points between both curves.
+		//
+		// A Desmos page including math for this as well as some of the graphs it generates is available here:
+		// https://www.desmos.com/calculator/mjwqvnvyb8?lang=pt-BR
+		
+		double p0x = first->p[0].X, p1x = first->p[1].X, p2x = first->p[2].X,
+			   p0y = first->p[0].Y, p1y = first->p[1].Y, p2y = first->p[2].Y;
+
+		// Getting the values for the implicitization of the curve
+		
+		// TODO: Do this with quadratic coefficients instead (A, B, C)
+		double t0 = 4 * p0y * p1y - 4 * p0y * p2y - 4 * p1y * p1y + 4 * p1y * p2y - p0y * p0y + 2 * p0y * p2y - p2y * p2y;
+		double t1 = -4 * p0x * p1y + 4 * p0x * p2y - 4 * p1x * p0y + 8 * p1x * p1y - 4 * p1x * p2y + 4 * p2x * p0y - 4 * p2x * p1y + 2 * p0x * p0y - 2 * p0x * p2y - 2 * p2x * p0y + 2 * p2x * p2y;
+		double t2 = 4 * p0x * p1x - 4 * p0x * p2x - 4 * p1x * p1x + 4 * p1x * p2x - p0x * p0x + 2 * p0x * p2x - p2x * p2x;
+		double t3 = 4 * p0x * p1y * p1y - 4 * p0x * p1y * p2y - 4 * p1x * p0y * p1y + 8 * p1x * p0y * p2y - 4 * p1x * p1y * p2y - 4 * p2x * p0y * p1y + 4 * p2x * p1y * p1y - 2 * p0x * p0y * p2y + 2 * p0x * p2y * p2y + 2 * p2x * p0y * p0y - 2 * p2x * p0y * p2y;
+		double t4 = -4 * p0x * p1x * p1y - 4 * p0x * p1x * p2y + 8 * p0x * p2x * p1y + 4 * p1x * p1x * p0y + 4 * p1x * p1x * p2y - 4 * p1x * p2x * p0y - 4 * p1x * p2x * p1y + 2 * p0x * p0x * p2y - 2 * p0x * p2x * p0y - 2 * p0x * p2x * p2y + 2 * p2x * p2x * p0y;
+		double t5 = 4 * p0x * p1x * p1y * p2y - 4 * p1x * p1x * p0y * p2y + 4 * p1x * p2x * p0y * p1y - p0x * p0x * p2y * p2y + 2 * p0x * p2x * p0y * p2y - p2x * p2x * p0y * p0y - 4 * p0x * p2x * p1y * p1y;
+
+		// "Slam" the other curve onto it
+
+		double2 A = second->p[0] - 2.0 * second->p[1] + second->p[2];
+		double2 B = 2.0 * (second->p[1] - second->p[0]);
+		double2 C = second->p[0];
+
+		// Getting the quartic params
+		double a = A.X * A.X * t0 + A.X * A.Y * t1 + A.Y * t2;
+		double b = 2 * A.X * B.X * t0 + A.X * B.Y * t1 + B.X * A.Y * t1 + 2 * A.Y * B.Y * t2;
+		double c = 2 * A.X * C.X * t0 + A.X * C.Y * t1 + A.X * t2 + B.X * B.X * t0 + B.X * B.Y * t1 + C.X * A.Y * t1 + 2 * A.Y * C.Y * t2 + A.Y * t4 + B.Y * B.Y * t2;
+		double d = 2 * B.X * C.X * t0 + B.X * C.Y * t1 + B.X * t2 + C.X * B.Y * t1 + 2 * B.Y * C.Y * t2 + B.Y * t4;
+		double e = C.X * C.X * t0 + C.X * C.Y * t1 + C.X * t2 + C.Y * C.Y * t2 + C.Y * t4 + t5;
+
+		return Hatch::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
+	}
 
 	// (only works for monotonic curves)
 	static double getCurveRoot(double p0, double p1, double p2)
@@ -677,6 +699,98 @@ public:
 		return std::pair<double2, double2>(min, max);
 	}
 
+
+	// original from https://www.shadertoy.com/view/lsyfWc
+	static double closestTInCurve(const QuadraticBezierInfo* bezier, double2 pos)
+	{
+		const double2 P0 = bezier->p[0];
+		const double2 P1 = bezier->p[1];
+		const double2 P2 = bezier->p[2];
+
+		// p(t)    = (1-t)^2*A + 2(1-t)t*B + t^2*C
+		// p'(t)   = 2*t*(A-2*B+C) + 2*(B-A)
+		// p'(0)   = 2(B-A)
+		// p'(1)   = 2(C-B)
+		// p'(1/2) = 2(C-A)
+
+		double2 a = P1 - P0;
+		double2 b = P0 - 2.0 * P1 + P2;
+		double2 c = P0 - pos;
+
+		// Reducing Quartic to Cubic Solution
+		double kk = 1.0 / dot(b, b);
+		double kx = kk * dot(a, b);
+		double ky = kk * (2.0 * dot(a, a) + dot(c, b)) / 3.0;
+		double kz = kk * dot(c, a);
+
+		double2 res;
+
+		// Cardano's Solution to resolvent cubic of the form: y^3 + 3py + q = 0
+		// where it was initially of the form x^3 + ax^2 + bx + c = 0 and x was replaced by y - a/3
+		// so a/3 needs to be subtracted from the solution to the first form to get the actual solution
+		double p = ky - kx * kx;
+		double p3 = p * p * p;
+		double q = kx * (2.0 * kx * kx - 3.0 * ky) + kz;
+		double h = q * q + 4.0 * p3;
+
+		if (h >= 0.0)
+		{
+			h = sqrt(h);
+			double2 x = (double2(h, -h) - q) / 2.0;
+
+			// Solving Catastrophic Cancellation when h and q are close (when p is near 0)
+			if (abs(abs(h / q) - 1.0) < 0.0001)
+			{
+				// Approximation of x where h and q are close with no carastrophic cancellation
+				// Derivation (for curious minds) -> h=√(q²+4p³)=q·√(1+4p³/q²)=q·√(1+w)
+				   // Now let's do linear taylor expansion of √(1+x) to approximate √(1+w)
+				   // Taylor expansion at 0 -> f(x)=f(0)+f'(0)*(x) = 1+½x 
+				   // So √(1+w) can be approximated by 1+½w
+				   // Simplifying later and the fact that w=4p³/q will result in the following.
+				x = double2(p3 / q, -q - p3 / q);
+			}
+
+			double2 uv = 
+				double2(x.X > 0.0 ? 1.0 : x.X == 0.0 ? 0.0 : -1.0, x.Y > 0.0 ? 1.0 : x.Y == 0.0 ? 0.0 : -1.0) // TODO get sign(x) working
+				* double2(pow(abs(x.X), 1.0 / 3.0), pow(abs(x.Y), 1.0 / 3.0));
+			double t = uv.X + uv.Y - kx;
+			t = std::clamp(t, 0.0, 1.0);
+
+			// 1 root
+			double2 qos = c + (2.0 * a + b * t) * t;
+			res = double2(sqrt(dot(qos, qos)), t);
+		}
+		else
+		{
+			double z = sqrt(-p);
+			double v = acos(q / (p * z * 2.0)) / 3.0;
+			double m = cos(v);
+			double n = sin(v) * 1.732050808;
+			double t[3] = { m + m, -n - m, n - m };
+			
+			for (uint32_t i = 0; i < 3; i++)
+				t[i] = std::clamp(t[i] * z - kx, 0.0, 1.0);
+
+			// 3 roots
+			double2 qos = c + (2.0 * a + b * t[0]) * t[0];
+			double dis = dot(qos, qos);
+
+			res = double2(dis, t[0]);
+
+			qos = c + (2.0 * a + b * t[1]) * t[1];
+			dis = dot(qos, qos);
+			if (dis < res.X) res = double2(dis, t[0]);
+
+			qos = c + (2.0 * a + b * t[2]) * t[2];
+			dis = dot(qos, qos);
+			if (dis < res.X) res = double2(dis, t[2]);
+
+			res.X = sqrt(res.X);
+		}
+
+		return res.X;
+	}
+
 	class Segment 
 	{
 	public:
@@ -700,19 +814,33 @@ public:
 
 		double intersect(const Segment& other) const
 		{
-			// TODO
+			const std::array<double, 2> intersections = Hatch::intersectionAlgorithm(originalBezier, other.originalBezier);
+			for (uint32_t i = 0; i < 2; i++)
+			{
+				auto t = intersections[i];
+				if (other.t_start >= t || t >= other.t_end)
+					continue;
+
+				auto evaluated = Hatch::evaluteBezier(other.originalBezier, t);
+				auto thisT = Hatch::closestTInCurve(originalBezier, evaluated);
+
+				if (t_start >= thisT || thisT >= t_end)
+					continue;
+
+				return thisT;
+			}
+
 			return core::nan<double>();
-			// const double [t_self,t_other] = Bezier::intersect(*originalBezier,*other.originalBezier);
-			// // note the use of `<` and not `<=` because we don't want to report intersection with segment ends
-			// if (t_start<t_self && t_self<t_end && other.t_start<t_other && t_other<other.t_end)
-			// 	return t;
-			// return core::nan<double>();
 		}
 
-		bool isStraightLineConstantMajor() const
+		// checks if derivatives are positive along major
+		bool isStraightLineConstantMajor(int major) const
 		{
-			// TODO impl this
-			return false;
+			auto getMajor = [major](double2 value) { return major == 0 ? value.X : value.Y; };
+			// TODO figure out way to do this when this is 
+			auto derivativeOrder1First = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
+			auto derivativeOrder1Second = 2.0 * (originalBezier->p[2] - originalBezier->p[1]);
+			return getMajor(derivativeOrder1First) > 0.0 && getMajor(derivativeOrder1Second) > 0.0;
 		}
 	};
 
@@ -769,7 +897,7 @@ public:
 
 		auto addToCandidateSet = [&](const Segment& entry)
 		{
-			if (entry.isStraightLineConstantMajor())
+			if (entry.isStraightLineConstantMajor(major))
 				return;
 			// Look for intersections among active candidates
 			// TODO shouldn't this filter out when lines don't intersect?
