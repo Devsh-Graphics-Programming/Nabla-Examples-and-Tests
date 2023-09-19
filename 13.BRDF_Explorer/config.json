@@ -5,6 +5,8 @@
   "isExecuted": false,
   "mediaAccess": false,
   "scriptPath": "",
+  "requiredCMakeRules": [ "NBL_BUILD_CEGUI" ],
+  "usedExtensions": [],
   "dependencies": [ 
     ""
   ],

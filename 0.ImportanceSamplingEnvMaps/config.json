@@ -5,20 +5,14 @@
   "isExecuted": false,
   "mediaAccess": false,
   "scriptPath": "",
-  "dependencies": [ 
-    ""
-  ],
+  "requiredCMakeRules": [],
+  "usedExtensions": [],
+  "dependencies": [],
   "data": [
     {
-      "dependencies": [ 
-        ""
-      ],
-      "command": [
-        ""
-      ],
-      "outputs": [
-        ""
-      ]
+      "dependencies": [],
+      "command": [],
+      "outputs": []
     }
   ]
 }
