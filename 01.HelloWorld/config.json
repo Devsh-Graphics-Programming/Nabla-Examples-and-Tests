@@ -7,7 +7,7 @@
   "cmake": {
     "requiredOptions": []
   }, 
-  "features": [
+  "profiles": [
     {
       "backend": "",
       "platform": "",

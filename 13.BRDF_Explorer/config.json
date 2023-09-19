@@ -7,7 +7,7 @@
   "cmake": {
     "requiredOptions": [ "NBL_BUILD_CEGUI" ]
   }, 
-  "features": [
+  "profiles": [
     {
       "backend": "",
       "platform": "",

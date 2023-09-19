@@ -7,7 +7,7 @@
   "cmake": {
     "requiredOptions": [ "NBL_BUILD_BULLET" ]
   }, 
-  "features": [
+  "profiles": [
     {
       "backend": "",
       "platform": "",

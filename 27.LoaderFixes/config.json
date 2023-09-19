@@ -7,7 +7,7 @@
   "cmake": {
     "requiredOptions": [ "NBL_BUILD_MITSUBA_LOADER", "NBL_BUILD_OPTIX" ]
   }, 
-  "features": [
+  "profiles": [
     {
       "backend": "",
       "platform": "",

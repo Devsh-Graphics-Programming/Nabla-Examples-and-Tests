@@ -7,7 +7,7 @@
   "cmake": {
     "requiredOptions": [ "NBL_BUILD_MITSUBA_LOADER" ]
   }, 
-  "features": [
+  "profiles": [
     {
       "backend": "",
       "platform": "",
