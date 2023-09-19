@@ -3,7 +3,7 @@ static uint3 gl_WorkGroupID;
 static uint gl_LocalInvocationIndex;
 
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
-#include "../hlsl/shaderCommon.hlsl"
+#include "shaderCommon.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
@@ -27,29 +27,24 @@ void main(uint3 globalId : SV_DispatchThreadID,
 	outmax[0].subgroupSize = nbl::hlsl::glsl::gl_SubgroupSize();
 	outbitcount[0].subgroupSize = nbl::hlsl::glsl::gl_SubgroupSize();
 	
+    SharedMemory memoryAccessor;
 	const uint sourceVal = inputValue[gl_GlobalInvocationID.x];
 	
-	inclusive_scan_t(bitwise_and) iscan_and;
-	outand[0].output[gl_GlobalInvocationID.x] = iscan_and(sourceVal);
+	outand[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(bitwise_and)(sourceVal, memoryAccessor);
 	
-	inclusive_scan_t(bitwise_xor) iscan_xor;
-	outxor[0].output[gl_GlobalInvocationID.x] = iscan_xor(sourceVal);
+	outxor[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(bitwise_xor)(sourceVal, memoryAccessor);
 	
-	inclusive_scan_t(bitwise_or) iscan_or;
-	outor[0].output[gl_GlobalInvocationID.x] = iscan_or(sourceVal);
+	outor[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(bitwise_or)(sourceVal, memoryAccessor);
 	
-	inclusive_scan_t(add) iscan_add;
-	outadd[0].output[gl_GlobalInvocationID.x] = iscan_add(sourceVal);
+	outadd[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(add)(sourceVal, memoryAccessor);
 	
-	inclusive_scan_t(mul) iscan_mul;
-	outmul[0].output[gl_GlobalInvocationID.x] = iscan_mul(sourceVal);
+	outmul[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(mul)(sourceVal, memoryAccessor);
 	
-	inclusive_scan_t(min) iscan_min;
-	outmin[0].output[gl_GlobalInvocationID.x] = iscan_min(sourceVal);
+	outmin[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(min)(sourceVal, memoryAccessor);
 	
-	inclusive_scan_t(max) iscan_max;
-	outmax[0].output[gl_GlobalInvocationID.x] = iscan_max(sourceVal);
+	outmax[0].output[gl_GlobalInvocationID.x] = inclusive_scan_t(max)(sourceVal, memoryAccessor);
 	
-	nbl::hlsl::workgroup::ballot<SharedMemory, true>((sourceVal & 0x1u) == 0x1u);
-	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount<SharedMemory>();
+	nbl::hlsl::workgroup::ballot<SharedMemory>((sourceVal & 0x1u) == 0x1u, memoryAccessor);
+    memoryAccessor.main.workgroupExecutionAndMemoryBarrier();
+	outbitcount[0].output[gl_GlobalInvocationID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount<SharedMemory>(memoryAccessor);
 }

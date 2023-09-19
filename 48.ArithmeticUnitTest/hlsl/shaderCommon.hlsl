@@ -13,16 +13,10 @@
 
 #include "../common.glsl"
 
-#include "nbl/builtin/hlsl/glsl_compat/basic.hlsl"
-#include "nbl/builtin/hlsl/workgroup/shared_ballot.hlsl"
-
-// Must define all groupshared memory before including shared_memory_accessor since all the proxy structs are defined there
-#define scratchSize (_NBL_HLSL_WORKGROUP_SIZE_ << 1) + (nbl::hlsl::workgroup::MaxWorkgroupSize >> 1) + 1
-groupshared uint scratch[scratchSize];
-#define SHARED_MEM scratch
-groupshared uint broadcastScratch[uballotBitfieldCount + 1];
-#define BROADCAST_MEM broadcastScratch
-
+#include "nbl/builtin/hlsl/workgroup/scratch_sz.hlsl"
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
+#include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
+#include "nbl/builtin/hlsl/subgroup/basic.hlsl"
 #include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
 
 struct Output {
@@ -41,31 +35,39 @@ RWStructuredBuffer<Output> outmin : register(u6);
 RWStructuredBuffer<Output> outmax : register(u7);
 RWStructuredBuffer<Output> outbitcount : register(u8);
 
-struct MainScratchProxy
+template<uint32_t WGSZ,uint32_t SGSZ>
+struct required_scratch_size : nbl::hlsl::workgroup::impl::trunc_geom_series<WGSZ,SGSZ> {};
+static const uint arithmeticSz = required_scratch_size<_NBL_HLSL_WORKGROUP_SIZE_, nbl::hlsl::subgroup::MinSubgroupSize>::value;
+static const uint32_t ballotSz = nbl::hlsl::workgroup::uballotBitfieldCount + 1;
+static const uint32_t scratchSz = arithmeticSz + ballotSz;
+groupshared uint32_t scratch[scratchSz];
+
+template<uint32_t offset>
+struct ScratchProxy
 {
 	uint get(uint ix)
 	{
-		return SHARED_MEM[ix];
+		return scratch[ix + offset];
 	}
 
 	void set(uint ix, uint value)
 	{
-		SHARED_MEM[ix] = value;
+		scratch[ix + offset] = value;
 	}
 	
 	uint atomicAdd(in uint ix, uint data)
 	{
-		return nbl::hlsl::glsl::atomicAdd(SHARED_MEM[ix], data);
+		return nbl::hlsl::glsl::atomicAdd(scratch[ix + offset], data);
 	}
 	
 	uint atomicOr(in uint ix, uint data)
 	{
-		return nbl::hlsl::glsl::atomicOr(SHARED_MEM[ix], data);
+		return nbl::hlsl::glsl::atomicOr(scratch[ix + offset], data);
 	}
 };
 
 struct SharedMemory
 {
-	nbl::hlsl::SharedMemoryAdaptor<MainScratchProxy> main;
-	nbl::hlsl::SharedMemoryAdaptor<nbl::hlsl::BroadcastScratchProxy> broadcast;
+	nbl::hlsl::SharedMemoryAdaptor<ScratchProxy<0> > main;
+	nbl::hlsl::SharedMemoryAdaptor<ScratchProxy<arithmeticSz> > broadcast;
 };
