@@ -10,7 +10,7 @@
   }, 
   "features": {
     "backend": [],
-    "windowingSystem": []
+    "buildModes": []
   },
   "dependencies": [],
   "data": [

@@ -6,11 +6,11 @@
   "mediaAccess": false,
   "scriptPath": "",
   "cmake": {
-    "requiredOptions": [],
+    "requiredOptions": []
   }, 
   "features": {
     "backend": [],
-    "windowingSystem": []
+    "buildModes": []
   },
   "dependencies": [],
   "data": [
