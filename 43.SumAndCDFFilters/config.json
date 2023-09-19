@@ -10,7 +10,9 @@
   }, 
   "features": {
     "backend": [],
-    "buildModes": []
+    "platform": [],
+    "buildModes": [],
+    "gpuArchitectures": []
   },
   "dependencies": [],
   "data": [

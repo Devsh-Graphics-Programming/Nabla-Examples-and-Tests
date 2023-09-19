@@ -1,5 +1,4 @@
 {
-  "gpu": "any",
   "enableParallelBuild": true,
   "threadsPerBuildProcess" : 2,
   "isExecuted": false,
@@ -10,7 +9,9 @@
   }, 
   "features": {
     "backend": [],
-    "buildModes": []
+    "platform": [],
+    "buildModes": [],
+    "gpuArchitectures": []
   },
   "dependencies": [],
   "data": [
