@@ -81,6 +81,7 @@ add_subdirectory(62.CAD EXCLUDE_FROM_ALL)
 add_subdirectory(62.SchusslerTest EXCLUDE_FROM_ALL)
 add_subdirectory(0.ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 add_subdirectory(63.OBB EXCLUDE_FROM_ALL)
+add_subdirectory(64.CppCompat)
 unset(NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET CACHE)
 
 nbl_install_media_spec("${CMAKE_CURRENT_SOURCE_DIR}/media" "examples_tests")
