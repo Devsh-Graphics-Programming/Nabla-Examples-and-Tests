@@ -474,7 +474,8 @@ PSInput main(uint vertexID : SV_VertexID)
 
         // Swizzled X = major
         // Swizzled Y = minor
-        outV.uv = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
+        float2 uv = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
+        outV.setUVMinor(uv.y);
         outV.setCurveMinA(major == 1 ? curveMin.A().yx : curveMin.A().xy);
         outV.setCurveMinB(major == 1 ? curveMin.B().yx : curveMin.B().xy);
         outV.setCurveMinC(major == 1 ? curveMin.C().yx : curveMin.C().xy);
@@ -485,26 +486,22 @@ PSInput main(uint vertexID : SV_VertexID)
         {
             float a = outV.getCurveMinA().x;
             float b = outV.getCurveMinB().x;
-            float c = outV.getCurveMinC().x - outV.uv.x;
+            float c = outV.getCurveMinC().x - uv.x;
 
-            float det = b*b-4.f*a*c;;
+            float det = b*b-4.f*a*c;
             float rcp = 0.5f/a;
-            outV.minCurveDetRcp2_BRcp = float2(
-                det * rcp * rcp,
-                b * rcp
-            );
+            outV.setMinCurveDetRcp2(det * rcp * rcp);
+            outV.setMinCurveBrcp(b * rcp);
         }
         {
             float a = outV.getCurveMaxA().x;
             float b = outV.getCurveMaxB().x;
-            float c = outV.getCurveMaxC().x - outV.uv.x;
+            float c = outV.getCurveMaxC().x - uv.x;
 
-            float det = b*b-4.f*a*c;;
+            float det = b*b-4.f*a*c;
             float rcp = 0.5f/a;
-            outV.maxCurveDetRcp2_BRcp = float2(
-                det * rcp * rcp,
-                b * rcp
-            );
+            outV.setMaxCurveDetRcp2(det * rcp * rcp);
+            outV.setMaxCurveBrcp(b * rcp);
         }
     }
 

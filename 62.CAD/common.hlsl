@@ -43,9 +43,7 @@ struct Globals
     double screenToWorldRatio; // 136 - TODO: make a float, no point making it a double
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
-    int clipEnabled; // 152
-    int2 _pad; // 164
-    double4 clip; // 192
+    int _pad; // 152
 };
 
 struct LineStyle
@@ -99,30 +97,8 @@ struct PSInput
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     // For curve box, has the UV within the AABB
     // UV, curve min & curve max are all 
-    [[vk::location(5)]] float2 uv : UV;
-    
-    // A, B, C quadratic coefficients from the min & max curves,
-    // swizzled to the major cordinate and with the major UV coordinate subtracted
-    // These can be used to solve the quadratic equation
-    //
-    // a, b, c = curveMin.a,b,c()[major] - uv[major]
-    // 
-    // SolveQuadratic:
-    // det = b*b-4.f*a*c;
-    // rcp = 0.5f/a;
-    // detSqrt = sqrt(det)*rcp;
-    // tmp = b*rcp;
-    // res = float2(-detSqrt,detSqrt)-tmp;
-    //
-    // Collapsed version:
-    // detrcp2 = det * rcp * rcp
-    // brcp = b * rcp
-    //
-    // (In fragment shader)
-    // detSqrt = sqrt(detrcp2)
-    // res = float2(-detSqrt,detSqrt)-bRcp;
-    [[vk::location(6)]] float2 minCurveDetRcp2_BRcp : MIN_QUADRATIC_COEFFICIENTS;
-    [[vk::location(7)]] float2 maxCurveDetRcp2_BRcp : MAX_QUADRATIC_COEFFICIENTS;
+    [[vk::location(5)]] float4 interp_data5 : COLOR5;
+    [[vk::location(6)]] float4 interp_data6 : COLOR6;
 
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
@@ -178,6 +154,42 @@ struct PSInput
     void setCurveMaxA(float2 p) { data3.zw = p; }
     void setCurveMaxB(float2 p) { data4.xy = p; }
     void setCurveMaxC(float2 p) { data4.zw = p; }
+
+    // interp_data5, interp_data6    
+
+    // A, B, C quadratic coefficients from the min & max curves,
+    // swizzled to the major cordinate and with the major UV coordinate subtracted
+    // These can be used to solve the quadratic equation
+    //
+    // a, b, c = curveMin.a,b,c()[major] - uv[major]
+    // 
+    // SolveQuadratic:
+    // det = b*b-4.f*a*c;
+    // rcp = 0.5f/a;
+    // detSqrt = sqrt(det)*rcp;
+    // tmp = b*rcp;
+    // res = float2(-detSqrt,detSqrt)-tmp;
+    //
+    // Collapsed version:
+    // detrcp2 = det * rcp * rcp
+    // brcp = b * rcp
+    //
+    // (In fragment shader)
+    // detSqrt = sqrt(detrcp2)
+    // res = float2(-detSqrt,detSqrt)-bRcp;
+    float getMinCurveDetRcp2() { return interp_data5.x; }
+    float getMinCurveBrcp() { return interp_data5.y; }
+    float getMaxCurveDetRcp2() { return interp_data5.z; }
+    float getMaxCurveBrcp() { return interp_data5.w; }
+    
+    void setMinCurveDetRcp2(float v) { interp_data5.x = v; }
+    void setMinCurveBrcp(float v) { interp_data5.y = v; }
+    void setMaxCurveDetRcp2(float v) { interp_data5.z = v; }
+    void setMaxCurveBrcp(float v) { interp_data5.w = v; }
+    
+    // Curve box UV value along minor axis
+    float getUVMinor() { return interp_data6.x; };
+    void setUVMinor(float uv) { interp_data6.x = uv; }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

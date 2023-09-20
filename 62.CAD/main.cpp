@@ -66,7 +66,7 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(Globals) == 192u);
+static_assert(sizeof(Globals) == 152u);
 static_assert(sizeof(LineStyle) == 32u);
 
 using namespace nbl;
@@ -524,9 +524,9 @@ public:
 	static constexpr double QUARTIC_THRESHHOLD = 1e-10;
 
 	// Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
-	static std::array<double, 2> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
+	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
 	{
-		std::array<double, 2> t = { -1.0, -1.0 }; // only two candidates in range, ever
+		std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
 
 		const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
 		const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
@@ -549,25 +549,26 @@ public:
 			std::copy(res.roots.data(), res.roots.data() + t.size(), t.begin());
 		}
 
-		// TODO: check that this clamp works with t[i] as NaN
-		for (auto i = 0; i < 2; i++)
-			t[i] = nbl::core::clamp(t[i], t_start, t_end);
-
-		// fix up a fuckup where both roots are NaN or were on the same side of the valid integral
 		if (!(t[0] != t[1]))
 			t[0] = t[0] != t_start ? t_start : t_end;
-
-		// TODO: do some Halley or Householder method steps on t
-		//while ()
-		//{
-		//}
+		
+		//// TODO: check that this clamp works with t[i] as NaN
+		//for (auto i = 0; i < 2; i++)
+		//	t[i] = nbl::core::clamp(t[i], t_start, t_end);
+		//
+		//// fix up a fuckup where both roots are NaN or were on the same side of the valid integral
+		//
+		//// TODO: do some Halley or Householder method steps on t
+		////while ()
+		////{
+		////}
 
 		// neither t still not in range, your beziers don't intersect
 		return t;
 	}
 
 	// returns two possible values of t in the second curve where the curves intersect
-	static std::array<double, 2> intersectionAlgorithm(const QuadraticBezierInfo* first, const QuadraticBezierInfo* second)
+	static std::array<double, 4> linePossibleIntersections(const QuadraticBezierInfo* first, const QuadraticBezierInfo* second)
 	{
 		// Algorithm based on Computer Aided Geometric Design: 
 		// https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub#page99
@@ -813,35 +814,44 @@ public:
 			};
 		}
 
-		double intersect(const Segment& other) const
+		std::array<double, 2> intersect(const Segment& other) const
 		{
-			const std::array<double, 2> intersections = Hatch::intersectionAlgorithm(originalBezier, other.originalBezier);
-			for (uint32_t i = 0; i < 2; i++)
+			auto p0 = originalBezier->p[0];
+			auto p1 = originalBezier->p[1];
+			auto p2 = originalBezier->p[2];
+			bool sideP1 = nbl::core::sign((p2.X - p0.X) * (p1.Y - p0.Y) - (p2.Y - p0.Y) * (p1.X - p0.X));
+
+			const std::array<double, 4> intersections = Hatch::linePossibleIntersections(originalBezier, other.originalBezier);
+			std::array<double, 2> result = { core::nan<double>(), core::nan<double>() };
+			int resultIdx = 0;
+
+			for (uint32_t i = 0; i < intersections.size(); i++)
 			{
 				auto t = intersections[i];
 				if (other.t_start >= t || t >= other.t_end)
 					continue;
 
-				auto evaluated = Hatch::evaluteBezier(other.originalBezier, t);
-				auto thisT = Hatch::closestTInCurve(originalBezier, evaluated);
+				auto intersection = Hatch::evaluteBezier(other.originalBezier, t);
+				bool sideIntersection = nbl::core::sign((p2.X - p0.X) * (intersection.Y - p0.Y) - (p2.Y - p0.Y) * (evaluated.X - p0.X));
 
-				if (t_start >= thisT || thisT >= t_end)
+				// If both P1 and the intersection point are on the same side of the P0 -> P2 line
+				// for the current line, we consider this as a valid intersection
+				// (Otherwise, continue)
+				if (sideP1 != sideIntersection)
 					continue;
 
-				return thisT;
+				result[resultIdx] = t;
+				resultIdx++;
 			}
 
-			return core::nan<double>();
+			return result;
 		}
 
-		// checks if derivatives are positive along major
+		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor(int major) const
 		{
-			auto getMajor = [major](double2 value) { return major == 0 ? value.X : value.Y; };
-			// TODO figure out way to do this when this is 
-			auto derivativeOrder1First = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
-			auto derivativeOrder1Second = 2.0 * (originalBezier->p[2] - originalBezier->p[1]);
-			return getMajor(derivativeOrder1First) > 0.0 && getMajor(derivativeOrder1Second) > 0.0;
+			auto getMinor = [major](double2 value) { return major == 0 ? value.Y : value.X; };
+			return getMinor(originalBezier->p[0]) == getMinor(originalBezier->p[1]) == getMinor(originalBezier->p[2]);
 		}
 	};
 
@@ -2408,7 +2418,6 @@ public:
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
-		globalData.clipEnabled = 0;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 

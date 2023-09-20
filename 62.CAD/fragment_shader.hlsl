@@ -11,6 +11,8 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
+// We're using the precomputed values to solve a quadratic equation of intersecting a bezier with a line perpendicular to major axis.
+// (More details in the common.hlsl)
 float tForMajorCoordinate(float detRcp2, float bRcp) 
 { 
     float detSqrt = sqrt(detRcp2);
@@ -33,9 +35,6 @@ float4 main(PSInput input) : SV_TARGET
     vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
 #endif
 	
-    // TODO is this going to interact badly with the pixel interlock?	
-    if (globals.clipEnabled != 0 && (any(input.position.xy < globals.clip.xy) || any(input.position.xy > globals.clip.zw))) discard;
-    
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     uint currentMainObjectIdx = input.getMainObjectIdx();
@@ -67,17 +66,17 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        float2 positionFullscreen = input.uv;
+        float uv = input.getUVMinor();
 
-        float minT = tForMajorCoordinate(input.minCurveDetRcp2_BRcp.x, input.minCurveDetRcp2_BRcp.y);
+        float minT = tForMajorCoordinate(input.getMinCurveDetRcp2(), input.getMinCurveBrcp());
         float minEv = evaluateBezier(input.getCurveMinA().y, input.getCurveMinB().y, input.getCurveMinC().y, minT);
         
-        float maxT = tForMajorCoordinate(input.maxCurveDetRcp2_BRcp.x, input.maxCurveDetRcp2_BRcp.y);
+        float maxT = tForMajorCoordinate(input.getMaxCurveDetRcp2(), input.getMaxCurveBrcp());
         float maxEv = evaluateBezier(input.getCurveMaxA().y, input.getCurveMaxB().y, input.getCurveMaxC().y, maxT);
         
         float4 col = input.getColor();
         const float antiAliasingFactor = globals.antiAliasingFactor;
-        float distance = min(positionFullscreen.y - minEv, maxEv - positionFullscreen.y);
+        float distance = min(uv - minEv, maxEv - uv);
 
         // TODO: AA using ddx ddy
         if (distance >= 0)
