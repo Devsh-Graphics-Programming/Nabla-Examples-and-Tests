@@ -832,7 +832,7 @@ public:
 					continue;
 
 				auto intersection = Hatch::evaluteBezier(other.originalBezier, t);
-				bool sideIntersection = nbl::core::sign((p2.X - p0.X) * (intersection.Y - p0.Y) - (p2.Y - p0.Y) * (evaluated.X - p0.X));
+				bool sideIntersection = nbl::core::sign<double>((p2.X - p0.X) * (intersection.Y - p0.Y) - (p2.Y - p0.Y) * (intersection.X - p0.X));
 
 				// If both P1 and the intersection point are on the same side of the P0 -> P2 line
 				// for the current line, we consider this as a valid intersection
@@ -928,8 +928,13 @@ public:
 			for (const auto& segment : activeCandidates)
 			{
 				// find intersections entry vs segment
-				if (double t = entry.intersect(segment))
-					intersections.push(getMajor(evaluteBezier(entry.originalBezier, t)));
+				auto intersectionPoints = entry.intersect(segment);
+				for (uint32_t i = 0; i < intersectionPoints.size(); i++)
+				{
+					if (nbl::core::isnan(intersectionPoints[i]))
+						continue;
+					intersections.push(getMajor(evaluteBezier(segment.originalBezier, intersectionPoints[i])));
+				}
 			}
 			activeCandidates.push_back(entry);
 		};
