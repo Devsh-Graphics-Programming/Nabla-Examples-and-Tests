@@ -1,0 +1,29 @@
+{
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": false,
+  "mediaAccess": false,
+  "scriptPath": "",
+  "cmake": {
+    "requiredOptions": []
+  }, 
+  "features": [
+    {
+      "backend": "",
+      "platform": "",
+      "buildModes": [],
+      "gpuArchitectures": []
+    }
+  ],
+  "dependencies": [],
+  "data": [
+    {
+      "dependencies": [ 
+      ],
+      "command": [
+      ],
+      "outputs": [
+      ]
+    }
+  ]
+}

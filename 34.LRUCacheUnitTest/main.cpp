@@ -71,8 +71,9 @@ int main()
 	cache2.insert(++i, "key is 22");
 	cache2.insert(++i, "key is 23");
 	i = 111;
+#ifdef _NBL_DEBUG
 	cache2.print();
-
+#endif
 
 	return 0;
 }
