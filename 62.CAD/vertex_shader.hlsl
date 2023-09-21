@@ -2,6 +2,7 @@
 
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -16,7 +17,7 @@ float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
-    return nbl::hlsl::shapes::QuadraticBezier::construct(p0, p1, p2).evaluate(t);
+    return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
 }
 
 //Compute bezier in one dimension, as the OBB X and Y are at different T's
@@ -455,18 +456,17 @@ PSInput main(uint vertexID : SV_VertexID)
         CurveBox curveBox;
         curveBox.aabbMin = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
         curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
-        curveBox.curveMin[0] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2, 8u);
-        curveBox.curveMin[1] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 3, 8u);
-        curveBox.curveMin[2] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 4, 8u);
-        curveBox.curveMax[0] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 5, 8u);
-        curveBox.curveMax[1] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 6, 8u);
-        curveBox.curveMax[2] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 7, 8u);
+        for (uint32_t i = 0; i < 3; i ++)
+        {
+            curveBox.curveMin[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + i), 8u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + 3 + i), 8u);
+        }
 
         const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
 
-        const uint major = 1;
+        const uint major = (uint)MajorAxis::MAJOR_Y;
         const uint minor = 1-major;
 
         nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::construct(
@@ -476,34 +476,30 @@ PSInput main(uint vertexID : SV_VertexID)
 
         // Swizzled X = major
         // Swizzled Y = minor
-        float2 minorAxisNdc = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
-        outV.setCurveMinBezier(major == 1 
-            ? nbl::hlsl::shapes::Quadratic<double>::construct(curveMin.A.yx, curveMin.B.yx, curveMin.C.yx)
-            : nbl::hlsl::shapes::Quadratic<double>::construct(curveMin.A, curveMin.B, curveMin.C));
-        outV.setCurveMaxBezier(major == 1 
-            ? nbl::hlsl::shapes::Quadratic<double>::construct(curveMax.A.yx, curveMax.B.yx, curveMax.C.yx)
-            : nbl::hlsl::shapes::Quadratic<double>::construct(curveMax.A, curveMax.B, curveMax.C));
+        float2 majorMinorAxisNdc = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
+        outV.setMinorAxisNdc(majorMinorAxisNdc.y);
 
-        {
-            float a = outV.getCurveMinA().x;
-            float b = outV.getCurveMinB().x;
-            float c = outV.getCurveMinC().x - minorAxisNdc.x;
-
-            float det = b*b-4.f*a*c;
-            float rcp = 0.5f/a;
-            outV.setMinCurveDetRcp2(det * rcp * rcp);
-            outV.setMinCurveBrcp(b * rcp);
-        }
-        {
-            float a = outV.getCurveMaxA().x;
-            float b = outV.getCurveMaxB().x;
-            float c = outV.getCurveMaxC().x - minorAxisNdc.x;
-
-            float det = b*b-4.f*a*c;
-            float rcp = 0.5f/a;
-            outV.setMaxCurveDetRcp2(det * rcp * rcp);
-            outV.setMaxCurveBrcp(b * rcp);
-        }
+        nbl::hlsl::equations::Quadratic<float> curveMinSwizzled = nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)(major == 1 ? curveMin.A.y : curveMin.A.x), 
+            (float)(major == 1 ? curveMin.B.y : curveMin.B.x), 
+            (float)(major == 1 ? curveMin.C.y : curveMin.C.x));
+        nbl::hlsl::equations::Quadratic<float> curveMaxSwizzled = nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)(major == 1 ? curveMax.A.y : curveMax.A.x), 
+            (float)(major == 1 ? curveMax.B.y : curveMax.B.x), 
+            (float)(major == 1 ? curveMax.C.y : curveMax.C.x));
+        outV.setCurveMinBezier(curveMinSwizzled);
+        outV.setCurveMaxBezier(curveMaxSwizzled);
+        
+        nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)(major == 1 ? curveMin.A.x : curveMin.A.y), 
+            (float)(major == 1 ? curveMin.B.x : curveMin.B.y), 
+            (float)(major == 1 ? curveMin.C.x : curveMin.C.y));
+        nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)(major == 1 ? curveMax.A.x : curveMax.A.y), 
+            (float)(major == 1 ? curveMax.B.x : curveMax.B.y), 
+            (float)(major == 1 ? curveMax.C.x : curveMax.C.y));
+        outV.setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMinRootFinding, majorMinorAxisNdc.x));
+        outV.setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMaxRootFinding, majorMinorAxisNdc.x));
     }
 
 

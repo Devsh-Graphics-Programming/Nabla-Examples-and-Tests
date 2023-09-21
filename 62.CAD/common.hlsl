@@ -1,5 +1,6 @@
 #ifndef __cplusplus
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 #endif
 
 enum class ObjectType : uint32_t
@@ -7,6 +8,12 @@ enum class ObjectType : uint32_t
     LINE = 0u,
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
+};
+
+enum class MajorAxis : uint32_t
+{
+    MAJOR_X = 0u,
+    MAJOR_Y = 1u,
 };
 
 // Consists of multiple DrawObjects
@@ -112,8 +119,7 @@ struct PSInput
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     // For curve box, has the UV within the AABB
     // UV, curve min & curve max are all 
-    [[vk::location(5)]] float4 interp_data5 : COLOR5;
-    [[vk::location(6)]] float4 interp_data6 : COLOR6;
+    [[vk::location(5)]] float3 interp_data5 : COLOR5;
 
         // ArcLenCalculator<float>
 
@@ -150,22 +156,22 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::shapes::QuadraticBezier<double> getCurveMinBezier() {
-        return nbl::hlsl::shapes::Quadratic<double>::construct(data2.xy, data2.zw, data3.xy);
+    nbl::hlsl::equations::Quadratic<float> getCurveMinBezier() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::shapes::QuadraticBezier<double> getCurveMaxBezier() {
-        return nbl::hlsl::shapes::Quadratic<double>::construct(data3.zw, data4.xy, data4.zw);
+    nbl::hlsl::equations::Quadratic<float> getCurveMaxBezier() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinBezier(nbl::hlsl::shapes::QuadraticBezier<double> bezier) {
-        data2.xy = bezier.A;
-        data2.zw = bezier.B;
-        data3.xy = bezier.C;
+    void setCurveMinBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data2.x = bezier.A;
+        data2.y = bezier.B;
+        data2.z = bezier.C;
     }
-    void setCurveMaxBezier(nbl::hlsl::shapes::QuadraticBezier<double> bezier) {
-        data3.zw = bezier.A;
-        data4.xy = bezier.B;
-        data4.zw = bezier.C;
+    void setCurveMaxBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data2.w = bezier.A;
+        data3.x = bezier.B;
+        data3.y = bezier.C;
     }
 
     // interp_data5, interp_data6    
@@ -175,34 +181,27 @@ struct PSInput
     // These can be used to solve the quadratic equation
     //
     // a, b, c = curveMin.a,b,c()[major] - uv[major]
-    // 
-    // SolveQuadratic:
-    // det = b*b-4.f*a*c;
-    // rcp = 0.5f/a;
-    // detSqrt = sqrt(det)*rcp;
-    // tmp = b*rcp;
-    // res = float2(-detSqrt,detSqrt)-tmp;
-    //
-    // Collapsed version:
-    // detrcp2 = det * rcp * rcp
-    // brcp = b * rcp
-    //
-    // (In fragment shader)
-    // detSqrt = sqrt(detrcp2)
-    // res = float2(-detSqrt,detSqrt)-bRcp;
-    float getMinCurveDetRcp2() { return interp_data5.x; }
-    float getMinCurveBrcp() { return interp_data5.y; }
-    float getMaxCurveDetRcp2() { return interp_data5.z; }
-    float getMaxCurveBrcp() { return interp_data5.w; }
+
+    // TODO: brcp doesn't need to interp
+    nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder getMinCurvePrecomputedRootFinders() { 
+        return nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(interp_data5.x, data3.z);
+    }
+    nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder getMaxCurvePrecomputedRootFinders() { 
+        return nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(interp_data5.y, data3.w);
+    }
+
+    void setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder rootFinder) {
+        interp_data5.x = rootFinder.detRcp2;
+        data3.z = rootFinder.brcp;
+    }
+    void setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder rootFinder) {
+        interp_data5.y = rootFinder.detRcp2;
+        data3.w = rootFinder.brcp;
+    }
     
-    void setMinCurveDetRcp2(float v) { interp_data5.x = v; }
-    void setMinCurveBrcp(float v) { interp_data5.y = v; }
-    void setMaxCurveDetRcp2(float v) { interp_data5.z = v; }
-    void setMaxCurveBrcp(float v) { interp_data5.w = v; }
-    
-    // Curve box UV value along minor axis
-    float getUVMinor() { return interp_data6.x; };
-    void setUVMinor(float uv) { interp_data6.x = uv; }
+    // Curve box value along minor axis
+    float getMinorAxisNdc() { return interp_data5.z; };
+    void setMinorAxisNdc(float minorAxisNdc) { interp_data5.z = minorAxisNdc; }
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()

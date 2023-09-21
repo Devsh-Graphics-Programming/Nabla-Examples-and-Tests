@@ -967,8 +967,22 @@ public:
 					auto& right = activeCandidates[i++];
 
 					CurveHatchBox curveBox;
-					QuadraticBezier curveMin = left.getSplitCurve();
-					QuadraticBezier curveMax = right.getSplitCurve();
+					QuadraticBezier curveMin;// = left.getSplitCurve();
+					QuadraticBezier curveMax;// = right.getSplitCurve();
+
+					// TODO: the split curve should already have the quadratic bezier as
+					// quadratic coefficients
+					// so we wont need to convert here
+					auto splitCurveMin = left.getSplitCurve();
+					auto splitCurveMax = right.getSplitCurve();
+
+					curveMin.p[0] = splitCurveMin.p[0] - 2.0 * splitCurveMin.p[1] + splitCurveMin.p[2];
+					curveMin.p[1] = 2.0 * (splitCurveMin.p[1] - splitCurveMin.p[0]);
+					curveMin.p[2] = splitCurveMin.p[0];
+
+					curveMax.p[0] = splitCurveMax.p[0] - 2.0 * splitCurveMax.p[1] + splitCurveMax.p[2];
+					curveMax.p[1] = 2.0 * (splitCurveMax.p[1] - splitCurveMax.p[0]);
+					curveMax.p[2] = splitCurveMax.p[0];
 
 					auto curveMinAabb = curveMin.getBezierBoundingBox();
 					auto curveMaxAabb = curveMax.getBezierBoundingBox();

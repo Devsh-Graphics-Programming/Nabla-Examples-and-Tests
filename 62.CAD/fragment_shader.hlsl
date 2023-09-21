@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/shapes/rounded_line.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -11,17 +12,6 @@ void beginInvocationInterlockEXT();
 [[vk::ext_instruction(/* OpEndInvocationInterlockEXT */ 5365)]]
 void endInvocationInterlockEXT();
 #endif
-
-// We're using the precomputed values to solve a quadratic equation of intersecting a bezier with a line perpendicular to major axis.
-// (More details in the common.hlsl)
-float tForMajorCoordinate(float detRcp2, float bRcp) 
-{ 
-    float detSqrt = sqrt(detRcp2);
-    float2 roots = float2(-detSqrt,detSqrt)-bRcp;
-    // assert(roots.x == roots.y);
-    // assert(!isnan(roots.x));
-    return roots.x;
-}
 
 #define NBL_DRAW_ARC_LENGTH
 
@@ -133,13 +123,13 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        float uv = input.getUVMinor();
+        float uv = input.getMinorAxisNdc();
 
-        float minT = tForMajorCoordinate(input.getMinCurveDetRcp2(), input.getMinCurveBrcp());
-        float minEv = evaluateBezier(input.getCurveMinA().y, input.getCurveMinB().y, input.getCurveMinC().y, minT);
+        float minT = input.getMinCurvePrecomputedRootFinders().computeRoots().x;
+        float minEv = input.getCurveMinBezier().evaluate(minT);
         
-        float maxT = tForMajorCoordinate(input.getMaxCurveDetRcp2(), input.getMaxCurveBrcp());
-        float maxEv = evaluateBezier(input.getCurveMaxA().y, input.getCurveMaxB().y, input.getCurveMaxC().y, maxT);
+        float maxT = input.getMaxCurvePrecomputedRootFinders().computeRoots().x;
+        float maxEv = input.getCurveMaxBezier().evaluate(maxT);
         
         float4 col = input.getColor();
         const float antiAliasingFactor = globals.antiAliasingFactor;
