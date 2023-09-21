@@ -297,10 +297,13 @@ PSInput main(uint vertexID : SV_VertexID)
         {
             transformedPoints[i] = transformPointScreenSpace(points[i]);
         }
+        
+        nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+        nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
+        nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(quadratic);
 
-        outV.setBezierP0(transformedPoints[0u]);
-        outV.setBezierP1(transformedPoints[1u]);
-        outV.setBezierP2(transformedPoints[2u]);
+        outV.setQuadratic(quadratic);
+        outV.setQuadraticPrecomputedArcLenData(preCompData);
 
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;
         float Radius = length(Mid - transformedPoints[0u]) / 2.0f;
@@ -443,7 +446,6 @@ PSInput main(uint vertexID : SV_VertexID)
         }
 
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
-
     }
     else if (objType == ObjectType::CURVE_BOX)
     {
@@ -467,26 +469,25 @@ PSInput main(uint vertexID : SV_VertexID)
         const uint major = 1;
         const uint minor = 1-major;
 
-        nbl::hlsl::shapes::QuadraticBezier curveMin = nbl::hlsl::shapes::QuadraticBezier::construct(
+        nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::construct(
             curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
-        nbl::hlsl::shapes::QuadraticBezier curveMax = nbl::hlsl::shapes::QuadraticBezier::construct(
+        nbl::hlsl::shapes::Quadratic<double> curveMax = nbl::hlsl::shapes::Quadratic<double>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
         // Swizzled X = major
         // Swizzled Y = minor
-        float2 uv = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
-        outV.setUVMinor(uv.y);
-        outV.setCurveMinA(major == 1 ? curveMin.A().yx : curveMin.A().xy);
-        outV.setCurveMinB(major == 1 ? curveMin.B().yx : curveMin.B().xy);
-        outV.setCurveMinC(major == 1 ? curveMin.C().yx : curveMin.C().xy);
-        outV.setCurveMaxA(major == 1 ? curveMax.A().yx : curveMax.A().xy);
-        outV.setCurveMaxB(major == 1 ? curveMax.B().yx : curveMax.B().xy);
-        outV.setCurveMaxC(major == 1 ? curveMax.C().yx : curveMax.C().xy);
+        float2 minorAxisNdc = (float2) (major == 1 ? maxCorner.yx : maxCorner.xy);
+        outV.setCurveMinBezier(major == 1 
+            ? nbl::hlsl::shapes::Quadratic<double>::construct(curveMin.A.yx, curveMin.B.yx, curveMin.C.yx)
+            : nbl::hlsl::shapes::Quadratic<double>::construct(curveMin.A, curveMin.B, curveMin.C));
+        outV.setCurveMaxBezier(major == 1 
+            ? nbl::hlsl::shapes::Quadratic<double>::construct(curveMax.A.yx, curveMax.B.yx, curveMax.C.yx)
+            : nbl::hlsl::shapes::Quadratic<double>::construct(curveMax.A, curveMax.B, curveMax.C));
 
         {
             float a = outV.getCurveMinA().x;
             float b = outV.getCurveMinB().x;
-            float c = outV.getCurveMinC().x - uv.x;
+            float c = outV.getCurveMinC().x - minorAxisNdc.x;
 
             float det = b*b-4.f*a*c;
             float rcp = 0.5f/a;
@@ -496,7 +497,7 @@ PSInput main(uint vertexID : SV_VertexID)
         {
             float a = outV.getCurveMaxA().x;
             float b = outV.getCurveMaxB().x;
-            float c = outV.getCurveMaxC().x - uv.x;
+            float c = outV.getCurveMaxC().x - minorAxisNdc.x;
 
             float det = b*b-4.f*a*c;
             float rcp = 0.5f/a;

@@ -1,4 +1,6 @@
-
+#ifndef __cplusplus
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#endif
 
 enum class ObjectType : uint32_t
 {
@@ -25,7 +27,7 @@ struct DrawObject
 struct QuadraticBezierInfo
 {
     double2 p[3]; // 16*3=48bytes
-    // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
+    double2 arcLen;
 };
 
 struct CurveBox 
@@ -40,7 +42,8 @@ struct CurveBox
 struct Globals
 {
     double4x4 viewProjection; // 128 
-    double screenToWorldRatio; // 136 - TODO: make a float, no point making it a double
+    float screenToWorldRatio; // 132
+    float worldToScreenRatio; // 136
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
     int _pad; // 152
@@ -48,11 +51,23 @@ struct Globals
 
 struct LineStyle
 {
+    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+
+    // common data
     float4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
-    // TODO[Przemek]: Anything info related to the stipple pattern will be here
-    float _pad[2u];
+    
+    // stipple pattern data
+    int32_t stipplePatternSize;
+    float recpiprocalStipplePatternLen;
+    float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+    float phaseShift;
+    
+    inline bool hasStipples()
+    {
+        return stipplePatternSize > 0 ? true : false;
+    }
 };
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
@@ -100,12 +115,10 @@ struct PSInput
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     [[vk::location(6)]] float4 interp_data6 : COLOR6;
 
+        // ArcLenCalculator<float>
+
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
-    
-    // TODO[Przemek]: We only had color and thickness to worry about before and as you can see we pass them between vertex and fragment shader (so that fragment shader doesn't have to fetch the linestyles from memory again)
-    // but for cases where you found out line styles would be too large to do this kinda stuff with inter-shader memory then only pass the linestyleIdx from vertex shader to fragment shader and fetch the whole lineStyles struct in fragment shader
-    // Note: Lucas is also modifying here (added data4,5,6,..) so If need be, I suggest replace a variable like set/getColor to set/getLineStyleIdx to reduce conflicts 
     
     // data0
     void setColor(in float4 color) { data0 = color; }
@@ -123,13 +136,9 @@ struct PSInput
     // data2
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
-    float2 getBezierP0() { return data2.xy; }
-    float2 getBezierP1() { return data2.zw; }
     
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
-    void setBezierP0(float2 p0) { data2.xy = p0; }
-    void setBezierP1(float2 p1) { data2.zw = p1; }
     
     // data3 xy
     float2 getBezierP2() { return data3.xy; }
@@ -141,19 +150,23 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    float2 getCurveMinA() { return data2.xy; }
-    float2 getCurveMinB() { return data2.zw; }
-    float2 getCurveMinC() { return data3.xy; }
-    float2 getCurveMaxA() { return data3.zw; }
-    float2 getCurveMaxB() { return data4.xy; }
-    float2 getCurveMaxC() { return data4.zw; }
-    
-    void setCurveMinA(float2 p) { data2.xy = p; }
-    void setCurveMinB(float2 p) { data2.zw = p; }
-    void setCurveMinC(float2 p) { data3.xy = p; }
-    void setCurveMaxA(float2 p) { data3.zw = p; }
-    void setCurveMaxB(float2 p) { data4.xy = p; }
-    void setCurveMaxC(float2 p) { data4.zw = p; }
+    nbl::hlsl::shapes::QuadraticBezier<double> getCurveMinBezier() {
+        return nbl::hlsl::shapes::Quadratic<double>::construct(data2.xy, data2.zw, data3.xy);
+    }
+    nbl::hlsl::shapes::QuadraticBezier<double> getCurveMaxBezier() {
+        return nbl::hlsl::shapes::Quadratic<double>::construct(data3.zw, data4.xy, data4.zw);
+    }
+
+    void setCurveMinBezier(nbl::hlsl::shapes::QuadraticBezier<double> bezier) {
+        data2.xy = bezier.A;
+        data2.zw = bezier.B;
+        data3.xy = bezier.C;
+    }
+    void setCurveMaxBezier(nbl::hlsl::shapes::QuadraticBezier<double> bezier) {
+        data3.zw = bezier.A;
+        data4.xy = bezier.B;
+        data4.zw = bezier.C;
+    }
 
     // interp_data5, interp_data6    
 
@@ -190,6 +203,32 @@ struct PSInput
     // Curve box UV value along minor axis
     float getUVMinor() { return interp_data6.x; };
     void setUVMinor(float uv) { interp_data6.x = uv; }
+
+    // data2 + data3.xy
+    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+    }
+    
+    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    {
+        data2.xy = quadratic.A;
+        data2.zw = quadratic.B;
+        data3.xy = quadratic.C;
+    }
+    
+    // data3.zw + data4
+    
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData) 
+    {
+        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
+        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
+    }
+    
+    nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator getQuadraticArcLenCalculator()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+    }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
