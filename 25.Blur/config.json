@@ -3,7 +3,6 @@
   "enableParallelBuild": true,
   "threadsPerBuildProcess" : 2,
   "isExecuted": false,
-  "mediaAccess": false,
   "scriptPath": "",
   "cmake": {
     "requiredOptions": []
