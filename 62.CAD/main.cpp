@@ -681,7 +681,7 @@ namespace hatchutils {
 	}
 
 	// (only works for monotonic curves)
-	static double getCurveRoot(double p0, double p1, double p2)
+	static double2 getCurveRoot(double p0, double p1, double p2)
 	{
 		double a = p0 - 2.0 * p1 + p2;
 		double b = 2.0 * (p1 - p0);
@@ -693,10 +693,7 @@ namespace hatchutils {
 		double detSqrt = sqrt(det) * rcp;
 		double tmp = b * rcp;
 
-		double2 roots = double2(-detSqrt, detSqrt) - tmp;
-		assert(roots.X == roots.Y);
-		assert(!std::isnan(roots.X)); // checks if it's not nan
-		return roots.X;
+		return double2(-detSqrt, detSqrt) - tmp;
 	}
 };
 
@@ -725,7 +722,7 @@ public:
 		double intersectOrtho(double coordinate, int major) const;
 		double2 evaluateBezier(double t) const;
 		double2 tangent(double t) const;
-		double2 getRoots() const;
+		hatchutils::EquationSolveResult<double, 4> getRoots() const;
 		std::pair<double2, double2> getBezierBoundingBox() const;
 	};
 
@@ -735,7 +732,7 @@ public:
 	class Segment 
 	{
 	public:
-		const QuadraticBezier* originalBezier;
+		const QuadraticBezier* originalBezier = nullptr;
 		// because beziers are broken down,  depending on the type this is t_start or t_end
 		double t_start;
 		double t_end; // beziers get broken down
@@ -791,11 +788,11 @@ public:
 		bool isStraightLineConstantMajor(int major) const
 		{
 			auto getMinor = [major](double2 value) { return major == 0 ? value.Y : value.X; };
-			return getMinor(originalBezier->p[0]) == getMinor(originalBezier->p[1]) == getMinor(originalBezier->p[2]);
+			return getMinor(originalBezier->p[0]) == getMinor(originalBezier->p[1]) && getMinor(originalBezier->p[0]) == getMinor(originalBezier->p[2]);
 		}
 	};
 
-	Hatch(core::SRange<CPolyline> lines)
+	Hatch(core::SRange<CPolyline> lines, nbl::system::ILogger* logger /* tmp */)
 	{
 		std::stack<Segment> starts; // Next segments sorted by start points
 		std::stack<Segment> ends; // Next segments sorted by end points
@@ -831,25 +828,40 @@ public:
 							}
 
 							beziers.push_back(bezier);
-							auto hatchBezier = &beziers[beziers.size() - 1];
-							Segment segment;
-							segment.originalBezier = hatchBezier;
-							segment.t_start = 0.0;
-							segment.t_end = 1.0;
-							segments.push_back(segment);
 						}
 					}
 				}
+			}
+			for (uint32_t bezierIdx = 0; bezierIdx < beziers.size(); bezierIdx++)
+			{
+				auto hatchBezier = &beziers[bezierIdx];
+				Segment segment;
+				segment.originalBezier = hatchBezier;
+				segment.t_start = 0.0;
+				segment.t_end = 1.0;
+				segments.push_back(segment);
 			}
 
 			// TODO better way to do this
 			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[0]) < getMajor(b.originalBezier->p[0]); });
 			for (Segment& segment : segments)
+			{
 				starts.push(segment);
+				logger->log("starts: p[0] = %f %f p[1] = %f %f p[2] = %f %f", system::ILogger::ELL_INFO,
+					segment.originalBezier->p[0].X, segment.originalBezier->p[0].Y,
+					segment.originalBezier->p[1].X, segment.originalBezier->p[1].Y,
+					segment.originalBezier->p[2].X, segment.originalBezier->p[2].Y);
+			}
 
 			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[2]) < getMajor(b.originalBezier->p[2]); });
 			for (Segment& segment : segments)
+			{
 				ends.push(segment);
+				logger->log("ends: p[0] = %f %f p[1] = %f %f p[2] = %f %f", system::ILogger::ELL_INFO,
+					segment.originalBezier->p[0].X, segment.originalBezier->p[0].Y,
+					segment.originalBezier->p[1].X, segment.originalBezier->p[1].Y,
+					segment.originalBezier->p[2].X, segment.originalBezier->p[2].Y);
+			}
 			maxMajor = getMajor(segments.back().originalBezier->p[2]);
 		}
 
@@ -905,52 +917,69 @@ public:
 			}
 			return _lhs < _rhs;
 		};
+		auto intersectionVisit = [&]()
+		{
+			auto newMajor = intersections.top();
+			intersections.pop(); // O(n)
+			return newMajor;
+		};
 
-		double lastMajor = 0.0;
+
+		double lastMajor = getMajor(starts.top().originalBezier->evaluateBezier(starts.top().t_start));
 		while (lastMajor!=maxMajor)
 		{
 			double newMajor;
 
-			const Segment start = starts.top();
-			const double minMajorStart = getMajor(start.originalBezier->evaluateBezier(start.t_start));
-			const double maxMajorEnds = getMajor(ends.top().originalBezier->evaluateBezier(ends.top().t_end));
-			if (minMajorStart< maxMajorEnds)
+			const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
+			const double minMajorStart = nextStartEvent.originalBezier ? getMajor(nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)) : 0.0;
+
+			const Segment nextEndEvent = ends.top();
+			const double maxMajorEnds = getMajor(nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end));
+
+			// We check which event, within start, end and intersection events have the smallest
+			// major coordinate at this point
+
+			// next start event is before next end event
+			if (nextStartEvent.originalBezier && minMajorStart < maxMajorEnds)
 			{
-				if (minMajorStart<intersections.top()) // find-min O(1)
+				// next start event is before next intersection event
+				// (start event)
+				if (intersections.empty() || minMajorStart < intersections.top()) // priority queue top() is O(1)
 				{
 					starts.pop();
-					addToCandidateSet(start);
+					addToCandidateSet(nextStartEvent);
 					newMajor = minMajorStart;
 				}
-				else
-				{
-					newMajor = intersections.top();
-					intersections.pop();
-				}
+				// (intersection event)
+				else newMajor = intersectionVisit();
 			}
-			else if (intersections.top()< maxMajorEnds)
-			{
-				newMajor = intersections.top();
-				intersections.pop(); // O(log(n))
-			}
+			// next end event is before next intersection event
+			// (intersection event)
+			else if (!intersections.empty() && intersections.top() < maxMajorEnds)
+				newMajor = intersectionVisit();
+			// (end event)
 			else
 			{
 				newMajor = maxMajorEnds;
 				ends.pop();
 			}
 
-			// spawn quads
-			if (newMajor>lastMajor)
+			// spawn quads if we advanced
+			if (newMajor > lastMajor)
 			{
 				// advance and trim all of the beziers in the candidate set
 				auto oit = activeCandidates.begin();
 				for (auto iit= activeCandidates.begin(); iit!= activeCandidates.end(); iit++)
 				{
 					const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
-					// don't remove if not scrolled past the end of the segment
-					if (new_t_start<iit->t_end)
+					// if we scrolled past the end of the segment, remove it
+					// (basically, we memcpy everything after something is different
+					// and we skip on the memcpy for any items that are also different)
+					// (this is supposedly a pattern with input/output operators)
+					if (!isnan(new_t_start) && new_t_start<=iit->t_end)
 					{
-						if (oit!=iit) // little optimization
+						// little optimization (don't memcpy anything before something was removed)
+						if (oit!=iit) 
 							*oit = *iit;
 						oit->t_start = new_t_start;
 						oit++;
@@ -1056,9 +1085,12 @@ double Hatch::QuadraticBezier::intersectOrtho(double coordinate, int major) cons
 		points[i] = major ? p[i].Y : p[i].X;
 
 	for (uint32_t i = 0; i < 3; i++)
-		points[i] += coordinate;
+		points[i] -= coordinate;
 
-	return hatchutils::getCurveRoot(points[0], points[1], points[2]);
+	double2 roots = hatchutils::getCurveRoot(points[0], points[1], points[2]);
+	if (roots.X >= 0.0 && roots.X <= 1.0) return roots.X;
+	if (roots.Y >= 0.0 && roots.Y <= 1.0) return roots.Y;
+	return core::nan<double>();
 }
 
 double2 Hatch::QuadraticBezier::evaluateBezier(double t) const
@@ -1081,30 +1113,44 @@ double2 Hatch::QuadraticBezier::tangent(double t) const
 }
 
 // https://pomax.github.io/bezierinfo/#extremities
-double2 Hatch::QuadraticBezier::getRoots() const
+hatchutils::EquationSolveResult<double, 4> Hatch::QuadraticBezier::getRoots() const
 {
 	// Quadratic coefficients
 	double2 A = p[0] - 2.0 * p[1] + p[2];
 	double2 B = 2.0 * (p[1] - p[0]);
 	double2 C = p[0];
+	
+	auto xroots = hatchutils::getCurveRoot(A.X, B.X, C.X);
+	auto yroots = hatchutils::getCurveRoot(A.Y, B.Y, C.Y);
+	double4 roots = { xroots.X, xroots.Y, yroots.X, yroots.Y };
+	hatchutils::EquationSolveResult<double, 4> outputRoots = { 0, {} };
 
-	return { hatchutils::getCurveRoot(A.X, B.X, C.X), hatchutils::getCurveRoot(A.Y, B.Y, C.Y) };
+	if (!isnan(xroots.X) && xroots.X > 0.0 && xroots.X < 1.0)
+		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.X;
+	if (!isnan(xroots.Y) && xroots.Y > 0.0 && xroots.Y < 1.0)
+		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.Y;
+	if (!isnan(yroots.X) && yroots.X > 0.0 && yroots.X < 1.0)
+		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.X;
+	if (!isnan(yroots.Y) && yroots.Y > 0.0 && yroots.Y < 1.0)
+		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.Y;
+
+	return outputRoots;
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
 std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBox() const
 {
-	double2 roots = getRoots();
-	double searchT[4];
+	auto roots = getRoots();
+	double searchT[6];
+	int searchTSize = 2 + roots.uniqueRoots;
 	searchT[0] = 0.0;
 	searchT[1] = 1.0;
-	searchT[2] = roots.X;
-	searchT[3] = roots.Y;
+	memcpy(&searchT[2], &roots.roots[0], roots.uniqueRoots);
 
 	double2 min = double2(std::numeric_limits<double>::infinity());
 	double2 max = double2(-std::numeric_limits<double>::infinity());
 
-	for (uint32_t i = 0; i < 4; i++)
+	for (uint32_t i = 0; i < searchTSize; i++)
 	{
 		double t = searchT[i];
 		if (t < 0.0 || t > 1.0)
@@ -2762,11 +2808,11 @@ public:
 			beziers.push_back({
 				nbl::core::vector2d<double>(0.8, 1.0),
 				nbl::core::vector2d<double>(0.9, 0.7),
-				nbl::core::vector2d<double>(1.0, 0.5)});
+				nbl::core::vector2d<double>(1.0, 0.0)});
 			polyline.addQuadBeziers(std::move(beziers));
 
 			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-			Hatch hatch(polylines);
+			Hatch hatch(polylines, logger.get());
 			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)
