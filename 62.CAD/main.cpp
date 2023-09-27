@@ -722,7 +722,7 @@ public:
 		double intersectOrtho(double coordinate, int major) const;
 		double2 evaluateBezier(double t) const;
 		double2 tangent(double t) const;
-		hatchutils::EquationSolveResult<double, 4> getRoots() const;
+		std::array<double, 4> getRoots() const;
 		std::pair<double2, double2> getBezierBoundingBox() const;
 	};
 
@@ -737,18 +737,48 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
+		QuadraticBezier splitCurveTakeLeft(QuadraticBezier curve, double t)
+		{
+			QuadraticBezier outputCurve;
+			outputCurve.p[0] = curve.p[0];
+			outputCurve.p[1] = (1 - t) * curve.p[0] + t * curve.p[1];
+			outputCurve.p[2] = (1 - t) * ((1 - t) * curve.p[0] + t * curve.p[1]) + t * ((1 - t) * curve.p[1] + t * curve.p[2]);
+
+			return outputCurve;
+		}
+		QuadraticBezier splitCurveTakeRight(QuadraticBezier curve, double t)
+		{
+			QuadraticBezier outputCurve;
+			outputCurve.p[0] = curve.p[2];
+			outputCurve.p[1] = (1 - t) * curve.p[1] + t * curve.p[2];
+			outputCurve.p[2] = (1 - t) * ((1 - t) * curve.p[0] + t * curve.p[1]) + t * ((1 - t) * curve.p[1] + t * curve.p[2]);
+
+			return outputCurve;
+		}
+
+		QuadraticBezier splitCurveRange(QuadraticBezier curve, double left, double right)
+		{
+			return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
+		}
+
 		QuadraticBezier getSplitCurve()
 		{
-			double2 a = originalBezier->p[0] - 2.0 * originalBezier->p[1] + originalBezier->p[2];
-			double2 b = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
-			double2 c = originalBezier->p[0];
-
-			return { 
-				a * (t_end - t_start) * (t_end - t_start),
-				(t_end - t_start) * (2 * a * t_start + b),
-				originalBezier->evaluateBezier(t_start)
-			};
+			return splitCurveRange(*originalBezier, t_start, t_end);
 		}
+
+		// TODO: when we use A, B, C (quadratic coefficients), use this
+		//QuadraticBezier getSplitCurve()
+		//{
+		//	double2 a = originalBezier->p[0] - 2.0 * originalBezier->p[1] + originalBezier->p[2];
+		//	double2 b = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
+		//	double2 c = originalBezier->p[0];
+		//
+		//	return { 
+		//		a * (t_end - t_start) * (t_end - t_start),
+		//		(t_end - t_start) * (2 * a * t_start + b),
+		//		originalBezier->evaluateBezier(t_start)
+		//	};
+		//}
 
 		std::array<double, 2> intersect(const Segment& other) const
 		{
@@ -967,63 +997,67 @@ public:
 			// spawn quads if we advanced
 			if (newMajor > lastMajor)
 			{
-				// advance and trim all of the beziers in the candidate set
-				auto oit = activeCandidates.begin();
-				for (auto iit= activeCandidates.begin(); iit!= activeCandidates.end(); iit++)
-				{
-					const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
-					// if we scrolled past the end of the segment, remove it
-					// (basically, we memcpy everything after something is different
-					// and we skip on the memcpy for any items that are also different)
-					// (this is supposedly a pattern with input/output operators)
-					if (!isnan(new_t_start) && new_t_start<=iit->t_end)
-					{
-						// little optimization (don't memcpy anything before something was removed)
-						if (oit!=iit) 
-							*oit = *iit;
-						oit->t_start = new_t_start;
-						oit++;
-					}
-				}
-				std::sort(activeCandidates.begin(),oit,candidateComparator);
 				// trim
-				const auto newSize = std::distance(activeCandidates.begin(),oit);
+				const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
 				// because n4ce works on loops, this must be true
-				assert((newSize % 2u)==0u);
-				for (auto i=0u; i<newSize;)
+				assert((candidatesSize % 2u)==0u);
+				for (auto i=0u; i< candidatesSize;)
 				{
 					auto& left = activeCandidates[i++];
 					auto& right = activeCandidates[i++];
 
 					CurveHatchBox curveBox;
-					QuadraticBezier curveMin;// = left.getSplitCurve();
-					QuadraticBezier curveMax;// = right.getSplitCurve();
 
-					// TODO: the split curve should already have the quadratic bezier as
-					// quadratic coefficients
-					// so we wont need to convert here
 					auto splitCurveMin = left.getSplitCurve();
 					auto splitCurveMax = right.getSplitCurve();
 
-					curveMin.p[0] = splitCurveMin.p[0] - 2.0 * splitCurveMin.p[1] + splitCurveMin.p[2];
-					curveMin.p[1] = 2.0 * (splitCurveMin.p[1] - splitCurveMin.p[0]);
-					curveMin.p[2] = splitCurveMin.p[0];
-
-					curveMax.p[0] = splitCurveMax.p[0] - 2.0 * splitCurveMax.p[1] + splitCurveMax.p[2];
-					curveMax.p[1] = 2.0 * (splitCurveMax.p[1] - splitCurveMax.p[0]);
-					curveMax.p[2] = splitCurveMax.p[0];
-
-					auto curveMinAabb = curveMin.getBezierBoundingBox();
-					auto curveMaxAabb = curveMax.getBezierBoundingBox();
+ 					auto curveMinAabb = splitCurveMin.getBezierBoundingBox();
+					auto curveMaxAabb = splitCurveMax.getBezierBoundingBox();
 					curveBox.aabbMin = double2(std::min(curveMinAabb.first.X, curveMaxAabb.first.X), std::min(curveMinAabb.first.Y, curveMaxAabb.first.Y));
-					curveBox.aabbMax = double2(std::min(curveMinAabb.second.X, curveMaxAabb.second.X), std::min(curveMinAabb.second.Y, curveMaxAabb.second.Y));
-
-					memcpy(&curveBox.curveMin[0], &curveMin.p[0], sizeof(double2) * 3);
-					memcpy(&curveBox.curveMax[0], &curveMax.p[0], sizeof(double2) * 3);
+					curveBox.aabbMax = double2(std::max(curveMinAabb.second.X, curveMaxAabb.second.X), std::max(curveMinAabb.second.Y, curveMaxAabb.second.Y));
+					
+					// Transform curves into AABB UV space and turn them into quadratic coefficients
+					// TODO: the split curve should already have the quadratic bezier as
+					// quadratic coefficients
+					// so we wont need to convert here
+					auto transformCurves = [](Hatch::QuadraticBezier bezier, double2 aabbMin, double2 aabbMax, double2* output) {
+						auto p0 = (bezier.p[0] / (aabbMax - aabbMin)) - aabbMin;
+						auto p1 = (bezier.p[1] / (aabbMax - aabbMin)) - aabbMin;
+						auto p2 = (bezier.p[2] / (aabbMax - aabbMin)) - aabbMin;
+						output[0] = p0 - 2.0 * p1 + p2;
+						output[1] = 2.0 * (p1 - p0);
+						output[2] = p0;
+					};
+					transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
+					transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);
 
 					hatchBoxes.push_back(curveBox);
 				}
+
+				// advance and trim all of the beziers in the candidate set
+				auto oit = activeCandidates.begin();
+				for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
+				{
+					const double evalAtMajor = getMajor(iit->originalBezier->evaluateBezier(iit->t_end));
+					// if we scrolled past the end of the segment, remove it
+					// (basically, we memcpy everything after something is different
+					// and we skip on the memcpy for any items that are also different)
+					// (this is supposedly a pattern with input/output operators)
+					if (newMajor < evalAtMajor)
+					{
+						const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
+						// little optimization (don't memcpy anything before something was removed)
+						if (oit != iit)
+							*oit = *iit;
+						oit->t_start = new_t_start;
+						oit++;
+					}
+				}
+				std::sort(activeCandidates.begin(), oit, candidateComparator);
+				// trim
+				const auto newSize = std::distance(activeCandidates.begin(), oit);
 				activeCandidates.resize(newSize);
+
 				lastMajor = newMajor;
 			}
 		}
@@ -1113,7 +1147,7 @@ double2 Hatch::QuadraticBezier::tangent(double t) const
 }
 
 // https://pomax.github.io/bezierinfo/#extremities
-hatchutils::EquationSolveResult<double, 4> Hatch::QuadraticBezier::getRoots() const
+std::array<double, 4> Hatch::QuadraticBezier::getRoots() const
 {
 	// Quadratic coefficients
 	double2 A = p[0] - 2.0 * p[1] + p[2];
@@ -1122,30 +1156,19 @@ hatchutils::EquationSolveResult<double, 4> Hatch::QuadraticBezier::getRoots() co
 	
 	auto xroots = hatchutils::getCurveRoot(A.X, B.X, C.X);
 	auto yroots = hatchutils::getCurveRoot(A.Y, B.Y, C.Y);
-	double4 roots = { xroots.X, xroots.Y, yroots.X, yroots.Y };
-	hatchutils::EquationSolveResult<double, 4> outputRoots = { 0, {} };
 
-	if (!isnan(xroots.X) && xroots.X > 0.0 && xroots.X < 1.0)
-		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.X;
-	if (!isnan(xroots.Y) && xroots.Y > 0.0 && xroots.Y < 1.0)
-		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.Y;
-	if (!isnan(yroots.X) && yroots.X > 0.0 && yroots.X < 1.0)
-		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.X;
-	if (!isnan(yroots.Y) && yroots.Y > 0.0 && yroots.Y < 1.0)
-		outputRoots.roots[outputRoots.uniqueRoots++] = xroots.Y;
-
-	return outputRoots;
+	return { xroots.X, xroots.Y, yroots.X, yroots.Y };
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
 std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBox() const
 {
 	auto roots = getRoots();
-	double searchT[6];
-	int searchTSize = 2 + roots.uniqueRoots;
+	const int searchTSize = 6;
+	double searchT[searchTSize];
 	searchT[0] = 0.0;
 	searchT[1] = 1.0;
-	memcpy(&searchT[2], &roots.roots[0], roots.uniqueRoots);
+	memcpy(&searchT[2], &roots.data()[0], sizeof(double) * 4);
 
 	double2 min = double2(std::numeric_limits<double>::infinity());
 	double2 max = double2(-std::numeric_limits<double>::infinity());
@@ -1153,7 +1176,7 @@ std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBox() const
 	for (uint32_t i = 0; i < searchTSize; i++)
 	{
 		double t = searchT[i];
-		if (t < 0.0 || t > 1.0)
+		if (t < 0.0 || t > 1.0 || isnan(t))
 			continue;
 		double2 value = evaluateBezier(t);
 		min = double2(std::min(min.X, value.X), std::min(min.Y, value.Y));
@@ -2802,13 +2825,13 @@ public:
 			CPolyline polyline;
 			std::vector<QuadraticBezierInfo> beziers;
 			beziers.push_back({
-				nbl::core::vector2d<double>(0.0, 1.0),
-				nbl::core::vector2d<double>(0.1, 0.3),
-				nbl::core::vector2d<double>(0.2, 0.0)});
+				300.0 * nbl::core::vector2d<double>(0.0, 1.0),
+				300.0 * nbl::core::vector2d<double>(0.1, 0.3),
+				300.0 * nbl::core::vector2d<double>(0.2, 0.0)});
 			beziers.push_back({
-				nbl::core::vector2d<double>(0.8, 1.0),
-				nbl::core::vector2d<double>(0.9, 0.7),
-				nbl::core::vector2d<double>(1.0, 0.0)});
+				300.0 * nbl::core::vector2d<double>(0.8, 1.0),
+				300.0 * nbl::core::vector2d<double>(0.9, 0.7),
+				300.0 * nbl::core::vector2d<double>(1.0, 0.0)});
 			polyline.addQuadBeziers(std::move(beziers));
 
 			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
