@@ -1,4 +1,6 @@
-
+#ifdef __cplusplus
+#define row_major
+#endif
 
 enum class ObjectType : uint32_t
 {
@@ -44,7 +46,7 @@ You need another struct here that represents a "CurveBox" which
 
 struct Globals
 {
-    double3x3 viewProjection; // 72 -> because we use scalar_layout
+    row_major double3x3 viewProjection; // 72 -> because we use scalar_layout
     double screenToWorldRatio; // 80 - TODO: make a float, no point making it a double
     uint2 resolution; // 88
     float antiAliasingFactor; // 92
@@ -60,6 +62,15 @@ struct LineStyle
     float _pad[2u];
 };
 
+// TODO: Compute this in a compute shader from the world counterparts
+//      because this struct includes NDC coordinates, the values will change based camera zoom and move
+//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
+struct CustomClipAndProjectionData
+{
+    double3x3 projectionToNDC; // 72
+    float2 minClipNDC; // 80
+    float2 maxClipNDC; // 88
+};
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
 static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
@@ -159,4 +170,8 @@ struct PSInput
 [[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
+#endif
+
+#ifdef __cplusplus
+#undef row_major
 #endif

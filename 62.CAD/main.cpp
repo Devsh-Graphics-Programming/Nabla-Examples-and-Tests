@@ -3,6 +3,7 @@
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "glm/glm/glm.hpp"
 
 static constexpr bool DebugMode = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
@@ -17,15 +18,6 @@ enum class ExampleMode
 
 constexpr ExampleMode mode = ExampleMode::CASE_3;
 
-
-struct double4x4
-{
-	double _r0[4u];
-	double _r1[4u];
-	double _r2[4u];
-	double _r3[4u];
-};
-
 struct double3x3
 {
 	double _r0[3u];
@@ -33,27 +25,10 @@ struct double3x3
 	double _r2[3u];
 };
 
-struct float4
-{
-	float4() {}
-
-	float4(const float x, const float y, const float z, const float w)
-	{
-		val[0u] = x;
-		val[1u] = y;
-		val[2u] = z;
-		val[3u] = w;
-	}
-
-	float val[4u];
-
-	inline bool operator ==(const float4& other) const
-	{
-		return val[0u] == other.val[0u];
-	}
-};
-
+typedef nbl::core::vectorSIMDf float4;
 typedef nbl::core::vector2d<double> double2;
+typedef nbl::core::vector2df float2;
+typedef glm::dvec4 double4;
 typedef nbl::core::vector2d<uint32_t> uint2;
 
 #include "common.hlsl"
@@ -61,6 +36,7 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(Globals) == 96u);
 static_assert(sizeof(LineStyle) == 32u);
+static_assert(sizeof(CustomClipAndProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
@@ -114,8 +90,8 @@ public:
 		ret._r1[1] = -2.0 / m_bounds.Y;
 		ret._r2[2] = 1.0;
 
-		ret._r2[0] = (-2.0 * m_origin.X) / m_bounds.X;
-		ret._r2[1] = (2.0 * m_origin.Y) / m_bounds.Y;
+		ret._r0[2] = (-2.0 * m_origin.X) / m_bounds.X;
+		ret._r1[2] = (2.0 * m_origin.Y) / m_bounds.Y;
 
 		return ret;
 	}
@@ -695,7 +671,7 @@ protected:
 			const LineStyle& itr = stylesArray[i];
 			if (lineStyle.screenSpaceLineWidth == itr.screenSpaceLineWidth)
 				if (lineStyle.worldSpaceLineWidth == itr.worldSpaceLineWidth)
-					if (lineStyle.color == itr.color)
+					if ((lineStyle.color == itr.color).all())
 						return i;
 		}
 
