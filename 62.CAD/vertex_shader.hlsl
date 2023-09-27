@@ -193,7 +193,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = (double3x3)globals.viewProjection;
+        double3x3 transformation = globals.viewProjection;
 
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -236,7 +236,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = (double3x3)globals.viewProjection;
+        double3x3 transformation = globals.viewProjection;
 
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);

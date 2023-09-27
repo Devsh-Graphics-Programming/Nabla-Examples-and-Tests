@@ -44,11 +44,11 @@ You need another struct here that represents a "CurveBox" which
 
 struct Globals
 {
-    double4x4 viewProjection; // 128 
-    double screenToWorldRatio; // 136 - TODO: make a float, no point making it a double
-    uint2 resolution; // 144
-    float antiAliasingFactor; // 148
-    float _pad; // 152
+    double3x3 viewProjection; // 72 -> because we use scalar_layout
+    double screenToWorldRatio; // 80 - TODO: make a float, no point making it a double
+    uint2 resolution; // 88
+    float antiAliasingFactor; // 92
+    float _pad; // 96
 };
 
 struct LineStyle
@@ -59,6 +59,7 @@ struct LineStyle
     // TODO[Przemek]: Anything info related to the stipple pattern will be here
     float _pad[2u];
 };
+
 
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
 static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
