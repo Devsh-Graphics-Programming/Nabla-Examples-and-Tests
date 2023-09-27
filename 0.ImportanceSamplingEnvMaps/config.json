@@ -4,13 +4,16 @@
   "isExecuted": false,
   "scriptPath": "",
   "cmake": {
+    "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
+    "buildModes": [],
     "requiredOptions": []
   },
   "profiles": [
     {
-      "backend": "",
-      "platform": "",
+      "backend": "vulkan",
+      "platform": "windows",
       "buildModes": [],
+      "runConfiguration": "Release",
       "gpuArchitectures": []
     }
   ],
