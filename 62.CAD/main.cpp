@@ -26,6 +26,13 @@ struct double4x4
 	double _r3[4u];
 };
 
+struct double3x3
+{
+	double _r0[3u];
+	double _r1[3u];
+	double _r2[3u];
+};
+
 struct float4
 {
 	float4() {}
@@ -52,7 +59,7 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(Globals) == 152u);
+static_assert(sizeof(Globals) == 96u);
 static_assert(sizeof(LineStyle) == 32u);
 
 using namespace nbl;
@@ -99,9 +106,9 @@ public:
 		return m_bounds;
 	}
 
-	double4x4 constructViewProjection()
+	double3x3 constructViewProjection()
 	{
-		double4x4 ret = {};
+		double3x3 ret = {};
 
 		ret._r0[0] = 2.0 / m_bounds.X;
 		ret._r1[1] = -2.0 / m_bounds.Y;
@@ -1231,6 +1238,7 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
 		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
 		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
+		initParams.physicalDeviceFilter.requiredFeatures.scalarBlockLayout = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -1572,7 +1580,7 @@ public:
 		logicalDevice->waitIdle();
 	}
 
-	double getScreenToWorldRatio(const double4x4& viewProjectionMatrix, uint2 windowSize)
+	double getScreenToWorldRatio(const double3x3& viewProjectionMatrix, uint2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix._r0[0u] * (windowSize.X / 2.0);
 		double idx_1_1 = viewProjectionMatrix._r1[1u] * (windowSize.Y / 2.0);
