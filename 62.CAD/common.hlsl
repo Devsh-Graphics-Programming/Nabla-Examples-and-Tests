@@ -121,6 +121,19 @@ struct PSInput
     // UV, curve min & curve max are all 
     [[vk::location(5)]] float3 interp_data5 : COLOR5;
 
+
+
+    [[vk::location(6)]] double2 curveMinA : curveMinA;
+    [[vk::location(7)]] double2 curveMinB : curveMinB;
+    [[vk::location(8)]] double2 curveMinC : curveMinC;
+    [[vk::location(9)]] double2 curveMaxA : curveMaxA;
+    [[vk::location(10)]] double2 curveMaxB : curveMaxB;
+    [[vk::location(11)]] double2 curveMaxC : curveMaxC;
+    [[vk::location(12)]] float2 majorMinorAxisNdc : majorMinorAxisNdc;
+    [[vk::location(13)]] float det : det;
+    [[vk::location(14)]] float rcp : rcp;
+    [[vk::location(15)]] float detRcp2 : detRcp2;
+    [[vk::location(16)]] float brcp : brcp;
         // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader

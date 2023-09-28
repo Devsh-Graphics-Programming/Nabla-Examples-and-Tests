@@ -723,6 +723,11 @@ public:
 		double2 evaluateBezier(double t) const;
 		double2 tangent(double t) const;
 		std::array<double, 4> getRoots() const;
+		QuadraticBezier splitCurveTakeLeft(double t) const;
+		QuadraticBezier splitCurveTakeRight(double t) const;
+		// Splits the bezier into monotonic segments. If it already was monotonic, 
+		// returns a copy of this bezier in the first value of the array
+		std::array<QuadraticBezier, 2> splitIntoMonotonicSegments(int major) const;
 		std::pair<double2, double2> getBezierBoundingBox() const;
 	};
 
@@ -737,28 +742,9 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
-		QuadraticBezier splitCurveTakeLeft(QuadraticBezier curve, double t)
-		{
-			QuadraticBezier outputCurve;
-			outputCurve.p[0] = curve.p[0];
-			outputCurve.p[1] = (1 - t) * curve.p[0] + t * curve.p[1];
-			outputCurve.p[2] = (1 - t) * ((1 - t) * curve.p[0] + t * curve.p[1]) + t * ((1 - t) * curve.p[1] + t * curve.p[2]);
-
-			return outputCurve;
-		}
-		QuadraticBezier splitCurveTakeRight(QuadraticBezier curve, double t)
-		{
-			QuadraticBezier outputCurve;
-			outputCurve.p[0] = curve.p[2];
-			outputCurve.p[1] = (1 - t) * curve.p[1] + t * curve.p[2];
-			outputCurve.p[2] = (1 - t) * ((1 - t) * curve.p[0] + t * curve.p[1]) + t * ((1 - t) * curve.p[1] + t * curve.p[2]);
-
-			return outputCurve;
-		}
-
 		QuadraticBezier splitCurveRange(QuadraticBezier curve, double left, double right)
 		{
-			return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
+			return curve.splitCurveTakeRight(left).splitCurveTakeLeft(right);
 		}
 
 		QuadraticBezier getSplitCurve()
@@ -848,16 +834,32 @@ public:
 						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
 						{
 							auto lineBezier = line.getQuadBezierInfoAt(itemIdx);
-							QuadraticBezier bezier = { { lineBezier.p[0], lineBezier.p[1], lineBezier.p[2] }};
-							// Beziers must be monotonically increasing
-							if (getMajor(bezier.evaluateBezier(0.0)) > getMajor(bezier.evaluateBezier(1.0)))
-							{
-								bezier.p[2] = lineBezier.p[0];
-								bezier.p[0] = lineBezier.p[2];
-								assert(getMajor(bezier.evaluateBezier(0.0)) <= getMajor(bezier.evaluateBezier(1.0)));
-							}
+							QuadraticBezier unsplitBezier = { { lineBezier.p[0], lineBezier.p[1], lineBezier.p[2] }};
+							
+							// Beziers must be monotonically increasing along major
+							// First step: Make sure the bezier is monotonic, split it if not
+							auto monotonic = unsplitBezier.splitIntoMonotonicSegments(major);
 
-							beziers.push_back(bezier);
+							auto addBezier = [&](QuadraticBezier bezier)
+							{
+								if (getMajor(bezier.evaluateBezier(0.0)) > getMajor(bezier.evaluateBezier(1.0)))
+								{
+									bezier.p[2] = lineBezier.p[0];
+									bezier.p[0] = lineBezier.p[2];
+									assert(getMajor(bezier.evaluateBezier(0.0)) <= getMajor(bezier.evaluateBezier(1.0)));
+								}
+
+								beziers.push_back(bezier);
+							};
+
+							// Already was monotonic
+							if (nbl::core::isnan(monotonic.data()[0].p[0].X))
+								addBezier(unsplitBezier);
+							else
+							{
+								addBezier(monotonic.data()[0]);
+								addBezier(monotonic.data()[1]);
+							}
 						}
 					}
 				}
@@ -1021,9 +1023,10 @@ public:
 					// quadratic coefficients
 					// so we wont need to convert here
 					auto transformCurves = [](Hatch::QuadraticBezier bezier, double2 aabbMin, double2 aabbMax, double2* output) {
-						auto p0 = (bezier.p[0] / (aabbMax - aabbMin)) - aabbMin;
-						auto p1 = (bezier.p[1] / (aabbMax - aabbMin)) - aabbMin;
-						auto p2 = (bezier.p[2] / (aabbMax - aabbMin)) - aabbMin;
+						auto rcpAabbExtents = double2(1.0,1.0) / (aabbMax - aabbMin);
+						auto p0 = (bezier.p[0] * rcpAabbExtents) - aabbMin;
+						auto p1 = (bezier.p[1] * rcpAabbExtents) - aabbMin;
+						auto p2 = (bezier.p[2] * rcpAabbExtents) - aabbMin;
 						output[0] = p0 - 2.0 * p1 + p2;
 						output[1] = 2.0 * (p1 - p0);
 						output[2] = p0;
@@ -1158,6 +1161,42 @@ std::array<double, 4> Hatch::QuadraticBezier::getRoots() const
 	auto yroots = hatchutils::getCurveRoot(A.Y, B.Y, C.Y);
 
 	return { xroots.X, xroots.Y, yroots.X, yroots.Y };
+}
+
+Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLeft(double t) const
+{
+	QuadraticBezier outputCurve;
+	outputCurve.p[0] = p[0];
+	outputCurve.p[1] = (1 - t) * p[0] + t * p[1];
+	outputCurve.p[2] = (1 - t) * ((1 - t) * p[0] + t * p[1]) + t * ((1 - t) * p[1] + t * p[2]);
+
+	return outputCurve;
+}
+
+Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeRight(double t) const
+{
+	QuadraticBezier outputCurve;
+	outputCurve.p[0] = p[2];
+	outputCurve.p[1] = (1 - t) * p[1] + t * p[2];
+	outputCurve.p[2] = (1 - t) * ((1 - t) * p[0] + t * p[1]) + t * ((1 - t) * p[1] + t * p[2]);
+
+	return outputCurve;
+}
+
+std::array<Hatch::QuadraticBezier, 2> Hatch::QuadraticBezier::splitIntoMonotonicSegments(int major) const
+{
+	// TODO: not have replicas of this everywhere
+	auto getMajor = [major](double2 value) { return major == 0 ? value.X : value.Y; };
+
+	// Getting derivatives for our quadratic bezier
+	auto a = 2.0 * (getMajor(p[1]) - getMajor(p[0]));
+	auto b = 2.0 * (getMajor(p[2]) - getMajor(p[1]));
+
+	// Finding roots for the quadratic bezier derivatives (a straight line)
+	auto rcp = 1.0 / (b - a);
+	auto t = -a * rcp;
+	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return { { double2(nbl::core::nan<double>()) }};
+	return { splitCurveTakeLeft(t), splitCurveTakeRight(t) };
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
@@ -2825,13 +2864,13 @@ public:
 			CPolyline polyline;
 			std::vector<QuadraticBezierInfo> beziers;
 			beziers.push_back({
-				300.0 * nbl::core::vector2d<double>(0.0, 1.0),
-				300.0 * nbl::core::vector2d<double>(0.1, 0.3),
-				300.0 * nbl::core::vector2d<double>(0.2, 0.0)});
+				300.0 * nbl::core::vector2d<double>(0.0, 0.0),
+				300.0 * nbl::core::vector2d<double>(0.1, 0.7),
+				300.0 * nbl::core::vector2d<double>(0.2, 1.0)});
 			beziers.push_back({
-				300.0 * nbl::core::vector2d<double>(0.8, 1.0),
-				300.0 * nbl::core::vector2d<double>(0.9, 0.7),
-				300.0 * nbl::core::vector2d<double>(1.0, 0.0)});
+				300.0 * nbl::core::vector2d<double>(0.8, 0.0),
+				300.0 * nbl::core::vector2d<double>(0.9, 0.3),
+				300.0 * nbl::core::vector2d<double>(1.0, 1.0)});
 			polyline.addQuadBeziers(std::move(beziers));
 
 			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);

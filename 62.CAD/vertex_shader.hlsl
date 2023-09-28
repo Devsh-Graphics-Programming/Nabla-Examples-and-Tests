@@ -493,13 +493,29 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)(major == 1 ? curveMin.A.x : curveMin.A.y), 
             (float)(major == 1 ? curveMin.B.x : curveMin.B.y), 
-            (float)(major == 1 ? curveMin.C.x : curveMin.C.y));
+            (float)(major == 1 ? curveMin.C.x : curveMin.C.y) - majorMinorAxisNdc.x);
         nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)(major == 1 ? curveMax.A.x : curveMax.A.y), 
             (float)(major == 1 ? curveMax.B.x : curveMax.B.y), 
-            (float)(major == 1 ? curveMax.C.x : curveMax.C.y));
-        outV.setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMinRootFinding, majorMinorAxisNdc.x));
-        outV.setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMaxRootFinding, majorMinorAxisNdc.x));
+            (float)(major == 1 ? curveMax.C.x : curveMax.C.y) - majorMinorAxisNdc.x);
+        outV.setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMinRootFinding));
+        outV.setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMaxRootFinding));
+
+        outV.curveMinA = curveBox.curveMin[0];
+        outV.curveMinB = curveBox.curveMin[1];
+        outV.curveMinC = curveBox.curveMin[2];
+        outV.curveMaxA = curveBox.curveMax[0];
+        outV.curveMaxB = curveBox.curveMax[1];
+        outV.curveMaxC = curveBox.curveMax[2];
+        outV.majorMinorAxisNdc = majorMinorAxisNdc;
+
+        double a = curveMinRootFinding.A;
+        double b = curveMinRootFinding.B;
+        double c = curveMinRootFinding.C - majorMinorAxisNdc.x;
+        outV.det = b*b-4.f*a*c;
+        outV.rcp = 0.5 / a;
+        outV.detRcp2 = outV.getMinCurvePrecomputedRootFinders().detRcp2;
+        outV.brcp = outV.getMinCurvePrecomputedRootFinders().brcp;
     }
 
 
