@@ -171,7 +171,7 @@ bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, 
 
 double3x3 getTransformationToNDC(in MainObject mainObj)
 {
-    if (mainObj.clipProjectionIdx != MainObject::InvalidClipProjectionIdx)
+    if (mainObj.clipProjectionIdx != InvalidClipProjectionIdx)
     {
         return double3x3(0,0,0,0,0,0,0,0,0);
         // return mainObj.clipProjectionIdx

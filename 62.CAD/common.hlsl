@@ -8,7 +8,6 @@ enum class ObjectType : uint32_t
 // Consists of multiple DrawObjects
 struct MainObject
 {
-    static const uint32_t InvalidClipProjectionIdx = 0xffffffff;
     uint32_t styleIdx;
     uint32_t clipProjectionIdx;
 };
@@ -74,6 +73,7 @@ static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alph
 static const uint32_t AlphaBits = 32u - MainObjectIdxBits;
 static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+static const uint32_t InvalidClipProjectionIdx = 0xffffffff;
 
 #ifndef __cplusplus
 
@@ -168,5 +168,5 @@ struct PSInput
 [[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
-// [[vk::binding(5, 0)]] StructuredBuffer<CustomClipProjectionData> customClipProjections : register(t3);
+[[vk::binding(5, 0)]] StructuredBuffer<CustomClipProjectionData> customClipProjections : register(t3);
 #endif
