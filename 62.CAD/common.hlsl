@@ -1,7 +1,3 @@
-#ifdef __cplusplus
-#define row_major
-#endif
-
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -172,8 +168,5 @@ struct PSInput
 [[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
-#endif
-
-#ifdef __cplusplus
-#undef row_major
+// [[vk::binding(5, 0)]] StructuredBuffer<CustomClipProjectionData> customClipProjections : register(t3);
 #endif
