@@ -12,8 +12,9 @@ enum class ObjectType : uint32_t
 // Consists of multiple DrawObjects
 struct MainObject
 {
-    // TODO[Erfan]: probably have objectType here as well?
+    static const uint32_t InvalidClipProjectionIdx = 0xffffffff;
     uint32_t styleIdx;
+    uint32_t clipProjectionIdx;
 };
 
 struct DrawObject
@@ -46,7 +47,7 @@ You need another struct here that represents a "CurveBox" which
 
 struct Globals
 {
-    row_major double3x3 viewProjection; // 72 -> because we use scalar_layout
+    double3x3 viewProjection; // 72 -> because we use scalar_layout
     double screenToWorldRatio; // 80 - TODO: make a float, no point making it a double
     uint2 resolution; // 88
     float antiAliasingFactor; // 92
@@ -65,7 +66,7 @@ struct LineStyle
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
-struct CustomClipAndProjectionData
+struct CustomClipProjectionData
 {
     double3x3 projectionToNDC; // 72
     float2 minClipNDC; // 80
@@ -107,6 +108,7 @@ uint bitfieldExtract(uint value, int offset, int bits)
 struct PSInput
 {
     float4 position : SV_Position;
+    float4 clip : SV_ClipDistance;
     [[vk::location(0)]] float4 data0 : COLOR;
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;

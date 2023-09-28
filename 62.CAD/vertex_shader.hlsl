@@ -169,6 +169,19 @@ bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, 
     return true;
 }
 
+double3x3 getTransformationToNDC(in MainObject mainObj)
+{
+    if (mainObj.clipProjectionIdx != MainObject::InvalidClipProjectionIdx)
+    {
+        return double3x3(0,0,0,0,0,0,0,0,0);
+        // return mainObj.clipProjectionIdx
+    }
+    else
+    {
+        return globals.viewProjection;
+    }
+}
+
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -179,6 +192,7 @@ PSInput main(uint vertexID : SV_VertexID)
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
 
+    outV.clip = float4(0,0,0,0);
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
@@ -193,7 +207,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = globals.viewProjection;
+        double3x3 transformation = getTransformationToNDC(mainObj);
 
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -236,7 +250,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = globals.viewProjection;
+        double3x3 transformation = getTransformationToNDC(mainObj);
 
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);

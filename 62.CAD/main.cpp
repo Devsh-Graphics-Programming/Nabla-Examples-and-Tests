@@ -34,9 +34,10 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 #include "common.hlsl"
 
 static_assert(sizeof(DrawObject) == 16u);
+static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(Globals) == 96u);
 static_assert(sizeof(LineStyle) == 32u);
-static_assert(sizeof(CustomClipAndProjectionData) == 88u);
+static_assert(sizeof(CustomClipProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
@@ -445,6 +446,7 @@ public:
 		
 		MainObject mainObj = {};
 		mainObj.styleIdx = styleIdx;
+		mainObj.clipProjectionIdx = MainObject::InvalidClipProjectionIdx;
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
@@ -1214,6 +1216,7 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
 		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
 		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
+		initParams.physicalDeviceFilter.requiredFeatures.shaderClipDistance = true;
 		initParams.physicalDeviceFilter.requiredFeatures.scalarBlockLayout = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
