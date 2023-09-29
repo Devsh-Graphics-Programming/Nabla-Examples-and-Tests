@@ -11,7 +11,9 @@
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
-    // colorspace
+    // xoroshiro tests
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+    // colorspace tests
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
@@ -336,6 +338,15 @@ int main(int argc, char** argv)
     barycentric::reconstructBarycentrics(x, y);
     barycentric::reconstructBarycentrics(x, z);
 
+    // xoroshiro64 tests
+    constexpr xoroshiro64star_state_t xoroshiro64StarState = xoroshiro64star_state_t(12u, 34u);
+    Xoroshiro64Star xoroshiro64Star = Xoroshiro64Star::construct(xoroshiro64StarState);
+    xoroshiro64Star();
+
+    constexpr xoroshiro64starstar_state_t xoroshiro64StarStarState = xoroshiro64starstar_state_t(12u, 34u);
+    Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(xoroshiro64StarStarState);
+    xoroshiro64StarStar();
+  
     // color matrix tests:
     testColorMatrices();
     
