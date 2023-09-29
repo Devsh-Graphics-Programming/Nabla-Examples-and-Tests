@@ -87,11 +87,9 @@ int main()
     // xoroshiro64 tests
     constexpr xoroshiro64star_state_t xoroshiro64StarState = xoroshiro64star_state_t(12u, 34u);
     Xoroshiro64Star xoroshiro64Star = Xoroshiro64Star::construct(xoroshiro64StarState);
-    std::cout << xoroshiro64Star() << std::endl;
-    std::cout << xoroshiro64Star() << std::endl;
+    xoroshiro64Star();
 
     constexpr xoroshiro64starstar_state_t xoroshiro64StarStarState = xoroshiro64starstar_state_t(12u, 34u);
     Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(xoroshiro64StarStarState);
-    std::cout << xoroshiro64StarStar() << std::endl;
-    std::cout << xoroshiro64StarStar() << std::endl;
+    xoroshiro64StarStar();
 }
