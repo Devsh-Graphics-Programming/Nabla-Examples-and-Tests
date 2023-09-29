@@ -1,8 +1,8 @@
 {
   "enableParallelBuild": true,
   "threadsPerBuildProcess" : 2,
-  "isExecuted": false,
-  "scriptPath": "",
+  "isExecuted": true,
+  "scriptPath": "test.py.template",
   "cmake": {
     "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
     "buildModes": [],
@@ -17,11 +17,18 @@
       "gpuArchitectures": []
     }
   ],
-  "dependencies": [],
+  "dependencies": [
+	  ".dependencies/debug.out",
+	  ".dependencies/release.out"
+  ],
   "data": [
     {
       "dependencies": [],
-      "command": [""],
+      "command": [
+		"${NBL_EXECUTABLE_GEN_EXP_FILEPATH}", 
+		".dependencies/debug.out", 
+		".dependencies/release.out"
+	  ],
       "outputs": []
     }
   ]

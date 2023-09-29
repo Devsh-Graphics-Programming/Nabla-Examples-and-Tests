@@ -1,5 +1,5 @@
 import sys
-sys.path.append("Path to framework submodule")
+sys.path.append("@NBL_PYTHON_FRAMEWORK_MODULE_PATH_REL@")
 
 from ConsoleOutputTest import ConsoleOutputTestExpectedFileAsDependency as TestClass
 from ArgHandler import get_args
