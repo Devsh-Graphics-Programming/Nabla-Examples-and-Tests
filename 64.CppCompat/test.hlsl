@@ -19,12 +19,15 @@
 #include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
 #include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
 
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+
 [numthreads(1, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     SHADER_CRASHING_ASSERT(true);
     const float3 TEST_VEC = float3(1.0f, 2.0f, 3.0f);
     
+    // test functions from EOTF.hlsl
     nbl::hlsl::colorspace::eotf::identity<float3>(TEST_VEC);
     nbl::hlsl::colorspace::eotf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
     nbl::hlsl::colorspace::eotf::sRGB<float3>(TEST_VEC);
@@ -38,6 +41,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     nbl::hlsl::colorspace::eotf::ACEScc<float3>(TEST_VEC);
     nbl::hlsl::colorspace::eotf::ACEScct<float3>(TEST_VEC);
     
+    // test functions from OETF.hlsl
     nbl::hlsl::colorspace::oetf::identity<float3>(TEST_VEC);
     nbl::hlsl::colorspace::oetf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
     nbl::hlsl::colorspace::oetf::sRGB<float3>(TEST_VEC);
@@ -50,4 +54,13 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     nbl::hlsl::colorspace::oetf::Gamma_2_2<float3>(TEST_VEC);
     nbl::hlsl::colorspace::oetf::ACEScc<float3>(TEST_VEC);
     nbl::hlsl::colorspace::oetf::ACEScct<float3>(TEST_VEC);
+    
+    // xoroshiro tests
+    const nbl::hlsl::xoroshiro64star_state_t xoroshiro64StarState = nbl::hlsl::xoroshiro64star_state_t(12u, 34u);
+    nbl::hlsl::Xoroshiro64Star xoroshiro64Star = nbl::hlsl::Xoroshiro64Star(xoroshiro64StarState);
+    xoroshiro64Star();
+
+    const nbl::hlsl::xoroshiro64starstar_state_t xoroshiro64StarStarState = nbl::hlsl::xoroshiro64starstar_state_t(12u, 34u);
+    nbl::hlsl::Xoroshiro64StarStar xoroshiro64StarStar = nbl::hlsl::Xoroshiro64StarStar(xoroshiro64StarStarState);
+    xoroshiro64StarStar();
 }
