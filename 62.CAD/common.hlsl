@@ -40,13 +40,23 @@ You need another struct here that represents a "CurveBox" which
 2. It will also contain tmin,tmax for both curves (becuase we subdivide curves into smaller monotonic parts we need this info to help us discard invalid solutions)
 */
 
+// TODO: Compute this in a compute shader from the world counterparts
+//      because this struct includes NDC coordinates, the values will change based camera zoom and move
+//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
+struct ClipProjectionData
+{
+    double3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    float2 minClipNDC; // 80
+    float2 maxClipNDC; // 88
+};
+
 struct Globals
 {
-    double3x3 viewProjection; // 72 -> because we use scalar_layout
-    double screenToWorldRatio; // 80 - TODO: make a float, no point making it a double
-    uint2 resolution; // 88
-    float antiAliasingFactor; // 92
-    float _pad; // 96
+    ClipProjectionData defaultClipProjection; // 88
+    double screenToWorldRatio; // 96
+    uint2 resolution; // 104
+    float antiAliasingFactor; // 108
+    float _pad; // 112
 };
 
 struct LineStyle
@@ -58,22 +68,13 @@ struct LineStyle
     float _pad[2u];
 };
 
-// TODO: Compute this in a compute shader from the world counterparts
-//      because this struct includes NDC coordinates, the values will change based camera zoom and move
-//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
-struct CustomClipProjectionData
-{
-    double3x3 projectionToNDC; // 72
-    float2 minClipNDC; // 80
-    float2 maxClipNDC; // 88
-};
-
 //TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
 static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 static const uint32_t AlphaBits = 32u - MainObjectIdxBits;
 static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 static const uint32_t InvalidClipProjectionIdx = 0xffffffff;
+static const uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
 
 #ifndef __cplusplus
 
@@ -168,5 +169,5 @@ struct PSInput
 [[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
-[[vk::binding(5, 0)]] StructuredBuffer<CustomClipProjectionData> customClipProjections : register(t3);
+[[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
 #endif

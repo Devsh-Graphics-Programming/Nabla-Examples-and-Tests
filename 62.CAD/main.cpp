@@ -35,9 +35,9 @@ typedef nbl::core::vector2d<uint32_t> uint2;
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 96u);
+static_assert(sizeof(Globals) == 112u);
 static_assert(sizeof(LineStyle) == 32u);
-static_assert(sizeof(CustomClipProjectionData) == 88u);
+static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
@@ -428,10 +428,10 @@ public:
 		cpuDrawBuffers.lineStylesBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lineStylesBufferSize);
 	}
 
-	void allocateCustomClipProjectionBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t customClipProjectionDataCount)
+	void allocateCustomClipProjectionBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t ClipProjectionDataCount)
 	{
-		maxClipProjectionData = customClipProjectionDataCount;
-		size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(CustomClipProjectionData);
+		maxClipProjectionData = ClipProjectionDataCount;
+		size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(ClipProjectionData);
 
 		video::IGPUBuffer::SCreationParams customClipProjectionCreationParams = {};
 		customClipProjectionCreationParams.size = customClipProjectionBufferSize;
@@ -456,6 +456,7 @@ public:
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
 		const LineStyle& lineStyle,
+		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
@@ -465,7 +466,7 @@ public:
 		
 		MainObject mainObj = {};
 		mainObj.styleIdx = styleIdx;
-		mainObj.clipProjectionIdx = InvalidClipProjectionIdx;
+		mainObj.clipProjectionIdx = clipProjectionIdx;
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
@@ -552,7 +553,7 @@ public:
 
 	size_t getCurrentCustomClipProjectionBufferSize() const
 	{
-		return sizeof(CustomClipProjectionData) * currentClipProjectionDataCount;
+		return sizeof(ClipProjectionData) * currentClipProjectionDataCount;
 	}
 
 	void reset()
@@ -644,8 +645,8 @@ protected:
 	{
 		// Copy LineStyles
 		uint32_t remainingClipProjectionData = currentClipProjectionDataCount - inMemClipProjectionDataCount;
-		asset::SBufferRange<video::IGPUBuffer> clipProjectionRange = { sizeof(CustomClipProjectionData) * inMemClipProjectionDataCount, sizeof(CustomClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
-		const CustomClipProjectionData* srcClipProjectionData = reinterpret_cast<CustomClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer()) + inMemClipProjectionDataCount;
+		asset::SBufferRange<video::IGPUBuffer> clipProjectionRange = { sizeof(ClipProjectionData) * inMemClipProjectionDataCount, sizeof(ClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
+		const ClipProjectionData* srcClipProjectionData = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer()) + inMemClipProjectionDataCount;
 		if (clipProjectionRange.size > 0u)
 			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(clipProjectionRange, srcClipProjectionData, submissionQueue, submissionFence, intendedNextSubmit);
 		inMemClipProjectionDataCount = currentClipProjectionDataCount;
@@ -724,33 +725,35 @@ protected:
 		return currentLineStylesCount++;
 	}
 
-	video::IGPUQueue::SSubmitInfo addCustomClipProjectionData_SubmitIfNeeded(
-		const CustomClipProjectionData& clipProjectionData,
+public:
+	video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
+		const ClipProjectionData& clipProjectionData,
 		uint32_t& outClipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
-		outClipProjectionIdx = addCustomClipProjectionData_Internal(clipProjectionData);
+		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
 		if (outClipProjectionIdx == InvalidClipProjectionIdx)
 		{
 			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 			resetAllCounters();
-			outClipProjectionIdx = addCustomClipProjectionData_Internal(clipProjectionData);
+			outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
 			assert(outClipProjectionIdx != InvalidClipProjectionIdx);
 		}
 		return intendedNextSubmit;
 	}
 
-	uint32_t addCustomClipProjectionData_Internal(const CustomClipProjectionData& clipProjectionData)
+protected:
+	uint32_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
 	{
-		CustomClipProjectionData* clipProjectionArray = reinterpret_cast<CustomClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer());
+		ClipProjectionData* clipProjectionArray = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer());
 		if (currentClipProjectionDataCount >= maxClipProjectionData)
 			return InvalidClipProjectionIdx;
 
 		void* dst = clipProjectionArray + currentClipProjectionDataCount;
-		memcpy(dst, &clipProjectionData, sizeof(CustomClipProjectionData));
+		memcpy(dst, &clipProjectionData, sizeof(ClipProjectionData));
 		return currentClipProjectionDataCount++;
 	}
 
@@ -1686,8 +1689,10 @@ public:
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
-		globalData.viewProjection = m_Camera.constructViewProjection();
-		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
+		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection();
+		globalData.defaultClipProjection.minClipNDC = float2(-1.0, -1.0);
+		globalData.defaultClipProjection.maxClipNDC = float2(+1.0, +1.0);
+		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1955,7 +1960,7 @@ public:
 				polyline.addLinePoints(std::move(linePoints));
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
@@ -1969,8 +1974,8 @@ public:
 			style2.worldSpaceLineWidth = 0.8f;
 			style2.color = float4(0.119f, 0.825f, 0.709f, 0.5f);
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -2024,9 +2029,6 @@ public:
 
 			}
 			{
-
-			}
-			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
 				{
 					QuadraticBezierInfo quadratic1;
@@ -2052,9 +2054,18 @@ public:
 				polyline2.addQuadBeziers(std::move(quadBeziers));
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
-			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+			ClipProjectionData customClipProject = {};
+			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
+			customClipProject.projectionToNDC._r0[0] *= 1.003f;
+			customClipProject.projectionToNDC._r1[1] *= 1.003f;
+			customClipProject.maxClipNDC = float2(0.5, 0.5);
+			customClipProject.minClipNDC = float2(-0.5, -0.5);
+			uint32_t clipProjIdx = InvalidClipProjectionIdx;
+			intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;

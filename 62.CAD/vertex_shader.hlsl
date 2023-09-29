@@ -169,16 +169,15 @@ bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, 
     return true;
 }
 
-double3x3 getTransformationToNDC(in MainObject mainObj)
+ClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
     if (mainObj.clipProjectionIdx != InvalidClipProjectionIdx)
     {
-        return double3x3(0,0,0,0,0,0,0,0,0);
-        // return mainObj.clipProjectionIdx
+        return customClipProjections[mainObj.clipProjectionIdx];
     }
     else
     {
-        return globals.viewProjection;
+        return globals.defaultClipProjection;
     }
 }
 
@@ -199,6 +198,7 @@ PSInput main(uint vertexID : SV_VertexID)
     // We only need these for Outline type objects like lines and bezier curves
     MainObject mainObj = mainObjects[drawObj.mainObjIndex];
     LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+    ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
@@ -207,7 +207,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = getTransformationToNDC(mainObj);
+        const double3x3 transformation = clipProjectionData.projectionToNDC;
 
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -249,8 +249,8 @@ PSInput main(uint vertexID : SV_VertexID)
     {
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-
-        double3x3 transformation = getTransformationToNDC(mainObj);
+        
+        const double3x3 transformation = clipProjectionData.projectionToNDC;
 
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -436,6 +436,7 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (vertexIdx == 3u)
             outV.position = float4(+1, +1, 0, 1);
 #endif
-
+    
+    outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
     return outV;
 }
