@@ -2,5 +2,4 @@
 *.pdb
 *.sse
 */bin/*
-*/.test/*
 */.profiles/*
