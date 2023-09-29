@@ -184,6 +184,7 @@ public:
         m_assetManager = std::move(initOutput.assetManager);
         m_cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
         m_logger = std::move(initOutput.logger);
+        m_queues = std::move(initOutput.queues);
 
         commandPools = std::move(initOutput.commandPools);
         const auto& computeCommandPools = commandPools[CommonAPI::InitOutput::EQT_COMPUTE];
@@ -210,6 +211,9 @@ public:
 
         m_pipeline = m_logicalDevice->createComputePipeline(nullptr,
             core::smart_refctd_ptr(pipelineLayout), core::smart_refctd_ptr(specializedShader));
+
+        m_semaphores[0] = m_logicalDevice->createSemaphore();
+        m_semaphores[1] = m_logicalDevice->createSemaphore();
     }
 
     void onAppTerminated_impl() override
@@ -219,11 +223,25 @@ public:
 
     void workLoopBody() override
     {
-        std::cout << "running HLSL tests..\n";
+        waitForFrame(1u, m_fence);
+        m_logicalDevice->resetFences(1u, &m_fence.get());
+
+        m_cmdbuf->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
+        m_cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 
         m_cmdbuf->bindComputePipeline(m_pipeline.get());
         m_cmdbuf->dispatch(1u, 1u, 1u);
         m_cmdbuf->end();
+
+            //TODO: fix semaphores
+        CommonAPI::Submit(
+            m_logicalDevice.get(),
+            m_cmdbuf.get(),
+            m_queues[CommonAPI::InitOutput::EQT_COMPUTE],
+            m_semaphores[0].get(),
+            m_semaphores[1].get(),
+            m_fence.get());
+
         m_keepRunning = false;
     }
 
@@ -244,7 +262,7 @@ public:
     void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override {}
     nbl::ui::IWindow* getWindow() override { return nullptr; }
     video::IAPIConnection* getAPIConnection() override { return nullptr; }
-    video::ILogicalDevice* getLogicalDevice()  override { return nullptr; }
+    video::ILogicalDevice* getLogicalDevice()  override { return m_logicalDevice.get(); }
     video::IGPURenderpass* getRenderpass() override { return nullptr; }
     uint32_t getSwapchainImageCount() override { return 0u; }
     virtual nbl::asset::E_FORMAT getDepthFormat() override { return nbl::asset::E_FORMAT::EF_UNKNOWN;  }
@@ -255,6 +273,9 @@ private:
     core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_logicalDevice;
     core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline = nullptr;
     core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf = nullptr;
+    std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> m_queues;
+    core::smart_refctd_ptr<video::IGPUSemaphore> m_semaphores[2u] = {nullptr};
+    core::smart_refctd_ptr<video::IGPUFence> m_fence = nullptr;
     std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
     core::smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
     video::IGPUObjectFromAssetConverter::SParams m_cpu2gpuParams;
@@ -270,8 +291,6 @@ int main(int argc, char** argv)
     b = a * 3.0f;
     bool3 asdf = bool3(true, false, true);
     pow(a, b);
-    
-    ValueType<float3>::type afdfadf;
 
     {
         float4x3 a;
@@ -342,24 +361,10 @@ int main(int argc, char** argv)
         assert(glm::all(b <= a));
     }
 
-    // test functions from OETF.hlsl
+    // test functions from EOTF.hlsl
     // TODO[Przemek]: tests function output
     float3 TEST_VEC = float3(0.1f, 0.2f, 0.3f);
 
-    colorspace::oetf::identity<float3>(TEST_VEC);
-    colorspace::oetf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
-    colorspace::oetf::sRGB<float3>(TEST_VEC);
-    colorspace::oetf::Display_P3<float3>(TEST_VEC);
-    colorspace::oetf::DCI_P3_XYZ<float3>(TEST_VEC);
-    colorspace::oetf::SMPTE_170M<float3>(TEST_VEC);
-    colorspace::oetf::SMPTE_ST2084<float3>(TEST_VEC);
-    colorspace::oetf::HDR10_HLG<float3>(TEST_VEC);
-    colorspace::oetf::AdobeRGB<float3>(TEST_VEC);
-    colorspace::oetf::Gamma_2_2<float3>(TEST_VEC);
-    colorspace::oetf::ACEScc<float3>(TEST_VEC);
-    colorspace::oetf::ACEScct<float3>(TEST_VEC);
-
-    // test functions from EOTF.hlsl
     colorspace::eotf::identity<float3>(TEST_VEC);
     colorspace::eotf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
     colorspace::eotf::sRGB<float3>(TEST_VEC);
@@ -372,7 +377,20 @@ int main(int argc, char** argv)
     colorspace::eotf::Gamma_2_2<float3>(TEST_VEC);
     colorspace::eotf::ACEScc<float3>(TEST_VEC);
     colorspace::eotf::ACEScct<float3>(TEST_VEC);
+
+    // test functions from OETF.hlsl
+    colorspace::oetf::identity<float3>(TEST_VEC);
+    colorspace::oetf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
+    colorspace::oetf::sRGB<float3>(TEST_VEC);
+    colorspace::oetf::Display_P3<float3>(TEST_VEC);
+    colorspace::oetf::DCI_P3_XYZ<float3>(TEST_VEC);
+    colorspace::oetf::SMPTE_170M<float3>(TEST_VEC);
+    colorspace::oetf::SMPTE_ST2084<float3>(TEST_VEC);
+    colorspace::oetf::HDR10_HLG<float3>(TEST_VEC);
+    colorspace::oetf::AdobeRGB<float3>(TEST_VEC);
+    colorspace::oetf::Gamma_2_2<float3>(TEST_VEC);
+    colorspace::oetf::ACEScc<float3>(TEST_VEC);
+    colorspace::oetf::ACEScct<float3>(TEST_VEC);
     
     CompatibilityTest::runTests(argc, argv);
-    //CommonAPI::main<CompatibilityTest>(argc, argv);
 }
