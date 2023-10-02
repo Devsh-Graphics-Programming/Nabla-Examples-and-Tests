@@ -3,3 +3,4 @@
 *.sse
 */bin/*
 */.profiles/*
+*/runAllTests.py
