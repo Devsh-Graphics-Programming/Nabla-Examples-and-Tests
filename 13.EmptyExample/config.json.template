@@ -1,0 +1,28 @@
+{
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": false,
+  "scriptPath": "",
+  "cmake": {
+    "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
+    "buildModes": [],
+    "requiredOptions": [ "NBL_BUILD_CEGUI" ]
+  }, 
+  "profiles": [
+    {
+      "backend": "vulkan",
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Release",
+      "gpuArchitectures": []
+    }
+  ],
+  "dependencies": [],
+  "data": [
+    {
+      "dependencies": [],
+      "command": [""],
+      "outputs": []
+    }
+  ]
+}
