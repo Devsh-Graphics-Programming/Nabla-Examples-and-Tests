@@ -2,7 +2,7 @@
   "enableParallelBuild": true,
   "threadsPerBuildProcess" : 2,
   "isExecuted": true,
-  "scriptPath": "test.py.template",
+  "scriptPath": ".test/test.py",
   "cmake": {
     "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
     "buildModes": [],
