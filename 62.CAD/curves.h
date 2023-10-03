@@ -5,9 +5,11 @@
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
-
 using namespace nbl::hlsl;
 
+#include "common.hlsl"
+
+//TODO: Share hlsl and cpp
 float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
 {
     float64_t denominator = v1.y * v2.x - v1.x * v2.y;
@@ -124,6 +126,7 @@ struct ExplicitEllipse final : public ExplicitCurve
     }
 };
 
+// Centered at (0, 0), P1 and P2 on x axis and P1.x = -P2.x
 struct MixedCircle final : public ExplicitCurve
 {
     struct ExplicitCircle
@@ -205,5 +208,62 @@ private:
     }
 
 };
+
+typedef std::function<void(const QuadraticBezierInfo&)> AddBezierFunc;
+
+// To compute error from actual curve
+float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
+{
+    float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
+    float64_t b = 2.0 * (bezier.p[1].x - bezier.p[0].x);
+    float64_t c = bezier.p[0].x;
+    float64_t det = b * b - 4.0 * a * c;
+    float64_t detSqrt = sqrt(det);
+    float64_t rcp = 0.5 / a;
+    float64_t bOver2A = b * rcp;
+
+    float64_t t0 = 0.0, t1 = 0.0;
+    if (b >= 0)
+    {
+        t0 = -detSqrt * rcp - bOver2A;
+        t1 = 2 * c / (-b - detSqrt);
+    }
+    else
+    {
+        t0 = 2 * c / (-b + detSqrt);
+        t1 = +detSqrt * rcp - bOver2A;
+    }
+
+    if (t0 >= 0.0 && t0 <= 1.0)
+        return t0;
+    else if (t1 >= 0.0 && t1 <= 1.0)
+        return t1;
+    else
+        return std::numeric_limits<double>::quiet_NaN();
+
+}
+
+QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t t0, float64_t2 P2, float64_t t2)
+{
+    QuadraticBezierInfo out = {};
+    out.p[0] = P0;
+    out.p[2] = P2;
+
+    float64_t2 v0 = float64_t2(1.0, t0);
+    if (isinf(t0))
+        v0 = float64_t2(0.0, 1.0);
+
+    float64_t2 v2 = float64_t2(1.0, t2);
+    if (isinf(t2))
+        v2 = float64_t2(0.0, 1.0);
+
+    out.p[1] = LineLineIntersection(P0, v0, P2, v2);
+    return out;
+}
+
+void adaptiveSubdivision(const ExplicitCurve& curve, float64_t min, float64_t max, const AddBezierFunc& addBezierFunc, uint32_t maxDepth=12)
+{
+    return;
+}
 
 #endif

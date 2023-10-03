@@ -1,3 +1,7 @@
+
+#ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
+#define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
+
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
 enum class ObjectType : uint32_t
@@ -171,4 +175,6 @@ struct PSInput
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
 [[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+#endif
+
 #endif
