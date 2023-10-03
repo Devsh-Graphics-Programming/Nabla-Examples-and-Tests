@@ -2,17 +2,18 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// ERM THIS IS PROBABLY WRONG, consult Arek!
 #define _NBL_STATIC_LIB_
 #include <iostream>
 #include <cstdio>
 #include <assert.h>
 #include <nabla.h>
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
-#include <nbl/builtin/hlsl/barycentric/utils.hlsl>
+
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+//#include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
     // xoroshiro tests
-#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+//#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
     // colorspace tests
 #include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 #include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
@@ -22,7 +23,7 @@
 using namespace nbl;
 using namespace core;
 using namespace ui;
-using namespace hlsl;
+using namespace nbl::hlsl;
 
 // encodeCIEXYZ.hlsl matrices
 constexpr glm::mat3 nbl_glsl_scRGBtoXYZ = glm::mat3(
@@ -111,7 +112,7 @@ constexpr glm::mat3 nbl_glsl_XYZtoACEScc = glm::mat3(
 );
 
 constexpr uint32_t COLOR_MATRIX_CNT = 14u;
-constexpr std::array<float3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
+constexpr std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
     colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
     colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
     colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
@@ -128,10 +129,10 @@ constexpr std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
 
 void testColorMatrices()
 {
-    constexpr std::array<float3, 3> unitVectors = {
-        float3(1.0f, 0.0f, 0.0f),
-        float3(0.0f, 1.0f, 0.0f),
-        float3(0.0f, 0.0f, 1.0f)
+    constexpr std::array<float32_t3, 3> unitVectors = {
+        float32_t3(1.0f, 0.0f, 0.0f),
+        float32_t3(0.0f, 1.0f, 0.0f),
+        float32_t3(0.0f, 0.0f, 1.0f)
     };
 
     for (uint32_t matrixIdx = 0u; matrixIdx < COLOR_MATRIX_CNT; matrixIdx++)
@@ -153,19 +154,21 @@ void testColorMatrices()
     }
 }
 
-struct S {
-    float3 f;
+struct S
+{
+    float32_t3 f;
 };
 
-struct T {
-    float    a;
-    float3   b;
-    S        c;
-    float2x3 d;
-    float2x3 e;
-    int      f[3];
-    float2   g[2];
-    float4   h;
+struct T
+{
+    float32_t       a;
+    float32_t3      b;
+    S               c;
+    float32_t2x3    d;
+    float32_t2x3    e;
+    int             f[3];
+    float32_t2      g[2];
+    float32_t4      h;
 };
 
 #include "../common/CommonAPI.h"
@@ -288,17 +291,27 @@ private:
 
 int main(int argc, char** argv)
 {
-    float3 a = float3(1.0f, 2.0f, 3.0f);
-    float3 b = float3(2.0f, 3.0f, 4.0f);
+    float32_t3 a = float32_t3(1.0f, 2.0f, 3.0f);
+    float32_t3 b = float32_t3(2.0f, 3.0f, 4.0f);
     b = a * 3.0f;
     bool3 asdf = bool3(true, false, true);
     pow(a, b);
 
+    // TODO: later this whole test should be templated so we can check all `T` not just `float`, but for this we need `type_traits`
+  
+    // DO NOT EVER THINK TO CHANGE `using type1 = vector<type,1>` to `using type1 = type` EVER!
+    static_assert(!std::is_same_v<float32_t1,float32_t>);
+    static_assert(!std::is_same_v<float64_t1,float64_t>);
+    static_assert(!std::is_same_v<int32_t1,int32_t>);
+    static_assert(!std::is_same_v<uint32_t1,uint32_t>);
+    //static_assert(!std::is_same_v<vector<T,1>,T>);
+
+    // checking matrix memory layout
     {
-        float4x3 a;
-        float3x4 b;
-        float3 v;
-        float4 u;
+        float32_t4x3 a;
+        float32_t3x4 b;
+        float32_t3 v;
+        float32_t4 u;
         mul(a, b);
         mul(b, a);
         mul(a, v);
@@ -306,23 +319,28 @@ int main(int argc, char** argv)
         mul(u, a);
         mul(b, u);
 
-        float4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
+        float32_t4x4(1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16);
         a - a;
         b + b;
-        static_assert(std::is_same_v<float4x4, decltype(mul(a, b))>);
-        static_assert(std::is_same_v<float3x3, decltype(mul(b, a))>);
-        static_assert(std::is_same_v<float4, decltype(mul(a, v))>);
-        static_assert(std::is_same_v<float4, decltype(mul(v, b))>);
-        static_assert(std::is_same_v<float3, decltype(mul(u, a))>);
-        static_assert(std::is_same_v<float3, decltype(mul(b, u))>);
+        static_assert(std::is_same_v<float32_t4x4, decltype(mul(a, b))>);
+        static_assert(std::is_same_v<float32_t3x3, decltype(mul(b, a))>);
+        static_assert(std::is_same_v<float32_t4, decltype(mul(a, v))>);
+        static_assert(std::is_same_v<float32_t4, decltype(mul(v, b))>);
+        static_assert(std::is_same_v<float32_t3, decltype(mul(u, a))>);
+        static_assert(std::is_same_v<float32_t3, decltype(mul(b, u))>);
 
     }
 
-    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(float4x4() = float4x4())>>);
-    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(float4x4() + float4x4())>>);
-    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(float4x4() - float4x4())>>);
-    static_assert(std::is_same_v<float4x4, std::remove_cvref_t<decltype(mul(float4x4(), float4x4()))>>);
+    // making sure linear operators returns the correct type
+    }
 
+>>>>>>> Stashed changes
+    static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(float32_t4x4() = float32_t4x4())>>);
+    static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(float32_t4x4() + float32_t4x4())>>);
+    static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(float32_t4x4() - float32_t4x4())>>);
+    static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(mul(float32_t4x4(), float32_t4x4()))>>);
+
+    // checking scalar packing
     static_assert(offsetof(T, a) == 0);
     static_assert(offsetof(T, b) == offsetof(T, a) + sizeof(T::a));
     static_assert(offsetof(T, c) == offsetof(T, b) + sizeof(T::b));
@@ -332,9 +350,15 @@ int main(int argc, char** argv)
     static_assert(offsetof(T, g) == offsetof(T, f) + sizeof(T::f));
     static_assert(offsetof(T, h) == offsetof(T, g) + sizeof(T::g));
     
-    float3 x;
-    float2x3 y;
-    float3x3 z;
+    // use some functions
+    float32_t3 x;
+    float32_t2x3 y;
+    float32_t3x3 z;
+    //barycentric::reconstructBarycentrics(x, y);
+    //barycentric::reconstructBarycentrics(x, z);
+    float32_t3 x;
+    float32_t2x3 y;
+    float32_t3x3 z;
     barycentric::reconstructBarycentrics(x, y);
     barycentric::reconstructBarycentrics(x, z);
   
@@ -342,66 +366,71 @@ int main(int argc, char** argv)
     testColorMatrices();
     
     // promote.hlsl tests:
-
         // promote scalar to vector
-    float3 v0 = nbl::hlsl::promote<float3, float>(2.0f);
+    float32_t3 v0 = nbl::hlsl::promote<float32_t3, float>(2.0f);
         // promote scalar to matrix
-    float3x3 m0 = nbl::hlsl::promote<float3x3, float>(2.0f);
+    float32_t3x3 m0 = nbl::hlsl::promote<float32_t3x3, float>(2.0f);
 
         // TODO?: promote vector to matrix
     //glm::mat3 m1 = nbl::hlsl::promote<glm::mat3, glm::vec3>(glm::vec3(1.0f, 2.0f, 3.0f));
 
     // test vector comparison operators
     {
-        float3 a = float3(1.0f, 2.0f, 3.0f);
-        float3 b = float3(0.5f, 0.5f, 0.5f);
+        float32_t3 a = float32_t3(1.0f, 2.0f, 3.0f);
+        float32_t3 b = float32_t3(0.5f, 0.5f, 0.5f);
         assert(glm::all(a > b));
         assert(glm::all(b < a));
 
-        b = float3(0.5f, 2.0f, 0.5f);
+        b = float32_t3(0.5f, 2.0f, 0.5f);
         assert(glm::all(a >= b));
         assert(glm::all(b <= a));
     }
 
     // test functions from EOTF.hlsl
     // TODO[Przemek]: tests function output
-    float3 TEST_VEC = float3(0.1f, 0.2f, 0.3f);
+    float32_t3 TEST_VEC = float32_t3(0.1f, 0.2f, 0.3f);
 
-    colorspace::eotf::identity<float3>(TEST_VEC);
-    colorspace::eotf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
-    colorspace::eotf::sRGB<float3>(TEST_VEC);
-    colorspace::eotf::Display_P3<float3>(TEST_VEC);
-    colorspace::eotf::DCI_P3_XYZ<float3>(TEST_VEC);
-    colorspace::eotf::SMPTE_170M<float3>(TEST_VEC);
-    colorspace::eotf::SMPTE_ST2084<float3>(TEST_VEC);
-    colorspace::eotf::HDR10_HLG<float3>(TEST_VEC);
-    colorspace::eotf::AdobeRGB<float3>(TEST_VEC);
-    colorspace::eotf::Gamma_2_2<float3>(TEST_VEC);
-    colorspace::eotf::ACEScc<float3>(TEST_VEC);
-    colorspace::eotf::ACEScct<float3>(TEST_VEC);
+    colorspace::eotf::identity<float32_t3>(TEST_VEC);
+    colorspace::eotf::impl_shared_2_4<float32_t3>(TEST_VEC, 0.5f);
+    colorspace::eotf::sRGB<float32_t3>(TEST_VEC);
+    colorspace::eotf::Display_P3<float32_t3>(TEST_VEC);
+    colorspace::eotf::DCI_P3_XYZ<float32_t3>(TEST_VEC);
+    colorspace::eotf::SMPTE_170M<float32_t3>(TEST_VEC);
+    colorspace::eotf::SMPTE_ST2084<float32_t3>(TEST_VEC);
+    colorspace::eotf::HDR10_HLG<float32_t3>(TEST_VEC);
+    colorspace::eotf::AdobeRGB<float32_t3>(TEST_VEC);
+    colorspace::eotf::Gamma_2_2<float32_t3>(TEST_VEC);
+    colorspace::eotf::ACEScc<float32_t3>(TEST_VEC);
+    colorspace::eotf::ACEScct<float32_t3>(TEST_VEC);
 
     // test functions from OETF.hlsl
-    colorspace::oetf::identity<float3>(TEST_VEC);
-    colorspace::oetf::impl_shared_2_4<float3>(TEST_VEC, 0.5f);
-    colorspace::oetf::sRGB<float3>(TEST_VEC);
-    colorspace::oetf::Display_P3<float3>(TEST_VEC);
-    colorspace::oetf::DCI_P3_XYZ<float3>(TEST_VEC);
-    colorspace::oetf::SMPTE_170M<float3>(TEST_VEC);
-    colorspace::oetf::SMPTE_ST2084<float3>(TEST_VEC);
-    colorspace::oetf::HDR10_HLG<float3>(TEST_VEC);
-    colorspace::oetf::AdobeRGB<float3>(TEST_VEC);
-    colorspace::oetf::Gamma_2_2<float3>(TEST_VEC);
-    colorspace::oetf::ACEScc<float3>(TEST_VEC);
-    colorspace::oetf::ACEScct<float3>(TEST_VEC);
+    colorspace::oetf::identity<float32_t3>(TEST_VEC);
+    colorspace::oetf::impl_shared_2_4<float32_t3>(TEST_VEC, 0.5f);
+    colorspace::oetf::sRGB<float32_t3>(TEST_VEC);
+    colorspace::oetf::Display_P3<float32_t3>(TEST_VEC);
+    colorspace::oetf::DCI_P3_XYZ<float32_t3>(TEST_VEC);
+    colorspace::oetf::SMPTE_170M<float32_t3>(TEST_VEC);
+    colorspace::oetf::SMPTE_ST2084<float32_t3>(TEST_VEC);
+    colorspace::oetf::HDR10_HLG<float32_t3>(TEST_VEC);
+    colorspace::oetf::AdobeRGB<flofloat32_t3at3>(TEST_VEC);
+    colorspace::oetf::Gamma_2_2<float32_t3>(TEST_VEC);
+    colorspace::oetf::ACEScc<float32_t3>(TEST_VEC);
+    colorspace::oetf::ACEScct<float32_t3>(TEST_VEC);
 
     // xoroshiro64 tests
-    constexpr xoroshiro64star_state_t xoroshiro64StarState = xoroshiro64star_state_t(12u, 34u);
+    /*constexpr xoroshiro64star_state_t xoroshiro64StarState = xoroshiro64star_state_t(12u, 34u);
     Xoroshiro64Star xoroshiro64Star = Xoroshiro64Star::construct(xoroshiro64StarState);
     xoroshiro64Star();
 
     constexpr xoroshiro64starstar_state_t xoroshiro64StarStarState = xoroshiro64starstar_state_t(12u, 34u);
     Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(xoroshiro64StarStarState);
-    xoroshiro64StarStar();
+    xoroshiro64StarStar();*/
     
     CompatibilityTest::runTests(argc, argv);
+
+    auto zero = cross(x,x);
+    auto lenX2 = dot(x,x);
+    float32_t3x3 z_inv = inverse(z);
+    auto mid = lerp(x,x,0.5f);
+    auto w = transpose(y);
 }

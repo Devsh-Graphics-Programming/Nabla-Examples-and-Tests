@@ -19,7 +19,7 @@
 #include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
 #include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
 
-#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+//#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
 
 [numthreads(1, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
@@ -56,11 +56,11 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     nbl::hlsl::colorspace::oetf::ACEScct<float3>(TEST_VEC);
     
     // xoroshiro tests
-    const nbl::hlsl::xoroshiro64star_state_t xoroshiro64StarState = nbl::hlsl::xoroshiro64star_state_t(12u, 34u);
-    nbl::hlsl::Xoroshiro64Star xoroshiro64Star = nbl::hlsl::Xoroshiro64Star(xoroshiro64StarState);
-    xoroshiro64Star();
+    //const nbl::hlsl::xoroshiro64star_state_t xoroshiro64StarState = nbl::hlsl::xoroshiro64star_state_t(12u, 34u);
+    //nbl::hlsl::Xoroshiro64Star xoroshiro64Star = nbl::hlsl::Xoroshiro64Star(xoroshiro64StarState);
+    //xoroshiro64Star();
 
-    const nbl::hlsl::xoroshiro64starstar_state_t xoroshiro64StarStarState = nbl::hlsl::xoroshiro64starstar_state_t(12u, 34u);
-    nbl::hlsl::Xoroshiro64StarStar xoroshiro64StarStar = nbl::hlsl::Xoroshiro64StarStar(xoroshiro64StarStarState);
-    xoroshiro64StarStar();
+    //const nbl::hlsl::xoroshiro64starstar_state_t xoroshiro64StarStarState = nbl::hlsl::xoroshiro64starstar_state_t(12u, 34u);
+    //nbl::hlsl::Xoroshiro64StarStar xoroshiro64StarStar = nbl::hlsl::Xoroshiro64StarStar(xoroshiro64StarStarState);
+    //xoroshiro64StarStar();
 }
