@@ -110,7 +110,7 @@ float4 main(PSInput input) : SV_TARGET
         const float lineThickness = input.getLineThickness();
         float distance;
         
-        if (lineStyles[styleIdx].hasStipples())
+        if (!lineStyles[styleIdx].hasStipples())
         {
             distance = quadratic.signedDistance(input.position.xy, lineThickness);
         }

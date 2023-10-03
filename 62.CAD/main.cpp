@@ -16,7 +16,7 @@ enum class ExampleMode
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
 static constexpr bool DebugMode = true;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 struct double4x4
 {
@@ -1065,8 +1065,11 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	constexpr static uint32_t WIN_W = 1600u;
-	constexpr static uint32_t WIN_H = 900u;
+	//constexpr static uint32_t WIN_W = 1600u;
+	//constexpr static uint32_t WIN_H = 900u;
+
+	constexpr static uint32_t WIN_W = 3840u;
+	constexpr static uint32_t WIN_H = 2160u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -2139,10 +2142,13 @@ public:
 					lineY -= 10.0;
 					curveIdx++;
 
-					quadratics[curveIdx].p[0] = double2(-100, lineY);
+					/*quadratics[curveIdx].p[0] = double2(-100, lineY);
 					quadratics[curveIdx].p[1] = double2(200, lineY);
-					quadratics[curveIdx].p[2] = double2(100, lineY);
+					quadratics[curveIdx].p[2] = double2(100, lineY);*/
 
+					quadratics[curveIdx].p[0] = double2(-10000, lineY);
+					quadratics[curveIdx].p[1] = double2(210, lineY);
+					quadratics[curveIdx].p[2] = double2(10000, lineY);
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
@@ -2157,9 +2163,9 @@ public:
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = double2(-100.0, 20.0);
-					quadratics[curveIdx].p[1] = double2(2000.0, 0.0);
-					quadratics[curveIdx].p[2] = double2(-100.0, -20.0);
+					quadratics[curveIdx].p[0] = double2(-150.0, 20.0);
+					quadratics[curveIdx].p[1] = double2(150.0, 0.0);
+					quadratics[curveIdx].p[2] = double2(-150.0, -20.0);
 					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
