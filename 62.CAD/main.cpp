@@ -4,6 +4,10 @@
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "glm/glm/glm.hpp"
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+#include <nbl/builtin/hlsl/math/integral/gauss_legendre.hlsl>
+#include "curves.h"
 
 static constexpr bool DebugMode = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
@@ -17,19 +21,7 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_3;
-
-struct double3x3
-{
-	double _r0[3u];
-	double _r1[3u];
-	double _r2[3u];
-};
-
-typedef nbl::core::vectorSIMDf float4;
-typedef nbl::core::vector2d<double> double2;
-typedef nbl::core::vector2df float2;
-typedef glm::dvec4 double4;
-typedef nbl::core::vector2d<uint32_t> uint2;
+using namespace nbl::hlsl;
 
 #include "common.hlsl"
 
@@ -42,11 +34,6 @@ static_assert(sizeof(ClipProjectionData) == 88u);
 using namespace nbl;
 using namespace ui;
 
-// TODO: Use a math lib?
-double dot(const double2& a, const double2& b)
-{
-	return a.X * b.X + a.Y * b.Y;
-}
 double2 normalize(const double2& x)
 {
 	double len = dot(x, x);
@@ -87,12 +74,12 @@ public:
 	{
 		double3x3 ret = {};
 
-		ret._r0[0] = 2.0 / m_bounds.X;
-		ret._r1[1] = -2.0 / m_bounds.Y;
-		ret._r2[2] = 1.0;
+		ret[0][0] = 2.0 / m_bounds.x;
+		ret[1][1] = -2.0 / m_bounds.y;
+		ret[2][2] = 1.0;
 
-		ret._r0[2] = (-2.0 * m_origin.X) / m_bounds.X;
-		ret._r1[2] = (2.0 * m_origin.Y) / m_bounds.Y;
+		ret[0][2] = (-2.0 * m_origin.x) / m_bounds.x;
+		ret[1][2] = (2.0 * m_origin.y) / m_bounds.y;
 
 		return ret;
 	}
@@ -106,7 +93,7 @@ public:
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
 				m_bounds = m_bounds + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
-				m_bounds = double2{ core::max(m_aspectRatio, m_bounds.X), core::max(1.0, m_bounds.Y) };
+				m_bounds = double2{ core::max(m_aspectRatio, m_bounds.x), core::max(1.0, m_bounds.y) };
 			}
 		}
 	}
@@ -119,19 +106,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.Y += 1;
+				m_origin.y += 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.X -= 1;
+				m_origin.x -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.Y -= 1;
+				m_origin.y -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.X += 1;
+				m_origin.x += 1;
 			}
 		}
 	}
@@ -167,9 +154,9 @@ public:
 		{
 			if (eccentricity > 1.0 || eccentricity < 0.0)
 				return false;
-			if (angleBounds.Y < angleBounds.X)
+			if (angleBounds.y < angleBounds.x)
 				return false;
-			if ((angleBounds.Y - angleBounds.X) > 2 * core::PI<double>())
+			if ((angleBounds.y - angleBounds.x) > 2 * core::PI<double>())
 				return false;
 			return true;
 		}
@@ -713,7 +700,7 @@ protected:
 			const LineStyle& itr = stylesArray[i];
 			if (lineStyle.screenSpaceLineWidth == itr.screenSpaceLineWidth)
 				if (lineStyle.worldSpaceLineWidth == itr.worldSpaceLineWidth)
-					if ((lineStyle.color == itr.color).all())
+					if (lineStyle.color == itr.color)
 						return i;
 		}
 
@@ -1662,8 +1649,8 @@ public:
 
 	double getScreenToWorldRatio(const double3x3& viewProjectionMatrix, uint2 windowSize)
 	{
-		double idx_0_0 = viewProjectionMatrix._r0[0u] * (windowSize.X / 2.0);
-		double idx_1_1 = viewProjectionMatrix._r1[1u] * (windowSize.Y / 2.0);
+		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
+		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
 		double det_2x2_mat = idx_0_0 * idx_1_1;
 		return core::sqrt(core::abs(det_2x2_mat));
 	}
@@ -2059,8 +2046,8 @@ public:
 
 			ClipProjectionData customClipProject = {};
 			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
-			customClipProject.projectionToNDC._r0[0] *= 1.003f;
-			customClipProject.projectionToNDC._r1[1] *= 1.003f;
+			customClipProject.projectionToNDC[0][0] *= 1.003f;
+			customClipProject.projectionToNDC[1][1] *= 1.003f;
 			customClipProject.maxClipNDC = float2(0.5, 0.5);
 			customClipProject.minClipNDC = float2(-0.5, -0.5);
 			uint32_t clipProjIdx = InvalidClipProjectionIdx;
