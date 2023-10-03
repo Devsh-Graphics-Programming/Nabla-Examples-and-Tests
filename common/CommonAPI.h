@@ -521,7 +521,7 @@ public:
 					std::stringstream ss;
 					ss << "Requested window size ";
 					ss << '(' << params.windowWidth << 'x' << params.windowHeight << ')';
-					ss << " could not be applied, atual size: ";
+					ss << " could not be applied, actual size: ";
 					ss << '(' << params.window->getWidth() << 'x' << params.window->getHeight() << ")";
 
 					result.logger->log(ss.str(), system::ILogger::ELL_INFO);
