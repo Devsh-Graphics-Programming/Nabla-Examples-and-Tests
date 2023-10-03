@@ -10,7 +10,7 @@
           vk::RawBufferStore<uint32_t>(0xdeadbeefBADC0FFbull,0x45u,4u); \
     } while(true)
 
-#include <nbl/builtin/hlsl/cpp_compat/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 

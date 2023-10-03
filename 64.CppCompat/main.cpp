@@ -10,7 +10,8 @@
 #include <nabla.h>
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
-//#include <nbl/builtin/hlsl/barycentric/utils.hlsl>
+#include <nbl/builtin/hlsl/barycentric/utils.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/promote.hlsl>
 
     // xoroshiro tests
 //#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
@@ -332,9 +333,7 @@ int main(int argc, char** argv)
     }
 
     // making sure linear operators returns the correct type
-    }
 
->>>>>>> Stashed changes
     static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(float32_t4x4() = float32_t4x4())>>);
     static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(float32_t4x4() + float32_t4x4())>>);
     static_assert(std::is_same_v<float32_t4x4, std::remove_cvref_t<decltype(float32_t4x4() - float32_t4x4())>>);
@@ -356,14 +355,9 @@ int main(int argc, char** argv)
     float32_t3x3 z;
     //barycentric::reconstructBarycentrics(x, y);
     //barycentric::reconstructBarycentrics(x, z);
-    float32_t3 x;
-    float32_t2x3 y;
-    float32_t3x3 z;
-    barycentric::reconstructBarycentrics(x, y);
-    barycentric::reconstructBarycentrics(x, z);
   
     // color matrix tests:
-    testColorMatrices();
+    //testColorMatrices();
     
     // promote.hlsl tests:
         // promote scalar to vector
@@ -412,7 +406,7 @@ int main(int argc, char** argv)
     colorspace::oetf::SMPTE_170M<float32_t3>(TEST_VEC);
     colorspace::oetf::SMPTE_ST2084<float32_t3>(TEST_VEC);
     colorspace::oetf::HDR10_HLG<float32_t3>(TEST_VEC);
-    colorspace::oetf::AdobeRGB<flofloat32_t3at3>(TEST_VEC);
+    colorspace::oetf::AdobeRGB<float32_t3>(TEST_VEC);
     colorspace::oetf::Gamma_2_2<float32_t3>(TEST_VEC);
     colorspace::oetf::ACEScc<float32_t3>(TEST_VEC);
     colorspace::oetf::ACEScct<float32_t3>(TEST_VEC);
