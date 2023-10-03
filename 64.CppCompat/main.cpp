@@ -97,5 +97,11 @@ int main()
     barycentric::reconstructBarycentrics(x, y);
     barycentric::reconstructBarycentrics(x, z);
 
+    auto zero = cross(x,x);
+    auto lenX2 = dot(x,x);
+    float32_t3x3 z_inv = inverse(z);
+    auto mid = lerp(x,x,0.5f);
+    auto w = transpose(y);
+
     return 0;
 }
