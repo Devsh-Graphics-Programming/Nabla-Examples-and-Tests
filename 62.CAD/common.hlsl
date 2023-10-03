@@ -1,3 +1,5 @@
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -22,7 +24,7 @@ struct DrawObject
 
 struct QuadraticBezierInfo
 {
-    double2 p[3]; // 16*3=48bytes
+    float64_t2 p[3]; // 16*3=48bytes
     // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
 };
 
@@ -45,36 +47,35 @@ You need another struct here that represents a "CurveBox" which
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    double3x3 projectionToNDC; // 72 -> because we use scalar_layout
-    float2 minClipNDC; // 80
-    float2 maxClipNDC; // 88
+    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    float32_t2 minClipNDC; // 80
+    float32_t2 maxClipNDC; // 88
 };
 
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
     double screenToWorldRatio; // 96
-    uint2 resolution; // 104
+    uint32_t2 resolution; // 104
     float antiAliasingFactor; // 108
     float _pad; // 112
 };
 
 struct LineStyle
 {
-    float4 color;
+    float32_t4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
     // TODO[Przemek]: Anything info related to the stipple pattern will be here
     float _pad[2u];
 };
 
-//TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
-static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
-static const uint32_t AlphaBits = 32u - MainObjectIdxBits;
-static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
-static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-static const uint32_t InvalidClipProjectionIdx = 0xffffffff;
-static const uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
+NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
+NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
+NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
+NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+NBL_CONSTEXPR uint32_t InvalidClipProjectionIdx = 0xffffffff;
+NBL_CONSTEXPR uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
 
 #ifndef __cplusplus
 

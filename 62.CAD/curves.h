@@ -8,11 +8,11 @@
 
 using namespace nbl::hlsl;
 
-double2 LineLineIntersection(double2 p1, double2 v1, double2 p2, double2 v2)
+float64_t2 LineLineIntersection(float64_t2 p1, float64_t2 v1, float64_t2 p2, float64_t2 v2)
 {
     double denominator = v1.y * v2.x - v1.x * v2.y;
-    double2 diff = p1 - p2;
-    double numerator = dot(double2(v2.y, -v2.x), double2(diff.x, diff.y));
+    float64_t2 diff = p1 - p2;
+    double numerator = dot(float64_t2(v2.y, -v2.x), float64_t2(diff.x, diff.y));
 
     if (abs(denominator) < 1e-18 and abs(numerator) < 1e-18)
     {
@@ -21,7 +21,7 @@ double2 LineLineIntersection(double2 p1, double2 v1, double2 p2, double2 v2)
     }
 
     double t = numerator / denominator;
-    double2 intersectionPoint = p1 + t * v1;
+    float64_t2 intersectionPoint = p1 + t * v1;
     return intersectionPoint;
 }
 
@@ -50,7 +50,7 @@ struct Parabola : ExplicitCurve
         : A(A), B(B), C(C)
     {}
 
-    static Parabola fromThreePoints(double2 P0, double2 P1, double2 P2)
+    static Parabola fromThreePoints(float64_t2 P0, float64_t2 P1, float64_t2 P2)
     {
         glm::dmat3 X = glm::dmat3(
             glm::dvec3(P0.x*P0.x, P0.x, 1.0),
@@ -85,7 +85,7 @@ struct MixedParabola
         D = parabola1.C;
     }
 
-    static MixedParabola fromFourPoints(double2 P0, double2 P1, double2 P2, double2 P3)
+    static MixedParabola fromFourPoints(float64_t2 P0, float64_t2 P1, float64_t2 P2, float64_t2 P3)
     {
         assert(P1.x == 0);
         assert(P1.y == 0 && P2.y == 0);
