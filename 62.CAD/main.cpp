@@ -6,7 +6,7 @@
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
-#include <nbl/builtin/hlsl/math/integral/gauss_legendre.hlsl>
+#include <nbl/builtin/hlsl/math/quadrature/gauss_legendre.hlsl>
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
@@ -33,16 +33,6 @@ static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
-
-double2 normalize(const double2& x)
-{
-	double len = dot(x, x);
-#ifdef __NBL_FAST_MATH
-	return x * core::inversesqrt<double>(len);
-#else
-	return x / core::sqrt<double>(len);
-#endif
-}
 
 class Camera2D : public core::IReferenceCounted
 {
