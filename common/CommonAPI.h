@@ -515,6 +515,17 @@ public:
 				windowsCreationParams.callback = params.windowCb;
 
 				params.window = result.windowManager->createWindow(std::move(windowsCreationParams));
+
+				if (params.window->getWidth() != params.windowWidth || params.window->getHeight() != params.windowHeight)
+				{
+					std::stringstream ss;
+					ss << "Requested window size ";
+					ss << '(' << params.windowWidth << 'x' << params.windowHeight << ')';
+					ss << " could not be applied, atual size: ";
+					ss << '(' << params.window->getWidth() << 'x' << params.window->getHeight() << ")";
+
+					result.logger->log(ss.str(), system::ILogger::ELL_INFO);
+				}
 			}
 			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*) params.window->getEventCallback());
 		}
