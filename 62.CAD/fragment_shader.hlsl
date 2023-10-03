@@ -199,7 +199,12 @@ float4 main(PSInput input) : SV_TARGET
     //col = float4(tA, 0.0f, 0.0f, 1.0f);
     
 #else
-    col = input.getColor();
+    const float2 a = input.getBezierP0();
+    const float2 b = input.getBezierP1();
+    const float2 c = input.getBezierP2();
+    const float lineThickness = input.getLineThickness();
+
+    col = float4(0.0f, nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).ud(input.position.xy).y, 0.0f, 1.0f);
     col.w *= localAlpha;
 #endif
 

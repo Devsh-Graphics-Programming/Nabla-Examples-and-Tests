@@ -1065,17 +1065,16 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	//constexpr static uint32_t WIN_W = 1600u;
-	//constexpr static uint32_t WIN_H = 900u;
+	//constexpr static uint32_t REQUESTED_WIN_W = 1600u;
+	//constexpr static uint32_t REQUESTED_WIN_H = 900u;
 
-	constexpr static uint32_t WIN_W = 3840u;
-	constexpr static uint32_t WIN_H = 2160u;
+	constexpr static uint32_t REQUESTED_WIN_W = 3840u;
+	constexpr static uint32_t REQUESTED_WIN_H = 2160u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
-
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
@@ -1176,8 +1175,8 @@ class CADApp : public ApplicationBase
 			video::IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
 			imgInfo.type = video::IGPUImage::ET_2D;
-			imgInfo.extent.width = WIN_W;
-			imgInfo.extent.height = WIN_H;
+			imgInfo.extent.width = window->getWidth();
+			imgInfo.extent.height = window->getHeight();
 			imgInfo.extent.depth = 1u;
 			imgInfo.mipLevels = 1u;
 			imgInfo.arrayLayers = 1u;
@@ -1360,8 +1359,8 @@ public:
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "62.CAD" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = WIN_W;
-		initParams.windowHeight = WIN_H;
+		initParams.windowWidth = REQUESTED_WIN_W;
+		initParams.windowHeight = REQUESTED_WIN_H;
 		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.depthFormat = getDepthFormat();
@@ -1401,6 +1400,7 @@ public:
 			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
 		}
 
+		logger->log("dupa", system::ILogger::ELL_INFO);
 
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
@@ -1410,10 +1410,10 @@ public:
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		const auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
 
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, window->getWidth(), window->getHeight(), swapchain);
 
 		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
+			swapchain->getImageCount(), window->getWidth(), window->getHeight(),
 			logicalDevice, swapchain, renderpassFinal,
 			getDepthFormat()
 		);
@@ -1656,7 +1656,7 @@ public:
 		}
 
 		m_Camera.setOrigin({ 0.0, 0.0 });
-		m_Camera.setAspectRatio((double)WIN_W / WIN_H);
+		m_Camera.setAspectRatio((double)window->getWidth() / window->getHeight());
 		m_Camera.setSize(200.0);
 
 		m_timeElapsed = 0.0;
@@ -1741,7 +1741,7 @@ public:
 		cb->beginDebugMarker("Frame");
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
-		globalData.resolution = uint2{ WIN_W, WIN_H };
+		globalData.resolution = uint2{ window->getWidth(), window->getHeight() };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
 		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
@@ -1785,7 +1785,7 @@ public:
 		{
 			VkRect2D area;
 			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
+			area.extent = { window->getWidth(), window->getHeight() };
 			asset::SClearValue clear[2] = {};
 			clear[0].color.float32[0] = 0.8f;
 			clear[0].color.float32[1] = 0.8f;
@@ -1899,7 +1899,7 @@ public:
 		{
 			VkRect2D area;
 			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
+			area.extent = { window->getWidth(), window->getHeight() };
 
 			beginInfo.clearValueCount = 0u;
 			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
@@ -2028,11 +2028,11 @@ public:
 				float Base = -25;
 				srand(95);
 				std::vector<QuadraticBezierInfo> quadBeziers;
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 1; i++) {
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[0] = double2(-100, 0);
+					quadratic1.p[1] = double2(-20, 0);
+					quadratic1.p[2] = double2(100, 0);
 					quadBeziers.push_back(quadratic1);
 				}
 				
@@ -2050,8 +2050,8 @@ public:
 				//	quadratic1.p[2] = double2(300, 300);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-				polyline.addQuadBeziers(std::move(quadBeziers));
 
+				polyline.addQuadBeziers(std::move(quadBeziers));
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
