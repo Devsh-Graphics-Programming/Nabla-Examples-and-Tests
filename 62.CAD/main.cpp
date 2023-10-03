@@ -183,7 +183,7 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(std::vector<double2>&& linePoints)
+	void addLinePoints(const core::SRange<double2>& linePoints)
 	{
 		if (linePoints.size() <= 1u)
 			return;
@@ -204,14 +204,14 @@ public:
 		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
 	}
 
-	void addEllipticalArcs(std::vector<EllipticalArcInfo>&& ellipses)
+	void addEllipticalArcs(const core::SRange<EllipticalArcInfo>& ellipses)
 	{
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
 	// TODO[Przemek]: This uses the struct from the shader common.hlsl if you need to precompute stuff make a duplicate of this struct here first (for the user input to fill)
 	// and then do the precomputation here and store in m_quadBeziers which holds the actual structs that will be fed to the GPU
-	void addQuadBeziers(std::vector<QuadraticBezierInfo>&& quadBeziers)
+	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
 		if (addNewSection)
@@ -230,7 +230,6 @@ public:
 	}
 
 protected:
-
 	std::vector<SectionInfo> m_sections;
 	std::vector<double2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
@@ -1605,7 +1604,7 @@ public:
 						linePoints.push_back({ x, +100.0 });
 					}
 				}
-				bigPolyline.addLinePoints(std::move(linePoints));
+				bigPolyline.addLinePoints(core::SRange<double2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 			{
 				std::vector<double2> linePoints;
@@ -1626,7 +1625,7 @@ public:
 						linePoints.push_back({ x, +100.0 + y });
 					}
 				}
-				bigPolyline2.addLinePoints(std::move(linePoints));
+				bigPolyline2.addLinePoints(core::SRange<double2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 		}
 
@@ -1934,7 +1933,7 @@ public:
 				std::vector<double2> linePoints;
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 50.0, 50.0 });
-				polyline.addLinePoints(std::move(linePoints));
+				polyline.addLinePoints(core::SRange<double2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
@@ -2002,7 +2001,7 @@ public:
 				//	quadratic1.p[2] = double2(300, 300);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-				polyline.addQuadBeziers(std::move(quadBeziers));
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 			}
 			{
@@ -2028,7 +2027,7 @@ public:
 					quadratic1.p[2] = double2(30.0, -50.0);
 					quadBeziers.push_back(quadratic1);
 				}
-				polyline2.addQuadBeziers(std::move(quadBeziers));
+				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
