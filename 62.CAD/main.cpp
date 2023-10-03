@@ -15,7 +15,7 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_2;
-static constexpr bool DebugMode = true;
+static constexpr bool DebugMode = false;
 static constexpr bool FragmentShaderPixelInterlock = false;
 
 struct double4x4
@@ -56,7 +56,10 @@ struct float4
 
 	inline bool operator ==(const float4& other) const
 	{
-		return val[0u] == other.val[0u];
+		return val[0u] == other.val[0u] &&
+			val[1u] == other.val[1u] &&
+			val[2u] == other.val[2u] &&
+			val[3u] == other.val[3u];
 	}
 };
 
@@ -84,6 +87,7 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
 	if (!areParametersEqual)
 		return false;
+	return true;
 
 	if (lhs.stipplePatternSize == -1)
 		return true;
@@ -208,7 +212,7 @@ public:
 public:
 
 	// gpu stipple pattern data form
-	int32_t stipplePatternSize;
+	int32_t stipplePatternSize = 0;
 	float recpiprocalStipplePatternLen;
 	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
 	float phaseShift;
@@ -808,7 +812,7 @@ public:
 		}
 	};
 
-	Hatch(core::SRange<CPolyline> lines, nbl::system::ILogger* logger /* tmp */)
+	Hatch(core::SRange<CPolyline> lines, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
 	{
 		std::stack<Segment> starts; // Next segments sorted by start points
 		std::stack<Segment> ends; // Next segments sorted by end points
@@ -818,6 +822,41 @@ public:
 		const int minor = 1-major; // Minor = Opposite of major (X)
 		auto getMajor = [](double2 value) { return major == 0  ? value.X : value.Y; };
 		auto getMinor = [](double2 value) { return minor == 0  ? value.X : value.Y; };
+
+		auto drawDebugBezier = [&](QuadraticBezier bezier, float4 color)
+		{
+			CPolyline outputPolyline;
+			std::vector<QuadraticBezierInfo> beziers;
+			QuadraticBezierInfo bezierInfo;
+			bezierInfo.p[0] = bezier.p[0];
+			bezierInfo.p[1] = bezier.p[1];
+			bezierInfo.p[2] = bezier.p[2];
+			beziers.push_back(bezierInfo);
+			outputPolyline.addQuadBeziers(std::move(beziers));
+
+			CPULineStyle cpuLineStyle;
+			cpuLineStyle.screenSpaceLineWidth = 1.0f;
+			cpuLineStyle.worldSpaceLineWidth = 0.0f;
+			cpuLineStyle.color = color;
+
+			debugOutput(outputPolyline, cpuLineStyle);
+		};
+
+		auto drawDebugLine = [&](double2 start, double2 end, float4 color)
+		{
+			CPolyline outputPolyline;
+			std::vector<double2> points;
+			points.push_back(start);
+			points.push_back(end);
+			outputPolyline.addLinePoints(std::move(points));
+			
+			CPULineStyle cpuLineStyle;
+			cpuLineStyle.screenSpaceLineWidth = 1.0f;
+			cpuLineStyle.worldSpaceLineWidth = 0.0f;
+			cpuLineStyle.color = color;
+			
+			debugOutput(outputPolyline, cpuLineStyle);
+		};
 
 		{
 			std::vector<Segment> segments;
@@ -842,23 +881,33 @@ public:
 
 							auto addBezier = [&](QuadraticBezier bezier)
 							{
-								if (getMajor(bezier.evaluateBezier(0.0)) > getMajor(bezier.evaluateBezier(1.0)))
+								auto outputBezier = bezier;
+								if (getMajor(outputBezier.evaluateBezier(0.0)) > getMajor(outputBezier.evaluateBezier(1.0)))
 								{
-									bezier.p[2] = lineBezier.p[0];
-									bezier.p[0] = lineBezier.p[2];
-									assert(getMajor(bezier.evaluateBezier(0.0)) <= getMajor(bezier.evaluateBezier(1.0)));
+									outputBezier.p[2] = bezier.p[0];
+									outputBezier.p[0] = bezier.p[2];
+									assert(getMajor(outputBezier.evaluateBezier(0.0)) <= getMajor(outputBezier.evaluateBezier(1.0)));
 								}
 
-								beziers.push_back(bezier);
+								beziers.push_back(outputBezier);
 							};
 
-							// Already was monotonic
 							if (nbl::core::isnan(monotonic.data()[0].p[0].X))
+							{
+								// Already was monotonic
 								addBezier(unsplitBezier);
+								if (debugOutput)
+									drawDebugBezier(unsplitBezier, float4(0.8, 0.8, 0.8, 0.2));
+							}
 							else
 							{
 								addBezier(monotonic.data()[0]);
 								addBezier(monotonic.data()[1]);
+								if (debugOutput)
+								{
+									drawDebugBezier(monotonic.data()[0], float4(0.0, 0.6, 0.0, 0.5));
+									drawDebugBezier(monotonic.data()[1], float4(0.0, 0.0, 0.6, 0.5));
+								}
 							}
 						}
 					}
@@ -877,23 +926,11 @@ public:
 			// TODO better way to do this
 			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[0]) < getMajor(b.originalBezier->p[0]); });
 			for (Segment& segment : segments)
-			{
 				starts.push(segment);
-				logger->log("starts: p[0] = %f %f p[1] = %f %f p[2] = %f %f", system::ILogger::ELL_INFO,
-					segment.originalBezier->p[0].X, segment.originalBezier->p[0].Y,
-					segment.originalBezier->p[1].X, segment.originalBezier->p[1].Y,
-					segment.originalBezier->p[2].X, segment.originalBezier->p[2].Y);
-			}
 
 			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[2]) < getMajor(b.originalBezier->p[2]); });
 			for (Segment& segment : segments)
-			{
 				ends.push(segment);
-				logger->log("ends: p[0] = %f %f p[1] = %f %f p[2] = %f %f", system::ILogger::ELL_INFO,
-					segment.originalBezier->p[0].X, segment.originalBezier->p[0].Y,
-					segment.originalBezier->p[1].X, segment.originalBezier->p[1].Y,
-					segment.originalBezier->p[2].X, segment.originalBezier->p[2].Y);
-			}
 			maxMajor = getMajor(segments.back().originalBezier->p[2]);
 		}
 
@@ -915,10 +952,22 @@ public:
 				auto intersectionPoints = entry.intersect(segment);
 				for (uint32_t i = 0; i < intersectionPoints.size(); i++)
 				{
+					std::cout << "intersectionPoints[" << i << "] = " << intersectionPoints[i] << ", ";
 					if (nbl::core::isnan(intersectionPoints[i]))
 						continue;
 					intersections.push(getMajor(segment.originalBezier->evaluateBezier(intersectionPoints[i])));
+
+					{
+						auto pt = segment.originalBezier->evaluateBezier(intersectionPoints[i]);
+						auto min = pt - double2(10.0, 10.0);
+						auto max = pt + double2(10.0, 10.0);
+						drawDebugLine(double2(min.X, min.Y), double2(max.X, min.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(double2(max.X, min.Y), double2(max.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(double2(min.X, max.Y), double2(max.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(double2(min.X, min.Y), double2(min.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
+					}
 				}
+				std::cout << ";\n";
 			}
 			activeCandidates.push_back(entry);
 		};
@@ -952,6 +1001,8 @@ public:
 		auto intersectionVisit = [&]()
 		{
 			auto newMajor = intersections.top();
+			if (debugOutput)
+				drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(0.3, 1.0, 0.3, 0.1));
 			intersections.pop(); // O(n)
 			return newMajor;
 		};
@@ -981,6 +1032,8 @@ public:
 					starts.pop();
 					addToCandidateSet(nextStartEvent);
 					newMajor = minMajorStart;
+					if (debugOutput)
+						drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(1.0, 0.3, 0.3, 0.1));
 				}
 				// (intersection event)
 				else newMajor = intersectionVisit();
@@ -994,6 +1047,8 @@ public:
 			{
 				newMajor = maxMajorEnds;
 				ends.pop();
+				if (debugOutput)
+					drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(0.3, 0.3, 1.0, 0.1));
 			}
 
 			// spawn quads if we advanced
@@ -1017,16 +1072,23 @@ public:
 					auto curveMaxAabb = splitCurveMax.getBezierBoundingBox();
 					curveBox.aabbMin = double2(std::min(curveMinAabb.first.X, curveMaxAabb.first.X), std::min(curveMinAabb.first.Y, curveMaxAabb.first.Y));
 					curveBox.aabbMax = double2(std::max(curveMinAabb.second.X, curveMaxAabb.second.X), std::max(curveMinAabb.second.Y, curveMaxAabb.second.Y));
-					
+
+					if (debugOutput)
+					{
+						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMin.Y), double2(curveBox.aabbMax.X, curveBox.aabbMin.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(double2(curveBox.aabbMax.X, curveBox.aabbMin.Y), double2(curveBox.aabbMax.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMax.Y), double2(curveBox.aabbMax.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMin.Y), double2(curveBox.aabbMin.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
+					}
 					// Transform curves into AABB UV space and turn them into quadratic coefficients
 					// TODO: the split curve should already have the quadratic bezier as
 					// quadratic coefficients
 					// so we wont need to convert here
 					auto transformCurves = [](Hatch::QuadraticBezier bezier, double2 aabbMin, double2 aabbMax, double2* output) {
 						auto rcpAabbExtents = double2(1.0,1.0) / (aabbMax - aabbMin);
-						auto p0 = (bezier.p[0] * rcpAabbExtents) - aabbMin;
-						auto p1 = (bezier.p[1] * rcpAabbExtents) - aabbMin;
-						auto p2 = (bezier.p[2] * rcpAabbExtents) - aabbMin;
+						auto p0 = (bezier.p[0] - aabbMin) * rcpAabbExtents;
+						auto p1 = (bezier.p[1] - aabbMin) * rcpAabbExtents;
+						auto p2 = (bezier.p[2] - aabbMin) * rcpAabbExtents;
 						output[0] = p0 - 2.0 * p1 + p2;
 						output[1] = 2.0 * (p1 - p0);
 						output[2] = p0;
@@ -1089,14 +1151,13 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 		p0y = p[0].Y, p1y = p[1].Y, p2y = p[2].Y;
 
 	// Getting the values for the implicitization of the curve
-
 	// TODO: Do this with quadratic coefficients instead (A, B, C)
-	double t0 = 4 * p0y * p1y - 4 * p0y * p2y - 4 * p1y * p1y + 4 * p1y * p2y - p0y * p0y + 2 * p0y * p2y - p2y * p2y;
-	double t1 = -4 * p0x * p1y + 4 * p0x * p2y - 4 * p1x * p0y + 8 * p1x * p1y - 4 * p1x * p2y + 4 * p2x * p0y - 4 * p2x * p1y + 2 * p0x * p0y - 2 * p0x * p2y - 2 * p2x * p0y + 2 * p2x * p2y;
-	double t2 = 4 * p0x * p1x - 4 * p0x * p2x - 4 * p1x * p1x + 4 * p1x * p2x - p0x * p0x + 2 * p0x * p2x - p2x * p2x;
-	double t3 = 4 * p0x * p1y * p1y - 4 * p0x * p1y * p2y - 4 * p1x * p0y * p1y + 8 * p1x * p0y * p2y - 4 * p1x * p1y * p2y - 4 * p2x * p0y * p1y + 4 * p2x * p1y * p1y - 2 * p0x * p0y * p2y + 2 * p0x * p2y * p2y + 2 * p2x * p0y * p0y - 2 * p2x * p0y * p2y;
-	double t4 = -4 * p0x * p1x * p1y - 4 * p0x * p1x * p2y + 8 * p0x * p2x * p1y + 4 * p1x * p1x * p0y + 4 * p1x * p1x * p2y - 4 * p1x * p2x * p0y - 4 * p1x * p2x * p1y + 2 * p0x * p0x * p2y - 2 * p0x * p2x * p0y - 2 * p0x * p2x * p2y + 2 * p2x * p2x * p0y;
-	double t5 = 4 * p0x * p1x * p1y * p2y - 4 * p1x * p1x * p0y * p2y + 4 * p1x * p2x * p0y * p1y - p0x * p0x * p2y * p2y + 2 * p0x * p2x * p0y * p2y - p2x * p2x * p0y * p0y - 4 * p0x * p2x * p1y * p1y;
+	double t0 = (4 * p0y * p1y) - (4 * p0y * p2y) - (4 * (p1y * p1y)) + (4 * p1y * p2y) - ((p0y * p0y)) + (2 * p0y * p2y) - ((p2y * p2y));
+	double t1 = -(4 * p0x * p1y) + (4 * p0x * p2y) - (4 * p1x * p0y) + (8 * p1x * p1y) - (4 * p1x * p2y) + (4 * p2x * p0y) - (4 * p2x * p1y) + (2 * p0x * p0y) - (2 * p0x * p2y) - (2 * p2x * p0y) + (2 * p2x * p2y);
+	double t2 = (4 * p0x * p1x) - (4 * p0x * p2x) - (4 * (p1x * p1x)) + (4 * p1x * p2x) - ((p0x * p0x)) + (2 * p0x * p2x) - ((p2x * p2x));
+	double t3 = (4 * p0x * (p1y * p1y)) - (4 * p0x * p1y * p2y) - (4 * p1x * p0y * p1y) + (8 * p1x * p0y * p2y) - (4 * p1x * p1y * p2y) - (4 * p2x * p0y * p1y) + (4 * p2x * (p1y * p1y)) - (2 * p0x * p0y * p2y) + (2 * p0x * (p2y * p2y)) + (2 * p2x * (p0y * p0y)) - (2 * p2x * p0y * p2y);
+	double t4 = -(4 * p0x * p1x * p1y) - (4 * p0x * p1x * p2y) + (8 * p0x * p2x * p1y) + (4 * (p1x * p1x) * p0y) + (4 * (p1x * p1x) * p2y) - (4 * p1x * p2x * p0y) - (4 * p1x * p2x * p1y) + (2 * (p0x * p0x) * p2y) - (2 * p0x * p2x * p0y) - (2 * p0x * p2x * p2y) + (2 * (p2x * p2x) * p0y);
+	double t5 = (4 * p0x * p1x * p1y * p2y) - (4 * (p1x * p1x) * p0y * p2y) + (4 * p1x * p2x * p0y * p1y) - ((p0x * p0x) * (p2y * p2y)) + (2 * p0x * p2x * p0y * p2y) - ((p2x * p2x) * (p0y * p0y)) - (4 * p0x * p2x * (p1y * p1y));
 
 	// "Slam" the other curve onto it
 
@@ -1105,11 +1166,11 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 	double2 C = second.p[0];
 
 	// Getting the quartic params
-	double a = A.X * A.X * t0 + A.X * A.Y * t1 + A.Y * t2;
-	double b = 2 * A.X * B.X * t0 + A.X * B.Y * t1 + B.X * A.Y * t1 + 2 * A.Y * B.Y * t2;
-	double c = 2 * A.X * C.X * t0 + A.X * C.Y * t1 + A.X * t2 + B.X * B.X * t0 + B.X * B.Y * t1 + C.X * A.Y * t1 + 2 * A.Y * C.Y * t2 + A.Y * t4 + B.Y * B.Y * t2;
-	double d = 2 * B.X * C.X * t0 + B.X * C.Y * t1 + B.X * t2 + C.X * B.Y * t1 + 2 * B.Y * C.Y * t2 + B.Y * t4;
-	double e = C.X * C.X * t0 + C.X * C.Y * t1 + C.X * t2 + C.Y * C.Y * t2 + C.Y * t4 + t5;
+	double a = ((A.X * A.X) * t0) + (A.X * A.Y * t1) + (A.Y * t2);
+	double b = (2 * A.X * B.X * t0) + (A.X * B.Y * t1) + (B.X * A.Y * t1) + (2 * A.Y * B.Y * t2);
+	double c = (2 * A.X * C.X * t0) + (A.X * C.Y * t1) + (A.X * t3) + ((B.X * B.X) * t0) + (B.X * B.Y * t1) + (C.X * A.Y * t1) + (2 * A.Y * C.Y * t2) + (A.Y * t4) + ((B.Y * B.Y) * t2);
+	double d = (2 * B.X * C.X * t0) + (B.X * C.Y * t1) + (B.X * t3) + (C.X * B.Y * t1) + (2 * B.Y * C.Y * t2) + (B.Y * t4);
+	double e = ((C.X * C.X) * t0) + (C.X * C.Y * t1) + (C.X * t3) + ((C.Y * C.Y) * t2) + (C.Y * t4) + (t5);
 
 	return hatchutils::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
 }
@@ -1169,6 +1230,9 @@ Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLeft(double t) cons
 	outputCurve.p[0] = p[0];
 	outputCurve.p[1] = (1 - t) * p[0] + t * p[1];
 	outputCurve.p[2] = (1 - t) * ((1 - t) * p[0] + t * p[1]) + t * ((1 - t) * p[1] + t * p[2]);
+	auto p0 = outputCurve.p[0];
+	auto p1 = outputCurve.p[1];
+	auto p2 = outputCurve.p[2];
 
 	return outputCurve;
 }
@@ -1179,6 +1243,9 @@ Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeRight(double t) con
 	outputCurve.p[0] = p[2];
 	outputCurve.p[1] = (1 - t) * p[1] + t * p[2];
 	outputCurve.p[2] = (1 - t) * ((1 - t) * p[0] + t * p[1]) + t * ((1 - t) * p[1] + t * p[2]);
+	auto p0 = outputCurve.p[0];
+	auto p1 = outputCurve.p[1];
+	auto p2 = outputCurve.p[2];
 
 	return outputCurve;
 }
@@ -2864,17 +2931,22 @@ public:
 			CPolyline polyline;
 			std::vector<QuadraticBezierInfo> beziers;
 			beziers.push_back({
-				300.0 * nbl::core::vector2d<double>(0.0, 0.0),
-				300.0 * nbl::core::vector2d<double>(0.1, 0.7),
-				300.0 * nbl::core::vector2d<double>(0.2, 1.0)});
+				100.0 * nbl::core::vector2d<double>(-0.4, 0.13),
+				100.0 * nbl::core::vector2d<double>(7.7, 3.57),
+				100.0 * nbl::core::vector2d<double>(8.8, 7.27) });
 			beziers.push_back({
-				300.0 * nbl::core::vector2d<double>(0.8, 0.0),
-				300.0 * nbl::core::vector2d<double>(0.9, 0.3),
-				300.0 * nbl::core::vector2d<double>(1.0, 1.0)});
+				100.0 * nbl::core::vector2d<double>(6.6, 0.17),
+				100.0 * nbl::core::vector2d<double>(-1.97, 3.2),
+				100.0 * nbl::core::vector2d<double>(3.7, 7.27)});
 			polyline.addQuadBeziers(std::move(beziers));
 
 			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-			Hatch hatch(polylines, logger.get());
+			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
+			{
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, submissionQueue, submissionFence, intendedNextSubmit);
+			};
+
+			Hatch hatch(polylines, debug);
 			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)

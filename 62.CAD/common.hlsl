@@ -129,11 +129,13 @@ struct PSInput
     [[vk::location(9)]] double2 curveMaxA : curveMaxA;
     [[vk::location(10)]] double2 curveMaxB : curveMaxB;
     [[vk::location(11)]] double2 curveMaxC : curveMaxC;
-    [[vk::location(12)]] float2 majorMinorAxisNdc : majorMinorAxisNdc;
     [[vk::location(13)]] float det : det;
     [[vk::location(14)]] float rcp : rcp;
     [[vk::location(15)]] float detRcp2 : detRcp2;
     [[vk::location(16)]] float brcp : brcp;
+    [[vk::location(17)]] float2 minRoots : minRoots;
+    [[vk::location(18)]] float2 maxRoots : maxRoots;
+    [[vk::location(19)]] float majorAxisNdc : majorAxisNdc;
         // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
