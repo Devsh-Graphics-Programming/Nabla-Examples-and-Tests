@@ -9,7 +9,7 @@
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -2028,9 +2028,9 @@ public:
 				}
 
 				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
-				MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(-9.0, 5.75), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(9.0, 18.3));
+				MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-				// MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				//MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
 
 				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
@@ -2042,15 +2042,16 @@ public:
 				const int pp = (ix / 30) % 8;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				adaptiveSubdivision(myCurve, -50.0, 50.0, 1e-2, addToBezier, 10u);
+				adaptiveSubdivision(myCurve, -20.0, 20.0, 1e-12, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 				// VISUALIZE INFLECTION POINT
-				// std::vector<float64_t2> linePoints;
-				// linePoints.push_back({ myCurve.inflectionX(), -100.0});
-				// linePoints.push_back({ myCurve.inflectionX(), 100.0 });
-				// polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				std::vector<float64_t2> linePoints;
+				auto inflectionPointX = myCurve.inflectionX(1e-5);
+				linePoints.push_back({ inflectionPointX, -100.0});
+				linePoints.push_back({ inflectionPointX, 100.0 });
+				polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);

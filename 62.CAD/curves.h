@@ -17,7 +17,7 @@ float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, cons
     float64_t2 diff = p1 - p2;
     float64_t numerator = dot(float64_t2(v2.y, -v2.x), float64_t2(diff.x, diff.y));
 
-    if (abs(denominator) < 1e-5 && abs(numerator) < 1e-5)
+    if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
     {
         // are parallel and the same
         return (p1 + p2) / 2.0;
@@ -49,7 +49,10 @@ struct ExplicitCurve
         return differentialArcLen(x);
     }
 
-    virtual float64_t inflectionX() const
+    // gets you the x point of inflection with errorThreshold accuracy
+    // the curves we deal with have at most 1 inflection point
+    // if there is no inflection point this function will return NaN
+    virtual float64_t inflectionX(float64_t errorThreshold) const
     {
         return std::numeric_limits<double>::quiet_NaN();
     }
@@ -117,7 +120,7 @@ struct MixedParabola final : public ExplicitCurve
         return ((3.0 * a * x) + 2.0 * b) * x + c;
     }
 
-    float64_t inflectionX() const override
+    float64_t inflectionX(float64_t errorThreshold) const override
     {
         return -b / (3.0*a);
     }
@@ -174,7 +177,6 @@ struct MixedCircle final : public ExplicitCurve
     float64_t radius1;
     float64_t radius2;
     float64_t chordLen;
-    float64_t inflectX;
 
     static MixedCircle fromFourPoints(const float64_t2& P0, const float64_t2& P1, const float64_t2& P2, const float64_t2& P3)
     {
@@ -189,38 +191,6 @@ struct MixedCircle final : public ExplicitCurve
         ret.origin1Y = circle1.origin.y;
         ret.origin2Y = circle2.origin.y;
         ret.chordLen = abs(P2.x - P1.x);
-
-        // bisection search to find inflection point, TODO: is there a nabla util for this?
-        ret.inflectX = std::numeric_limits<double>::quiet_NaN();
-        {
-            constexpr uint16_t MaxIterations = 16u;
-            constexpr uint16_t Threshold = 1e-4;
-            float64_t low = P1.x;
-            float64_t high = P2.x;
-            float64_t valLow = ret.secondDerivative(low);
-            float64_t valHigh = ret.secondDerivative(high);
-            if (getSign(valLow) != getSign(valHigh) && !isnan(valLow) && !isnan(valHigh)) // nans are for safety, if my calculations are correct they won't be nan
-            {
-                if (valLow > valHigh)
-                    std::swap(low, high);
-
-                float64_t guess = 0.0;
-                for (uint16_t i = 0u; i < MaxIterations; ++i)
-                {
-                    guess = (low + high) / 2.0;
-                    float64_t valGuess = ret.secondDerivative(guess);
-                    if (abs(valGuess) < Threshold)
-                        break;
-
-                    if (valGuess < 0.0)
-                        low = guess;
-                    else
-                        high = guess;
-                }
-
-                ret.inflectX = guess;
-            }
-        }
 
         return ret;
     }
@@ -270,15 +240,46 @@ struct MixedCircle final : public ExplicitCurve
         return ret;
     }
 
-    float64_t inflectionX() const override
+    float64_t inflectionX(float64_t errorThreshold) const override
     {
-        return inflectX;
+        // bisection search to find inflection point
+        // by seeing the graph of second derivative over wide range of values we have deduced that the inflection point exists iff the secondDerivative has opposite signs at begin and end
+        constexpr uint16_t MaxIterations = 16u;
+        float64_t low = -chordLen/2.0;
+        float64_t high = chordLen/2.0;
+        float64_t valLow = secondDerivative(low + errorThreshold / 2.0);
+        float64_t valHigh = secondDerivative(high - errorThreshold / 2.0);
+        if (getSign(valLow) != getSign(valHigh))
+        {
+            if (valLow > valHigh)
+                std::swap(low, high);
+
+            float64_t guess = 0.0;
+            for (uint16_t i = 0u; i < MaxIterations; ++i)
+            {
+                guess = (low + high) / 2.0;
+                float64_t valGuess = secondDerivative(guess);
+                if (abs(valGuess) < errorThreshold)
+                    return guess;
+
+                if (valGuess < 0.0)
+                    low = guess;
+                else
+                    high = guess;
+            }
+
+            return guess;
+        }
+        else
+        {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
     }
 
 private:
     static float64_t getSign(float64_t x)
     {
-        return static_cast<float64_t>((x >= 0.0)) - static_cast<float64_t>((x < 0.0));
+        return static_cast<float64_t>((x > 0.0)) - static_cast<float64_t>((x <= 0.0));
     }
 
 };
@@ -429,7 +430,7 @@ inline void adaptiveSubdivision_impl(const ExplicitCurve& curve, float64_t min, 
 inline void adaptiveSubdivision(const ExplicitCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
 {
     // The curves we're working with will have at most 1 inflection point.
-    const float64_t inflectX = curve.inflectionX(); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
+    const float64_t inflectX = curve.inflectionX(targetMaxError); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
     if (inflectX > min && inflectX < max)
     {
         adaptiveSubdivision_impl(curve, min, inflectX, targetMaxError, addBezierFunc, maxDepth);
