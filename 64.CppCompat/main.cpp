@@ -111,6 +111,7 @@ int main()
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
 
+    
     // test HLSL side
 
     {

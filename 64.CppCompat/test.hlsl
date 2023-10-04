@@ -21,6 +21,7 @@ PushConstants u_pushConstants;
 [[vk::binding(1, 0)]] Texture2D<float4> inImage;
 
 
+
 template<int A>
 struct Spec
 {
@@ -34,6 +35,11 @@ struct Spec<0>
 };
 
 
+Buffer<float32_t4>  unbounded[];
+
+template<class T>
+bool val(T) { return nbl::hlsl::type_traits::is_unbounded_array<T>::value; }
+
 [numthreads(16, 16, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
@@ -43,8 +49,10 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         bool A = nbl::hlsl::type_traits::is_integral<int>::value;
     }
-    int a;
-    decltype(a) b = 1;
+    {
+        bool A = val(unbounded);
+    }
+
 	if (all(invocationID.xy < u_pushConstants.imgSize))
 	{
 		// TODO use swapchain transforms
