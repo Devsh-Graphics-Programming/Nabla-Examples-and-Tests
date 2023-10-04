@@ -2,7 +2,6 @@
 
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/rounded_line.hlsl>
-#include <nbl/builtin/hlsl/shapes/ellipse.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -12,6 +11,10 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
+// TODO[Lucas]: have a function for quadratic equation solving
+// Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
+// See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
+
 float4 main(PSInput input) : SV_TARGET
 {
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -20,101 +23,73 @@ float4 main(PSInput input) : SV_TARGET
     vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
 #endif
 
-    ObjectType objType = (ObjectType)input.lineWidth_eccentricity_objType_writeToAlpha.z;
-
+    ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
-    bool writeToAlpha = input.lineWidth_eccentricity_objType_writeToAlpha.w == 1u;
+    uint currentMainObjectIdx = input.getMainObjectIdx();
     
-    if (writeToAlpha)
+    if (objType == ObjectType::LINE)
     {
-        if (objType == ObjectType::ELLIPSE)
-        {
-            const float2 center = input.start_end.xy;
-            const float2 majorAxis = input.start_end.zw;
-            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-            const float eccentricity = (float)(input.lineWidth_eccentricity_objType_writeToAlpha.y) / UINT32_MAX;
-            const float2 ellipseBounds = input.ellipseBounds_bezierP2P3.xy;
-            float distance = nbl::hlsl::shapes::EllipseOutlineBounded_t::construct(center, majorAxis, ellipseBounds, eccentricity, lineThickness).signedDistance(input.position.xy);
+        const float2 start = input.getLineStart();
+        const float2 end = input.getLineEnd();
+        const float lineThickness = input.getLineThickness();
 
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        }
-        else if (objType == ObjectType::LINE)
-        {
-            const float2 start = input.start_end.xy;
-            const float2 end = input.start_end.zw;
-            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-            
-            float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
+        float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
 
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        }
-        else if (objType == ObjectType::QUAD_BEZIER)
-        {
-            const float2 a = input.start_end.xy;
-            const float2 b = input.start_end.zw;
-            const float2 c = input.ellipseBounds_bezierP2P3.xy;
-            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-
-            float distance = nbl::hlsl::shapes::QuadraticBezier::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        }
-        else if (objType == ObjectType::CUBIC_BEZIER)
-        {
-            const float2 a = input.start_end.xy;
-            const float2 b = input.start_end.zw;
-            const float2 c = input.ellipseBounds_bezierP2P3.xy;
-            const float2 d = input.ellipseBounds_bezierP2P3.zw;
-            const float lineThickness = asfloat(input.lineWidth_eccentricity_objType_writeToAlpha.x) / 2.0f;
-
-            float distance = nbl::hlsl::shapes::CubicBezier::construct(a, b, c, d, lineThickness).signedDistance(input.position.xy);
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-        }
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
+    else if (objType == ObjectType::QUAD_BEZIER)
+    {
+        const float2 a = input.getBezierP0();
+        const float2 b = input.getBezierP1();
+        const float2 c = input.getBezierP2();
+        const float lineThickness = input.getLineThickness();
+        
+        // TODO[Przemek]: This is where we draw the bezier using the sdf, basically the udBezier funcion in that shaderToy we gave you
+        // You'll be also working in the builtin shaders that provide thesee
+        float distance = nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).signedDistance(input.position.xy);
+
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+    }
+    /*
+    TODO[Lucas]:
+        Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
+        and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
+        you will use input.getXXX() to get values needed for this computation
+    */
 
     uint2 fragCoord = uint2(input.position.xy);
-
-    float alpha = 0.0f; // new alpha
-
+    float4 col;
+    
+    if (localAlpha <= 0)
+        discard;
+    
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
     beginInvocationInterlockEXT();
 
-    alpha = asfloat(pseudoStencil[fragCoord]);
-    if (writeToAlpha)
-    {
-        if (localAlpha > alpha)
-            pseudoStencil[fragCoord] = asuint(localAlpha);
-    }
-    else
-    {
-        if (alpha != 0.0f)
-            pseudoStencil[fragCoord] = asuint(0.0f);
-    }
+    const uint packedData = pseudoStencil[fragCoord];
+
+    const uint localQuantizedAlpha = (uint)(localAlpha*255.f);
+    const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
+    const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
+    const bool resolve = currentMainObjectIdx!=mainObjectIdx;
+    if (resolve || localQuantizedAlpha>quantizedAlpha)
+        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
 
     endInvocationInterlockEXT();
-
-    if (writeToAlpha || alpha == 0.0f)
+    
+    if (!resolve)
         discard;
+    
+    // draw with previous geometry's style's color :kek:
+    col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
+    col.w *= float(quantizedAlpha)/255.f;
 #else
-    alpha = localAlpha;
-    if (!writeToAlpha)
-        discard;
-    //if (writeToAlpha)
-    //{
-    //    InterlockedMax(pseudoStencil[fragCoord], asuint(localAlpha));
-    //}
-    //else
-    //{
-    //    uint previousAlpha;
-    //    InterlockedExchange(pseudoStencil[fragCoord], 0u, previousAlpha);
-    //    alpha = previousAlpha;
-    //}
+    col = input.getColor();
+    col.w *= localAlpha;
 #endif
-
-    return float4(input.color.xyz, input.color.w * alpha);
+    
+    return float4(col);
 }
