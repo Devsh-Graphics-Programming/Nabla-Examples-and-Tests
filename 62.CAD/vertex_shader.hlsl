@@ -216,6 +216,11 @@ double2 transformPointNdc(double2 point2d)
     double4x4 transformation = globals.viewProjection;
     return mul(transformation, double4(point2d, 1, 1)).xy;
 }
+double2 transformVectorNdc(double2 vector3d)
+{
+    double4x4 transformation = globals.viewProjection;
+    return mul(transformation, double4(vector3d, 1, 0)).xy;
+}
 float2 transformPointScreenSpace(double2 point2d) 
 {
     double2 ndc = transformPointNdc(point2d);
@@ -462,9 +467,17 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + 3 + i), 8u);
         }
 
-        const bool2 maxCorner = bool2(vertexIdx & 0x1u, vertexIdx >> 1);
+        // TODO: improve this as it's a bit of a mess
+        const double2 ndcAabbExtents = abs(transformVectorNdc(curveBox.aabbMax - curveBox.aabbMin));
+        const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * (globals.antiAliasingFactor / double2(globals.resolution));
+        double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        maxCorner = ((((maxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
+
+        outV.ndcAabbExtents = ndcAabbExtents;
+        outV.dilatedAabbExtents = dilatedAabbExtents;
+        outV.maxCorner = maxCorner;
 
         const uint major = (uint)MajorAxis::MAJOR_Y;
         const uint minor = 1-major;
@@ -475,6 +488,7 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
         outV.setMinorAxisNdc(maxCorner[minor]);
+        outV.setMajorAxisNdc(maxCorner[major]);
 
         nbl::hlsl::equations::Quadratic<float> curveMinSwizzled = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[minor], 
@@ -497,24 +511,6 @@ PSInput main(uint vertexID : SV_VertexID)
             (float)curveMax.C[major] - maxCorner[major]);
         outV.setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMinRootFinding));
         outV.setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMaxRootFinding));
-
-        outV.curveMinA = curveBox.curveMin[0];
-        outV.curveMinB = curveBox.curveMin[1];
-        outV.curveMinC = curveBox.curveMin[2];
-        outV.curveMaxA = curveBox.curveMax[0];
-        outV.curveMaxB = curveBox.curveMax[1];
-        outV.curveMaxC = curveBox.curveMax[2];
-
-        double a = curveMinRootFinding.A;
-        double b = curveMinRootFinding.B;
-        double c = curveMinRootFinding.C;
-        outV.det = b*b-4.f*a*c;
-        outV.rcp = 0.5 / a;
-        outV.detRcp2 = outV.getMinCurvePrecomputedRootFinders().detRcp2;
-        outV.brcp = outV.getMinCurvePrecomputedRootFinders().brcp;
-        outV.minRoots = outV.getMinCurvePrecomputedRootFinders().computeRoots();
-        outV.maxRoots = outV.getMaxCurvePrecomputedRootFinders().computeRoots();
-        outV.majorAxisNdc = maxCorner[major];
     }
 
 

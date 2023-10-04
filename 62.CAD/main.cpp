@@ -73,6 +73,12 @@ double dot(const double2& a, const double2& b)
 	return a.X * b.X + a.Y * b.Y;
 }
 
+double index(const double2& vec, uint32_t index)
+{
+	const double* arr = &vec.X;
+	return arr[index];
+}
+
 #include "common.hlsl"
 
 bool operator==(const LineStyle& lhs, const LineStyle& rhs)
@@ -807,8 +813,9 @@ public:
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor(int major) const
 		{
-			auto getMinor = [major](double2 value) { return major == 0 ? value.Y : value.X; };
-			return getMinor(originalBezier->p[0]) == getMinor(originalBezier->p[1]) && getMinor(originalBezier->p[0]) == getMinor(originalBezier->p[2]);
+			int minor = 1 - major;
+			return index(originalBezier->p[0], minor) == index(originalBezier->p[1], minor) && 
+				index(originalBezier->p[0], minor) == index(originalBezier->p[2], minor);
 		}
 	};
 
@@ -820,8 +827,6 @@ public:
 
 		const int major = 1; // Major = Y
 		const int minor = 1-major; // Minor = Opposite of major (X)
-		auto getMajor = [](double2 value) { return major == 0  ? value.X : value.Y; };
-		auto getMinor = [](double2 value) { return minor == 0  ? value.X : value.Y; };
 
 		auto drawDebugBezier = [&](QuadraticBezier bezier, float4 color)
 		{
@@ -882,11 +887,11 @@ public:
 							auto addBezier = [&](QuadraticBezier bezier)
 							{
 								auto outputBezier = bezier;
-								if (getMajor(outputBezier.evaluateBezier(0.0)) > getMajor(outputBezier.evaluateBezier(1.0)))
+								if (index(outputBezier.evaluateBezier(0.0), major) > index(outputBezier.evaluateBezier(1.0), major))
 								{
 									outputBezier.p[2] = bezier.p[0];
 									outputBezier.p[0] = bezier.p[2];
-									assert(getMajor(outputBezier.evaluateBezier(0.0)) <= getMajor(outputBezier.evaluateBezier(1.0)));
+									assert(index(outputBezier.evaluateBezier(0.0), major) <= index(outputBezier.evaluateBezier(1.0), major));
 								}
 
 								beziers.push_back(outputBezier);
@@ -924,14 +929,14 @@ public:
 			}
 
 			// TODO better way to do this
-			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[0]) < getMajor(b.originalBezier->p[0]); });
+			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return index(a.originalBezier->p[0], major) > index(b.originalBezier->p[0], major); });
 			for (Segment& segment : segments)
 				starts.push(segment);
 
-			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return getMajor(a.originalBezier->p[2]) < getMajor(b.originalBezier->p[2]); });
+			std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return index(a.originalBezier->p[2], major) > index(b.originalBezier->p[2], major); });
 			for (Segment& segment : segments)
 				ends.push(segment);
-			maxMajor = getMajor(segments.back().originalBezier->p[2]);
+			maxMajor = index(segments.back().originalBezier->p[2], major);
 		}
 
 		// Sweep line algorithm
@@ -952,12 +957,11 @@ public:
 				auto intersectionPoints = entry.intersect(segment);
 				for (uint32_t i = 0; i < intersectionPoints.size(); i++)
 				{
-					std::cout << "intersectionPoints[" << i << "] = " << intersectionPoints[i] << ", ";
 					if (nbl::core::isnan(intersectionPoints[i]))
 						continue;
-					intersections.push(getMajor(segment.originalBezier->evaluateBezier(intersectionPoints[i])));
+					intersections.push(index(segment.originalBezier->evaluateBezier(intersectionPoints[i]), major));
 
-					{
+					if (debugOutput) {
 						auto pt = segment.originalBezier->evaluateBezier(intersectionPoints[i]);
 						auto min = pt - double2(10.0, 10.0);
 						auto max = pt + double2(10.0, 10.0);
@@ -967,7 +971,6 @@ public:
 						drawDebugLine(double2(min.X, min.Y), double2(min.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
 					}
 				}
-				std::cout << ";\n";
 			}
 			activeCandidates.push_back(entry);
 		};
@@ -976,24 +979,24 @@ public:
 		auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
 		{
 			// btw you probably want the beziers in Quadratic At^2+B+C form, not control points
-			double _lhs = getMajor(lhs.originalBezier->evaluateBezier(lhs.t_start));
-			double _rhs = getMajor(rhs.originalBezier->evaluateBezier(lhs.t_start));
+			double _lhs = index(lhs.originalBezier->evaluateBezier(lhs.t_start), major);
+			double _rhs = index(rhs.originalBezier->evaluateBezier(lhs.t_start), major);
 			if (_lhs == _rhs)
 			{
 				// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 				// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
 				double2 lTan = lhs.originalBezier->tangent(lhs.t_start);
 				double2 rTan = lhs.originalBezier->tangent(rhs.t_start);
-				_lhs = getMinor(lTan) * getMajor(rTan);
-				_rhs = getMinor(rTan) * getMajor(lTan);
+				_lhs = index(lTan, minor) * index(rTan, major);
+				_rhs = index(rTan, minor) * index(lTan, major);
 				if (_lhs == _rhs)
 				{
 					// TODO: this is getting the polynominal A for the bezier
 					// when bezier gets converted to A, B, C polynominal this is just ->A
 					double2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
 					double2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-					_lhs = getMinor(lAcc) * getMajor(rTan);
-					_rhs = getMinor(rTan) * getMajor(lAcc);
+					_lhs = index(lAcc, minor) * index(rTan, major);
+					_rhs = index(rTan, minor) * index(lAcc, major);
 				}
 			}
 			return _lhs < _rhs;
@@ -1004,20 +1007,22 @@ public:
 			if (debugOutput)
 				drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(0.3, 1.0, 0.3, 0.1));
 			intersections.pop(); // O(n)
+			std::cout << "Intersection event at " << newMajor << "\n";
 			return newMajor;
 		};
 
 
-		double lastMajor = getMajor(starts.top().originalBezier->evaluateBezier(starts.top().t_start));
+		double lastMajor = index(starts.top().originalBezier->evaluateBezier(starts.top().t_start), major);
+		std::cout << "\n\nBegin! Max major: " << maxMajor << "\n";
 		while (lastMajor!=maxMajor)
 		{
 			double newMajor;
 
 			const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
-			const double minMajorStart = nextStartEvent.originalBezier ? getMajor(nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)) : 0.0;
+			const double minMajorStart = nextStartEvent.originalBezier ? index(nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start), major) : 0.0;
 
 			const Segment nextEndEvent = ends.top();
-			const double maxMajorEnds = getMajor(nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end));
+			const double maxMajorEnds = index(nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end), major);
 
 			// We check which event, within start, end and intersection events have the smallest
 			// major coordinate at this point
@@ -1034,6 +1039,7 @@ public:
 					newMajor = minMajorStart;
 					if (debugOutput)
 						drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(1.0, 0.3, 0.3, 0.1));
+					std::cout << "Start event at " << newMajor << "\n";
 				}
 				// (intersection event)
 				else newMajor = intersectionVisit();
@@ -1049,15 +1055,18 @@ public:
 				ends.pop();
 				if (debugOutput)
 					drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(0.3, 0.3, 1.0, 0.1));
+				std::cout << "End event at " << newMajor << "\n";
 			}
 
 			// spawn quads if we advanced
+			std::cout << "New major: " << newMajor << " Last major: " << lastMajor << "\n";
 			if (newMajor > lastMajor)
 			{
 				// trim
 				const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
 				// because n4ce works on loops, this must be true
 				assert((candidatesSize % 2u)==0u);
+				std::cout << "Candidates size: " << candidatesSize << "\n";
 				for (auto i=0u; i< candidatesSize;)
 				{
 					auto& left = activeCandidates[i++];
@@ -1080,6 +1089,7 @@ public:
 						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMax.Y), double2(curveBox.aabbMax.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
 						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMin.Y), double2(curveBox.aabbMin.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
 					}
+					std::cout << "Hatch box bounding box (" << curveBox.aabbMin.X << ", " << curveBox.aabbMin.Y << ") .. (" << curveBox.aabbMax.X << "," << curveBox.aabbMax.Y << ")\n";
 					// Transform curves into AABB UV space and turn them into quadratic coefficients
 					// TODO: the split curve should already have the quadratic bezier as
 					// quadratic coefficients
@@ -1103,7 +1113,7 @@ public:
 				auto oit = activeCandidates.begin();
 				for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
 				{
-					const double evalAtMajor = getMajor(iit->originalBezier->evaluateBezier(iit->t_end));
+					const double evalAtMajor = index(iit->originalBezier->evaluateBezier(iit->t_end), major);
 					// if we scrolled past the end of the segment, remove it
 					// (basically, we memcpy everything after something is different
 					// and we skip on the memcpy for any items that are also different)
@@ -1252,12 +1262,9 @@ Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeRight(double t) con
 
 std::array<Hatch::QuadraticBezier, 2> Hatch::QuadraticBezier::splitIntoMonotonicSegments(int major) const
 {
-	// TODO: not have replicas of this everywhere
-	auto getMajor = [major](double2 value) { return major == 0 ? value.X : value.Y; };
-
 	// Getting derivatives for our quadratic bezier
-	auto a = 2.0 * (getMajor(p[1]) - getMajor(p[0]));
-	auto b = 2.0 * (getMajor(p[2]) - getMajor(p[1]));
+	auto a = 2.0 * (index(p[1], major) - index(p[0], major));
+	auto b = 2.0 * (index(p[2], major) - index(p[1], major));
 
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto rcp = 1.0 / (b - a);
@@ -1468,7 +1475,6 @@ public:
 		return intendedNextSubmit;
 	}
 
-	// TODO[Lucas]: drawHatch function with similar signature to drawPolyline
 	// If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
 	// But we don't have that so we have to follow a similar auto submission as the "drawPolyline" function with some mutations:
 	// We have to find the MAX number of "CurveBoxes" we could draw, and since both the "Curves" and "CurveBoxes" reside in geometry buffer,
@@ -2659,7 +2665,7 @@ public:
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 		cb->beginDebugMarker("Frame");
 		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
+		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
 		globalData.viewProjection = m_Camera.constructViewProjection();
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
@@ -2946,7 +2952,7 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, submissionQueue, submissionFence, intendedNextSubmit);
 			};
 
-			Hatch hatch(polylines, debug);
+			Hatch hatch(polylines, nullptr);
 			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)

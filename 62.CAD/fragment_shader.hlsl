@@ -75,89 +75,6 @@ struct LineStyleClipper
 
 typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float> > BezierLineStyleClipper_float;
 
-// TODO: this is all temp
-float ud(nbl::hlsl::shapes::Quadratic<float> bezier, float2 pos)
-{     
-    // p(t)    = (1-t)^2*A + 2(1-t)t*B + t^2*C
-    // p'(t)   = 2*t*(A-2*B+C) + 2*(B-A)
-    // p'(0)   = 2(B-A)
-    // p'(1)   = 2(C-B)
-    // p'(1/2) = 2(C-A)
-            
-    float2 a = bezier.A;
-    float2 b = bezier.B;
-    float2 c = bezier.C;
-
-    // Reducing Quartic to Cubic Solution
-    float kk = 1.0 / dot(b,b);
-    float kx = kk * dot(a,b);
-    float ky = kk * (2.0*dot(a,a)+dot(c,b)) / 3.0;
-    float kz = kk * dot(c,a);      
-
-    float2 res;
-
-    // Cardano's Solution to resolvent cubic of the form: y^3 + 3py + q = 0
-    // where it was initially of the form x^3 + ax^2 + bx + c = 0 and x was replaced by y - a/3
-    // so a/3 needs to be subtracted from the solution to the first form to get the actual solution
-    float p = ky - kx*kx;
-    float p3 = p*p*p;
-    float q = kx*(2.0*kx*kx - 3.0*ky) + kz;
-    float h = q*q + 4.0*p3;
-
-    if(h >= 0.0) 
-    { 
-        h = sqrt(h);
-        float2 x = (float2(h, -h) - q) / 2.0;
-
-        // Solving Catastrophic Cancellation when h and q are close (when p is near 0)
-        if(abs(abs(h/q) - 1.0) < 0.0001)
-        {
-            // Approximation of x where h and q are close with no carastrophic cancellation
-            // Derivation (for curious minds) -> h=√(q²+4p³)=q·√(1+4p³/q²)=q·√(1+w)
-                // Now let's do linear taylor expansion of √(1+x) to approximate √(1+w)
-                // Taylor expansion at 0 -> f(x)=f(0)+f'(0)*(x) = 1+½x 
-                // So √(1+w) can be approximated by 1+½w
-                // Simplifying later and the fact that w=4p³/q will result in the following.
-            x = float2(p3/q, -q - p3/q);
-        }
-
-        float2 uv = sign(x)*pow(abs(x), float2(1.0/3.0,1.0/3.0));
-        float t = uv.x + uv.y - kx;
-        t = clamp( t, 0.0, 1.0 );
-
-        // 1 root
-        float2 qos = c + (2.0*a + b*t)*t;
-        res = float2( length(qos),t);
-    }
-    else
-    {
-        float z = sqrt(-p);
-        float v = acos( q/(p*z*2.0) ) / 3.0;
-        float m = cos(v);
-        float n = sin(v)*1.732050808;
-        float3 t = float3(m + m, -n - m, n - m) * z - kx;
-        t = clamp( t, 0.0, 1.0 );
-
-        // 3 roots
-        float2 qos = c + (2.0*a + b*t.x)*t.x;
-        float dis = dot(qos,qos);
-        
-        res = float2(dis,t.x);
-
-        qos = c + (2.0*a + b*t.y)*t.y;
-        dis = dot(qos,qos);
-        if( dis<res.x ) res = float2(dis,t.y );
-
-        qos = c + (2.0*a + b*t.z)*t.z;
-        dis = dot(qos,qos);
-        if( dis<res.x ) res = float2(dis,t.z );
-
-        res.x = sqrt( res.x );
-    }
-    
-    return res.x;
-}
-
 float4 main(PSInput input) : SV_TARGET
 {
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -207,25 +124,24 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::CURVE_BOX) 
     {
         float minorAxisNdc = input.getMinorAxisNdc();
+        float majorAxisNdc = input.getMajorAxisNdc();
 
-        float minT = input.getMinCurvePrecomputedRootFinders().computeRoots().x;
+        float minT = clamp(input.getMinCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         float minEv = input.getCurveMinBezier().evaluate(minT);
         
-        float maxT = input.getMaxCurvePrecomputedRootFinders().computeRoots().x;
+        float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         float maxEv = input.getCurveMaxBezier().evaluate(maxT);
         
+        float curveMinorDistance = min(minorAxisNdc - minEv, maxEv - minorAxisNdc);
+        float aabbMajorDistance = min(majorAxisNdc, 1.0 - majorAxisNdc);
+
+        float signedDist = min(curveMinorDistance, aabbMajorDistance);
+        const float antiAliasingFactor = globals.antiAliasingFactor * ddx(minorAxisNdc);
+        localAlpha = smoothstep(-antiAliasingFactor, +antiAliasingFactor, signedDist);
+
+        //return float4(-signedDist, signedDist, 0.0, 1.0);
+
         float4 col = input.getColor();
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        float distance = min(minorAxisNdc - minEv, maxEv - minorAxisNdc);
-
-        //return float4(minEv, maxEv, 0.0, 1.0);
-
-        // TODO: AA using ddx ddy
-        if (distance >= 0)
-        {
-            localAlpha = 1.0;
-        }
-
         col.w *= localAlpha;
         return float4(col);
     }

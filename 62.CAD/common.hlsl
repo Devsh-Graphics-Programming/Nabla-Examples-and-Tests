@@ -119,23 +119,11 @@ struct PSInput
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     // For curve box, has the UV within the AABB
     // UV, curve min & curve max are all 
-    [[vk::location(5)]] float3 interp_data5 : COLOR5;
-
-
-
-    [[vk::location(6)]] double2 curveMinA : curveMinA;
-    [[vk::location(7)]] double2 curveMinB : curveMinB;
-    [[vk::location(8)]] double2 curveMinC : curveMinC;
-    [[vk::location(9)]] double2 curveMaxA : curveMaxA;
-    [[vk::location(10)]] double2 curveMaxB : curveMaxB;
-    [[vk::location(11)]] double2 curveMaxC : curveMaxC;
-    [[vk::location(13)]] float det : det;
-    [[vk::location(14)]] float rcp : rcp;
-    [[vk::location(15)]] float detRcp2 : detRcp2;
-    [[vk::location(16)]] float brcp : brcp;
-    [[vk::location(17)]] float2 minRoots : minRoots;
-    [[vk::location(18)]] float2 maxRoots : maxRoots;
-    [[vk::location(19)]] float majorAxisNdc : majorAxisNdc;
+    [[vk::location(5)]] float4 interp_data5 : COLOR5;
+    
+    [[vk::location(6)]] float2 ndcAabbExtents : ndcAabbExtents;
+    [[vk::location(7)]] float2 dilatedAabbExtents : dilatedAabbExtents;
+    [[vk::location(8)]] float2 maxCorner : maxCorner;
         // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
@@ -197,7 +185,6 @@ struct PSInput
     //
     // a, b, c = curveMin.a,b,c()[major] - uv[major]
 
-    // TODO: brcp doesn't need to interp
     nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder getMinCurvePrecomputedRootFinders() { 
         return nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(interp_data5.x, data3.z);
     }
@@ -214,9 +201,11 @@ struct PSInput
         data3.w = rootFinder.brcp;
     }
     
-    // Curve box value along minor axis
+    // Curve box value along minor & major axis
     float getMinorAxisNdc() { return interp_data5.z; };
     void setMinorAxisNdc(float minorAxisNdc) { interp_data5.z = minorAxisNdc; }
+    float getMajorAxisNdc() { return interp_data5.w; };
+    void setMajorAxisNdc(float majorAxisNdc) { interp_data5.w = majorAxisNdc; }
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
