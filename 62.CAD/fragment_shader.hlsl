@@ -135,14 +135,10 @@ float4 main(PSInput input) : SV_TARGET
         float curveMinorDistance = min(minorAxisNdc - minEv, maxEv - minorAxisNdc);
         float aabbMajorDistance = min(majorAxisNdc, 1.0 - majorAxisNdc);
 
-        float signedDist = min(curveMinorDistance, aabbMajorDistance);
         const float antiAliasingFactor = globals.antiAliasingFactor * ddx(minorAxisNdc);
-        localAlpha = smoothstep(-antiAliasingFactor, +antiAliasingFactor, signedDist);
-
-        //return float4(-signedDist, signedDist, 0.0, 1.0);
-
         float4 col = input.getColor();
-        col.w *= localAlpha;
+        col.w *= smoothstep(-antiAliasingFactor, +antiAliasingFactor, aabbMajorDistance);
+        col.w *= smoothstep(-antiAliasingFactor, +antiAliasingFactor, curveMinorDistance);
         return float4(col);
     }
 
