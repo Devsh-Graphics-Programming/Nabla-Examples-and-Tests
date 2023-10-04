@@ -52,10 +52,10 @@ struct ExplicitCurve
 
 struct Parabola final : public ExplicitCurve
 {
-    float64_t A, B, C;
+    float64_t a, b, c;
 
-    Parabola(float64_t A, float64_t B, float64_t C)
-        : A(A), B(B), C(C)
+    Parabola(float64_t a, float64_t b, float64_t c)
+        : a(a), b(b), c(c)
     {}
 
     static Parabola fromThreePoints(const float64_t2& P0, const float64_t2& P1, const float64_t2& P2)
@@ -71,26 +71,26 @@ struct Parabola final : public ExplicitCurve
 
     float64_t y(float64_t x) const override
     {
-        return ((A * x) + B) * x + C;
+        return ((a * x) + b) * x + c;
     }
 
     float64_t derivative(float64_t x) const override
     {
-        return 2.0 * A * x + B;
+        return 2.0 * a * x + b;
     }
 };
 
 // Mix between two parabolas from 0 to len
 struct MixedParabola final : public ExplicitCurve
 {
-    float64_t A, B, C, D;
+    float64_t a, b, c, d;
 
     MixedParabola(const Parabola& parabola1, const Parabola& parabola2, float64_t chordLen)
     {
-        A = (parabola2.A - parabola1.A) / chordLen;
-        B = (parabola2.B - parabola1.B) / chordLen + parabola1.A;
-        C = (parabola2.C - parabola1.C) / chordLen + parabola1.B;
-        D = parabola1.C;
+        a = (parabola2.a - parabola1.a) / chordLen;
+        b = (parabola2.b - parabola1.b) / chordLen + parabola1.a;
+        c = (parabola2.c - parabola1.c) / chordLen + parabola1.b;
+        d = parabola1.c;
     }
 
     static MixedParabola fromFourPoints(const float64_t2& P0, const float64_t2& P1, const float64_t2& P2, const float64_t2& P3)
@@ -104,12 +104,17 @@ struct MixedParabola final : public ExplicitCurve
 
     float64_t y(float64_t x) const override
     {
-        return (((A * x) + B) * x + C) * x + D;
+        return (((a * x) + b) * x + c) * x + d;
     }
 
     float64_t derivative(float64_t x) const override
     {
-        return ((3.0 * A * x) + 2.0 * B) * x + C;
+        return ((3.0 * a * x) + 2.0 * b) * x + c;
+    }
+
+    float64_t inflectionPoint() const
+    {
+        return b / (3.0*a);
     }
 };
 
