@@ -189,7 +189,39 @@ struct MixedCircle final : public ExplicitCurve
         ret.origin1Y = circle1.origin.y;
         ret.origin2Y = circle2.origin.y;
         ret.chordLen = abs(P2.x - P1.x);
-        ret.inflectX = 0.0; // TODO: calculate inflection point for mixed circle
+
+        // bisection search to find inflection point, TODO: is there a nabla util for this?
+        ret.inflectX = std::numeric_limits<double>::quiet_NaN();
+        {
+            constexpr uint16_t MaxIterations = 16u;
+            constexpr uint16_t Threshold = 1e-4;
+            float64_t low = P1.x;
+            float64_t high = P2.x;
+            float64_t valLow = ret.secondDerivative(low);
+            float64_t valHigh = ret.secondDerivative(high);
+            if (getSign(valLow) != getSign(valHigh) && !isnan(valLow) && !isnan(valHigh)) // nans are for safety, if my calculations are correct they won't be nan
+            {
+                if (valLow > valHigh)
+                    std::swap(low, high);
+
+                float64_t guess = 0.0;
+                for (uint16_t i = 0u; i < MaxIterations; ++i)
+                {
+                    guess = (low + high) / 2.0;
+                    float64_t valGuess = ret.secondDerivative(guess);
+                    if (abs(valGuess) < Threshold)
+                        break;
+
+                    if (valGuess < 0.0)
+                        low = guess;
+                    else
+                        high = guess;
+                }
+
+                ret.inflectX = guess;
+            }
+        }
+
         return ret;
     }
 
@@ -204,7 +236,6 @@ struct MixedCircle final : public ExplicitCurve
         const float64_t ret = (x / chordLen + 0.5) * (t2 - t1) + t1;
         return ret;
     }
-
 
     float64_t secondDerivative(float64_t x) const
     {
@@ -222,6 +253,7 @@ struct MixedCircle final : public ExplicitCurve
         const float64_t q2 = (-1.0 * (x * x) / pow(radius2 * radius2 - x * x, 1.5)) - (1.0 / t2);
 
         const float64_t ret = ((2.0 * (u1 - u2)) / chordLen) + (x / chordLen + 0.5) * (s2 * q2 - s1 * q1) + s1 * q1;
+        return ret;
     }
 
     float64_t derivative(float64_t x) const override
@@ -244,7 +276,7 @@ struct MixedCircle final : public ExplicitCurve
     }
 
 private:
-    float64_t getSign(float64_t x) const
+    static float64_t getSign(float64_t x)
     {
         return static_cast<float64_t>((x >= 0.0)) - static_cast<float64_t>((x < 0.0));
     }
