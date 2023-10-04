@@ -475,10 +475,6 @@ PSInput main(uint vertexID : SV_VertexID)
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
 
-        outV.ndcAabbExtents = ndcAabbExtents;
-        outV.dilatedAabbExtents = dilatedAabbExtents;
-        outV.maxCorner = maxCorner;
-
         const uint major = (uint)MajorAxis::MAJOR_Y;
         const uint minor = 1-major;
 
