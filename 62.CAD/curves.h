@@ -48,6 +48,11 @@ struct ExplicitCurve
     {
         return differentialArcLen(x);
     }
+
+    virtual float64_t inflectionX() const
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
 };
 
 struct Parabola final : public ExplicitCurve
@@ -112,9 +117,9 @@ struct MixedParabola final : public ExplicitCurve
         return ((3.0 * a * x) + 2.0 * b) * x + c;
     }
 
-    float64_t inflectionPoint() const
+    float64_t inflectionX() const override
     {
-        return b / (3.0*a);
+        return -b / (3.0*a);
     }
 };
 
@@ -169,6 +174,7 @@ struct MixedCircle final : public ExplicitCurve
     float64_t radius1;
     float64_t radius2;
     float64_t chordLen;
+    float64_t inflectX;
 
     static MixedCircle fromFourPoints(const float64_t2& P0, const float64_t2& P1, const float64_t2& P2, const float64_t2& P3)
     {
@@ -183,6 +189,7 @@ struct MixedCircle final : public ExplicitCurve
         ret.origin1Y = circle1.origin.y;
         ret.origin2Y = circle2.origin.y;
         ret.chordLen = abs(P2.x - P1.x);
+        ret.inflectX = 0.0; // TODO: calculate inflection point for mixed circle
         return ret;
     }
 
@@ -198,6 +205,25 @@ struct MixedCircle final : public ExplicitCurve
         return ret;
     }
 
+
+    float64_t secondDerivative(float64_t x) const
+    {
+        // https://www.wolframalpha.com/input?i=second+derivative+of+%28x%2Fl%2B1%2F2%29*%28s2*sqrt%28r_2%5E2-x%5E2%29%2Bo2-s1*sqrt%28r_1%5E2-x%5E2%29-o1%29%2Bs1*sqrt%28r_1%5E2-x%5E2%29%2Bo1
+        const float64_t s1 = -1.0 * getSign(origin1Y);
+        const float64_t s2 = -1.0 * getSign(origin2Y);
+
+        const float64_t t1 = sqrt(radius1 * radius1 - x * x);
+        const float64_t t2 = sqrt(radius2 * radius2 - x * x);
+
+        const float64_t u1 = (s1 * x) / t1;
+        const float64_t u2 = (s2 * x) / t2;
+
+        const float64_t q1 = (-1.0 * (x * x) / pow(radius1 * radius1 - x * x, 1.5)) - (1.0 / t1);
+        const float64_t q2 = (-1.0 * (x * x) / pow(radius2 * radius2 - x * x, 1.5)) - (1.0 / t2);
+
+        const float64_t ret = ((2.0 * (u1 - u2)) / chordLen) + (x / chordLen + 0.5) * (s2 * q2 - s1 * q1) + s1 * q1;
+    }
+
     float64_t derivative(float64_t x) const override
     {
         // https://www.wolframalpha.com/input?i=derivative+%28x%2Fl%2B1%2F2%29*%28s2*sqrt%28r_2%5E2-x%5E2%29%2Borigin2Y-s1*sqrt%28r_1%5E2-x%5E2%29-origin1Y%29%2Bs1*sqrt%28r_1%5E2-x%5E2%29%2Borigin1Y
@@ -210,6 +236,11 @@ struct MixedCircle final : public ExplicitCurve
         const float64_t t2 = sqrt(radius2 * radius2 - x * x);
         const float64_t ret = ((x / chordLen + 0.5) * (t1 - ((x * s2) / t2)) + (((origin2Y - origin1Y) + (s2 * t2) - (s1 * t0)) / chordLen)) - t1;
         return ret;
+    }
+
+    float64_t inflectionX() const override
+    {
+        return inflectX;
     }
 
 private:
@@ -365,7 +396,15 @@ inline void adaptiveSubdivision_impl(const ExplicitCurve& curve, float64_t min, 
 
 inline void adaptiveSubdivision(const ExplicitCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
 {
-    adaptiveSubdivision_impl(curve, min, max, targetMaxError, addBezierFunc, maxDepth);
+    // The curves we're working with will have at most 1 inflection point.
+    const float64_t inflectX = curve.inflectionX(); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
+    if (inflectX > min && inflectX < max)
+    {
+        adaptiveSubdivision_impl(curve, min, inflectX, targetMaxError, addBezierFunc, maxDepth);
+        adaptiveSubdivision_impl(curve, inflectX, max, targetMaxError, addBezierFunc, maxDepth);
+    }
+    else
+        adaptiveSubdivision_impl(curve, min, max, targetMaxError, addBezierFunc, maxDepth);
 }
 
 #endif
