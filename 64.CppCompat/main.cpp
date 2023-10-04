@@ -12,11 +12,13 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
+#include "../common/CommonAPI.h"
+
+
 using namespace nbl;
 using namespace core;
 using namespace ui;
 using namespace nbl::hlsl;
-
 
 
 struct S
@@ -37,9 +39,15 @@ struct T
 };
 
 
+template<class T>
+constexpr bool val(T a)
+{
+    return std::is_const_v<T>;
+}
 
 int main()
 {
+
     // TODO: later this whole test should be templated so we can check all `T` not just `float`, but for this we need `type_traits`
   
     // DO NOT EVER THINK TO CHANGE `using type1 = vector<type,1>` to `using type1 = type` EVER!
@@ -103,5 +111,24 @@ int main()
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
 
-    return 0;
+    
+    // test HLSL side
+
+    {
+        auto initOutput = CommonAPI::InitWithDefaultExt(CommonAPI::InitParams {.appName = "64.CppCompat" });
+        auto logger = std::move(initOutput.logger);
+        auto assetManager = std::move(initOutput.assetManager);
+        auto cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+
+        const char* pathToShader = "../test.hlsl";
+        core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
+        {
+            video::IGPUObjectFromAssetConverter CPU2GPU;
+            asset::IAssetLoader::SAssetLoadParams params = {};
+            params.logger = logger.get();
+            auto specShader_cpu = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(pathToShader, params).getContents().begin());
+            specializedShader = CPU2GPU.getGPUObjectsFromAssets(&specShader_cpu, &specShader_cpu + 1, cpu2gpuParams)->front();
+        }
+        assert(specializedShader);
+    }
 }
