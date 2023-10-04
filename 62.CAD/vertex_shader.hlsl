@@ -191,7 +191,14 @@ PSInput main(uint vertexID : SV_VertexID)
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
 
+    // Default Initialize PS Input
+    outV.position.z = 0.0;
+    outV.data0 = float4(0, 0, 0, 0);
+    outV.data1 = uint4(0, 0, 0, 0);
+    outV.data2 = float4(0, 0, 0, 0);
+    outV.data3 = float4(0, 0, 0, 0);
     outV.clip = float4(0,0,0,0);
+
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
@@ -436,7 +443,7 @@ PSInput main(uint vertexID : SV_VertexID)
         else if (vertexIdx == 3u)
             outV.position = float4(+1, +1, 0, 1);
 #endif
-    
+
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
     return outV;
 }
