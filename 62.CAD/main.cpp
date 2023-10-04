@@ -6,7 +6,6 @@
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
-#include <nbl/builtin/hlsl/math/quadrature/gauss_legendre.hlsl>
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
@@ -2011,27 +2010,51 @@ public:
 					quadratic1.p[0] = float64_t2(0.0, 0.0);
 					quadratic1.p[1] = float64_t2(20.0, 50.0);
 					quadratic1.p[2] = float64_t2(80.0, 0.0);
-					quadBeziers.push_back(quadratic1);
+					//quadBeziers.push_back(quadratic1);
 				}
 				{
 					QuadraticBezierInfo quadratic1;
 					quadratic1.p[0] = float64_t2(80.0, 0.0);
 					quadratic1.p[1] = float64_t2(220.0, 50.0);
 					quadratic1.p[2] = float64_t2(180.0, 200.0);
-					quadBeziers.push_back(quadratic1);
+					//quadBeziers.push_back(quadratic1);
 				}
 				{
 					QuadraticBezierInfo quadratic1;
 					quadratic1.p[0] = float64_t2(180.0, 200.0);
 					quadratic1.p[1] = float64_t2(-20.0, 100.0);
 					quadratic1.p[2] = float64_t2(30.0, -50.0);
-					quadBeziers.push_back(quadratic1);
+					//quadBeziers.push_back(quadratic1);
 				}
+
+				// TODO: Test this after sdf fixes, cause a linear bezier is causing problems (I think)
+				// MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// error = 1e-2
+				// 
+				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
+				// MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(90.0, 20.0), float64_t2(-50, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0, 40.0));
+				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
+				MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+
+				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				static int ix = 0;
+				ix++;
+
+				const int pp = (ix / 30) % 8;
+
+				double error = pow(10.0, -1.0 * double(pp + 1));
+
+				adaptiveSubdivision(myCurve, 0.0, 50.0, 1e-2, addToBezier, 10u);
+
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 			ClipProjectionData customClipProject = {};
 			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
@@ -2040,8 +2063,8 @@ public:
 			customClipProject.maxClipNDC = float32_t2(0.5, 0.5);
 			customClipProject.minClipNDC = float32_t2(-0.5, -0.5);
 			uint32_t clipProjIdx = InvalidClipProjectionIdx;
-			intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;
