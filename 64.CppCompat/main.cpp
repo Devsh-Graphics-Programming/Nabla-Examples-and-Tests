@@ -26,101 +26,19 @@ using namespace core;
 using namespace ui;
 using namespace nbl::hlsl;
 
-// encodeCIEXYZ.hlsl matrices
-constexpr glm::mat3 nbl_glsl_scRGBtoXYZ = glm::mat3(
-    glm::vec3(0.412391f, 0.212639f, 0.019331f),
-    glm::vec3(0.357584f, 0.715169f, 0.119195f),
-    glm::vec3(0.180481f, 0.072192f, 0.950532f)
-);
-
-constexpr glm::mat3 nbl_glsl_Display_P3toXYZ = glm::mat3(
-    glm::vec3(0.4865709486f, 0.2289745641f, 0.0000000000f),
-    glm::vec3(0.2656676932f, 0.6917385218f, 0.0451133819f),
-    glm::vec3(0.1982172852f, 0.0792869141f, 1.0439443689f)
-);
-
-constexpr glm::mat3 nbl_glsl_DCI_P3toXYZ = glm::mat3(
-    glm::vec3(1.0f, 0.0f, 0.0f),
-    glm::vec3(0.0f, 1.0f, 0.0f),
-    glm::vec3(0.0f, 0.0f, 1.0f)
-);
-
-constexpr glm::mat3 nbl_glsl_BT2020toXYZ = glm::mat3(
-    glm::vec3(0.636958f, 0.262700f, 0.000000f),
-    glm::vec3(0.144617f, 0.677998f, 0.028073f),
-    glm::vec3(0.168881f, 0.059302f, 1.060985f)
-);
-
-constexpr glm::mat3 nbl_glsl_AdobeRGBtoXYZ = glm::mat3(
-    glm::vec3(0.5766690429f, 0.2973449753f, 0.0270313614f),
-    glm::vec3(0.1855582379f, 0.6273635663f, 0.0706888525f),
-    glm::vec3(0.1882286462f, 0.0752914585f, 0.9913375368f)
-);
-
-constexpr glm::mat3 nbl_glsl_ACES2065_1toXYZ = glm::mat3(
-    glm::vec3(0.9525523959f, 0.3439664498f, 0.0000000000f),
-    glm::vec3(0.0000000000f, 0.7281660966f, 0.0000000000f),
-    glm::vec3(0.0000936786f, -0.0721325464f, 1.0088251844f)
-);
-
-constexpr glm::mat3 nbl_glsl_ACEScctoXYZ = glm::mat3(
-    glm::vec3(0.6624541811f, 0.2722287168f, -0.0055746495f),
-    glm::vec3(0.1340042065f, 0.6740817658f, 0.0040607335f),
-    glm::vec3(0.1561876870f, 0.0536895174f, 1.0103391003f)
-);
-
-// decodeCIEXYZ.hlsl matrices
-constexpr glm::mat3 nbl_glsl_XYZtoscRGB = glm::mat3(
-    glm::vec3(3.240970f, -0.969244f, 0.055630f),
-    glm::vec3(-1.537383f, 1.875968f, -0.203977f),
-    glm::vec3(-0.498611f, 0.041555f, 1.056972f)
-);
-
-constexpr glm::mat3 nbl_glsl_XYZtoDisplay_P3 = glm::mat3(
-    glm::vec3(2.4934969119f, -0.8294889696f, 0.0358458302f),
-    glm::vec3(-0.9313836179f, 1.7626640603f, -0.0761723893f),
-    glm::vec3(-0.4027107845f, 0.0236246858f, 0.9568845240f)
-);
-
-constexpr glm::mat3 nbl_glsl_XYZtoDCI_P3 = glm::mat3(
-    glm::vec3(1.0, 0.0, 0.0),
-    glm::vec3(0.0, 1.0, 0.0),
-    glm::vec3(0.0, 0.0, 1.0)
-);
-
-constexpr glm::mat3 nbl_glsl_XYZtoBT2020 = glm::mat3(
-    glm::vec3(1.716651f, -0.666684f, 0.017640f),
-    glm::vec3(-0.355671f, 1.616481f, -0.042771f),
-    glm::vec3(-0.253366f, 0.015769f, 0.942103f)
-);
-
-constexpr glm::mat3 nbl_glsl_XYZtoAdobeRGB = glm::mat3(
-    glm::vec3(2.0415879038f, -0.9692436363f, 0.0134442806f),
-    glm::vec3(-0.5650069743f, 1.8759675015f, -0.1183623922f),
-    glm::vec3(-0.3447313508f, 0.0415550574f, 1.0151749944f)
-);
-
-constexpr glm::mat3 nbl_glsl_XYZtoACES2065_1 = glm::mat3(
-    glm::vec3(1.0498110175f, -0.4959030231f, 0.0000000000f),
-    glm::vec3(0.0000000000f, 1.3733130458f, 0.0000000000f),
-    glm::vec3(-0.0000974845f, 0.0982400361f, 0.9912520182f)
-);
-
-constexpr glm::mat3 nbl_glsl_XYZtoACEScc = glm::mat3(
-    glm::vec3(1.6410233797f, -0.6636628587f, 0.0117218943f),
-    glm::vec3(-0.3248032942f, 1.6153315917f, -0.0082844420f),
-    glm::vec3(-0.2364246952f, 0.0167563477f, 0.9883948585f)
-);
+using namespace glm;
+#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
+#include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
 
 constexpr uint32_t COLOR_MATRIX_CNT = 14u;
-constexpr std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
+const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
     colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
     colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
     colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
     colorspace::decode::XYZtoDCI_P3, colorspace::decode::XYZtoBT2020, colorspace::decode::XYZtoAdobeRGB,
     colorspace::decode::XYZtoACES2065_1, colorspace::decode::XYZtoACEScc
 };
-constexpr std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
+const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
     nbl_glsl_scRGBtoXYZ, nbl_glsl_Display_P3toXYZ, nbl_glsl_DCI_P3toXYZ,
     nbl_glsl_BT2020toXYZ, nbl_glsl_AdobeRGBtoXYZ, nbl_glsl_ACES2065_1toXYZ,
     nbl_glsl_ACEScctoXYZ, nbl_glsl_XYZtoscRGB, nbl_glsl_XYZtoDisplay_P3,
@@ -153,6 +71,12 @@ void testColorMatrices()
 
         std::cout << std::endl;
     }
+}
+
+bool areVectorsEqual(const float32_t3& lhs, const float32_t3& rhs)
+{
+    const float32_t3 epsilonVec = float32_t3(std::exp2(-10));
+    return glm::all(glm::abs(lhs - rhs) < epsilonVec);
 }
 
 struct S
@@ -380,10 +304,12 @@ int main(int argc, char** argv)
         assert(glm::all(b <= a));
     }
 
-    // test functions from EOTF.hlsl
     // TODO[Przemek]: tests function output
     float32_t3 TEST_VEC = float32_t3(0.1f, 0.2f, 0.3f);
+    float32_t3 ZERO_VEC = float32_t3(0.0f, 0.0f, 0.0f);
+    float32_t3 ONE_VEC = float32_t3(1.0f, 1.0f, 1.0f);
 
+    // test functions from EOTF.hlsl
     colorspace::eotf::identity<float32_t3>(TEST_VEC);
     colorspace::eotf::impl_shared_2_4<float32_t3>(TEST_VEC, 0.5f);
     colorspace::eotf::sRGB<float32_t3>(TEST_VEC);
@@ -396,6 +322,32 @@ int main(int argc, char** argv)
     colorspace::eotf::Gamma_2_2<float32_t3>(TEST_VEC);
     colorspace::eotf::ACEScc<float32_t3>(TEST_VEC);
     colorspace::eotf::ACEScct<float32_t3>(TEST_VEC);
+
+    assert(areVectorsEqual(colorspace::eotf::identity<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::impl_shared_2_4<float32_t3>(ZERO_VEC, 0.5f), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::sRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::Display_P3<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::DCI_P3_XYZ<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::SMPTE_170M<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::SMPTE_ST2084<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::HDR10_HLG<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::AdobeRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::eotf::Gamma_2_2<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::ACEScc<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::ACEScct<float32_t3>(ZERO_VEC), ZERO_VEC));
+
+    assert(areVectorsEqual(colorspace::eotf::identity<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::impl_shared_2_4<float32_t3>(ONE_VEC, 0.5f), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::sRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::Display_P3<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::DCI_P3_XYZ<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::SMPTE_170M<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::SMPTE_ST2084<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::HDR10_HLG<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::AdobeRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::eotf::Gamma_2_2<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::ACEScc<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
 
     // test functions from OETF.hlsl
     colorspace::oetf::identity<float32_t3>(TEST_VEC);
@@ -410,6 +362,32 @@ int main(int argc, char** argv)
     colorspace::oetf::Gamma_2_2<float32_t3>(TEST_VEC);
     colorspace::oetf::ACEScc<float32_t3>(TEST_VEC);
     colorspace::oetf::ACEScct<float32_t3>(TEST_VEC);
+
+    assert(areVectorsEqual(colorspace::oetf::identity<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::impl_shared_2_4<float32_t3>(ZERO_VEC, 0.5f), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::sRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::Display_P3<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::DCI_P3_XYZ<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::SMPTE_170M<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::SMPTE_ST2084<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::HDR10_HLG<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::AdobeRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    assert(areVectorsEqual(colorspace::oetf::Gamma_2_2<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::ACEScc<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ZERO_VEC), ZERO_VEC));
+
+    assert(areVectorsEqual(colorspace::oetf::identity<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::impl_shared_2_4<float32_t3>(ONE_VEC, 0.5f), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::sRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::Display_P3<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::DCI_P3_XYZ<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::SMPTE_170M<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::SMPTE_ST2084<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::HDR10_HLG<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::AdobeRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    assert(areVectorsEqual(colorspace::oetf::Gamma_2_2<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::ACEScc<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
 
     // xoroshiro64 tests
     /*constexpr xoroshiro64star_state_t xoroshiro64StarState = xoroshiro64star_state_t(12u, 34u);
