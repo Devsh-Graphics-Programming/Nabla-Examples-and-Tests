@@ -4,3 +4,4 @@
 */bin/*
 */.profiles/*
 */runAllTests.py
+*/.test/nbl.py

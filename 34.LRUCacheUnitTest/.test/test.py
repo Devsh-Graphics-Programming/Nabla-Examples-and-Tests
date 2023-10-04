@@ -1,9 +1,8 @@
-from ConsoleOutputTest import ConsoleOutputTestExpectedFileAsDependency as TestClass
-from TestUtils import get_args
+from .nbl import *
 
 def main():
-    newArgv, config_json_filepaths, nabla_dir, warnings = get_args()
-    if TestClass("LRU cache test", config_json_filepaths, nabla_dir, warnings).run():
+    newArgv, config_json_filepaths, nabla_dir, warnings = nbl.Utils.get_args()
+    if nbl.ConsoleOutput.ExpectedFileAsDependencyTest("LRU cache test", config_json_filepaths, nabla_dir, warnings).run():
         print("Test finished, passed")
         exit(0)
     else:
