@@ -9,7 +9,7 @@
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -95,19 +95,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 1;
+				m_origin.y += 0.1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 1;
+				m_origin.x -= 0.1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 1;
+				m_origin.y -= 0.1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 1;
+				m_origin.x += 0.1;
 			}
 		}
 	}
@@ -2027,14 +2027,10 @@ public:
 					//quadBeziers.push_back(quadratic1);
 				}
 
-				// TODO: Test this after sdf fixes, cause a linear bezier is causing problems (I think)
-				// MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-				// error = 1e-2
-				// 
 				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
-				// MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(90.0, 20.0), float64_t2(-50, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0, 40.0));
+				MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(-9.0, 5.75), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(9.0, 18.3));
 				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-				MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
 
 				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
@@ -2043,14 +2039,18 @@ public:
 
 				static int ix = 0;
 				ix++;
-
 				const int pp = (ix / 30) % 8;
-
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				adaptiveSubdivision(myCurve, 0.0, 50.0, 1e-2, addToBezier, 10u);
+				adaptiveSubdivision(myCurve, -50.0, 50.0, 1e-2, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+
+				// VISUALIZE INFLECTION POINT
+				// std::vector<float64_t2> linePoints;
+				// linePoints.push_back({ myCurve.inflectionX(), -100.0});
+				// linePoints.push_back({ myCurve.inflectionX(), 100.0 });
+				// polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
