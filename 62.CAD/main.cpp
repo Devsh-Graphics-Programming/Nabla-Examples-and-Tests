@@ -2028,9 +2028,9 @@ public:
 				}
 
 				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
-				MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
+				// MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-				//MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
 
 				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
@@ -2039,10 +2039,10 @@ public:
 
 				static int ix = 0;
 				ix++;
-				const int pp = (ix / 30) % 8;
+				const int pp = (ix / 30) % 12;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				adaptiveSubdivision(myCurve, -20.0, 20.0, 1e-12, addToBezier, 10u);
+				adaptiveSubdivision(myCurve, 0.0, 50.0, error, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 

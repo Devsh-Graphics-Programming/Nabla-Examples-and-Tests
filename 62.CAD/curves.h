@@ -423,6 +423,16 @@ inline void adaptiveSubdivision_impl(const ExplicitCurve& curve, float64_t min, 
     }
     else
     {
+        // Hack for when P1 is "outside" P0 -> P2
+        const float64_t2 localChord = bezier.p[2] - bezier.p[0];
+        const float localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
+        const bool outside = localX<0 || localX>length(localChord);
+        if (outside)
+        {
+            _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
+            bezier.p[1] = (bezier.p[0] + bezier.p[2]) / 2.0;
+        }
+
         addBezierFunc(bezier);
     }
 }
