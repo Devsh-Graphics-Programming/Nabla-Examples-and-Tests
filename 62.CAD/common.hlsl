@@ -46,10 +46,10 @@ struct QuadraticBezierInfo
 struct CurveBox 
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    double2 aabbMin;
-    double2 aabbMax; // 32
-    double2 curveMin[3]; // 80
-    double2 curveMax[3]; // 128
+    float64_t2 aabbMin;
+    float64_t2 aabbMax; // 32
+    float64_t2 curveMin[3]; // 80
+    float64_t2 curveMax[3]; // 128
 };
 
 // TODO: Compute this in a compute shader from the world counterparts
@@ -57,19 +57,20 @@ struct CurveBox
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
-    float32_t2 minClipNDC; // 80
-    float32_t2 maxClipNDC; // 88
+    float64_t4x4 projectionToNDC; // 128 -> because we use scalar_layout
+    float32_t2 minClipNDC; // 136
+    float32_t2 maxClipNDC; // 144
 };
 
 struct Globals
 {
-    ClipProjectionData defaultClipProjection; // 88
-    float screenToWorldRatio; // 92
-    float worldToScreenRatio; // 96
-    uint32_t2 resolution; // 104
-    float antiAliasingFactor; // 108
-    MajorAxis majorAxis; // 112
+    ClipProjectionData defaultClipProjection; // 144
+    float screenToWorldRatio; // 148
+    float worldToScreenRatio; // 152
+    uint32_t2 resolution; // 160
+    float antiAliasingFactor; // 164
+    MajorAxis majorAxis; // 168
+    uint32_t2 _pad; // 176
 };
 
 struct LineStyle

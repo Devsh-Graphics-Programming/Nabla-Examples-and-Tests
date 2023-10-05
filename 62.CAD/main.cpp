@@ -22,20 +22,18 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_2;
-static constexpr bool DebugMode = true;
-static constexpr bool FragmentShaderPixelInterlock = false;
 
 typedef uint32_t uint;
 
 // TODO: Use a math lib?
-double dot(const double2& a, const double2& b)
+double dot(const float64_t2& a, const float64_t2& b)
 {
-	return a.X * b.X + a.Y * b.Y;
+	return a.x * b.x + a.y * b.y;
 }
 
-double index(const double2& vec, uint32_t index)
+double index(const float64_t2& vec, uint32_t index)
 {
-	const double* arr = &vec.X;
+	const double* arr = &vec.x;
 	return arr[index];
 }
 
@@ -75,7 +73,7 @@ public:
 
 	// common data
 		// private and setters/getters instead?
-	float4 color;
+	float32_t4 color;
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
 
@@ -188,9 +186,8 @@ public:
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 112u);
-static_assert(sizeof(LineStyle) == 32u);
-static_assert(sizeof(ClipProjectionData) == 88u);
+static_assert(sizeof(Globals) == 176u);
+static_assert(sizeof(ClipProjectionData) == 144u);
 
 using namespace nbl;
 using namespace ui;
@@ -221,35 +218,31 @@ public:
 		return m_bounds;
 	}
 
-	double4x4 constructViewProjection(double timeElapsed)
+	float64_t4x4 constructViewProjection(double timeElapsed)
 	{
-		auto ret = nbl::core::matrix4SIMD();
+		auto ret = float64_t4x4();
 		//double4x4 ret = {};
 		//
-		ret.rows[0].X = 2.0 / m_bounds.X;
-		ret.rows[1].Y = -2.0 / m_bounds.Y;
-		ret.rows[2].Z = 1.0;
+		ret[0][0] = 2.0 / m_bounds.x;
+		ret[1][1] = -2.0 / m_bounds.y;
+		ret[2][2] = 1.0;
+		ret[3][3] = 1.0;
 		
-		ret.rows[2].X = (-2.0 * m_origin.X) / m_bounds.X;
-		ret.rows[2].Y = (2.0 * m_origin.Y) / m_bounds.Y;
+		ret[0][2] = (-2.0 * m_origin.x) / m_bounds.x;
+		ret[1][2] = (2.0 * m_origin.y) / m_bounds.y;
 
-		double theta = (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
+		double theta = 0.0;// (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
 
-		auto rotation = nbl::core::matrix4SIMD(
+		auto rotation = float64_t4x4(
 			cos(theta), -sin(theta), 0.0, 0.0,
-			sin(theta), cos(theta), 0.0, 0.0,
+			sin(theta), cos(theta), 1.0, 0.0,
 			0.0, 0.0, 1.0, 0.0,
 			0.0, 0.0, 0.0, 1.0
 		);
 
-		auto matrix = nbl::core::matrix4SIMD::concatenateBFollowedByA(rotation, ret);
+		float32_t4x4 matrix(rotation * ret);
 
-		return {
-			matrix.rows[0].X,matrix.rows[0].Y,matrix.rows[0].Z,matrix.rows[0].W,
-			matrix.rows[1].X,matrix.rows[1].Y,matrix.rows[1].Z,matrix.rows[1].W,
-			matrix.rows[2].X,matrix.rows[2].Y,matrix.rows[2].Z,matrix.rows[2].W,
-			matrix.rows[3].X,matrix.rows[3].Y,matrix.rows[3].Z,matrix.rows[3].W,
-		};
+		return matrix;
 	}
 
 	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
@@ -663,7 +656,7 @@ namespace hatchutils {
 	}
 
 	// (only works for monotonic curves)
-	static double2 getCurveRoot(double p0, double p1, double p2)
+	static float64_t2 getCurveRoot(double p0, double p1, double p2)
 	{
 		double a = p0 - 2.0 * p1 + p2;
 		double b = 2.0 * (p1 - p0);
@@ -675,7 +668,7 @@ namespace hatchutils {
 		double detSqrt = sqrt(det) * rcp;
 		double tmp = b * rcp;
 
-		return double2(-detSqrt, detSqrt) - tmp;
+		return float64_t2(-detSqrt, detSqrt) - tmp;
 	}
 };
 
@@ -691,26 +684,26 @@ public:
 	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
 	struct CurveHatchBox
 	{
-		double2 aabbMin, aabbMax;
-		double2 curveMin[3];
-		double2 curveMax[3];
+		float64_t2 aabbMin, aabbMax;
+		float64_t2 curveMin[3];
+		float64_t2 curveMax[3];
 	};
 
 	// TODO: start using A, B, C here
 	struct QuadraticBezier {
-		double2 p[3];
+		float64_t2 p[3];
 
 		std::array<double, 4> linePossibleIntersections(const QuadraticBezier& other) const;
 		double intersectOrtho(double coordinate, int major) const;
-		double2 evaluateBezier(double t) const;
-		double2 tangent(double t) const;
+		float64_t2 evaluateBezier(double t) const;
+		float64_t2 tangent(double t) const;
 		std::array<double, 4> getRoots() const;
 		QuadraticBezier splitCurveTakeLeft(double t) const;
 		QuadraticBezier splitCurveTakeRight(double t) const;
 		// Splits the bezier into monotonic segments. If it already was monotonic, 
 		// returns a copy of this bezier in the first value of the array
 		std::array<QuadraticBezier, 2> splitIntoMonotonicSegments(int major) const;
-		std::pair<double2, double2> getBezierBoundingBoxMinor(int major) const;
+		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor(int major) const;
 	};
 
 	std::vector<QuadraticBezier> beziers;
@@ -737,9 +730,9 @@ public:
 		// TODO: when we use A, B, C (quadratic coefficients), use this
 		//QuadraticBezier getSplitCurve()
 		//{
-		//	double2 a = originalBezier->p[0] - 2.0 * originalBezier->p[1] + originalBezier->p[2];
-		//	double2 b = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
-		//	double2 c = originalBezier->p[0];
+		//	float64_t2 a = originalBezier->p[0] - 2.0 * originalBezier->p[1] + originalBezier->p[2];
+		//	float64_t2 b = 2.0 * (originalBezier->p[1] - originalBezier->p[0]);
+		//	float64_t2 c = originalBezier->p[0];
 		//
 		//	return { 
 		//		a * (t_end - t_start) * (t_end - t_start),
@@ -753,7 +746,7 @@ public:
 			auto p0 = originalBezier->p[0];
 			auto p1 = originalBezier->p[1];
 			auto p2 = originalBezier->p[2];
-			bool sideP1 = nbl::core::sign((p2.X - p0.X) * (p1.Y - p0.Y) - (p2.Y - p0.Y) * (p1.X - p0.X));
+			bool sideP1 = nbl::core::sign((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
 
 			auto otherBezier = *other.originalBezier;
 			const std::array<double, 4> intersections = originalBezier->linePossibleIntersections(otherBezier);
@@ -767,7 +760,7 @@ public:
 					continue;
 
 				auto intersection = other.originalBezier->evaluateBezier(t);
-				bool sideIntersection = nbl::core::sign<double>((p2.X - p0.X) * (intersection.Y - p0.Y) - (p2.Y - p0.Y) * (intersection.X - p0.X));
+				bool sideIntersection = nbl::core::sign<double>((p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x));
 
 				// If both P1 and the intersection point are on the same side of the P0 -> P2 line
 				// for the current line, we consider this as a valid intersection
@@ -800,7 +793,7 @@ public:
 		int major = (int)majorAxis;
 		int minor = 1-major; // Minor = Opposite of major (X)
 
-		auto drawDebugBezier = [&](QuadraticBezier bezier, float4 color)
+		auto drawDebugBezier = [&](QuadraticBezier bezier, float32_t4 color)
 		{
 			CPolyline outputPolyline;
 			std::vector<QuadraticBezierInfo> beziers;
@@ -809,7 +802,7 @@ public:
 			bezierInfo.p[1] = bezier.p[1];
 			bezierInfo.p[2] = bezier.p[2];
 			beziers.push_back(bezierInfo);
-			outputPolyline.addQuadBeziers(std::move(beziers));
+			outputPolyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
 
 			CPULineStyle cpuLineStyle;
 			cpuLineStyle.screenSpaceLineWidth = 1.0f;
@@ -819,13 +812,13 @@ public:
 			debugOutput(outputPolyline, cpuLineStyle);
 		};
 
-		auto drawDebugLine = [&](double2 start, double2 end, float4 color)
+		auto drawDebugLine = [&](float64_t2 start, float64_t2 end, float32_t4 color)
 		{
 			CPolyline outputPolyline;
-			std::vector<double2> points;
+			std::vector<float64_t2> points;
 			points.push_back(start);
 			points.push_back(end);
-			outputPolyline.addLinePoints(std::move(points));
+			outputPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
 			
 			CPULineStyle cpuLineStyle;
 			cpuLineStyle.screenSpaceLineWidth = 1.0f;
@@ -869,12 +862,12 @@ public:
 								beziers.push_back(outputBezier);
 							};
 
-							if (nbl::core::isnan(monotonic.data()[0].p[0].X))
+							if (nbl::core::isnan(monotonic.data()[0].p[0].x))
 							{
 								// Already was monotonic
 								addBezier(unsplitBezier);
 								if (debugOutput)
-									drawDebugBezier(unsplitBezier, float4(0.8, 0.8, 0.8, 0.2));
+									drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 0.2));
 							}
 							else
 							{
@@ -882,8 +875,8 @@ public:
 								addBezier(monotonic.data()[1]);
 								if (debugOutput)
 								{
-									drawDebugBezier(monotonic.data()[0], float4(0.0, 0.6, 0.0, 0.5));
-									drawDebugBezier(monotonic.data()[1], float4(0.0, 0.0, 0.6, 0.5));
+									drawDebugBezier(monotonic.data()[0], float32_t4(0.0, 0.6, 0.0, 0.5));
+									drawDebugBezier(monotonic.data()[1], float32_t4(0.0, 0.0, 0.6, 0.5));
 								}
 							}
 						}
@@ -935,12 +928,12 @@ public:
 
 					if (debugOutput) {
 						auto pt = segment.originalBezier->evaluateBezier(intersectionPoints[i]);
-						auto min = pt - double2(10.0, 10.0);
-						auto max = pt + double2(10.0, 10.0);
-						drawDebugLine(double2(min.X, min.Y), double2(max.X, min.Y), float4(0.0, 0.3, 0.0, 0.1));
-						drawDebugLine(double2(max.X, min.Y), double2(max.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
-						drawDebugLine(double2(min.X, max.Y), double2(max.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
-						drawDebugLine(double2(min.X, min.Y), double2(min.X, max.Y), float4(0.0, 0.3, 0.0, 0.1));
+						auto min = pt - float64_t2(10.0, 10.0);
+						auto max = pt + float64_t2(10.0, 10.0);
+						drawDebugLine(float64_t2(min.x, min.y), float64_t2(max.x, min.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(max.x, min.y), float64_t2(max.x, max.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(min.x, max.y), float64_t2(max.x, max.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(min.x, min.y), float64_t2(min.x, max.y), float32_t4(0.0, 0.3, 0.0, 0.1));
 					}
 				}
 			}
@@ -957,16 +950,16 @@ public:
 			{
 				// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 				// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
-				double2 lTan = lhs.originalBezier->tangent(lhs.t_start);
-				double2 rTan = lhs.originalBezier->tangent(rhs.t_start);
+				float64_t2 lTan = lhs.originalBezier->tangent(lhs.t_start);
+				float64_t2 rTan = lhs.originalBezier->tangent(rhs.t_start);
 				_lhs = index(lTan, minor) * index(rTan, major);
 				_rhs = index(rTan, minor) * index(lTan, major);
 				if (_lhs == _rhs)
 				{
 					// TODO: this is getting the polynominal A for the bezier
 					// when bezier gets converted to A, B, C polynominal this is just ->A
-					double2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-					double2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+					float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+					float64_t2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
 					_lhs = index(lAcc, minor) * index(rTan, major);
 					_rhs = index(rTan, minor) * index(lAcc, major);
 				}
@@ -977,7 +970,7 @@ public:
 		{
 			auto newMajor = intersections.top();
 			if (debugOutput)
-				drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(0.3, 1.0, 0.3, 0.1));
+				drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.3, 1.0, 0.3, 0.1));
 			intersections.pop(); // O(n)
 			std::cout << "Intersection event at " << newMajor << "\n";
 			return newMajor;
@@ -1010,7 +1003,7 @@ public:
 					addToCandidateSet(nextStartEvent);
 					newMajor = minMajorStart;
 					if (debugOutput)
-						drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(1.0, 0.3, 0.3, 0.1));
+						drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(1.0, 0.3, 0.3, 0.1));
 					std::cout << "Start event at " << newMajor << "\n";
 				}
 				// (intersection event)
@@ -1026,7 +1019,7 @@ public:
 				newMajor = maxMajorEnds;
 				ends.pop();
 				if (debugOutput)
-					drawDebugLine(double2(-1000.0, newMajor), double2(1000.0, newMajor), float4(0.3, 0.3, 1.0, 0.1));
+					drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.3, 0.3, 1.0, 0.1));
 				std::cout << "End event at " << newMajor << "\n";
 			}
 
@@ -1051,23 +1044,23 @@ public:
 
  					auto curveMinAabb = splitCurveMin.getBezierBoundingBoxMinor(major);
 					auto curveMaxAabb = splitCurveMax.getBezierBoundingBoxMinor(major);
-					curveBox.aabbMin = double2(std::min(curveMinAabb.first.X, curveMaxAabb.first.X), std::min(curveMinAabb.first.Y, curveMaxAabb.first.Y));
-					curveBox.aabbMax = double2(std::max(curveMinAabb.second.X, curveMaxAabb.second.X), std::max(curveMinAabb.second.Y, curveMaxAabb.second.Y));
+					curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), std::min(curveMinAabb.first.y, curveMaxAabb.first.y));
+					curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), std::max(curveMinAabb.second.y, curveMaxAabb.second.y));
 
 					if (debugOutput)
 					{
-						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMin.Y), double2(curveBox.aabbMax.X, curveBox.aabbMin.Y), float4(0.0, 0.3, 0.0, 0.1));
-						drawDebugLine(double2(curveBox.aabbMax.X, curveBox.aabbMin.Y), double2(curveBox.aabbMax.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
-						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMax.Y), double2(curveBox.aabbMax.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
-						drawDebugLine(double2(curveBox.aabbMin.X, curveBox.aabbMin.Y), double2(curveBox.aabbMin.X, curveBox.aabbMax.Y), float4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+						drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
 					}
-					std::cout << "Hatch box bounding box (" << curveBox.aabbMin.X << ", " << curveBox.aabbMin.Y << ") .. (" << curveBox.aabbMax.X << "," << curveBox.aabbMax.Y << ")\n";
+					std::cout << "Hatch box bounding box (" << curveBox.aabbMin.x << ", " << curveBox.aabbMin.y << ") .. (" << curveBox.aabbMax.x << "," << curveBox.aabbMax.y << ")\n";
 					// Transform curves into AABB UV space and turn them into quadratic coefficients
 					// TODO: the split curve should already have the quadratic bezier as
 					// quadratic coefficients
 					// so we wont need to convert here
-					auto transformCurves = [](Hatch::QuadraticBezier bezier, double2 aabbMin, double2 aabbMax, double2* output) {
-						auto rcpAabbExtents = double2(1.0,1.0) / (aabbMax - aabbMin);
+					auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, float64_t2* output) {
+						auto rcpAabbExtents = float64_t2(1.0,1.0) / (aabbMax - aabbMin);
 						auto p0 = (bezier.p[0] - aabbMin) * rcpAabbExtents;
 						auto p1 = (bezier.p[1] - aabbMin) * rcpAabbExtents;
 						auto p2 = (bezier.p[2] - aabbMin) * rcpAabbExtents;
@@ -1129,8 +1122,8 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 	// A Desmos page including math for this as well as some of the graphs it generates is available here:
 	// https://www.desmos.com/calculator/mjwqvnvyb8?lang=pt-BR
 
-	double p0x = p[0].X, p1x = p[1].X, p2x = p[2].X,
-		p0y = p[0].Y, p1y = p[1].Y, p2y = p[2].Y;
+	double p0x = p[0].x, p1x = p[1].x, p2x = p[2].x,
+		p0y = p[0].y, p1y = p[1].y, p2y = p[2].y;
 
 	// Getting the values for the implicitization of the curve
 	// TODO: Do this with quadratic coefficients instead (A, B, C)
@@ -1143,16 +1136,16 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 
 	// "Slam" the other curve onto it
 
-	double2 A = second.p[0] - 2.0 * second.p[1] + second.p[2];
-	double2 B = 2.0 * (second.p[1] - second.p[0]);
-	double2 C = second.p[0];
+	float64_t2 A = second.p[0] - 2.0 * second.p[1] + second.p[2];
+	float64_t2 B = 2.0 * (second.p[1] - second.p[0]);
+	float64_t2 C = second.p[0];
 
 	// Getting the quartic params
-	double a = ((A.X * A.X) * t0) + (A.X * A.Y * t1) + (A.Y * t2);
-	double b = (2 * A.X * B.X * t0) + (A.X * B.Y * t1) + (B.X * A.Y * t1) + (2 * A.Y * B.Y * t2);
-	double c = (2 * A.X * C.X * t0) + (A.X * C.Y * t1) + (A.X * t3) + ((B.X * B.X) * t0) + (B.X * B.Y * t1) + (C.X * A.Y * t1) + (2 * A.Y * C.Y * t2) + (A.Y * t4) + ((B.Y * B.Y) * t2);
-	double d = (2 * B.X * C.X * t0) + (B.X * C.Y * t1) + (B.X * t3) + (C.X * B.Y * t1) + (2 * B.Y * C.Y * t2) + (B.Y * t4);
-	double e = ((C.X * C.X) * t0) + (C.X * C.Y * t1) + (C.X * t3) + ((C.Y * C.Y) * t2) + (C.Y * t4) + (t5);
+	double a = ((A.x * A.x) * t0) + (A.x * A.y * t1) + (A.y * t2);
+	double b = (2 * A.x * B.x * t0) + (A.x * B.y * t1) + (B.x * A.y * t1) + (2 * A.y * B.y * t2);
+	double c = (2 * A.x * C.x * t0) + (A.x * C.y * t1) + (A.x * t3) + ((B.x * B.x) * t0) + (B.x * B.y * t1) + (C.x * A.y * t1) + (2 * A.y * C.y * t2) + (A.y * t4) + ((B.y * B.y) * t2);
+	double d = (2 * B.x * C.x * t0) + (B.x * C.y * t1) + (B.x * t3) + (C.x * B.y * t1) + (2 * B.y * C.y * t2) + (B.y * t4);
+	double e = ((C.x * C.x) * t0) + (C.x * C.y * t1) + (C.x * t3) + ((C.y * C.y) * t2) + (C.y * t4) + (t5);
 
 	return hatchutils::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
 }
@@ -1162,33 +1155,33 @@ double Hatch::QuadraticBezier::intersectOrtho(double coordinate, int major) cons
 	// https://pomax.github.io/bezierinfo/#intersections
 	double points[3];
 	for (uint32_t i = 0; i < 3; i++)
-		points[i] = major ? p[i].Y : p[i].X;
+		points[i] = major ? p[i].y : p[i].x;
 
 	for (uint32_t i = 0; i < 3; i++)
 		points[i] -= coordinate;
 
-	double2 roots = hatchutils::getCurveRoot(points[0], points[1], points[2]);
-	if (roots.X >= 0.0 && roots.X <= 1.0) return roots.X;
-	if (roots.Y >= 0.0 && roots.Y <= 1.0) return roots.Y;
+	float64_t2 roots = hatchutils::getCurveRoot(points[0], points[1], points[2]);
+	if (roots.x >= 0.0 && roots.x <= 1.0) return roots.x;
+	if (roots.y >= 0.0 && roots.y <= 1.0) return roots.y;
 	return core::nan<double>();
 }
 
-double2 Hatch::QuadraticBezier::evaluateBezier(double t) const
+float64_t2 Hatch::QuadraticBezier::evaluateBezier(double t) const
 {
-	double2 position = p[0] * (1.0 - t) * (1.0 - t)
+	float64_t2 position = p[0] * (1.0 - t) * (1.0 - t)
 		+ 2.0 * p[1] * (1.0 - t) * t
 		+ p[2] * t * t;
 	return position;
 }
 
 // https://pomax.github.io/bezierinfo/#pointvectors
-double2 Hatch::QuadraticBezier::tangent(double t) const
+float64_t2 Hatch::QuadraticBezier::tangent(double t) const
 {
 	// TODO: figure out a tangent algorithm for when this becomes A, B, C
 	auto derivativeOrder1First = 2.0 * (p[1] - p[0]);
 	auto derivativeOrder1Second = 2.0 * (p[2] - p[1]);
 	auto tangent = (1.0 - t) * derivativeOrder1First + t * derivativeOrder1Second;
-	auto len = sqrt(tangent.X * tangent.X + tangent.Y * tangent.Y);
+	auto len = sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
 	return tangent / len;
 }
 
@@ -1196,14 +1189,14 @@ double2 Hatch::QuadraticBezier::tangent(double t) const
 std::array<double, 4> Hatch::QuadraticBezier::getRoots() const
 {
 	// Quadratic coefficients
-	double2 A = p[0] - 2.0 * p[1] + p[2];
-	double2 B = 2.0 * (p[1] - p[0]);
-	double2 C = p[0];
+	float64_t2 A = p[0] - 2.0 * p[1] + p[2];
+	float64_t2 B = 2.0 * (p[1] - p[0]);
+	float64_t2 C = p[0];
 	
-	auto xroots = hatchutils::getCurveRoot(A.X, B.X, C.X);
-	auto yroots = hatchutils::getCurveRoot(A.Y, B.Y, C.Y);
+	auto xroots = hatchutils::getCurveRoot(A.x, B.x, C.x);
+	auto yroots = hatchutils::getCurveRoot(A.y, B.y, C.y);
 
-	return { xroots.X, xroots.Y, yroots.X, yroots.Y };
+	return { xroots.x, xroots.y, yroots.x, yroots.y };
 }
 
 Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLeft(double t) const
@@ -1241,12 +1234,12 @@ std::array<Hatch::QuadraticBezier, 2> Hatch::QuadraticBezier::splitIntoMonotonic
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto rcp = 1.0 / (b - a);
 	auto t = -a * rcp;
-	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return { { double2(nbl::core::nan<double>()) }};
+	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return { { float64_t2(nbl::core::nan<double>()) }};
 	return { splitCurveTakeLeft(t), splitCurveTakeRight(t) };
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
-std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor(int major) const
+std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor(int major) const
 {
 	int minor = 1 - major;
 	double A = index(p[0] - 2.0 * p[1] + p[2], minor);
@@ -1258,20 +1251,20 @@ std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor(in
 	searchT[1] = 1.0;
 	searchT[2] = -B / (2 * A);
 
-	double2 min = double2(std::numeric_limits<double>::infinity());
-	double2 max = double2(-std::numeric_limits<double>::infinity());
+	float64_t2 min = float64_t2(std::numeric_limits<double>::infinity());
+	float64_t2 max = float64_t2(-std::numeric_limits<double>::infinity());
 
 	for (uint32_t i = 0; i < searchTSize; i++)
 	{
 		double t = searchT[i];
 		if (t < 0.0 || t > 1.0 || isnan(t))
 			continue;
-		double2 value = evaluateBezier(t);
-		min = double2(std::min(min.X, value.X), std::min(min.Y, value.Y));
-		max = double2(std::max(max.X, value.X), std::max(max.Y, value.Y));
+		float64_t2 value = evaluateBezier(t);
+		min = float64_t2(std::min(min.x, value.x), std::min(min.y, value.y));
+		max = float64_t2(std::max(max.x, value.x), std::max(max.y, value.y));
 	}
 
-	return std::pair<double2, double2>(min, max);
+	return std::pair<float64_t2, float64_t2>(min, max);
 }
 \
 template <typename BufferType>
@@ -1420,7 +1413,7 @@ public:
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
-		const CPULineStyle& lineStyle,
+		const CPULineStyle& cpuLineStyle,
 		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
@@ -1481,6 +1474,7 @@ public:
 	video::IGPUQueue::SSubmitInfo drawHatch(
 		const Hatch& hatch,
 		const CPULineStyle& lineStyle,
+		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
@@ -1490,6 +1484,7 @@ public:
 		
 		MainObject mainObj = {};
 		mainObj.styleIdx = styleIdx;
+		mainObj.clipProjectionIdx = clipProjectionIdx;
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
@@ -1899,8 +1894,8 @@ protected:
 				CurveBox curveBox;
 				curveBox.aabbMin = hatchBox.aabbMin;
 				curveBox.aabbMax = hatchBox.aabbMax;
-				memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(double2) * 3);
-				memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(double2) * 3);
+				memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(float64_t2) * 3);
+				memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(float64_t2) * 3);
 
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, &curveBox, sizeof(CurveBox));
@@ -2717,7 +2712,7 @@ public:
 		logicalDevice->waitIdle();
 	}
 
-	float getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint2 windowSize)
+	float getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
 		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
@@ -2746,7 +2741,7 @@ public:
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint32_t2{ WIN_W, WIN_H };
-		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection();
+		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection(m_timeElapsed);
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
@@ -3041,28 +3036,28 @@ public:
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 0.8f;
-			style.color = float4(0.619f, 0.325f, 0.709f, 0.9f);
+			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.9f);
 
 			CPolyline polyline;
 			std::vector<QuadraticBezierInfo> beziers;
 			beziers.push_back({
-				100.0 * nbl::core::vector2d<double>(-0.4, 0.13),
-				100.0 * nbl::core::vector2d<double>(7.7, 3.57),
-				100.0 * nbl::core::vector2d<double>(8.8, 7.27) });
+				100.0 * float64_t2(-0.4, 0.13),
+				100.0 * float64_t2(7.7, 3.57),
+				100.0 * float64_t2(8.8, 7.27) });
 			beziers.push_back({
-				100.0 * nbl::core::vector2d<double>(6.6, 0.17),
-				100.0 * nbl::core::vector2d<double>(-1.97, 3.2),
-				100.0 * nbl::core::vector2d<double>(3.7, 7.27)});
-			polyline.addQuadBeziers(std::move(beziers));
+				100.0 * float64_t2(6.6, 0.17),
+				100.0 * float64_t2(-1.97, 3.2),
+				100.0 * float64_t2(3.7, 7.27)});
+			polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
 
 			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
 			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
 			{
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, submissionQueue, submissionFence, intendedNextSubmit);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			};
 
 			Hatch hatch(polylines, HatchMajorAxis, nullptr);
-			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
@@ -3166,7 +3161,7 @@ public:
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 			ClipProjectionData customClipProject = {};
-			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
+			customClipProject.projectionToNDC = m_Camera.constructViewProjection(m_timeElapsed);
 			customClipProject.projectionToNDC[0][0] *= 1.003f;
 			customClipProject.projectionToNDC[1][1] *= 1.003f;
 			customClipProject.maxClipNDC = float32_t2(0.5, 0.5);
@@ -3183,7 +3178,7 @@ public:
 			CPULineStyle cpuLineStyle;
 			cpuLineStyle.screenSpaceLineWidth = 5.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
-			cpuLineStyle.color = float4(0.0f, 0.3f, 0.0f, 0.5f);
+			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
 
 			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
 			std::vector<CPolyline> polylines(CURVE_CNT);
@@ -3193,11 +3188,11 @@ public:
 
 				// setting controll points
 				{
-					double2 P0(-90, 68);
-					double2 P1(-41, 118);
-					double2 P2(88, 19);
+					float64_t2 P0(-90, 68);
+					float64_t2 P1(-41, 118);
+					float64_t2 P2(88, 19);
 
-					const double2 translationVector(0, -5);
+					const float64_t2 translationVector(0, -5);
 
 					uint32_t curveIdx = 0;
 					while(curveIdx < CURVE_CNT - SPECIAL_CASE_CNT)
@@ -3214,48 +3209,48 @@ public:
 					}
 
 					// special case 0 (line, evenly spaced points)
-					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].Y;
+					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].y;
 					double lineY = prevLineLowestY - 10.0;
 
-					quadratics[curveIdx].p[0] = double2(-100, lineY);
-					quadratics[curveIdx].p[1] = double2(0, lineY);
-					quadratics[curveIdx].p[2] = double2(100, lineY);
-					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(0, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
+					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 					// special case 1 (line, not evenly spaced points)
 					lineY -= 10.0;
 					curveIdx++;
 
-					quadratics[curveIdx].p[0] = double2(-100, lineY);
-					quadratics[curveIdx].p[1] = double2(20, lineY);
-					quadratics[curveIdx].p[2] = double2(100, lineY);
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(20, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
 
 					// special case 2 (folded line)
 					lineY -= 10.0;
 					curveIdx++;
 
-					quadratics[curveIdx].p[0] = double2(-100, lineY);
-					quadratics[curveIdx].p[1] = double2(200, lineY);
-					quadratics[curveIdx].p[2] = double2(100, lineY);
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
 
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = double2(0.0, 0.0);
-					quadratics[curveIdx].p[1] = double2(3.0, 4.14);
-					quadratics[curveIdx].p[2] = double2(6.0, 4.0);
-					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+					quadratics[curveIdx].p[0] = float64_t2(0.0, 0.0);
+					quadratics[curveIdx].p[1] = float64_t2(3.0, 4.14);
+					quadratics[curveIdx].p[2] = float64_t2(6.0, 4.0);
+					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 						// make sure A.x == 0
-					double2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
-					assert(A.X == 0);
+					float64_t2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
+					assert(A.x == 0);
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = double2(-100.0, 20.0);
-					quadratics[curveIdx].p[1] = double2(2000.0, 0.0);
-					quadratics[curveIdx].p[2] = double2(-100.0, -20.0);
-					cpuLineStyles[curveIdx].color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+					quadratics[curveIdx].p[0] = float64_t2(-100.0, 20.0);
+					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
+					quadratics[curveIdx].p[2] = float64_t2(-100.0, -20.0);
+					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
 				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
@@ -3299,7 +3294,7 @@ public:
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					polylines[i].addQuadBeziers({ quadratics[i] });
+					polylines[i].addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(& quadratics[i], &quadratics[i] + 1));
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
@@ -3307,7 +3302,7 @@ public:
 				}
 			}
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], submissionQueue, submissionFence, intendedNextSubmit);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
