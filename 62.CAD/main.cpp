@@ -15,7 +15,7 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_2;
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = false;
 
 struct double4x4
@@ -281,7 +281,7 @@ public:
 		ret.rows[2].X = (-2.0 * m_origin.X) / m_bounds.X;
 		ret.rows[2].Y = (2.0 * m_origin.Y) / m_bounds.Y;
 
-		double theta = 0.0;//(timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
+		double theta = (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
 
 		auto rotation = nbl::core::matrix4SIMD(
 			cos(theta), -sin(theta), 0.0, 0.0,

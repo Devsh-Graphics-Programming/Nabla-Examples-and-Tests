@@ -467,7 +467,11 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + 3 + i), 8u);
         }
 
-        const double2 ndcAabbExtents = abs(transformVectorNdc(curveBox.aabbMax - curveBox.aabbMin));
+        //const double2 ndcAabbExtents = abs(transformVectorNdc(curveBox.aabbMax - curveBox.aabbMin));
+        const double2 ndcAabbExtents = double2(
+            length(abs(transformVectorNdc(double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin))),
+            length(abs(transformVectorNdc(double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin)))
+        );
         const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * (globals.antiAliasingFactor / double2(globals.resolution));
         double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         maxCorner = ((((maxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
