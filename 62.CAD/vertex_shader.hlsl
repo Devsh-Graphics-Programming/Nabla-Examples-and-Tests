@@ -169,6 +169,57 @@ bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, 
     return true;
 }
 
+void BezierOBB_Aligned(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, out float2 obbV0, out float2 obbV1, out float2 obbV2, out float2 obbV3)
+{
+    // shift curve so 'p0' is at origin (will become zero)
+    float32_t2 transformedP0 = float32_t2(0.0f, 0.0f);
+    float32_t2 transformedP1 = p1 - p0;
+    float32_t2 transformedP2 = p2 - p0;
+    
+    // rotate it around origin so 'p2' is on x-axis
+    // 
+    // - columns of matrix represents axes of transformed system and we already have one:
+    //   normalized vector from origin to p2 represents x-axis of wanted rotated bounding-box
+    // - 2nd axis is perpendicular to the 1st one so we just rotate 1st one counter-clockwise
+    //   by 90 degrees
+    
+    const float32_t p2Length = length(transformedP2);
+    const float32_t2 axis = transformedP2 / p2Length; // normalized (unit length)
+    const float32_t2 translation = p0;
+    float32_t2x2 rotation;
+    
+    rotation[0] = float32_t2(  axis.x, axis.y );      // column 0 ... x-axis
+    rotation[1] = float32_t2( -axis.y, axis.x );      // column 1 ... y-axis ... CCW x-axis by 90 degrees
+    
+    // notes:
+    // - rotating 'p0' is pointless as it is "zero" and none rotation will change that
+    // - rotating 'p2' will move it to "global" x-axis so its y-coord will be zero and x-coord
+    //   will be its distance from origin
+    
+//  transformed.p0 = transformed.p0 * rotation;
+//  transformed.p1 = transformed.p1 * rotation;
+//  transformed.p2 = transformed.p2 * rotation;
+    
+    transformedP1 = mul(rotation, transformedP1);
+    transformedP2 = float32_t2(p2Length, 0.0);
+    
+    // compute AABB of curve in local-space
+    float32_t4 aabb = BezierAABB(transformedP0, transformedP1, transformedP2);
+    aabb.xy -= screenSpaceLineWidth;
+    aabb.zw += screenSpaceLineWidth;
+    
+    // transform AABB back to world-space
+    float32_t2 center = translation + mul((aabb.xy + aabb.zw) / 2.0f, rotation);
+    float32_t2 extent = ((aabb.zw - aabb.xy) / 2.0f).xy;
+    //float32_t center = p0 + rotation * aabb.center;
+    //float32_t2 extent = aabb.extent;
+    
+    obbV0 = float32_t2(center + mul(extent, rotation));
+    obbV1 = float32_t2(center + mul(float32_t2(extent.x, -extent.y), rotation));
+    obbV2 = float32_t2(center + mul(-extent, rotation));
+    obbV3 = float32_t2(center + mul(-float32_t2(extent.x, -extent.y), rotation));
+}
+
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -274,14 +325,17 @@ PSInput main(uint vertexID : SV_VertexID)
         // We only do this adaptive thing when "MinRadiusOfOsculatingCircle = RadiusOfMaxCurvature < screenSpaceLineWidth/4" OR "MaxCurvature > 4/screenSpaceLineWidth";
         //  which means there is a self intersection because of large lineWidth relative to the curvature (in screenspace)
         //  the reason for division by 4.0f is 1. screenSpaceLineWidth is expanded on both sides and the fact that diameter/2=radius, 
-        if (MaxCurvature * screenSpaceLineWidth > 4.0f)
+        const bool noCurvature = abs(dot(normalize(vectorAB), normalize(vectorAC)) - 1.0f) < exp2(-10.0f);
+        if (MaxCurvature * screenSpaceLineWidth > 4.0f || noCurvature)
         {
             //OBB Fallback
             float2 obbV0;
             float2 obbV1;
             float2 obbV2;
             float2 obbV3;
-            if (subsectionIdx == 0 && BezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3))
+            BezierOBB_Aligned(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3);
+            //BezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3);
+            if (subsectionIdx == 0)
             {
                 if (vertexIdx == 0u)
                     outV.position = float4(obbV0, 0.0, 1.0f);
@@ -414,7 +468,7 @@ PSInput main(uint vertexID : SV_VertexID)
     
     
 // Make the cage fullscreen for testing:
-#if 1
+#if 0
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)
