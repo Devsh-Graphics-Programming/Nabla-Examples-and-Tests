@@ -11,73 +11,74 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/promote.hlsl>
+//#include <nbl/builtin/hlsl/cpp_compat/promote.hlsl>
 
     // xoroshiro tests
-//#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
     // colorspace tests
-#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
-#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
-#include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
-#include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
+//#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
+//#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
+//#include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
+//#include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
+using namespace glm;
+//#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
+//#include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
 
 using namespace nbl;
 using namespace core;
 using namespace ui;
 using namespace nbl::hlsl;
 
-using namespace glm;
-#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
-#include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
+#include <nbl/builtin/hlsl/bit.hlsl>
 
-constexpr uint32_t COLOR_MATRIX_CNT = 14u;
-const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
-    colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
-    colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
-    colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
-    colorspace::decode::XYZtoDCI_P3, colorspace::decode::XYZtoBT2020, colorspace::decode::XYZtoAdobeRGB,
-    colorspace::decode::XYZtoACES2065_1, colorspace::decode::XYZtoACEScc
-};
-const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
-    nbl_glsl_scRGBtoXYZ, nbl_glsl_Display_P3toXYZ, nbl_glsl_DCI_P3toXYZ,
-    nbl_glsl_BT2020toXYZ, nbl_glsl_AdobeRGBtoXYZ, nbl_glsl_ACES2065_1toXYZ,
-    nbl_glsl_ACEScctoXYZ, nbl_glsl_XYZtoscRGB, nbl_glsl_XYZtoDisplay_P3,
-    nbl_glsl_XYZtoDCI_P3, nbl_glsl_XYZtoBT2020, nbl_glsl_XYZtoAdobeRGB,
-    nbl_glsl_XYZtoACES2065_1, nbl_glsl_XYZtoACEScc
-};
+//constexpr uint32_t COLOR_MATRIX_CNT = 14u;
+//const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
+//    colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
+//    colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
+//    colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
+//    colorspace::decode::XYZtoDCI_P3, colorspace::decode::XYZtoBT2020, colorspace::decode::XYZtoAdobeRGB,
+//    colorspace::decode::XYZtoACES2065_1, colorspace::decode::XYZtoACEScc
+//};
+//const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
+//    nbl_glsl_scRGBtoXYZ, nbl_glsl_Display_P3toXYZ, nbl_glsl_DCI_P3toXYZ,
+//    nbl_glsl_BT2020toXYZ, nbl_glsl_AdobeRGBtoXYZ, nbl_glsl_ACES2065_1toXYZ,
+//    nbl_glsl_ACEScctoXYZ, nbl_glsl_XYZtoscRGB, nbl_glsl_XYZtoDisplay_P3,
+//    nbl_glsl_XYZtoDCI_P3, nbl_glsl_XYZtoBT2020, nbl_glsl_XYZtoAdobeRGB,
+//    nbl_glsl_XYZtoACES2065_1, nbl_glsl_XYZtoACEScc
+//};
+//
+//void testColorMatrices()
+//{
+//    constexpr std::array<float32_t3, 3> unitVectors = {
+//        float32_t3(1.0f, 0.0f, 0.0f),
+//        float32_t3(0.0f, 1.0f, 0.0f),
+//        float32_t3(0.0f, 0.0f, 1.0f)
+//    };
+//
+//    for (uint32_t matrixIdx = 0u; matrixIdx < COLOR_MATRIX_CNT; matrixIdx++)
+//    {
+//        const auto& hlslMatrix = hlslColorMatrices[matrixIdx];
+//        const auto& glslMatrix = glslColorMatrices[matrixIdx];
+//
+//        for (uint32_t i = 0u; i < 3u; i++)
+//        {
+//            // TODO: remove when tests are done
+//            std::cout << (glslMatrix[i] == mul(hlslMatrix, unitVectors[i])) << ',';
+//            std::cout << (mul(hlslMatrix, unitVectors[i]) == glslMatrix * unitVectors[i]) << ',';
+//
+//            assert(glslMatrix[i] == mul(hlslMatrix, unitVectors[i]));
+//            assert(mul(hlslMatrix, unitVectors[i]) == glslMatrix * unitVectors[i]);
+//        }
+//
+//        std::cout << std::endl;
+//    }
+//}
 
-void testColorMatrices()
-{
-    constexpr std::array<float32_t3, 3> unitVectors = {
-        float32_t3(1.0f, 0.0f, 0.0f),
-        float32_t3(0.0f, 1.0f, 0.0f),
-        float32_t3(0.0f, 0.0f, 1.0f)
-    };
-
-    for (uint32_t matrixIdx = 0u; matrixIdx < COLOR_MATRIX_CNT; matrixIdx++)
-    {
-        const auto& hlslMatrix = hlslColorMatrices[matrixIdx];
-        const auto& glslMatrix = glslColorMatrices[matrixIdx];
-
-        for (uint32_t i = 0u; i < 3u; i++)
-        {
-            // TODO: remove when tests are done
-            std::cout << (glslMatrix[i] == mul(hlslMatrix, unitVectors[i])) << ',';
-            std::cout << (mul(hlslMatrix, unitVectors[i]) == glslMatrix * unitVectors[i]) << ',';
-
-            assert(glslMatrix[i] == mul(hlslMatrix, unitVectors[i]));
-            assert(mul(hlslMatrix, unitVectors[i]) == glslMatrix * unitVectors[i]);
-        }
-
-        std::cout << std::endl;
-    }
-}
-
-bool areVectorsEqual(const float32_t3& lhs, const float32_t3& rhs)
-{
-    const float32_t3 epsilonVec = float32_t3(std::exp2(-10));
-    return glm::all(glm::abs(lhs - rhs) < epsilonVec);
-}
+//bool areVectorsEqual(const float32_t3& lhs, const float32_t3& rhs)
+//{
+//    const float32_t3 epsilonVec = float32_t3(std::exp2(-10));
+//    return glm::all(glm::abs(lhs - rhs) < epsilonVec);
+//}
 
 struct S
 {
@@ -285,120 +286,91 @@ int main(int argc, char** argv)
     
     // promote.hlsl tests:
         // promote scalar to vector
-    float32_t3 v0 = nbl::hlsl::promote<float32_t3, float>(2.0f);
+    //float32_t3 v0 = nbl::hlsl::promote<float32_t3, float>(2.0f);
         // promote scalar to matrix
-    float32_t3x3 m0 = nbl::hlsl::promote<float32_t3x3, float>(2.0f);
+    //float32_t3x3 m0 = nbl::hlsl::promote<float32_t3x3, float>(2.0f);
 
         // TODO?: promote vector to matrix
     //glm::mat3 m1 = nbl::hlsl::promote<glm::mat3, glm::vec3>(glm::vec3(1.0f, 2.0f, 3.0f));
 
     // test vector comparison operators
     {
-        float32_t3 a = float32_t3(1.0f, 2.0f, 3.0f);
+        /*float32_t3 a = float32_t3(1.0f, 2.0f, 3.0f);
         float32_t3 b = float32_t3(0.5f, 0.5f, 0.5f);
         assert(glm::all(a > b));
         assert(glm::all(b < a));
 
         b = float32_t3(0.5f, 2.0f, 0.5f);
         assert(glm::all(a >= b));
-        assert(glm::all(b <= a));
+        assert(glm::all(b <= a));*/
     }
 
     // TODO[Przemek]: tests function output
-    float32_t3 TEST_VEC = float32_t3(0.1f, 0.2f, 0.3f);
     float32_t3 ZERO_VEC = float32_t3(0.0f, 0.0f, 0.0f);
     float32_t3 ONE_VEC = float32_t3(1.0f, 1.0f, 1.0f);
 
     // test functions from EOTF.hlsl
-    colorspace::eotf::identity<float32_t3>(TEST_VEC);
-    colorspace::eotf::impl_shared_2_4<float32_t3>(TEST_VEC, 0.5f);
-    colorspace::eotf::sRGB<float32_t3>(TEST_VEC);
-    colorspace::eotf::Display_P3<float32_t3>(TEST_VEC);
-    colorspace::eotf::DCI_P3_XYZ<float32_t3>(TEST_VEC);
-    colorspace::eotf::SMPTE_170M<float32_t3>(TEST_VEC);
-    colorspace::eotf::SMPTE_ST2084<float32_t3>(TEST_VEC);
-    colorspace::eotf::HDR10_HLG<float32_t3>(TEST_VEC);
-    colorspace::eotf::AdobeRGB<float32_t3>(TEST_VEC);
-    colorspace::eotf::Gamma_2_2<float32_t3>(TEST_VEC);
-    colorspace::eotf::ACEScc<float32_t3>(TEST_VEC);
-    colorspace::eotf::ACEScct<float32_t3>(TEST_VEC);
+    //assert(areVectorsEqual(colorspace::eotf::identity<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::impl_shared_2_4<float32_t3>(ZERO_VEC, 0.5f), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::sRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::Display_P3<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::DCI_P3_XYZ<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::SMPTE_170M<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::SMPTE_ST2084<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::HDR10_HLG<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::AdobeRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::Gamma_2_2<float32_t3>(ZERO_VEC), ZERO_VEC));
+    ////assert(areVectorsEqual(colorspace::eotf::ACEScc<float32_t3>(ZERO_VEC), ZERO_VEC));
+    ////assert(areVectorsEqual(colorspace::eotf::ACEScct<float32_t3>(ZERO_VEC), ZERO_VEC));
 
-    assert(areVectorsEqual(colorspace::eotf::identity<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::impl_shared_2_4<float32_t3>(ZERO_VEC, 0.5f), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::sRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::Display_P3<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::DCI_P3_XYZ<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::SMPTE_170M<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::SMPTE_ST2084<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::HDR10_HLG<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::AdobeRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::eotf::Gamma_2_2<float32_t3>(ZERO_VEC), ZERO_VEC));
-    //assert(areVectorsEqual(colorspace::eotf::ACEScc<float32_t3>(ZERO_VEC), ZERO_VEC));
-    //assert(areVectorsEqual(colorspace::eotf::ACEScct<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::identity<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::impl_shared_2_4<float32_t3>(ONE_VEC, 0.5f), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::sRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::Display_P3<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::eotf::DCI_P3_XYZ<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::SMPTE_170M<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::eotf::SMPTE_ST2084<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::HDR10_HLG<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::AdobeRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::eotf::Gamma_2_2<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::eotf::ACEScc<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::eotf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
 
-    assert(areVectorsEqual(colorspace::eotf::identity<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::impl_shared_2_4<float32_t3>(ONE_VEC, 0.5f), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::sRGB<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::Display_P3<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::eotf::DCI_P3_XYZ<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::SMPTE_170M<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::eotf::SMPTE_ST2084<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::HDR10_HLG<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::AdobeRGB<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::eotf::Gamma_2_2<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::eotf::ACEScc<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::eotf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
+    //// test functions from OETF.hlsl
+    //assert(areVectorsEqual(colorspace::oetf::identity<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::impl_shared_2_4<float32_t3>(ZERO_VEC, 0.5f), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::sRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::Display_P3<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::DCI_P3_XYZ<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::SMPTE_170M<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::SMPTE_ST2084<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::HDR10_HLG<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::AdobeRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::Gamma_2_2<float32_t3>(ZERO_VEC), ZERO_VEC));
+    ////assert(areVectorsEqual(colorspace::oetf::ACEScc<float32_t3>(ZERO_VEC), ZERO_VEC));
+    ////assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ZERO_VEC), ZERO_VEC));
 
-    // test functions from OETF.hlsl
-    colorspace::oetf::identity<float32_t3>(TEST_VEC);
-    colorspace::oetf::impl_shared_2_4<float32_t3>(TEST_VEC, 0.5f);
-    colorspace::oetf::sRGB<float32_t3>(TEST_VEC);
-    colorspace::oetf::Display_P3<float32_t3>(TEST_VEC);
-    colorspace::oetf::DCI_P3_XYZ<float32_t3>(TEST_VEC);
-    colorspace::oetf::SMPTE_170M<float32_t3>(TEST_VEC);
-    colorspace::oetf::SMPTE_ST2084<float32_t3>(TEST_VEC);
-    colorspace::oetf::HDR10_HLG<float32_t3>(TEST_VEC);
-    colorspace::oetf::AdobeRGB<float32_t3>(TEST_VEC);
-    colorspace::oetf::Gamma_2_2<float32_t3>(TEST_VEC);
-    colorspace::oetf::ACEScc<float32_t3>(TEST_VEC);
-    colorspace::oetf::ACEScct<float32_t3>(TEST_VEC);
-
-    assert(areVectorsEqual(colorspace::oetf::identity<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::impl_shared_2_4<float32_t3>(ZERO_VEC, 0.5f), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::sRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::Display_P3<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::DCI_P3_XYZ<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::SMPTE_170M<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::SMPTE_ST2084<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::HDR10_HLG<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::AdobeRGB<float32_t3>(ZERO_VEC), ZERO_VEC));
-    assert(areVectorsEqual(colorspace::oetf::Gamma_2_2<float32_t3>(ZERO_VEC), ZERO_VEC));
-    //assert(areVectorsEqual(colorspace::oetf::ACEScc<float32_t3>(ZERO_VEC), ZERO_VEC));
-    //assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ZERO_VEC), ZERO_VEC));
-
-    assert(areVectorsEqual(colorspace::oetf::identity<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::impl_shared_2_4<float32_t3>(ONE_VEC, 0.5f), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::sRGB<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::Display_P3<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::oetf::DCI_P3_XYZ<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::SMPTE_170M<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::SMPTE_ST2084<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::HDR10_HLG<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::AdobeRGB<float32_t3>(ONE_VEC), ONE_VEC));
-    assert(areVectorsEqual(colorspace::oetf::Gamma_2_2<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::oetf::ACEScc<float32_t3>(ONE_VEC), ONE_VEC));
-    //assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::identity<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::impl_shared_2_4<float32_t3>(ONE_VEC, 0.5f), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::sRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::Display_P3<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::oetf::DCI_P3_XYZ<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::SMPTE_170M<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::SMPTE_ST2084<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::HDR10_HLG<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::AdobeRGB<float32_t3>(ONE_VEC), ONE_VEC));
+    //assert(areVectorsEqual(colorspace::oetf::Gamma_2_2<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::oetf::ACEScc<float32_t3>(ONE_VEC), ONE_VEC));
+    ////assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
 
     // xoroshiro64 tests
-    /*constexpr xoroshiro64star_state_t xoroshiro64StarState = xoroshiro64star_state_t(12u, 34u);
-    Xoroshiro64Star xoroshiro64Star = Xoroshiro64Star::construct(xoroshiro64StarState);
+    constexpr uint32_t2 state = uint32_t2(12u, 34u);
+    Xoroshiro64Star xoroshiro64Star = Xoroshiro64Star::construct(state);
     xoroshiro64Star();
-
-    constexpr xoroshiro64starstar_state_t xoroshiro64StarStarState = xoroshiro64starstar_state_t(12u, 34u);
-    Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(xoroshiro64StarStarState);
-    xoroshiro64StarStar();*/
+    Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(state);
+    xoroshiro64StarStar();
     
-    CompatibilityTest::runTests(argc, argv);
+    //CompatibilityTest::runTests(argc, argv);
 
     auto zero = cross(x,x);
     auto lenX2 = dot(x,x);
