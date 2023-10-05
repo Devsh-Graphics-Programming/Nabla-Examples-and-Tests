@@ -4,6 +4,13 @@
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/core/SRange.h"
+#include "glm/glm/glm.hpp"
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+#include "curves.h"
+
+static constexpr bool DebugMode = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -18,53 +25,6 @@ constexpr ExampleMode mode = ExampleMode::CASE_2;
 static constexpr bool DebugMode = true;
 static constexpr bool FragmentShaderPixelInterlock = false;
 
-struct double4x4
-{
-	double _r0[4u];
-	double _r1[4u];
-	double _r2[4u];
-	double _r3[4u];
-};
-
-struct double4
-{
-	double x;
-	double y;
-	double z;
-	double w;
-};
-
-struct int2
-{
-	int x;
-	int y;
-};
-
-struct float4
-{
-	float4() {}
-
-	float4(const float x, const float y, const float z, const float w)
-	{
-		val[0u] = x;
-		val[1u] = y;
-		val[2u] = z;
-		val[3u] = w;
-	}
-
-	float val[4u];
-
-	inline bool operator ==(const float4& other) const
-	{
-		return val[0u] == other.val[0u] &&
-			val[1u] == other.val[1u] &&
-			val[2u] == other.val[2u] &&
-			val[3u] == other.val[3u];
-	}
-};
-
-typedef nbl::core::vector2d<double> double2;
-typedef nbl::core::vector2d<uint32_t> uint2;
 typedef uint32_t uint;
 
 // TODO: Use a math lib?
@@ -227,21 +187,13 @@ public:
 };
 
 static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(Globals) == 152u);
-static_assert(sizeof(LineStyle) == 96u);
+static_assert(sizeof(MainObject) == 8u);
+static_assert(sizeof(Globals) == 112u);
+static_assert(sizeof(LineStyle) == 32u);
+static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
-
-double2 normalize(const double2& x)
-{
-	double len = dot(x, x);
-#ifdef __NBL_FAST_MATH
-	return x * core::inversesqrt<double>(len);
-#else
-	return x / core::sqrt<double>(len);
-#endif
-}
 
 class Camera2D : public core::IReferenceCounted
 {
@@ -249,7 +201,7 @@ public:
 	Camera2D()
 	{}
 
-	void setOrigin(const double2& origin)
+	void setOrigin(const float64_t2& origin)
 	{
 		m_origin = origin;
 	}
@@ -261,10 +213,10 @@ public:
 
 	void setSize(const double size)
 	{
-		m_bounds = double2{ size * m_aspectRatio, size };
+		m_bounds = float64_t2{ size * m_aspectRatio, size };
 	}
 
-	double2 getBounds() const
+	float64_t2 getBounds() const
 	{
 		return m_bounds;
 	}
@@ -308,8 +260,8 @@ public:
 
 			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
 			{
-				m_bounds = m_bounds + double2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
-				m_bounds = double2{ core::max(m_aspectRatio, m_bounds.X), core::max(1.0, m_bounds.Y) };
+				m_bounds = m_bounds + float64_t2{ (double)ev.scrollEvent.verticalScroll * -0.1 * m_aspectRatio, (double)ev.scrollEvent.verticalScroll * -0.1};
+				m_bounds = float64_t2{ core::max(m_aspectRatio, m_bounds.x), core::max(1.0, m_bounds.y) };
 			}
 		}
 	}
@@ -322,27 +274,27 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.Y += 1;
+				m_origin.y += 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.X -= 1;
+				m_origin.x -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.Y -= 1;
+				m_origin.y -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.X += 1;
+				m_origin.x += 1;
 			}
 		}
 	}
 private:
 
 	double m_aspectRatio = 0.0;
-	double2 m_bounds = {};
-	double2 m_origin = {};
+	float64_t2 m_bounds = {};
+	float64_t2 m_origin = {};
 };
 
 // It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
@@ -361,18 +313,18 @@ public:
 
 	struct EllipticalArcInfo
 	{
-		double2 majorAxis;
-		double2 center;
-		double2 angleBounds; // [0, 2Pi)
+		float64_t2 majorAxis;
+		float64_t2 center;
+		float64_t2 angleBounds; // [0, 2Pi)
 		double eccentricity; // (0, 1]
 
 		bool isValid() const
 		{
 			if (eccentricity > 1.0 || eccentricity < 0.0)
 				return false;
-			if (angleBounds.Y < angleBounds.X)
+			if (angleBounds.y < angleBounds.x)
 				return false;
-			if ((angleBounds.Y - angleBounds.X) > 2 * core::PI<double>())
+			if ((angleBounds.y - angleBounds.x) > 2 * core::PI<double>())
 				return false;
 			return true;
 		}
@@ -390,7 +342,7 @@ public:
 		return m_quadBeziers[idx];
 	}
 
-	const double2& getLinePointAt(const uint32_t idx) const
+	const float64_t2& getLinePointAt(const uint32_t idx) const
 	{
 		return m_linePoints[idx];
 	}
@@ -410,7 +362,7 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(std::vector<double2>&& linePoints)
+	void addLinePoints(const core::SRange<float64_t2>& linePoints)
 	{
 		if (linePoints.size() <= 1u)
 			return;
@@ -431,12 +383,14 @@ public:
 		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
 	}
 
-	void addEllipticalArcs(std::vector<EllipticalArcInfo>&& ellipses)
+	void addEllipticalArcs(const core::SRange<EllipticalArcInfo>& ellipses)
 	{
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
-	void addQuadBeziers(std::vector<QuadraticBezierInfo>&& quadBeziers)
+	// TODO[Przemek]: This uses the struct from the shader common.hlsl if you need to precompute stuff make a duplicate of this struct here first (for the user input to fill)
+	// and then do the precomputation here and store in m_quadBeziers which holds the actual structs that will be fed to the GPU
+	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
 		if (addNewSection)
@@ -455,9 +409,8 @@ public:
 	}
 
 protected:
-
 	std::vector<SectionInfo> m_sections;
-	std::vector<double2> m_linePoints;
+	std::vector<float64_t2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 };
 
@@ -1329,6 +1282,7 @@ struct DrawBuffers
 	core::smart_refctd_ptr<BufferType> drawObjectsBuffer;
 	core::smart_refctd_ptr<BufferType> geometryBuffer;
 	core::smart_refctd_ptr<BufferType> lineStylesBuffer;
+	core::smart_refctd_ptr<BufferType> customClipProjectionBuffer;
 };
 
 // ! this is just a buffers filler with autosubmission features used for convenience to how you feed our CAD renderer
@@ -1443,12 +1397,31 @@ public:
 		cpuDrawBuffers.lineStylesBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lineStylesBufferSize);
 	}
 
+	void allocateCustomClipProjectionBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t ClipProjectionDataCount)
+	{
+		maxClipProjectionData = ClipProjectionDataCount;
+		size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(ClipProjectionData);
+
+		video::IGPUBuffer::SCreationParams customClipProjectionCreationParams = {};
+		customClipProjectionCreationParams.size = customClipProjectionBufferSize;
+		customClipProjectionCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+		gpuDrawBuffers.customClipProjectionBuffer = logicalDevice->createBuffer(std::move(customClipProjectionCreationParams));
+		gpuDrawBuffers.customClipProjectionBuffer->setObjectDebugName("customClipProjectionBuffer");
+
+		video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.customClipProjectionBuffer->getMemoryReqs();
+		memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		auto customClipProjectionBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.customClipProjectionBuffer.get());
+
+		cpuDrawBuffers.customClipProjectionBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(customClipProjectionBufferSize);
+	}
+
 	uint32_t getIndexCount() const { return currentIndexCount; }
 	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
-		const CPULineStyle& cpuLineStyle,
+		const CPULineStyle& lineStyle,
+		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
@@ -1461,6 +1434,7 @@ public:
 		
 		MainObject mainObj = {};
 		mainObj.styleIdx = styleIdx;
+		mainObj.clipProjectionIdx = clipProjectionIdx;
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
@@ -1489,7 +1463,7 @@ public:
 				intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
 				resetIndexCounters();
 				resetGeometryCounters();
-				// We don't reset counters for linestyles and mainObjects because we will be reusing them
+				// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
 				shouldSubmit = false;
 			}
 		}
@@ -1561,6 +1535,7 @@ public:
 		intendedNextSubmit = finalizeMainObjectCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = finalizeCustomClipProjectionCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 
 		return intendedNextSubmit;
 	}
@@ -1568,11 +1543,6 @@ public:
 	size_t getCurrentIndexBufferSize() const
 	{
 		return sizeof(index_buffer_type) * currentIndexCount;
-	}
-
-	size_t getCurrentLineStylesBufferSize() const
-	{
-		return sizeof(LineStyle) * currentLineStylesCount;
 	}
 
 	size_t getCurrentMainObjectsBufferSize() const
@@ -1588,6 +1558,16 @@ public:
 	size_t getCurrentGeometryBufferSize() const
 	{
 		return currentGeometryBufferSize;
+	}
+
+	size_t getCurrentLineStylesBufferSize() const
+	{
+		return sizeof(LineStyle) * currentLineStylesCount;
+	}
+
+	size_t getCurrentCustomClipProjectionBufferSize() const
+	{
+		return sizeof(ClipProjectionData) * currentClipProjectionDataCount;
 	}
 
 	void reset()
@@ -1615,21 +1595,6 @@ protected:
 		if (indicesRange.size > 0u)
 			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(indicesRange, srcIndexData, submissionQueue, submissionFence, intendedNextSubmit);
 		inMemIndexCount = currentIndexCount;
-		return intendedNextSubmit;
-	}
-
-	video::IGPUQueue::SSubmitInfo finalizeLineStyleCopiesToGPU(
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		// Copy LineStyles
-		uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
-		asset::SBufferRange<video::IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
-		const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
-		if (stylesRange.size > 0u)
-			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(stylesRange, srcLineStylesData, submissionQueue, submissionFence, intendedNextSubmit);
-		inMemLineStylesCount = currentLineStylesCount;
 		return intendedNextSubmit;
 	}
 
@@ -1672,6 +1637,36 @@ protected:
 		return intendedNextSubmit;
 	}
 
+	video::IGPUQueue::SSubmitInfo finalizeLineStyleCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		// Copy LineStyles
+		uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
+		asset::SBufferRange<video::IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
+		const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
+		if (stylesRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(stylesRange, srcLineStylesData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemLineStylesCount = currentLineStylesCount;
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo finalizeCustomClipProjectionCopiesToGPU(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		// Copy LineStyles
+		uint32_t remainingClipProjectionData = currentClipProjectionDataCount - inMemClipProjectionDataCount;
+		asset::SBufferRange<video::IGPUBuffer> clipProjectionRange = { sizeof(ClipProjectionData) * inMemClipProjectionDataCount, sizeof(ClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
+		const ClipProjectionData* srcClipProjectionData = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer()) + inMemClipProjectionDataCount;
+		if (clipProjectionRange.size > 0u)
+			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(clipProjectionRange, srcClipProjectionData, submissionQueue, submissionFence, intendedNextSubmit);
+		inMemClipProjectionDataCount = currentClipProjectionDataCount;
+		return intendedNextSubmit;
+	}
+
 	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
 		const MainObject& mainObject,
 		uint32_t& outMainObjectIdx,
@@ -1694,7 +1689,6 @@ protected:
 	uint32_t addMainObject_Internal(const MainObject& mainObject)
 	{
 		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
-		// TODO[Erfan]: What happens if maxMainObjects >= 
 		if (currentMainObjectCount >= maxMainObjects)
 			return InvalidMainObjectIdx;
 
@@ -1744,6 +1738,38 @@ protected:
 		return currentLineStylesCount++;
 	}
 
+public:
+	video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
+		const ClipProjectionData& clipProjectionData,
+		uint32_t& outClipProjectionIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
+		if (outClipProjectionIdx == InvalidClipProjectionIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
+			assert(outClipProjectionIdx != InvalidClipProjectionIdx);
+		}
+		return intendedNextSubmit;
+	}
+
+protected:
+	uint32_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
+	{
+		ClipProjectionData* clipProjectionArray = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer());
+		if (currentClipProjectionDataCount >= maxClipProjectionData)
+			return InvalidClipProjectionIdx;
+
+		void* dst = clipProjectionArray + currentClipProjectionDataCount;
+		memcpy(dst, &clipProjectionData, sizeof(ClipProjectionData));
+		return currentClipProjectionDataCount++;
+	}
+
 	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
 	{
 		if (type == ObjectType::LINE)
@@ -1768,7 +1794,7 @@ protected:
 		assert(section.count >= 1u);
 		assert(section.type == ObjectType::LINE);
 
-		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(double2);
+		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(float64_t2);
 		const auto maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
 
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
@@ -1792,13 +1818,13 @@ protected:
 			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 			currentDrawObjectCount += 1u;
-			drawObj.geometryAddress += sizeof(double2);
+			drawObj.geometryAddress += sizeof(float64_t2);
 		}
 
 		// Add Geometry
 		if (objectsToUpload > 0u)
 		{
-			const auto pointsByteSize = sizeof(double2) * (objectsToUpload + 1u);
+			const auto pointsByteSize = sizeof(float64_t2) * (objectsToUpload + 1u);
 			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 			auto& linePoint = polyline.getLinePointAt(section.index + currentObjectInSection);
 			memcpy(dst, &linePoint, pointsByteSize);
@@ -1954,6 +1980,7 @@ protected:
 		resetGeometryCounters();
 		resetIndexCounters();
 		resetStyleCounters();
+		resetCustomClipProjectionCounters();
 	}
 
 	void resetMainObjectCounters()
@@ -1982,6 +2009,12 @@ protected:
 		currentLineStylesCount = 0u;
 		inMemLineStylesCount = 0u;
 	}
+	
+	void resetCustomClipProjectionCounters()
+	{
+		currentClipProjectionDataCount = 0u;
+		inMemClipProjectionDataCount = 0u;
+	}
 
 	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
 
@@ -1997,13 +2030,17 @@ protected:
 	uint32_t currentDrawObjectCount = 0u;
 	uint32_t maxDrawObjects = 0u;
 
+	uint64_t inMemGeometryBufferSize = 0u;
+	uint64_t currentGeometryBufferSize = 0u;
+	uint64_t maxGeometryBufferSize = 0u;
+
 	uint32_t inMemLineStylesCount = 0u;
 	uint32_t currentLineStylesCount = 0u;
 	uint32_t maxLineStyles = 0u;
 
-	uint64_t inMemGeometryBufferSize = 0u;
-	uint64_t currentGeometryBufferSize = 0u;
-	uint64_t maxGeometryBufferSize = 0u;
+	uint32_t inMemClipProjectionDataCount = 0u;
+	uint32_t currentClipProjectionDataCount = 0u;
+	uint32_t maxClipProjectionData = 0u;
 
 	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
 };
@@ -2088,6 +2125,7 @@ class CADApp : public ApplicationBase
 			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice, maxObjects);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects * 5u);
 			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
+			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice, 128u);
 
 			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
@@ -2319,6 +2357,8 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
 		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
 		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
+		initParams.physicalDeviceFilter.requiredFeatures.shaderClipDistance = true;
+		initParams.physicalDeviceFilter.requiredFeatures.scalarBlockLayout = true;
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -2402,33 +2442,39 @@ public:
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
-			video::IGPUDescriptorSetLayout::SBinding bindings[5u] = {};
-			bindings[0u].binding = 0u;
-			bindings[0u].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
-			bindings[0u].count = 1u;
-			bindings[0u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+			constexpr uint32_t BindingCount = 6u;
+			video::IGPUDescriptorSetLayout::SBinding bindings[BindingCount] = {};
+			bindings[0].binding = 0u;
+			bindings[0].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
+			bindings[0].count = 1u;
+			bindings[0].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-			bindings[1u].binding = 1u;
-			bindings[1u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[1u].count = 1u;
-			bindings[1u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+			bindings[1].binding = 1u;
+			bindings[1].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[1].count = 1u;
+			bindings[1].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-			bindings[2u].binding = 2u;
-			bindings[2u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-			bindings[2u].count = 1u;
-			bindings[2u].stageFlags = asset::IShader::ESS_FRAGMENT;
+			bindings[2].binding = 2u;
+			bindings[2].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+			bindings[2].count = 1u;
+			bindings[2].stageFlags = asset::IShader::ESS_FRAGMENT;
 
-			bindings[3u].binding = 3u;
-			bindings[3u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[3u].count = 1u;
-			bindings[3u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+			bindings[3].binding = 3u;
+			bindings[3].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[3].count = 1u;
+			bindings[3].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-			bindings[4u].binding = 4u;
-			bindings[4u].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[4u].count = 1u;
-			bindings[4u].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
+			bindings[4].binding = 4u;
+			bindings[4].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[4].count = 1u;
+			bindings[4].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
 
-			descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + 5u);
+			bindings[5].binding = 5u;
+			bindings[5].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[5].count = 1u;
+			bindings[5].stageFlags = asset::IShader::ESS_VERTEX;
+
+			descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + BindingCount);
 
 			nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool = nullptr;
 			{
@@ -2436,7 +2482,7 @@ public:
 				createInfo.flags = nbl::video::IDescriptorPool::ECF_NONE;
 				createInfo.maxSets = 128u;
 				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 3 * FRAMES_IN_FLIGHT;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 4 * FRAMES_IN_FLIGHT;
 				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
 
 				descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
@@ -2445,7 +2491,7 @@ public:
 			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 			{
 				descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
-				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[5u] = {};
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[6u] = {};
 				descriptorInfos[0u].info.buffer.offset = 0u;
 				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
 				descriptorInfos[0u].desc = globalsBuffer[i];
@@ -2466,7 +2512,11 @@ public:
 				descriptorInfos[4u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
 				descriptorInfos[4u].desc = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer;
 
-				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[5u] = {};
+				descriptorInfos[5u].info.buffer.offset = 0u;
+				descriptorInfos[5u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.customClipProjectionBuffer->getCreationParams().size;
+				descriptorInfos[5u].desc = drawBuffers[i].gpuDrawBuffers.customClipProjectionBuffer;
+
+				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
 				descriptorUpdates[0u].dstSet = descriptorSets[i].get();
 				descriptorUpdates[0u].binding = 0u;
 				descriptorUpdates[0u].arrayElement = 0u;
@@ -2502,7 +2552,14 @@ public:
 				descriptorUpdates[4u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
 				descriptorUpdates[4u].info = &descriptorInfos[4u];
 
-				logicalDevice->updateDescriptorSets(5u, descriptorUpdates, 0u, nullptr);
+				descriptorUpdates[5u].dstSet = descriptorSets[i].get();
+				descriptorUpdates[5u].binding = 5u;
+				descriptorUpdates[5u].arrayElement = 0u;
+				descriptorUpdates[5u].count = 1u;
+				descriptorUpdates[5u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+				descriptorUpdates[5u].info = &descriptorInfos[5u];
+
+				logicalDevice->updateDescriptorSets(6u, descriptorUpdates, 0u, nullptr);
 			}
 
 			graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
@@ -2612,7 +2669,7 @@ public:
 		if constexpr (mode == ExampleMode::CASE_1)
 		{
 			{
-				std::vector<double2> linePoints;
+				std::vector<float64_t2> linePoints;
 				for (uint32_t i = 0u; i < 20u; ++i)
 				{
 					for (uint32_t i = 0u; i < 256u; ++i)
@@ -2628,10 +2685,10 @@ public:
 						linePoints.push_back({ x, +100.0 });
 					}
 				}
-				bigPolyline.addLinePoints(std::move(linePoints));
+				bigPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 			{
-				std::vector<double2> linePoints;
+				std::vector<float64_t2> linePoints;
 				for (uint32_t i = 0u; i < 20u; ++i)
 				{
 					for (uint32_t i = 0u; i < 256u; ++i)
@@ -2649,7 +2706,7 @@ public:
 						linePoints.push_back({ x, +100.0 + y });
 					}
 				}
-				bigPolyline2.addLinePoints(std::move(linePoints));
+				bigPolyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 		}
 
@@ -2660,10 +2717,10 @@ public:
 		logicalDevice->waitIdle();
 	}
 
-	float getScreenToWorldRatio(const double4x4& viewProjectionMatrix, uint2 windowSize)
+	float getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint2 windowSize)
 	{
-		double idx_0_0 = viewProjectionMatrix._r0[0u] * (windowSize.X / 2.0);
-		double idx_1_1 = viewProjectionMatrix._r1[1u] * (windowSize.Y / 2.0);
+		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
+		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
 		double det_2x2_mat = idx_0_0 * idx_1_1;
 		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
 	}
@@ -2687,10 +2744,12 @@ public:
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 		cb->beginDebugMarker("Frame");
 		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
-		globalData.resolution = uint2{ WIN_W, WIN_H };
-		globalData.viewProjection = m_Camera.constructViewProjection(m_timeElapsed);
-		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
+		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
+		globalData.resolution = uint32_t2{ WIN_W, WIN_H };
+		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection();
+		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
+		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
+		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
 		globalData.majorAxis = HatchMajorAxis;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
@@ -2786,39 +2845,66 @@ public:
 			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
 		}
 		{
-			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[4u] = {};
-			bufferBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			bufferBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_UNIFORM_READ_BIT;
-			bufferBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[0].buffer = globalsBuffer[m_resourceIx];
-			bufferBarriers[0].offset = 0u;
-			bufferBarriers[0].size = globalsBuffer[m_resourceIx]->getSize();
+			constexpr uint32_t MaxBufferBarriersCount = 5u;
+			uint32_t bufferBarriersCount = 0u;
+			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[MaxBufferBarriersCount] = {};
 
-			bufferBarriers[1].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			bufferBarriers[1].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-			bufferBarriers[1].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[1].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[1].buffer = currentDrawBuffers.gpuDrawBuffers.drawObjectsBuffer;
-			bufferBarriers[1].offset = 0u;
-			bufferBarriers[1].size = currentDrawBuffers.getCurrentDrawObjectsBufferSize();
-
-			bufferBarriers[2].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			bufferBarriers[2].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-			bufferBarriers[2].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[2].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[2].buffer = currentDrawBuffers.gpuDrawBuffers.geometryBuffer;
-			bufferBarriers[2].offset = 0u;
-			bufferBarriers[2].size = currentDrawBuffers.getCurrentGeometryBufferSize();
-
-			bufferBarriers[3].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			bufferBarriers[3].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-			bufferBarriers[3].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[3].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[3].buffer = currentDrawBuffers.gpuDrawBuffers.lineStylesBuffer;
-			bufferBarriers[3].offset = 0u;
-			bufferBarriers[3].size = currentDrawBuffers.getCurrentLineStylesBufferSize();
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 4u, bufferBarriers, 0u, nullptr);
+			if (globalsBuffer[m_resourceIx]->getSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_UNIFORM_READ_BIT;
+				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.buffer = globalsBuffer[m_resourceIx];
+				bufferBarrier.offset = 0u;
+				bufferBarrier.size = globalsBuffer[m_resourceIx]->getSize();
+			}
+			if (currentDrawBuffers.getCurrentDrawObjectsBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.drawObjectsBuffer;
+				bufferBarrier.offset = 0u;
+				bufferBarrier.size = currentDrawBuffers.getCurrentDrawObjectsBufferSize();
+			}
+			if (currentDrawBuffers.getCurrentGeometryBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.geometryBuffer;
+				bufferBarrier.offset = 0u;
+				bufferBarrier.size = currentDrawBuffers.getCurrentGeometryBufferSize();
+			}
+			if (currentDrawBuffers.getCurrentLineStylesBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.lineStylesBuffer;
+				bufferBarrier.offset = 0u;
+				bufferBarrier.size = currentDrawBuffers.getCurrentLineStylesBufferSize();
+			}
+			if (currentDrawBuffers.getCurrentCustomClipProjectionBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
+				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
+				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.customClipProjectionBuffer;
+				bufferBarrier.offset = 0u;
+				bufferBarrier.size = currentDrawBuffers.getCurrentCustomClipProjectionBufferSize();
+			}
+			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
 		}
 	}
 
@@ -2923,32 +3009,32 @@ public:
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
-			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			CPolyline polyline;
 			{
-				std::vector<double2> linePoints;
+				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 50.0, 50.0 });
-				polyline.addLinePoints(std::move(linePoints));
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 0.8f;
-			style.color = float4(0.619f, 0.325f, 0.709f, 0.2f);
+			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.2f);
 
 			CPULineStyle style2 = {};
 			style2.screenSpaceLineWidth = 0.0f;
 			style2.worldSpaceLineWidth = 0.8f;
-			style2.color = float4(0.119f, 0.825f, 0.709f, 0.5f);
+			style2.color = float32_t4(0.119f, 0.825f, 0.709f, 0.5f);
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
@@ -2983,12 +3069,12 @@ public:
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;
-			style.color = float4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			CPULineStyle style2 = {};
 			style2.screenSpaceLineWidth = 5.0f;
 			style2.worldSpaceLineWidth = 0.0f;
-			style2.color = float4(0.2f, 0.6f, 0.2f, 0.5f);
+			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 0.5f);
 
 
 			CPolyline polyline;
@@ -3003,58 +3089,91 @@ public:
 				std::vector<QuadraticBezierInfo> quadBeziers;
 				for (int i = 0; i < 10; i++) {
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[1] = double2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[2] = double2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[0] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[1] = float64_t2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[2] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
 					quadBeziers.push_back(quadratic1);
 				}
 				
 				//{
 				//	QuadraticBezierInfo quadratic1;
-				//	quadratic1.p[0] = double2(50,0);
-				//	quadratic1.p[1] = double2(50,100);
-				//	quadratic1.p[2] = double2(100,100);
+				//	quadratic1.p[0] = float64_t2(50,0);
+				//	quadratic1.p[1] = float64_t2(50,100);
+				//	quadratic1.p[2] = float64_t2(100,100);
 				//	quadBeziers.push_back(quadratic1);
 				//}
 				//{
 				//	QuadraticBezierInfo quadratic1;
-				//	quadratic1.p[0] = double2(100, 100);
-				//	quadratic1.p[1] = double2(200, -200);
-				//	quadratic1.p[2] = double2(300, 300);
+				//	quadratic1.p[0] = float64_t2(100, 100);
+				//	quadratic1.p[1] = float64_t2(200, -200);
+				//	quadratic1.p[2] = float64_t2(300, 300);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-				polyline.addQuadBeziers(std::move(quadBeziers));
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
 				{
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2(0.0, 0.0);
-					quadratic1.p[1] = double2(20.0, 50.0);
-					quadratic1.p[2] = double2(80.0, 0.0);
-					quadBeziers.push_back(quadratic1);
+					quadratic1.p[0] = float64_t2(0.0, 0.0);
+					quadratic1.p[1] = float64_t2(20.0, 50.0);
+					quadratic1.p[2] = float64_t2(80.0, 0.0);
+					//quadBeziers.push_back(quadratic1);
 				}
 				{
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2(80.0, 0.0);
-					quadratic1.p[1] = double2(220.0, 50.0);
-					quadratic1.p[2] = double2(180.0, 200.0);
-					quadBeziers.push_back(quadratic1);
+					quadratic1.p[0] = float64_t2(80.0, 0.0);
+					quadratic1.p[1] = float64_t2(220.0, 50.0);
+					quadratic1.p[2] = float64_t2(180.0, 200.0);
+					//quadBeziers.push_back(quadratic1);
 				}
 				{
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = double2(180.0, 200.0);
-					quadratic1.p[1] = double2(-20.0, 100.0);
-					quadratic1.p[2] = double2(30.0, -50.0);
-					quadBeziers.push_back(quadratic1);
+					quadratic1.p[0] = float64_t2(180.0, 200.0);
+					quadratic1.p[1] = float64_t2(-20.0, 100.0);
+					quadratic1.p[2] = float64_t2(30.0, -50.0);
+					//quadBeziers.push_back(quadratic1);
 				}
-				polyline2.addQuadBeziers(std::move(quadBeziers));
+
+				// TODO: Test this after sdf fixes, cause a linear bezier is causing problems (I think)
+				// MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// error = 1e-2
+				// 
+				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
+				// MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(90.0, 20.0), float64_t2(-50, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0, 40.0));
+				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
+				MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+
+				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				static int ix = 0;
+				ix++;
+
+				const int pp = (ix / 30) % 8;
+
+				double error = pow(10.0, -1.0 * double(pp + 1));
+
+				adaptiveSubdivision(myCurve, 0.0, 50.0, 1e-2, addToBezier, 10u);
+
+				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, submissionQueue, submissionFence, intendedNextSubmit);
-			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+			ClipProjectionData customClipProject = {};
+			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
+			customClipProject.projectionToNDC[0][0] *= 1.003f;
+			customClipProject.projectionToNDC[1][1] *= 1.003f;
+			customClipProject.maxClipNDC = float32_t2(0.5, 0.5);
+			customClipProject.minClipNDC = float32_t2(-0.5, -0.5);
+			uint32_t clipProjIdx = InvalidClipProjectionIdx;
+			// intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{

@@ -167,50 +167,6 @@ bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, 
     return true;
 }
 
-// https://pomax.github.io/bezierinfo/#splitting
-// Splits curve in 2
-/*
-left=[]
-right=[]
-function drawCurvePoint(points[], t):
-  if(points.length==1):
-    left.add(points[0])
-    right.add(points[0])
-    draw(points[0])
-  else:
-    newpoints=array(points.size-1)
-    for(i=0; i<newpoints.length; i++):
-      if(i==0):
-        left.add(points[i])
-      if(i==newpoints.length-1):
-        right.add(points[i+1])
-      newpoints[i] = (1-t) * points[i] + t * points[i+1]
-    drawCurvePoint(newpoints, t)
-*/
-//Curve splitCurveTakeLeft(Curve curve, double t) 
-//{
-//    Curve outputCurve;
-//    outputCurve.p[0] = curve.p[0];
-//    outputCurve.p[1] = (1-t) * curve.p[0] + t * curve.p[1];
-//    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
-//
-//    return outputCurve;
-//}
-//Curve splitCurveTakeRight(Curve curve, double t) 
-//{
-//    Curve outputCurve;
-//    outputCurve.p[0] = curve.p[2];
-//    outputCurve.p[1] = (1-t) * curve.p[1] + t * curve.p[2];
-//    outputCurve.p[2] = (1-t) * ((1-t) * curve.p[0] + t * curve.p[1]) + t * ((1-t) * curve.p[1] + t * curve.p[2]);
-//
-//    return outputCurve;
-//}
-//
-//Curve splitCurveRange(Curve curve, double left, double right) 
-//{
-//    return splitCurveTakeLeft(splitCurveTakeRight(curve, left), right);
-//}
-
 double2 transformPointNdc(double2 point2d)
 {
     double4x4 transformation = globals.viewProjection;
@@ -227,6 +183,18 @@ float2 transformPointScreenSpace(double2 point2d)
     return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
 }
 
+ClipProjectionData getClipProjectionData(in MainObject mainObj)
+{
+    if (mainObj.clipProjectionIdx != InvalidClipProjectionIdx)
+    {
+        return customClipProjections[mainObj.clipProjectionIdx];
+    }
+    else
+    {
+        return globals.defaultClipProjection;
+    }
+}
+
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -238,12 +206,21 @@ PSInput main(uint vertexID : SV_VertexID)
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
 
+    // Default Initialize PS Input
+    outV.position.z = 0.0;
+    outV.data0 = float4(0, 0, 0, 0);
+    outV.data1 = uint4(0, 0, 0, 0);
+    outV.data2 = float4(0, 0, 0, 0);
+    outV.data3 = float4(0, 0, 0, 0);
+    outV.clip = float4(0,0,0,0);
+
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
     // We only need these for Outline type objects like lines and bezier curves
     MainObject mainObj = mainObjects[drawObj.mainObjIndex];
     LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+    ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
@@ -525,5 +502,6 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position = float4(+1, +1, 0, 1);
 #endif
 
+    outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
     return outV;
 }
