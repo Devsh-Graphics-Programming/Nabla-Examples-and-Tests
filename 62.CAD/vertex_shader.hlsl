@@ -467,7 +467,6 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + 3 + i), 8u);
         }
 
-        // TODO: improve this as it's a bit of a mess
         const double2 ndcAabbExtents = abs(transformVectorNdc(curveBox.aabbMax - curveBox.aabbMin));
         const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * (globals.antiAliasingFactor / double2(globals.resolution));
         double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
@@ -475,7 +474,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const double2 coord = transformPointNdc(lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
 
-        const uint major = (uint)MajorAxis::MAJOR_Y;
+        const uint major = (uint)globals.majorAxis;
         const uint minor = 1-major;
 
         nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::construct(
@@ -483,19 +482,19 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::Quadratic<double> curveMax = nbl::hlsl::shapes::Quadratic<double>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
-        outV.setMinorAxisNdc(maxCorner[minor]);
-        outV.setMajorAxisNdc(maxCorner[major]);
+        outV.setMinorBboxUv(maxCorner[minor]);
+        outV.setMajorBboxUv(maxCorner[major]);
 
-        nbl::hlsl::equations::Quadratic<float> curveMinSwizzled = nbl::hlsl::equations::Quadratic<float>::construct(
+        nbl::hlsl::equations::Quadratic<float> curveMinMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[minor], 
             (float)curveMin.B[minor], 
             (float)curveMin.C[minor]);
-        nbl::hlsl::equations::Quadratic<float> curveMaxSwizzled = nbl::hlsl::equations::Quadratic<float>::construct(
+        nbl::hlsl::equations::Quadratic<float> curveMaxMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMax.A[minor], 
             (float)curveMax.B[minor], 
             (float)curveMax.C[minor]);
-        outV.setCurveMinBezier(curveMinSwizzled);
-        outV.setCurveMaxBezier(curveMaxSwizzled);
+        outV.setCurveMinBezier(curveMinMinorAxis);
+        outV.setCurveMaxBezier(curveMaxMinorAxis);
         
         nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[major], 

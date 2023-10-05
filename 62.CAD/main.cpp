@@ -81,6 +81,8 @@ double index(const double2& vec, uint32_t index)
 
 #include "common.hlsl"
 
+constexpr MajorAxis HatchMajorAxis = MajorAxis::MAJOR_Y;
+
 bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
 	const bool areParametersEqual =
@@ -267,18 +269,35 @@ public:
 		return m_bounds;
 	}
 
-	double4x4 constructViewProjection()
+	double4x4 constructViewProjection(double timeElapsed)
 	{
-		double4x4 ret = {};
+		auto ret = nbl::core::matrix4SIMD();
+		//double4x4 ret = {};
+		//
+		ret.rows[0].X = 2.0 / m_bounds.X;
+		ret.rows[1].Y = -2.0 / m_bounds.Y;
+		ret.rows[2].Z = 1.0;
+		
+		ret.rows[2].X = (-2.0 * m_origin.X) / m_bounds.X;
+		ret.rows[2].Y = (2.0 * m_origin.Y) / m_bounds.Y;
 
-		ret._r0[0] = 2.0 / m_bounds.X;
-		ret._r1[1] = -2.0 / m_bounds.Y;
-		ret._r2[2] = 1.0;
+		double theta = 0.0;//(timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
 
-		ret._r2[0] = (-2.0 * m_origin.X) / m_bounds.X;
-		ret._r2[1] = (2.0 * m_origin.Y) / m_bounds.Y;
+		auto rotation = nbl::core::matrix4SIMD(
+			cos(theta), -sin(theta), 0.0, 0.0,
+			sin(theta), cos(theta), 0.0, 0.0,
+			0.0, 0.0, 1.0, 0.0,
+			0.0, 0.0, 0.0, 1.0
+		);
 
-		return ret;
+		auto matrix = nbl::core::matrix4SIMD::concatenateBFollowedByA(rotation, ret);
+
+		return {
+			matrix.rows[0].X,matrix.rows[0].Y,matrix.rows[0].Z,matrix.rows[0].W,
+			matrix.rows[1].X,matrix.rows[1].Y,matrix.rows[1].Z,matrix.rows[1].W,
+			matrix.rows[2].X,matrix.rows[2].Y,matrix.rows[2].Z,matrix.rows[2].W,
+			matrix.rows[3].X,matrix.rows[3].Y,matrix.rows[3].Z,matrix.rows[3].W,
+		};
 	}
 
 	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
@@ -738,7 +757,7 @@ public:
 		// Splits the bezier into monotonic segments. If it already was monotonic, 
 		// returns a copy of this bezier in the first value of the array
 		std::array<QuadraticBezier, 2> splitIntoMonotonicSegments(int major) const;
-		std::pair<double2, double2> getBezierBoundingBox() const;
+		std::pair<double2, double2> getBezierBoundingBoxMinor(int major) const;
 	};
 
 	std::vector<QuadraticBezier> beziers;
@@ -819,14 +838,14 @@ public:
 		}
 	};
 
-	Hatch(core::SRange<CPolyline> lines, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
+	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
 	{
 		std::stack<Segment> starts; // Next segments sorted by start points
 		std::stack<Segment> ends; // Next segments sorted by end points
 		double maxMajor;
 
-		const int major = 1; // Major = Y
-		const int minor = 1-major; // Minor = Opposite of major (X)
+		int major = (int)majorAxis;
+		int minor = 1-major; // Minor = Opposite of major (X)
 
 		auto drawDebugBezier = [&](QuadraticBezier bezier, float4 color)
 		{
@@ -1077,8 +1096,8 @@ public:
 					auto splitCurveMin = left.getSplitCurve();
 					auto splitCurveMax = right.getSplitCurve();
 
- 					auto curveMinAabb = splitCurveMin.getBezierBoundingBox();
-					auto curveMaxAabb = splitCurveMax.getBezierBoundingBox();
+ 					auto curveMinAabb = splitCurveMin.getBezierBoundingBoxMinor(major);
+					auto curveMaxAabb = splitCurveMax.getBezierBoundingBoxMinor(major);
 					curveBox.aabbMin = double2(std::min(curveMinAabb.first.X, curveMaxAabb.first.X), std::min(curveMinAabb.first.Y, curveMaxAabb.first.Y));
 					curveBox.aabbMax = double2(std::max(curveMinAabb.second.X, curveMaxAabb.second.X), std::max(curveMinAabb.second.Y, curveMaxAabb.second.Y));
 
@@ -1274,14 +1293,17 @@ std::array<Hatch::QuadraticBezier, 2> Hatch::QuadraticBezier::splitIntoMonotonic
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
-std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBox() const
+std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor(int major) const
 {
-	auto roots = getRoots();
-	const int searchTSize = 6;
+	int minor = 1 - major;
+	double A = index(p[0] - 2.0 * p[1] + p[2], minor);
+	double B = index(2.0 * (p[1] - p[0]), minor);
+
+	const int searchTSize = 3;
 	double searchT[searchTSize];
 	searchT[0] = 0.0;
 	searchT[1] = 1.0;
-	memcpy(&searchT[2], &roots.data()[0], sizeof(double) * 4);
+	searchT[2] = -B / (2 * A);
 
 	double2 min = double2(std::numeric_limits<double>::infinity());
 	double2 max = double2(-std::numeric_limits<double>::infinity());
@@ -1298,7 +1320,7 @@ std::pair<double2, double2> Hatch::QuadraticBezier::getBezierBoundingBox() const
 
 	return std::pair<double2, double2>(min, max);
 }
-
+\
 template <typename BufferType>
 struct DrawBuffers
 {
@@ -2667,9 +2689,10 @@ public:
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint2{ WIN_W, WIN_H };
-		globalData.viewProjection = m_Camera.constructViewProjection();
+		globalData.viewProjection = m_Camera.constructViewProjection(m_timeElapsed);
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.viewProjection, globalData.resolution);
 		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
+		globalData.majorAxis = HatchMajorAxis;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -2952,7 +2975,7 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, submissionQueue, submissionFence, intendedNextSubmit);
 			};
 
-			Hatch hatch(polylines, nullptr);
+			Hatch hatch(polylines, HatchMajorAxis, nullptr);
 			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)

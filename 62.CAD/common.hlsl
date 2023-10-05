@@ -53,7 +53,7 @@ struct Globals
     float worldToScreenRatio; // 136
     uint2 resolution; // 144
     float antiAliasingFactor; // 148
-    int _pad; // 152
+    MajorAxis majorAxis; // 152
 };
 
 struct LineStyle
@@ -117,8 +117,7 @@ struct PSInput
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    // For curve box, has the UV within the AABB
-    // UV, curve min & curve max are all 
+    // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     
         // ArcLenCalculator<float>
@@ -199,10 +198,10 @@ struct PSInput
     }
     
     // Curve box value along minor & major axis
-    float getMinorAxisNdc() { return interp_data5.z; };
-    void setMinorAxisNdc(float minorAxisNdc) { interp_data5.z = minorAxisNdc; }
-    float getMajorAxisNdc() { return interp_data5.w; };
-    void setMajorAxisNdc(float majorAxisNdc) { interp_data5.w = majorAxisNdc; }
+    float getMinorBboxUv() { return interp_data5.z; };
+    void setMinorBboxUv(float minorBboxUv) { interp_data5.z = minorBboxUv; }
+    float getMajorBboxUv() { return interp_data5.w; };
+    void setMajorBboxUv(float majorBboxUv) { interp_data5.w = majorBboxUv; }
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
