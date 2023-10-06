@@ -21,7 +21,7 @@ enum class ExampleMode
 	CASE_4, // STIPPLE PATTERN
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 typedef uint32_t uint;
 
@@ -186,8 +186,8 @@ public:
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 176u);
-static_assert(sizeof(ClipProjectionData) == 144u);
+static_assert(sizeof(Globals) == 112u);
+static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
@@ -218,29 +218,27 @@ public:
 		return m_bounds;
 	}
 
-	float64_t4x4 constructViewProjection(double timeElapsed)
+	float64_t3x3 constructViewProjection(double timeElapsed)
 	{
-		auto ret = float64_t4x4();
+		auto ret = float64_t3x3();
 		//double4x4 ret = {};
 		//
 		ret[0][0] = 2.0 / m_bounds.x;
 		ret[1][1] = -2.0 / m_bounds.y;
 		ret[2][2] = 1.0;
-		ret[3][3] = 1.0;
 		
 		ret[0][2] = (-2.0 * m_origin.x) / m_bounds.x;
 		ret[1][2] = (2.0 * m_origin.y) / m_bounds.y;
 
 		double theta = 0.0;// (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
 
-		auto rotation = float64_t4x4(
-			cos(theta), -sin(theta), 0.0, 0.0,
-			sin(theta), cos(theta), 1.0, 0.0,
-			0.0, 0.0, 1.0, 0.0,
-			0.0, 0.0, 0.0, 1.0
+		auto rotation = float64_t3x3(
+			cos(theta), -sin(theta), 0.0,
+			sin(theta), cos(theta), 1.0,
+			0.0, 0.0, 1.0
 		);
 
-		float32_t4x4 matrix(rotation * ret);
+		float64_t3x3 matrix(rotation * ret);
 
 		return matrix;
 	}

@@ -181,13 +181,13 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
 
 double2 transformPointNdc(ClipProjectionData clipProjectionData, double2 point2d)
 {
-    float64_t4x4 transformation = clipProjectionData.projectionToNDC;
-    return mul(transformation, float64_t4(point2d, 1, 1)).xy;
+    float64_t3x3 transformation = clipProjectionData.projectionToNDC;
+    return mul(transformation, float64_t3(point2d, 1)).xy;
 }
 double2 transformVectorNdc(ClipProjectionData clipProjectionData, double2 vector3d)
 {
-    float64_t4x4 transformation = clipProjectionData.projectionToNDC;
-    return mul(transformation, float64_t4(vector3d, 1, 0)).xy;
+    float64_t3x3 transformation = clipProjectionData.projectionToNDC;
+    return mul(transformation, float64_t3(vector3d, 0)).xy;
 }
 float2 transformPointScreenSpace(ClipProjectionData clipProjectionData, double2 point2d) 
 {

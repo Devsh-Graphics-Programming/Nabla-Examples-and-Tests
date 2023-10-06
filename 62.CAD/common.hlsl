@@ -57,20 +57,19 @@ struct CurveBox
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    float64_t4x4 projectionToNDC; // 128 -> because we use scalar_layout
-    float32_t2 minClipNDC; // 136
-    float32_t2 maxClipNDC; // 144
+    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    float32_t2 minClipNDC; // 80
+    float32_t2 maxClipNDC; // 88
 };
 
 struct Globals
 {
-    ClipProjectionData defaultClipProjection; // 144
-    float screenToWorldRatio; // 148
-    float worldToScreenRatio; // 152
-    uint32_t2 resolution; // 160
-    float antiAliasingFactor; // 164
-    MajorAxis majorAxis; // 168
-    uint32_t2 _pad; // 176
+    ClipProjectionData defaultClipProjection; // 88
+    float screenToWorldRatio; // 92
+    float worldToScreenRatio; // 96
+    uint32_t2 resolution; // 104
+    float antiAliasingFactor; // 108
+    MajorAxis majorAxis; // 112
 };
 
 struct LineStyle
