@@ -47,7 +47,6 @@ public:
 		double intersectOrtho(double coordinate, int major) const;
 		float64_t2 evaluateBezier(double t) const;
 		float64_t2 tangent(double t) const;
-		std::array<double, 4> getRoots() const;
 		// Functions for splitting a curve based on t, where 
 		// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
 		QuadraticBezier splitCurveTakeLower(double t) const;
