@@ -39,8 +39,6 @@ double index(const float64_t2& vec, uint32_t index)
 
 #include "common.hlsl"
 
-constexpr MajorAxis HatchMajorAxis = MajorAxis::MAJOR_Y;
-
 bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
 	const bool areParametersEqual =
@@ -230,17 +228,7 @@ public:
 		ret[0][2] = (-2.0 * m_origin.x) / m_bounds.x;
 		ret[1][2] = (2.0 * m_origin.y) / m_bounds.y;
 
-		double theta = 0.0;// (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
-
-		auto rotation = float64_t3x3(
-			cos(theta), -sin(theta), 0.0,
-			sin(theta), cos(theta), 1.0,
-			0.0, 0.0, 1.0
-		);
-
-		float64_t3x3 matrix(rotation * ret);
-
-		return matrix;
+		return ret;
 	}
 
 	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
@@ -416,7 +404,7 @@ namespace hatchutils {
 	// From https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 	// TODO: Refactor this code (needs better names among other things)
 	// These are not fully safe on NaNs or when handling precision, as pointed out by devsh in the Discord
-	static EquationSolveResult<double, 2> SolveQuadric(double c[3])
+	static EquationSolveResult<double, 2> SolveQuadratic(double c[3])
 	{
 		double p, q, D;
 
@@ -584,13 +572,13 @@ namespace hatchutils {
 			coeffs[1] = q < 0 ? -v : v;
 			coeffs[2] = 1;
 
-			auto quadric1 = SolveQuadric(coeffs);
+			auto quadric1 = SolveQuadratic(coeffs);
 
 			coeffs[0] = z + u;
 			coeffs[1] = q < 0 ? v : -v;
 			coeffs[2] = 1;
 
-			auto quadric2 = SolveQuadric(coeffs);
+			auto quadric2 = SolveQuadratic(coeffs);
 
 			s = { quadric1.uniqueRoots + quadric2.uniqueRoots, {} };
 			std::copy(quadric1.roots.begin(), quadric1.roots.end(), s.roots.begin());
@@ -631,7 +619,7 @@ namespace hatchutils {
 		else
 		{
 			double params[3] = { c, b, a };
-			auto res = hatchutils::SolveQuadric(params);
+			auto res = hatchutils::SolveQuadratic(params);
 			std::copy(res.roots.data(), res.roots.data() + t.size(), t.begin());
 		}
 
@@ -696,12 +684,15 @@ public:
 		float64_t2 evaluateBezier(double t) const;
 		float64_t2 tangent(double t) const;
 		std::array<double, 4> getRoots() const;
-		QuadraticBezier splitCurveTakeLeft(double t) const;
-		QuadraticBezier splitCurveTakeRight(double t) const;
-		// Splits the bezier into monotonic segments. If it already was monotonic, 
-		// returns a copy of this bezier in the first value of the array
-		std::array<QuadraticBezier, 2> splitIntoMonotonicSegments(int major) const;
-		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor(int major) const;
+		// Functions for splitting a curve based on t, where 
+		// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
+		QuadraticBezier splitCurveTakeLower(double t) const;
+		QuadraticBezier splitCurveTakeUpper(double t) const;
+		// Splits the bezier into segments such that it is now monotonic in the major axis. 
+		// If it already was major monotonic, ...
+		bool splitIntoMajorMonotonicSegments(std::array<QuadraticBezier, 2>& segments) const;
+		// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
+		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor() const;
 	};
 
 	std::vector<QuadraticBezier> beziers;
@@ -717,7 +708,7 @@ public:
 
 		QuadraticBezier splitCurveRange(QuadraticBezier curve, double left, double right)
 		{
-			return curve.splitCurveTakeRight(left).splitCurveTakeLeft(right);
+			return curve.splitCurveTakeUpper(left).splitCurveTakeLower(right);
 		}
 
 		QuadraticBezier getSplitCurve()
@@ -845,7 +836,8 @@ public:
 							
 							// Beziers must be monotonically increasing along major
 							// First step: Make sure the bezier is monotonic, split it if not
-							auto monotonic = unsplitBezier.splitIntoMonotonicSegments(major);
+							std::array<QuadraticBezier, 2> monotonicSegments;
+							auto isMonotonic = unsplitBezier.splitIntoMajorMonotonicSegments(monotonicSegments);
 
 							auto addBezier = [&](QuadraticBezier bezier)
 							{
@@ -860,7 +852,7 @@ public:
 								beziers.push_back(outputBezier);
 							};
 
-							if (nbl::core::isnan(monotonic.data()[0].p[0].x))
+							if (isMonotonic)
 							{
 								// Already was monotonic
 								addBezier(unsplitBezier);
@@ -869,12 +861,12 @@ public:
 							}
 							else
 							{
-								addBezier(monotonic.data()[0]);
-								addBezier(monotonic.data()[1]);
+								addBezier(monotonicSegments.data()[0]);
+								addBezier(monotonicSegments.data()[1]);
 								if (debugOutput)
 								{
-									drawDebugBezier(monotonic.data()[0], float32_t4(0.0, 0.6, 0.0, 0.5));
-									drawDebugBezier(monotonic.data()[1], float32_t4(0.0, 0.0, 0.6, 0.5));
+									drawDebugBezier(monotonicSegments.data()[0], float32_t4(0.0, 0.6, 0.0, 0.5));
+									drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 0.0, 0.6, 0.5));
 								}
 							}
 						}
@@ -1040,8 +1032,8 @@ public:
 					auto splitCurveMin = left.getSplitCurve();
 					auto splitCurveMax = right.getSplitCurve();
 
- 					auto curveMinAabb = splitCurveMin.getBezierBoundingBoxMinor(major);
-					auto curveMaxAabb = splitCurveMax.getBezierBoundingBoxMinor(major);
+ 					auto curveMinAabb = splitCurveMin.getBezierBoundingBoxMinor();
+					auto curveMaxAabb = splitCurveMax.getBezierBoundingBoxMinor();
 					curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), std::min(curveMinAabb.first.y, curveMaxAabb.first.y));
 					curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), std::max(curveMinAabb.second.y, curveMaxAabb.second.y));
 
@@ -1183,21 +1175,7 @@ float64_t2 Hatch::QuadraticBezier::tangent(double t) const
 	return tangent / len;
 }
 
-// https://pomax.github.io/bezierinfo/#extremities
-std::array<double, 4> Hatch::QuadraticBezier::getRoots() const
-{
-	// Quadratic coefficients
-	float64_t2 A = p[0] - 2.0 * p[1] + p[2];
-	float64_t2 B = 2.0 * (p[1] - p[0]);
-	float64_t2 C = p[0];
-	
-	auto xroots = hatchutils::getCurveRoot(A.x, B.x, C.x);
-	auto yroots = hatchutils::getCurveRoot(A.y, B.y, C.y);
-
-	return { xroots.x, xroots.y, yroots.x, yroots.y };
-}
-
-Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLeft(double t) const
+Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLower(double t) const
 {
 	QuadraticBezier outputCurve;
 	outputCurve.p[0] = p[0];
@@ -1210,7 +1188,7 @@ Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLeft(double t) cons
 	return outputCurve;
 }
 
-Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeRight(double t) const
+Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeUpper(double t) const
 {
 	QuadraticBezier outputCurve;
 	outputCurve.p[0] = p[2];
@@ -1223,25 +1201,27 @@ Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeRight(double t) con
 	return outputCurve;
 }
 
-std::array<Hatch::QuadraticBezier, 2> Hatch::QuadraticBezier::splitIntoMonotonicSegments(int major) const
+bool Hatch::QuadraticBezier::splitIntoMajorMonotonicSegments(std::array<Hatch::QuadraticBezier, 2>& out) const
 {
 	// Getting derivatives for our quadratic bezier
-	auto a = 2.0 * (index(p[1], major) - index(p[0], major));
-	auto b = 2.0 * (index(p[2], major) - index(p[1], major));
+	auto major = (uint)SelectedMajorAxis;
+	auto a = 2.0 * p[1][major] - p[0][major];
+	auto b = 2.0 * p[2][major] - p[1][major];
 
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto rcp = 1.0 / (b - a);
 	auto t = -a * rcp;
-	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return { { float64_t2(nbl::core::nan<double>()) }};
-	return { splitCurveTakeLeft(t), splitCurveTakeRight(t) };
+	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return true;
+	out = { splitCurveTakeLower(t), splitCurveTakeUpper(t) };
+	return false;
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
-std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor(int major) const
+std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor() const
 {
-	int minor = 1 - major;
-	double A = index(p[0] - 2.0 * p[1] + p[2], minor);
-	double B = index(2.0 * (p[1] - p[0]), minor);
+	auto minor = (uint)SelectedMinorAxis;
+	double A = p[0][minor] - 2.0 * p[1][minor] + p[2][minor];
+	double B = 2.0 * (p[1][minor] - p[0][minor]);
 
 	const int searchTSize = 3;
 	double searchT[searchTSize];
@@ -1471,12 +1451,16 @@ public:
 	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
 	video::IGPUQueue::SSubmitInfo drawHatch(
 		const Hatch& hatch,
-		const CPULineStyle& lineStyle,
+		// If more parameters from cpu line style are used here later, make a new HatchStyle & use that
+		const float32_t4 color, 
 		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
+		CPULineStyle lineStyle;
+		lineStyle.color = color;
+
 		uint32_t styleIdx;
 		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		
@@ -1878,12 +1862,15 @@ protected:
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex)
 	{
 		constexpr uint32_t IndicesPerHatchBox = 6u;
+
+		const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(Hatch::CurveHatchBox);
+
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferSize - currentGeometryBufferSize);
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferHatchBoxes);
+		uploadableObjects = core::min(uploadableObjects, hatch.hatchBoxes.size());
 
-		uint32_t i = 0;
-		for (; i + currentObjectInSection < hatch.hatchBoxes.size() && i < uploadableObjects; i++)
+		for (uint32_t i = 0; i < uploadableObjects; i++)
 		{
 			Hatch::CurveHatchBox hatchBox = hatch.hatchBoxes[i + currentObjectInSection];
 
@@ -1910,9 +1897,9 @@ protected:
 		}
 
 		// Add Indices
-		addHatchIndices_Internal(currentDrawObjectCount, i);
-		currentDrawObjectCount += i;
-		currentObjectInSection += i;
+		addHatchIndices_Internal(currentDrawObjectCount, uploadableObjects);
+		currentDrawObjectCount += uploadableObjects;
+		currentObjectInSection += uploadableObjects;
 	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
@@ -2326,8 +2313,6 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		std::this_thread::sleep_for(std::chrono::seconds(5));
-
 		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
 		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
 
@@ -2710,7 +2695,7 @@ public:
 		logicalDevice->waitIdle();
 	}
 
-	float getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
+	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
 	{
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
 		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
@@ -2736,15 +2721,28 @@ public:
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 		cb->beginDebugMarker("Frame");
+
+		
+		double theta = 0.0;// (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
+
+		auto rotation = float64_t3x3(
+			cos(theta), -sin(theta), 0.0,
+			sin(theta), cos(theta), 1.0,
+			0.0, 0.0, 1.0
+		);
+
+		auto vp = m_Camera.constructViewProjection(m_timeElapsed);
+		float64_t3x3 projectionToNDC(rotation * vp);
+
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection(m_timeElapsed);
+		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
-		globalData.majorAxis = HatchMajorAxis;
+		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.screenToWorldRatio = (float) screenToWorld;
+		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -3031,11 +3029,6 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
-			CPULineStyle style = {};
-			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 0.8f;
-			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.9f);
-
 			CPolyline polyline;
 			std::vector<QuadraticBezierInfo> beziers;
 			beziers.push_back({
@@ -3054,8 +3047,8 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			};
 
-			Hatch hatch(polylines, HatchMajorAxis, nullptr);
-			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			Hatch hatch(polylines, SelectedMajorAxis, nullptr);
+			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{

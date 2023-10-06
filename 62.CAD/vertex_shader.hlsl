@@ -179,19 +179,17 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-double2 transformPointNdc(ClipProjectionData clipProjectionData, double2 point2d)
+double2 transformPointNdc(float64_t3x3 transformation, double2 point2d)
 {
-    float64_t3x3 transformation = clipProjectionData.projectionToNDC;
     return mul(transformation, float64_t3(point2d, 1)).xy;
 }
-double2 transformVectorNdc(ClipProjectionData clipProjectionData, double2 vector3d)
+double2 transformVectorNdc(float64_t3x3 transformation, double2 vector3d)
 {
-    float64_t3x3 transformation = clipProjectionData.projectionToNDC;
     return mul(transformation, float64_t3(vector3d, 0)).xy;
 }
-float2 transformPointScreenSpace(ClipProjectionData clipProjectionData, double2 point2d) 
+float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d) 
 {
-    double2 ndc = transformPointNdc(clipProjectionData, point2d);
+    double2 ndc = transformPointNdc(transformation, point2d);
     return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
 }
 
@@ -263,6 +261,8 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data1 = uint4(0, 0, 0, 0);
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
+    outV.data4 = float4(0, 0, 0, 0);
+    outV.interp_data5 = float4(0, 0, 0, 0);
     outV.clip = float4(0,0,0,0);
 
     outV.setObjType(objType);
@@ -287,7 +287,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
         {
-            transformedPoints[i] = transformPointScreenSpace(clipProjectionData, points[i]);
+            transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
         }
 
         const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
@@ -329,7 +329,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedPoints[3u];
         for (uint i = 0u; i < 3u; ++i)
         {
-            transformedPoints[i] = transformPointScreenSpace(clipProjectionData, points[i]);
+            transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
         }
         
         nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
@@ -500,16 +500,16 @@ PSInput main(uint vertexID : SV_VertexID)
 
         //const double2 ndcAabbExtents = abs(transformVectorNdc(curveBox.aabbMax - curveBox.aabbMin));
         const double2 ndcAabbExtents = double2(
-            length(abs(transformVectorNdc(clipProjectionData, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin))),
-            length(abs(transformVectorNdc(clipProjectionData, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin)))
+            length(abs(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin))),
+            length(abs(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin)))
         );
         const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * (globals.antiAliasingFactor / double2(globals.resolution));
         double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         maxCorner = ((((maxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
-        const double2 coord = transformPointNdc(clipProjectionData, lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
+        const double2 coord = transformPointNdc(clipProjectionData.projectionToNDC, lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
 
-        const uint major = (uint)globals.majorAxis;
+        const uint major = (uint)SelectedMajorAxis;
         const uint minor = 1-major;
 
         nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::construct(
@@ -517,8 +517,8 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::Quadratic<double> curveMax = nbl::hlsl::shapes::Quadratic<double>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
-        outV.setMinorBboxUv(maxCorner[minor]);
-        outV.setMajorBboxUv(maxCorner[major]);
+        outV.setMinorBBoxUv(maxCorner[minor]);
+        outV.setMajorBBoxUv(maxCorner[major]);
 
         nbl::hlsl::equations::Quadratic<float> curveMinMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[minor], 

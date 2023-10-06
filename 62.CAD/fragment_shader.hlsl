@@ -123,20 +123,20 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        float minorBboxUv = input.getMinorBboxUv();
-        float majorBboxUv = input.getMajorBboxUv();
+        const float minorBBoxUv = input.getMinorBBoxUv();
+        const float majorBBoxUv = input.getMajorBBoxUv();
 
-        float minT = clamp(input.getMinCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
-        float minEv = input.getCurveMinBezier().evaluate(minT);
+        const float minT = clamp(input.getMinCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
+        const float minEv = input.getCurveMinBezier().evaluate(minT);
         
-        float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
-        float maxEv = input.getCurveMaxBezier().evaluate(maxT);
+        const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
+        const float maxEv = input.getCurveMaxBezier().evaluate(maxT);
         
-        float curveMinorDistance = min(minorBboxUv - minEv, maxEv - minorBboxUv);
-        float aabbMajorDistance = min(majorBboxUv, 1.0 - majorBboxUv);
+        const float curveMinorDistance = min(minorBBoxUv - minEv, maxEv - minorBBoxUv);
+        const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
 
-        const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBboxUv);
-        const float antiAliasingFactorMajor = globals.antiAliasingFactor * fwidth(majorBboxUv);
+        const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);
+        const float antiAliasingFactorMajor = globals.antiAliasingFactor * fwidth(majorBBoxUv);
 
         float4 col = input.getColor();
         col.w *= smoothstep(-antiAliasingFactorMajor, antiAliasingFactorMajor, aabbMajorDistance);

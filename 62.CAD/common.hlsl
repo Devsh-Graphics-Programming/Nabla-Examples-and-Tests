@@ -69,7 +69,7 @@ struct Globals
     float worldToScreenRatio; // 96
     uint32_t2 resolution; // 104
     float antiAliasingFactor; // 108
-    MajorAxis majorAxis; // 112
+    uint32_t _pad; // 112
 };
 
 struct LineStyle
@@ -99,6 +99,9 @@ NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint32_t InvalidClipProjectionIdx = 0xffffffff;
 NBL_CONSTEXPR uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
+NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
+// TODO: get automatic version working on HLSL
+NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 
 #ifndef __cplusplus
 
@@ -216,10 +219,10 @@ struct PSInput
     }
     
     // Curve box value along minor & major axis
-    float getMinorBboxUv() { return interp_data5.z; };
-    void setMinorBboxUv(float minorBboxUv) { interp_data5.z = minorBboxUv; }
-    float getMajorBboxUv() { return interp_data5.w; };
-    void setMajorBboxUv(float majorBboxUv) { interp_data5.w = majorBboxUv; }
+    float getMinorBBoxUv() { return interp_data5.z; };
+    void setMinorBBoxUv(float minorBBoxUv) { interp_data5.z = minorBBoxUv; }
+    float getMajorBBoxUv() { return interp_data5.w; };
+    void setMajorBBoxUv(float majorBBoxUv) { interp_data5.w = majorBBoxUv; }
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
