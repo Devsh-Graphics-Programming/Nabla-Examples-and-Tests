@@ -803,10 +803,10 @@ protected:
 		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
 
-		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
+		const auto maxGeometryBufferBeziers = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
 
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerQuadBezier;
-		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferBeziers);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
 		const auto beziersCount = section.count;
