@@ -21,9 +21,7 @@ enum class ExampleMode
 	CASE_4, // STIPPLE PATTERN
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
-static constexpr bool DebugMode = true;
-static constexpr bool FragmentShaderPixelInterlock = true;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 typedef uint32_t uint;
 
@@ -2047,8 +2045,8 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	constexpr static uint32_t WIN_W = 1600u;
-	constexpr static uint32_t WIN_H = 720u;
+	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
+	constexpr static uint32_t REQUESTED_WIN_H = 720u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -2742,7 +2740,7 @@ public:
 		cb->beginDebugMarker("Frame");
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
-		globalData.resolution = uint32_t2{ WIN_W, WIN_H };
+		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection(m_timeElapsed);
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
