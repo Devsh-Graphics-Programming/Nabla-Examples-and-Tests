@@ -21,7 +21,9 @@ enum class ExampleMode
 	CASE_4, // STIPPLE PATTERN
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
+static constexpr bool DebugMode = true;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 typedef uint32_t uint;
 
@@ -2052,7 +2054,6 @@ class CADApp : public ApplicationBase
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
-
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
@@ -2154,8 +2155,8 @@ class CADApp : public ApplicationBase
 			video::IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
 			imgInfo.type = video::IGPUImage::ET_2D;
-			imgInfo.extent.width = WIN_W;
-			imgInfo.extent.height = WIN_H;
+			imgInfo.extent.width = window->getWidth();
+			imgInfo.extent.height = window->getHeight();
 			imgInfo.extent.depth = 1u;
 			imgInfo.mipLevels = 1u;
 			imgInfo.arrayLayers = 1u;
@@ -2340,8 +2341,8 @@ public:
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "62.CAD" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = WIN_W;
-		initParams.windowHeight = WIN_H;
+		initParams.windowWidth = REQUESTED_WIN_W;
+		initParams.windowHeight = REQUESTED_WIN_H;
 		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.depthFormat = getDepthFormat();
@@ -2383,6 +2384,7 @@ public:
 			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
 		}
 
+		logger->log("dupa", system::ILogger::ELL_INFO);
 
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
@@ -2392,10 +2394,10 @@ public:
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		const auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
 
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, window->getWidth(), window->getHeight(), swapchain);
 
 		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
+			swapchain->getImageCount(), window->getWidth(), window->getHeight(),
 			logicalDevice, swapchain, renderpassFinal,
 			getDepthFormat()
 		);
@@ -2655,7 +2657,7 @@ public:
 		}
 
 		m_Camera.setOrigin({ 0.0, 0.0 });
-		m_Camera.setAspectRatio((double)WIN_W / WIN_H);
+		m_Camera.setAspectRatio((double)window->getWidth() / window->getHeight());
 		m_Camera.setSize(200.0);
 
 		m_timeElapsed = 0.0;
@@ -2787,7 +2789,7 @@ public:
 		{
 			VkRect2D area;
 			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
+			area.extent = { window->getWidth(), window->getHeight() };
 			asset::SClearValue clear[2] = {};
 			clear[0].color.float32[0] = 0.8f;
 			clear[0].color.float32[1] = 0.8f;
@@ -2928,7 +2930,7 @@ public:
 		{
 			VkRect2D area;
 			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
+			area.extent = { window->getWidth(), window->getHeight() };
 
 			beginInfo.clearValueCount = 0u;
 			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
@@ -3082,11 +3084,11 @@ public:
 				float Base = -25;
 				srand(95);
 				std::vector<QuadraticBezierInfo> quadBeziers;
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 1; i++) {
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[1] = float64_t2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[2] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[0] = float64_t2(-100, 0);
+					quadratic1.p[1] = float64_t2(-20, 0);
+					quadratic1.p[2] = float64_t2(100, 0);
 					quadBeziers.push_back(quadratic1);
 				}
 				
@@ -3105,7 +3107,6 @@ public:
 				//	quadBeziers.push_back(quadratic1);
 				//}
 				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
-
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
@@ -3229,10 +3230,13 @@ public:
 					lineY -= 10.0;
 					curveIdx++;
 
-					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
+					/*quadratics[curveIdx].p[0] = double2(-100, lineY);
+					quadratics[curveIdx].p[1] = double2(200, lineY);
+					quadratics[curveIdx].p[2] = double2(100, lineY);*/
 
+					quadratics[curveIdx].p[0] = float64_t2(-10000, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(210, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(10000, lineY);
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
@@ -3247,9 +3251,9 @@ public:
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(-100.0, 20.0);
-					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
-					quadratics[curveIdx].p[2] = float64_t2(-100.0, -20.0);
+					quadratics[curveIdx].p[0] = float64_t2(-150.0, 20.0);
+					quadratics[curveIdx].p[1] = float64_t2(150.0, 0.0);
+					quadratics[curveIdx].p[2] = float64_t2(-150.0, -20.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
