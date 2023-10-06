@@ -25,18 +25,6 @@ constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 typedef uint32_t uint;
 
-// TODO: Use a math lib?
-double dot(const float64_t2& a, const float64_t2& b)
-{
-	return a.x * b.x + a.y * b.y;
-}
-
-double index(const float64_t2& vec, uint32_t index)
-{
-	const double* arr = &vec.x;
-	return arr[index];
-}
-
 #include "common.hlsl"
 
 bool operator==(const LineStyle& lhs, const LineStyle& rhs)

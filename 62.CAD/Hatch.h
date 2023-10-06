@@ -52,7 +52,6 @@ public:
 		QuadraticBezier splitCurveTakeLower(double t) const;
 		QuadraticBezier splitCurveTakeUpper(double t) const;
 		// Splits the bezier into segments such that it is now monotonic in the major axis. 
-		// If it already was major monotonic, ...
 		bool splitIntoMajorMonotonicSegments(std::array<QuadraticBezier, 2>& segments) const;
 		// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
 		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor() const;

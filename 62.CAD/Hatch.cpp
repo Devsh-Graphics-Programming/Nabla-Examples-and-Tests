@@ -272,8 +272,8 @@ Hatch::QuadraticBezier Hatch::Segment::getSplitCurve()
 bool Hatch::Segment::isStraightLineConstantMajor(int major) const
 {
 	int minor = 1 - major;
-	return index(originalBezier->p[0], minor) == index(originalBezier->p[1], minor) &&
-		index(originalBezier->p[0], minor) == index(originalBezier->p[2], minor);
+	return originalBezier->p[0][minor] == originalBezier->p[1][minor] &&
+		originalBezier->p[0][minor] == originalBezier->p[2][minor];
 }
 
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
@@ -379,11 +379,11 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                         auto addBezier = [&](QuadraticBezier bezier)
                         {
                             auto outputBezier = bezier;
-                            if (index(outputBezier.evaluateBezier(0.0), major) > index(outputBezier.evaluateBezier(1.0), major))
+                            if (outputBezier.evaluateBezier(0.0)[major] > outputBezier.evaluateBezier(1.0)[major])
                             {
                                 outputBezier.p[2] = bezier.p[0];
                                 outputBezier.p[0] = bezier.p[2];
-                                assert(index(outputBezier.evaluateBezier(0.0), major) <= index(outputBezier.evaluateBezier(1.0), major));
+                                assert(outputBezier.evaluateBezier(0.0)[major] <= outputBezier.evaluateBezier(1.0)[major]);
                             }
 
                             beziers.push_back(outputBezier);
@@ -421,14 +421,14 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         }
 
         // TODO better way to do this
-        std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return index(a.originalBezier->p[0], major) > index(b.originalBezier->p[0], major); });
+        std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return a.originalBezier->p[0][major] > b.originalBezier->p[0][major]; });
         for (Segment& segment : segments)
             starts.push(segment);
 
-        std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return index(a.originalBezier->p[2], major) > index(b.originalBezier->p[2], major); });
+        std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return a.originalBezier->p[2][major] > b.originalBezier->p[2][major]; });
         for (Segment& segment : segments)
             ends.push(segment);
-        maxMajor = index(segments.back().originalBezier->p[2], major);
+        maxMajor = segments.back().originalBezier->p[2][major];
     }
 
     // Sweep line algorithm
@@ -451,7 +451,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
             {
                 if (nbl::core::isnan(intersectionPoints[i]))
                     continue;
-                intersections.push(index(segment.originalBezier->evaluateBezier(intersectionPoints[i]), major));
+                intersections.push(segment.originalBezier->evaluateBezier(intersectionPoints[i])[major]);
 
                 if (debugOutput) {
                     auto pt = segment.originalBezier->evaluateBezier(intersectionPoints[i]);
@@ -471,24 +471,24 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
     auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
     {
         // btw you probably want the beziers in Quadratic At^2+B+C form, not control points
-        double _lhs = index(lhs.originalBezier->evaluateBezier(lhs.t_start), major);
-        double _rhs = index(rhs.originalBezier->evaluateBezier(lhs.t_start), major);
+        double _lhs = lhs.originalBezier->evaluateBezier(lhs.t_start)[major];
+		double _rhs = rhs.originalBezier->evaluateBezier(lhs.t_start)[major];
         if (_lhs == _rhs)
         {
             // this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
             // also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
             float64_t2 lTan = lhs.originalBezier->tangent(lhs.t_start);
             float64_t2 rTan = lhs.originalBezier->tangent(rhs.t_start);
-            _lhs = index(lTan, minor) * index(rTan, major);
-            _rhs = index(rTan, minor) * index(lTan, major);
+            _lhs = lTan[minor] * rTan[major];
+            _rhs = rTan[minor] * lTan[major];
             if (_lhs == _rhs)
             {
                 // TODO: this is getting the polynominal A for the bezier
                 // when bezier gets converted to A, B, C polynominal this is just ->A
                 float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
                 float64_t2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-                _lhs = index(lAcc, minor) * index(rTan, major);
-                _rhs = index(rTan, minor) * index(lAcc, major);
+                _lhs = lAcc[minor] * rTan[major];
+                _rhs = rTan[minor] * lAcc[major];
             }
         }
         return _lhs < _rhs;
@@ -504,17 +504,17 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
     };
 
 
-    double lastMajor = index(starts.top().originalBezier->evaluateBezier(starts.top().t_start), major);
+    double lastMajor = starts.top().originalBezier->evaluateBezier(starts.top().t_start)[major];
     std::cout << "\n\nBegin! Max major: " << maxMajor << "\n";
     while (lastMajor!=maxMajor)
     {
         double newMajor;
 
         const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
-        const double minMajorStart = nextStartEvent.originalBezier ? index(nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start), major) : 0.0;
+        const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)[major] : 0.0;
 
         const Segment nextEndEvent = ends.top();
-        const double maxMajorEnds = index(nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end), major);
+        const double maxMajorEnds = nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end)[major];
 
         // We check which event, within start, end and intersection events have the smallest
         // major coordinate at this point
@@ -605,7 +605,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
             auto oit = activeCandidates.begin();
             for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
             {
-                const double evalAtMajor = index(iit->originalBezier->evaluateBezier(iit->t_end), major);
+                const double evalAtMajor = iit->originalBezier->evaluateBezier(iit->t_end)[major];
                 // if we scrolled past the end of the segment, remove it
                 // (basically, we memcpy everything after something is different
                 // and we skip on the memcpy for any items that are also different)
