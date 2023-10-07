@@ -1850,18 +1850,27 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 		// work out the inverse of the Rotation component of the View applied before Projection
 		core::matrix4SIMD viewDirReconFactorsT;
 		{
-			core::matrix4SIMD viewRotProjInv(m_prevView);
+			core::matrix4SIMD viewRotProjInvT;
 			{
-				viewRotProjInv.setTranslation(core::vectorSIMDf(0.f));
-				if (!core::concatenateBFollowedByA(modifiedProj,viewRotProjInv).getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(viewRotProjInv))
+				core::matrix4SIMD viewRotProj(m_prevView);
+				viewRotProj.setTranslation(core::vectorSIMDf(0.f));
+				if (!core::concatenateBFollowedByA(modifiedProj,viewRotProj).getInverseTransform<core::matrix4SIMD::E_MATRIX_INVERSE_PRECISION::EMIP_64BBIT>(viewRotProjInvT))
 					std::cout << "Couldn't calculate viewProjection matrix's inverse. something is wrong." << std::endl;
+				viewRotProjInvT = core::transpose(viewRotProjInvT);
 			}
-			// normalizedV = normalize(-viewRotProjInv*vec3(NDC*vec2(2,-2)+vec2(-1,1),1))
+			if (isOrtho) // normalizedV = -viewRotProjInv
 			{
-				const auto T = core::transpose(viewRotProjInv);
-				viewDirReconFactorsT.rows[0] = T.rows[0] * -2.f;
-				viewDirReconFactorsT.rows[1] = T.rows[1] * +2.f;
-				viewDirReconFactorsT.rows[2] = T.rows[0]-T.rows[1]-T.rows[2]-T.rows[3];
+				viewDirReconFactorsT.rows[0].set(0,0,0,0);
+				viewDirReconFactorsT.rows[1].set(0,0,0,0);
+				viewDirReconFactorsT.rows[2] = -viewRotProjInvT.rows[2];
+			}
+			else
+			{
+				// note that we don't care about W coordinate & last row, W-divide, etc. because later normalization murders any scale on the vector
+				// normalizedV = normalize(-viewRotProjInv*vec3(NDC*vec2(0.5,-0.5)+vec2(-0.5,0.5),1))
+				viewDirReconFactorsT.rows[0] = viewRotProjInvT.rows[0]*(-2.f);
+				viewDirReconFactorsT.rows[1] = viewRotProjInvT.rows[1]*(+2.f);
+				viewDirReconFactorsT.rows[2] = viewRotProjInvT.rows[0]-viewRotProjInvT.rows[1]-viewRotProjInvT.rows[2]-viewRotProjInvT.rows[3];
 			}
 		}
 		

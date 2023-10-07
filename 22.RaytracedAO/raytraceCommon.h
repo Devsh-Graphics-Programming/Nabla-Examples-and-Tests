@@ -127,7 +127,7 @@ struct RaytraceShaderCommonData_t
 	// PERSPECTIVE
 	// mat3(viewDirReconFactors)*vec3(uv,1) or hitPoint-viewDirReconFactors[3]
 	// ORTHO
-	// viewDirReconFactors[2]
+	// viewDirReconFactors[2]=V
 	mat4x3	viewDirReconFactors;
 
 #ifdef __cplusplus
