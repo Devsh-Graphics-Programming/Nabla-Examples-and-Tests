@@ -10,7 +10,13 @@
 #include <nabla.h>
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/type_traits.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
+
+#undef _NBL_BUILTIN_HLSL_NUMERIC_LIMITS_INCLUDED_
+#define __HLSL_VERSION
+#include <nbl/builtin/hlsl/limits.hlsl>
+#undef __HLSL_VERSION
 
 #include "../common/CommonAPI.h"
 
@@ -38,6 +44,31 @@ struct T
     float32_t4      h;
 };
 
+// numeric limits API
+// is_specialized
+// is_signed
+// is_integer
+// is_exact
+// has_infinity
+// has_quiet_NaN
+// has_signaling_NaN
+// has_denorm
+// has_denorm_loss
+// round_style
+// is_iec559
+// is_bounded
+// is_modulo
+// digits
+// digits10
+// max_digits10
+// radix
+// min_exponent
+// min_exponent10
+// max_exponent
+// max_exponent10
+// traps
+// tinyness_before
+
 
 template<class T>
 constexpr bool val(T a)
@@ -45,8 +76,20 @@ constexpr bool val(T a)
     return std::is_const_v<T>;
 }
 
+template<class T> 
+bool equal(T l, auto r)
+{
+    if constexpr (is_integral<T>::value)
+        return l == r;
+    
+    return 0==memcmp(&l, &r, sizeof(T));
+}
+
+
+
 int main()
 {
+    float32_t what = bit_cast<float32_t, uint32_t>(0);
 
     // TODO: later this whole test should be templated so we can check all `T` not just `float`, but for this we need `type_traits`
   
@@ -110,8 +153,81 @@ int main()
     float32_t3x3 z_inv = inverse(z);
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
-
     
+    // numeric_limits
+    
+    // 2143289344
+    // 2143289345
+    // 9221120237041090560
+    // 9218868437227405313
+    std::cout << bit_cast<uint32_t>(std::numeric_limits<float>::quiet_NaN()) << "\n";
+    std::cout << bit_cast<uint32_t>(std::numeric_limits<float>::signaling_NaN()) << "\n";
+    std::cout << bit_cast<uint64_t>(std::numeric_limits<double>::quiet_NaN()) << "\n";
+    std::cout << bit_cast<uint64_t>(std::numeric_limits<double>::signaling_NaN()) << "\n";
+    auto test_type_limits = []<class T>() 
+    {
+        using L = std::numeric_limits<T>;
+        using R = nbl::hlsl::numeric_limits<T>;
+
+        
+        #define TEST_AND_LOG(var) \
+            { \
+                auto lhs = L::var; \
+                auto rhs = R::var; \
+                if(!equal(lhs, rhs)) \
+                { \
+                    std::cout << typeid(T).name() << " " << #var << " does not match : " << double(lhs) << " - " << double(rhs) << "\n"; \
+                    abort(); \
+                } \
+            }
+
+        TEST_AND_LOG(is_specialized);
+        TEST_AND_LOG(is_signed);
+        TEST_AND_LOG(is_integer);
+        TEST_AND_LOG(is_exact);
+        TEST_AND_LOG(has_infinity);
+        TEST_AND_LOG(has_quiet_NaN);
+        TEST_AND_LOG(has_signaling_NaN);
+        TEST_AND_LOG(has_denorm);
+        TEST_AND_LOG(has_denorm_loss);
+        TEST_AND_LOG(round_style);
+        TEST_AND_LOG(is_iec559);
+        TEST_AND_LOG(is_bounded);
+        TEST_AND_LOG(is_modulo);
+        TEST_AND_LOG(digits);
+        TEST_AND_LOG(digits10);
+        TEST_AND_LOG(max_digits10);
+        TEST_AND_LOG(radix);
+        TEST_AND_LOG(min_exponent);
+        TEST_AND_LOG(min_exponent10);
+        TEST_AND_LOG(max_exponent);
+        TEST_AND_LOG(max_exponent10);
+        TEST_AND_LOG(traps);
+        TEST_AND_LOG(tinyness_before);
+
+        TEST_AND_LOG(min());
+        TEST_AND_LOG(max());
+        TEST_AND_LOG(lowest());
+        TEST_AND_LOG(epsilon());
+        TEST_AND_LOG(round_error());
+        TEST_AND_LOG(infinity());
+        TEST_AND_LOG(quiet_NaN());
+        TEST_AND_LOG(signaling_NaN());
+        TEST_AND_LOG(denorm_min());
+    };
+
+    test_type_limits.template operator()<float>();
+    test_type_limits.template operator()<double>();
+    test_type_limits.template operator()<int8_t>();
+    test_type_limits.template operator()<int16_t>();
+    test_type_limits.template operator()<int32_t>();
+    test_type_limits.template operator()<int64_t>();
+    test_type_limits.template operator()<uint8_t>();
+    test_type_limits.template operator()<uint16_t>();
+    test_type_limits.template operator()<uint32_t>();
+    test_type_limits.template operator()<uint64_t>();
+    
+
     // test HLSL side
 
     {

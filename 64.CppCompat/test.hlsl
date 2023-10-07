@@ -5,8 +5,12 @@
 #pragma shader_stage(compute)
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+
 #include <nbl/builtin/hlsl/type_traits.hlsl>
+
 #include <nbl/builtin/hlsl/mpl.hlsl>
+
+#include <nbl/builtin/hlsl/limits.hlsl>
 
 struct PushConstants
 {
@@ -19,7 +23,6 @@ PushConstants u_pushConstants;
 
 [[vk::binding(0, 0)]] RWTexture2D<float4> outImage;
 [[vk::binding(1, 0)]] Texture2D<float4> inImage;
-
 
 
 template<int A>
