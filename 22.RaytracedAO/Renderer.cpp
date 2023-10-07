@@ -1827,6 +1827,8 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 
 	// raster jittered frame
 	{
+		const auto projMat = camera->getProjectionMatrix();
+		const bool isOrtho = (projMat.rows[3]==core::vectorSIMDf(0.f,0.f,0.f,1.f)).all();
 		// jitter with AA AntiAliasingSequence
 		const auto modifiedProj = [&](uint32_t frameID)
 		{
@@ -1840,7 +1842,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 			core::matrix4SIMD jitterMatrix;
 			jitterMatrix.rows[0][3] = cosPhi*r*m_rcpPixelSize.x;
 			jitterMatrix.rows[1][3] = sinPhi*r*m_rcpPixelSize.y;
-			return core::concatenateBFollowedByA(jitterMatrix,camera->getProjectionMatrix());
+			return core::concatenateBFollowedByA(jitterMatrix,projMat);
 		}(m_framesDispatched);
 		m_raytraceCommonData.rcpFramesDispatched = 1.f/float(m_framesDispatched);
 		m_raytraceCommonData.textureFootprintFactor = core::inversesqrt(core::min<float>(m_framesDispatched ? m_framesDispatched:1u,Renderer::AntiAliasingSequenceLength));

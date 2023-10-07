@@ -124,7 +124,10 @@ struct RaytraceShaderCommonData_t
 	uint	pathDepth_rayCountWriteIx; // depth=0 if path tracing disabled
 	float	textureFootprintFactor;
 	// need to be at the end because of some PC -> OpenGL Uniform mapping bug
+	// PERSPECTIVE
 	// mat3(viewDirReconFactors)*vec3(uv,1) or hitPoint-viewDirReconFactors[3]
+	// ORTHO
+	// viewDirReconFactors[2]
 	mat4x3	viewDirReconFactors;
 
 #ifdef __cplusplus

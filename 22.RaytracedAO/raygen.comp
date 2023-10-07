@@ -78,7 +78,8 @@ void main()
 				);
 			
 				const vec3 origin = dPdBary*compactBary+lastVxPos;
-				normalizedV = normalize(pc.cummon.viewDirReconFactors[3]-origin);
+// does this buy us any precision? (answer run CI!)
+//				normalizedV = normalize(pc.cummon.viewDirReconFactors[3]-origin);
 
 				// generate rays
 				const uint vertex_depth = 1u;
