@@ -252,9 +252,12 @@ namespace hatchutils {
 		double rcp = 0.5 / a;
 
 		double detSqrt = sqrt(det) * rcp;
-		double tmp = b * rcp;
+		double brcp = b * rcp;
 
-		return float64_t2(-detSqrt, detSqrt) - tmp;
+		// Solve linear equation
+		if (isinf(brcp)) return float64_t2(-c / b);
+
+		return float64_t2(-detSqrt, detSqrt) - brcp;
 	}
 };
 
@@ -380,6 +383,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 							auto begin = line.getLinePointAt(itemIdx);
 							auto end = line.getLinePointAt(itemIdx + 1);
 							addBezier({ 
+								// TODO: it was suggested at some point the middle point should be NaN for this,
+								// should we go ahead with that instead?
 								{ begin, (begin + end) * 0.5, end }
 							});
 						}
@@ -448,6 +453,32 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
     std::priority_queue<double> intersections; // Next intersection points as major coordinate
     std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
 
+	// if we weren't spawning quads, we could just have unsorted `vector<Bezier*>`
+	auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
+	{
+		// btw you probably want the beziers in Quadratic At^2+B+C form, not control points
+		double _lhs = lhs.originalBezier->evaluateBezier(lhs.t_start)[minor];
+		double _rhs = rhs.originalBezier->evaluateBezier(lhs.t_start)[minor];
+		if (_lhs == _rhs)
+		{
+			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
+			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
+			float64_t2 lTan = lhs.originalBezier->tangent(lhs.t_start);
+			float64_t2 rTan = lhs.originalBezier->tangent(rhs.t_start);
+			_lhs = lTan[minor] * rTan[major];
+			_rhs = rTan[minor] * lTan[major];
+			if (_lhs == _rhs)
+			{
+				// TODO: this is getting the polynominal A for the bezier
+				// when bezier gets converted to A, B, C polynominal this is just ->A
+				float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+				float64_t2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+				_lhs = lAcc[minor] * rTan[major];
+				_rhs = rTan[minor] * lAcc[major];
+			}
+		}
+		return _lhs < _rhs;
+	};
     auto addToCandidateSet = [&](const Segment& entry)
     {
 		std::cout << "Add to candidate set: (" << entry.originalBezier->p[0].x << ", " << entry.originalBezier->p[0].y << "),"
@@ -482,35 +513,9 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 }
             }
         }
-        activeCandidates.push_back(entry);
+		activeCandidates.push_back(entry);
     };
 
-    // if we weren't spawning quads, we could just have unsorted `vector<Bezier*>`
-    auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
-    {
-        // btw you probably want the beziers in Quadratic At^2+B+C form, not control points
-        double _lhs = lhs.originalBezier->evaluateBezier(lhs.t_start)[major];
-		double _rhs = rhs.originalBezier->evaluateBezier(lhs.t_start)[major];
-        if (_lhs == _rhs)
-        {
-            // this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
-            // also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
-            float64_t2 lTan = lhs.originalBezier->tangent(lhs.t_start);
-            float64_t2 rTan = lhs.originalBezier->tangent(rhs.t_start);
-            _lhs = lTan[minor] * rTan[major];
-            _rhs = rTan[minor] * lTan[major];
-            if (_lhs == _rhs)
-            {
-                // TODO: this is getting the polynominal A for the bezier
-                // when bezier gets converted to A, B, C polynominal this is just ->A
-                float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-                float64_t2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-                _lhs = lAcc[minor] * rTan[major];
-                _rhs = rTan[minor] * lAcc[major];
-            }
-        }
-        return _lhs < _rhs;
-    };
     auto intersectionVisit = [&]()
     {
         auto newMajor = intersections.top();
@@ -527,12 +532,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
     while (lastMajor!=maxMajor)
     {
         double newMajor;
-
-        const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
-        const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)[major] : 0.0;
+		bool addStartSegmentToCandidates = false;
 
         const Segment nextEndEvent = ends.top();
         const double maxMajorEnds = nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end)[major];
+
+		const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
+		const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)[major] : 0.0;
 
         // We check which event, within start, end and intersection events have the smallest
         // major coordinate at this point
@@ -545,8 +551,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
             if (intersections.empty() || minMajorStart < intersections.top()) // priority queue top() is O(1)
             {
                 starts.pop();
-                addToCandidateSet(nextStartEvent);
                 newMajor = minMajorStart;
+				addStartSegmentToCandidates = true;
                 if (debugOutput)
                     drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(1.0, 0.3, 0.3, 0.1));
                 std::cout << "Start event at " << newMajor << "\n";
@@ -567,8 +573,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.3, 0.3, 1.0, 0.1));
             std::cout << "End event at " << newMajor << "\n";
         }
-
-        // spawn quads if we advanced
+        // spawn quads for the previous iterations if we advanced
         std::cout << "New major: " << newMajor << " Last major: " << lastMajor << "\n";
         if (newMajor > lastMajor)
         {
@@ -589,8 +594,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 
                 auto curveMinAabb = splitCurveMin.getBezierBoundingBoxMinor();
                 auto curveMaxAabb = splitCurveMax.getBezierBoundingBoxMinor();
-                curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), std::min(curveMinAabb.first.y, curveMaxAabb.first.y));
-                curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), std::max(curveMinAabb.second.y, curveMaxAabb.second.y));
+                curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), lastMajor);
+                curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), newMajor);
 
                 if (debugOutput)
                 {
@@ -599,7 +604,15 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                     drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
                     drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
                 }
-                std::cout << "Hatch box bounding box (" << curveBox.aabbMin.x << ", " << curveBox.aabbMin.y << ") .. (" << curveBox.aabbMax.x << "," << curveBox.aabbMax.y << ")\n";
+                std::cout << "Hatch box bounding box (" << curveBox.aabbMin.x << ", " << curveBox.aabbMin.y << ") .. (" << curveBox.aabbMax.x << "," << curveBox.aabbMax.y << ") " <<
+					"for the curves: " <<
+					"(" << splitCurveMin.p[0].x << ", " << splitCurveMin.p[0].y << "),"
+					"(" << splitCurveMin.p[1].x << ", " << splitCurveMin.p[1].y << ")," <<
+					"(" << splitCurveMin.p[2].x << ", " << splitCurveMin.p[2].y << ") .. " <<
+					"(" << splitCurveMax.p[0].x << ", " << splitCurveMax.p[0].y << "),"
+					"(" << splitCurveMax.p[1].x << ", " << splitCurveMax.p[1].y << ")," <<
+					"(" << splitCurveMax.p[2].x << ", " << splitCurveMax.p[2].y << ")" <<
+					"\n";
                 // Transform curves into AABB UV space and turn them into quadratic coefficients
                 // TODO: the split curve should already have the quadratic bezier as
                 // quadratic coefficients
@@ -647,7 +660,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 }
 				std::cout << "\n";
             }
-            std::sort(activeCandidates.begin(), oit, candidateComparator);
             // trim
             const auto newSize = std::distance(activeCandidates.begin(), oit);
             activeCandidates.resize(newSize);
@@ -655,6 +667,17 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 			std::cout << "New candidate size: " << newSize << "\n";
             lastMajor = newMajor;
         }
+		// If we had a start event, we need to add the candidate
+		if (addStartSegmentToCandidates)
+		{
+			addToCandidateSet(nextStartEvent);
+		}
+		// We'll need to sort if we had a start event and added to the candidate set
+		// or if we have advanced our candidate set
+		if (addStartSegmentToCandidates || newMajor > lastMajor)
+		{
+			std::sort(activeCandidates.begin(), activeCandidates.end(), candidateComparator);
+		}
     }
 }
 
