@@ -12,7 +12,7 @@ using namespace nbl::hlsl;
 
 namespace curves
 {
-//TODO: Share hlsl and cpp
+//TODO: move this to cpp-compat hlsl builtins
 float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
 {
     float64_t denominator = v1.y * v2.x - v1.x * v2.y;
@@ -31,7 +31,7 @@ float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, cons
 }
 
 //TODO: Move these bezier functions inside the bezier struct in hlsl
-inline float64_t bezierYatT(const QuadraticBezierInfo& bezier, float64_t t)
+inline float64_t bezierYatT(const QuadraticBezierInfo& bezier, const float64_t t)
 {
     const float64_t a = bezier.p[0].y - 2.0 * bezier.p[1].y + bezier.p[2].y;
     const float64_t b = 2.0 * (bezier.p[1].y - bezier.p[0].y);
@@ -39,11 +39,12 @@ inline float64_t bezierYatT(const QuadraticBezierInfo& bezier, float64_t t)
     return ((a * t) + b) * t + c; // computePosition at t1
 }
 
-inline float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
+// TODO: move this to cpp-compat hlsl builtins in math::equations::quadratics probably
+// solve ax^2+bx+c=0
+inline float64_t2 solveQuadraticRoot(const float64_t a, const float64_t b, const float64_t c)
 {
-    const float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
-    const float64_t b = 2.0 * (bezier.p[1].x - bezier.p[0].x);
-    const float64_t c = bezier.p[0].x - x;
+    float64_t2 ret;
+
     const float64_t det = b * b - 4.0 * a * c;
     const float64_t detSqrt = sqrt(det);
     const float64_t rcp = 0.5 / a;
@@ -52,19 +53,32 @@ inline float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
     float64_t t0 = 0.0, t1 = 0.0;
     if (b >= 0)
     {
-        t0 = -detSqrt * rcp - bOver2A;
-        t1 = 2 * c / (-b - detSqrt);
+        ret[0] = -detSqrt * rcp - bOver2A;
+        ret[1] = 2 * c / (-b - detSqrt);
     }
     else
     {
-        t0 = 2 * c / (-b + detSqrt);
-        t1 = +detSqrt * rcp - bOver2A;
+        ret[0] = 2 * c / (-b + detSqrt);
+        ret[1] = +detSqrt * rcp - bOver2A;
     }
+    
+    return ret;
+}
 
-    if (t0 >= 0.0 && t0 <= 1.0)
-        return bezierYatT(bezier, t0);
-    else if (t1 >= 0.0 && t1 <= 1.0)
-        return bezierYatT(bezier, t1);
+inline float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
+{
+    const float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
+    const float64_t b = 2.0 * (bezier.p[1].x - bezier.p[0].x);
+    const float64_t c = bezier.p[0].x - x;
+
+    float64_t2 roots = solveQuadraticRoot(a, b, c);
+
+    // _NBL_DEBUG_BREAK_IF(!isnan(roots[0]) && !isnan(roots[1])); // should only have 1 solution
+
+    if (roots[0] >= 0.0 && roots[0] <= 1.0)
+        return bezierYatT(bezier, roots[0]);
+    else if (roots[1] >= 0.0 && roots[1] <= 1.0)
+        return bezierYatT(bezier, roots[1]);
     else
         return std::numeric_limits<double>::quiet_NaN();
 
@@ -81,21 +95,6 @@ inline QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0
 
 struct Curve
 {
-    struct ArcLenIntegrand
-    {
-        const Curve* m_curve;
-
-        ArcLenIntegrand(const Curve* curve) 
-            : m_curve(curve)
-        {}
-
-        inline float64_t operator()(const float64_t t) const
-        {
-            return m_curve->differentialArcLen(t);
-        }
-    };
-
-
     //! compute position at t
     virtual float64_t2 computePosition(float64_t t) const = 0;
 
@@ -104,6 +103,20 @@ struct Curve
 
     //! compute differential arc length at t
     virtual float64_t differentialArcLen(float64_t t) const = 0;
+
+    struct ArcLenIntegrand
+    {
+        const Curve* m_curve;
+
+        ArcLenIntegrand(const Curve* curve)
+            : m_curve(curve)
+        {}
+
+        inline float64_t operator()(const float64_t t) const
+        {
+            return m_curve->differentialArcLen(t);
+        }
+    };
 
     //! compute arc length by gauss legendere integration
     inline float64_t arcLen(float64_t t0, float64_t t1) const
@@ -366,7 +379,7 @@ struct MixedCircle final : public ExplicitCurve
     {
         // bisection search to find inflection point
         // by seeing the graph of second derivative over wide range of values we have deduced that the inflection point exists iff the secondDerivative has opposite signs at begin and end
-        constexpr uint16_t MaxIterations = 16u;
+        constexpr uint16_t MaxIterations = 64u;
         float64_t low = -chordLen/2.0;
         float64_t high = chordLen/2.0;
         float64_t valLow = secondDerivative(low + errorThreshold / 2.0);
@@ -406,6 +419,21 @@ private:
 
 };
 
+// Fix Bezier Hack for when P1 is "outside" P0 -> P2
+// We project P1 into P0->P2 line and see whether it lies inside.
+// Because our curves shouldn't go back on themselves in the direction of the chord
+inline void fixBezierMidPoint(QuadraticBezierInfo& bezier)
+{
+    const float64_t2 localChord = bezier.p[2] - bezier.p[0];
+    const float localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
+    const bool outside = localX<0 || localX>length(localChord);
+    if (outside)
+    {
+        // _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
+        bezier.p[1] = (bezier.p[0] + bezier.p[2]) / 2.0;
+    }
+}
+
 typedef std::function<void(const QuadraticBezierInfo&)> AddBezierFunc;
 
 inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
@@ -426,15 +454,16 @@ inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_
     QuadraticBezierInfo bezier = constructBezierWithTwoPointsAndTangents(P0, V0, P2, V2);
 
     bool shouldSubdivide = false;
-    if (depth > 0u)
+
+    // TODO: compare with certain threshold
+    if (depth > 0u && normalize(V0) == normalize(V2))
     {
-        constexpr double inf = std::numeric_limits<double>::infinity();
-        // TODO: compare with certain threshold?
-        if (normalize(V0) == normalize(V2))
-        {
-            shouldSubdivide = true;
-        }
-        else
+        shouldSubdivide = true;
+    }
+    else
+    {
+        fixBezierMidPoint(bezier);
+        if (depth > 0u)
         {
             const float64_t2 curvePositionAtSplit = curve.computePosition(split);
             const float64_t bezierValueAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
@@ -450,27 +479,17 @@ inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_
     }
     else
     {
-        // Hack for when P1 is "outside" P0 -> P2, we project P1 into P0->P2 line and see whether it lies inside. 
-        const float64_t2 localChord = bezier.p[2] - bezier.p[0];
-        const float localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
-        const bool outside = localX<0 || localX>length(localChord);
-        if (outside)
-        {
-            _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
-            bezier.p[1] = (bezier.p[0] + bezier.p[2]) / 2.0;
-        }
-
         addBezierFunc(bezier);
     }
 }
 
-//! this subdivision algorithm works for any curve which is ?? over the range [min, max] and will continue until hits the `maxDepth` or `targetMaxError` threshold
+//! this subdivision algorithm works/converges for any x-monotonic curve (only 1 y for each x) over the [min, max] range and will continue until hits the `maxDepth` or `targetMaxError` threshold
 //! this function will call the AddBezierFunc when the bezier is finalized, whether to render it directly, write it to file, add it to a vector, etc.. is up to the user.
 //! the subdivision samples the points based on arc length and the error is computed by distance in y direction, so pre and post transform may be needed for your curve and the outputted beziers
 inline void adaptiveSubdivision(const Curve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
 {
     // The curves we're working with will have at most 1 inflection point.
-    const float64_t inflectX = curve.inflectionPoint(targetMaxError); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
+    const float64_t inflectX = curve.inflectionPoint(targetMaxError * 1e-5); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
     if (inflectX > min && inflectX < max)
     {
         adaptiveSubdivision_impl(curve, min, inflectX, targetMaxError, addBezierFunc, maxDepth);
