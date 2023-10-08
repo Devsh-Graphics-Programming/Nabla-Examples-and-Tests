@@ -65,6 +65,7 @@ inline float64_t2 solveQuadraticRoot(const float64_t a, const float64_t b, const
     return ret;
 }
 
+// returns nan if found X is outside of bounds or not found at all
 inline float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
 {
     const float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
@@ -93,7 +94,7 @@ inline QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0
     return out;
 }
 
-struct Curve
+struct ParametricCurve
 {
     //! compute position at t
     virtual float64_t2 computePosition(float64_t t) const = 0;
@@ -106,9 +107,9 @@ struct Curve
 
     struct ArcLenIntegrand
     {
-        const Curve* m_curve;
+        const ParametricCurve* m_curve;
 
-        ArcLenIntegrand(const Curve* curve)
+        ArcLenIntegrand(const ParametricCurve* curve)
             : m_curve(curve)
         {}
 
@@ -169,8 +170,8 @@ struct Curve
     }
 };
 
-// It's when t = x in Curve
-struct ExplicitCurve : public Curve
+// It's when t = x in a Parametric Curve
+struct ExplicitCurve : public ParametricCurve
 {
     virtual float64_t y(float64_t x) const = 0;
     virtual float64_t derivative(float64_t x) const = 0;
@@ -220,6 +221,45 @@ struct Parabola final : public ExplicitCurve
     float64_t derivative(float64_t x) const override
     {
         return 2.0 * a * x + b;
+    }
+};
+
+struct CubicCurve final : public ParametricCurve
+{
+    float64_t4 X;
+    float64_t4 Y;
+
+    CubicCurve(const float64_t4& X, const float64_t4& Y) 
+        : X(X), Y(Y)
+    {}
+
+    float64_t2 computePosition(float64_t t) const override
+    {
+        return float64_t2(
+            ((X[0] * t + X[1]) * t + X[2]) * t + X[3],
+            ((Y[0] * t + Y[1]) * t + Y[2]) * t + Y[3]
+            );
+    }
+
+    //! compute unnormalized tangent vector at t
+    float64_t2 computeTangent(float64_t t) const override
+    {
+        return float64_t2(
+            (3.0 * X[0] * t + 2.0 * X[1]) * t + X[2],
+            (3.0 * Y[0] * t + 2.0 * Y[1]) * t + Y[2]
+        );
+    }
+
+    //! compute differential arc length at t
+    float64_t differentialArcLen(float64_t t) const override
+    {
+        float64_t2 tangent = computeTangent(t);
+        return length(tangent);
+    }
+
+    float64_t inflectionPoint(float64_t errorThreshold) const override
+    {
+        return 0.5;
     }
 };
 
@@ -436,7 +476,7 @@ inline void fixBezierMidPoint(QuadraticBezierInfo& bezier)
 
 typedef std::function<void(const QuadraticBezierInfo&)> AddBezierFunc;
 
-inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
+inline void adaptiveSubdivision_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
 {
     float64_t split = curve.inverseArcLen_BisectionSearch(0.5, min, max);
 
@@ -466,8 +506,8 @@ inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_
         if (depth > 0u)
         {
             const float64_t2 curvePositionAtSplit = curve.computePosition(split);
-            const float64_t bezierValueAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
-            if (abs(curvePositionAtSplit.y - bezierValueAtSplit) > targetMaxError)
+            const float64_t bezierYAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
+            if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
                 shouldSubdivide = true;
         }
     }
@@ -486,7 +526,7 @@ inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_
 //! this subdivision algorithm works/converges for any x-monotonic curve (only 1 y for each x) over the [min, max] range and will continue until hits the `maxDepth` or `targetMaxError` threshold
 //! this function will call the AddBezierFunc when the bezier is finalized, whether to render it directly, write it to file, add it to a vector, etc.. is up to the user.
 //! the subdivision samples the points based on arc length and the error is computed by distance in y direction, so pre and post transform may be needed for your curve and the outputted beziers
-inline void adaptiveSubdivision(const Curve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
+inline void adaptiveSubdivision(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
 {
     // The curves we're working with will have at most 1 inflection point.
     const float64_t inflectX = curve.inflectionPoint(targetMaxError * 1e-5); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
