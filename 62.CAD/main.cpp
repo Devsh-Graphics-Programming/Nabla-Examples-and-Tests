@@ -2167,26 +2167,49 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
-			CPolyline polyline;
-			std::vector<QuadraticBezierInfo> beziers;
-			beziers.push_back({
-				100.0 * float64_t2(-0.4, 0.13),
-				100.0 * float64_t2(7.7, 3.57),
-				100.0 * float64_t2(8.8, 7.27) });
-			beziers.push_back({
-				100.0 * float64_t2(6.6, 0.17),
-				100.0 * float64_t2(-1.97, 3.2),
-				100.0 * float64_t2(3.7, 7.27)});
-			polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
-
-			core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
 			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
 			{
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			};
 
-			Hatch hatch(polylines, SelectedMajorAxis, nullptr);
-			intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			{
+				std::vector<float64_t2> points;
+				double sqrt3 = sqrt(3.0);
+				points.push_back(float64_t2(0, 1));
+				points.push_back(float64_t2(sqrt3 / 2, 0.5));
+				points.push_back(float64_t2(sqrt3 / 2, -0.5));
+				points.push_back(float64_t2(0, -1));
+				points.push_back(float64_t2(-sqrt3 / 2, -0.5));
+				points.push_back(float64_t2(-sqrt3 / 2, 0.5));
+				points.push_back(float64_t2(0, 1));
+			
+				for (uint32_t i = 0; i < points.size(); i++)
+					points[i] = float64_t2(-100.0, 0.0) + 200.0 * points[i];
+			
+				CPolyline polyline;
+				polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+			
+				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+				Hatch hatch(polylines, SelectedMajorAxis, nullptr);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+			{
+				CPolyline polyline;
+				std::vector<QuadraticBezierInfo> beziers;
+				beziers.push_back({
+					100.0 * float64_t2(-0.4, 0.13),
+					100.0 * float64_t2(7.7, 3.57),
+					100.0 * float64_t2(8.8, 7.27) });
+				beziers.push_back({
+					100.0 * float64_t2(6.6, 0.17),
+					100.0 * float64_t2(-1.97, 3.2),
+					100.0 * float64_t2(3.7, 7.27) });
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+			
+				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+				Hatch hatch(polylines, SelectedMajorAxis, nullptr);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{

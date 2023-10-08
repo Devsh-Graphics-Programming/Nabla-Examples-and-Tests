@@ -268,12 +268,11 @@ Hatch::QuadraticBezier Hatch::Segment::getSplitCurve()
     return splitCurveRange(*originalBezier, t_start, t_end);
 }
 
-// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
-bool Hatch::Segment::isStraightLineConstantMajor(int major) const
+bool Hatch::Segment::isStraightLineConstantMajor() const
 {
-	int minor = 1 - major;
-	return originalBezier->p[0][minor] == originalBezier->p[1][minor] &&
-		originalBezier->p[0][minor] == originalBezier->p[2][minor];
+	auto major = (uint)SelectedMajorAxis;
+	return originalBezier->p[0][major] == originalBezier->p[1][major] &&
+		originalBezier->p[0][major] == originalBezier->p[2][major];
 }
 
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
@@ -360,10 +359,31 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         {
             for (uint32_t secIdx = 0; secIdx < line.getSectionsCount(); secIdx ++)
             {
+				auto addBezier = [&](QuadraticBezier bezier)
+				{
+					auto outputBezier = bezier;
+					if (outputBezier.evaluateBezier(0.0)[major] > outputBezier.evaluateBezier(1.0)[major])
+					{
+						outputBezier.p[2] = bezier.p[0];
+						outputBezier.p[0] = bezier.p[2];
+						assert(outputBezier.evaluateBezier(0.0)[major] <= outputBezier.evaluateBezier(1.0)[major]);
+					}
+
+					beziers.push_back(outputBezier);
+				};
+
                 auto section = line.getSectionInfoAt(secIdx);
                 if (section.type == ObjectType::LINE)
-                    // TODO other types of lines
-                    {}
+                    {
+						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx++)
+						{
+							auto begin = line.getLinePointAt(itemIdx);
+							auto end = line.getLinePointAt(itemIdx + 1);
+							addBezier({ 
+								{ begin, (begin + end) * 0.5, end }
+							});
+						}
+					}
                 else if (section.type == ObjectType::QUAD_BEZIER)
                 {
                     for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
@@ -375,19 +395,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                         // First step: Make sure the bezier is monotonic, split it if not
                         std::array<QuadraticBezier, 2> monotonicSegments;
                         auto isMonotonic = unsplitBezier.splitIntoMajorMonotonicSegments(monotonicSegments);
-
-                        auto addBezier = [&](QuadraticBezier bezier)
-                        {
-                            auto outputBezier = bezier;
-                            if (outputBezier.evaluateBezier(0.0)[major] > outputBezier.evaluateBezier(1.0)[major])
-                            {
-                                outputBezier.p[2] = bezier.p[0];
-                                outputBezier.p[0] = bezier.p[2];
-                                assert(outputBezier.evaluateBezier(0.0)[major] <= outputBezier.evaluateBezier(1.0)[major]);
-                            }
-
-                            beziers.push_back(outputBezier);
-                        };
 
                         if (isMonotonic)
                         {
@@ -422,13 +429,19 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 
         // TODO better way to do this
         std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return a.originalBezier->p[0][major] > b.originalBezier->p[0][major]; });
-        for (Segment& segment : segments)
-            starts.push(segment);
+		for (Segment& segment : segments)
+		{
+			starts.push(segment);
+			std::cout << "Starts: " << segment.originalBezier->p[0][major]  << "\n";
+		}
 
         std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return a.originalBezier->p[2][major] > b.originalBezier->p[2][major]; });
         for (Segment& segment : segments)
-            ends.push(segment);
-        maxMajor = segments.back().originalBezier->p[2][major];
+		{
+			ends.push(segment);
+			std::cout << "Ends: " << segment.originalBezier->p[2][major] << "\n";
+		}
+        maxMajor = segments.front().originalBezier->p[2][major];
     }
 
     // Sweep line algorithm
@@ -437,11 +450,16 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 
     auto addToCandidateSet = [&](const Segment& entry)
     {
-        if (entry.isStraightLineConstantMajor(major))
-            return;
+		std::cout << "Add to candidate set: (" << entry.originalBezier->p[0].x << ", " << entry.originalBezier->p[0].y << "),"
+			"(" << entry.originalBezier->p[1].x << ", " << entry.originalBezier->p[1].y << ")," <<
+			"(" << entry.originalBezier->p[2].x << ", " << entry.originalBezier->p[2].y << ")" <<
+			"\n";
+		if (entry.isStraightLineConstantMajor())
+		{
+			std::cout << "Above was a straight line in major, ignored\n";
+			return;
+		}
         // Look for intersections among active candidates
-        // TODO shouldn't this filter out when lines don't intersect?
-
         // this is a little O(n^2) but only in the `n=candidates.size()`
         for (const auto& segment : activeCandidates)
         {
@@ -556,9 +574,9 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         {
             // trim
             const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
+			std::cout << "Candidates size: " << candidatesSize << "\n";
             // because n4ce works on loops, this must be true
             assert((candidatesSize % 2u)==0u);
-            std::cout << "Candidates size: " << candidatesSize << "\n";
             for (auto i=0u; i< candidatesSize;)
             {
                 auto& left = activeCandidates[i++];
@@ -606,6 +624,12 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
             for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
             {
                 const double evalAtMajor = iit->originalBezier->evaluateBezier(iit->t_end)[major];
+
+				auto origBez = iit->originalBezier;
+				std::cout << "Candidate: (" << origBez->p[0].x << ", " << origBez->p[0].y << "),"
+					"(" << origBez->p[1].x << ", " << origBez->p[1].y << ")," <<
+					"(" << origBez->p[2].x << ", " << origBez->p[2].y << ") " <<
+					"Evaluated at major: " << evalAtMajor;
                 // if we scrolled past the end of the segment, remove it
                 // (basically, we memcpy everything after something is different
                 // and we skip on the memcpy for any items that are also different)
@@ -613,18 +637,22 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 if (newMajor < evalAtMajor)
                 {
                     const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
+
+					std::cout << " new_t_start = " << new_t_start;
                     // little optimization (don't memcpy anything before something was removed)
                     if (oit != iit)
                         *oit = *iit;
                     oit->t_start = new_t_start;
                     oit++;
                 }
+				std::cout << "\n";
             }
             std::sort(activeCandidates.begin(), oit, candidateComparator);
             // trim
             const auto newSize = std::distance(activeCandidates.begin(), oit);
             activeCandidates.resize(newSize);
 
+			std::cout << "New candidate size: " << newSize << "\n";
             lastMajor = newMajor;
         }
     }

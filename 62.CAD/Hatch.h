@@ -72,7 +72,7 @@ public:
 		QuadraticBezier getSplitCurve();
 		std::array<double, 2> intersect(const Segment& other) const;
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
-		bool isStraightLineConstantMajor(int major) const;
+		bool isStraightLineConstantMajor() const;
 	};
 	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */);
 };
