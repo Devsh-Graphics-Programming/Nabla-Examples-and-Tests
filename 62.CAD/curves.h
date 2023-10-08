@@ -10,6 +10,8 @@ using namespace nbl::hlsl;
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
 
+namespace curves
+{
 //TODO: Share hlsl and cpp
 float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
 {
@@ -28,34 +30,154 @@ float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, cons
     return intersectionPoint;
 }
 
-struct ExplicitCurve
+//TODO: Move these bezier functions inside the bezier struct in hlsl
+inline float64_t bezierYatT(const QuadraticBezierInfo& bezier, float64_t t)
+{
+    const float64_t a = bezier.p[0].y - 2.0 * bezier.p[1].y + bezier.p[2].y;
+    const float64_t b = 2.0 * (bezier.p[1].y - bezier.p[0].y);
+    const float64_t c = bezier.p[0].y;
+    return ((a * t) + b) * t + c; // computePosition at t1
+}
+
+inline float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
+{
+    const float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
+    const float64_t b = 2.0 * (bezier.p[1].x - bezier.p[0].x);
+    const float64_t c = bezier.p[0].x - x;
+    const float64_t det = b * b - 4.0 * a * c;
+    const float64_t detSqrt = sqrt(det);
+    const float64_t rcp = 0.5 / a;
+    const float64_t bOver2A = b * rcp;
+
+    float64_t t0 = 0.0, t1 = 0.0;
+    if (b >= 0)
+    {
+        t0 = -detSqrt * rcp - bOver2A;
+        t1 = 2 * c / (-b - detSqrt);
+    }
+    else
+    {
+        t0 = 2 * c / (-b + detSqrt);
+        t1 = +detSqrt * rcp - bOver2A;
+    }
+
+    if (t0 >= 0.0 && t0 <= 1.0)
+        return bezierYatT(bezier, t0);
+    else if (t1 >= 0.0 && t1 <= 1.0)
+        return bezierYatT(bezier, t1);
+    else
+        return std::numeric_limits<double>::quiet_NaN();
+
+}
+
+inline QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t2 v0, float64_t2 P2, float64_t2 v2)
+{
+    QuadraticBezierInfo out = {};
+    out.p[0] = P0;
+    out.p[2] = P2;
+    out.p[1] = LineLineIntersection(P0, v0, P2, v2);
+    return out;
+}
+
+struct Curve
+{
+    struct ArcLenIntegrand
+    {
+        const Curve* m_curve;
+
+        ArcLenIntegrand(const Curve* curve) 
+            : m_curve(curve)
+        {}
+
+        inline float64_t operator()(const float64_t t) const
+        {
+            return m_curve->differentialArcLen(t);
+        }
+    };
+
+
+    //! compute position at t
+    virtual float64_t2 computePosition(float64_t t) const = 0;
+
+    //! compute unnormalized tangent vector at t
+    virtual float64_t2 computeTangent(float64_t t) const = 0;
+
+    //! compute differential arc length at t
+    virtual float64_t differentialArcLen(float64_t t) const = 0;
+
+    //! compute arc length by gauss legendere integration
+    inline float64_t arcLen(float64_t t0, float64_t t1) const
+    {
+        constexpr uint16_t IntegrationOrder = 10u;
+        return nbl::hlsl::math::quadrature::GaussLegendreIntegration<IntegrationOrder, double, ArcLenIntegrand>::calculateIntegral(ArcLenIntegrand(this), t0, t1);
+    }
+
+    //! compute inverse arc len using bisection search
+    inline float64_t inverseArcLen_BisectionSearch(float64_t targetLen, float64_t min, float64_t max, const float64_t cdfAccuracyThreshold = 1e-4, const uint16_t iterationThreshold = 16u) const
+    {
+        float64_t xi = 0.0;
+        float64_t low = min;
+        float64_t high = max;
+        for (uint16_t i = 0; i < iterationThreshold; ++i)
+        {
+            xi = (low + high) / 2.0;
+            float64_t sum = arcLen(min, xi);
+            float64_t integral = sum + arcLen(xi, max);
+
+            // we could've done sum/integral - targetLen, but this is more robust as it avoids a divsion
+            float64_t valueAtParamGuess = sum - targetLen * integral;
+
+            if (abs(valueAtParamGuess) < cdfAccuracyThreshold * integral)
+                return xi; // we found xi value that gives us a cdf of targetLen within cdfAccuracyThreshold
+            else
+            {
+                if (valueAtParamGuess > 0.0)
+                    high = xi;
+                else
+                    low = xi;
+            }
+        }
+
+        return xi;
+    }
+
+    //! compute inverse arc len  
+    inline float64_t inverseArcLen(float64_t targetLen, float64_t min, float64_t max, const float64_t cdfAccuracyThreshold = 1e-4) const
+    {
+        return inverseArcLen_BisectionSearch(targetLen, min, max, cdfAccuracyThreshold);
+    }
+
+    // gets you the t point of inflection with errorThreshold accuracy
+    // the curves we deal with have at most 1 inflection point
+    // if there is no inflection point this function will return NaN
+    virtual float64_t inflectionPoint(float64_t errorThreshold) const
+    {
+        return std::numeric_limits<double>::quiet_NaN();
+    }
+};
+
+// It's when t = x in Curve
+struct ExplicitCurve : public Curve
 {
     virtual float64_t y(float64_t x) const = 0;
     virtual float64_t derivative(float64_t x) const = 0;
 
-    float64_t differentialArcLen(float64_t x) const
+    float64_t differentialArcLen(float64_t x) const override
     {
         float64_t deriv = derivative(x);
         return sqrt(1.0 + deriv * deriv);
     }
-    float64_t rcpDifferentialArcLen(float64_t x) const
+
+    float64_t2 computeTangent(float64_t x) const override
     {
-        return 1.0 / differentialArcLen(x);
+        const float64_t deriv = derivative(x);
+        float64_t2 v = float64_t2(1.0, deriv);
+        if (isinf(deriv))
+            v = float64_t2(0.0, 1.0);
+        return v;
     }
 
-    // for Integrand Operator
-    inline float64_t operator()(const float64_t x) const
-    {
-        return differentialArcLen(x);
-    }
-
-    // gets you the x point of inflection with errorThreshold accuracy
-    // the curves we deal with have at most 1 inflection point
-    // if there is no inflection point this function will return NaN
-    virtual float64_t inflectionX(float64_t errorThreshold) const
-    {
-        return std::numeric_limits<double>::quiet_NaN();
-    }
+    float64_t2 computePosition(float64_t x) const override { return float64_t2(x, y(x)); }
 };
 
 struct Parabola final : public ExplicitCurve
@@ -120,7 +242,7 @@ struct MixedParabola final : public ExplicitCurve
         return ((3.0 * a * x) + 2.0 * b) * x + c;
     }
 
-    float64_t inflectionX(float64_t errorThreshold) const override
+    float64_t inflectionPoint(float64_t errorThreshold) const override
     {
         return -b / (3.0*a);
     }
@@ -240,7 +362,7 @@ struct MixedCircle final : public ExplicitCurve
         return ret;
     }
 
-    float64_t inflectionX(float64_t errorThreshold) const override
+    float64_t inflectionPoint(float64_t errorThreshold) const override
     {
         // bisection search to find inflection point
         // by seeing the graph of second derivative over wide range of values we have deduced that the inflection point exists iff the secondDerivative has opposite signs at begin and end
@@ -286,132 +408,37 @@ private:
 
 typedef std::function<void(const QuadraticBezierInfo&)> AddBezierFunc;
 
-inline float64_t bezierYatT(const QuadraticBezierInfo& bezier, float64_t t)
+inline void adaptiveSubdivision_impl(const Curve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
 {
-    const float64_t a = bezier.p[0].y - 2.0 * bezier.p[1].y + bezier.p[2].y;
-    const float64_t b = 2.0 * (bezier.p[1].y - bezier.p[0].y);
-    const float64_t c = bezier.p[0].y;
-    return ((a * t) + b) * t + c; // eval at t1
-}
+    float64_t split = curve.inverseArcLen_BisectionSearch(0.5, min, max);
 
-// To compute error from actual curve
-inline float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
-{
-    const float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
-    const float64_t b = 2.0 * (bezier.p[1].x - bezier.p[0].x);
-    const float64_t c = bezier.p[0].x - x;
-    const float64_t det = b * b - 4.0 * a * c;
-    const float64_t detSqrt = sqrt(det);
-    const float64_t rcp = 0.5 / a;
-    const float64_t bOver2A = b * rcp;
-
-    float64_t t0 = 0.0, t1 = 0.0;
-    if (b >= 0)
-    {
-        t0 = -detSqrt * rcp - bOver2A;
-        t1 = 2 * c / (-b - detSqrt);
-    }
-    else
-    {
-        t0 = 2 * c / (-b + detSqrt);
-        t1 = +detSqrt * rcp - bOver2A;
-    }
-
-    if (t0 >= 0.0 && t0 <= 1.0)
-        return bezierYatT(bezier, t0);
-    else if (t1 >= 0.0 && t1 <= 1.0)
-        return bezierYatT(bezier, t1);
-    else
-        return std::numeric_limits<double>::quiet_NaN();
-
-}
-
-inline QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t t0, float64_t2 P2, float64_t t2)
-{
-    QuadraticBezierInfo out = {};
-    out.p[0] = P0;
-    out.p[2] = P2;
-
-    float64_t2 v0 = float64_t2(1.0, t0);
-    if (isinf(t0))
-        v0 = float64_t2(0.0, 1.0);
-
-    float64_t2 v2 = float64_t2(1.0, t2);
-    if (isinf(t2))
-        v2 = float64_t2(0.0, 1.0);
-
-    out.p[1] = LineLineIntersection(P0, v0, P2, v2);
-    return out;
-}
-
-inline float64_t cdf(const ExplicitCurve& curve, float64_t min, float64_t max)
-{
-    constexpr uint16_t IntegrationOrder = 10u;
-    return nbl::hlsl::math::quadrature::GaussLegendreIntegration<IntegrationOrder, double, ExplicitCurve>::calculateIntegral(curve, min, max);
-}
-
-inline float64_t inverseCDF_Bisection(const ExplicitCurve& curve, float64_t targetCDF, float64_t min, float64_t max)
-{
-    constexpr float64_t cdfAccuracyThreshold = 1e-4;
-    constexpr uint16_t iterationThreshold = 16u;
-
-    float64_t xi = 0.0; // return value
-
-    float64_t low = min;
-    float64_t high = max;
-    for (uint16_t i = 0; i < iterationThreshold; ++i)
-    {
-        xi = (low + high) / 2.0;
-        float64_t sum = cdf(curve, min, xi);
-        float64_t integral = sum + cdf(curve, xi, max);
-
-        // we could've done sum/integral - targetCDF, but this is more robust as it avoids a divsion
-        float64_t valueAtParamGuess = sum - targetCDF * integral;
-
-        if (abs(valueAtParamGuess) < cdfAccuracyThreshold * integral)
-            return xi; // we found xi value that gives us a cdf of targetCDF within cdfAccuracyThreshold
-        else
-        {
-            if (valueAtParamGuess > 0.0)
-                high = xi;
-            else
-                low = xi;
-        }
-    }
-
-    return xi;
-}
-
-inline void adaptiveSubdivision_impl(const ExplicitCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
-{
-    float64_t split = inverseCDF_Bisection(curve, 0.5, min, max);
-
-    // Shouldn't happen but may happen if we don't use bisection for inverse CDF
+    // Shouldn't happen but may happen if we use NewtonRaphson for non convergent inverse CDF
     if (split <= min || split >= max)
     {
         _NBL_DEBUG_BREAK_IF(true);
         split = (min + max) / 2.0;
     }
 
-    const float64_t2 P0 = float64_t2(min, curve.y(min));
-    const float64_t P0Tan = curve.derivative(min);
-    const float64_t2 P2 = float64_t2(max, curve.y(max));
-    const float64_t P2Tan = curve.derivative(max);
-    QuadraticBezierInfo bezier = constructBezierWithTwoPointsAndTangents(P0, P0Tan, P2, P2Tan);
+    const float64_t2 P0 = curve.computePosition(min);
+    const float64_t2 V0 = curve.computeTangent(min);
+    const float64_t2 P2 = curve.computePosition(max);
+    const float64_t2 V2 = curve.computeTangent(max);
+    QuadraticBezierInfo bezier = constructBezierWithTwoPointsAndTangents(P0, V0, P2, V2);
 
     bool shouldSubdivide = false;
     if (depth > 0u)
     {
         constexpr double inf = std::numeric_limits<double>::infinity();
-        if (P0Tan == P2Tan || (abs(P0Tan) == inf && abs(P2Tan) == inf))
+        // TODO: compare with certain threshold?
+        if (normalize(V0) == normalize(V2))
         {
             shouldSubdivide = true;
         }
         else
         {
-            float64_t curveValueAtSplit = curve.y(split);
-            float64_t bezierValueAtSplit = bezierYatX(bezier, split);
-            if (abs(curveValueAtSplit - bezierValueAtSplit) > targetMaxError)
+            const float64_t2 curvePositionAtSplit = curve.computePosition(split);
+            const float64_t bezierValueAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
+            if (abs(curvePositionAtSplit.y - bezierValueAtSplit) > targetMaxError)
                 shouldSubdivide = true;
         }
     }
@@ -423,7 +450,7 @@ inline void adaptiveSubdivision_impl(const ExplicitCurve& curve, float64_t min, 
     }
     else
     {
-        // Hack for when P1 is "outside" P0 -> P2
+        // Hack for when P1 is "outside" P0 -> P2, we project P1 into P0->P2 line and see whether it lies inside. 
         const float64_t2 localChord = bezier.p[2] - bezier.p[0];
         const float localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
         const bool outside = localX<0 || localX>length(localChord);
@@ -437,10 +464,13 @@ inline void adaptiveSubdivision_impl(const ExplicitCurve& curve, float64_t min, 
     }
 }
 
-inline void adaptiveSubdivision(const ExplicitCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
+//! this subdivision algorithm works for any curve which is ?? over the range [min, max] and will continue until hits the `maxDepth` or `targetMaxError` threshold
+//! this function will call the AddBezierFunc when the bezier is finalized, whether to render it directly, write it to file, add it to a vector, etc.. is up to the user.
+//! the subdivision samples the points based on arc length and the error is computed by distance in y direction, so pre and post transform may be needed for your curve and the outputted beziers
+inline void adaptiveSubdivision(const Curve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
 {
     // The curves we're working with will have at most 1 inflection point.
-    const float64_t inflectX = curve.inflectionX(targetMaxError); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
+    const float64_t inflectX = curve.inflectionPoint(targetMaxError); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
     if (inflectX > min && inflectX < max)
     {
         adaptiveSubdivision_impl(curve, min, inflectX, targetMaxError, addBezierFunc, maxDepth);
@@ -449,5 +479,5 @@ inline void adaptiveSubdivision(const ExplicitCurve& curve, float64_t min, float
     else
         adaptiveSubdivision_impl(curve, min, max, targetMaxError, addBezierFunc, maxDepth);
 }
-
+} // namespace curves
 #endif

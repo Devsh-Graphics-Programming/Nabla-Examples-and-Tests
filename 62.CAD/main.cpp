@@ -2027,12 +2027,12 @@ public:
 					//quadBeziers.push_back(quadratic1);
 				}
 
-				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
-				// MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
-				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-				MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
+				// curves::MixedCircle myCurve = curves::MixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
+				// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
+				curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
 
-				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
+				curves::AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
 						quadBeziers.push_back(info);
 					};
@@ -2042,13 +2042,13 @@ public:
 				const int pp = (ix / 30) % 12;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				adaptiveSubdivision(myCurve, 0.0, 50.0, error, addToBezier, 10u);
+				curves::adaptiveSubdivision(myCurve, 0.0, 50.0, error, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 				// VISUALIZE INFLECTION POINT
 				std::vector<float64_t2> linePoints;
-				auto inflectionPointX = myCurve.inflectionX(1e-5);
+				auto inflectionPointX = myCurve.inflectionPoint(1e-5);
 				linePoints.push_back({ inflectionPointX, -100.0});
 				linePoints.push_back({ inflectionPointX, 100.0 });
 				polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
