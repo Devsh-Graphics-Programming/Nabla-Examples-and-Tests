@@ -259,6 +259,108 @@ struct CubicCurve final : public ParametricCurve
 
     float64_t inflectionPoint(float64_t errorThreshold) const override
     {
+        // TODO
+        return 0.5;
+    }
+};
+
+// specialized circular arc for the purpose of mixing it with another curve of the same type later
+// (r*cos(t*sweep+start), r*sin(t*sweep+start) + originY)
+struct CircularArc final : public ParametricCurve
+{
+    float64_t r;
+    float64_t originY; // originX is 0
+    float64_t startAngle;
+    float64_t sweepAngle;
+
+    CircularArc(float64_t r, float64_t originY, float64_t startAngle, float64_t sweepAngle)
+        : r(r), originY(originY), startAngle(startAngle), sweepAngle(sweepAngle)
+    {}
+
+    // from circle center (0, -v.y) to start pos (v.x, 0)
+    CircularArc(float64_t2 v, float64_t sweepAngle)
+        : originY(-v.y), sweepAngle(sweepAngle)
+    {
+        r = length(v);
+        startAngle = getSign(v.y) * acos(v.x / r);
+    }
+
+    // from circle center (0, -v.y) to start pos (v.x, 0)
+    CircularArc(float64_t2 v)
+        : originY(-v.y)
+    {
+        r = length(v);
+        startAngle = getSign(v.y) * acos(v.x / r);
+        sweepAngle = -2.0 * getSign(v.y) * acos(abs(originY)/r);
+    }
+
+    float64_t2 computePosition(float64_t t) const override
+    {
+        const float64_t actualT = t * sweepAngle + startAngle;
+        return float64_t2(
+            r * cos(actualT),
+            r * sin(actualT) + originY
+        );
+    }
+
+    //! compute unnormalized tangent vector at t
+    float64_t2 computeTangent(float64_t t) const override
+    {
+        const float64_t actualT = t * sweepAngle + startAngle;
+        return float64_t2(
+            -1.0 * r * sweepAngle * sin(actualT),
+            r * sweepAngle * cos(actualT)
+        );
+    }
+
+    //! compute differential arc length at t
+    float64_t differentialArcLen(float64_t t) const override
+    {
+        float64_t2 tangent = computeTangent(t);
+        return length(tangent);
+    }
+
+private:
+    static float64_t getSign(float64_t x)
+    {
+        return static_cast<float64_t>((x > 0.0)) - static_cast<float64_t>((x <= 0.0));
+    }
+};
+
+// Mixes/Interpolation of two Parametric Curves t from 0 to 1
+struct MixedParametricCurves final : public ParametricCurve
+{
+    const ParametricCurve* curve1;
+    const ParametricCurve* curve2;
+
+    MixedParametricCurves(const ParametricCurve* curve1, const ParametricCurve* curve2)
+        : curve1(curve1), curve2(curve2)
+    {}
+
+    float64_t2 computePosition(float64_t t) const override
+    {
+        const float64_t2 curve1Pos = curve1->computePosition(t);
+        const float64_t2 curve2Pos = curve2->computePosition(t);
+        return t * (curve2Pos - curve1Pos) + curve1Pos;
+    }
+
+    //! compute unnormalized tangent vector at t
+    float64_t2 computeTangent(float64_t t) const override
+    {
+        // TODO:
+        return {};
+    }
+
+    //! compute differential arc length at t
+    float64_t differentialArcLen(float64_t t) const override
+    {
+        float64_t2 tangent = computeTangent(t);
+        return length(tangent);
+    }
+
+    float64_t inflectionPoint(float64_t errorThreshold) const override
+    {
+        //TODO:
         return 0.5;
     }
 };
@@ -321,7 +423,7 @@ struct ExplicitEllipse final : public ExplicitCurve
 };
 
 // Centered at (0, 0), P1 and P2 on x axis and P1.x = -P2.x
-struct MixedCircle final : public ExplicitCurve
+struct ExplicitMixedCircle final : public ExplicitCurve
 {
     struct ExplicitCircle
     {
@@ -353,9 +455,9 @@ struct MixedCircle final : public ExplicitCurve
     float64_t radius2;
     float64_t chordLen;
 
-    static MixedCircle fromFourPoints(const float64_t2& P0, const float64_t2& P1, const float64_t2& P2, const float64_t2& P3)
+    static ExplicitMixedCircle fromFourPoints(const float64_t2& P0, const float64_t2& P1, const float64_t2& P2, const float64_t2& P3)
     {
-        MixedCircle ret = {};
+        ExplicitMixedCircle ret = {};
         assert(P1.x == -P2.x);
         assert(P1.y == 0 && P2.y == 0);
         const ExplicitCircle circle1 = ExplicitCircle::fromThreePoints(P0, P1, P2);
