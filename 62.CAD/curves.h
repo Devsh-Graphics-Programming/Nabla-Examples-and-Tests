@@ -161,10 +161,16 @@ struct ParametricCurve
         return inverseArcLen_BisectionSearch(targetLen, min, max, cdfAccuracyThreshold);
     }
 
+    //! used in special cases when parametric curves need to find inflection point by using solvnig for root of signed curvature
+    virtual float64_t2 computeSecondOrderDifferential(float64_t t) const
+    {
+        return float64_t2(std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN());
+    }
+
     // gets you the t point of inflection with errorThreshold accuracy
     // the curves we deal with have at most 1 inflection point
     // if there is no inflection point this function will return NaN
-    virtual float64_t inflectionPoint(float64_t errorThreshold) const
+    virtual float64_t computeInflectionPoint(float64_t errorThreshold) const
     {
         return std::numeric_limits<double>::quiet_NaN();
     }
@@ -257,7 +263,7 @@ struct CubicCurve final : public ParametricCurve
         return length(tangent);
     }
 
-    float64_t inflectionPoint(float64_t errorThreshold) const override
+    float64_t computeInflectionPoint(float64_t errorThreshold) const override
     {
         // TODO
         return 0.5;
@@ -309,7 +315,16 @@ struct CircularArc final : public ParametricCurve
         const float64_t actualT = t * sweepAngle + startAngle;
         return float64_t2(
             -1.0 * r * sweepAngle * sin(actualT),
-            r * sweepAngle * cos(actualT)
+            +1.0 * r * sweepAngle * cos(actualT)
+        );
+    }
+
+    float64_t2 computeSecondOrderDifferential(float64_t t) const override
+    {
+        const float64_t actualT = t * sweepAngle + startAngle;
+        return float64_t2(
+            -1.0 * r * sweepAngle * sweepAngle * cos(actualT),
+            -1.0 * r * sweepAngle * sweepAngle * sin(actualT)
         );
     }
 
@@ -347,8 +362,21 @@ struct MixedParametricCurves final : public ParametricCurve
     //! compute unnormalized tangent vector at t
     float64_t2 computeTangent(float64_t t) const override
     {
-        // TODO:
-        return {};
+        const float64_t2 curve1Pos = curve1->computePosition(t);
+        const float64_t2 curve2Pos = curve2->computePosition(t);
+        const float64_t2 curve1Tan = curve1->computeTangent(t);
+        const float64_t2 curve2Tan = curve2->computeTangent(t);
+        return (1-t)*curve1Tan - curve1Pos + (t)*curve2Tan + curve2Pos;
+    }
+
+    //! compute unnormalized tangent vector at t
+    float64_t2 computeSecondOrderDifferential(float64_t t) const override
+    {
+        const float64_t2 curve1Tan = curve1->computeTangent(t);
+        const float64_t2 curve2Tan = curve2->computeTangent(t);
+        const float64_t2 curve1SecondDiff = curve1->computeSecondOrderDifferential(t);
+        const float64_t2 curve2SecondDiff = curve2->computeSecondOrderDifferential(t);
+        return (1-t)*curve1SecondDiff + 2.0*(curve2Tan-curve1Tan) + t * curve2SecondDiff;
     }
 
     //! compute differential arc length at t
@@ -358,10 +386,51 @@ struct MixedParametricCurves final : public ParametricCurve
         return length(tangent);
     }
 
-    float64_t inflectionPoint(float64_t errorThreshold) const override
+    float64_t computeInflectionPoint(float64_t errorThreshold) const override
     {
-        //TODO:
-        return 0.5;
+        auto signedCurvatureUnnormalized = [&](float64_t t)
+            {
+                const float64_t2 first = computeTangent(t);
+                const float64_t2 second = computeSecondOrderDifferential(t);
+                return float64_t(first.x * second.y - second.x * first.y);
+            };
+
+        constexpr uint16_t MaxIterations = 32u;
+        float64_t low = 0.0;
+        float64_t high = 1.0;
+        float64_t valLow = signedCurvatureUnnormalized(low);
+        float64_t valHigh = signedCurvatureUnnormalized(high);
+        if (getSign(valLow) != getSign(valHigh))
+        {
+            if (valLow > valHigh)
+                std::swap(low, high);
+
+            float64_t guess = 0.0;
+            for (uint16_t i = 0u; i < MaxIterations; ++i)
+            {
+                guess = (low + high) / 2.0;
+                float64_t valGuess = signedCurvatureUnnormalized(guess);
+                if (abs(valGuess) < errorThreshold)
+                    return guess;
+
+                if (valGuess < 0.0)
+                    low = guess;
+                else
+                    high = guess;
+            }
+
+            return guess;
+        }
+        else
+        {
+            return std::numeric_limits<double>::quiet_NaN();
+        }
+    }
+
+private:
+    static float64_t getSign(float64_t x)
+    {
+        return static_cast<float64_t>((x > 0.0)) - static_cast<float64_t>((x <= 0.0));
     }
 };
 
@@ -397,7 +466,7 @@ struct MixedParabola final : public ExplicitCurve
         return ((3.0 * a * x) + 2.0 * b) * x + c;
     }
 
-    float64_t inflectionPoint(float64_t errorThreshold) const override
+    float64_t computeInflectionPoint(float64_t errorThreshold) const override
     {
         return -b / (3.0*a);
     }
@@ -517,7 +586,7 @@ struct ExplicitMixedCircle final : public ExplicitCurve
         return ret;
     }
 
-    float64_t inflectionPoint(float64_t errorThreshold) const override
+    float64_t computeInflectionPoint(float64_t errorThreshold) const override
     {
         // bisection search to find inflection point
         // by seeing the graph of second derivative over wide range of values we have deduced that the inflection point exists iff the secondDerivative has opposite signs at begin and end
@@ -572,7 +641,7 @@ inline void fixBezierMidPoint(QuadraticBezierInfo& bezier)
     if (outside)
     {
         // _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
-        bezier.p[1] = (bezier.p[0] + bezier.p[2]) / 2.0;
+        bezier.p[1] = bezier.p[0] * 0.4 + bezier.p[2] * 0.6;
     }
 }
 
@@ -631,7 +700,7 @@ inline void adaptiveSubdivision_impl(const ParametricCurve& curve, float64_t min
 inline void adaptiveSubdivision(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12)
 {
     // The curves we're working with will have at most 1 inflection point.
-    const float64_t inflectX = curve.inflectionPoint(targetMaxError * 1e-5); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
+    const float64_t inflectX = curve.computeInflectionPoint(targetMaxError * 1e-5); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
     if (inflectX > min && inflectX < max)
     {
         adaptiveSubdivision_impl(curve, min, inflectX, targetMaxError, addBezierFunc, maxDepth);
