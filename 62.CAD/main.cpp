@@ -1579,7 +1579,7 @@ public:
 
 		m_Camera.setOrigin({ 0.0, 0.0 });
 		m_Camera.setAspectRatio((double)WIN_W / WIN_H);
-		m_Camera.setSize(200.0);
+		m_Camera.setSize(10.0);
 
 		m_timeElapsed = 0.0;
 
@@ -2028,9 +2028,14 @@ public:
 				}
 
 				// curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
-				// curves::MixedCircle myCurve = curves::MixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
+				// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 				// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-				curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-10.0, 15.0, -5.0, 0.0));
+				
+				curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
+				curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
+				curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
 				curves::AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
@@ -2039,19 +2044,20 @@ public:
 
 				static int ix = 0;
 				ix++;
-				const int pp = (ix / 30) % 12;
+				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				curves::adaptiveSubdivision(myCurve, 0.0, 50.0, error, addToBezier, 10u);
+				curves::adaptiveSubdivision(myCurve, 0.0, 1.0, error, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 				// VISUALIZE INFLECTION POINT
 				std::vector<float64_t2> linePoints;
-				auto inflectionPointX = myCurve.inflectionPoint(1e-5);
-				linePoints.push_back({ inflectionPointX, -100.0});
-				linePoints.push_back({ inflectionPointX, 100.0 });
-				polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				auto inflectionPointT = myCurve.computeInflectionPoint(1e-5);
+				auto inflectionPoint = myCurve.computePosition(inflectionPointT);
+				linePoints.push_back({ inflectionPoint.x, -100.0 });
+				linePoints.push_back({ inflectionPoint.x, 100.0 });
+				// polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
