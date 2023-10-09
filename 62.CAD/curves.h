@@ -256,6 +256,15 @@ struct CubicCurve final : public ParametricCurve
         );
     }
 
+    //! compute second order differential at t
+    float64_t2 computeSecondOrderDifferential(float64_t t) const override
+    {
+        return float64_t2(
+            6.0 * X[0] * t + 2.0 * X[1],
+            6.0 * Y[0] * t + 2.0 * Y[1]
+        );
+    }
+
     //! compute differential arc length at t
     float64_t differentialArcLen(float64_t t) const override
     {
@@ -265,8 +274,19 @@ struct CubicCurve final : public ParametricCurve
 
     float64_t computeInflectionPoint(float64_t errorThreshold) const override
     {
-        // TODO
-        return 0.5;
+        // solve for signed curvature root 
+        // when x'*y''-x''*y' = 0
+        // https://www.wolframalpha.com/input?i=cross+product+%283*x0*t%5E2%2B2*x1%2Bx2%2C3*y0*t%5E2%2B2*y1%2By2%29+and+%286*x0*t%2B2*x1%2C6*y0*t%2B2*y1%29
+        const float64_t a = 6.0 * (X[0]*Y[1] - X[1]*Y[0]);
+        const float64_t b = 6.0 * (2.0*X[1]*Y[0] - 2.0*X[0]*Y[1] + X[2]*Y[0] - X[0]*Y[2]);
+        const float64_t c = 2.0 * (X[2]*Y[1] - X[1]*Y[2]);
+
+        const float64_t2 roots = solveQuadraticRoot(a, b, c);
+        if (roots[0] <= 1.0 && roots[0] >= 0.0)
+            return roots[0];
+        if (roots[1] <= 1.0 && roots[1] >= 0.0)
+            return roots[1];
+        return std::numeric_limits<double>::quiet_NaN();
     }
 };
 
@@ -369,7 +389,7 @@ struct MixedParametricCurves final : public ParametricCurve
         return (1-t)*curve1Tan - curve1Pos + (t)*curve2Tan + curve2Pos;
     }
 
-    //! compute unnormalized tangent vector at t
+    //! compute second order differential at t
     float64_t2 computeSecondOrderDifferential(float64_t t) const override
     {
         const float64_t2 curve1Tan = curve1->computeTangent(t);
