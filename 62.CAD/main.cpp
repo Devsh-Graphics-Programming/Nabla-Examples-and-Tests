@@ -2031,11 +2031,11 @@ public:
 				// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 				// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
 				// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-				// curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-10.0, 15.0, -5.0, 0.0));
+				curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
 				
-				curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
-				curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
-				curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
+				// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
+				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
+				// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
 				curves::AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
@@ -2057,7 +2057,7 @@ public:
 				auto inflectionPoint = myCurve.computePosition(inflectionPointT);
 				linePoints.push_back({ inflectionPoint.x, -100.0 });
 				linePoints.push_back({ inflectionPoint.x, 100.0 });
-				// polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
