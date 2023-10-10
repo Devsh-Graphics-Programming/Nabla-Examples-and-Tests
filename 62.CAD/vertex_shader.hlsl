@@ -220,6 +220,18 @@ void BezierOBB_Aligned(float2 p0, float2 p1, float2 p2, float screenSpaceLineWid
     obbV3 = float32_t2(center + mul(-float32_t2(extent.x, -extent.y), rotation));
 }
 
+ClipProjectionData getClipProjectionData(in MainObject mainObj)
+{
+    if (mainObj.clipProjectionIdx != InvalidClipProjectionIdx)
+    {
+        return customClipProjections[mainObj.clipProjectionIdx];
+    }
+    else
+    {
+        return globals.defaultClipProjection;
+    }
+}
+
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -230,12 +242,21 @@ PSInput main(uint vertexID : SV_VertexID)
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
 
+    // Default Initialize PS Input
+    outV.position.z = 0.0;
+    outV.data0 = float4(0, 0, 0, 0);
+    outV.data1 = uint4(0, 0, 0, 0);
+    outV.data2 = float4(0, 0, 0, 0);
+    outV.data3 = float4(0, 0, 0, 0);
+    outV.clip = float4(0,0,0,0);
+
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
     // We only need these for Outline type objects like lines and bezier curves
     MainObject mainObj = mainObjects[drawObj.mainObjIndex];
     LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+    ClipProjectionData clipProjectionData = getClipProjectionData(mainObj);
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
@@ -244,7 +265,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        double3x3 transformation = (double3x3)globals.viewProjection;
+        const double3x3 transformation = clipProjectionData.projectionToNDC;
 
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -286,8 +307,8 @@ PSInput main(uint vertexID : SV_VertexID)
     {
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-
-        double3x3 transformation = (double3x3)globals.viewProjection;
+        
+        const double3x3 transformation = clipProjectionData.projectionToNDC;
 
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -479,5 +500,6 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position = float4(+1, +1, 0, 1);
 #endif
 
+    outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
     return outV;
 }

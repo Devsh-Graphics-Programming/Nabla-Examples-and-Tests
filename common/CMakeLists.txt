@@ -1,0 +1,6 @@
+nbl_create_ext_library_project(CommonAPI "${CMAKE_CURRENT_SOURCE_DIR}/CommonAPI.h" "${CMAKE_CURRENT_SOURCE_DIR}/CommonAPI.cpp" "" "" "")
+set(NBL_EXECUTABLE_COMMON_API_TARGET "${LIB_NAME}" CACHE INTERNAL "")
+
+add_subdirectory(CommonPCH EXCLUDE_FROM_ALL)
+
+#target_precompile_headers("${NBL_EXECUTABLE_COMMON_API_TARGET}" REUSE_FROM "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

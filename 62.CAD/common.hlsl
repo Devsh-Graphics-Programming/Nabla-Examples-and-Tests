@@ -1,4 +1,9 @@
-#ifndef __cplusplus
+
+#ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
+#define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
+
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #endif
 
@@ -12,8 +17,8 @@ enum class ObjectType : uint32_t
 // Consists of multiple DrawObjects
 struct MainObject
 {
-    // TODO[Erfan]: probably have objectType here as well?
     uint32_t styleIdx;
+    uint32_t clipProjectionIdx;
 };
 
 struct DrawObject
@@ -26,8 +31,7 @@ struct DrawObject
 
 struct QuadraticBezierInfo
 {
-    double2 p[3]; // 16*3=48bytes
-    double2 arcLen;
+    float64_t2 p[3]; // 16*3=48bytes
 };
 
 // TODO[Lucas]:
@@ -44,14 +48,23 @@ You need another struct here that represents a "CurveBox" which
 2. It will also contain tmin,tmax for both curves (becuase we subdivide curves into smaller monotonic parts we need this info to help us discard invalid solutions)
 */
 
+// TODO: Compute this in a compute shader from the world counterparts
+//      because this struct includes NDC coordinates, the values will change based camera zoom and move
+//      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
+struct ClipProjectionData
+{
+    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    float32_t2 minClipNDC; // 80
+    float32_t2 maxClipNDC; // 88
+};
+
 struct Globals
 {
-    double4x4 viewProjection; // 128 
-    float screenToWorldRatio; // 132
-    float worldToScreenRatio; // 136
-    uint2 resolution; // 144
-    float antiAliasingFactor; // 148
-    float _pad; // 152
+    ClipProjectionData defaultClipProjection; // 88
+    double screenToWorldRatio; // 96
+    float worldToScreenRatio; // 100
+    uint32_t2 resolution; // 108
+    float antiAliasingFactor; // 112
 };
 
 struct LineStyle
@@ -59,7 +72,7 @@ struct LineStyle
     static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
 
     // common data
-    float4 color;
+    float32_t4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
     
@@ -75,11 +88,12 @@ struct LineStyle
     }
 };
 
-//TODO: USE NBL_CONSTEXPR? in new HLSL PR for Nabla
-static const uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
-static const uint32_t AlphaBits = 32u - MainObjectIdxBits;
-static const uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
-static const uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
+NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
+NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
+NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
+NBL_CONSTEXPR uint32_t InvalidClipProjectionIdx = 0xffffffff;
+NBL_CONSTEXPR uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
 
 #ifndef __cplusplus
 
@@ -110,6 +124,7 @@ uint bitfieldExtract(uint value, int offset, int bits)
 struct PSInput
 {
     float4 position : SV_Position;
+    float4 clip : SV_ClipDistance;
     [[vk::location(0)]] float4 data0 : COLOR;
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
@@ -189,4 +204,7 @@ struct PSInput
 [[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
+[[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+#endif
+
 #endif
