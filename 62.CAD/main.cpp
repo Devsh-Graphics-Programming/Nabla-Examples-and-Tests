@@ -1873,7 +1873,7 @@ public:
 		float64_t3x3 projectionToNDC(rotation * vp);
 
 		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0f;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);

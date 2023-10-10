@@ -138,10 +138,9 @@ float4 main(PSInput input) : SV_TARGET
         const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);
         const float antiAliasingFactorMajor = globals.antiAliasingFactor * fwidth(majorBBoxUv);
 
-        float4 col = input.getColor();
-        col.w *= smoothstep(-antiAliasingFactorMajor, antiAliasingFactorMajor, aabbMajorDistance);
-        col.w *= smoothstep(-antiAliasingFactorMinor, antiAliasingFactorMinor, curveMinorDistance);
-        return float4(col);
+        localAlpha = 1.0;
+        localAlpha *= smoothstep(-antiAliasingFactorMajor, 0.0, aabbMajorDistance);
+        localAlpha *= smoothstep(-antiAliasingFactorMinor, antiAliasingFactorMinor, curveMinorDistance);
     }
 
     uint2 fragCoord = uint2(input.position.xy);
