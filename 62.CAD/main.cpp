@@ -2032,7 +2032,7 @@ public:
 				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
 				// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
-				curves::AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
+				curves::Subdivision::AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
 					{
 						quadBeziers.push_back(info);
 					};
@@ -2042,7 +2042,7 @@ public:
 				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				curves::adaptiveSubdivision(myCurve, 0.0, 1.0, error, addToBezier, 10u);
+				curves::Subdivision::adaptive(myCurve, 0.0, 1.0, error, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
