@@ -650,6 +650,25 @@ private:
 
 };
 
+struct EllipticalArcInfo
+{
+    float64_t2 majorAxis;
+    float64_t2 center;
+    float64_t2 angleBounds; // [0, 2Pi)
+    double eccentricity; // (0, 1]
+
+    bool isValid() const
+    {
+        if (eccentricity > 1.0 || eccentricity < 0.0)
+            return false;
+        if (angleBounds.y < angleBounds.x)
+            return false;
+        if ((angleBounds.y - angleBounds.x) > 2 * nbl::core::PI<double>())
+            return false;
+        return true;
+    }
+};
+
 // Fix Bezier Hack for when P1 is "outside" P0 -> P2
 // We project P1 into P0->P2 line and see whether it lies inside.
 // Because our curves shouldn't go back on themselves in the direction of the chord

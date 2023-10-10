@@ -132,25 +132,6 @@ public:
 		uint32_t	count;
 	};
 
-	struct EllipticalArcInfo
-	{
-		float64_t2 majorAxis;
-		float64_t2 center;
-		float64_t2 angleBounds; // [0, 2Pi)
-		double eccentricity; // (0, 1]
-
-		bool isValid() const
-		{
-			if (eccentricity > 1.0 || eccentricity < 0.0)
-				return false;
-			if (angleBounds.y < angleBounds.x)
-				return false;
-			if ((angleBounds.y - angleBounds.x) > 2 * core::PI<double>())
-				return false;
-			return true;
-		}
-	};
-
 	size_t getSectionsCount() const { return m_sections.size(); }
 
 	const SectionInfo& getSectionInfoAt(const uint32_t idx) const
@@ -203,7 +184,7 @@ public:
 		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
 	}
 
-	void addEllipticalArcs(const core::SRange<EllipticalArcInfo>& ellipses)
+	void addEllipticalArcs(const core::SRange<curves::EllipticalArcInfo>& ellipses)
 	{
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
@@ -431,7 +412,7 @@ public:
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
 		const LineStyle& lineStyle,
-		const uint32_t clipProjectionIdx,
+		const uint32_t clipProjectionIdx, // = InvalidClipProjectionIdx
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
@@ -445,6 +426,22 @@ public:
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
+		return drawPolyline(submissionQueue, submissionFence, intendedNextSubmit, polyline, mainObjIdx);
+	}
+
+	video::IGPUQueue::SSubmitInfo drawPolyline(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit,
+		const CPolyline& polyline,
+		const uint32_t polylineMainObjIdx)
+	{
+		if (polylineMainObjIdx == InvalidMainObjectIdx)
+		{
+			// TODO: assert or log error here
+			return intendedNextSubmit;
+		}
+
 		const auto sectionsCount = polyline.getSectionsCount();
 
 		uint32_t currentSectionIdx = 0u;
@@ -454,7 +451,7 @@ public:
 		{
 			bool shouldSubmit = false;
 			const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-			addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, mainObjIdx);
+			addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, polylineMainObjIdx);
 
 			if (currentObjectInSection >= currentSection.count)
 			{
@@ -538,6 +535,63 @@ public:
 
 	DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
+
+	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
+		const LineStyle& lineStyle,
+		uint32_t& outLineStyleIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outLineStyleIdx = addLineStyle_Internal(lineStyle);
+		if (outLineStyleIdx == InvalidLineStyleIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outLineStyleIdx = addLineStyle_Internal(lineStyle);
+			assert(outLineStyleIdx != InvalidLineStyleIdx);
+		}
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
+		const MainObject& mainObject,
+		uint32_t& outMainObjectIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outMainObjectIdx = addMainObject_Internal(mainObject);
+		if (outMainObjectIdx == InvalidMainObjectIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outMainObjectIdx = addMainObject_Internal(mainObject);
+			assert(outMainObjectIdx != InvalidMainObjectIdx);
+		}
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
+		const ClipProjectionData& clipProjectionData,
+		uint32_t& outClipProjectionIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
+		if (outClipProjectionIdx == InvalidClipProjectionIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
+			assert(outClipProjectionIdx != InvalidClipProjectionIdx);
+		}
+		return intendedNextSubmit;
+	}
 
 protected:
 
@@ -628,25 +682,6 @@ protected:
 		return intendedNextSubmit;
 	}
 
-	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
-		const MainObject& mainObject,
-		uint32_t& outMainObjectIdx,
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		outMainObjectIdx = addMainObject_Internal(mainObject);
-		if (outMainObjectIdx == InvalidMainObjectIdx)
-		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			resetAllCounters();
-			outMainObjectIdx = addMainObject_Internal(mainObject);
-			assert(outMainObjectIdx != InvalidMainObjectIdx);
-		}
-		return intendedNextSubmit;
-	}
-
 	uint32_t addMainObject_Internal(const MainObject& mainObject)
 	{
 		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
@@ -658,25 +693,6 @@ protected:
 		uint32_t ret = (currentMainObjectCount % MaxIndexableMainObjects); // just to wrap around if it ever exceeded (we pack this id into 24 bits)
 		currentMainObjectCount++;
 		return ret;
-	}
-
-	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
-		const LineStyle& lineStyle,
-		uint32_t& outLineStyleIdx,
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		if (outLineStyleIdx == InvalidLineStyleIdx)
-		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			resetAllCounters();
-			outLineStyleIdx = addLineStyle_Internal(lineStyle);
-			assert(outLineStyleIdx != InvalidLineStyleIdx);
-		}
-		return intendedNextSubmit;
 	}
 
 	uint32_t addLineStyle_Internal(const LineStyle& lineStyle)
@@ -700,27 +716,6 @@ protected:
 		return currentLineStylesCount++;
 	}
 
-public:
-	video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
-		const ClipProjectionData& clipProjectionData,
-		uint32_t& outClipProjectionIdx,
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
-		if (outClipProjectionIdx == InvalidClipProjectionIdx)
-		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			resetAllCounters();
-			outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
-			assert(outClipProjectionIdx != InvalidClipProjectionIdx);
-		}
-		return intendedNextSubmit;
-	}
-
-protected:
 	uint32_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
 	{
 		ClipProjectionData* clipProjectionArray = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer());
