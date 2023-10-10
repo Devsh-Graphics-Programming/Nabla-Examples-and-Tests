@@ -2167,6 +2167,11 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
+			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
+			{
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			};
+
 			{
 				std::vector<float64_t2> points;
 				double sqrt3 = sqrt(3.0);
@@ -2199,7 +2204,7 @@ public:
 				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
 
 				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-				Hatch hatch(polylines, SelectedMajorAxis);
+				Hatch hatch(polylines, SelectedMajorAxis, nullptr);
 				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			//{
@@ -2216,7 +2221,7 @@ public:
 			//	polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
 			//
 			//	core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-			//	Hatch hatch(polylines, SelectedMajorAxis);
+			//	Hatch hatch(polylines, SelectedMajorAxis, nullptr);
 			//	intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			//}
 		}
