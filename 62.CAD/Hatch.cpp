@@ -125,7 +125,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
 {
     std::stack<Segment> starts; // Next segments sorted by start points
-    std::stack<Segment> ends; // Next segments sorted by end points
+    std::stack<double> ends; // Next end points
     double maxMajor;
 
     int major = (int)majorAxis;
@@ -253,7 +253,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return a.originalBezier->p[2][major] > b.originalBezier->p[2][major]; });
         for (Segment& segment : segments)
 		{
-			ends.push(segment);
+			ends.push(segment.originalBezier->p[2][major]);
 			std::cout << "Ends: " << segment.originalBezier->p[2][major] << "\n";
 		}
         maxMajor = segments.front().originalBezier->p[2][major];
@@ -344,8 +344,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         double newMajor;
 		bool addStartSegmentToCandidates = false;
 
-        const Segment nextEndEvent = ends.top();
-        const double maxMajorEnds = nextEndEvent.originalBezier->evaluateBezier(nextEndEvent.t_end)[major];
+        const double maxMajorEnds = ends.top();
 
 		const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
 		const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)[major] : 0.0;
@@ -461,7 +460,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 {
                     const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
 
-					std::cout << " new_t_start = " << new_t_start;
+					std::cout << " new_t_start = " << new_t_start << " minor at t_start = " << iit->originalBezier->evaluateBezier(new_t_start)[minor];
                     // little optimization (don't memcpy anything before something was removed)
                     if (oit != iit)
                         *oit = *iit;
