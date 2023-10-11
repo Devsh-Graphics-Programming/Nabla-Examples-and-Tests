@@ -19,8 +19,8 @@ enum class ExampleMode
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_4;
-static constexpr bool DebugMode = true;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool DebugMode = false;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 #include "common.hlsl"
 
@@ -1446,8 +1446,6 @@ public:
 			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
 		}
 
-		logger->log("dupa", system::ILogger::ELL_INFO);
-
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassFinal = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_PRESENT_SRC);
@@ -2289,9 +2287,9 @@ public:
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(-150.0, 20.0);
-					quadratics[curveIdx].p[1] = float64_t2(150.0, 0.0);
-					quadratics[curveIdx].p[2] = float64_t2(-150.0, -20.0);
+					quadratics[curveIdx].p[0] = float64_t2(-150.0, 30.0);
+					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
+					quadratics[curveIdx].p[2] = float64_t2(1500.0, -30.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 

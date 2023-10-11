@@ -12,7 +12,7 @@ void beginInvocationInterlockEXT();
 void endInvocationInterlockEXT();
 #endif
 
-#define NBL_DRAW_ARC_LENGTH
+//#define NBL_DRAW_ARC_LENGTH
 
 // TODO[Lucas]: have a function for quadratic equation solving
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
@@ -27,7 +27,7 @@ struct LineStyleClipper
                                                           CurveType curve,
                                                           typename CurveType::ArcLenCalculator arcLenCalc)
     {
-        LineStyleClipper<float_t, CurveType> ret = { styleIdx, curve, arcLenCalc };
+        LineStyleClipper<float_t, CurveType> ret = { styleIdx, curve, arcLenCalc, float2_t(0.0, 0.0), float2_t(0.0, 0.0), float2_t(0.0, 0.0) };
         return ret;
     }
     
@@ -44,7 +44,7 @@ struct LineStyleClipper
     
     float2_t operator()(const float t)
     {
-        const float arcLen = arcLenCalc.calcArcLen(t);
+        const float arcLen = arcLenCalc.calcArcLen(t,A,B,C);
         float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
         ArrayAccessor stippleAccessor = { styleIdx };
         uint32_t patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, lineStyles[styleIdx].stipplePatternSize, tMappedToPattern);
@@ -59,8 +59,8 @@ struct LineStyleClipper
             float t0 = t0NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             float t1 = t1NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             
-            t0 = arcLenCalc.calcArcLenInverse(curve, arcLen + t0, 0.000001f, 0.5f);
-            t1 = arcLenCalc.calcArcLenInverse(curve, arcLen + t1, 0.000001f, 0.5f);
+            t0 = arcLenCalc.calcArcLenInverse(curve, arcLen + t0, 0.000001f, 0.5f,A,B,C);
+            t1 = arcLenCalc.calcArcLenInverse(curve, arcLen + t1, 0.000001f, 0.5f,A,B,C);
             
             t0 = clamp(t0, 0.0, 1.0);
             t1 = clamp(t1, 0.0, 1.0);
@@ -74,6 +74,9 @@ struct LineStyleClipper
     uint32_t styleIdx;
     CurveType curve;
     typename CurveType::ArcLenCalculator arcLenCalc;
+    float2_t A;
+    float2_t B;
+    float2_t C;
 };
 
 typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float> > BezierLineStyleClipper_float;
@@ -118,6 +121,9 @@ float4 main(PSInput input) : SV_TARGET
         {
             const float lineThickness = input.getLineThickness();
             BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(styleIdx, quadratic, arcLenCalc);
+            clipper.A = quadratic.A;
+            clipper.B = quadratic.B;
+            clipper.C = quadratic.C;
             distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);
         }
         
@@ -199,12 +205,7 @@ float4 main(PSInput input) : SV_TARGET
     //col = float4(tA, 0.0f, 0.0f, 1.0f);
     
 #else
-    const float2 a = input.getBezierP0();
-    const float2 b = input.getBezierP1();
-    const float2 c = input.getBezierP2();
-    const float lineThickness = input.getLineThickness();
-
-    col = float4(0.0f, nbl::hlsl::shapes::QuadraticBezierOutline::construct(a, b, c, lineThickness).ud(input.position.xy).y, 0.0f, 1.0f);
+    col = input.getColor();
     col.w *= localAlpha;
 #endif
 
