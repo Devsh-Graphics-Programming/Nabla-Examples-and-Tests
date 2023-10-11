@@ -54,20 +54,38 @@ namespace hatchutils {
 	// (only works for monotonic curves)
 	static float64_t2 getCurveRoot(double p0, double p1, double p2)
 	{
+		// https://people.csail.mit.edu/bkph/articles/Quadratics.pdf
 		double a = p0 - 2.0 * p1 + p2;
 		double b = 2.0 * (p1 - p0);
 		double c = p0;
 
-		double det = b * b - 4 * a * c;
-		double rcp = 0.5 / a;
-
-		double detSqrt = sqrt(det) * rcp;
-		double brcp = b * rcp;
-
 		// Solve linear equation
-		if (isinf(brcp)) return float64_t2(-c / b);
+		if (a == 0.0) return float64_t2(-c / b);
 
-		return float64_t2(-detSqrt, detSqrt) - brcp;
+		double det = sqrt(b * b - 4 * a * c);
+		if (b >= 0.0) {
+			return float64_t2(
+				(- b - det) / (2 * a),
+				(2 * c) / (-b - det)
+			);
+		}
+		else
+		{
+			return float64_t2(
+				(2 * c) / (-b + det),
+				(-b + det) / (2 * a)
+			);
+		}
+		//double det = b * b - 4 * a * c;
+		//double rcp = 0.5 / a;
+		//
+		//double detSqrt = sqrt(det) * rcp;
+		//double brcp = b * rcp;
+		//
+		//// Solve linear equation
+		//if (isinf(brcp)) return float64_t2(-c / b);
+		//
+		//return float64_t2(-detSqrt, detSqrt) - brcp;
 	}
 };
 
@@ -115,6 +133,15 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		if (sideP1 != sideIntersection)
 			continue;
 
+		// Debug
+		{
+			auto selfT = originalBezier->intersectOrtho(intersection.y, (int)SelectedMajorAxis);
+			auto selfEv = originalBezier->evaluateBezier(selfT);
+			printf("Got an intersection at t=%f of other, which evaluates to (%f, %f). Self has t=%f and evaluates to (%f, %f)\n",
+				t, intersection.x, intersection.y,
+				selfT, selfEv.x, selfEv.y);
+		}
+
 		result[resultIdx] = t;
 		resultIdx++;
 	}
@@ -145,6 +172,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         CPULineStyle cpuLineStyle;
         cpuLineStyle.screenSpaceLineWidth = 1.0f;
         cpuLineStyle.worldSpaceLineWidth = 0.0f;
+		color.w = 1.0f;
         cpuLineStyle.color = color;
 
         debugOutput(outputPolyline, cpuLineStyle);
@@ -161,6 +189,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         CPULineStyle cpuLineStyle;
         cpuLineStyle.screenSpaceLineWidth = 1.0f;
         cpuLineStyle.worldSpaceLineWidth = 0.0f;
+		color.w = 1.0f;
         cpuLineStyle.color = color;
         
         debugOutput(outputPolyline, cpuLineStyle);
@@ -268,13 +297,25 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 	{
 		// btw you probably want the beziers in Quadratic At^2+B+C form, not control points
 		double _lhs = lhs.originalBezier->evaluateBezier(lhs.t_start)[minor];
-		double _rhs = rhs.originalBezier->evaluateBezier(lhs.t_start)[minor];
-		if (_lhs == _rhs)
+		double _rhs = rhs.originalBezier->evaluateBezier(rhs.t_start)[minor];
+		printf("Comparing bezier lhs = (%f, %f)..(%f, %f) rhs = (%f, %f)..(%f, %f) || minor at t_start (%f, %f) = %f < %f\n",
+			lhs.originalBezier->p[0].x, lhs.originalBezier->p[0].y,
+			lhs.originalBezier->p[2].x, lhs.originalBezier->p[2].y,
+			rhs.originalBezier->p[0].x, rhs.originalBezier->p[0].y,
+			rhs.originalBezier->p[2].x, rhs.originalBezier->p[2].y,
+			lhs.t_start, rhs.t_start,
+			_lhs, _rhs
+		);
+		// Threshhold here for intersection points, where the minor values for the curves are
+		// very close but could be smaller, causing the curves to be in the wrong order
+		// TODO: this is problematic when made into a constant (0.2 here) as this is in world space coordinates,
+		// and the scale that is "small" will change a lot
+		if (abs(_rhs - _lhs) < 0.2)
 		{
 			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
 			float64_t2 lTan = lhs.originalBezier->tangent(lhs.t_start);
-			float64_t2 rTan = lhs.originalBezier->tangent(rhs.t_start);
+			float64_t2 rTan = rhs.originalBezier->tangent(rhs.t_start);
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 			if (_lhs == _rhs)
@@ -282,7 +323,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 				// TODO: this is getting the polynominal A for the bezier
 				// when bezier gets converted to A, B, C polynominal this is just ->A
 				float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-				float64_t2 rAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
+				float64_t2 rAcc = rhs.originalBezier->p[0] - 2.0 * rhs.originalBezier->p[1] + rhs.originalBezier->p[2];
 				_lhs = lAcc[minor] * rTan[major];
 				_rhs = rTan[minor] * lAcc[major];
 			}
@@ -474,7 +515,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
             activeCandidates.resize(newSize);
 
 			std::cout << "New candidate size: " << newSize << "\n";
-            lastMajor = newMajor;
         }
 		// If we had a start event, we need to add the candidate
 		if (addStartSegmentToCandidates)
@@ -486,6 +526,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 		if (addStartSegmentToCandidates || newMajor > lastMajor)
 		{
 			std::sort(activeCandidates.begin(), activeCandidates.end(), candidateComparator);
+			if (newMajor > lastMajor)
+				lastMajor = newMajor;
 		}
     }
 }
