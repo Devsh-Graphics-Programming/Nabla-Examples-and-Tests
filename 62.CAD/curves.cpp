@@ -532,7 +532,8 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
             ExplicitEllipse explicitEllipse(sign * lenghtMinor, lenghtMajor);
             const double x1 = explicitEllipse.b * cos(start);
             const double x2 = explicitEllipse.b * cos(end);
-            adaptive(explicitEllipse, nbl::core::min(x1,x2), nbl::core::max(x1,x2), targetMaxError, addTransformedBezier, maxDepth);
+            if (x1 != x2)
+                adaptive(explicitEllipse, nbl::core::min(x1,x2), nbl::core::max(x1,x2), targetMaxError, addTransformedBezier, maxDepth);
         };
 
     if (startAngle <= Pi)
