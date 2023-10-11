@@ -3,7 +3,8 @@
 using namespace nbl::hlsl;
 
 #include "common.hlsl"
-#include <nbl/builtin/hlsl/equations/hatch.hlsl>
+#include <nbl/builtin/hlsl/equations/cubic.hlsl>
+#include <nbl/builtin/hlsl/equations/quartic.hlsl>
 
 namespace hatchutils {
     
@@ -16,20 +17,18 @@ namespace hatchutils {
 		const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
 		if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
 		{
-			double params[5] = { e, d, c, b, a };
-			auto res = equations::hatch::SolveQuartic(params);
+			auto res = equations::Quartic<double>::construct(e, d, c, b, a).computeRoots();
 			memcpy(&t[0], &res.x, sizeof(double) * 4);
 		}
 		else if (abs(b) > quadCoeffMag)
 		{
-			double params[4] = { d, c, b, a };
-			auto res = equations::hatch::SolveCubic(params);
+			auto res = equations::Cubic<double>::construct(d, c, b, a).computeRoots();
 			memcpy(&t[0], &res.x, sizeof(double) * 3);
 		}
 		else
 		{
 			double params[3] = { c, b, a };
-			auto res = equations::hatch::SolveQuadratic(params);
+			auto res = equations::SolveQuadratic(params);
 			memcpy(&t[0], &res.x, sizeof(double) * 2);
 		}
 

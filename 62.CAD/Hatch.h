@@ -10,17 +10,6 @@
 using namespace nbl;
 
 namespace hatchutils {
-	template<class _Ty, size_t _Size>
-	struct EquationSolveResult
-	{
-		size_t uniqueRoots = 0u;
-		std::array<_Ty, _Size> roots = {};
-	};
-
-    static EquationSolveResult<double, 2> SolveQuadratic(double c[3]);
-	static EquationSolveResult<double, 3> SolveCubic(double c[4]);
-	static EquationSolveResult<double, 4> SolveQuartic(double c[5]);
-    
 	static constexpr double QUARTIC_THRESHHOLD = 1e-10;
 
 	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
