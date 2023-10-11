@@ -274,13 +274,15 @@ namespace curves
     class Subdivision final
     {
     public:
-        typedef std::function<void(const QuadraticBezierInfo&)> AddBezierFunc;
+        typedef std::function<void(QuadraticBezierInfo&&)> AddBezierFunc;
 
         //! this subdivision algorithm works/converges for any x-monotonic curve (only 1 y for each x) over the [min, max] range and will continue until hits the `maxDepth` or `targetMaxError` threshold
         //! this function will call the AddBezierFunc when the bezier is finalized, whether to render it directly, write it to file, add it to a vector, etc.. is up to the user.
         //! the subdivision samples the points based on arc length and the error is computed by distance in y direction, so pre and post transform may be needed for your curve and the outputted beziers
         //! it will first split at inflection point of the curve; curves are assumed to have at most 1 inflection point, and will get the best convergence rates. but it will work for curves with more inflection points as well.
         static void adaptive(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12);
+
+        static void adaptive(const EllipticalArcInfo& ellipse, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12);
 
     private:
         static void adaptive_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth);

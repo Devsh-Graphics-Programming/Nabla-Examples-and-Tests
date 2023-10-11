@@ -2035,13 +2035,18 @@ public:
 				// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 				// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
 				// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-				curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
-				
+				//curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
+				curves::EllipticalArcInfo myCurve;
+				myCurve.majorAxis = {100.0, 100.0};
+				myCurve.center = { 0.0, 0.0 };
+				myCurve.angleBounds = {0, 2 * nbl::core::PI<double>() };
+				myCurve.eccentricity = 1.0;
+
 				// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
 				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
 				// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
-				curves::Subdivision::AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
+				curves::Subdivision::AddBezierFunc addToBezier = [&](QuadraticBezierInfo&& info) -> void
 					{
 						quadBeziers.push_back(info);
 					};
@@ -2051,16 +2056,16 @@ public:
 				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				curves::Subdivision::adaptive(myCurve, 0.0, 1.0, error, addToBezier, 10u);
+				curves::Subdivision::adaptive(myCurve, error, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 				// VISUALIZE INFLECTION POINT
 				std::vector<float64_t2> linePoints;
-				auto inflectionPointT = myCurve.computeInflectionPoint(1e-5);
-				auto inflectionPoint = myCurve.computePosition(inflectionPointT);
-				linePoints.push_back({ inflectionPoint.x, -100.0 });
-				linePoints.push_back({ inflectionPoint.x, 100.0 });
+				// auto inflectionPointT = myCurve.computeInflectionPoint(1e-5);
+				// auto inflectionPoint = myCurve.computePosition(inflectionPointT);
+				linePoints.push_back({ 0.0, 0.0 });
+				linePoints.push_back({ 100.0, 100.0 });
 				polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 

@@ -485,6 +485,33 @@ void Subdivision::adaptive(const ParametricCurve& curve, float64_t min, float64_
         adaptive_impl(curve, min, max, targetMaxError, addBezierFunc, maxDepth);
 }
 
+void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth)
+{
+    float64_t lenghtMajor = length(ellipse.majorAxis);
+    float64_t lenghtMinor = lenghtMajor * ellipse.eccentricity;
+    float64_t2 normalizedMajor = ellipse.majorAxis / lenghtMajor;
+    float64_t2x2 rotate = float64_t2x2({
+        float64_t2(normalizedMajor.x, -normalizedMajor.y),
+        float64_t2(normalizedMajor.y, normalizedMajor.x)
+    });
+
+    AddBezierFunc addTransformedBezier = [&](QuadraticBezierInfo&& quadBezier)
+        {
+            quadBezier.p[0] = mul(rotate, quadBezier.p[0]);
+            quadBezier.p[0] = mul(rotate, quadBezier.p[1]);
+            quadBezier.p[0] = mul(rotate, quadBezier.p[2]);
+            quadBezier.p[0] += ellipse.center;
+            quadBezier.p[1] += ellipse.center;
+            quadBezier.p[2] += ellipse.center;
+            addBezierFunc(std::move(quadBezier));
+        };
+
+    ExplicitEllipse explicitEllipse(lenghtMinor, lenghtMajor);
+    ExplicitEllipse explicitEllipse2(-lenghtMinor, lenghtMajor);
+    adaptive(explicitEllipse, -explicitEllipse.b, explicitEllipse.b, targetMaxError, addTransformedBezier, maxDepth);
+    adaptive(explicitEllipse, -explicitEllipse.b, explicitEllipse.b, targetMaxError, addTransformedBezier, maxDepth);
+}
+
 void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
 {
     float64_t split = curve.inverseArcLen_BisectionSearch(0.5, min, max);
@@ -528,7 +555,7 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
     }
     else
     {
-        addBezierFunc(bezier);
+        addBezierFunc(std::move(bezier));
     }
 }
 
