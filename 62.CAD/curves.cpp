@@ -521,7 +521,7 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
     double uselessIntPart = 0;
     const float64_t sweepAngle = ellipse.angleBounds.y - ellipse.angleBounds.x;
     const float64_t startAngle = std::modf(ellipse.angleBounds.x / TwoPi, &uselessIntPart) * TwoPi;
-    const float64_t endAngle = ellipse.angleBounds.x + sweepAngle;
+    const float64_t endAngle = startAngle + sweepAngle;
 
     auto subdivideExplicitEllipse = [&](const float64_t start, const float64_t end)
         {
