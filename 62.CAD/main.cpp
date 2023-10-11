@@ -2037,10 +2037,12 @@ public:
 				// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
 				//curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
 				curves::EllipticalArcInfo myCurve;
-				myCurve.majorAxis = {100.0, 100.0};
-				myCurve.center = { 0.0, 0.0 };
-				myCurve.angleBounds = {0, 2 * nbl::core::PI<double>() };
-				myCurve.eccentricity = 1.0;
+				myCurve.majorAxis = {50.0, 50.0};
+				myCurve.center = { 50.0, 50.0 };
+				myCurve.angleBounds = { 
+					nbl::core::PI<double>() * 1.25,
+					nbl::core::PI<double>() * 1.25 + abs(cos(m_timeElapsed*0.001)) * nbl::core::PI<double>() * 2.0 };
+				myCurve.eccentricity = 0.5;
 
 				// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
 				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
@@ -2056,7 +2058,7 @@ public:
 				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				curves::Subdivision::adaptive(myCurve, error, addToBezier, 10u);
+				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 

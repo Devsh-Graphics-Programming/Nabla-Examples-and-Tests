@@ -487,9 +487,16 @@ void Subdivision::adaptive(const ParametricCurve& curve, float64_t min, float64_
 
 void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth)
 {
+    if (!ellipse.isValid())
+    {
+        _NBL_DEBUG_BREAK_IF(true);
+        return;
+    }
+
     float64_t lenghtMajor = length(ellipse.majorAxis);
     float64_t lenghtMinor = lenghtMajor * ellipse.eccentricity;
     float64_t2 normalizedMajor = ellipse.majorAxis / lenghtMajor;
+    
     float64_t2x2 rotate = float64_t2x2({
         float64_t2(normalizedMajor.x, -normalizedMajor.y),
         float64_t2(normalizedMajor.y, normalizedMajor.x)
@@ -498,18 +505,61 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
     AddBezierFunc addTransformedBezier = [&](QuadraticBezierInfo&& quadBezier)
         {
             quadBezier.p[0] = mul(rotate, quadBezier.p[0]);
-            quadBezier.p[0] = mul(rotate, quadBezier.p[1]);
-            quadBezier.p[0] = mul(rotate, quadBezier.p[2]);
+            quadBezier.p[1] = mul(rotate, quadBezier.p[1]);
+            quadBezier.p[2] = mul(rotate, quadBezier.p[2]);
             quadBezier.p[0] += ellipse.center;
             quadBezier.p[1] += ellipse.center;
             quadBezier.p[2] += ellipse.center;
             addBezierFunc(std::move(quadBezier));
         };
 
-    ExplicitEllipse explicitEllipse(lenghtMinor, lenghtMajor);
-    ExplicitEllipse explicitEllipse2(-lenghtMinor, lenghtMajor);
-    adaptive(explicitEllipse, -explicitEllipse.b, explicitEllipse.b, targetMaxError, addTransformedBezier, maxDepth);
-    adaptive(explicitEllipse, -explicitEllipse.b, explicitEllipse.b, targetMaxError, addTransformedBezier, maxDepth);
+    // Make the start and end angle in canonical form (so that start is in [0, 2Pi))
+    const double Pi = nbl::core::PI<double>();
+    const double TwoPi = 2.0 * Pi;
+    const double ThreePi = 3.0 * Pi;
+
+    double uselessIntPart = 0;
+    const float64_t sweepAngle = ellipse.angleBounds.y - ellipse.angleBounds.x;
+    const float64_t startAngle = std::modf(ellipse.angleBounds.x / TwoPi, &uselessIntPart) * TwoPi;
+    const float64_t endAngle = ellipse.angleBounds.x + sweepAngle;
+
+    auto subdivideExplicitEllipse = [&](const float64_t start, const float64_t end)
+        {
+            double uselessIntPart = 0;
+            const float64_t startAngleFract = std::modf(start / TwoPi, &uselessIntPart);
+            const double sign = (startAngleFract < 0.5) ? 1.0 : -1.0;
+
+            ExplicitEllipse explicitEllipse(sign * lenghtMinor, lenghtMajor);
+            const double x1 = explicitEllipse.b * cos(start);
+            const double x2 = explicitEllipse.b * cos(end);
+            adaptive(explicitEllipse, nbl::core::min(x1,x2), nbl::core::max(x1,x2), targetMaxError, addTransformedBezier, maxDepth);
+        };
+
+    if (startAngle <= Pi)
+    {
+        // start to min(Pi, end)
+        subdivideExplicitEllipse(startAngle, nbl::core::min(Pi, endAngle));
+
+        // Pi to min(2Pi, end)
+        if (endAngle > Pi)
+            subdivideExplicitEllipse(Pi, nbl::core::min(TwoPi, endAngle));
+        // 2Pi to end
+        if (endAngle > TwoPi)
+            subdivideExplicitEllipse(TwoPi, endAngle);
+    }
+    else
+    {
+        // start to min(2Pi, end)
+        subdivideExplicitEllipse(startAngle, nbl::core::min(TwoPi, endAngle));
+
+        // Pi to min(3Pi, end)
+        if (endAngle > TwoPi)
+            subdivideExplicitEllipse(TwoPi, nbl::core::min(ThreePi, endAngle));
+        
+        // 3Pi to end
+        if (endAngle > ThreePi)
+            subdivideExplicitEllipse(ThreePi, endAngle);
+    }
 }
 
 void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)

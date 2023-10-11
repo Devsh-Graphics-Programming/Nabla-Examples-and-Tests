@@ -261,7 +261,7 @@ namespace curves
 
         inline bool isValid() const
         {
-            if (eccentricity > 1.0 || eccentricity < 0.0)
+            if (eccentricity > 1.0 || eccentricity <= 0.0)
                 return false;
             if (angleBounds.y < angleBounds.x)
                 return false;
