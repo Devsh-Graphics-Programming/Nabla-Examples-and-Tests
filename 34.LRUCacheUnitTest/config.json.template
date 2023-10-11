@@ -25,11 +25,16 @@
     {
       "dependencies": [],
       "command": [
-		"${NBL_EXECUTABLE_GEN_EXP_FILEPATH}", 
-		".dependencies/debug.out", 
-		".dependencies/release.out"
-	  ],
-      "outputs": []
+        "${NBL_EXECUTABLE_GEN_EXP_FILEPATH}",
+        ".dependencies/debug.out",
+        ".dependencies/release.out"
+      ]
     }
-  ]
+  ],
+  
+  "ext": {
+	"inputs": [
+      "ext/config/config.json.template"
+    ]
+  }
 }
