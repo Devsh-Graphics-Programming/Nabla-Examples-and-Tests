@@ -163,12 +163,14 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const core::SRange<float64_t2>& linePoints)
+	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool addToPreviousLineSectionIfAvailable = false)
 	{
 		if (linePoints.size() <= 1u)
 			return;
 
-		bool addNewSection = true;// = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::LINE;
+		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
+		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
+		bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
