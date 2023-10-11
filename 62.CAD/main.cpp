@@ -168,18 +168,18 @@ public:
 		if (linePoints.size() <= 1u)
 			return;
 
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::LINE;
+		bool addNewSection = true;// = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::LINE;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
 			newSection.type = ObjectType::LINE;
-			newSection.index = m_linePoints.size();
-			newSection.count = linePoints.size() - 1u;
+			newSection.index = static_cast<uint32_t>(m_linePoints.size());
+			newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
 			m_sections.push_back(newSection);
 		}
 		else
 		{
-			m_sections[m_sections.size() - 1u].count += linePoints.size();
+			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
 		}
 		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
 	}
@@ -198,13 +198,13 @@ public:
 		{
 			SectionInfo newSection = {};
 			newSection.type = ObjectType::QUAD_BEZIER;
-			newSection.index = m_quadBeziers.size();
-			newSection.count = quadBeziers.size();
+			newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
+			newSection.count = static_cast<uint32_t>(quadBeziers.size());
 			m_sections.push_back(newSection);
 		}
 		else
 		{
-			m_sections[m_sections.size() - 1u].count += quadBeziers.size();
+			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
 		}
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
@@ -294,7 +294,7 @@ public:
 		submitDraws = func;
 	}
 
-	void allocateIndexBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t indices)
+	void allocateIndexBuffer(video::ILogicalDevice* logicalDevice, uint32_t indices)
 	{
 		maxIndices = indices;
 		const size_t indexBufferSize = maxIndices * sizeof(uint32_t);
@@ -312,7 +312,7 @@ public:
 		cpuDrawBuffers.indexBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(indexBufferSize);
 	}
 
-	void allocateMainObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t mainObjects)
+	void allocateMainObjectsBuffer(video::ILogicalDevice* logicalDevice, uint32_t mainObjects)
 	{
 		maxMainObjects = mainObjects;
 		size_t mainObjectsBufferSize = mainObjects * sizeof(MainObject);
@@ -330,7 +330,7 @@ public:
 		cpuDrawBuffers.mainObjectsBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(mainObjectsBufferSize);
 	}
 
-	void allocateDrawObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t drawObjects)
+	void allocateDrawObjectsBuffer(video::ILogicalDevice* logicalDevice, uint32_t drawObjects)
 	{
 		maxDrawObjects = drawObjects;
 		size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
@@ -348,7 +348,7 @@ public:
 		cpuDrawBuffers.drawObjectsBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(drawObjectsBufferSize);
 	}
 
-	void allocateGeometryBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, size_t size)
+	void allocateGeometryBuffer(video::ILogicalDevice* logicalDevice, size_t size)
 	{
 		maxGeometryBufferSize = size;
 
@@ -366,7 +366,7 @@ public:
 		cpuDrawBuffers.geometryBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(size);
 	}
 
-	void allocateStylesBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t stylesCount)
+	void allocateStylesBuffer(video::ILogicalDevice* logicalDevice, uint32_t stylesCount)
 	{
 		maxLineStyles = stylesCount;
 		size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
@@ -384,7 +384,7 @@ public:
 		cpuDrawBuffers.lineStylesBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lineStylesBufferSize);
 	}
 
-	void allocateCustomClipProjectionBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t ClipProjectionDataCount)
+	void allocateCustomClipProjectionBuffer(video::ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount)
 	{
 		maxClipProjectionData = ClipProjectionDataCount;
 		size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(ClipProjectionData);
@@ -402,8 +402,6 @@ public:
 		cpuDrawBuffers.customClipProjectionBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(customClipProjectionBufferSize);
 	}
 
-	uint32_t getIndexCount() const { return currentIndexCount; }
-	
 	// TODO[Przemek]: look at the `drawPolyline` function and you may have to change that as well. if you found out the user input `const LineStyle& lineStyle` for stippling needs processing/computation to be ready to be fed into gpu
 	//	 then have two sturcts (one for cpu side and one that is private to this class and will be fed to gpu)
 	//	 don't force yourself to understand this function completely, it will change soon when I change CSG algo, 
@@ -498,32 +496,38 @@ public:
 		return intendedNextSubmit;
 	}
 
-	size_t getCurrentIndexBufferSize() const
+	inline uint32_t getIndexCount() const { return currentIndexCount; }
+
+	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
+
+	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; }
+
+	inline size_t getCurrentIndexBufferSize() const
 	{
 		return sizeof(index_buffer_type) * currentIndexCount;
 	}
 
-	size_t getCurrentMainObjectsBufferSize() const
+	inline size_t getCurrentMainObjectsBufferSize() const
 	{
 		return sizeof(MainObject) * currentMainObjectCount;
 	}
 
-	size_t getCurrentDrawObjectsBufferSize() const
+	inline size_t getCurrentDrawObjectsBufferSize() const
 	{
 		return sizeof(DrawObject) * currentDrawObjectCount;
 	}
 
-	size_t getCurrentGeometryBufferSize() const
+	inline size_t getCurrentGeometryBufferSize() const
 	{
 		return currentGeometryBufferSize;
 	}
 
-	size_t getCurrentLineStylesBufferSize() const
+	inline size_t getCurrentLineStylesBufferSize() const
 	{
 		return sizeof(LineStyle) * currentLineStylesCount;
 	}
 
-	size_t getCurrentCustomClipProjectionBufferSize() const
+	inline size_t getCurrentCustomClipProjectionBufferSize() const
 	{
 		return sizeof(ClipProjectionData) * currentClipProjectionDataCount;
 	}
@@ -642,7 +646,7 @@ protected:
 		inMemDrawObjectCount = currentDrawObjectCount;
 
 		// Copy GeometryBuffer
-		uint32_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
+		uint64_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
 		asset::SBufferRange<video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
 		const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
 		if (geomRange.size > 0u)
@@ -1023,6 +1027,8 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUPipelineLayout> resolveAlphaPipeLayout;
 
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
+
+	// For stress test CASE_1
 	CPolyline bigPolyline;
 	CPolyline bigPolyline2;
 
@@ -1035,16 +1041,16 @@ class CADApp : public ApplicationBase
 		{
 			drawBuffers[i] = DrawBuffersFiller(core::smart_refctd_ptr(utilities));
 
-			size_t maxIndices = maxObjects * 6u * 2u;
-			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
-			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice, maxObjects);
-			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects * 5u);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
-			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice, 128u);
+			uint32_t maxIndices = maxObjects * 6u * 2u;
+			drawBuffers[i].allocateIndexBuffer(logicalDevice.get(), maxIndices);
+			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice.get(), maxObjects);
+			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice.get(), maxObjects * 5u);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 16u);
+			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice.get(), 128u);
 
 			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
-			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
+			drawBuffers[i].allocateGeometryBuffer(logicalDevice.get(), geometryBufferSize);
 		}
 
 		for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
@@ -1055,7 +1061,7 @@ class CADApp : public ApplicationBase
 			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
-			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
 		}
 
@@ -1404,7 +1410,8 @@ public:
 			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 			{
 				descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
-				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[6u] = {};
+				constexpr uint32_t DescriptorCount = 6u;
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
 				descriptorInfos[0u].info.buffer.offset = 0u;
 				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
 				descriptorInfos[0u].desc = globalsBuffer[i];
@@ -1472,7 +1479,7 @@ public:
 				descriptorUpdates[5u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
 				descriptorUpdates[5u].info = &descriptorInfos[5u];
 
-				logicalDevice->updateDescriptorSets(6u, descriptorUpdates, 0u, nullptr);
+				logicalDevice->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
 			}
 
 			graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);

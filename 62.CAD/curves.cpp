@@ -463,7 +463,7 @@ float64_t ExplicitMixedCircle::getSign(float64_t x)
 static void fixBezierMidPoint(QuadraticBezierInfo& bezier)
 {
     const float64_t2 localChord = bezier.p[2] - bezier.p[0];
-    const float localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
+    const float64_t localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
     const bool outside = localX<0 || localX>length(localChord);
     if (outside)
     {
