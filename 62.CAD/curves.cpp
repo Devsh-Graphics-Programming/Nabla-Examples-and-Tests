@@ -518,15 +518,22 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
     const double TwoPi = 2.0 * Pi;
     const double ThreePi = 3.0 * Pi;
 
-    double uselessIntPart = 0;
+    // Use builtin?
+    auto fract = [](double num) -> double
+        {
+            double uselessIntPart = 0;
+            return std::modf(num, &uselessIntPart);
+        };
+
     const float64_t sweepAngle = ellipse.angleBounds.y - ellipse.angleBounds.x;
-    const float64_t startAngle = std::modf(ellipse.angleBounds.x / TwoPi, &uselessIntPart) * TwoPi;
+    const float64_t startAngle = (ellipse.angleBounds.x >= 0)
+        ? fract(ellipse.angleBounds.x / TwoPi) * TwoPi
+        : (1.0 - fract((-ellipse.angleBounds.x) / TwoPi)) * TwoPi;
     const float64_t endAngle = startAngle + sweepAngle;
 
     auto subdivideExplicitEllipse = [&](const float64_t start, const float64_t end)
         {
-            double uselessIntPart = 0;
-            const float64_t startAngleFract = std::modf(start / TwoPi, &uselessIntPart);
+            const float64_t startAngleFract = fract(start / TwoPi);
             const double sign = (startAngleFract < 0.5) ? 1.0 : -1.0;
 
             ExplicitEllipse explicitEllipse(sign * lenghtMinor, lenghtMajor);
