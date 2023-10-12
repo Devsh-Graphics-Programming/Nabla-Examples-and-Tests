@@ -600,10 +600,18 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
         fixBezierMidPoint(bezier);
         if (depth > 0u)
         {
-            const float64_t2 curvePositionAtSplit = curve.computePosition(split);
-            const float64_t bezierYAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
-            if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
-                shouldSubdivide = true;
+            if (glm::distance(P0, P2) < targetMaxError)
+            {
+                shouldSubdivide = false;
+            }
+            else
+            {
+                const float64_t2 curvePositionAtSplit = curve.computePosition(split);
+                const float64_t bezierYAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
+                _NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit));
+                if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
+                    shouldSubdivide = true;
+            }
         }
     }
 
