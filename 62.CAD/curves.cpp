@@ -4,7 +4,6 @@
 
 namespace curves
 {
-
 //TODO: move this to cpp-compat hlsl builtins
 static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
 {
@@ -167,7 +166,7 @@ float64_t2 CubicCurve::computePosition(float64_t t) const
     return float64_t2(
         ((X[0] * t + X[1]) * t + X[2]) * t + X[3],
         ((Y[0] * t + Y[1]) * t + Y[2]) * t + Y[3]
-        );
+    );
 }
 
 float64_t2 CubicCurve::computeTangent(float64_t t) const
@@ -197,9 +196,9 @@ float64_t CubicCurve::computeInflectionPoint(float64_t errorThreshold) const
     // solve for signed curvature root 
     // when x'*y''-x''*y' = 0
     // https://www.wolframalpha.com/input?i=cross+product+%283*x0*t%5E2%2B2*x1%2Bx2%2C3*y0*t%5E2%2B2*y1%2By2%29+and+%286*x0*t%2B2*x1%2C6*y0*t%2B2*y1%29
-    const float64_t a = 6.0 * (X[0]*Y[1] - X[1]*Y[0]);
-    const float64_t b = 6.0 * (2.0*X[1]*Y[0] - 2.0*X[0]*Y[1] + X[2]*Y[0] - X[0]*Y[2]);
-    const float64_t c = 2.0 * (X[2]*Y[1] - X[1]*Y[2]);
+    const float64_t a = 6.0 * (X[0] * Y[1] - X[1] * Y[0]);
+    const float64_t b = 6.0 * (2.0 * X[1] * Y[0] - 2.0 * X[0] * Y[1] + X[2] * Y[0] - X[0] * Y[2]);
+    const float64_t c = 2.0 * (X[2] * Y[1] - X[1] * Y[2]);
 
     const float64_t2 roots = solveQuadraticRoot(a, b, c);
     if (roots[0] <= 1.0 && roots[0] >= 0.0)
@@ -260,7 +259,7 @@ float64_t2 MixedParametricCurves::computeTangent(float64_t t) const
     const float64_t2 curve2Pos = curve2->computePosition(t);
     const float64_t2 curve1Tan = curve1->computeTangent(t);
     const float64_t2 curve2Tan = curve2->computeTangent(t);
-    return (1-t)*curve1Tan - curve1Pos + (t)*curve2Tan + curve2Pos;
+    return (1 - t) * curve1Tan - curve1Pos + (t)*curve2Tan + curve2Pos;
 }
 
 float64_t2 MixedParametricCurves::computeSecondOrderDifferential(float64_t t) const
@@ -269,7 +268,7 @@ float64_t2 MixedParametricCurves::computeSecondOrderDifferential(float64_t t) co
     const float64_t2 curve2Tan = curve2->computeTangent(t);
     const float64_t2 curve1SecondDiff = curve1->computeSecondOrderDifferential(t);
     const float64_t2 curve2SecondDiff = curve2->computeSecondOrderDifferential(t);
-    return (1-t)*curve1SecondDiff + 2.0*(curve2Tan-curve1Tan) + t * curve2SecondDiff;
+    return (1 - t) * curve1SecondDiff + 2.0 * (curve2Tan - curve1Tan) + t * curve2SecondDiff;
 }
 
 float64_t MixedParametricCurves::differentialArcLen(float64_t t) const
@@ -345,7 +344,7 @@ float64_t MixedParabola::derivative(float64_t x) const
 
 float64_t MixedParabola::computeInflectionPoint(float64_t errorThreshold) const
 {
-    return -b / (3.0*a);
+    return -b / (3.0 * a);
 }
 
 float64_t ExplicitEllipse::y(float64_t x) const
@@ -421,8 +420,8 @@ float64_t ExplicitMixedCircle::computeInflectionPoint(float64_t errorThreshold) 
     // bisection search to find inflection point
     // by seeing the graph of second derivative over wide range of values we have deduced that the inflection point exists iff the secondDerivative has opposite signs at begin and end
     constexpr uint16_t MaxIterations = 64u;
-    float64_t low = -chordLen/2.0;
-    float64_t high = chordLen/2.0;
+    float64_t low = -chordLen / 2.0;
+    float64_t high = chordLen / 2.0;
     float64_t valLow = secondDerivative(low + errorThreshold / 2.0);
     float64_t valHigh = secondDerivative(high - errorThreshold / 2.0);
     if (getSign(valLow) != getSign(valHigh))
@@ -465,7 +464,7 @@ static void fixBezierMidPoint(QuadraticBezierInfo& bezier)
     const float64_t2 localChord = bezier.p[2] - bezier.p[0];
     const float64_t localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
     const bool outside = localX<0 || localX>length(localChord);
-    if (outside)
+    if (outside || isnan(bezier.p[1].x) || isnan(bezier.p[1].y))
     {
         // _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
         bezier.p[1] = bezier.p[0] * 0.4 + bezier.p[2] * 0.6;
@@ -475,7 +474,7 @@ static void fixBezierMidPoint(QuadraticBezierInfo& bezier)
 void Subdivision::adaptive(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth)
 {
     // The curves we're working with will have at most 1 inflection point.
-    const float64_t inflectX = curve.computeInflectionPoint(targetMaxError * 1e-5); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
+    const float64_t inflectX = curve.computeInflectionPoint(targetMaxError); // if no inflection point then this will return NaN and the adaptive subdivision will continue as normal (from min to max)
     if (inflectX > min && inflectX < max)
     {
         adaptive_impl(curve, min, inflectX, targetMaxError, addBezierFunc, maxDepth);
@@ -487,6 +486,8 @@ void Subdivision::adaptive(const ParametricCurve& curve, float64_t min, float64_
 
 void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth)
 {
+    using namespace nbl::hlsl;
+
     if (!ellipse.isValid())
     {
         _NBL_DEBUG_BREAK_IF(true);
@@ -496,11 +497,11 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
     float64_t lenghtMajor = length(ellipse.majorAxis);
     float64_t lenghtMinor = lenghtMajor * ellipse.eccentricity;
     float64_t2 normalizedMajor = ellipse.majorAxis / lenghtMajor;
-    
+
     float64_t2x2 rotate = float64_t2x2({
         float64_t2(normalizedMajor.x, -normalizedMajor.y),
         float64_t2(normalizedMajor.y, normalizedMajor.x)
-    });
+        });
 
     AddBezierFunc addTransformedBezier = [&](QuadraticBezierInfo&& quadBezier)
         {
@@ -540,7 +541,7 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
             const double x1 = explicitEllipse.b * cos(start);
             const double x2 = explicitEllipse.b * cos(end);
             if (x1 != x2)
-                adaptive(explicitEllipse, nbl::core::min(x1,x2), nbl::core::max(x1,x2), targetMaxError, addTransformedBezier, maxDepth);
+                adaptive(explicitEllipse, nbl::core::min(x1, x2), nbl::core::max(x1, x2), targetMaxError, addTransformedBezier, maxDepth);
         };
 
     if (startAngle <= Pi)
@@ -563,7 +564,7 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
         // Pi to min(3Pi, end)
         if (endAngle > TwoPi)
             subdivideExplicitEllipse(TwoPi, nbl::core::min(ThreePi, endAngle));
-        
+
         // 3Pi to end
         if (endAngle > ThreePi)
             subdivideExplicitEllipse(ThreePi, endAngle);
@@ -577,7 +578,7 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
     // Shouldn't happen but may happen if we use NewtonRaphson for non convergent inverse CDF
     if (split <= min || split >= max)
     {
-        _NBL_DEBUG_BREAK_IF(true);
+        _NBL_DEBUG_BREAK_IF(split < min || split > max);
         split = (min + max) / 2.0;
     }
 
@@ -616,5 +617,4 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
         addBezierFunc(std::move(bezier));
     }
 }
-
-} // namespace curves
+}
