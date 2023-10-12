@@ -27,8 +27,7 @@ namespace hatchutils {
 		}
 		else
 		{
-			double params[3] = { c, b, a };
-			auto res = equations::SolveQuadratic(params);
+			auto res = equations::Quadratic<double>::construct(c, b, a).computeRoots();
 			memcpy(&t[0], &res.x, sizeof(double) * 2);
 		}
 
