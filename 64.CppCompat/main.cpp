@@ -370,11 +370,15 @@ int main(int argc, char** argv)
     Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(state);
     xoroshiro64StarStar();
     
-    //CompatibilityTest::runTests(argc, argv);
+    CompatibilityTest::runTests(argc, argv);
 
     auto zero = cross(x,x);
     auto lenX2 = dot(x,x);
     float32_t3x3 z_inv = inverse(z);
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
+
+    // bit.hlsl test
+    nbl::hlsl::rotl(1u, 1u);
+    nbl::hlsl::rotr(1u, 1u);
 }
