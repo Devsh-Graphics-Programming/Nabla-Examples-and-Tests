@@ -135,9 +135,9 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		{
 			auto selfT = originalBezier->intersectOrtho(intersection.y, (int)SelectedMajorAxis);
 			auto selfEv = originalBezier->evaluateBezier(selfT);
-			printf("Got an intersection at t=%f of other, which evaluates to (%f, %f). Self has t=%f and evaluates to (%f, %f)\n",
-				t, intersection.x, intersection.y,
-				selfT, selfEv.x, selfEv.y);
+			//printf("Got an intersection at t=%f of other, which evaluates to (%f, %f). Self has t=%f and evaluates to (%f, %f)\n",
+			//	t, intersection.x, intersection.y,
+			//	selfT, selfEv.x, selfEv.y);
 		}
 
 		result[resultIdx] = t;
@@ -209,6 +209,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 						assert(outputBezier.evaluateBezier(0.0)[major] <= outputBezier.evaluateBezier(1.0)[major]);
 					}
 
+					if (debugOutput)
+						drawDebugBezier(outputBezier, float32_t4(0.0, 0.0, 0.0, 1.0));
 					beziers.push_back(outputBezier);
 				};
 
@@ -274,14 +276,14 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 		for (Segment& segment : segments)
 		{
 			starts.push(segment);
-			std::cout << "Starts: " << segment.originalBezier->p[0][major]  << "\n";
+			//std::cout << "Starts: " << segment.originalBezier->p[0][major]  << "\n";
 		}
 
         std::sort(segments.begin(), segments.end(), [&](Segment a, Segment b) { return a.originalBezier->p[2][major] > b.originalBezier->p[2][major]; });
         for (Segment& segment : segments)
 		{
 			ends.push(segment.originalBezier->p[2][major]);
-			std::cout << "Ends: " << segment.originalBezier->p[2][major] << "\n";
+			//std::cout << "Ends: " << segment.originalBezier->p[2][major] << "\n";
 		}
         maxMajor = segments.front().originalBezier->p[2][major];
     }
@@ -305,18 +307,18 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 		double lenRhs = len(rhs.originalBezier->p[2] - rhs.originalBezier->p[0]);
 		auto minLen = std::min(lenLhs, lenRhs);
 
-		printf("Comparing bezier lhs = (%f, %f)..(%f, %f) rhs = (%f, %f)..(%f, %f) || minor at t_start (%f, %f) = %f < %f || scale of the curves: lhs = %f rhs = %f minLen = %f || abs(_lhs - _rhs) / minLen = %f\n",
-			lhs.originalBezier->p[0].x, lhs.originalBezier->p[0].y,
-			lhs.originalBezier->p[2].x, lhs.originalBezier->p[2].y,
-			rhs.originalBezier->p[0].x, rhs.originalBezier->p[0].y,
-			rhs.originalBezier->p[2].x, rhs.originalBezier->p[2].y,
-			lhs.t_start, rhs.t_start,
-			_lhs, _rhs,
-			len(lhs.originalBezier->p[2] - lhs.originalBezier->p[0]),
-			len(rhs.originalBezier->p[2] - rhs.originalBezier->p[0]),
-			minLen,
-			abs(_lhs - _rhs) / minLen
-		);
+		//printf("Comparing bezier lhs = (%f, %f)..(%f, %f) rhs = (%f, %f)..(%f, %f) || minor at t_start (%f, %f) = %f < %f || scale of the curves: lhs = %f rhs = %f minLen = %f || abs(_lhs - _rhs) / minLen = %f\n",
+		//	lhs.originalBezier->p[0].x, lhs.originalBezier->p[0].y,
+		//	lhs.originalBezier->p[2].x, lhs.originalBezier->p[2].y,
+		//	rhs.originalBezier->p[0].x, rhs.originalBezier->p[0].y,
+		//	rhs.originalBezier->p[2].x, rhs.originalBezier->p[2].y,
+		//	lhs.t_start, rhs.t_start,
+		//	_lhs, _rhs,
+		//	len(lhs.originalBezier->p[2] - lhs.originalBezier->p[0]),
+		//	len(rhs.originalBezier->p[2] - rhs.originalBezier->p[0]),
+		//	minLen,
+		//	abs(_lhs - _rhs) / minLen
+		//);
 		// Threshhold here for intersection points, where the minor values for the curves are
 		// very close but could be smaller, causing the curves to be in the wrong order
 		// TODO: figure out if this is the best ay to do this
@@ -342,13 +344,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 	};
     auto addToCandidateSet = [&](const Segment& entry)
     {
-		std::cout << "Add to candidate set: (" << entry.originalBezier->p[0].x << ", " << entry.originalBezier->p[0].y << "),"
-			"(" << entry.originalBezier->p[1].x << ", " << entry.originalBezier->p[1].y << ")," <<
-			"(" << entry.originalBezier->p[2].x << ", " << entry.originalBezier->p[2].y << ")" <<
-			"\n";
+		//std::cout << "Add to candidate set: (" << entry.originalBezier->p[0].x << ", " << entry.originalBezier->p[0].y << "),"
+		//	"(" << entry.originalBezier->p[1].x << ", " << entry.originalBezier->p[1].y << ")," <<
+		//	"(" << entry.originalBezier->p[2].x << ", " << entry.originalBezier->p[2].y << ")" <<
+		//	"\n";
 		if (entry.isStraightLineConstantMajor())
 		{
-			std::cout << "Above was a straight line in major, ignored\n";
+			//std::cout << "Above was a straight line in major, ignored\n";
 			return;
 		}
         // Look for intersections among active candidates
@@ -383,13 +385,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
         if (debugOutput)
             drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.3, 1.0, 0.3, 0.1));
         intersections.pop(); // O(n)
-        std::cout << "Intersection event at " << newMajor << "\n";
+        //std::cout << "Intersection event at " << newMajor << "\n";
         return newMajor;
     };
 
 
     double lastMajor = starts.top().originalBezier->evaluateBezier(starts.top().t_start)[major];
-    std::cout << "\n\nBegin! Max major: " << maxMajor << "\n";
+    //std::cout << "\n\nBegin! Max major: " << maxMajor << "\n";
     while (lastMajor!=maxMajor)
     {
         double newMajor;
@@ -415,7 +417,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 				addStartSegmentToCandidates = true;
                 if (debugOutput)
                     drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(1.0, 0.3, 0.3, 0.1));
-                std::cout << "Start event at " << newMajor << "\n";
+                //std::cout << "Start event at " << newMajor << "\n";
             }
             // (intersection event)
             else newMajor = intersectionVisit();
@@ -431,15 +433,15 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
             ends.pop();
             if (debugOutput)
                 drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.3, 0.3, 1.0, 0.1));
-            std::cout << "End event at " << newMajor << "\n";
+            //std::cout << "End event at " << newMajor << "\n";
         }
         // spawn quads for the previous iterations if we advanced
-        std::cout << "New major: " << newMajor << " Last major: " << lastMajor << "\n";
+        //std::cout << "New major: " << newMajor << " Last major: " << lastMajor << "\n";
         if (newMajor > lastMajor)
         {
             // trim
             const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
-			std::cout << "Candidates size: " << candidatesSize << "\n";
+			//std::cout << "Candidates size: " << candidatesSize << "\n";
             // because n4ce works on loops, this must be true
             assert((candidatesSize % 2u)==0u);
             for (auto i=0u; i< candidatesSize;)
@@ -457,22 +459,22 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), lastMajor);
                 curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), newMajor);
 
-                if (debugOutput)
-                {
-                    drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y), float32_t4(0.0, 0.3, 0.0, 0.1));
-                    drawDebugLine(float64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
-                    drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
-                    drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
-                }
-                std::cout << "Hatch box bounding box (" << curveBox.aabbMin.x << ", " << curveBox.aabbMin.y << ") .. (" << curveBox.aabbMax.x << "," << curveBox.aabbMax.y << ") " <<
-					"for the curves: " <<
-					"(" << splitCurveMin.p[0].x << ", " << splitCurveMin.p[0].y << "),"
-					"(" << splitCurveMin.p[1].x << ", " << splitCurveMin.p[1].y << ")," <<
-					"(" << splitCurveMin.p[2].x << ", " << splitCurveMin.p[2].y << ") .. " <<
-					"(" << splitCurveMax.p[0].x << ", " << splitCurveMax.p[0].y << "),"
-					"(" << splitCurveMax.p[1].x << ", " << splitCurveMax.p[1].y << ")," <<
-					"(" << splitCurveMax.p[2].x << ", " << splitCurveMax.p[2].y << ")" <<
-					"\n";
+                //if (debugOutput)
+                //{
+                //    drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+                //    drawDebugLine(float64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+                //    drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float64_t2(curveBox.aabbMax.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+                //    drawDebugLine(float64_t2(curveBox.aabbMin.x, curveBox.aabbMin.y), float64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y), float32_t4(0.0, 0.3, 0.0, 0.1));
+                //}
+                //std::cout << "Hatch box bounding box (" << curveBox.aabbMin.x << ", " << curveBox.aabbMin.y << ") .. (" << curveBox.aabbMax.x << "," << curveBox.aabbMax.y << ") " <<
+				//	"for the curves: " <<
+				//	"(" << splitCurveMin.p[0].x << ", " << splitCurveMin.p[0].y << "),"
+				//	"(" << splitCurveMin.p[1].x << ", " << splitCurveMin.p[1].y << ")," <<
+				//	"(" << splitCurveMin.p[2].x << ", " << splitCurveMin.p[2].y << ") .. " <<
+				//	"(" << splitCurveMax.p[0].x << ", " << splitCurveMax.p[0].y << "),"
+				//	"(" << splitCurveMax.p[1].x << ", " << splitCurveMax.p[1].y << ")," <<
+				//	"(" << splitCurveMax.p[2].x << ", " << splitCurveMax.p[2].y << ")" <<
+				//	"\n";
                 // Transform curves into AABB UV space and turn them into quadratic coefficients
                 // TODO: the split curve should already have the quadratic bezier as
                 // quadratic coefficients
@@ -499,10 +501,10 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 const double evalAtMajor = iit->originalBezier->evaluateBezier(iit->t_end)[major];
 
 				auto origBez = iit->originalBezier;
-				std::cout << "Candidate: (" << origBez->p[0].x << ", " << origBez->p[0].y << "),"
-					"(" << origBez->p[1].x << ", " << origBez->p[1].y << ")," <<
-					"(" << origBez->p[2].x << ", " << origBez->p[2].y << ") " <<
-					"Evaluated at major: " << evalAtMajor;
+				//std::cout << "Candidate: (" << origBez->p[0].x << ", " << origBez->p[0].y << "),"
+				//	"(" << origBez->p[1].x << ", " << origBez->p[1].y << ")," <<
+				//	"(" << origBez->p[2].x << ", " << origBez->p[2].y << ") " <<
+				//	"Evaluated at major: " << evalAtMajor;
                 // if we scrolled past the end of the segment, remove it
                 // (basically, we memcpy everything after something is different
                 // and we skip on the memcpy for any items that are also different)
@@ -511,20 +513,20 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
                 {
                     const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
 
-					std::cout << " new_t_start = " << new_t_start << " minor at t_start = " << iit->originalBezier->evaluateBezier(new_t_start)[minor];
+					//std::cout << " new_t_start = " << new_t_start << " minor at t_start = " << iit->originalBezier->evaluateBezier(new_t_start)[minor];
                     // little optimization (don't memcpy anything before something was removed)
                     if (oit != iit)
                         *oit = *iit;
                     oit->t_start = new_t_start;
                     oit++;
                 }
-				std::cout << "\n";
+				//std::cout << "\n";
             }
             // trim
             const auto newSize = std::distance(activeCandidates.begin(), oit);
             activeCandidates.resize(newSize);
 
-			std::cout << "New candidate size: " << newSize << "\n";
+			//std::cout << "New candidate size: " << newSize << "\n";
         }
 		// If we had a start event, we need to add the candidate
 		if (addStartSegmentToCandidates)
