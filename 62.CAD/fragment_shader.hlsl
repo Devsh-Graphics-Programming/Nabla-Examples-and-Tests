@@ -44,6 +44,7 @@ struct LineStyleClipper
     
     float2_t operator()(const float t)
     {
+        const float totalArcLen = arcLenCalc.calcArcLen(1.0f, A,B,C);
         const float arcLen = arcLenCalc.calcArcLen(t,A,B,C);
         float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
         ArrayAccessor stippleAccessor = { styleIdx };
@@ -59,8 +60,8 @@ struct LineStyleClipper
             float t0 = t0NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             float t1 = t1NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
             
-            t0 = arcLenCalc.calcArcLenInverse(curve, arcLen + t0, 0.000001f, 0.5f,A,B,C);
-            t1 = arcLenCalc.calcArcLenInverse(curve, arcLen + t1, 0.000001f, 0.5f,A,B,C);
+            t0 = arcLenCalc.calcArcLenInverse(curve, arcLen + t0, 0.000001f, arcLen / totalArcLen,A,B,C);
+            t1 = arcLenCalc.calcArcLenInverse(curve, arcLen + t1, 0.000001f, arcLen / totalArcLen,A,B,C);
             
             t0 = clamp(t0, 0.0, 1.0);
             t1 = clamp(t1, 0.0, 1.0);

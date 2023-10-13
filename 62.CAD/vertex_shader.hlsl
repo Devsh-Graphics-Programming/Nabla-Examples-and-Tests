@@ -242,18 +242,6 @@ inline float2 quadraticSecDerivative(float t, float2 A, float2 B, float2 C)
     return 2.0f*A;
 }
 
-inline float curvature(float t, float2 A, float2 B, float2 C)
-{
-    float2 DKDT = quadraticDerivative(t, A, B, C);
-    float2 D2KD2T = quadraticSecDerivative(t, A, B, C);
-    float2 DKDTSquared = DKDT * DKDT;
-    
-    float denominator = sqrt(DKDTSquared.x + DKDTSquared.y);
-    denominator = denominator * denominator * denominator;
-    
-    return abs(DKDT.x * D2KD2T.y - DKDT.y * D2KD2T.x) / denominator;
-}
-
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -364,14 +352,6 @@ PSInput main(uint vertexID : SV_VertexID)
             MaxCurvature = pow(length(transformedPoints[1u] - Mid), 3) / (area * area);
         else 
             MaxCurvature = max(area / pow(length(transformedPoints[0u] - transformedPoints[1u]), 3), area / pow(length(transformedPoints[2u] - transformedPoints[1u]), 3));
-        
-        float curvatureT0 = curvature(0.0f, quadratic.A, quadratic.B, quadratic.C);
-        float curvatureT1 = curvature(1.0f, quadratic.A, quadratic.B, quadratic.C);
-        
-        float minCurvature = min(curvatureT0, curvatureT1);
-        
-        if(minCurvature < exp2(-15.0f))
-            outV.setColor(float4(0.0f, 0.0f, 0.0f, 1.0f));
         
         // We only do this adaptive thing when "MinRadiusOfOsculatingCircle = RadiusOfMaxCurvature < screenSpaceLineWidth/4" OR "MaxCurvature > 4/screenSpaceLineWidth";
         //  which means there is a self intersection because of large lineWidth relative to the curvature (in screenspace)
