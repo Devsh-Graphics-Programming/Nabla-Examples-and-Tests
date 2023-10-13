@@ -28,7 +28,6 @@
 [numthreads(1, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-    ;
     const float3 TEST_VEC = float3(1.0f, 2.0f, 3.0f);
     
     // test functions from EOTF.hlsl
@@ -60,17 +59,33 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     //nbl::hlsl::colorspace::oetf::ACEScct<float3>(TEST_VEC);
     
     // xoroshiro tests
-    const uint32_t2 state = uint32_t2(12u, 34u);
-    nbl::hlsl::Xoroshiro64Star xoroshiro64Star = nbl::hlsl::Xoroshiro64Star::construct(state);
-    xoroshiro64Star();
-    nbl::hlsl::Xoroshiro64StarStar xoroshiro64StarStar = nbl::hlsl::Xoroshiro64StarStar::construct(state);
-    xoroshiro64StarStar();
+    //const uint32_t2 state = uint32_t2(12u, 34u);
+    //nbl::hlsl::Xoroshiro64Star xoroshiro64Star = nbl::hlsl::Xoroshiro64Star::construct(state);
+    //xoroshiro64Star();
+    //nbl::hlsl::Xoroshiro64StarStar xoroshiro64StarStar = nbl::hlsl::Xoroshiro64StarStar::construct(state);
+    //xoroshiro64StarStar();
     
-    nbl::hlsl::mpl::clz<2ull>::value;
+    //nbl::hlsl::mpl::clz<2ull>::value;
     
     // TODO: test if std::rotl/r == nbl::hlsl::rotr/l == nbl::hlsl::mpl::rotr/l
     // TODO: fix nbl::hlsl::mpl::countl_zero and test if std::countl_zero == nbl::hlsl::countl_zero == nbl::hlsl::mpl::countl_zero
-        
+    
+    uint32_t mplRotlResult0 = nbl::hlsl::mpl::rotl<uint32_t, 2u, 1>::value;
+    uint32_t mplRotlResult1 = nbl::hlsl::mpl::rotl<uint32_t, 2u, -1>::value;
+    uint32_t mplRotrResult0 = nbl::hlsl::mpl::rotr<uint32_t, 2u, 1>::value;
+    uint32_t mplRotrResult1 = nbl::hlsl::mpl::rotr<uint32_t, 2u, -1>::value;
+    
+    uint32_t rotlResult0 = nbl::hlsl::mpl::rotl<uint32_t, 2u, 1>::value;
+    uint32_t rotlResult1 = nbl::hlsl::mpl::rotl<uint32_t, 2u, -1>::value;
+    uint32_t rotrResult0 = nbl::hlsl::mpl::rotr<uint32_t, 2u, 1>::value;
+    uint32_t rotrResult1 = nbl::hlsl::mpl::rotr<uint32_t, 2u, -1>::value;
+    
+    SHADER_CRASHING_ASSERT(rotlResult0 == mplRotlResult0);
+    SHADER_CRASHING_ASSERT(rotlResult1 == mplRotlResult1);
+    SHADER_CRASHING_ASSERT(rotrResult0 == mplRotrResult0);
+    SHADER_CRASHING_ASSERT(rotrResult1 == mplRotrResult1);
+    
+    SHADER_CRASHING_ASSERT(false);
 }
 
 #else

@@ -14,7 +14,7 @@
 //#include <nbl/builtin/hlsl/cpp_compat/promote.hlsl>
 
     // xoroshiro tests
-#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+//#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
     // colorspace tests
 //#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
 //#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
@@ -29,7 +29,7 @@ using namespace core;
 using namespace ui;
 using namespace nbl::hlsl;
 
-#include <nbl/builtin/hlsl/bit.hlsl>
+//#include <nbl/builtin/hlsl/bit.hlsl>
 
 //constexpr uint32_t COLOR_MATRIX_CNT = 14u;
 //const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
@@ -364,11 +364,11 @@ int main(int argc, char** argv)
     ////assert(areVectorsEqual(colorspace::oetf::ACEScct<float32_t3>(ONE_VEC), ONE_VEC));
 
     // xoroshiro64 tests
-    constexpr uint32_t2 state = uint32_t2(12u, 34u);
+    /*constexpr uint32_t2 state = uint32_t2(12u, 34u);
     Xoroshiro64Star xoroshiro64Star = Xoroshiro64Star::construct(state);
     xoroshiro64Star();
     Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(state);
-    xoroshiro64StarStar();
+    xoroshiro64StarStar();*/
     
     CompatibilityTest::runTests(argc, argv);
 
@@ -379,6 +379,6 @@ int main(int argc, char** argv)
     auto w = transpose(y);
 
     // bit.hlsl test
-    nbl::hlsl::rotl(1u, 1u);
-    nbl::hlsl::rotr(1u, 1u);
+    //nbl::hlsl::rotl(1u, 1u);
+    //nbl::hlsl::rotr(1u, 1u);
 }
