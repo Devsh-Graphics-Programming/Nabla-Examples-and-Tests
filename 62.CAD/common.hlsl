@@ -58,6 +58,12 @@ struct ClipProjectionData
     float32_t2 maxClipNDC; // 88
 };
 
+#ifndef __HLSL_VERSION
+static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
+static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
+static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
+#endif
+
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
@@ -66,6 +72,14 @@ struct Globals
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
 };
+
+#ifndef __HLSL_VERSION
+static_assert(offsetof(Globals, defaultClipProjection) == 0u);
+static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
+static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
+static_assert(offsetof(Globals, resolution) == 100u);
+static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
+#endif
 
 struct LineStyle
 {
