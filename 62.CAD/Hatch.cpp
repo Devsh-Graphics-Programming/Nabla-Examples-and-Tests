@@ -296,19 +296,31 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, std::func
 		// btw you probably want the beziers in Quadratic At^2+B+C form, not control points
 		double _lhs = lhs.originalBezier->evaluateBezier(lhs.t_start)[minor];
 		double _rhs = rhs.originalBezier->evaluateBezier(rhs.t_start)[minor];
-		printf("Comparing bezier lhs = (%f, %f)..(%f, %f) rhs = (%f, %f)..(%f, %f) || minor at t_start (%f, %f) = %f < %f\n",
+
+		auto len = [](float64_t2 vec)
+		{
+			return (double)sqrt(vec.x * vec.x + vec.y * vec.y);
+		};
+		double lenLhs = len(lhs.originalBezier->p[2] - lhs.originalBezier->p[0]);
+		double lenRhs = len(rhs.originalBezier->p[2] - rhs.originalBezier->p[0]);
+		auto minLen = std::min(lenLhs, lenRhs);
+
+		printf("Comparing bezier lhs = (%f, %f)..(%f, %f) rhs = (%f, %f)..(%f, %f) || minor at t_start (%f, %f) = %f < %f || scale of the curves: lhs = %f rhs = %f minLen = %f || abs(_lhs - _rhs) / minLen = %f\n",
 			lhs.originalBezier->p[0].x, lhs.originalBezier->p[0].y,
 			lhs.originalBezier->p[2].x, lhs.originalBezier->p[2].y,
 			rhs.originalBezier->p[0].x, rhs.originalBezier->p[0].y,
 			rhs.originalBezier->p[2].x, rhs.originalBezier->p[2].y,
 			lhs.t_start, rhs.t_start,
-			_lhs, _rhs
+			_lhs, _rhs,
+			len(lhs.originalBezier->p[2] - lhs.originalBezier->p[0]),
+			len(rhs.originalBezier->p[2] - rhs.originalBezier->p[0]),
+			minLen,
+			abs(_lhs - _rhs) / minLen
 		);
 		// Threshhold here for intersection points, where the minor values for the curves are
 		// very close but could be smaller, causing the curves to be in the wrong order
-		// TODO: this is problematic when made into a constant (0.2 here) as this is in world space coordinates,
-		// and the scale that is "small" will change a lot
-		if (abs(_rhs - _lhs) < 0.2)
+		// TODO: figure out if this is the best ay to do this
+		if (abs(_lhs - _rhs) / minLen < 1e-3)
 		{
 			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
