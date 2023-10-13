@@ -2289,7 +2289,7 @@ public:
 					curveIdx++;
 					quadratics[curveIdx].p[0] = float64_t2(-150.0, 30.0);
 					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
-					quadratics[curveIdx].p[2] = float64_t2(1500.0, -30.0);
+					quadratics[curveIdx].p[2] = float64_t2(-150.0, -30.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
