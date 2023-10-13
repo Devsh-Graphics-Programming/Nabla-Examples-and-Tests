@@ -2272,9 +2272,9 @@ public:
 					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
 					quadratics[curveIdx].p[2] = float64_t2(100, lineY);*/
 
-					quadratics[curveIdx].p[0] = float64_t2(-10000, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(210, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(10000, lineY);
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(100, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(50, lineY);
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
@@ -2289,9 +2289,9 @@ public:
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(-150.0, 0.5);
+					quadratics[curveIdx].p[0] = float64_t2(-150.0, 1.0);
 					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
-					quadratics[curveIdx].p[2] = float64_t2(-150.0, -0.5);
+					quadratics[curveIdx].p[2] = float64_t2(-150.0, -1.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
@@ -2341,35 +2341,6 @@ public:
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
 						cpuLineStyles[i].stipplePatternSize = -1;
-				}
-
-				// test bezier.hlsl
-				{
-					const float32_t3x3 transformation = m_Camera.constructViewProjection();
-
-					float64_t2 points[3u];
-					points[0u] = quadratics[14].p[0];
-					points[1u] = quadratics[14].p[1];
-					points[2u] = quadratics[14].p[2];
-
-					//__debugbreak();
-
-					// transform these points into screen space and pass to fragment
-					float32_t2 transformedPoints[3u];
-					for (uint32_t i = 0u; i < 3u; ++i)
-					{
-						auto a = mul(transformation, float64_t3(points[i], 1)); // Transform to NDC
-						float64_t2 ndc = float64_t2(a.x, a.y);
-						auto resolution = uint32_t2{ window->getWidth(), window->getHeight() };
-						transformedPoints[i] = (float32_t2)((ndc + 1.0) * 0.5); // Transform to Screen Space
-						transformedPoints[i] *= resolution;
-					}
-
-					nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
-					nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
-					nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(quadratic);
-
-					//__debugbreak();
 				}
 			}
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
