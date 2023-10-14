@@ -218,8 +218,8 @@ int main()
     test_type_limits.template operator()<uint16_t>();
     test_type_limits.template operator()<uint32_t>();
     test_type_limits.template operator()<uint64_t>();
+    test_type_limits.template operator()<bool>();
     
-
     // test HLSL side
 
     {
