@@ -11,8 +11,11 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/type_traits.hlsl>
+#include <nbl/builtin/hlsl/mpl.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
+
+// Every header limits.hlsl includes need to be included before here for this to work
 #undef _NBL_BUILTIN_HLSL_NUMERIC_LIMITS_INCLUDED_
 #define __HLSL_VERSION
 #include <nbl/builtin/hlsl/limits.hlsl>
@@ -89,8 +92,6 @@ bool equal(T l, auto r)
 
 int main()
 {
-    float32_t what = bit_cast<float32_t, uint32_t>(0);
-
     // TODO: later this whole test should be templated so we can check all `T` not just `float`, but for this we need `type_traits`
   
     // DO NOT EVER THINK TO CHANGE `using type1 = vector<type,1>` to `using type1 = type` EVER!
@@ -154,16 +155,7 @@ int main()
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
     
-    // numeric_limits
-    
-    // 2143289344
-    // 2143289345
-    // 9221120237041090560
-    // 9218868437227405313
-    std::cout << bit_cast<uint32_t>(std::numeric_limits<float>::quiet_NaN()) << "\n";
-    std::cout << bit_cast<uint32_t>(std::numeric_limits<float>::signaling_NaN()) << "\n";
-    std::cout << bit_cast<uint64_t>(std::numeric_limits<double>::quiet_NaN()) << "\n";
-    std::cout << bit_cast<uint64_t>(std::numeric_limits<double>::signaling_NaN()) << "\n";
+   
     auto test_type_limits = []<class T>() 
     {
         using L = std::numeric_limits<T>;
