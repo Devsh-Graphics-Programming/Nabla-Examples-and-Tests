@@ -7,34 +7,30 @@
     "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
     "buildModes": [],
     "requiredOptions": []
-  }, 
+  },
   "profiles": [
     {
       "backend": "vulkan",
       "platform": "windows",
       "buildModes": [],
       "runConfiguration": "Release",
-      "gpuArchitectures": []
+      "gpuArchitectures": [],
+	  "inputs": [
+	    "ext/config/release.json.template"
+	  ]
+    },
+	{
+      "backend": "vulkan",
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Debug",
+      "gpuArchitectures": [],
+	  "inputs": [
+	    "ext/config/debug.json.template"
+	  ]
     }
   ],
-  "dependencies": [
-	  ".dependencies/debug.out",
-	  ".dependencies/release.out"
-  ],
-  "data": [
-    {
-      "dependencies": [],
-      "command": [
-        "${NBL_EXECUTABLE_GEN_EXP_FILEPATH}",
-        ".dependencies/debug.out",
-        ".dependencies/release.out"
-      ]
-    }
-  ],
-  
-  "ext": {
-	"inputs": [
-      "ext/config/config.json.template"
-    ]
-  }
+  "inputs": [
+    "ext/config/common.json.template"
+  ]
 }

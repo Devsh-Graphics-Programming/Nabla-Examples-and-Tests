@@ -1,6 +1,5 @@
 {
   "dependencies": [
-	  "../../.dependencies/debug.out",
 	  "../../.dependencies/release.out"
   ],
   "data": [
@@ -8,7 +7,6 @@
       "dependencies": [],
       "command": [
         "${NBL_EXECUTABLE_GEN_EXP_FILEPATH}",
-        "../../.dependencies/debug.out",
         "../../.dependencies/release.out"
       ]
     }
