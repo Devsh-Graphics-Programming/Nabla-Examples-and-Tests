@@ -14,6 +14,7 @@
 #include <nbl/builtin/hlsl/mpl.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 
+#include <halfLimits.h>
 
 // Every header limits.hlsl includes need to be included before here for this to work
 #undef _NBL_BUILTIN_HLSL_NUMERIC_LIMITS_INCLUDED_
@@ -97,6 +98,7 @@ constexpr auto limits_var(T obj)
         return obj;
 }
 
+
 int main()
 {
     // TODO: later this whole test should be templated so we can check all `T` not just `float`, but for this we need `type_traits`
@@ -162,7 +164,23 @@ int main()
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
     
-    
+
+    // half test
+    {
+
+        float16_t MIN = 6.103515e-05F;
+        float16_t MAX = 65504.0F;
+        float16_t DENORM_MIN = 5.96046448e-08F;
+        uint16_t  QUIET_NAN = 0x7FFF;
+        uint16_t  SIGNALING_NAN = 0x7DFF;
+
+        assert(equal(std::numeric_limits<float16_t>::min(), MIN));
+        assert(equal(std::numeric_limits<float16_t>::max(), MAX));
+        assert(equal(std::numeric_limits<float16_t>::denorm_min(), DENORM_MIN));
+        assert(equal(std::numeric_limits<float16_t>::quiet_NaN(), QUIET_NAN));
+        assert(equal(std::numeric_limits<float16_t>::signaling_NaN(), SIGNALING_NAN));
+    }
+
     auto test_type_limits = []<class T>() 
     {
         using L = std::numeric_limits<T>;
@@ -214,8 +232,8 @@ int main()
         TEST_AND_LOG(denorm_min);
     };
 
-    test_type_limits.template operator()<float>();
-    test_type_limits.template operator()<double>();
+    test_type_limits.template operator()<float32_t>();
+    test_type_limits.template operator()<float64_t>();
     test_type_limits.template operator()<int8_t>();
     test_type_limits.template operator()<int16_t>();
     test_type_limits.template operator()<int32_t>();
