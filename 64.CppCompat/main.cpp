@@ -88,7 +88,14 @@ bool equal(T l, auto r)
     return 0==memcmp(&l, &r, sizeof(T));
 }
 
-
+template<class T>
+constexpr auto limits_var(T obj)
+{
+    if constexpr (std::is_function_v<std::remove_pointer_t<T>>)
+        return obj();
+    else
+        return obj;
+}
 
 int main()
 {
@@ -155,7 +162,7 @@ int main()
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
     
-   
+    
     auto test_type_limits = []<class T>() 
     {
         using L = std::numeric_limits<T>;
@@ -164,8 +171,8 @@ int main()
         
         #define TEST_AND_LOG(var) \
             { \
-                auto lhs = L::var; \
-                auto rhs = R::var; \
+                auto rhs = limits_var(R::var); \
+                auto lhs = limits_var(L::var); \
                 if(!equal(lhs, rhs)) \
                 { \
                     std::cout << typeid(T).name() << " " << #var << " does not match : " << double(lhs) << " - " << double(rhs) << "\n"; \
@@ -196,16 +203,15 @@ int main()
         TEST_AND_LOG(max_exponent10);
         TEST_AND_LOG(traps);
         TEST_AND_LOG(tinyness_before);
-
-        TEST_AND_LOG(min());
-        TEST_AND_LOG(max());
-        TEST_AND_LOG(lowest());
-        TEST_AND_LOG(epsilon());
-        TEST_AND_LOG(round_error());
-        TEST_AND_LOG(infinity());
-        TEST_AND_LOG(quiet_NaN());
-        TEST_AND_LOG(signaling_NaN());
-        TEST_AND_LOG(denorm_min());
+        TEST_AND_LOG(min);
+        TEST_AND_LOG(max);
+        TEST_AND_LOG(lowest);
+        TEST_AND_LOG(epsilon);
+        TEST_AND_LOG(round_error);
+        TEST_AND_LOG(infinity);
+        TEST_AND_LOG(quiet_NaN);
+        TEST_AND_LOG(signaling_NaN);
+        TEST_AND_LOG(denorm_min);
     };
 
     test_type_limits.template operator()<float>();

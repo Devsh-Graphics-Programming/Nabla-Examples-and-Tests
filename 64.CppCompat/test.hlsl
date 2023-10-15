@@ -66,6 +66,19 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         nbl::hlsl::conditional<0 == nbl::hlsl::extent<__decltype(Q), 3>::value, int, void>::type d = 0;
     }
 
+    {
+        float32_t a;
+        a = nbl::hlsl::numeric_limits<float32_t>::min;
+        a = nbl::hlsl::numeric_limits<float32_t>::max;
+        a = nbl::hlsl::numeric_limits<float32_t>::lowest;
+        a = nbl::hlsl::numeric_limits<float32_t>::epsilon;
+        a = nbl::hlsl::numeric_limits<float32_t>::round_error;
+        a = nbl::hlsl::numeric_limits<float32_t>::infinity;
+        a = nbl::hlsl::numeric_limits<float32_t>::quiet_NaN();
+        a = nbl::hlsl::numeric_limits<float32_t>::signaling_NaN();
+        a = nbl::hlsl::numeric_limits<float32_t>::denorm_min;
+    }
+
 	if (all(invocationID.xy < u_pushConstants.imgSize))
 	{
 		// TODO use swapchain transforms
