@@ -92,7 +92,7 @@ struct LineStyle
     
     // stipple pattern data
     int32_t stipplePatternSize;
-    float recpiprocalStipplePatternLen;
+    float reciprocalStipplePatternLen;
     float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
     float phaseShift;
     
@@ -145,7 +145,6 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
         // ArcLenCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    [[vk::location(5)]] nointerpolation float4 data5 : COLOR5;
     
     
     // TODO[Lucas]: you will need more data here, this struct is what gets sent from vshader to fshader
@@ -213,10 +212,6 @@ struct PSInput
     {
         return nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
-    
-    // data5.x
-    void setBezierCurveTotalArcLen(in float arcLen) { data5.x = arcLen; }
-    float getBezierCurveTotalArcLen() { return data5.x; }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

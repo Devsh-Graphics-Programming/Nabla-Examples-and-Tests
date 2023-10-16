@@ -35,7 +35,7 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
 		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
 		lhs.stipplePatternSize == rhs.stipplePatternSize &&
-		lhs.recpiprocalStipplePatternLen == rhs.recpiprocalStipplePatternLen &&
+		lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
 		lhs.phaseShift == rhs.phaseShift;
 
 	if (!areParametersEqual)
@@ -52,13 +52,10 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 }
 
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
-class CPULineStyle
+struct CPULineStyle
 {
-public:
 	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
 
-	// common data
-		// private and setters/getters instead?
 	float32_t4 color;
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
@@ -133,15 +130,15 @@ public:
 			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
 		auto dbgPatternSize = prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]);
-		recpiprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
 		for (int i = 0; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] *= recpiprocalStipplePatternLen;
+			prefixSum[i] *= reciprocalStipplePatternLen;
 
 		stipplePatternSize = PREFIX_SUM_SZ;
 		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
 
-		phaseShift = phaseShift * recpiprocalStipplePatternLen;
+		phaseShift = phaseShift * reciprocalStipplePatternLen;
 	}
 
 	LineStyle getAsGPUData() const
@@ -152,7 +149,7 @@ public:
 		ret.screenSpaceLineWidth = screenSpaceLineWidth;
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
 		ret.stipplePatternSize = stipplePatternSize;
-		ret.recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
+		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
 		ret.phaseShift = phaseShift;
 
 		return ret;
@@ -165,7 +162,7 @@ public:
 
 	// gpu stipple pattern data form
 	int32_t stipplePatternSize;
-	float recpiprocalStipplePatternLen;
+	float reciprocalStipplePatternLen;
 	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
 	float phaseShift;
 };
@@ -2207,7 +2204,7 @@ public:
 			customClipProject.minClipNDC = float32_t2(-0.5, -0.5);
 			uint32_t clipProjIdx = InvalidClipProjectionIdx;
 			// intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
@@ -2215,7 +2212,7 @@ public:
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
 			CPULineStyle cpuLineStyle;
-			cpuLineStyle.screenSpaceLineWidth = 5.0f;
+			cpuLineStyle.screenSpaceLineWidth = 7.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
 			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
 

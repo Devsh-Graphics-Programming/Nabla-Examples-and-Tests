@@ -16,67 +16,76 @@ void endInvocationInterlockEXT();
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
-template<typename float_t, typename CurveType>
+struct ArrayAccessor
+{
+    uint32_t styleIdx;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return lineStyles[styleIdx].stipplePattern[ix];
+    }
+};
+
+template<typename float_t, typename CurveType, typename StyleAccessor>
 struct LineStyleClipper
 {
     using float2_t = vector<float_t, 2>;
 
-    static LineStyleClipper<float_t, CurveType> construct(uint32_t styleIdx, 
-                                                          CurveType curve,
-                                                          typename CurveType::ArcLenCalculator arcLenCalc,
-                                                          float totalArcLen)
+    static LineStyleClipper<float_t, CurveType, StyleAccessor> construct(StyleAccessor styleAccessor, 
+                                                                         CurveType curve,
+                                                                         typename CurveType::ArcLenCalculator arcLenCalc)
     {
-        LineStyleClipper<float_t, CurveType> ret = { styleIdx, curve, arcLenCalc, totalArcLen };
+        LineStyleClipper<float_t, CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc };
         return ret;
     }
     
-    struct ArrayAccessor
+    float2_t operator()(float t)
     {
-        uint32_t styleIdx;
-        using value_type = float;
-
-        float operator[](const uint32_t ix)
-        {
-            return lineStyles[styleIdx].stipplePattern[ix];
-        }
-    };
-    
-    float2_t operator()(const float t)
-    {
+        const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float arcLen = arcLenCalc.calcArcLen(t);
-        float_t tMappedToPattern = frac(arcLen / float(globals.screenToWorldRatio) * lineStyles[styleIdx].recpiprocalStipplePatternLen + lineStyles[styleIdx].phaseShift);
-        ArrayAccessor stippleAccessor = { styleIdx };
-        uint32_t patternIdx = nbl::hlsl::upper_bound(stippleAccessor, 0, lineStyles[styleIdx].stipplePatternSize, tMappedToPattern);
+        t = clamp(t, 0.0f, 1.0f);
+        const float worldSpaceArcLen = arcLen * float(globals.worldToScreenRatio);
+        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
+        uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
         
+        // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
         if(patternIdx & 0x1)
         {   
-            float t0NormalizedLen = (patternIdx == 0) ? 1.0 : lineStyles[styleIdx].stipplePattern[patternIdx-1];
-            float t1NormalizedLen = (patternIdx == lineStyles[styleIdx].stipplePatternSize) ? 1.0 : lineStyles[styleIdx].stipplePattern[patternIdx];
-            t0NormalizedLen -= tMappedToPattern;
-            t1NormalizedLen -= tMappedToPattern;
+            float diffToLeftDrawableSection = (patternIdx == 0) ? 0.0f : style.stipplePattern[patternIdx-1];
+            float diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0f : style.stipplePattern[patternIdx];
+            diffToLeftDrawableSection -= normalizedPlaceInPattern;
+            diffToRightDrawableSection -= normalizedPlaceInPattern;
             
-            float t0 = t0NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
-            float t1 = t1NormalizedLen / globals.worldToScreenRatio / lineStyles[styleIdx].recpiprocalStipplePatternLen;
+            const float patternLen = float(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
+            float scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+            float scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
             
-            t0 = arcLenCalc.calcArcLenInverse(curve, arcLen + t0, 0.000001f, arcLen / totalArcLen);
-            t1 = arcLenCalc.calcArcLenInverse(curve, arcLen + t1, 0.000001f, arcLen / totalArcLen);
+            const float arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
+            const float arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
+            const float totalArcLen = arcLenCalc.calcArcLen(1.0f);
+
+            // TODO: implement, for now code below creates artifacts for curvest that start or end with a "no draw section"
+            //const float t0 = (0.0f <= arcLenForT0 && totalArcLen >= arcLenForT0) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen0, 0.000001f, t) : t;
+            //const float t1 = (0.0f <= arcLenForT1 && totalArcLen >= arcLenForT1) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen1, 0.000001f, t) : t;
             
-            t0 = clamp(t0, 0.0, 1.0);
-            t1 = clamp(t1, 0.0, 1.0);
-            
+            const float t0 = arcLenCalc.calcArcLenInverse(curve, arcLenForT0, 0.000001f, t);
+            const float t1 = arcLenCalc.calcArcLenInverse(curve, arcLenForT1, 0.000001f, t);
+
             return float2(t0, t1);
         }
         else
-            return clamp(t, 0.0, 1.0).xx;
+        {
+            return t.xx;
+        }
     }
     
-    uint32_t styleIdx;
+    StyleAccessor styleAccessor;
     CurveType curve;
     typename CurveType::ArcLenCalculator arcLenCalc;
-    float totalArcLen;
 };
 
-typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float> > BezierLineStyleClipper_float;
+typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float>, ArrayAccessor > BezierLineStyleClipper_float;
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -96,7 +105,7 @@ float4 main(PSInput input) : SV_TARGET
         const float2 end = input.getLineEnd();
         const float lineThickness = input.getLineThickness();
 
-        float distance = nbl::hlsl::shapes::RoundedLine_t::construct(start, end, lineThickness).signedDistance(input.position.xy);
+        float distance = nbl::hlsl::shapes::RoundedLine_t<float>::construct(start, end).signedDistance(input.position.xy, lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
@@ -117,7 +126,8 @@ float4 main(PSInput input) : SV_TARGET
         else
         {
             const float lineThickness = input.getLineThickness();
-            BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(styleIdx, quadratic, arcLenCalc, input.getBezierCurveTotalArcLen());
+            ArrayAccessor arrayAccessor;
+            BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(arrayAccessor, quadratic, arcLenCalc);
             
             distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);
         }
