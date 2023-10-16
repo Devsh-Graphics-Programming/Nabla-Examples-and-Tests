@@ -1110,11 +1110,11 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	//constexpr static uint32_t REQUESTED_WIN_W = 1600u;
-	//constexpr static uint32_t REQUESTED_WIN_H = 900u;
+	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
+	constexpr static uint32_t REQUESTED_WIN_H = 900u;
 
-	constexpr static uint32_t REQUESTED_WIN_W = 3840u;
-	constexpr static uint32_t REQUESTED_WIN_H = 2160u;
+	//constexpr static uint32_t REQUESTED_WIN_W = 3840u;
+	//constexpr static uint32_t REQUESTED_WIN_H = 2160u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -2211,8 +2211,8 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
-			constexpr uint32_t CURVE_CNT = 15u;
-			constexpr uint32_t SPECIAL_CASE_CNT = 5u;
+			constexpr uint32_t CURVE_CNT = 16u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
 			CPULineStyle cpuLineStyle;
 			cpuLineStyle.screenSpaceLineWidth = 5.0f;
@@ -2276,6 +2276,12 @@ public:
 					quadratics[curveIdx].p[1] = float64_t2(100, lineY);
 					quadratics[curveIdx].p[2] = float64_t2(50, lineY);
 
+					// oblique line
+					curveIdx++;
+					quadratics[curveIdx].p[0] = float64_t2(-100, 100);
+					quadratics[curveIdx].p[1] = float64_t2(50.0, -50.0);
+					quadratics[curveIdx].p[2] = float64_t2(100, -100);
+
 					// special case 3 (A.x == 0)
 					curveIdx++;
 					quadratics[curveIdx].p[0] = float64_t2(0.0, 0.0);
@@ -2326,11 +2332,12 @@ public:
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 12: A = 0 (line), folds itself
 				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 13: curve with A.x = 0
-				//stipplePatterns[13] = { 0.5f, -0.5f, 0.1f, -0.5f };
-				stipplePatterns[13] = { 0.0f, -0.5f, 0.2f, -0.5f };
-					// test case 14: long parabola
-				stipplePatterns[14] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 13: oblique line 
+				stipplePatterns[13] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 14: curve with A.x = 0
+				stipplePatterns[14] = { 0.0f, -0.5f, 0.2f, -0.5f };
+					// test case 15: long parabola
+				stipplePatterns[15] = { 5.0f, -5.0f, 1.0f, -5.0f };
 
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
