@@ -27,32 +27,30 @@ struct ArrayAccessor
     }
 };
 
-template<typename float_t, typename CurveType, typename StyleAccessor>
+template<typename CurveType, typename StyleAccessor>
 struct LineStyleClipper
 {
-    using float2_t = vector<float_t, 2>;
-
-    static LineStyleClipper<float_t, CurveType, StyleAccessor> construct(StyleAccessor styleAccessor, 
+    static LineStyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor, 
                                                                          CurveType curve,
                                                                          typename CurveType::ArcLenCalculator arcLenCalc)
     {
-        LineStyleClipper<float_t, CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc };
+        LineStyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc };
         return ret;
     }
     
-    float2_t operator()(float t)
+    float2 operator()(float t)
     {
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float arcLen = arcLenCalc.calcArcLen(t);
         t = clamp(t, 0.0f, 1.0f);
         const float worldSpaceArcLen = arcLen * float(globals.worldToScreenRatio);
-        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
+        float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
         
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
         if(patternIdx & 0x1)
         {   
-            float diffToLeftDrawableSection = (patternIdx == 0) ? 0.0f : style.stipplePattern[patternIdx-1];
+            float diffToLeftDrawableSection = style.stipplePattern[patternIdx-1];
             float diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0f : style.stipplePattern[patternIdx];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
             diffToRightDrawableSection -= normalizedPlaceInPattern;
@@ -65,7 +63,7 @@ struct LineStyleClipper
             const float arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
             const float totalArcLen = arcLenCalc.calcArcLen(1.0f);
 
-            // TODO: implement, for now code below creates artifacts for curvest that start or end with a "no draw section"
+            // TODO [Erfan]: implement, for now code below fills "no draw sections" at begginging and end of curves
             //const float t0 = (0.0f <= arcLenForT0 && totalArcLen >= arcLenForT0) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen0, 0.000001f, t) : t;
             //const float t1 = (0.0f <= arcLenForT1 && totalArcLen >= arcLenForT1) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen1, 0.000001f, t) : t;
             
@@ -85,7 +83,7 @@ struct LineStyleClipper
     typename CurveType::ArcLenCalculator arcLenCalc;
 };
 
-typedef LineStyleClipper<float, nbl::hlsl::shapes::Quadratic<float>, ArrayAccessor > BezierLineStyleClipper_float;
+typedef LineStyleClipper<nbl::hlsl::shapes::Quadratic<float>, ArrayAccessor > BezierLineStyleClipper_float;
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -126,7 +124,7 @@ float4 main(PSInput input) : SV_TARGET
         else
         {
             const float lineThickness = input.getLineThickness();
-            ArrayAccessor arrayAccessor;
+            ArrayAccessor arrayAccessor = { styleIdx };
             BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(arrayAccessor, quadratic, arcLenCalc);
             
             distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);

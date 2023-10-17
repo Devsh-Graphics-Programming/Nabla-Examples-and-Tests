@@ -2303,7 +2303,6 @@ public:
 				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
 					// test case 0: test curve
-				//stipplePatterns[0] = { 5.0f, -5.0f, 1.0f, -5.0f };
 				stipplePatterns[0] = { 0.0f, -5.0f, 2.0f, -5.0f };
 					// test case 1: lots of redundant values, should look exactly like stipplePattern[0]
 				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
