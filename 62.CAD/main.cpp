@@ -1873,7 +1873,7 @@ public:
 		float64_t3x3 projectionToNDC(rotation * vp);
 
 		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0; //+abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
@@ -2287,65 +2287,65 @@ public:
 					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis);
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
 				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 
-			//if (hatchDebugStep > 0)
-			//{
-			//	std::vector<float64_t2> points;
-			//	double sqrt3 = sqrt(3.0);
-			//	points.push_back(float64_t2(0, 1));
-			//	points.push_back(float64_t2(sqrt3 / 2, 0.5));
-			//	points.push_back(float64_t2(sqrt3 / 2, -0.5));
-			//	points.push_back(float64_t2(0, -1));
-			//	points.push_back(float64_t2(-sqrt3 / 2, -0.5));
-			//	points.push_back(float64_t2(-sqrt3 / 2, 0.5));
-			//	points.push_back(float64_t2(0, 1));
-			//
-			//	std::vector<QuadraticBezierInfo> beziers;
-			//	beziers.push_back({
-			//		float64_t2(-0.5, -0.25),
-			//		float64_t2(-sqrt3 / 2, 0.0),
-			//		float64_t2(-0.5, 0.25) });
-			//	beziers.push_back({
-			//		float64_t2(0.5, -0.25),
-			//		float64_t2(sqrt3 / 2, 0.0),
-			//		float64_t2(0.5, 0.25) });
-			//
-			//	for (uint32_t i = 0; i < points.size(); i++)
-			//		points[i] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * points[i];
-			//	for (uint32_t i = 0; i < beziers.size(); i++)
-			//		for (uint32_t j = 0; j < 3; j++)
-			//			beziers[i].p[j] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].p[j];
-			//
-			//	CPolyline polyline;
-			//	polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
-			//	polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
-			//
-			//	core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-			//	Hatch hatch(polylines, SelectedMajorAxis);
-			//	intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//}
-			//
-			//if (hatchDebugStep > 0)
-			//{
-			//	CPolyline polyline;
-			//	std::vector<QuadraticBezierInfo> beziers;
-			//	beziers.push_back({
-			//		100.0 * float64_t2(-0.4, 0.13),
-			//		100.0 * float64_t2(7.7, 3.57),
-			//		100.0 * float64_t2(8.8, 7.27) });
-			//	beziers.push_back({
-			//		100.0 * float64_t2(6.6, 0.13),
-			//		100.0 * float64_t2(-1.97, 3.2),
-			//		100.0 * float64_t2(3.7, 7.27) });
-			//	polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
-			//
-			//	core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-			//	Hatch hatch(polylines, SelectedMajorAxis);
-			//	intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//}
+			if (hatchDebugStep > 0)
+			{
+				std::vector<float64_t2> points;
+				double sqrt3 = sqrt(3.0);
+				points.push_back(float64_t2(0, 1));
+				points.push_back(float64_t2(sqrt3 / 2, 0.5));
+				points.push_back(float64_t2(sqrt3 / 2, -0.5));
+				points.push_back(float64_t2(0, -1));
+				points.push_back(float64_t2(-sqrt3 / 2, -0.5));
+				points.push_back(float64_t2(-sqrt3 / 2, 0.5));
+				points.push_back(float64_t2(0, 1));
+
+				std::vector<QuadraticBezierInfo> beziers;
+				beziers.push_back({
+					float64_t2(-0.5, -0.25),
+					float64_t2(-sqrt3 / 2, 0.0),
+					float64_t2(-0.5, 0.25) });
+				beziers.push_back({
+					float64_t2(0.5, -0.25),
+					float64_t2(sqrt3 / 2, 0.0),
+					float64_t2(0.5, 0.25) });
+
+				for (uint32_t i = 0; i < points.size(); i++)
+					points[i] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * points[i];
+				for (uint32_t i = 0; i < beziers.size(); i++)
+					for (uint32_t j = 0; j < 3; j++)
+						beziers[i].p[j] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].p[j];
+
+				CPolyline polyline;
+				polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+
+				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				CPolyline polyline;
+				std::vector<QuadraticBezierInfo> beziers;
+				beziers.push_back({
+					100.0 * float64_t2(-0.4, 0.13),
+					100.0 * float64_t2(7.7, 3.57),
+					100.0 * float64_t2(8.8, 7.27) });
+				beziers.push_back({
+					100.0 * float64_t2(6.6, 0.13),
+					100.0 * float64_t2(-1.97, 3.2),
+					100.0 * float64_t2(3.7, 7.27) });
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+			
+				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{

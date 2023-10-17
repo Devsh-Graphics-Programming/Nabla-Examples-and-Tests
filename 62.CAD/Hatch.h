@@ -63,7 +63,7 @@ public:
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor() const;
 	};
-	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis);
+	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */);
 	// (temporary)
 	Hatch(std::vector<QuadraticBezier>&& in_beziers, std::vector<CurveHatchBox>&& in_hatchBoxes) : 
 		beziers(std::move(in_beziers)),
