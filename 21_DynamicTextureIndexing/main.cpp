@@ -179,7 +179,7 @@ public:
         CommonAPI::InitParams initParams;
         initParams.window = core::smart_refctd_ptr(window);
         initParams.apiType = video::EAT_VULKAN;
-        initParams.appName = { "21_DynamicTextureIndexing" };
+        initParams.appName = { _NBL_APP_NAME_ };
         initParams.framesInFlight = FRAMES_IN_FLIGHT;
         initParams.windowWidth = WIN_W;
         initParams.windowHeight = WIN_H;

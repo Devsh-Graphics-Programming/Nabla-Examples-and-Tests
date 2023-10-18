@@ -499,7 +499,7 @@ public:
 		CommonAPI::InitParams initParams;
 		initParams.window = core::smart_refctd_ptr(window);
 		initParams.apiType = video::EAT_OPENGL;
-		initParams.appName = { "47_DerivMapTest" };
+		initParams.appName = { _NBL_APP_NAME_ };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = NBL_WINDOW_WIDTH;
 		initParams.windowHeight = NBL_WINDOW_HEIGHT;
