@@ -10,7 +10,7 @@
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -241,19 +241,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 0.1;
+				m_origin.y += 2;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 0.1;
+				m_origin.x -= 2;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 0.1;
+				m_origin.y -= 2;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 0.1;
+				m_origin.x += 2;
 			}
 		}
 	}
@@ -1231,7 +1231,7 @@ class CADApp : public ApplicationBase
 	CPolyline bigPolyline;
 	CPolyline bigPolyline2;
 
-	bool fragmentShaderInterlockEnabled = false;
+	bool fragmentShaderInterlockEnabled = true;
 
 	// TODO: Needs better info about regular scenes and main limiters to improve the allocations in this function
 	void initDrawObjects(uint32_t maxObjects)

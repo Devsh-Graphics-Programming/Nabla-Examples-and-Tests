@@ -44,6 +44,8 @@ public:
 		bool splitIntoMajorMonotonicSegments(std::array<QuadraticBezier, 2>& segments) const;
 		// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
 		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor() const;
+
+		bool isLineSegment() const;
 	};
 
 	std::vector<QuadraticBezier> beziers;
@@ -57,8 +59,8 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
-		QuadraticBezier splitCurveRange(QuadraticBezier curve, double left, double right);
-		QuadraticBezier getSplitCurve();
+		QuadraticBezier splitCurveRange(QuadraticBezier curve, double left, double right) const;
+		QuadraticBezier getSplitCurve() const;
 		std::array<double, 2> intersect(const Segment& other) const;
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor() const;

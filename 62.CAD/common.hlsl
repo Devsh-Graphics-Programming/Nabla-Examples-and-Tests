@@ -131,41 +131,37 @@ uint bitfieldExtract(uint value, int offset, int bits)
 
 // The root we're always looking for:
 // 2 * C / (-B - detSqrt)
-// We send to the FS: -rcp, B, -2C
-// Precomputed version:
-// (-2C/B) + (-2C)*inverseSqrt(det) 
+// We send to the FS: -B, 2C, det
 template<typename float_t>
 struct PrecomputedRootFinder 
 {
     using float2_t = vector<float_t, 2>;
     using float3_t = vector<float_t, 3>;
     
-    float_t A;
-    float_t B;
-    float_t C;
+    float_t C2;
+    float_t negB;
+    float_t det;
 
     float_t computeRoots() 
     {
-        const float_t det = B * B - 4.0 * A *C;
-        const float_t detSqrt = sqrt(det);
-        return 2 * C / (-B - detSqrt);
+        return C2 / (negB - sqrt(det));
     }
 
-    static PrecomputedRootFinder construct(float_t a, float_t b, float_t c)
+    static PrecomputedRootFinder construct(float_t negB, float_t C2, float_t det)
     {
         PrecomputedRootFinder result;
-        result.A = a;
-        result.B = b;
-        result.C = c;
+        result.C2 = C2;
+        result.det = det;
+        result.negB = negB;
         return result;
     }
 
     static PrecomputedRootFinder construct(nbl::hlsl::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
-        result.A = quadratic.A;
-        result.B = quadratic.B;
-        result.C = quadratic.C;
+        result.C2 = quadratic.C * 2.0;
+        result.negB = -quadratic.B;
+        result.det = quadratic.B * quadratic.B - 4.0 * quadratic.A * quadratic.C;
         return result;
     }
 };
@@ -251,21 +247,21 @@ struct PSInput
     // a, b, c = curveMin.a,b,c()[major] - uv[major]
 
     PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
-        return PrecomputedRootFinder<float>::construct(data3.z, data3.w, interp_data5.z);
+        return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
     }
     PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
-        return PrecomputedRootFinder<float>::construct(data4.x, data4.y, interp_data5.w);
+        return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
     }
 
     void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-        data3.z = rootFinder.A;
-        data3.w = rootFinder.B;
-        interp_data5.z = rootFinder.C;
+        data3.z = rootFinder.negB;
+        interp_data5.z = rootFinder.C2;
+        interp_data5.w = rootFinder.det;
     }
     void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-        data4.x = rootFinder.A;
-        data4.y = rootFinder.B;
-        interp_data5.w = rootFinder.C;
+        data3.w = rootFinder.negB;
+        interp_data6.x = rootFinder.C2;
+        interp_data6.y = rootFinder.det;
     }
     
     // data2 + data3.xy
