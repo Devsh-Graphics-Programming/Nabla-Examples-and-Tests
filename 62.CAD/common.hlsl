@@ -143,7 +143,7 @@ struct PSInput
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
-        // ArcLenCalculator<float>
+        // ArcLengthCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     
     
@@ -202,15 +202,15 @@ struct PSInput
     
     // data3.zw + data4
     
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData) 
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
     {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
     
-    nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator getQuadraticArcLenCalculator()
+    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
 };
 

@@ -2360,13 +2360,19 @@ public:
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+					// polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+
+					float64_t2 linePoints[2u] = {};
+					linePoints[0] = { -30.0, -5.0 + 1.0 * i };
+					linePoints[1] = { 30.0, -5.0 + 1.0 * i };
+					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
 						cpuLineStyles[i].stipplePatternSize = -1;
 				}
 			}
+
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}

@@ -1,8 +1,8 @@
 #pragma shader_stage(fragment)
 
 #include "common.hlsl"
-#include <nbl/builtin/hlsl/shapes/rounded_line.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/shapes/line.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
@@ -16,7 +16,25 @@ void endInvocationInterlockEXT();
 // Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
 // See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
-struct ArrayAccessor
+template<typename float_t>
+struct DefaultClipper
+{
+    using float_t2 = vector<float_t, 2>;
+
+    static DefaultClipper construct()
+    {
+        DefaultClipper ret;
+        return ret;
+    }
+
+    inline float_t2 operator()(const float_t t)
+    {
+        const float_t ret = clamp(t, 0.0, 1.0);
+        return float_t2(ret, ret);
+    }
+};
+
+struct StyleAccessor
 {
     uint32_t styleIdx;
     using value_type = float;
@@ -28,16 +46,16 @@ struct ArrayAccessor
 };
 
 template<typename CurveType, typename StyleAccessor>
-struct LineStyleClipper
+struct StyleClipper
 {
-    static LineStyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor, 
-                                                                         CurveType curve,
-                                                                         typename CurveType::ArcLenCalculator arcLenCalc)
+    static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
+        CurveType curve,
+        typename CurveType::ArcLengthCalculator arcLenCalc)
     {
-        LineStyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc };
+        StyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc };
         return ret;
     }
-    
+
     float2 operator()(float t)
     {
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
@@ -46,19 +64,19 @@ struct LineStyleClipper
         const float worldSpaceArcLen = arcLen * float(globals.worldToScreenRatio);
         float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
-        
+
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
-        if(patternIdx & 0x1)
-        {   
-            float diffToLeftDrawableSection = style.stipplePattern[patternIdx-1];
+        if (patternIdx & 0x1)
+        {
+            float diffToLeftDrawableSection = style.stipplePattern[patternIdx - 1];
             float diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0f : style.stipplePattern[patternIdx];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
             diffToRightDrawableSection -= normalizedPlaceInPattern;
-            
+
             const float patternLen = float(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
             float scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
             float scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
-            
+
             const float arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
             const float arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
             const float totalArcLen = arcLenCalc.calcArcLen(1.0f);
@@ -66,7 +84,7 @@ struct LineStyleClipper
             // TODO [Erfan]: implement, for now code below fills "no draw sections" at begginging and end of curves
             //const float t0 = (0.0f <= arcLenForT0 && totalArcLen >= arcLenForT0) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen0, 0.000001f, t) : t;
             //const float t1 = (0.0f <= arcLenForT1 && totalArcLen >= arcLenForT1) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen1, 0.000001f, t) : t;
-            
+
             const float t0 = arcLenCalc.calcArcLenInverse(curve, arcLenForT0, 0.000001f, t);
             const float t1 = arcLenCalc.calcArcLenInverse(curve, arcLenForT1, 0.000001f, t);
 
@@ -77,13 +95,74 @@ struct LineStyleClipper
             return t.xx;
         }
     }
-    
+
     StyleAccessor styleAccessor;
     CurveType curve;
-    typename CurveType::ArcLenCalculator arcLenCalc;
+    typename CurveType::ArcLengthCalculator arcLenCalc;
 };
 
-typedef LineStyleClipper<nbl::hlsl::shapes::Quadratic<float>, ArrayAccessor > BezierLineStyleClipper_float;
+template<typename CurveType, typename Clipper = DefaultClipper<typename CurveType::scalar_t> >
+struct ClippedSignedDistance
+{
+    using float_t = typename CurveType::scalar_t;
+    using float_t2 = typename CurveType::float_t2;
+    using float_t3 = typename CurveType::float_t3;
+
+    const static float_t sdf(CurveType curve, float_t2 pos, float_t thickness, Clipper clipper = DefaultClipper<typename CurveType::scalar_t>::construct())
+    {
+        typename CurveType::Candidates candidates = curve.getClosestCandidates(pos);
+
+        const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f);
+
+        float_t closestDistanceSquared = MAX_DISTANCE_SQUARED;
+        float_t closestT = 0.0f; // use numeric limits inf?
+
+        [[unroll(CurveType::MaxCandidates)]]
+        for (uint32_t i = 0; i < CurveType::MaxCandidates; i++)
+        {
+            const float_t candidateDistanceSquared = length(curve.evaluate(candidates[i]) - pos);
+            if (candidateDistanceSquared < closestDistanceSquared)
+            {
+                float2 snappedTs = clipper(candidates[i]);
+                if (snappedTs[0] != candidates[i])
+                {
+                    // left snapped or clamped
+                    const float_t leftSnappedCandidateDistanceSquared = length(curve.evaluate(snappedTs[0]) - pos);
+                    if (leftSnappedCandidateDistanceSquared < closestDistanceSquared)
+                    {
+                        closestT = snappedTs[0];
+                        closestDistanceSquared = leftSnappedCandidateDistanceSquared;
+                    }
+
+                    if (snappedTs[0] != snappedTs[1])
+                    {
+                        // right snapped or clamped
+                        const float_t rightSnappedCandidateDistanceSquared = length(curve.evaluate(snappedTs[1]) - pos);
+                        if (rightSnappedCandidateDistanceSquared < closestDistanceSquared)
+                        {
+                            closestT = snappedTs[1];
+                            closestDistanceSquared = rightSnappedCandidateDistanceSquared;
+                        }
+                    }
+                }
+                else
+                {
+                    // no snapping
+                    if (candidateDistanceSquared < closestDistanceSquared)
+                    {
+                        closestT = candidates[i];
+                        closestDistanceSquared = candidateDistanceSquared;
+                    }
+                }
+            }
+        }
+
+        return closestDistanceSquared - thickness;
+    }
+};
+
+typedef StyleClipper<nbl::hlsl::shapes::Quadratic<float>, StyleAccessor> BezierStyleClipper;
+typedef StyleClipper<nbl::hlsl::shapes::Line<float>, StyleAccessor> LineStyleClipper;
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -101,9 +180,23 @@ float4 main(PSInput input) : SV_TARGET
     {
         const float2 start = input.getLineStart();
         const float2 end = input.getLineEnd();
-        const float lineThickness = input.getLineThickness();
+        const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+        const float thickness = input.getLineThickness();
 
-        float distance = nbl::hlsl::shapes::RoundedLine_t<float>::construct(start, end).signedDistance(input.position.xy, lineThickness);
+        nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
+        nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+
+        float distance;
+        if (!lineStyles[styleIdx].hasStipples())
+        {
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness);
+        }
+        else
+        {
+            StyleAccessor styleAccessor = { styleIdx };
+            LineStyleClipper clipper = LineStyleClipper::construct(styleAccessor, lineSegment, arcLenCalc);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, clipper);
+        }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
@@ -111,23 +204,21 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::QUAD_BEZIER)
     {
         nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-        nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator arcLenCalc = input.getQuadraticArcLenCalculator();
+        nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
         
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
-        const float lineThickness = input.getLineThickness();
+        const float thickness = input.getLineThickness();
         float distance;
         
         if (!lineStyles[styleIdx].hasStipples())
         {
-            distance = quadratic.signedDistance(input.position.xy, lineThickness);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness);
         }
         else
         {
-            const float lineThickness = input.getLineThickness();
-            ArrayAccessor arrayAccessor = { styleIdx };
-            BezierLineStyleClipper_float clipper = BezierLineStyleClipper_float::construct(arrayAccessor, quadratic, arcLenCalc);
-            
-            distance = quadratic.signedDistance(input.position.xy, lineThickness, clipper);
+            StyleAccessor styleAccessor = { styleIdx };
+            BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, clipper);
         }
         
         const float antiAliasingFactor = globals.antiAliasingFactor;
