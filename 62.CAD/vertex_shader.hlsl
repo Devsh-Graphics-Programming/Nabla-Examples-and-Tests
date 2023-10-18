@@ -162,6 +162,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data1 = uint4(0, 0, 0, 0);
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
+    outV.data4 = float4(0, 0, 0, 0);
     outV.clip = float4(0,0,0,0);
 
     outV.setObjType(objType);
