@@ -3,13 +3,13 @@
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include "curves.h"
 
-static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 enum class ExampleMode
 {
@@ -17,17 +17,161 @@ enum class ExampleMode
 	CASE_1,	// Overdraw Fragment Shader Stress Test
 	CASE_2, // NOT USED
 	CASE_3, // CURVES AND LINES
+	CASE_4, // STIPPLE PATTERN
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
-using namespace nbl::hlsl;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
+static constexpr bool DebugMode = false;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 #include "common.hlsl"
+
+using namespace nbl::hlsl;
+
+bool operator==(const LineStyle& lhs, const LineStyle& rhs)
+{
+	const bool areParametersEqual =
+		lhs.color == rhs.color &&
+		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
+		lhs.stipplePatternSize == rhs.stipplePatternSize &&
+		lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
+		lhs.phaseShift == rhs.phaseShift;
+
+	if (!areParametersEqual)
+		return false;
+
+	if (lhs.stipplePatternSize == -1)
+		return true;
+
+	assert(lhs.stipplePatternSize <= LineStyle::STIPPLE_PATTERN_MAX_SZ && lhs.stipplePatternSize >= 0);
+
+	const bool isStipplePatternArrayEqual = std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize);
+
+	return areParametersEqual && isStipplePatternArrayEqual;
+}
+
+// holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
+struct CPULineStyle
+{
+	static constexpr int32_t InvalidStipplePatternSize = -1;
+	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+
+	float32_t4 color;
+	float screenSpaceLineWidth;
+	float worldSpaceLineWidth;
+	// gpu stipple pattern data form
+	int32_t stipplePatternSize;
+	float reciprocalStipplePatternLen;
+	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+	float phaseShift;
+
+	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
+	//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
+	{
+		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
+
+		if (stipplePatternCPURepresentation.size() == 0)
+		{
+			stipplePatternSize = 0;
+			return;
+		}
+
+		nbl::core::vector<float> stipplePatternTransformed;
+
+		// just to make sure we have a consistent definition of what's positive and what's negative
+		auto isValuePositive = [](float x)
+			{
+				return (x >= 0);
+			};
+
+		// merge redundant values
+		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
+		{
+			float redundantConsecutiveValuesSum = 0.0f;
+			const bool firstValueSign = isValuePositive(*it);
+			do
+			{
+				redundantConsecutiveValuesSum += *it;
+				it++;
+			} while (it != stipplePatternCPURepresentation.end() && (firstValueSign == isValuePositive(*it)));
+
+			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
+		}
+
+		if (stipplePatternTransformed.size() == 1)
+		{
+			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? InvalidStipplePatternSize : 0;
+			return;
+		}
+
+		// merge first and last value if their sign matches
+		phaseShift = 0.0f;
+		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
+		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+		if (firstComponentPositive == lastComponentPositive)
+		{
+			phaseShift = std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
+			stipplePatternTransformed.pop_back();
+		}
+
+		if (stipplePatternTransformed.size() == 1)
+		{
+			stipplePatternSize = (firstComponentPositive) ? 0 : InvalidStipplePatternSize;
+			return;
+		}
+
+		// rotate values if first value is negative value
+		if (!firstComponentPositive)
+		{
+			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
+			phaseShift += std::abs(stipplePatternTransformed[0]);
+		}
+
+		// calculate normalized prefix sum
+		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
+		const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
+
+		float prefixSum[PREFIX_SUM_MAX_SZ];
+		prefixSum[0] = stipplePatternTransformed[0];
+
+		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
+			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
+
+		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+
+		for (int i = 0; i < PREFIX_SUM_SZ; i++)
+			prefixSum[i] *= reciprocalStipplePatternLen;
+
+		stipplePatternSize = PREFIX_SUM_SZ;
+		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
+
+		phaseShift = phaseShift * reciprocalStipplePatternLen;
+	}
+
+	LineStyle getAsGPUData() const
+	{
+		LineStyle ret;
+		std::memcpy(ret.stipplePattern, stipplePattern, STIPPLE_PATTERN_MAX_SZ*sizeof(float));
+		ret.color = color;
+		ret.screenSpaceLineWidth = screenSpaceLineWidth;
+		ret.worldSpaceLineWidth = worldSpaceLineWidth;
+		ret.stipplePatternSize = stipplePatternSize;
+		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
+		ret.phaseShift = phaseShift;
+
+		return ret;
+	}
+
+	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
+
+};
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(Globals) == 112u);
-static_assert(sizeof(LineStyle) == 32u);
+static_assert(sizeof(LineStyle) == 96u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
@@ -95,19 +239,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 0.1;
+				m_origin.y += 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 0.1;
+				m_origin.x -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 0.1;
+				m_origin.y -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 0.1;
+				m_origin.x += 1;
 			}
 		}
 	}
@@ -191,8 +335,6 @@ public:
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
-	// TODO[Przemek]: This uses the struct from the shader common.hlsl if you need to precompute stuff make a duplicate of this struct here first (for the user input to fill)
-	// and then do the precomputation here and store in m_quadBeziers which holds the actual structs that will be fed to the GPU
 	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
@@ -403,22 +545,24 @@ public:
 
 		cpuDrawBuffers.customClipProjectionBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(customClipProjectionBufferSize);
 	}
-
-	// TODO[Przemek]: look at the `drawPolyline` function and you may have to change that as well. if you found out the user input `const LineStyle& lineStyle` for stippling needs processing/computation to be ready to be fed into gpu
-	//	 then have two sturcts (one for cpu side and one that is private to this class and will be fed to gpu)
-	//	 don't force yourself to understand this function completely, it will change soon when I change CSG algo, 
-	//	 just be aware that this drawPolyline function will result in calls to addQuadBeziers_Internal and addLineStyle_Internal and will submit draws if there is no memory left and continue where it left off
+	
+	// TODO
+	//uint32_t getIndexCount() const { return currentIndexCount; }
+	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
-		const LineStyle& lineStyle,
-		const uint32_t clipProjectionIdx, // = InvalidClipProjectionIdx
+		const CPULineStyle& cpuLineStyle,
+		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
 	{
+		if (!cpuLineStyle.isVisible())
+			return intendedNextSubmit;
+
 		uint32_t styleIdx;
-		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		intendedNextSubmit = addLineStyle_SubmitIfNeeded(cpuLineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		
 		MainObject mainObj = {};
 		mainObj.styleIdx = styleIdx;
@@ -543,7 +687,7 @@ public:
 	DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
 
 	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
-		const LineStyle& lineStyle,
+		const CPULineStyle& lineStyle,
 		uint32_t& outLineStyleIdx,
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
@@ -701,24 +845,23 @@ protected:
 		return ret;
 	}
 
-	uint32_t addLineStyle_Internal(const LineStyle& lineStyle)
+	uint32_t addLineStyle_Internal(const CPULineStyle& cpuLineStyle)
 	{
-		// TODO[Przemek]: styles are added here, store info about stipple patterns here, assume max input of the stipple array is 15 max (the -1, +2, 0., +4, .. patterns)
+		LineStyle gpuLineStyle = cpuLineStyle.getAsGPUData();
 		LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 		{
 			const LineStyle& itr = stylesArray[i];
-			if (lineStyle.screenSpaceLineWidth == itr.screenSpaceLineWidth)
-				if (lineStyle.worldSpaceLineWidth == itr.worldSpaceLineWidth)
-					if (lineStyle.color == itr.color)
-						return i;
+
+			if(itr == gpuLineStyle)
+				return i;
 		}
 
 		if (currentLineStylesCount >= maxLineStyles)
 			return InvalidLineStyleIdx;
 
 		void* dst = stylesArray + currentLineStylesCount;
-		memcpy(dst, &lineStyle, sizeof(LineStyle));
+		memcpy(dst, &gpuLineStyle, sizeof(LineStyle));
 		return currentLineStylesCount++;
 	}
 
@@ -799,7 +942,6 @@ protected:
 
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
-		// TODO[Przemek]: Beziers are added here, understand how this function works, may come in handy
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
 		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
@@ -937,7 +1079,6 @@ protected:
 	}
 
 	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> device;
 
 	uint32_t inMemIndexCount = 0u;
 	uint32_t currentIndexCount = 0u;
@@ -971,14 +1112,16 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	constexpr static uint32_t WIN_W = 1600u;
-	constexpr static uint32_t WIN_H = 900u;
+	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
+	constexpr static uint32_t REQUESTED_WIN_H = 900u;
+
+	//constexpr static uint32_t REQUESTED_WIN_W = 3840u;
+	//constexpr static uint32_t REQUESTED_WIN_H = 2160u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
-
 	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	core::smart_refctd_ptr<nbl::ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
@@ -1082,8 +1225,8 @@ class CADApp : public ApplicationBase
 			video::IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
 			imgInfo.type = video::IGPUImage::ET_2D;
-			imgInfo.extent.width = WIN_W;
-			imgInfo.extent.height = WIN_H;
+			imgInfo.extent.width = window->getWidth();
+			imgInfo.extent.height = window->getHeight();
 			imgInfo.extent.depth = 1u;
 			imgInfo.mipLevels = 1u;
 			imgInfo.arrayLayers = 1u;
@@ -1266,8 +1409,8 @@ public:
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "62.CAD" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = WIN_W;
-		initParams.windowHeight = WIN_H;
+		initParams.windowWidth = REQUESTED_WIN_W;
+		initParams.windowHeight = REQUESTED_WIN_H;
 		initParams.swapchainImageCount = 3u;
 		initParams.swapchainImageUsage = swapchainImageUsage;
 		initParams.depthFormat = getDepthFormat();
@@ -1309,7 +1452,6 @@ public:
 			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
 		}
 
-
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassFinal = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_PRESENT_SRC);
@@ -1318,10 +1460,10 @@ public:
 		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
 		const auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
 
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
+		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, window->getWidth(), window->getHeight(), swapchain);
 
 		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
+			swapchain->getImageCount(), window->getWidth(), window->getHeight(),
 			logicalDevice, swapchain, renderpassFinal,
 			getDepthFormat()
 		);
@@ -1582,7 +1724,7 @@ public:
 		}
 
 		m_Camera.setOrigin({ 0.0, 0.0 });
-		m_Camera.setAspectRatio((double)WIN_W / WIN_H);
+		m_Camera.setAspectRatio((double)window->getWidth() / window->getHeight());
 		m_Camera.setSize(10.0);
 
 		m_timeElapsed = 0.0;
@@ -1644,7 +1786,7 @@ public:
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
 		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
 		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return core::sqrt(core::abs(det_2x2_mat));
+		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
 	}
 
 	void beginFrameRender()
@@ -1667,11 +1809,13 @@ public:
 		cb->beginDebugMarker("Frame");
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
-		globalData.resolution = uint32_t2{ WIN_W, WIN_H };
+		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection();
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
+
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1712,7 +1856,7 @@ public:
 		{
 			VkRect2D area;
 			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
+			area.extent = { window->getWidth(), window->getHeight() };
 			asset::SClearValue clear[2] = {};
 			clear[0].color.float32[0] = 0.8f;
 			clear[0].color.float32[1] = 0.8f;
@@ -1853,7 +1997,7 @@ public:
 		{
 			VkRect2D area;
 			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
+			area.extent = { window->getWidth(), window->getHeight() };
 
 			beginInfo.clearValueCount = 0u;
 			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
@@ -1926,7 +2070,7 @@ public:
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			LineStyle style = {};
+			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -1943,12 +2087,12 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			LineStyle style = {};
+			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 0.8f;
 			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.2f);
 
-			LineStyle style2 = {};
+			CPULineStyle style2 = {};
 			style2.screenSpaceLineWidth = 0.0f;
 			style2.worldSpaceLineWidth = 0.8f;
 			style2.color = float32_t4(0.119f, 0.825f, 0.709f, 0.5f);
@@ -1961,12 +2105,12 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
-			LineStyle style = {};
+			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
-			LineStyle style2 = {};
+			CPULineStyle style2 = {};
 			style2.screenSpaceLineWidth = 5.0f;
 			style2.worldSpaceLineWidth = 0.0f;
 			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 0.5f);
@@ -1982,7 +2126,7 @@ public:
 				float Base = -25;
 				srand(95);
 				std::vector<QuadraticBezierInfo> quadBeziers;
-				for (int i = 0; i < 10; i++) {
+				for (int i = 0; i < 1; i++) {
 					QuadraticBezierInfo quadratic1;
 					quadratic1.p[0] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
 					quadratic1.p[1] = float64_t2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
@@ -2004,8 +2148,8 @@ public:
 				//	quadratic1.p[2] = float64_t2(300, 300);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 			{
 				std::vector<QuadraticBezierInfo> quadBeziers;
@@ -2082,8 +2226,158 @@ public:
 			customClipProject.minClipNDC = float32_t2(-0.5, -0.5);
 			uint32_t clipProjIdx = InvalidClipProjectionIdx;
 			// intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
+		else if (mode == ExampleMode::CASE_4)
+		{
+			constexpr uint32_t CURVE_CNT = 16u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
+
+			CPULineStyle cpuLineStyle;
+			cpuLineStyle.screenSpaceLineWidth = 7.0f;
+			cpuLineStyle.worldSpaceLineWidth = 0.0f;
+			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
+
+			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
+			std::vector<CPolyline> polylines(CURVE_CNT);
+
+			{
+				std::vector<QuadraticBezierInfo> quadratics(CURVE_CNT);
+
+				// setting controll points
+				{
+					float64_t2 P0(-90, 68);
+					float64_t2 P1(-41, 118);
+					float64_t2 P2(88, 19);
+
+					const float64_t2 translationVector(0, -5);
+
+					uint32_t curveIdx = 0;
+					while(curveIdx < CURVE_CNT - SPECIAL_CASE_CNT)
+					{
+						quadratics[curveIdx].p[0] = P0;
+						quadratics[curveIdx].p[1] = P1;
+						quadratics[curveIdx].p[2] = P2;
+
+						P0 += translationVector;
+						P1 += translationVector;
+						P2 += translationVector;
+
+						curveIdx++;
+					}
+
+					// special case 0 (line, evenly spaced points)
+					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].y;
+					double lineY = prevLineLowestY - 10.0;
+
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(0, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
+					cpuLineStyles[curveIdx].color = float64_t4(0.7f, 0.3f, 0.1f, 0.5f);
+
+					// special case 1 (line, not evenly spaced points)
+					lineY -= 10.0;
+					curveIdx++;
+
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(20, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
+
+					// special case 2 (folded line)
+					lineY -= 10.0;
+					curveIdx++;
+
+					/*quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);*/
+
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(100, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(50, lineY);
+
+					// oblique line
+					curveIdx++;
+					quadratics[curveIdx].p[0] = float64_t2(-100, 100);
+					quadratics[curveIdx].p[1] = float64_t2(50.0, -50.0);
+					quadratics[curveIdx].p[2] = float64_t2(100, -100);
+
+					// special case 3 (A.x == 0)
+					curveIdx++;
+					quadratics[curveIdx].p[0] = float64_t2(0.0, 0.0);
+					quadratics[curveIdx].p[1] = float64_t2(3.0, 4.14);
+					quadratics[curveIdx].p[2] = float64_t2(6.0, 4.0);
+					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+
+						// make sure A.x == 0
+					float64_t2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
+					assert(A.x == 0);
+
+					// special case 4 (symetric parabola)
+					curveIdx++;
+					quadratics[curveIdx].p[0] = float64_t2(-150.0, 1.0);
+					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
+					quadratics[curveIdx].p[2] = float64_t2(-150.0, -1.0);
+					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+				}
+
+				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
+
+				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
+
+					// test case 0: test curve
+				stipplePatterns[0] = { 0.0f, -5.0f, 2.0f, -5.0f };
+					// test case 1: lots of redundant values, should look exactly like stipplePattern[0]
+				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
+					// test case 2:stipplePattern[0] but shifted curve but shifted to left by 2.5f
+				stipplePatterns[2] = { 2.5f, -5.0f, 1.0f, -5.0f, 2.5f };
+					// test case 3: starts and ends with negative value, stipplePattern[2] reversed (I'm suspisious about that, need more testing)
+				stipplePatterns[3] = { -2.5f, 5.0f, -1.0f, 5.0f, -2.5f };
+					// test case 4: starts with "don't draw section"
+				stipplePatterns[4] = { -5.0f, 5.0f };
+					// test case 5: invisible curve (shouldn't be send to GPU)
+				stipplePatterns[5] = { -1.0f };
+					// test case 6: invisible curve (shouldn't be send to GPU)
+				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
+					// test case 7: continous curuve
+				stipplePatterns[7] = { 25.0f, 25.0f };
+					// test case 8: empty pattern (draw line with no pattern)
+				stipplePatterns[8] = {};
+					// test case 9: max pattern size
+				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
+					// test case 10: A = 0 (line), evenly distributed controll points (doesn't work)
+				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 11: A = 0 (line), not evenly distributed controll points
+				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 12: A = 0 (line), folds itself
+				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 13: oblique line 
+				stipplePatterns[13] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 14: curve with A.x = 0
+				stipplePatterns[14] = { 0.0f, -0.5f, 0.2f, -0.5f };
+					// test case 15: long parabola
+				stipplePatterns[15] = { 5.0f, -5.0f, 1.0f, -5.0f };
+
+				std::vector<uint32_t> activIdx = { 10 };
+				for (uint32_t i = 0u; i < CURVE_CNT; i++)
+				{
+					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
+					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+
+					float64_t2 linePoints[2u] = {};
+					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
+					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
+					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
+
+					activIdx.push_back(i);
+					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
+						cpuLineStyles[i].stipplePatternSize = -1;
+				}
+			}
+
+			for (uint32_t i = 0u; i < CURVE_CNT; i++)
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		}
+
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
 		return intendedNextSubmit;
 	}

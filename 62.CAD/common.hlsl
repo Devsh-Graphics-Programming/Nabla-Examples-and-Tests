@@ -3,6 +3,9 @@
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#ifdef __HLSL_VERSION
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#endif
 
 enum class ObjectType : uint32_t
 {
@@ -29,7 +32,6 @@ struct DrawObject
 struct QuadraticBezierInfo
 {
     float64_t2 p[3]; // 16*3=48bytes
-    // TODO[Przemek]: Any Data related to precomputing things for beziers will be here
 };
 
 // TODO[Lucas]:
@@ -56,22 +58,48 @@ struct ClipProjectionData
     float32_t2 maxClipNDC; // 88
 };
 
+#ifndef __HLSL_VERSION
+static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
+static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
+static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
+#endif
+
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
     double screenToWorldRatio; // 96
-    uint32_t2 resolution; // 104
-    float antiAliasingFactor; // 108
-    float _pad; // 112
+    float worldToScreenRatio; // 100
+    uint32_t2 resolution; // 108
+    float antiAliasingFactor; // 112
 };
+
+#ifndef __HLSL_VERSION
+static_assert(offsetof(Globals, defaultClipProjection) == 0u);
+static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
+static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
+static_assert(offsetof(Globals, resolution) == 100u);
+static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
+#endif
 
 struct LineStyle
 {
+    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+
+    // common data
     float32_t4 color;
     float screenSpaceLineWidth;
     float worldSpaceLineWidth;
-    // TODO[Przemek]: Anything info related to the stipple pattern will be here
-    float _pad[2u];
+    
+    // stipple pattern data
+    int32_t stipplePatternSize;
+    float reciprocalStipplePatternLen;
+    float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+    float phaseShift;
+    
+    inline bool hasStipples()
+    {
+        return stipplePatternSize > 0 ? true : false;
+    }
 };
 
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
@@ -115,6 +143,9 @@ struct PSInput
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
+        // ArcLengthCalculator<float>
+    [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
+    
     
     // TODO[Lucas]: you will need more data here, this struct is what gets sent from vshader to fshader
     /*
@@ -136,10 +167,6 @@ struct PSInput
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
-    // TODO[Przemek]: We only had color and thickness to worry about before and as you can see we pass them between vertex and fragment shader (so that fragment shader doesn't have to fetch the linestyles from memory again)
-    // but for cases where you found out line styles would be too large to do this kinda stuff with inter-shader memory then only pass the linestyleIdx from vertex shader to fragment shader and fetch the whole lineStyles struct in fragment shader
-    // Note: Lucas is also modifying here (added data4,5,6,..) so If need be, I suggest replace a variable like set/getColor to set/getLineStyleIdx to reduce conflicts 
-    
     // data0
     void setColor(in float4 color) { data0 = color; }
     float4 getColor() { return data0; }
@@ -156,17 +183,35 @@ struct PSInput
     // data2
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
-    float2 getBezierP0() { return data2.xy; }
-    float2 getBezierP1() { return data2.zw; }
     
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
-    void setBezierP0(float2 p0) { data2.xy = p0; }
-    void setBezierP1(float2 p1) { data2.zw = p1; }
     
-    // data3 (zw reserved for later)
-    float2 getBezierP2() { return data3.xy; }
-    void setBezierP2(float2 p2) { data3.xy = p2; }
+    // data2 + data3.xy
+    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+    }
+    
+    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    {
+        data2.xy = quadratic.A;
+        data2.zw = quadratic.B;
+        data3.xy = quadratic.C;
+    }
+    
+    // data3.zw + data4
+    
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
+    {
+        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
+        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
+    }
+    
+    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+    }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

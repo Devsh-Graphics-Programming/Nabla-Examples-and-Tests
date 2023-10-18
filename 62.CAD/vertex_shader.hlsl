@@ -134,41 +134,6 @@ float4 BezierAABB(float2 p01, float2 p11, float2 p21)
     return float4(mi, ma);
 }
 
-// from shadertoy: https://www.shadertoy.com/view/stfSzS
-bool BezierOBB_PCA(float2 p0, float2 p1, float2 p2, float screenSpaceLineWidth, out float2 obbV0, out float2 obbV1, out float2 obbV2, out float2 obbV3)
-{
-    // try to find transformation of OBB via principal-component-analysis
-    float2x2 rotation;
-    float2 translation;
-
-    if (EstimateTransformation(p0, p1, p2, translation, rotation) == false)
-        return false;
-            
-    // transform Bezier's control-points into the local-space of the OBB
-    //
-    // 1) instead of using inverse of rot-matrix we can just use transpose of rot-matrix
-    //    because rot-matrix is "orthonormal" (each column has unit length and is perpendicular
-    //    to every other column)
-    // 
-    // 2) resulting vector of [transpose(rot) * v] is same as [v * rot] !!!
-    
-    // compute AABB of curve in local-space
-    float4 aabb = BezierAABB(mul(rotation, p0 - translation), mul(rotation, p1 - translation), mul(rotation, p2 - translation));
-    aabb.xy -= screenSpaceLineWidth;
-    aabb.zw += screenSpaceLineWidth;
-    
-    // transform AABB back to world-space
-    // TODO: Look into better tranforming the aabb back. this computations seem unnecessary
-    float2 center = translation + mul((aabb.xy + aabb.zw) / 2.0f, rotation);
-    float2 extent = ((aabb.zw - aabb.xy) / 2.0f).xy;
-    obbV0 = float2(center + mul(extent, rotation));
-    obbV1 = float2(center + mul(float2(extent.x, -extent.y), rotation));
-    obbV2 = float2(center + mul(-extent, rotation));
-    obbV3 = float2(center + mul(-float2(extent.x, -extent.y), rotation));
-
-    return true;
-}
-
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
     if (mainObj.clipProjectionIdx != InvalidClipProjectionIdx)
@@ -197,6 +162,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data1 = uint4(0, 0, 0, 0);
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
+    outV.data4 = float4(0, 0, 0, 0);
     outV.clip = float4(0,0,0,0);
 
     outV.setObjType(objType);
@@ -271,10 +237,13 @@ PSInput main(uint vertexID : SV_VertexID)
             double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
             transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
         }
-
-        outV.setBezierP0(transformedPoints[0u]);
-        outV.setBezierP1(transformedPoints[1u]);
-        outV.setBezierP2(transformedPoints[2u]);
+        
+        nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
+        nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
+        nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
+        
+        outV.setQuadratic(quadratic);
+        outV.setQuadraticPrecomputedArcLenData(preCompData);
 
         float2 Mid = (transformedPoints[0u] + transformedPoints[2u]) / 2.0f;
         float Radius = length(Mid - transformedPoints[0u]) / 2.0f;
@@ -292,14 +261,16 @@ PSInput main(uint vertexID : SV_VertexID)
         // We only do this adaptive thing when "MinRadiusOfOsculatingCircle = RadiusOfMaxCurvature < screenSpaceLineWidth/4" OR "MaxCurvature > 4/screenSpaceLineWidth";
         //  which means there is a self intersection because of large lineWidth relative to the curvature (in screenspace)
         //  the reason for division by 4.0f is 1. screenSpaceLineWidth is expanded on both sides and the fact that diameter/2=radius, 
-        if (MaxCurvature * screenSpaceLineWidth > 4.0f)
+        const bool noCurvature = abs(dot(normalize(vectorAB), normalize(vectorAC)) - 1.0f) < exp2(-10.0f);
+        if (MaxCurvature * screenSpaceLineWidth > 4.0f || noCurvature)
         {
             //OBB Fallback
             float2 obbV0;
             float2 obbV1;
             float2 obbV2;
             float2 obbV3;
-            if (subsectionIdx == 0 && BezierOBB_PCA(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3))
+            quadraticBezier.OBBAligned(screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3);
+            if (subsectionIdx == 0)
             {
                 if (vertexIdx == 0u)
                     outV.position = float4(obbV0, 0.0, 1.0f);
@@ -417,7 +388,6 @@ PSInput main(uint vertexID : SV_VertexID)
         }
 
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
-
     }
     /*
         TODO[Lucas]:
