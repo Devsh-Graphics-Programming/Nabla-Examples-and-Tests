@@ -1,4 +1,4 @@
-from .nbl import *
+from nbl import *
 
 def main():
     newArgv, config_json_filepaths, nabla_dir, warnings = nbl.Utils.get_args()
