@@ -507,8 +507,6 @@ public:
 		cpuDrawBuffers.customClipProjectionBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(customClipProjectionBufferSize);
 	}
 
-	uint32_t getIndexCount() const { return currentIndexCount; }
-	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
