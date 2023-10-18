@@ -159,6 +159,7 @@ struct ClippedSignedDistance
         }
 
         float_t roundedDistance = closestDistanceSquared - thickness;
+#define ROUNDED
 #ifdef ROUNDED
         return roundedDistance;
 #else
