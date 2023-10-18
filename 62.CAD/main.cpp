@@ -238,19 +238,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 0.1;
+				m_origin.y += 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 0.1;
+				m_origin.x -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 0.1;
+				m_origin.y -= 1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 0.1;
+				m_origin.x += 1;
 			}
 		}
 	}
@@ -2360,11 +2360,11 @@ public:
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					// polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
 
 					float64_t2 linePoints[2u] = {};
-					linePoints[0] = { -30.0, -5.0 + 1.0 * i };
-					linePoints[1] = { 30.0, -5.0 + 1.0 * i };
+					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
+					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
 					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
 
 					activIdx.push_back(i);

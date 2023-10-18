@@ -159,7 +159,7 @@ struct ClippedSignedDistance
         }
 
         float_t roundedDistance = closestDistanceSquared - thickness;
-#ifndef ROUNDED
+#ifdef ROUNDED
         return roundedDistance;
 #else
         const float_t aaWidth = globals.antiAliasingFactor;
