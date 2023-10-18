@@ -129,6 +129,47 @@ uint bitfieldExtract(uint value, int offset, int bits)
 #define	nbl_hlsl_FLT_EPSILON 5.96046447754e-08
 #define UINT32_MAX 0xffffffffu
 
+// The root we're always looking for:
+// 2 * C / (-B - detSqrt)
+// We send to the FS: -rcp, B, -2C
+// Precomputed version:
+// (-2C/B) + (-2C)*inverseSqrt(det) 
+template<typename float_t>
+struct PrecomputedRootFinder 
+{
+    using float2_t = vector<float_t, 2>;
+    using float3_t = vector<float_t, 3>;
+    
+    float_t A;
+    float_t B;
+    float_t C;
+
+    float_t computeRoots() 
+    {
+        const float_t det = B * B - 4.0 * A *C;
+        const float_t detSqrt = sqrt(det);
+        return 2 * C / (-B - detSqrt);
+    }
+
+    static PrecomputedRootFinder construct(float_t a, float_t b, float_t c)
+    {
+        PrecomputedRootFinder result;
+        result.A = a;
+        result.B = b;
+        result.C = c;
+        return result;
+    }
+
+    static PrecomputedRootFinder construct(nbl::hlsl::equations::Quadratic<float_t> quadratic)
+    {
+        PrecomputedRootFinder result;
+        result.A = quadratic.A;
+        result.B = quadratic.B;
+        result.C = quadratic.C;
+        return result;
+    }
+};
+
 struct PSInput
 {
     float4 position : SV_Position;
@@ -140,6 +181,7 @@ struct PSInput
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
+    [[vk::location(6)]] float4 interp_data6 : COLOR6;
     
         // ArcLenCalculator<float>
 
@@ -196,34 +238,36 @@ struct PSInput
 
     // interp_data5, interp_data6    
 
+    // Curve box value along minor & major axis
+    float getMinorBBoxUv() { return interp_data5.x; };
+    void setMinorBBoxUv(float minorBBoxUv) { interp_data5.x = minorBBoxUv; }
+    float getMajorBBoxUv() { return interp_data5.y; };
+    void setMajorBBoxUv(float majorBBoxUv) { interp_data5.y = majorBBoxUv; }
+
     // A, B, C quadratic coefficients from the min & max curves,
     // swizzled to the major cordinate and with the major UV coordinate subtracted
     // These can be used to solve the quadratic equation
     //
     // a, b, c = curveMin.a,b,c()[major] - uv[major]
 
-    nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder getMinCurvePrecomputedRootFinders() { 
-        return nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(interp_data5.x, data3.z);
+    PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
+        return PrecomputedRootFinder<float>::construct(data3.z, data3.w, interp_data5.z);
     }
-    nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder getMaxCurvePrecomputedRootFinders() { 
-        return nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(interp_data5.y, data3.w);
+    PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
+        return PrecomputedRootFinder<float>::construct(data4.x, data4.y, interp_data5.w);
     }
 
-    void setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder rootFinder) {
-        interp_data5.x = rootFinder.detRcp2;
-        data3.z = rootFinder.brcp;
+    void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+        data3.z = rootFinder.A;
+        data3.w = rootFinder.B;
+        interp_data5.z = rootFinder.C;
     }
-    void setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder rootFinder) {
-        interp_data5.y = rootFinder.detRcp2;
-        data3.w = rootFinder.brcp;
+    void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+        data4.x = rootFinder.A;
+        data4.y = rootFinder.B;
+        interp_data5.w = rootFinder.C;
     }
     
-    // Curve box value along minor & major axis
-    float getMinorBBoxUv() { return interp_data5.z; };
-    void setMinorBBoxUv(float minorBBoxUv) { interp_data5.z = minorBBoxUv; }
-    float getMajorBBoxUv() { return interp_data5.w; };
-    void setMajorBBoxUv(float majorBBoxUv) { interp_data5.w = majorBBoxUv; }
-
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
     {

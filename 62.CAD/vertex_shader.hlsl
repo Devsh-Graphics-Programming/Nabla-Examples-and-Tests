@@ -541,8 +541,8 @@ PSInput main(uint vertexID : SV_VertexID)
             (float)curveMax.A[major], 
             (float)curveMax.B[major], 
             (float)curveMax.C[major] - maxCorner[major]);
-        outV.setMinCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMinRootFinding));
-        outV.setMaxCurvePrecomputedRootFinders(nbl::hlsl::equations::Quadratic<float>::PrecomputedRootFinder::construct(curveMaxRootFinding));
+        outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
+        outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
     
     
