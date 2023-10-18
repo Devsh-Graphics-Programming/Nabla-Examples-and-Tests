@@ -54,13 +54,18 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
 struct CPULineStyle
 {
+	static constexpr int32_t InvalidStipplePatternSize = -1;
 	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
 
 	float32_t4 color;
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
+	// gpu stipple pattern data form
+	int32_t stipplePatternSize;
+	float reciprocalStipplePatternLen;
+	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+	float phaseShift;
 
-		// TODO[Erfan]: review the logic of this func
 	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
 	//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
 	{
@@ -74,32 +79,37 @@ struct CPULineStyle
 
 		nbl::core::vector<float> stipplePatternTransformed;
 
+		// just to make sure we have a consistent definition of what's positive and what's negative
+		auto isValuePositive = [](float x)
+			{
+				return (x >= 0);
+			};
+
 		// merge redundant values
 		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
 		{
 			float redundantConsecutiveValuesSum = 0.0f;
-			bool isFirstValPositive = (std::abs(*it) == *it);
-
+			const bool firstValueSign = isValuePositive(*it);
 			do
 			{
 				redundantConsecutiveValuesSum += *it;
 				it++;
-			} while (it != stipplePatternCPURepresentation.end() && (isFirstValPositive == (std::abs(*it) == *it)));
+			} while (it != stipplePatternCPURepresentation.end() && (firstValueSign == isValuePositive(*it)));
 
 			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
 		}
 
 		if (stipplePatternTransformed.size() == 1)
 		{
-			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? -1 : 0;
+			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? InvalidStipplePatternSize : 0;
 			return;
 		}
 
 		// merge first and last value if their sign matches
 		phaseShift = 0.0f;
-		bool isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
-		bool isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
-		if (isFirstComponentNegative == isLastComponentNegative)
+		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
+		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+		if (firstComponentPositive == lastComponentPositive)
 		{
 			phaseShift = std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
@@ -108,12 +118,12 @@ struct CPULineStyle
 
 		if (stipplePatternTransformed.size() == 1)
 		{
-			stipplePatternSize = isFirstComponentNegative ? -1 : 0;
+			stipplePatternSize = (firstComponentPositive) ? 0 : InvalidStipplePatternSize;
 			return;
 		}
 
 		// rotate values if first value is negative value
-		if (isFirstComponentNegative)
+		if (!firstComponentPositive)
 		{
 			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
 			phaseShift += std::abs(stipplePatternTransformed[0]);
@@ -129,7 +139,6 @@ struct CPULineStyle
 		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
 			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
-		auto dbgPatternSize = prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]);
 		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
 		for (int i = 0; i < PREFIX_SUM_SZ; i++)
@@ -155,16 +164,8 @@ struct CPULineStyle
 		return ret;
 	}
 
-	inline bool isVisible() const { return stipplePatternSize != -1; }
+	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
 
-	// TODO: private:
-public:
-
-	// gpu stipple pattern data form
-	int32_t stipplePatternSize;
-	float reciprocalStipplePatternLen;
-	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
-	float phaseShift;
 };
 
 static_assert(sizeof(DrawObject) == 16u);
