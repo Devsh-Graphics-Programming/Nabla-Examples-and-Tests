@@ -17,17 +17,17 @@ namespace hatchutils {
 		const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
 		if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
 		{
-			auto res = equations::Quartic<double>::construct(e, d, c, b, a).computeRoots();
+			auto res = equations::Quartic<double>::construct(a, b, c, d, e).computeRoots();
 			memcpy(&t[0], &res.x, sizeof(double) * 4);
 		}
 		else if (abs(b) > quadCoeffMag)
 		{
-			auto res = equations::Cubic<double>::construct(d, c, b, a).computeRoots();
+			auto res = equations::Cubic<double>::construct(b, c, d, e).computeRoots();
 			memcpy(&t[0], &res.x, sizeof(double) * 3);
 		}
 		else
 		{
-			auto res = equations::Quadratic<double>::construct(c, b, a).computeRoots();
+			auto res = equations::Quadratic<double>::construct(c, d, e).computeRoots();
 			memcpy(&t[0], &res.x, sizeof(double) * 2);
 		}
 

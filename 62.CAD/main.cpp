@@ -1872,6 +1872,26 @@ public:
 		auto vp = m_Camera.constructViewProjection(m_timeElapsed);
 		float64_t3x3 projectionToNDC(rotation * vp);
 
+		{
+			double u0 = 0;
+			double u1 = 0;
+			double u2 = -30647296;
+			double u3 = -2.8396454064e10;
+			double u4 = 1.7068323831e10;
+			std::array<double, 4> solution = hatchutils::solveQuarticRoots(u0, u1, u2, u3, u4, 0.0, 1.0);
+			printf("quartic roots %fx^4 + %fx^3 %fx^2 + %fx + %f = 0\n%f %f %f %f\nresposta wolfram: -927.157273 0.600682946\n", u0, u1, u2, u3, u4, solution[0], solution[1], solution[2], solution[3]);
+		}
+
+		{
+			double u0 = -2261956;
+			double u1 = 11632344;
+			double u2 = -879456248;
+			double u3 = -4.0629051748e10;
+			double u4 = 2.5159935175e10;
+			std::array<double, 4> solution = hatchutils::solveQuarticRoots(u0, u1, u2, u3, u4, 0.0, 1.0);
+			printf("quartic roots %fx^4 + %fx^3 %fx^2 + %fx + %f = 0\n%f %f %f %f\nresposta wolfram: -20.3710249, 0.611230330\n", u0, u1, u2, u3, u4, solution[0], solution[1], solution[2], solution[3]);
+		}
+
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
