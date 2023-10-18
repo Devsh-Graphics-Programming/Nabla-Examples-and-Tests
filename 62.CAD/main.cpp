@@ -10,7 +10,7 @@
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -241,19 +241,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 1;
+				m_origin.y += 0.1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 1;
+				m_origin.x -= 0.1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 1;
+				m_origin.y -= 0.1;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 1;
+				m_origin.x += 0.1;
 			}
 		}
 	}
@@ -276,25 +276,6 @@ public:
 		ObjectType	type;
 		uint32_t	index; // can't make this a void* cause of vector resize
 		uint32_t	count;
-	};
-
-	struct EllipticalArcInfo
-	{
-		float64_t2 majorAxis;
-		float64_t2 center;
-		float64_t2 angleBounds; // [0, 2Pi)
-		double eccentricity; // (0, 1]
-
-		bool isValid() const
-		{
-			if (eccentricity > 1.0 || eccentricity < 0.0)
-				return false;
-			if (angleBounds.y < angleBounds.x)
-				return false;
-			if ((angleBounds.y - angleBounds.x) > 2 * core::PI<double>())
-				return false;
-			return true;
-		}
 	};
 
 	size_t getSectionsCount() const { return m_sections.size(); }
@@ -329,28 +310,30 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const core::SRange<float64_t2>& linePoints)
+	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool addToPreviousLineSectionIfAvailable = false)
 	{
 		if (linePoints.size() <= 1u)
 			return;
 
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::LINE;
+		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
+		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
+		bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
 			newSection.type = ObjectType::LINE;
-			newSection.index = m_linePoints.size();
-			newSection.count = linePoints.size() - 1u;
+			newSection.index = static_cast<uint32_t>(m_linePoints.size());
+			newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
 			m_sections.push_back(newSection);
 		}
 		else
 		{
-			m_sections[m_sections.size() - 1u].count += linePoints.size();
+			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
 		}
 		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
 	}
 
-	void addEllipticalArcs(const core::SRange<EllipticalArcInfo>& ellipses)
+	void addEllipticalArcs(const core::SRange<curves::EllipticalArcInfo>& ellipses)
 	{
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
@@ -364,13 +347,13 @@ public:
 		{
 			SectionInfo newSection = {};
 			newSection.type = ObjectType::QUAD_BEZIER;
-			newSection.index = m_quadBeziers.size();
-			newSection.count = quadBeziers.size();
+			newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
+			newSection.count = static_cast<uint32_t>(quadBeziers.size());
 			m_sections.push_back(newSection);
 		}
 		else
 		{
-			m_sections[m_sections.size() - 1u].count += quadBeziers.size();
+			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
 		}
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
@@ -416,7 +399,7 @@ public:
 		submitDraws = func;
 	}
 
-	void allocateIndexBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t indices)
+	void allocateIndexBuffer(video::ILogicalDevice* logicalDevice, uint32_t indices)
 	{
 		maxIndices = indices;
 		const size_t indexBufferSize = maxIndices * sizeof(uint32_t);
@@ -434,7 +417,7 @@ public:
 		cpuDrawBuffers.indexBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(indexBufferSize);
 	}
 
-	void allocateMainObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t mainObjects)
+	void allocateMainObjectsBuffer(video::ILogicalDevice* logicalDevice, uint32_t mainObjects)
 	{
 		maxMainObjects = mainObjects;
 		size_t mainObjectsBufferSize = mainObjects * sizeof(MainObject);
@@ -452,7 +435,7 @@ public:
 		cpuDrawBuffers.mainObjectsBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(mainObjectsBufferSize);
 	}
 
-	void allocateDrawObjectsBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t drawObjects)
+	void allocateDrawObjectsBuffer(video::ILogicalDevice* logicalDevice, uint32_t drawObjects)
 	{
 		maxDrawObjects = drawObjects;
 		size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
@@ -470,7 +453,7 @@ public:
 		cpuDrawBuffers.drawObjectsBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(drawObjectsBufferSize);
 	}
 
-	void allocateGeometryBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, size_t size)
+	void allocateGeometryBuffer(video::ILogicalDevice* logicalDevice, size_t size)
 	{
 		maxGeometryBufferSize = size;
 
@@ -488,7 +471,7 @@ public:
 		cpuDrawBuffers.geometryBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(size);
 	}
 
-	void allocateStylesBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t stylesCount)
+	void allocateStylesBuffer(video::ILogicalDevice* logicalDevice, uint32_t stylesCount)
 	{
 		maxLineStyles = stylesCount;
 		size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
@@ -506,7 +489,7 @@ public:
 		cpuDrawBuffers.lineStylesBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(lineStylesBufferSize);
 	}
 
-	void allocateCustomClipProjectionBuffer(core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice, uint32_t ClipProjectionDataCount)
+	void allocateCustomClipProjectionBuffer(video::ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount)
 	{
 		maxClipProjectionData = ClipProjectionDataCount;
 		size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(ClipProjectionData);
@@ -547,6 +530,22 @@ public:
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
+		return drawPolyline(submissionQueue, submissionFence, intendedNextSubmit, polyline, mainObjIdx);
+	}
+
+	video::IGPUQueue::SSubmitInfo drawPolyline(
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit,
+		const CPolyline& polyline,
+		const uint32_t polylineMainObjIdx)
+	{
+		if (polylineMainObjIdx == InvalidMainObjectIdx)
+		{
+			// TODO: assert or log error here
+			return intendedNextSubmit;
+		}
+
 		const auto sectionsCount = polyline.getSectionsCount();
 
 		uint32_t currentSectionIdx = 0u;
@@ -556,7 +555,7 @@ public:
 		{
 			bool shouldSubmit = false;
 			const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
-			addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, mainObjIdx);
+			addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, polylineMainObjIdx);
 
 			if (currentObjectInSection >= currentSection.count)
 			{
@@ -655,32 +654,38 @@ public:
 		return intendedNextSubmit;
 	}
 
-	size_t getCurrentIndexBufferSize() const
+	inline uint32_t getIndexCount() const { return currentIndexCount; }
+
+	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
+
+	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; }
+
+	inline size_t getCurrentIndexBufferSize() const
 	{
 		return sizeof(index_buffer_type) * currentIndexCount;
 	}
 
-	size_t getCurrentMainObjectsBufferSize() const
+	inline size_t getCurrentMainObjectsBufferSize() const
 	{
 		return sizeof(MainObject) * currentMainObjectCount;
 	}
 
-	size_t getCurrentDrawObjectsBufferSize() const
+	inline size_t getCurrentDrawObjectsBufferSize() const
 	{
 		return sizeof(DrawObject) * currentDrawObjectCount;
 	}
 
-	size_t getCurrentGeometryBufferSize() const
+	inline size_t getCurrentGeometryBufferSize() const
 	{
 		return currentGeometryBufferSize;
 	}
 
-	size_t getCurrentLineStylesBufferSize() const
+	inline size_t getCurrentLineStylesBufferSize() const
 	{
 		return sizeof(LineStyle) * currentLineStylesCount;
 	}
 
-	size_t getCurrentCustomClipProjectionBufferSize() const
+	inline size_t getCurrentCustomClipProjectionBufferSize() const
 	{
 		return sizeof(ClipProjectionData) * currentClipProjectionDataCount;
 	}
@@ -692,6 +697,44 @@ public:
 
 	DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
+
+	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
+		const MainObject& mainObject,
+		uint32_t& outMainObjectIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outMainObjectIdx = addMainObject_Internal(mainObject);
+		if (outMainObjectIdx == InvalidMainObjectIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outMainObjectIdx = addMainObject_Internal(mainObject);
+			assert(outMainObjectIdx != InvalidMainObjectIdx);
+		}
+		return intendedNextSubmit;
+	}
+
+	video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
+		const ClipProjectionData& clipProjectionData,
+		uint32_t& outClipProjectionIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
+		if (outClipProjectionIdx == InvalidClipProjectionIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
+			assert(outClipProjectionIdx != InvalidClipProjectionIdx);
+		}
+		return intendedNextSubmit;
+	}
 
 protected:
 
@@ -742,7 +785,7 @@ protected:
 		inMemDrawObjectCount = currentDrawObjectCount;
 
 		// Copy GeometryBuffer
-		uint32_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
+		uint64_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
 		asset::SBufferRange<video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
 		const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
 		if (geomRange.size > 0u)
@@ -779,25 +822,6 @@ protected:
 		if (clipProjectionRange.size > 0u)
 			intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(clipProjectionRange, srcClipProjectionData, submissionQueue, submissionFence, intendedNextSubmit);
 		inMemClipProjectionDataCount = currentClipProjectionDataCount;
-		return intendedNextSubmit;
-	}
-
-	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
-		const MainObject& mainObject,
-		uint32_t& outMainObjectIdx,
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		outMainObjectIdx = addMainObject_Internal(mainObject);
-		if (outMainObjectIdx == InvalidMainObjectIdx)
-		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			resetAllCounters();
-			outMainObjectIdx = addMainObject_Internal(mainObject);
-			assert(outMainObjectIdx != InvalidMainObjectIdx);
-		}
 		return intendedNextSubmit;
 	}
 
@@ -853,27 +877,6 @@ protected:
 		return currentLineStylesCount++;
 	}
 
-public:
-	video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
-		const ClipProjectionData& clipProjectionData,
-		uint32_t& outClipProjectionIdx,
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
-		if (outClipProjectionIdx == InvalidClipProjectionIdx)
-		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			resetAllCounters();
-			outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
-			assert(outClipProjectionIdx != InvalidClipProjectionIdx);
-		}
-		return intendedNextSubmit;
-	}
-
-protected:
 	uint32_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
 	{
 		ClipProjectionData* clipProjectionArray = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer());
@@ -955,10 +958,10 @@ protected:
 		constexpr uint32_t IndicesPerQuadBezier = 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
 
-		const auto maxGeometryBufferEllipses = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
+		const auto maxGeometryBufferBeziers = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
 
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerQuadBezier;
-		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferEllipses);
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferBeziers);
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
 		const auto beziersCount = section.count;
@@ -1225,6 +1228,8 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUPipelineLayout> resolveAlphaPipeLayout;
 
 	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
+
+	// For stress test CASE_1
 	CPolyline bigPolyline;
 	CPolyline bigPolyline2;
 
@@ -1237,16 +1242,16 @@ class CADApp : public ApplicationBase
 		{
 			drawBuffers[i] = DrawBuffersFiller(core::smart_refctd_ptr(utilities));
 
-			size_t maxIndices = maxObjects * 6u * 2u;
-			drawBuffers[i].allocateIndexBuffer(logicalDevice, maxIndices);
-			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice, maxObjects);
-			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice, maxObjects * 5u);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice, 16u);
-			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice, 128u);
+			uint32_t maxIndices = maxObjects * 6u * 2u;
+			drawBuffers[i].allocateIndexBuffer(logicalDevice.get(), maxIndices);
+			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice.get(), maxObjects);
+			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice.get(), maxObjects * 5u);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 16u);
+			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice.get(), 128u);
 
 			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
 			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
-			drawBuffers[i].allocateGeometryBuffer(logicalDevice, geometryBufferSize);
+			drawBuffers[i].allocateGeometryBuffer(logicalDevice.get(), geometryBufferSize);
 		}
 
 		for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
@@ -1257,7 +1262,7 @@ class CADApp : public ApplicationBase
 			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
 
 			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
-			memReq.memoryTypeBits &= physicalDevice->getDeviceLocalMemoryTypeBits();
+			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
 		}
 
@@ -1607,7 +1612,8 @@ public:
 			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
 			{
 				descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
-				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[6u] = {};
+				constexpr uint32_t DescriptorCount = 6u;
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
 				descriptorInfos[0u].info.buffer.offset = 0u;
 				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
 				descriptorInfos[0u].desc = globalsBuffer[i];
@@ -1675,7 +1681,7 @@ public:
 				descriptorUpdates[5u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
 				descriptorUpdates[5u].info = &descriptorInfos[5u];
 
-				logicalDevice->updateDescriptorSets(6u, descriptorUpdates, 0u, nullptr);
+				logicalDevice->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
 			}
 
 			graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
@@ -2438,30 +2444,44 @@ public:
 					//quadBeziers.push_back(quadratic1);
 				}
 
-				// TODO: Test this after sdf fixes, cause a linear bezier is causing problems (I think)
-				// MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-				// error = 1e-2
-				// 
-				// ExplicitEllipse myCurve = ExplicitEllipse(20.0, 50.0);
-				// MixedCircle myCurve = MixedCircle::fromFourPoints(float64_t2(90.0, 20.0), float64_t2(-50, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0, 40.0));
-				// Parabola myCurve = Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-				MixedParabola myCurve = MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				// curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
+				// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
+				// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
+				// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
+				//curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
+				curves::EllipticalArcInfo myCurve;
+				myCurve.majorAxis = {50.0, 50.0};
+				myCurve.center = { 50.0, 50.0 };
+				myCurve.angleBounds = { 
+					nbl::core::PI<double>() * 1.25,
+					nbl::core::PI<double>() * 1.25 + abs(cos(m_timeElapsed*0.001)) * nbl::core::PI<double>() * 2.0 };
+				myCurve.eccentricity = 0.5;
 
-				AddBezierFunc addToBezier = [&](const QuadraticBezierInfo& info) -> void
+				// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
+				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
+				// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](QuadraticBezierInfo&& info) -> void
 					{
 						quadBeziers.push_back(info);
 					};
 
 				static int ix = 0;
 				ix++;
-
-				const int pp = (ix / 30) % 8;
-
+				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				adaptiveSubdivision(myCurve, 0.0, 50.0, 1e-2, addToBezier, 10u);
+				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+
+				// VISUALIZE INFLECTION POINT
+				std::vector<float64_t2> linePoints;
+				// auto inflectionPointT = myCurve.computeInflectionPoint(1e-5);
+				// auto inflectionPoint = myCurve.computePosition(inflectionPointT);
+				linePoints.push_back({ 0.0, 0.0 });
+				linePoints.push_back({ 100.0, 100.0 });
+				polyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			}
 
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
