@@ -114,9 +114,9 @@ struct ClippedSignedDistance
 
         const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f);
 
+        bool clipped = false;
         float_t closestDistanceSquared = MAX_DISTANCE_SQUARED;
         float_t closestT = 0.0f; // use numeric limits inf?
-
         [[unroll(CurveType::MaxCandidates)]]
         for (uint32_t i = 0; i < CurveType::MaxCandidates; i++)
         {
@@ -126,6 +126,7 @@ struct ClippedSignedDistance
                 float2 snappedTs = clipper(candidates[i]);
                 if (snappedTs[0] != candidates[i])
                 {
+                    clipped = true;
                     // left snapped or clamped
                     const float_t leftSnappedCandidateDistanceSquared = length(curve.evaluate(snappedTs[0]) - pos);
                     if (leftSnappedCandidateDistanceSquared < closestDistanceSquared)
@@ -157,7 +158,29 @@ struct ClippedSignedDistance
             }
         }
 
-        return closestDistanceSquared - thickness;
+        float_t roundedDistance = closestDistanceSquared - thickness;
+#ifndef ROUNDED
+        return roundedDistance;
+#else
+        const float_t aaWidth = globals.antiAliasingFactor;
+        float_t rectCappedDistance = roundedDistance;
+
+        if (clipped)
+        {
+            float_t2 q = mul(curve.getLocalCoordinateSpace(closestT), pos - curve.evaluate(closestT));
+            rectCappedDistance = capSquare(q, thickness, aaWidth);
+        }
+        else
+            rectCappedDistance = rectCappedDistance;
+
+        return rectCappedDistance;
+#endif
+    }
+
+    static float capSquare(float_t2 q, float_t th, float_t aaWidth)
+    {
+        float_t2 d = abs(q) - float_t2(aaWidth, th);
+        return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
     }
 };
 
