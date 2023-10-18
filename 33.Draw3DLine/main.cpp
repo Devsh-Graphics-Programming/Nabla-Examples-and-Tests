@@ -110,7 +110,7 @@ public:
 		CommonAPI::InitParams initParams;
 		initParams.window = core::smart_refctd_ptr(window);
 		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { "33.Draw3DLine" };
+		initParams.appName = { "33_Draw3DLine" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = WIN_W;
 		initParams.windowHeight = WIN_H;

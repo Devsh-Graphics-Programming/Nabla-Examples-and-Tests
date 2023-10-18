@@ -191,7 +191,7 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		const char* APP_NAME = "01.HelloWorld";
+		const char* APP_NAME = "01_HelloWorld";
 
 		// create basic system objects
 		system = createSystem();

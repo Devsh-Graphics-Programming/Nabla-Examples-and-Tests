@@ -62,7 +62,7 @@ class RendersTest(CITest):
                 image_magick_exe: str,
                 references_repo_dir: str,
                 profile,
-                data_dir = "/examples_tests/22.RaytracedAO/bin",
+                data_dir = "/examples_tests/22_RaytracedAO/bin",
                 renders_dir_name = "renders",
                 references_dir_name = "references",
                 diff_images_dir_name = "diff_images",

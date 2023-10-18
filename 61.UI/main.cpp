@@ -83,7 +83,7 @@ class UIApp : public ApplicationBase
 			initParams.windowCb = core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback>(this);
 			initParams.window = core::smart_refctd_ptr(window);
 			initParams.apiType = video::EAT_VULKAN;
-			initParams.appName = { "02.ComputeShader" };
+			initParams.appName = { "02_ComputeShader" };
 			initParams.framesInFlight = FRAMES_IN_FLIGHT;
 			initParams.windowWidth = WIN_W;
 			initParams.windowHeight = WIN_H;

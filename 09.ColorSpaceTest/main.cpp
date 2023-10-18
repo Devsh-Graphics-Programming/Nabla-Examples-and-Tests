@@ -78,7 +78,7 @@ public:
 		CommonAPI::InitParams initParams;
 		initParams.window = core::smart_refctd_ptr(window);
 		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { "09.ColorSpaceTest" };
+		initParams.appName = { "09_ColorSpaceTest" };
 		initParams.framesInFlight = FRAMES_IN_FLIGHT;
 		initParams.windowWidth = WIN_W;
 		initParams.windowHeight = WIN_H;

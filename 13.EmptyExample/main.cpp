@@ -204,7 +204,7 @@ public:
 
 	void onAppInitialized_impl() override
 	{
-		const char* APP_NAME = "01.HelloWorld";
+		const char* APP_NAME = "01_HelloWorld";
 
 		system = createSystem();
 		auto logLevelMask = core::bitflag(system::ILogger::ELL_DEBUG) | system::ILogger::ELL_PERFORMANCE | system::ILogger::ELL_WARNING | system::ILogger::ELL_ERROR;

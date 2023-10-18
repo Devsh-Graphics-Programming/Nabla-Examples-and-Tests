@@ -345,7 +345,7 @@ class LoDSystemApp : public ApplicationBase
             CommonAPI::InitParams initParams;
             initParams.window = core::smart_refctd_ptr(window);
             initParams.apiType = video::EAT_VULKAN;
-            initParams.appName = { "11.LoDSystem" };
+            initParams.appName = { "11_LoDSystem" };
             initParams.framesInFlight = FRAMES_IN_FLIGHT;
             initParams.windowWidth = WIN_W;
             initParams.windowHeight = WIN_H;
