@@ -79,7 +79,10 @@ struct max_op
 	static inline constexpr const char* name = "max";
 };
 template<typename T>
-struct ballot : add_op<T> {};
+struct ballot : add_op<T> 
+{
+	static inline constexpr const char* name = "bitcount";
+};
 
 
 //subgroup method emulations on the CPU, to verify the results of the GPU methods
@@ -181,9 +184,9 @@ struct emulatedWorkgroupScanInclusive
 	static inline constexpr const char* name = "workgroup inclusive scan";
 };
 
-
 #include "common.glsl"
-constexpr uint32_t kBufferSize = (1u+BUFFER_DWORD_COUNT)*sizeof(uint32_t);
+#define HLSL
+constexpr uint32_t kBufferSize = (1u + BUFFER_DWORD_COUNT) * sizeof(uint32_t);
 
 //returns true if result matches
 template<template<class> class Arithmetic, template<class> class OP>
@@ -216,9 +219,9 @@ bool validateResults(ILogicalDevice* device, IUtilities* utilities, IGPUQueue* t
 		if (tmp[localInvocationIndex]!=dataFromBuffer[workgroupOffset+localInvocationIndex])
 		{
 			logger->log(
-				"Failed test #%d  (%s)  (%s) Expected %s got %s",system::ILogger::ELL_ERROR,
+				"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",system::ILogger::ELL_ERROR,
 				workgroupSize,Arithmetic<OP<uint32_t>>::name,OP<uint32_t>::name,
-				std::to_string(tmp[localInvocationIndex]),std::to_string(dataFromBuffer[workgroupOffset+localInvocationIndex])
+				tmp[localInvocationIndex], dataFromBuffer[workgroupOffset + localInvocationIndex], workgroupOffset, localInvocationIndex
 			);
 			success = false;
 			break;
@@ -297,10 +300,11 @@ public:
 	NON_GRAPHICAL_APP_CONSTRUCTOR(ArythmeticUnitTestApp)
 	void onAppInitialized_impl() override
 	{
+#pragma region Init
 		CommonAPI::InitParams initParams;
 		initParams.apiType = video::EAT_VULKAN;
 		initParams.appName = { "Subgroup Arithmetic Test" };
-		auto initOutput = CommonAPI::Init(std::move(initParams));
+		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		apiConnection = std::move(initOutput.apiConnection);
 		gpuPhysicalDevice = std::move(initOutput.physicalDevice);
@@ -317,7 +321,8 @@ public:
 		auto transferDownQueue = queues[CommonAPI::InitOutput::EQT_TRANSFER_DOWN];
 
 		nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
-
+#pragma endregion Init
+		
 		inputData = new uint32_t[BUFFER_DWORD_COUNT];
 		{
 			std::mt19937 randGenerator(std::time(0));
@@ -331,7 +336,7 @@ public:
 		auto gpuinputDataBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(queues[decltype(initOutput)::EQT_TRANSFER_UP], std::move(inputDataBufferCreationParams), inputData);
 
 		//create 8 buffers.
-		constexpr const auto totalBufferCount = outputBufferCount + 1u;
+		constexpr const auto totalBufferCount = outputBufferCount + 1u; // output buffers for all ops +1 for the input buffer
 
 		core::smart_refctd_ptr<IGPUBuffer> buffers[outputBufferCount];
 		for (auto i = 0; i < outputBufferCount; i++)
@@ -387,24 +392,43 @@ public:
 			assert(!bundle.getContents().empty() && bundle.getAssetType() == IAsset::ET_SPECIALIZED_SHADER);
 			return core::smart_refctd_ptr_static_cast<ICPUSpecializedShader>(*bundle.getContents().begin());
 		};
-		core::smart_refctd_ptr<ICPUSpecializedShader> shaderGLSL[] =
+
+		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
+#ifdef HLSL
 		{
-			getShaderGLSL("../testSubgroupReduce.comp"),
+			getShaderGLSL("../hlsl/testSubgroupReduce.comp.hlsl"),
+			getShaderGLSL("../hlsl/testSubgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../hlsl/testSubgroupInclusive.comp.hlsl"),
+			//getShaderGLSL("../hlsl/testWorkgroupReduce.comp.hlsl"),
+			//getShaderGLSL("../hlsl/testWorkgroupInclusive.comp.hlsl"),
+			//getShaderGLSL("../hlsl/testWorkgroupExclusive.comp.hlsl"),
+		};
+#else
+		{
+			getShaderGLSL("../testSubgroupReduce.comp")/*,
 			getShaderGLSL("../testSubgroupExclusive.comp"),
 			getShaderGLSL("../testSubgroupInclusive.comp"),
 			getShaderGLSL("../testWorkgroupReduce.comp"),
 			getShaderGLSL("../testWorkgroupExclusive.comp"),
-			getShaderGLSL("../testWorkgroupInclusive.comp")
+			getShaderGLSL("../testWorkgroupInclusive.comp")*/
 		};
-		constexpr auto kTestTypeCount = sizeof(shaderGLSL) / sizeof(const void*);
+#endif
 
-		auto getGPUShader = [&](const ICPUSpecializedShader* shader, uint32_t wg_count) -> auto
+		constexpr auto kTestTypeCount = sizeof(shaders) / sizeof(const void*);
+
+		auto getGPUShader = [&](ICPUSpecializedShader* shader, uint32_t wg_count) -> auto
 		{
+#ifdef HLSL
+			auto overriddenUnspecialized = CHLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_HLSL_WORKGROUP_SIZE_ %d\n", wg_count);
+			auto cs = core::make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(overriddenUnspecialized), std::move(ISpecializedShader::SInfo(nullptr, nullptr, "main")));
+			return cpu2gpu.getGPUObjectsFromAssets(&cs, &cs + 1, cpu2gpuParams)->front();
+#else
 			auto overridenUnspecialized = CGLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_GLSL_WORKGROUP_SIZE_ %d\n", wg_count);
 			ISpecializedShader::SInfo specInfo = shader->getSpecializationInfo();
 			auto cs = core::make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(overridenUnspecialized), std::move(specInfo));
 			return cpu2gpu.getGPUObjectsFromAssets(&cs, &cs + 1, cpu2gpuParams)->front();
 			// no need to wait on fences because its only a shader create, does not result in the filling of image or buffers
+#endif
 		};
 
 		auto logTestOutcome = [this](bool passed, uint32_t workgroupSize)
@@ -426,12 +450,13 @@ public:
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
-		for (uint32_t workgroupSize=45u; workgroupSize<=1024u; workgroupSize++)
+		for (uint32_t workgroupSize=45u; workgroupSize<=1024; workgroupSize++)
 		{
+			logger->log("Testing Workgroup Size %u", system::ILogger::ELL_INFO, workgroupSize);
 			core::smart_refctd_ptr<IGPUComputePipeline> pipelines[kTestTypeCount];
-			for (uint32_t i = 0u; i < kTestTypeCount; i++)
-				pipelines[i] = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(pipelineLayout), std::move(getGPUShader(shaderGLSL[i].get(), workgroupSize)));
-
+			for (uint32_t i = 0u; i < kTestTypeCount; i++) {
+				pipelines[i] = logicalDevice->createComputePipeline(nullptr, core::smart_refctd_ptr(pipelineLayout), std::move(getGPUShader(shaders[i].get(), workgroupSize)));
+			}
 			bool passed = true;
 
 			const video::IGPUDescriptorSet* ds = descriptorSet.get();
@@ -443,9 +468,9 @@ public:
 			logTestOutcome(passed, workgroupSize);
 			passed = runTest<emulatedWorkgroupReduction>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[3u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
 			logTestOutcome(passed, workgroupSize);
-			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[4u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[4u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
 			logTestOutcome(passed, workgroupSize);
-			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[5u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[5u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
 			logTestOutcome(passed, workgroupSize);
 		}
 		computeQueue->endCapture();
