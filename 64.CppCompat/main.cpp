@@ -16,36 +16,35 @@
 #include <nbl/builtin/hlsl/bit.hlsl>
 
     // xoroshiro tests
-//#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
-    // colorspace tests
-//#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
-//#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
-//#include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
-//#include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
+#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
+
 using namespace glm;
-//#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
-//#include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
+    // colorspace tests
+#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
+#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
+#include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
+#include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
 
 using namespace nbl;
 using namespace core;
 using namespace ui;
 using namespace nbl::hlsl;
 
-//constexpr uint32_t COLOR_MATRIX_CNT = 14u;
-//const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
-//    colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
-//    colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
-//    colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
-//    colorspace::decode::XYZtoDCI_P3, colorspace::decode::XYZtoBT2020, colorspace::decode::XYZtoAdobeRGB,
-//    colorspace::decode::XYZtoACES2065_1, colorspace::decode::XYZtoACEScc
-//};
-//const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
-//    nbl_glsl_scRGBtoXYZ, nbl_glsl_Display_P3toXYZ, nbl_glsl_DCI_P3toXYZ,
-//    nbl_glsl_BT2020toXYZ, nbl_glsl_AdobeRGBtoXYZ, nbl_glsl_ACES2065_1toXYZ,
-//    nbl_glsl_ACEScctoXYZ, nbl_glsl_XYZtoscRGB, nbl_glsl_XYZtoDisplay_P3,
-//    nbl_glsl_XYZtoDCI_P3, nbl_glsl_XYZtoBT2020, nbl_glsl_XYZtoAdobeRGB,
-//    nbl_glsl_XYZtoACES2065_1, nbl_glsl_XYZtoACEScc
-//};
+constexpr uint32_t COLOR_MATRIX_CNT = 14u;
+const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
+    colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
+    colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
+    colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
+    colorspace::decode::XYZtoDCI_P3, colorspace::decode::XYZtoBT2020, colorspace::decode::XYZtoAdobeRGB,
+    colorspace::decode::XYZtoACES2065_1, colorspace::decode::XYZtoACEScc
+};
+const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
+    nbl_glsl_scRGBtoXYZ, nbl_glsl_Display_P3toXYZ, nbl_glsl_DCI_P3toXYZ,
+    nbl_glsl_BT2020toXYZ, nbl_glsl_AdobeRGBtoXYZ, nbl_glsl_ACES2065_1toXYZ,
+    nbl_glsl_ACEScctoXYZ, nbl_glsl_XYZtoscRGB, nbl_glsl_XYZtoDisplay_P3,
+    nbl_glsl_XYZtoDCI_P3, nbl_glsl_XYZtoBT2020, nbl_glsl_XYZtoAdobeRGB,
+    nbl_glsl_XYZtoACES2065_1, nbl_glsl_XYZtoACEScc
+};
 //
 //void testColorMatrices()
 //{
@@ -379,9 +378,9 @@ int main(int argc, char** argv)
     auto w = transpose(y);
 
     // countl_zero test
-    /*mpl::countl_zero<5>::value;
+    mpl::countl_zero<5>::value;
     std::countl_zero(5u);
-    nbl::hlsl::countl_zero(5u);*/
+    nbl::hlsl::countl_zero(5u);
 
     // bit.hlsl test
     /*nbl::hlsl::rotl(1u, 1u);
