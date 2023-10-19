@@ -335,6 +335,7 @@ public:
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
+	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
 	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
@@ -353,8 +354,22 @@ public:
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
 
+	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
+	/*
+	*  this preprocess should:
+	*	1. if style has road info try to generate miters:
+	*		if tangents are not in the same direction with some error add a PolylineConnector object
+		2. go over the list of sections (line and beziers in order) compute the phase shift by computing their arclen and divisions with style length and
+			fill the phaseShift part of the QuadraticBezierInfo and LinePointInfo, 
+			you initially set them to 0 in addLinePoints/addQuadBeziers
+
+		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
+	*/ 
+
 protected:
+	// TODO[Przemek]: a vector of polyline connetor objects
 	std::vector<SectionInfo> m_sections;
+	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
 	std::vector<float64_t2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 };
@@ -615,6 +630,8 @@ public:
 				shouldSubmit = false;
 			}
 		}
+
+		// TODO[Prezmek]: A similar and simpler while loop as above where you try to addPolylineConnectors_Internal, If you couldn't do the whole section completely then -> finalizeAllCopies, submit and reset stuff as above.
 
 		return intendedNextSubmit;
 	}
@@ -895,6 +912,11 @@ protected:
 			assert(false); // we don't handle other object types
 	}
 
+	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a core::Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
+	// And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
+
+	// TODO[Prezmek]: this function will change a little as you'll be copying LinePointInfos instead of double2's
+	// Make sure to test with small memory to trigger submitInBetween function when you run out of memory to see if your changes here didn't mess things up, ask Lucas for help if you're not sure on how to do this
 	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		assert(section.count >= 1u);
@@ -2202,6 +2224,7 @@ public:
 				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
+				// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
 				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));

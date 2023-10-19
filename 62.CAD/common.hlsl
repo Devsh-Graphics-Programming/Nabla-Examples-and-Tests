@@ -7,6 +7,7 @@
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #endif
 
+// TODO:[Przemek]: add another object type: POLYLINE_CONNECTOR which is our miters eventually
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -32,7 +33,13 @@ struct DrawObject
 struct QuadraticBezierInfo
 {
     float64_t2 p[3]; // 16*3=48bytes
+    /*
+    * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
+    */
 };
+
+
+// TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
 // TODO[Lucas]:
 /*
@@ -95,6 +102,8 @@ struct LineStyle
     float reciprocalStipplePatternLen;
     float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
     float phaseShift;
+    
+    // TODO[Przemek] Add bool isRoadStyle, which we use to know if to use normal rounded joins and sdf OR rect sdf with miter joins
     
     inline bool hasStipples()
     {
@@ -212,6 +221,9 @@ struct PSInput
     {
         return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
+
+    // TODO[Przemek][1.Continous Stipples]: find a free slot for currentPhaseShift (I suggest merging Lucas' work an use the "non-interpolation" ones used for the hatches, since hatches don't have stipples you can reuse it's data to pass curve phase shift
+    // TODO:[Przemek][2. Miters]: handle data needed object type POLYLINE_CONNECTOR, you can reuse the data lines and beziers already use, I trust you'll make the best reusing decision
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

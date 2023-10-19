@@ -4,7 +4,7 @@
 
 namespace curves
 {
-//TODO: move this to cpp-compat hlsl builtins
+//TODO[Przemek]: move this to cpp-compat hlsl builtins and make it float_t templated
 static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
 {
     float64_t denominator = v1.y * v2.x - v1.x * v2.y;
@@ -22,7 +22,7 @@ static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v
     return intersectionPoint;
 }
 
-//TODO: Move these bezier functions inside the bezier struct in hlsl
+//TODO[Przemek]: Move these bezier functions inside the bezier struct in hlsl
 static  float64_t bezierYatT(const QuadraticBezierInfo& bezier, const float64_t t)
 {
     const float64_t a = bezier.p[0].y - 2.0 * bezier.p[1].y + bezier.p[2].y;
@@ -31,8 +31,7 @@ static  float64_t bezierYatT(const QuadraticBezierInfo& bezier, const float64_t 
     return ((a * t) + b) * t + c; // computePosition at t1
 }
 
-// TODO: move this to cpp-compat hlsl builtins in math::equations::quadratics probably
-// solve ax^2+bx+c=0
+// TODO[Przemek]: Lucas has already moved it to math/equations/quadratic remove this and use this there
 static float64_t2 solveQuadraticRoot(const float64_t a, const float64_t b, const float64_t c)
 {
     float64_t2 ret;
@@ -57,6 +56,7 @@ static float64_t2 solveQuadraticRoot(const float64_t a, const float64_t b, const
     return ret;
 }
 
+// TODO[Przemek]: implement YatX as a helper tool in bezier.hlsl Quadratic curve
 // returns nan if found X is outside of bounds or not found at all
 static float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
 {
@@ -77,6 +77,7 @@ static float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
 
 }
 
+// TODO[Przemek] move this to QuadraticBezier static construct methods in beziers.hlsl
 static QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t2 v0, float64_t2 P2, float64_t2 v2)
 {
     QuadraticBezierInfo out = {};

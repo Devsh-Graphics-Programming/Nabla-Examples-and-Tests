@@ -8,11 +8,13 @@ float cross2D(float2 a, float2 b)
     return determinant(float2x2(a,b));
 }
 
+// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 {
     return 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
 }
 
+// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {   
     float tt = t * t;
@@ -21,17 +23,8 @@ float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
     return p0 * oneMinusTT + 2.0f * p1 * oneMinusT * t + p2 * tt;
 }
 
-//Compute bezier in one dimension, as the OBB X and Y are at different T's
-float QuadraticBezier1D(float v0, float v1, float v2, float t)
-{
-    float s = 1.0 - t;
-
-    return v0 * (s * s) +
-        v1 * (s * t * 2.0) +
-        v2 * (t * t);
-}
-
 // Caller should make sure the lines are not parallel, i.e. cross2D(direction1, direction2) != 0, otherwise a division-by-zero will cause NaN values
+// TODO[Przemek] Remove this function and move the one implemented in curves.cpp to builtin/hlsl/shapes/utils.hlsl 
 float2 LineLineIntersection(float2 p1, float2 p2, float2 v1, float2 v2)
 {
     // Here we're doing part of a matrix calculation because we're interested in only the intersection point not both t values
@@ -48,90 +41,6 @@ float2 LineLineIntersection(float2 p1, float2 p2, float2 v1, float2 v2)
     float2 intersectionPoint = p1 + t * v1;
 
     return intersectionPoint;
-}
-
-// from shadertoy: https://www.shadertoy.com/view/stfSzS
-bool EstimateTransformation(float2 p01, float2 p11, float2 p21, out float2 translation, out float2x2 rotation)
-{
-    float2 p1 = p11 - p01;
-    float2 p2 = p21 - p01;
-
-    float2 a = p2 - 2.0 * p1;
-    float2 b = 2.0 * p1;
-
-    float2 mean = a / 3.0 + b / 2.0;
-
-    float axy = a.x * a.y;
-    float bxy = a.x * b.y + b.x * a.y;
-    float cxy = b.x * b.y;
-
-    float2 aB = a * a;
-    float2 bB = a * b * 2.0;
-    float2 cB = b * b;
-
-    float xy = axy / 5.0 + bxy / 4.0 + cxy / 3.0;
-    float xx = aB.x / 5.0 + bB.x / 4.0 + cB.x / 3.0;
-    float yy = aB.y / 5.0 + bB.y / 4.0 + cB.y / 3.0;
-
-    float cov_00 = xx - mean.x * mean.x;
-    float cov_01 = xy - mean.x * mean.y;
-    float cov_11 = yy - mean.y * mean.y;
-
-    float eigen_a = 1.0;
-    float eigen_b_neghalf = -(cov_00 + cov_11) * -0.5;
-    float eigen_c = (cov_00 * cov_11 - cov_01 * cov_01);
-
-    float discr = eigen_b_neghalf * eigen_b_neghalf - eigen_a * eigen_c;
-    if (discr <= 0.0)
-        return false;
-
-    discr = sqrt(discr);
-
-    float lambda0 = (eigen_b_neghalf - discr) / eigen_a;
-    float lambda1 = (eigen_b_neghalf + discr) / eigen_a;
-
-    float2 eigenvector0 = float2(cov_01, lambda0 - cov_00);
-    float2 eigenvector1 = float2(cov_01, lambda1 - cov_00);
-
-    rotation[0] = normalize(eigenvector0);
-    rotation[1] = normalize(eigenvector1);
-
-    translation = mean + p01;
-
-    return true;
-}
-
-// from shadertoy: https://www.shadertoy.com/view/stfSzS
-float4 BezierAABB(float2 p01, float2 p11, float2 p21)
-{
-    float2 p0 = p01;
-    float2 p1 = p11;
-    float2 p2 = p21;
-
-    float2 mi = min(p0, p2);
-    float2 ma = max(p0, p2);
-
-    float2 a = p0 - 2.0 * p1 + p2;
-    float2 b = p1 - p0;
-    float2 t = -b / a; // solution for linear equation at + b = 0
-
-    if (t.x > 0.0 && t.x < 1.0) // x-coord
-    {
-        float q = QuadraticBezier1D(p0.x, p1.x, p2.x, t.x);
-
-        mi.x = min(mi.x, q);
-        ma.x = max(ma.x, q);
-    }
-
-    if (t.y > 0.0 && t.y < 1.0) // y-coord
-    {
-        float q = QuadraticBezier1D(p0.y, p1.y, p2.y, t.y);
-
-        mi.y = min(mi.y, q);
-        ma.y = max(ma.y, q);
-    }
-
-    return float4(mi, ma);
 }
 
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
@@ -175,6 +84,31 @@ PSInput main(uint vertexID : SV_VertexID)
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
+    /*
+     * TODO:[Przemek]: handle generating vertices another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
+     * the connector from cpu will have a phase shift as well, if it's in a non draw section you can discard it in the vertex shader.
+     * so you'll be doing similar upper_bound computation stuff to figure out if you're in a draw or non draw section here as well.
+     * we'll move this later to compute so you don't have to worry about it per-vertex, that's for later
+     * else if (objType == ObjectType::POLYLINE_CONNECTOR)
+     * {
+     *      if(currentStyle.isRoadStyle)
+     *      {
+     *          if (isInDrawSection)
+     *          {
+     *              do the math needed to generate miter vertices USING: antiAliasedLineWidth, PolylineConnector data in it's struct
+     *          }
+     *          else
+     *          {
+     *              discard
+     *          }
+     *      }
+     *      else
+     *      {
+     *          shouldn't happen but discard, we can add bevel joins and stuff later on
+     *      }
+     * }
+    */
+
     if (objType == ObjectType::LINE)
     {
         outV.setColor(lineStyle.color);
@@ -182,6 +116,19 @@ PSInput main(uint vertexID : SV_VertexID)
 
         const double3x3 transformation = clipProjectionData.projectionToNDC;
 
+
+        /*
+            TODO[Przemek]: As you can see here we placed line points (double2) in a contigous piece of memory to drawline
+            but now each line point should have a "currentPhaseShift" which is `float phaseShift` up to that point.
+            so we should make a struct in common.hlsl and construct it here like we do for beziers.
+            struct LinePointInfo
+            {
+                float64_t2 p; // 16*3=48bytes
+                float32_t phaseShit;
+                float32_t _reserved_pad;
+            }
+            and here we load two LinePointInfos from geometryAddress and use the first one's phaseshift
+        */
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);

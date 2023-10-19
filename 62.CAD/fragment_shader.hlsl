@@ -48,6 +48,7 @@ struct StyleAccessor
 template<typename CurveType, typename StyleAccessor>
 struct StyleClipper
 {
+    // TODO[Przemek]: this should now also include a float phaseShift which is in style's normalized space
     static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
         CurveType curve,
         typename CurveType::ArcLengthCalculator arcLenCalc)
@@ -62,6 +63,7 @@ struct StyleClipper
         const float arcLen = arcLenCalc.calcArcLen(t);
         t = clamp(t, 0.0f, 1.0f);
         const float worldSpaceArcLen = arcLen * float(globals.worldToScreenRatio);
+        // TODO[Przemek]: apply the phase shift of the curve here as well
         float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
@@ -159,6 +161,9 @@ struct ClippedSignedDistance
         }
 
         float_t roundedDistance = closestDistanceSquared - thickness;
+
+
+// TODO[Przemek]: if style `isRoadStyle` is true use rectCapped, else use normal roundedDistance and remove this #ifdef
 #define ROUNDED
 #ifdef ROUNDED
         return roundedDistance;
@@ -200,6 +205,9 @@ float4 main(PSInput input) : SV_TARGET
     float localAlpha = 0.0f;
     uint32_t currentMainObjectIdx = input.getMainObjectIdx();
     
+
+    // TODO:[Przemek]: handle another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
+
     if (objType == ObjectType::LINE)
     {
         const float2 start = input.getLineStart();
