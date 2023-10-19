@@ -24,7 +24,36 @@
 #include <nbl/builtin/hlsl/mpl.hlsl>
 #include <nbl/builtin/hlsl/bit.hlsl>
 
-[numthreads(1, 1, 1)]
+struct PushConstants
+{
+	uint2 imgSize;
+	uint swapchainTransform;
+};
+
+[[vk::push_constant]]
+PushConstants u_pushConstants;
+
+[[vk::binding(0, 0)]] RWTexture2D<float4> outImage;
+[[vk::binding(1, 0)]] Texture2D<float4> inImage;
+
+template<int A>
+struct Spec
+{
+    static const int value = Spec<A-1>::value + 1;
+};
+
+template<>
+struct Spec<0>
+{
+    static const int value = 0;
+};
+
+Buffer<float32_t4>  unbounded[];
+
+template<class T>
+bool val(T) { return nbl::hlsl::type_traits::is_unbounded_array<T>::value; }
+
+[numthreads(16, 16, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     const float32_t3 TEST_VEC = float32_t3(1.0f, 2.0f, 3.0f);
@@ -112,4 +141,22 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         runTimeCountLZero = nbl::hlsl::countl_zero(TEST_VALUE_4);
         SHADER_CRASHING_ASSERT(compileTimeCountLZero == runTimeCountLZero);
     }
+
+    {
+        bool A = Spec<3>::value == 3;
+    }
+    {
+        bool A = nbl::hlsl::type_traits::is_integral<int>::value;
+    }
+    {
+        bool A = val(unbounded);
+    }
+
+	if (all(invocationID.xy < u_pushConstants.imgSize))
+	{
+		// TODO use swapchain transforms
+		float2 postTransformUv = float2(invocationID.xy) / float2(u_pushConstants.imgSize);
+		float4 outColor = float4(postTransformUv, 0.0, 1.f);
+		outImage[invocationID.xy] = outColor;
+	}
 }

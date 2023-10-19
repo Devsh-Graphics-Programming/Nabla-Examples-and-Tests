@@ -25,6 +25,9 @@ using namespace glm;
 #include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
 #include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
 
+#include "../common/CommonAPI.h"
+
+
 using namespace nbl;
 using namespace core;
 using namespace ui;
@@ -72,7 +75,7 @@ const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
 //        std::cout << std::endl;
 //    }
 //}
-
+// 
 //bool areVectorsEqual(const float32_t3& lhs, const float32_t3& rhs)
 //{
 //    const float32_t3 epsilonVec = float32_t3(std::exp2(-10));
@@ -129,7 +132,7 @@ public:
             m_logicalDevice->createPipelineLayout();
 
         video::IGPUObjectFromAssetConverter CPU2GPU;
-        const char* pathToShader = "D:/repos/Nabla/examples_tests/64.CppCompat/test.hlsl"; // TODO: XD
+        const char* pathToShader = "../test.hlsl"; // TODO: XD
         core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
         {
             asset::IAssetLoader::SAssetLoadParams params = {};
@@ -213,6 +216,12 @@ private:
 
     bool m_keepRunning = true;
 };
+
+template<class T>
+constexpr bool val(T a)
+{
+    return std::is_const_v<T>;
+}
 
 int main(int argc, char** argv)
 {
@@ -369,6 +378,7 @@ int main(int argc, char** argv)
     //Xoroshiro64StarStar xoroshiro64StarStar = Xoroshiro64StarStar::construct(state);
     //xoroshiro64StarStar();
     
+    // test HLSL side
     CompatibilityTest::runTests(argc, argv);
 
     auto zero = cross(x,x);
