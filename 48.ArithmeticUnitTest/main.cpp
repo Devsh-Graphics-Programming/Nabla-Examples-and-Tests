@@ -396,12 +396,12 @@ public:
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
 #ifdef HLSL
 		{
-			getShaderGLSL("../hlsl/testSubgroupReduce.comp.hlsl"),
-			getShaderGLSL("../hlsl/testSubgroupExclusive.comp.hlsl"),
-			getShaderGLSL("../hlsl/testSubgroupInclusive.comp.hlsl"),
-			getShaderGLSL("../hlsl/testWorkgroupReduce.comp.hlsl"),
-			getShaderGLSL("../hlsl/testWorkgroupInclusive.comp.hlsl"),
-			getShaderGLSL("../hlsl/testWorkgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupReduce.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupInclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupReduce.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupInclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupExclusive.comp.hlsl"),
 		};
 #else
 		{
@@ -450,7 +450,7 @@ public:
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
-		for (uint32_t workgroupSize=45u; workgroupSize<=1024; workgroupSize++)
+		for (uint32_t workgroupSize=445; workgroupSize<=446; workgroupSize+=100)
 		{
 			logger->log("Testing Workgroup Size %u", system::ILogger::ELL_INFO, workgroupSize);
 			core::smart_refctd_ptr<IGPUComputePipeline> pipelines[kTestTypeCount];

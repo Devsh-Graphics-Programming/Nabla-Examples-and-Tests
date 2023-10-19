@@ -3,9 +3,9 @@ static uint3 gl_WorkGroupID;
 static uint gl_LocalInvocationIndex;
 
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
-#include "shaderCommon.hlsl"
+#include "../examples_tests/48.ArithmeticUnitTest/hlsl/shaderCommon.hlsl"
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
-#include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
+#include "nbl/builtin/hlsl/memory_accessor.hlsl"
 
 #define inclusive_scan_t(Binop) nbl::hlsl::subgroup::inclusive_scan<uint, nbl::hlsl::binops::Binop<uint> >
 
