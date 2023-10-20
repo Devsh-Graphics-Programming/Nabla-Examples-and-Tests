@@ -5,5 +5,3 @@ if(NOT RES)
 endif()
 
 nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
-
-nbl_project_handle_json_config()
