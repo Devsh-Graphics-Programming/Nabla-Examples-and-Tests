@@ -395,4 +395,5 @@ int main(int argc, char** argv)
     // bit.hlsl test
     /*nbl::hlsl::rotl(1u, 1u);
     nbl::hlsl::rotr(1u, 1u);*/
+
 }

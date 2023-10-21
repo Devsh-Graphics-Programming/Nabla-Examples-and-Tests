@@ -4,6 +4,7 @@
 
 #pragma shader_stage(compute)
 
+#define IS_SAME(L,R) nbl::hlsl::is_same<L,R>::value
 #define SHADER_CRASHING_ASSERT(expr) \
     do { \
         [branch] if (!(expr)) \
@@ -52,6 +53,12 @@ Buffer<float32_t4>  unbounded[];
 
 template<class T>
 bool val(T) { return nbl::hlsl::is_unbounded_array<T>::value; }
+
+template<typename T, uint32_t N>
+struct array
+{
+  T data[N];
+};
 
 [numthreads(16, 16, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
@@ -150,6 +157,41 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     }
     {
         bool A = val(unbounded);
+    }
+    {
+        float4 v;
+        SHADER_CRASHING_ASSERT(alignof(v.x) == alignof(v));
+    }
+    
+    {
+        float4 v;
+        const volatile float4 u;
+
+        SHADER_CRASHING_ASSERT(nbl::hlsl::impl::is_reference<decltype(v.x)>::value);
+        SHADER_CRASHING_ASSERT(IS_SAME(float,nbl::hlsl::impl::remove_reference<decltype(v.x)>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(decltype(v.x),nbl::hlsl::impl::add_lvalue_reference<float>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(decltype(v.x),nbl::hlsl::impl::add_lvalue_reference<nbl::hlsl::impl::remove_reference<decltype(v.x)>::type>::type));
+        
+        SHADER_CRASHING_ASSERT(IS_SAME(float,nbl::hlsl::remove_cvref<decltype(v.x)>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::remove_cv<decltype(v.x)>::type,nbl::hlsl::impl::add_lvalue_reference<float>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::remove_cv<decltype(v.x)>::type,nbl::hlsl::impl::add_lvalue_reference<nbl::hlsl::remove_cvref<decltype(v.x)>::type>::type));
+    }
+    
+    {
+        float x[4][4];
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::remove_extent<decltype(x)>::type, float[4]));
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::remove_all_extents<decltype(x)>::type, float));
+    }
+
+    {
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::make_signed<int16_t>::type,   nbl::hlsl::make_signed<uint16_t>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::make_unsigned<int16_t>::type, nbl::hlsl::make_unsigned<uint16_t>::type));
+
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::make_signed<int32_t>::type,   nbl::hlsl::make_signed<uint32_t>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::make_unsigned<int32_t>::type, nbl::hlsl::make_unsigned<uint32_t>::type));
+
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::make_signed<int64_t>::type,   nbl::hlsl::make_signed<uint64_t>::type));
+        SHADER_CRASHING_ASSERT(IS_SAME(nbl::hlsl::make_unsigned<int64_t>::type, nbl::hlsl::make_unsigned<uint64_t>::type));
     }
 
 	if (all(invocationID.xy < u_pushConstants.imgSize))
