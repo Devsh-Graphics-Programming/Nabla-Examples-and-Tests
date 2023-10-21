@@ -51,7 +51,7 @@ struct Spec<0>
 Buffer<float32_t4>  unbounded[];
 
 template<class T>
-bool val(T) { return nbl::hlsl::type_traits::is_unbounded_array<T>::value; }
+bool val(T) { return nbl::hlsl::is_unbounded_array<T>::value; }
 
 [numthreads(16, 16, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
@@ -146,7 +146,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         bool A = Spec<3>::value == 3;
     }
     {
-        bool A = nbl::hlsl::type_traits::is_integral<int>::value;
+        bool A = nbl::hlsl::is_integral<int>::value;
     }
     {
         bool A = val(unbounded);
