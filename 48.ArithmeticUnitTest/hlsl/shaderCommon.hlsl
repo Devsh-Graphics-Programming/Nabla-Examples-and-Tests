@@ -24,16 +24,16 @@ struct Output {
 	uint output[BUFFER_DWORD_COUNT];
 };
 
-StructuredBuffer<uint> inputValue : register(t0); // read-only
+[[vk::binding(0, 0)]] StructuredBuffer<uint> inputValue : register(t0); // read-only
 
-RWStructuredBuffer<Output> outand : register(u1);
-RWStructuredBuffer<Output> outxor : register(u2);
-RWStructuredBuffer<Output> outor : register(u3);
-RWStructuredBuffer<Output> outadd : register(u4);
-RWStructuredBuffer<Output> outmul : register(u5);
-RWStructuredBuffer<Output> outmin : register(u6);
-RWStructuredBuffer<Output> outmax : register(u7);
-RWStructuredBuffer<Output> outbitcount : register(u8);
+[[vk::binding(1, 0)]] RWStructuredBuffer<Output> outand : register(u1);
+[[vk::binding(2, 0)]] RWStructuredBuffer<Output> outxor : register(u2);
+[[vk::binding(3, 0)]] RWStructuredBuffer<Output> outor : register(u3);
+[[vk::binding(4, 0)]] RWStructuredBuffer<Output> outadd : register(u4);
+[[vk::binding(5, 0)]] RWStructuredBuffer<Output> outmul : register(u5);
+[[vk::binding(6, 0)]] RWStructuredBuffer<Output> outmin : register(u6);
+[[vk::binding(7, 0)]] RWStructuredBuffer<Output> outmax : register(u7);
+[[vk::binding(8, 0)]] RWStructuredBuffer<Output> outbitcount : register(u8);
 
 template<uint32_t WGSZ,uint32_t SGSZ>
 struct required_scratch_size : nbl::hlsl::workgroup::impl::trunc_geom_series<WGSZ,SGSZ> {};
@@ -55,17 +55,17 @@ struct ScratchProxy
 	{
 		scratch[ix + offset] = value;
 	}
-	
+
 	uint atomicAdd(in uint ix, uint data)
 	{
 		return nbl::hlsl::glsl::atomicAdd(scratch[ix + offset], data);
 	}
-	
+
 	uint atomicOr(in uint ix, uint data)
 	{
 		return nbl::hlsl::glsl::atomicOr(scratch[ix + offset], data);
 	}
-    
+
     void workgroupExecutionAndMemoryBarrier() {
         nbl::hlsl::glsl::barrier();
         nbl::hlsl::glsl::memoryBarrierShared();
@@ -77,7 +77,7 @@ struct SharedMemory
 	nbl::hlsl::MemoryAdaptor<ScratchProxy<0> > main;
 	nbl::hlsl::MemoryAdaptor<ScratchProxy<arithmeticSz> > ballot;
 	nbl::hlsl::MemoryAdaptor<ScratchProxy<arithmeticSz + ballotSz> > broadcast;
-    
+
     void workgroupExecutionAndMemoryBarrier()
     {
         main.workgroupExecutionAndMemoryBarrier();

@@ -79,7 +79,7 @@ struct max_op
 	static inline constexpr const char* name = "max";
 };
 template<typename T>
-struct ballot : add_op<T> 
+struct ballot : add_op<T>
 {
 	static inline constexpr const char* name = "bitcount";
 };
@@ -322,7 +322,7 @@ public:
 
 		nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 #pragma endregion Init
-		
+
 		inputData = new uint32_t[BUFFER_DWORD_COUNT];
 		{
 			std::mt19937 randGenerator(std::time(0));
