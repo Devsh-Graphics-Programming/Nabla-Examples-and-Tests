@@ -450,7 +450,7 @@ public:
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
-		for (uint32_t workgroupSize=445; workgroupSize<=446; workgroupSize+=100)
+		for (uint32_t workgroupSize=512; workgroupSize<=513; workgroupSize+=100)
 		{
 			logger->log("Testing Workgroup Size %u", system::ILogger::ELL_INFO, workgroupSize);
 			core::smart_refctd_ptr<IGPUComputePipeline> pipelines[kTestTypeCount];
