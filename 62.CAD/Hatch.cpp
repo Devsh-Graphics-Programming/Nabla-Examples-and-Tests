@@ -89,6 +89,9 @@ namespace hatchutils {
 
 Hatch::QuadraticBezier Hatch::Segment::splitCurveRange(QuadraticBezier curve, double left, double right) const
 {
+	assert(right > left);
+	assert(0.0 <= left && left <= 1.0);
+	assert(0.0 <= right && right <= 1.0);
     return curve.splitCurveTakeLower(right).splitCurveTakeUpper(left / right);
 }
 
@@ -179,6 +182,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 
 Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
 {
+	std::vector<QuadraticBezier> beziers; // Referenced into by the segments
     std::stack<Segment> starts; // Next segments sorted by start points
     std::stack<double> ends; // Next end points
     double maxMajor;
@@ -650,7 +654,6 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 		p0y = p[0].y, p1y = p[1].y, p2y = p[2].y;
 
 	// Getting the values for the implicitization of the curve
-	// TODO: Do this with quadratic coefficients instead (A, B, C)
 	double t0 = (4 * p0y * p1y) - (4 * p0y * p2y) - (4 * (p1y * p1y)) + (4 * p1y * p2y) - ((p0y * p0y)) + (2 * p0y * p2y) - ((p2y * p2y));
 	double t1 = -(4 * p0x * p1y) + (4 * p0x * p2y) - (4 * p1x * p0y) + (8 * p1x * p1y) - (4 * p1x * p2y) + (4 * p2x * p0y) - (4 * p2x * p1y) + (2 * p0x * p0y) - (2 * p0x * p2y) - (2 * p2x * p0y) + (2 * p2x * p2y);
 	double t2 = (4 * p0x * p1x) - (4 * p0x * p2x) - (4 * (p1x * p1x)) + (4 * p1x * p2x) - ((p0x * p0x)) + (2 * p0x * p2x) - ((p2x * p2x));
@@ -701,12 +704,10 @@ float64_t2 Hatch::QuadraticBezier::evaluateBezier(double t) const
 // https://pomax.github.io/bezierinfo/#pointvectors
 float64_t2 Hatch::QuadraticBezier::tangent(double t) const
 {
-	// TODO: figure out a tangent algorithm for when this becomes A, B, C
 	auto derivativeOrder1First = 2.0 * (p[1] - p[0]);
 	auto derivativeOrder1Second = 2.0 * (p[2] - p[1]);
 	auto tangent = (1.0 - t) * derivativeOrder1First + t * derivativeOrder1Second;
-	auto len = sqrt(tangent.x * tangent.x + tangent.y * tangent.y);
-	return tangent / len;
+	return glm::normalize(tangent);
 }
 
 Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLower(double t) const

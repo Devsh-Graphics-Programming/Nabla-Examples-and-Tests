@@ -263,6 +263,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data3 = float4(0, 0, 0, 0);
     outV.data4 = float4(0, 0, 0, 0);
     outV.interp_data5 = float4(0, 0, 0, 0);
+    outV.interp_data6 = float4(0, 0, 0, 0);
     outV.clip = float4(0,0,0,0);
 
     outV.setObjType(objType);
@@ -499,14 +500,20 @@ PSInput main(uint vertexID : SV_VertexID)
         }
 
         const double2 ndcAabbExtents = double2(
-            length(abs(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin))),
-            length(abs(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin)))
+            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin)),
+            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin))
         );
+        // Max corner stores the quad's UVs:
+        // (0,1)|--|(1,1)
+        //      |  |
+        // (0,0)|--|(1,0)
+        double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        
         // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
         // sometimes it falls outside the pixel center and creates a hole in major axis)
-        // Doubling the factor for both the left/top and right/bottom sides
+        // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
         const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * ((globals.antiAliasingFactor + 1.0) / double2(globals.resolution));
-        double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        // Dilate the UVs
         maxCorner = ((((maxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
         const double2 coord = transformPointNdc(clipProjectionData.projectionToNDC, lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);

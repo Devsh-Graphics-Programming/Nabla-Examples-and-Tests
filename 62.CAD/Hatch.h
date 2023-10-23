@@ -28,7 +28,6 @@ public:
 		float64_t2 curveMax[3];
 	};
 
-	// TODO: start using A, B, C here
 	struct QuadraticBezier {
 		float64_t2 p[3];
 
@@ -48,9 +47,6 @@ public:
 		bool isLineSegment() const;
 	};
 
-	std::vector<QuadraticBezier> beziers;
-	std::vector<CurveHatchBox> hatchBoxes;
-
 	class Segment
 	{
 	public:
@@ -67,9 +63,14 @@ public:
 	};
 	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */);
 	// (temporary)
-	Hatch(std::vector<QuadraticBezier>&& in_beziers, std::vector<CurveHatchBox>&& in_hatchBoxes) : 
-		beziers(std::move(in_beziers)),
-		hatchBoxes(std::move(in_hatchBoxes)) 
+	Hatch(std::vector<CurveHatchBox>&& in_hatchBoxes) :
+		hatchBoxes(std::move(in_hatchBoxes))
 	{
 	};
+
+	const CurveHatchBox& getHatchBox(uint32_t idx) const { return hatchBoxes[idx]; }
+	uint32_t getHatchBoxCount() const { return hatchBoxes.size(); }
+
+private:
+	std::vector<CurveHatchBox> hatchBoxes;
 };

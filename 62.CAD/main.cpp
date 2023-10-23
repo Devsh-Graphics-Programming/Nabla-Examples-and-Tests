@@ -10,6 +10,7 @@
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
+static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
@@ -204,11 +205,10 @@ public:
 		return m_bounds;
 	}
 
-	float64_t3x3 constructViewProjection(double timeElapsed)
+	float64_t3x3 constructViewProjection()
 	{
 		auto ret = float64_t3x3();
-		//double4x4 ret = {};
-		//
+
 		ret[0][0] = 2.0 / m_bounds.x;
 		ret[1][1] = -2.0 / m_bounds.y;
 		ret[2][2] = 1.0;
@@ -605,7 +605,7 @@ public:
 		uint32_t mainObjIdx;
 		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
-		const auto sectionsCount = 1; //hatch.hatchBoxes.size();
+		const auto sectionsCount = 1;
 
 		uint32_t currentSectionIdx = 0u;
 		uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
@@ -615,7 +615,7 @@ public:
 			bool shouldSubmit = false;
 			addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
 
-			const auto sectionObjectCount = hatch.hatchBoxes.size();
+			const auto sectionObjectCount = hatch.getHatchBoxCount();
 			if (currentObjectInSection >= sectionObjectCount)
 			{
 				currentSectionIdx++;
@@ -1007,11 +1007,11 @@ protected:
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferHatchBoxes);
-		uploadableObjects = core::min(uploadableObjects, hatch.hatchBoxes.size());
+		uploadableObjects = core::min(uploadableObjects, hatch.getHatchBoxCount());
 
 		for (uint32_t i = 0; i < uploadableObjects; i++)
 		{
-			Hatch::CurveHatchBox hatchBox = hatch.hatchBoxes[i + currentObjectInSection];
+			const Hatch::CurveHatchBox& hatchBox = hatch.getHatchBox(i + currentObjectInSection);
 
 			uint64_t hatchBoxAddress;
 			{
@@ -1865,16 +1865,25 @@ public:
 		cb->beginDebugMarker("Frame");
 
 		
-		double theta = 0.0;// (timeElapsed * 0.00008)* (2.0 * nbl::core::PI<double>());
 
-		auto rotation = float64_t3x3(
-			cos(theta), -sin(theta), 0.0,
-			sin(theta), cos(theta), 1.0,
-			0.0, 0.0, 1.0
-		);
+		float64_t3x3 projectionToNDC;
+		if constexpr (DebugRotatingViewProj)
+		{
+			double theta = (m_timeElapsed * 0.00008) * (2.0 * nbl::core::PI<double>());
 
-		auto vp = m_Camera.constructViewProjection(m_timeElapsed);
-		float64_t3x3 projectionToNDC(rotation * vp);
+			auto rotation = float64_t3x3(
+				cos(theta), -sin(theta), 0.0,
+				sin(theta), cos(theta), 1.0,
+				0.0, 0.0, 1.0
+			);
+
+			auto vp = m_Camera.constructViewProjection();
+			projectionToNDC = float64_t3x3(rotation * vp);
+		}
+		else
+		{
+			projectionToNDC = m_Camera.constructViewProjection();
+		}
 
 		{
 			double u0 = 0;
@@ -2486,7 +2495,7 @@ public:
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 			ClipProjectionData customClipProject = {};
-			customClipProject.projectionToNDC = m_Camera.constructViewProjection(m_timeElapsed);
+			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
 			customClipProject.projectionToNDC[0][0] *= 1.003f;
 			customClipProject.projectionToNDC[1][1] *= 1.003f;
 			customClipProject.maxClipNDC = float32_t2(0.5, 0.5);
