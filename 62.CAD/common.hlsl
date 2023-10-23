@@ -1,4 +1,7 @@
+<<<<<<< HEAD
 
+=======
+>>>>>>> 3efef2860e3b109b5995f97fc5bc42fe30810265
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
@@ -12,12 +15,19 @@ enum class ObjectType : uint32_t
 {
     LINE = 0u,
     QUAD_BEZIER = 1u,
-    //TODO[Lucas]: another object type for a "CurveBox"
+    CURVE_BOX = 2u,
+};
+
+enum class MajorAxis : uint32_t
+{
+    MAJOR_X = 0u,
+    MAJOR_Y = 1u,
 };
 
 // Consists of multiple DrawObjects
 struct MainObject
 {
+    // TODO[Erfan]: probably have objectType here as well?
     uint32_t styleIdx;
     uint32_t clipProjectionIdx;
 };
@@ -47,13 +57,14 @@ You need a struct here that represents a curve which is referenced by a "CurveBo
 Which is basically the same as QuadraticBezierInfo, if the middle point is "nan" it means it's a line connected by p0 and p2
 */
 
-// TODO[Lucas]:
-/*
-You need another struct here that represents a "CurveBox" which
-0. have a aabb (double2 min, max) which will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-1. references two Curves by `uint64_t address` into the geometry buffer
-2. It will also contain tmin,tmax for both curves (becuase we subdivide curves into smaller monotonic parts we need this info to help us discard invalid solutions)
-*/
+struct CurveBox 
+{
+    // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
+    float64_t2 aabbMin;
+    float64_t2 aabbMax; // 32
+    float64_t2 curveMin[3]; // 80
+    float64_t2 curveMax[3]; // 128
+};
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -117,6 +128,9 @@ NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
 NBL_CONSTEXPR uint32_t InvalidClipProjectionIdx = 0xffffffff;
 NBL_CONSTEXPR uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
+NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
+// TODO: get automatic version working on HLSL
+NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 
 #ifndef __cplusplus
 
@@ -144,6 +158,43 @@ uint bitfieldExtract(uint value, int offset, int bits)
 #define	nbl_hlsl_FLT_EPSILON 5.96046447754e-08
 #define UINT32_MAX 0xffffffffu
 
+// The root we're always looking for:
+// 2 * C / (-B - detSqrt)
+// We send to the FS: -B, 2C, det
+template<typename float_t>
+struct PrecomputedRootFinder 
+{
+    using float2_t = vector<float_t, 2>;
+    using float3_t = vector<float_t, 3>;
+    
+    float_t C2;
+    float_t negB;
+    float_t det;
+
+    float_t computeRoots() 
+    {
+        return C2 / (negB - sqrt(det));
+    }
+
+    static PrecomputedRootFinder construct(float_t negB, float_t C2, float_t det)
+    {
+        PrecomputedRootFinder result;
+        result.C2 = C2;
+        result.det = det;
+        result.negB = negB;
+        return result;
+    }
+
+    static PrecomputedRootFinder construct(nbl::hlsl::equations::Quadratic<float_t> quadratic)
+    {
+        PrecomputedRootFinder result;
+        result.C2 = quadratic.C * 2.0;
+        result.negB = -quadratic.B;
+        result.det = quadratic.B * quadratic.B - 4.0 * quadratic.A * quadratic.C;
+        return result;
+    }
+};
+
 struct PSInput
 {
     float4 position : SV_Position;
@@ -154,25 +205,10 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
         // ArcLengthCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    
-    
-    // TODO[Lucas]: you will need more data here, this struct is what gets sent from vshader to fshader
-    /*
-        What you need to send additionally for hatches is basically
-        + information about the two curves 
-        + Their tmin, tmax 
-            - (or you could do some curve "splitting" math in the vertex shader to transform those to the same curves with tmin=0 and tmax=1)
-            - https://pomax.github.io/bezierinfo/#splitting see this for curve splitting, the derivation might be a little hard to understand but the result is simple, so focus on the result
-        + Note: You'll be solving two quadratic equations for the two curves, B_y(t)=coord.y, find `t=t*` for y component of bezier equal to the "scan line"
-            - after finding t* you'd find the left and right curve points by Bl_x(tl*) and Br_x(tr*) 
-                where you can decide whether to fill or not based on  Bl_x(t*) < pixel.x < Br_x(t*) 
-            - Notice the usage of _x and _y in the above because we SWEEP from top to bottom and our "major coordinate" is y by default. 
-            - but write code that can be flexible when changing the Sweep direction (use major, minor instead of y, x)
-    
-        + Based on the info above, you may not need to pass the "y" component of the bezier curves, and only precomputed values for quadratic equation solving
-            + that saves us computation (better to compute on each vertex than each fragment)
-    */
-    
+    // Data segments that need interpolation, mostly for hatches
+    [[vk::location(5)]] float4 interp_data5 : COLOR5;
+    [[vk::location(6)]] float4 interp_data6 : COLOR6;
+
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
@@ -195,6 +231,66 @@ struct PSInput
     
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
+    
+    // data3 xy
+    float2 getBezierP2() { return data3.xy; }
+    void setBezierP2(float2 p2) { data3.xy = p2; }
+
+    // Curves are split in the vertex shader based on their tmin and tmax
+    // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
+    // curveMin = smaller x / left, curveMax = bigger x / right)
+    // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
+
+    // data2, data3, data4
+    nbl::hlsl::equations::Quadratic<float> getCurveMinBezier() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
+    }
+    nbl::hlsl::equations::Quadratic<float> getCurveMaxBezier() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
+    }
+
+    void setCurveMinBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data2.x = bezier.A;
+        data2.y = bezier.B;
+        data2.z = bezier.C;
+    }
+    void setCurveMaxBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data2.w = bezier.A;
+        data3.x = bezier.B;
+        data3.y = bezier.C;
+    }
+
+    // interp_data5, interp_data6    
+
+    // Curve box value along minor & major axis
+    float getMinorBBoxUv() { return interp_data5.x; };
+    void setMinorBBoxUv(float minorBBoxUv) { interp_data5.x = minorBBoxUv; }
+    float getMajorBBoxUv() { return interp_data5.y; };
+    void setMajorBBoxUv(float majorBBoxUv) { interp_data5.y = majorBBoxUv; }
+
+    // A, B, C quadratic coefficients from the min & max curves,
+    // swizzled to the major cordinate and with the major UV coordinate subtracted
+    // These can be used to solve the quadratic equation
+    //
+    // a, b, c = curveMin.a,b,c()[major] - uv[major]
+
+    PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
+        return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
+    }
+    PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
+        return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
+    }
+
+    void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+        data3.z = rootFinder.negB;
+        interp_data5.z = rootFinder.C2;
+        interp_data5.w = rootFinder.det;
+    }
+    void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+        data3.w = rootFinder.negB;
+        interp_data6.x = rootFinder.C2;
+        interp_data6.y = rootFinder.det;
+    }
     
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
@@ -233,5 +329,4 @@ struct PSInput
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
 [[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
 #endif
-
 #endif

@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -200,7 +201,7 @@ float4 main(PSInput input) : SV_TARGET
     [[vk::ext_extension("SPV_EXT_fragment_shader_interlock")]]
     vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
 #endif
-
+	
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     uint32_t currentMainObjectIdx = input.getMainObjectIdx();
@@ -256,13 +257,28 @@ float4 main(PSInput input) : SV_TARGET
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
-    /*
-    TODO[Lucas]:
-        Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
-        and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
-        you will use input.getXXX() to get values needed for this computation
-    */
-    
+    else if (objType == ObjectType::CURVE_BOX) 
+    {
+        const float minorBBoxUv = input.getMinorBBoxUv();
+        const float majorBBoxUv = input.getMajorBBoxUv();
+
+        const float minT = clamp(input.getMinCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
+        const float minEv = input.getCurveMinBezier().evaluate(minT);
+        
+        const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
+        const float maxEv = input.getCurveMaxBezier().evaluate(maxT);
+        
+        const float curveMinorDistance = min(minorBBoxUv - minEv, maxEv - minorBBoxUv);
+        const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
+
+        const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);
+        const float antiAliasingFactorMajor = globals.antiAliasingFactor * fwidth(majorBBoxUv);
+
+        localAlpha = 1.0;
+        localAlpha *= smoothstep(-antiAliasingFactorMajor, 0.0, aabbMajorDistance);
+        localAlpha *= smoothstep(-antiAliasingFactorMinor, antiAliasingFactorMinor, curveMinorDistance);
+    }
+
     uint2 fragCoord = uint2(input.position.xy);
     float4 col;
     
@@ -271,7 +287,7 @@ float4 main(PSInput input) : SV_TARGET
 
   
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-    beginInvocationInterlockEXT();
+        beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
 
