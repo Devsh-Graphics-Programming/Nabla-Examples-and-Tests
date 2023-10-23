@@ -1895,7 +1895,6 @@ public:
 		);
 
 		auto vp = m_Camera.constructViewProjection(m_timeElapsed);
-		float64_t3x3 projectionToNDC(rotation * vp);
 
 		{
 			double u0 = 0;
@@ -1920,7 +1919,7 @@ public:
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection();
+		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection(m_timeElapsed);
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
 		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
@@ -2437,10 +2436,7 @@ public:
 				//	quadratic1.p[2] = float64_t2(300, 300);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-<<<<<<< HEAD
 
-=======
->>>>>>> 3efef2860e3b109b5995f97fc5bc42fe30810265
 				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 			{

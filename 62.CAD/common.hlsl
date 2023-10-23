@@ -1,13 +1,10 @@
-<<<<<<< HEAD
-
-=======
->>>>>>> 3efef2860e3b109b5995f97fc5bc42fe30810265
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 #endif
 
 // TODO:[Przemek]: add another object type: POLYLINE_CONNECTOR which is our miters eventually
