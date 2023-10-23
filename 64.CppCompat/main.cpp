@@ -28,12 +28,7 @@ using namespace glm;
 #include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
 
 #include <halfLimits.h>
-
-// Every header limits.hlsl includes need to be included before here for this to work
-#undef _NBL_BUILTIN_HLSL_NUMERIC_LIMITS_INCLUDED_
-#define __HLSL_VERSION
 #include <nbl/builtin/hlsl/limits.hlsl>
-#undef __HLSL_VERSION
 
 #include "../common/CommonAPI.h"
 
@@ -458,12 +453,10 @@ constexpr bool val(T a)
     return std::is_const_v<T>;
 }
 
-template<class T> 
-bool equal(T l, auto r)
+template<class T, class U> 
+bool equal(T l, U r)
 {
-    if constexpr (is_integral<T>::value)
-        return l == r;
-    
+    static_assert(sizeof(T) == sizeof(U));
     return 0==memcmp(&l, &r, sizeof(T));
 }
 
@@ -652,18 +645,17 @@ int main(int argc, char** argv)
         uint16_t  QUIET_NAN = 0x7FFF;
         uint16_t  SIGNALING_NAN = 0x7DFF;
 
-        assert(equal(std::numeric_limits<float16_t>::min(), MIN));
-        assert(equal(std::numeric_limits<float16_t>::max(), MAX));
-        assert(equal(std::numeric_limits<float16_t>::denorm_min(), DENORM_MIN));
-        assert(equal(std::numeric_limits<float16_t>::quiet_NaN(), QUIET_NAN));
-        assert(equal(std::numeric_limits<float16_t>::signaling_NaN(), SIGNALING_NAN));
+        assert(equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::min, std::numeric_limits<float16_t>::min()));
+        assert(equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::max, std::numeric_limits<float16_t>::max()));
+        assert(equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::denorm_min, std::numeric_limits<float16_t>::denorm_min()));
+        assert(equal(nbl::hlsl::impl::numeric_limits<float16_t>::quiet_NaN, std::numeric_limits<float16_t>::quiet_NaN()));
+        assert(equal(nbl::hlsl::impl::numeric_limits<float16_t>::signaling_NaN, std::numeric_limits<float16_t>::signaling_NaN()));
     }
 
     auto test_type_limits = []<class T>() 
     {
         using L = std::numeric_limits<T>;
-        using R = nbl::hlsl::numeric_limits<T>;
-
+        using R = nbl::hlsl::impl::numeric_limits<T>;
         
         #define TEST_AND_LOG(var) \
             { \

@@ -246,18 +246,15 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     fill(invocationID, 9);
     {
         float32_t a;
-        fill(invocationID, float4(10, asfloat(nbl::hlsl::impl::num_traits<float32_t>::QUIET_NAN), nbl::hlsl::numeric_limits<float32_t>::quiet_NaN(), 0));
 
-        SHADER_CRASHING_ASSERT(nbl::hlsl::impl::num_traits<float32_t>::QUIET_NAN == asuint(nbl::hlsl::numeric_limits<float32_t>::quiet_NaN()));
-        SHADER_CRASHING_ASSERT(nbl::hlsl::impl::num_traits<float32_t>::SIGNALING_NAN == asuint(nbl::hlsl::numeric_limits<float32_t>::signaling_NaN()));
         a = nbl::hlsl::numeric_limits<float32_t>::min;
         a = nbl::hlsl::numeric_limits<float32_t>::max;
         a = nbl::hlsl::numeric_limits<float32_t>::lowest;
         a = nbl::hlsl::numeric_limits<float32_t>::epsilon;
         a = nbl::hlsl::numeric_limits<float32_t>::round_error;
         a = nbl::hlsl::numeric_limits<float32_t>::infinity;
-        a = nbl::hlsl::numeric_limits<float32_t>::quiet_NaN();
-        a = nbl::hlsl::numeric_limits<float32_t>::signaling_NaN();
+        a = nbl::hlsl::numeric_limits<float32_t>::quiet_NaN;
+        a = nbl::hlsl::numeric_limits<float32_t>::signaling_NaN;
         a = nbl::hlsl::numeric_limits<float32_t>::denorm_min;
     }
 
