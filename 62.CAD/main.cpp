@@ -5,8 +5,7 @@
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include "curves.h"
 
 static constexpr bool DebugMode = false;
@@ -28,6 +27,8 @@ typedef uint32_t uint;
 
 #include "common.hlsl"
 
+using namespace nbl::hlsl;
+
 bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
 	const bool areParametersEqual =
@@ -35,7 +36,7 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
 		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
 		lhs.stipplePatternSize == rhs.stipplePatternSize &&
-		lhs.recpiprocalStipplePatternLen == rhs.recpiprocalStipplePatternLen &&
+		lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
 		lhs.phaseShift == rhs.phaseShift;
 
 	if (!areParametersEqual)
@@ -53,18 +54,20 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 }
 
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
-class CPULineStyle
+struct CPULineStyle
 {
-public:
+	static constexpr int32_t InvalidStipplePatternSize = -1;
 	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
 
-	// common data
-		// private and setters/getters instead?
 	float32_t4 color;
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
+	// gpu stipple pattern data form
+	int32_t stipplePatternSize;
+	float reciprocalStipplePatternLen;
+	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+	float phaseShift;
 
-		// TODO[Erfan]: review the logic of this func
 	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
 	//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
 	{
@@ -78,32 +81,37 @@ public:
 
 		nbl::core::vector<float> stipplePatternTransformed;
 
+		// just to make sure we have a consistent definition of what's positive and what's negative
+		auto isValuePositive = [](float x)
+			{
+				return (x >= 0);
+			};
+
 		// merge redundant values
 		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
 		{
 			float redundantConsecutiveValuesSum = 0.0f;
-			bool isFirstValPositive = (std::abs(*it) == *it);
-
+			const bool firstValueSign = isValuePositive(*it);
 			do
 			{
 				redundantConsecutiveValuesSum += *it;
 				it++;
-			} while (it != stipplePatternCPURepresentation.end() && (isFirstValPositive == (std::abs(*it) == *it)));
+			} while (it != stipplePatternCPURepresentation.end() && (firstValueSign == isValuePositive(*it)));
 
 			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
 		}
 
 		if (stipplePatternTransformed.size() == 1)
 		{
-			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? -1 : 0;
+			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? InvalidStipplePatternSize : 0;
 			return;
 		}
 
 		// merge first and last value if their sign matches
 		phaseShift = 0.0f;
-		bool isFirstComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[0]) & 0x80000000;
-		bool isLastComponentNegative = *reinterpret_cast<uint32_t*>(&stipplePatternTransformed[stipplePatternTransformed.size() - 1]) & 0x80000000;
-		if (isFirstComponentNegative == isLastComponentNegative)
+		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
+		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+		if (firstComponentPositive == lastComponentPositive)
 		{
 			phaseShift = std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
@@ -112,12 +120,12 @@ public:
 
 		if (stipplePatternTransformed.size() == 1)
 		{
-			stipplePatternSize = isFirstComponentNegative ? -1 : 0;
+			stipplePatternSize = (firstComponentPositive) ? 0 : InvalidStipplePatternSize;
 			return;
 		}
 
 		// rotate values if first value is negative value
-		if (isFirstComponentNegative)
+		if (!firstComponentPositive)
 		{
 			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
 			phaseShift += std::abs(stipplePatternTransformed[0]);
@@ -133,16 +141,15 @@ public:
 		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
 			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
-		auto dbgPatternSize = prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]);
-		recpiprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
 		for (int i = 0; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] *= recpiprocalStipplePatternLen;
+			prefixSum[i] *= reciprocalStipplePatternLen;
 
 		stipplePatternSize = PREFIX_SUM_SZ;
 		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
 
-		phaseShift = phaseShift * recpiprocalStipplePatternLen;
+		phaseShift = phaseShift * reciprocalStipplePatternLen;
 	}
 
 	LineStyle getAsGPUData() const
@@ -153,27 +160,19 @@ public:
 		ret.screenSpaceLineWidth = screenSpaceLineWidth;
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
 		ret.stipplePatternSize = stipplePatternSize;
-		ret.recpiprocalStipplePatternLen = recpiprocalStipplePatternLen;
+		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
 		ret.phaseShift = phaseShift;
 
 		return ret;
 	}
 
-	inline bool isVisible() const { return stipplePatternSize != -1; }
-
-	// TODO: private:
-public:
-
-	// gpu stipple pattern data form
-	int32_t stipplePatternSize = 0;
-	float recpiprocalStipplePatternLen;
-	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
-	float phaseShift;
+	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
 };
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(Globals) == 112u);
+static_assert(sizeof(LineStyle) == 96u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
@@ -338,8 +337,7 @@ public:
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
-	// TODO[Przemek]: This uses the struct from the shader common.hlsl if you need to precompute stuff make a duplicate of this struct here first (for the user input to fill)
-	// and then do the precomputation here and store in m_quadBeziers which holds the actual structs that will be fed to the GPU
+	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
 	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
@@ -358,8 +356,22 @@ public:
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
 
+	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
+	/*
+	*  this preprocess should:
+	*	1. if style has road info try to generate miters:
+	*		if tangents are not in the same direction with some error add a PolylineConnector object
+		2. go over the list of sections (line and beziers in order) compute the phase shift by computing their arclen and divisions with style length and
+			fill the phaseShift part of the QuadraticBezierInfo and LinePointInfo, 
+			you initially set them to 0 in addLinePoints/addQuadBeziers
+
+		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
+	*/ 
+
 protected:
+	// TODO[Przemek]: a vector of polyline connetor objects
 	std::vector<SectionInfo> m_sections;
+	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
 	std::vector<float64_t2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 };
@@ -439,7 +451,7 @@ public:
 	{
 		maxDrawObjects = drawObjects;
 		size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
-
+		 
 		video::IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
 		drawObjectsCreationParams.size = drawObjectsBufferSize;
 		drawObjectsCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
@@ -506,7 +518,10 @@ public:
 
 		cpuDrawBuffers.customClipProjectionBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(customClipProjectionBufferSize);
 	}
-
+	
+	// TODO
+	//uint32_t getIndexCount() const { return currentIndexCount; }
+	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
 		const CPolyline& polyline,
@@ -573,6 +588,8 @@ public:
 				shouldSubmit = false;
 			}
 		}
+
+		// TODO[Prezmek]: A similar and simpler while loop as above where you try to addPolylineConnectors_Internal, If you couldn't do the whole section completely then -> finalizeAllCopies, submit and reset stuff as above.
 
 		return intendedNextSubmit;
 	}
@@ -695,6 +712,25 @@ public:
 
 	DrawBuffers<asset::ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<video::IGPUBuffer> gpuDrawBuffers;
+
+	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
+		const CPULineStyle& lineStyle,
+		uint32_t& outLineStyleIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		outLineStyleIdx = addLineStyle_Internal(lineStyle);
+		if (outLineStyleIdx == InvalidLineStyleIdx)
+		{
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetAllCounters();
+			outLineStyleIdx = addLineStyle_Internal(lineStyle);
+			assert(outLineStyleIdx != InvalidLineStyleIdx);
+		}
+		return intendedNextSubmit;
+	}
 
 	video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
 		const MainObject& mainObject,
@@ -836,25 +872,6 @@ protected:
 		return ret;
 	}
 
-	video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
-		const CPULineStyle& cpuLineStyle,
-		uint32_t& outLineStyleIdx,
-		video::IGPUQueue* submissionQueue,
-		video::IGPUFence* submissionFence,
-		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		outLineStyleIdx = addLineStyle_Internal(cpuLineStyle);
-		if (outLineStyleIdx == InvalidLineStyleIdx)
-		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-			resetAllCounters();
-			outLineStyleIdx = addLineStyle_Internal(cpuLineStyle);
-			assert(outLineStyleIdx != InvalidLineStyleIdx);
-		}
-		return intendedNextSubmit;
-	}
-
 	uint32_t addLineStyle_Internal(const CPULineStyle& cpuLineStyle)
 	{
 		LineStyle gpuLineStyle = cpuLineStyle.getAsGPUData();
@@ -905,6 +922,11 @@ protected:
 			assert(false); // we don't handle other object types
 	}
 
+	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a core::Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
+	// And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
+
+	// TODO[Prezmek]: this function will change a little as you'll be copying LinePointInfos instead of double2's
+	// Make sure to test with small memory to trigger submitInBetween function when you run out of memory to see if your changes here didn't mess things up, ask Lucas for help if you're not sure on how to do this
 	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		assert(section.count >= 1u);
@@ -1170,7 +1192,10 @@ class CADApp : public ApplicationBase
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
 	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
-	constexpr static uint32_t REQUESTED_WIN_H = 720u;
+	constexpr static uint32_t REQUESTED_WIN_H = 900u;
+
+	//constexpr static uint32_t REQUESTED_WIN_W = 3840u;
+	//constexpr static uint32_t REQUESTED_WIN_H = 2160u;
 
 	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
 	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
@@ -1505,8 +1530,6 @@ public:
 			queryPoolCreationParams.pipelineStatisticsFlags = video::IQueryPool::EPSF_FRAGMENT_SHADER_INVOCATIONS_BIT;
 			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
 		}
-
-		logger->log("dupa", system::ILogger::ELL_INFO);
 
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
@@ -1867,24 +1890,27 @@ public:
 		
 
 		float64_t3x3 projectionToNDC;
-		if constexpr (DebugRotatingViewProj)
-		{
-			double theta = (m_timeElapsed * 0.00008) * (2.0 * nbl::core::PI<double>());
-
-			auto rotation = float64_t3x3(
-				cos(theta), -sin(theta), 0.0,
-				sin(theta), cos(theta), 1.0,
-				0.0, 0.0, 1.0
-			);
-
-			auto vp = m_Camera.constructViewProjection();
-			projectionToNDC = float64_t3x3(rotation * vp);
-		}
-		else
-		{
-			projectionToNDC = m_Camera.constructViewProjection();
-		}
-
+		// TODO: figure out why the matrix multiplication overload isn't getting detected here
+		// 
+		//if constexpr (DebugRotatingViewProj)
+		//{
+		//	double theta = (m_timeElapsed * 0.00008) * (2.0 * nbl::core::PI<double>());
+		//
+		//	auto rotation = float64_t3x3(
+		//		cos(theta), -sin(theta), 0.0,
+		//		sin(theta), cos(theta), 1.0,
+		//		0.0, 0.0, 1.0
+		//	);
+		//
+		//	auto vp = m_Camera.constructViewProjection();
+		//	projectionToNDC = nbl::hlsl::mul(rotation, vp);
+		//}
+		//else
+		//{
+		//	projectionToNDC = m_Camera.constructViewProjection();
+		//}
+		projectionToNDC = m_Camera.constructViewProjection();
+		
 		{
 			double u0 = 0;
 			double u1 = 0;
@@ -2405,9 +2431,9 @@ public:
 				std::vector<QuadraticBezierInfo> quadBeziers;
 				for (int i = 0; i < 1; i++) {
 					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = float64_t2(-100, 0);
-					quadratic1.p[1] = float64_t2(-20, 0);
-					quadratic1.p[2] = float64_t2(100, 0);
+					quadratic1.p[0] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[1] = float64_t2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.p[2] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
 					quadBeziers.push_back(quadratic1);
 				}
 				
@@ -2478,6 +2504,7 @@ public:
 				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
+				// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
 				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
@@ -2502,15 +2529,15 @@ public:
 			customClipProject.minClipNDC = float32_t2(-0.5, -0.5);
 			uint32_t clipProjIdx = InvalidClipProjectionIdx;
 			// intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
-			constexpr uint32_t CURVE_CNT = 15u;
-			constexpr uint32_t SPECIAL_CASE_CNT = 5u;
+			constexpr uint32_t CURVE_CNT = 16u;
+			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
 			CPULineStyle cpuLineStyle;
-			cpuLineStyle.screenSpaceLineWidth = 5.0f;
+			cpuLineStyle.screenSpaceLineWidth = 7.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
 			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
 
@@ -2549,7 +2576,7 @@ public:
 					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
 					quadratics[curveIdx].p[1] = float64_t2(0, lineY);
 					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
-					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+					cpuLineStyles[curveIdx].color = float64_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 					// special case 1 (line, not evenly spaced points)
 					lineY -= 10.0;
@@ -2563,13 +2590,19 @@ public:
 					lineY -= 10.0;
 					curveIdx++;
 
-					/*quadratics[curveIdx].p[0] = double2(-100, lineY);
-					quadratics[curveIdx].p[1] = double2(200, lineY);
-					quadratics[curveIdx].p[2] = double2(100, lineY);*/
+					/*quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(100, lineY);*/
 
-					quadratics[curveIdx].p[0] = float64_t2(-10000, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(210, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(10000, lineY);
+					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
+					quadratics[curveIdx].p[1] = float64_t2(100, lineY);
+					quadratics[curveIdx].p[2] = float64_t2(50, lineY);
+
+					// oblique line
+					curveIdx++;
+					quadratics[curveIdx].p[0] = float64_t2(-100, 100);
+					quadratics[curveIdx].p[1] = float64_t2(50.0, -50.0);
+					quadratics[curveIdx].p[2] = float64_t2(100, -100);
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
@@ -2584,9 +2617,9 @@ public:
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(-150.0, 20.0);
-					quadratics[curveIdx].p[1] = float64_t2(150.0, 0.0);
-					quadratics[curveIdx].p[2] = float64_t2(-150.0, -20.0);
+					quadratics[curveIdx].p[0] = float64_t2(-150.0, 1.0);
+					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
+					quadratics[curveIdx].p[2] = float64_t2(-150.0, -1.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
@@ -2595,7 +2628,6 @@ public:
 				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
 					// test case 0: test curve
-				//stipplePatterns[0] = { 5.0f, -5.0f, 1.0f, -5.0f };
 				stipplePatterns[0] = { 0.0f, -5.0f, 2.0f, -5.0f };
 					// test case 1: lots of redundant values, should look exactly like stipplePattern[0]
 				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
@@ -2621,23 +2653,30 @@ public:
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 12: A = 0 (line), folds itself
 				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
-					// test case 13: curve with A.x = 0
-				//stipplePatterns[13] = { 0.5f, -0.5f, 0.1f, -0.5f };
-				stipplePatterns[13] = { 0.0f, -0.5f, 0.2f, -0.5f };
-					// test case 14: long parabola
-				stipplePatterns[14] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 13: oblique line 
+				stipplePatterns[13] = { 5.0f, -5.0f, 1.0f, -5.0f };
+					// test case 14: curve with A.x = 0
+				stipplePatterns[14] = { 0.0f, -0.5f, 0.2f, -0.5f };
+					// test case 15: long parabola
+				stipplePatterns[15] = { 5.0f, -5.0f, 1.0f, -5.0f };
 
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					polylines[i].addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(& quadratics[i], &quadratics[i] + 1));
+					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+
+					float64_t2 linePoints[2u] = {};
+					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
+					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
+					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
 						cpuLineStyles[i].stipplePatternSize = -1;
 				}
 			}
+
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}

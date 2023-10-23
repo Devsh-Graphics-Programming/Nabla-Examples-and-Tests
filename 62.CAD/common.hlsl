@@ -1,13 +1,15 @@
+
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
-#ifndef __cplusplus
+#ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 #endif
 
+// TODO:[Przemek]: add another object type: POLYLINE_CONNECTOR which is our miters eventually
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -51,6 +53,12 @@ struct CurveBox
     float64_t2 curveMin[3]; // 80
     float64_t2 curveMax[3]; // 128
 };
+    /*
+    * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
+    */
+
+
+// TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -62,15 +70,28 @@ struct ClipProjectionData
     float32_t2 maxClipNDC; // 88
 };
 
+#ifndef __HLSL_VERSION
+static_assert(offsetof(ClipProjectionData, projectionToNDC) == 0u);
+static_assert(offsetof(ClipProjectionData, minClipNDC) == 72u);
+static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
+#endif
+
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
-    float screenToWorldRatio; // 92
-    float worldToScreenRatio; // 96
-    uint32_t2 resolution; // 104
-    float antiAliasingFactor; // 108
-    uint32_t _pad; // 112
+    double screenToWorldRatio; // 96
+    float worldToScreenRatio; // 100
+    uint32_t2 resolution; // 108
+    float antiAliasingFactor; // 112
 };
+
+#ifndef __HLSL_VERSION
+static_assert(offsetof(Globals, defaultClipProjection) == 0u);
+static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
+static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
+static_assert(offsetof(Globals, resolution) == 100u);
+static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
+#endif
 
 struct LineStyle
 {
@@ -83,9 +104,11 @@ struct LineStyle
     
     // stipple pattern data
     int32_t stipplePatternSize;
-    float recpiprocalStipplePatternLen;
+    float reciprocalStipplePatternLen;
     float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
     float phaseShift;
+    
+    // TODO[Przemek] Add bool isRoadStyle, which we use to know if to use normal rounded joins and sdf OR rect sdf with miter joins
     
     inline bool hasStipples()
     {
@@ -279,16 +302,19 @@ struct PSInput
     
     // data3.zw + data4
     
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator preCompData) 
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
     {
         data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
         data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
     }
     
-    nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator getQuadraticArcLenCalculator()
+    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
     {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLenCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
+
+    // TODO[Przemek][1.Continous Stipples]: find a free slot for currentPhaseShift (I suggest merging Lucas' work an use the "non-interpolation" ones used for the hatches, since hatches don't have stipples you can reuse it's data to pass curve phase shift
+    // TODO:[Przemek][2. Miters]: handle data needed object type POLYLINE_CONNECTOR, you can reuse the data lines and beziers already use, I trust you'll make the best reusing decision
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
