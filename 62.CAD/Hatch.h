@@ -28,29 +28,27 @@ public:
 		float64_t2 curveMax[3];
 	};
 
-	struct QuadraticBezier {
-		float64_t2 p[3];
+	using bezier_float_t = double;
+	using QuadraticBezier = nbl::hlsl::shapes::QuadraticBezier<bezier_float_t>;
+	using QuadraticEquation = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
 
-		std::array<double, 4> linePossibleIntersections(const QuadraticBezier& other) const;
-		double intersectOrtho(double lineConstant, int major) const;
-		float64_t2 evaluateBezier(double t) const;
-		float64_t2 tangent(double t) const;
-		// Functions for splitting a curve based on t, where 
-		// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
-		QuadraticBezier splitCurveTakeLower(double t) const;
-		QuadraticBezier splitCurveTakeUpper(double t) const;
-		QuadraticBezier splitCurveRange(double left, double right) const;
-		// Splits the bezier into segments such that it is now monotonic in the major axis. 
-		bool splitIntoMajorMonotonicSegments(std::array<QuadraticBezier, 2>& segments) const;
-		// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
-		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor() const;
+	static std::array<double, 4> linePossibleIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
+	static double intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int major);
+	static float64_t2 tangent(const QuadraticBezier& bezier, double t);
 
-		// TODO: temp
-		nbl::hlsl::shapes::QuadraticBezier<float> getHlslCompatBezier() const;
-	};
+	// Splits the bezier into segments such that it is now monotonic in the major axis. 
+	static bool splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<QuadraticBezier, 2>& segments);
 
+	// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
+	static std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor(const QuadraticBezier& bezier);
 
-	static bool isLineSegment(const nbl::hlsl::shapes::QuadraticBezier<float>& bezier);
+	// Functions for splitting a curve based on t, where 
+	// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
+	static QuadraticBezier splitCurveTakeLower(const QuadraticBezier& bezier, double t);
+	static QuadraticBezier splitCurveTakeUpper(const QuadraticBezier& bezier, double t);
+	static QuadraticBezier splitCurveRange(const QuadraticBezier& bezier, double left, double right);
+
+	static bool isLineSegment(const QuadraticBezier& bezier);
 
 	class Segment
 	{

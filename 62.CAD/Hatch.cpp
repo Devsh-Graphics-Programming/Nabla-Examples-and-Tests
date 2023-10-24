@@ -55,25 +55,25 @@ namespace hatchutils {
 	}
 };
 
-Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveRange(double minT, double maxT) const
+Hatch::QuadraticBezier Hatch::splitCurveRange(const QuadraticBezier& bezier, double minT, double maxT)
 {
 	assert(maxT > minT);
 	assert(0.0 <= minT && minT <= 1.0);
 	assert(0.0 <= maxT && maxT <= 1.0);
-    return splitCurveTakeLower(maxT).splitCurveTakeUpper(minT / maxT);
+    return splitCurveTakeUpper(splitCurveTakeLower(bezier, maxT), minT / maxT);
 }
 
 Hatch::QuadraticBezier Hatch::Segment::getSplitCurve() const
 {
-    return originalBezier->splitCurveRange(t_start, t_end);
+    return splitCurveRange(*originalBezier, t_start, t_end);
 }
 
 bool Hatch::Segment::isStraightLineConstantMajor() const
 {
 	auto major = (uint)SelectedMajorAxis;
-	const double p0 = originalBezier->p[0][major], 
-		p1 = originalBezier->p[1][major], 
-		p2 = originalBezier->p[2][major];
+	const double p0 = originalBezier->P0[major], 
+		p1 = originalBezier->P1[major], 
+		p2 = originalBezier->P2[major];
 	assert(p0 <= p1 && p1 <= p2);
 	return abs(p1 - p0) <= exp2(-24) && abs(p2 - p0) <= exp(-24);
 }
@@ -97,11 +97,6 @@ static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v
 	return intersectionPoint;
 }
 
-nbl::hlsl::shapes::QuadraticBezier<float> Hatch::QuadraticBezier::getHlslCompatBezier() const
-{
-	return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p[0], p[1], p[2]);
-}
-
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 {
 	auto major = (int)SelectedMajorAxis;
@@ -111,29 +106,29 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	int resultIdx = 0;
 
 	// Use line intersections if one or both of the beziers are linear (a = 0)
-	const bool selfLinear = isLineSegment(originalBezier->getHlslCompatBezier()),
-		otherLinear = isLineSegment(other.originalBezier->getHlslCompatBezier());
+	const bool selfLinear = isLineSegment(*originalBezier),
+		otherLinear = isLineSegment(*other.originalBezier);
 	if (selfLinear && otherLinear)
 	{
 		// Line/line intersection
 		//TODO: use cpp-compat hlsl builtin
 		auto intersectionPoint = LineLineIntersection(
-			originalBezier->p[0], originalBezier->p[2] - originalBezier->p[0],
-			other.originalBezier->p[0], other.originalBezier->p[2] - other.originalBezier->p[0]
+			originalBezier->P0, originalBezier->P2 - originalBezier->P0,
+			other.originalBezier->P0, other.originalBezier->P2 - other.originalBezier->P0
 		);
-		const double x1 = originalBezier->p[0].x, y1 = originalBezier->p[0].y,
-			x2 = originalBezier->p[2].x, y2 = originalBezier->p[2].y,
-			x3 = other.originalBezier->p[0].x, y3 = other.originalBezier->p[0].y,
-			x4 = other.originalBezier->p[2].x, y4 = other.originalBezier->p[2].y;
+		const double x1 = originalBezier->P0.x, y1 = originalBezier->P0.y,
+			x2 = originalBezier->P2.x, y2 = originalBezier->P2.y,
+			x3 = other.originalBezier->P0.x, y3 = other.originalBezier->P0.y,
+			x4 = other.originalBezier->P2.x, y4 = other.originalBezier->P2.y;
 
 		// Return if point is on the lines
 		if (std::min(x1, x2) <= intersectionPoint.x && y1 <= intersectionPoint.y && std::max(x1, x2) >= intersectionPoint.x && y2 >= intersectionPoint.y &&
 			std::min(x3, x4) <= intersectionPoint.x && y3 <= intersectionPoint.y && std::max(x3, x4) >= intersectionPoint.x && y4 >= intersectionPoint.y)
 		{
 			// Gets t for "other" by using intersectOrtho
-			auto otherT = other.originalBezier->intersectOrtho(intersectionPoint.y, major);
-			auto intersectionMajor = other.originalBezier->evaluateBezier(otherT)[major];
-			auto thisT = originalBezier->intersectOrtho(intersectionMajor, major);
+			auto otherT = intersectOrtho(*other.originalBezier, intersectionPoint.y, major);
+			auto intersectionMajor = other.originalBezier->evaluate(otherT)[major];
+			auto thisT = intersectOrtho(*originalBezier, intersectionMajor, major);
 
 			if (otherT >= other.t_start && otherT <= other.t_end && thisT >= t_start && thisT <= t_end)
 			{
@@ -147,20 +142,20 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		auto line = selfLinear ? originalBezier : other.originalBezier;
 		auto curve = selfLinear ? other.originalBezier : originalBezier;
 
-		float64_t2  D = normalize(line->p[2] - line->p[0]);
+		float64_t2  D = normalize(line->P2 - line->P0);
 		float64_t2x2 rotation = { 
 			{D.x, -D.y}, 
 			{D.y, D.x} 
 		};
 		QuadraticBezier rotatedCurve = {
-			mul(rotation, curve->p[0] - line->p[0]),
-			mul(rotation, curve->p[1] - line->p[0]),
-			mul(rotation, curve->p[2] - line->p[0])
+			mul(rotation, curve->P0 - line->P0),
+			mul(rotation, curve->P1 - line->P0),
+			mul(rotation, curve->P2 - line->P0)
 		};
 
-		auto intersectionCurveT = rotatedCurve.intersectOrtho(0, (int)MajorAxis::MAJOR_Y /* Always in rotation to align with X Axis */);
-		auto intersectionMajor = other.originalBezier->evaluateBezier(intersectionCurveT)[major];
-		auto intersectionLineT = line->intersectOrtho(intersectionMajor, major);
+		auto intersectionCurveT = intersectOrtho(rotatedCurve, 0, (int)MajorAxis::MAJOR_Y /* Always in rotation to align with X Axis */);
+		auto intersectionMajor = other.originalBezier->evaluate(intersectionCurveT)[major];
+		auto intersectionLineT = intersectOrtho(*line, intersectionMajor, major);
 
 		auto thisT = selfLinear ? intersectionLineT : intersectionCurveT;
 		auto otherT = selfLinear ? intersectionCurveT : intersectionLineT;
@@ -172,13 +167,13 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	}
 	else
 	{
-		auto p0 = originalBezier->p[0];
-		auto p1 = originalBezier->p[1];
-		auto p2 = originalBezier->p[2];
+		auto p0 = originalBezier->P0;
+		auto p1 = originalBezier->P1;
+		auto p2 = originalBezier->P2;
 		bool sideP1 = nbl::core::sign((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
 
 		auto otherBezier = *other.originalBezier;
-		const std::array<double, 4> intersections = originalBezier->linePossibleIntersections(otherBezier);
+		const std::array<double, 4> intersections = linePossibleIntersections(*originalBezier, otherBezier);
 
 		for (uint32_t i = 0; i < intersections.size(); i++)
 		{
@@ -186,7 +181,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 			if (other.t_start >= t || t >= other.t_end)
 				continue;
 
-			auto intersection = other.originalBezier->evaluateBezier(t);
+			auto intersection = other.originalBezier->evaluate(t);
 			bool sideIntersection = nbl::core::sign<double>((p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x));
 
 			// If both P1 and the intersection point are on the same side of the P0 -> P2 line
@@ -225,9 +220,9 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
         CPolyline outputPolyline;
         std::vector<QuadraticBezierInfo> beziers;
         QuadraticBezierInfo bezierInfo;
-        bezierInfo.p[0] = bezier.p[0];
-        bezierInfo.p[1] = bezier.p[1];
-        bezierInfo.p[2] = bezier.p[2];
+        bezierInfo.p[0] = bezier.P0;
+        bezierInfo.p[1] = bezier.P1;
+        bezierInfo.p[2] = bezier.P2;
         beziers.push_back(bezierInfo);
         outputPolyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
 
@@ -265,11 +260,11 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				auto addBezier = [&](QuadraticBezier bezier)
 				{
 					auto outputBezier = bezier;
-					if (outputBezier.evaluateBezier(0.0)[major] > outputBezier.evaluateBezier(1.0)[major])
+					if (outputBezier.evaluate(0.0)[major] > outputBezier.evaluate(1.0)[major])
 					{
-						outputBezier.p[2] = bezier.p[0];
-						outputBezier.p[0] = bezier.p[2];
-						assert(outputBezier.evaluateBezier(0.0)[major] <= outputBezier.evaluateBezier(1.0)[major]);
+						outputBezier.P2 = bezier.P0;
+						outputBezier.P0 = bezier.P2;
+						assert(outputBezier.evaluate(0.0)[major] <= outputBezier.evaluate(1.0)[major]);
 					}
 
 #ifdef DEBUG_HATCH_VISUALLY
@@ -286,9 +281,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						{
 							auto begin = polyline.getLinePointAt(itemIdx);
 							auto end = polyline.getLinePointAt(itemIdx + 1);
-							addBezier({ 
-								{ begin, (begin + end) * 0.5, end }
-							});
+							addBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end));
 						}
 					}
                 else if (section.type == ObjectType::QUAD_BEZIER)
@@ -296,12 +289,12 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                     for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
                     {
                         auto bezierInfo = polyline.getQuadBezierInfoAt(itemIdx);
-                        QuadraticBezier unsplitBezier = { { bezierInfo.p[0], bezierInfo.p[1], bezierInfo.p[2] }};
+                        auto unsplitBezier = QuadraticBezier::construct(bezierInfo.p[0], bezierInfo.p[1], bezierInfo.p[2]);
                         
                         // Beziers must be monotonically increasing along major
                         // First step: Make sure the bezier is monotonic, split it if not
                         std::array<QuadraticBezier, 2> monotonicSegments;
-                        auto isMonotonic = unsplitBezier.splitIntoMajorMonotonicSegments(monotonicSegments);
+                        auto isMonotonic = splitIntoMajorMonotonicSegments(unsplitBezier, monotonicSegments);
 
                         if (isMonotonic)
                         {
@@ -338,14 +331,14 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             segments.push_back(segment);
         }
 
-        std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->p[0][major] > b.originalBezier->p[0][major]; });
+        std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P0[major] > b.originalBezier->P0[major]; });
 		for (Segment& segment : segments)
 			starts.push(segment);
 
-        std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->p[2][major] > b.originalBezier->p[2][major]; });
+        std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P2[major] > b.originalBezier->P2[major]; });
         for (Segment& segment : segments)
-			ends.push(segment.originalBezier->p[2][major]);
-        maxMajor = segments.front().originalBezier->p[2][major];
+			ends.push(segment.originalBezier->P2[major]);
+        maxMajor = segments.front().originalBezier->P2[major];
     }
 
     // Sweep line algorithm
@@ -355,11 +348,11 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 	auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
 	{
 		// btw you probably want the beziers in Quadratic At^2+B+C form, not control points
-		double _lhs = lhs.originalBezier->evaluateBezier(lhs.t_start)[minor];
-		double _rhs = rhs.originalBezier->evaluateBezier(rhs.t_start)[minor];
+		double _lhs = lhs.originalBezier->evaluate(lhs.t_start)[minor];
+		double _rhs = rhs.originalBezier->evaluate(rhs.t_start)[minor];
 
-		double lenLhs = glm::distance(lhs.originalBezier->p[0], lhs.originalBezier->p[2]);
-		double lenRhs = glm::distance(rhs.originalBezier->p[0], rhs.originalBezier->p[2]);
+		double lenLhs = glm::distance(lhs.originalBezier->P0, lhs.originalBezier->P2);
+		double lenRhs = glm::distance(rhs.originalBezier->P0, rhs.originalBezier->P2);
 		auto minLen = std::min(lenLhs, lenRhs);
 
 		// Threshhold here for intersection points, where the minor values for the curves are
@@ -368,8 +361,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		{
 			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
-			float64_t2 lTan = lhs.originalBezier->tangent(lhs.t_start);
-			float64_t2 rTan = rhs.originalBezier->tangent(rhs.t_start);
+			float64_t2 lTan = tangent(*lhs.originalBezier, lhs.t_start);
+			float64_t2 rTan = tangent(*rhs.originalBezier, rhs.t_start);
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 			// negative values mess with the comparison operator when using multiplication
@@ -378,8 +371,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			assert(rTan[major] >= 0.0);
 			if (_lhs == _rhs)
 			{
-				float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
-				float64_t2 rAcc = rhs.originalBezier->p[0] - 2.0 * rhs.originalBezier->p[1] + rhs.originalBezier->p[2];
+				float64_t2 lAcc = lhs.originalBezier->P0 - 2.0 * lhs.originalBezier->P1 + lhs.originalBezier->P2;
+				float64_t2 rAcc = rhs.originalBezier->P0 - 2.0 * rhs.originalBezier->P1 + rhs.originalBezier->P2;
 				_lhs = (lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) / (lTan[major] * lTan[major] * lTan[major]);
 				_rhs = (rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) / (rTan[major] * rTan[major] * rTan[major]);
 			}
@@ -410,7 +403,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				{
 					if (nbl::core::isnan(intersectionPoints[i]))
 						continue;
-					auto point = segment.originalBezier->evaluateBezier(intersectionPoints[i]);
+					auto point = segment.originalBezier->evaluate(intersectionPoints[i]);
 					auto min = point - 0.3;
 					auto max = point + 0.3;
 					drawDebugLine(float64_t2(min.x, min.y), float64_t2(max.x, min.y), float32_t4(0.0, 0.3, 0.0, 0.8));
@@ -425,14 +418,14 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             {
                 if (nbl::core::isnan(intersectionPoints[i]))
                     continue;
-                intersections.push(segment.originalBezier->evaluateBezier(intersectionPoints[i])[major]);
+                intersections.push(segment.originalBezier->evaluate(intersectionPoints[i])[major]);
             }
         }
 		activeCandidates.push_back(entry);
     };
 
 
-    double lastMajor = starts.top().originalBezier->evaluateBezier(starts.top().t_start)[major];
+    double lastMajor = starts.top().originalBezier->evaluate(starts.top().t_start)[major];
     while (lastMajor!=maxMajor)
 	{
 #ifdef DEBUG_HATCH_VISUALLY
@@ -447,7 +440,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
         const double maxMajorEnds = ends.top();
 
 		const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
-		const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluateBezier(nextStartEvent.t_start)[major] : 0.0;
+		const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluate(nextStartEvent.t_start)[major] : 0.0;
 
         // We check which event, within start, end and intersection events have the smallest
         // major coordinate at this point
@@ -517,13 +510,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
                 CurveHatchBox curveBox;
 
-                auto splitCurveMin = left.originalBezier->splitCurveRange(left.t_start, left.originalBezier->intersectOrtho(newMajor, major));
-				auto splitCurveMax = right.originalBezier->splitCurveRange(right.t_start, right.originalBezier->intersectOrtho(newMajor, major));
-				assert(splitCurveMin.evaluateBezier(0.0)[major] <= splitCurveMin.evaluateBezier(1.0)[major]);
-				assert(splitCurveMax.evaluateBezier(0.0)[major] <= splitCurveMax.evaluateBezier(1.0)[major]);
+                auto splitCurveMin = splitCurveRange(*left.originalBezier, left.t_start, intersectOrtho(*left.originalBezier, newMajor, major));
+				auto splitCurveMax = splitCurveRange(*right.originalBezier, right.t_start, intersectOrtho(*right.originalBezier, newMajor, major));
+				assert(splitCurveMin.evaluate(0.0)[major] <= splitCurveMin.evaluate(1.0)[major]);
+				assert(splitCurveMax.evaluate(0.0)[major] <= splitCurveMax.evaluate(1.0)[major]);
 
-                auto curveMinAabb = splitCurveMin.getBezierBoundingBoxMinor();
-                auto curveMaxAabb = splitCurveMax.getBezierBoundingBoxMinor();
+                auto curveMinAabb = getBezierBoundingBoxMinor(splitCurveMin);
+				auto curveMaxAabb = getBezierBoundingBoxMinor(splitCurveMax);
                 curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), lastMajor);
                 curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), newMajor);
 
@@ -540,16 +533,16 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                 auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, float64_t2* output) {
                     auto rcpAabbExtents = float64_t2(1.0,1.0) / (aabbMax - aabbMin);
 					// TODO: when nbl::hlsl::shapes::Quadratic<double> works, use it
-					auto transformedBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(
-						(bezier.p[0] - aabbMin) * rcpAabbExtents,
-						(bezier.p[1] - aabbMin) * rcpAabbExtents,
-						(bezier.p[2] - aabbMin) * rcpAabbExtents
+					auto transformedBezier = QuadraticBezier::construct(
+						(bezier.P0 - aabbMin) * rcpAabbExtents,
+						(bezier.P1 - aabbMin) * rcpAabbExtents,
+						(bezier.P2 - aabbMin) * rcpAabbExtents
 					);
-					auto quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(transformedBezier);
+					auto quadratic = QuadraticEquation::constructFromBezier(transformedBezier);
                     output[0] = quadratic.A;
 					output[1] = quadratic.B;
 					output[2] = quadratic.C;
-					if (Hatch::isLineSegment(transformedBezier)) 
+					if (isLineSegment(transformedBezier)) 
 						output[0].y = 0.0;
 					// B == 0.0 would mean this is a constant line in major direction, which
 					// should've been ruled out at this point (isStraightLineCosntantMajor gets skipped)
@@ -565,7 +558,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             auto oit = activeCandidates.begin();
             for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
             {
-                const double evalAtMajor = iit->originalBezier->evaluateBezier(iit->t_end)[major];
+                const double evalAtMajor = iit->originalBezier->evaluate(iit->t_end)[major];
 
 				auto origBez = iit->originalBezier;
                 // if we scrolled past the end of the segment, remove it
@@ -574,7 +567,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                 // (this is supposedly a pattern with input/output operators)
                 if (newMajor < evalAtMajor)
                 {
-                    const double new_t_start = iit->originalBezier->intersectOrtho(newMajor, major);
+                    const double new_t_start = intersectOrtho(*iit->originalBezier, newMajor, major);
 
                     // little optimization (don't memcpy anything before something was removed)
                     if (oit != iit)
@@ -612,7 +605,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
 
 // returns two possible values of t in the second curve where the curves intersect
-std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const QuadraticBezier& second) const
+std::array<double, 4> Hatch::linePossibleIntersections(const QuadraticBezier& bezier, const QuadraticBezier& second)
 {
 	// Algorithm based on Computer Aided Geometric Design: 
 	// https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub#page99
@@ -628,8 +621,8 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 	// A Desmos page including math for this as well as some of the graphs it generates is available here:
 	// https://www.desmos.com/calculator/mjwqvnvyb8?lang=pt-BR
 
-	double p0x = p[0].x, p1x = p[1].x, p2x = p[2].x,
-		p0y = p[0].y, p1y = p[1].y, p2y = p[2].y;
+	double p0x = bezier.P0.x, p1x = bezier.P1.x, p2x = bezier.P2.x,
+		p0y = bezier.P0.y, p1y = bezier.P1.y, p2y = bezier.P2.y;
 
 	// Getting the values for the implicitization of the curve
 	double t0 = (4 * p0y * p1y) - (4 * p0y * p2y) - (4 * (p1y * p1y)) + (4 * p1y * p2y) - ((p0y * p0y)) + (2 * p0y * p2y) - ((p2y * p2y));
@@ -641,9 +634,8 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 
 	// "Slam" the other curve onto it
 
-	float64_t2 A = second.p[0] - 2.0 * second.p[1] + second.p[2];
-	float64_t2 B = 2.0 * (second.p[1] - second.p[0]);
-	float64_t2 C = second.p[0];
+	auto quadratic = QuadraticEquation::constructFromBezier(second);
+	float64_t2 A = quadratic.A, B = quadratic.B, C = quadratic.C;
 
 	// Getting the quartic params
 	double a = ((A.x * A.x) * t0) + (A.x * A.y * t1) + (A.y * t2);
@@ -655,12 +647,13 @@ std::array<double, 4> Hatch::QuadraticBezier::linePossibleIntersections(const Qu
 	return hatchutils::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
 }
 
-double Hatch::QuadraticBezier::intersectOrtho(double lineConstant, int component) const
+double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int component)
 {
 	// https://pomax.github.io/bezierinfo/#intersections
 	double points[3];
-	for (uint32_t i = 0; i < 3; i++)
-		points[i] = p[i][component];
+	points[0] = bezier.P0[component];
+	points[1] = bezier.P1[component];
+	points[2] = bezier.P2[component];
 
 	for (uint32_t i = 0; i < 3; i++)
 		points[i] -= lineConstant;
@@ -675,66 +668,58 @@ double Hatch::QuadraticBezier::intersectOrtho(double lineConstant, int component
 	return core::nan<double>();
 }
 
-float64_t2 Hatch::QuadraticBezier::evaluateBezier(double t) const
-{
-	float64_t2 position = p[0] * (1.0 - t) * (1.0 - t)
-		+ 2.0 * p[1] * (1.0 - t) * t
-		+ p[2] * t * t;
-	return position;
-}
-
 // https://pomax.github.io/bezierinfo/#pointvectors
-float64_t2 Hatch::QuadraticBezier::tangent(double t) const
+float64_t2 Hatch::tangent(const QuadraticBezier& bezier, double t)
 {
-	auto derivativeOrder1First = 2.0 * (p[1] - p[0]);
-	auto derivativeOrder1Second = 2.0 * (p[2] - p[1]);
+	auto derivativeOrder1First = 2.0 * (bezier.P1 - bezier.P0);
+	auto derivativeOrder1Second = 2.0 * (bezier.P2 - bezier.P1);
 	auto tangent = (1.0 - t) * derivativeOrder1First + t * derivativeOrder1Second;
 	return glm::normalize(tangent);
 }
 
-Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeLower(double t) const
+Hatch::QuadraticBezier Hatch::splitCurveTakeLower(const QuadraticBezier& bezier, double t)
 {
 	QuadraticBezier outputCurve;
-	outputCurve.p[0] = p[0];
-	outputCurve.p[1] = (1 - t) * p[0] + t * p[1];
-	outputCurve.p[2] = (1 - t) * ((1 - t) * p[0] + t * p[1]) + t * ((1 - t) * p[1] + t * p[2]);
-	assert(outputCurve.evaluateBezier(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluateBezier(1.0)[(int)SelectedMajorAxis]);
+	outputCurve.P0 = bezier.P0;
+	outputCurve.P1 = (1 - t) * bezier.P0 + t * bezier.P1;
+	outputCurve.P2 = (1 - t) * ((1 - t) * bezier.P0 + t * bezier.P1) + t * ((1 - t) * bezier.P1 + t * bezier.P2);
+	assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
 
 	return outputCurve;
 }
 
-Hatch::QuadraticBezier Hatch::QuadraticBezier::splitCurveTakeUpper(double t) const
+Hatch::QuadraticBezier Hatch::splitCurveTakeUpper(const QuadraticBezier& bezier, double t)
 {
 	QuadraticBezier outputCurve;
-	outputCurve.p[0] = (1 - t) * ((1 - t) * p[0] + t * p[1]) + t * ((1 - t) * p[1] + t * p[2]);
-	outputCurve.p[1] = (1 - t) * p[1] + t * p[2];
-	outputCurve.p[2] = p[2]; 
-	assert(outputCurve.evaluateBezier(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluateBezier(1.0)[(int)SelectedMajorAxis]);
+	outputCurve.P0 = (1 - t) * ((1 - t) * bezier.P0 + t * bezier.P1) + t * ((1 - t) * bezier.P1 + t * bezier.P2);
+	outputCurve.P1 = (1 - t) * bezier.P1 + t * bezier.P2;
+	outputCurve.P2 = bezier.P2;
+	assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
 
 	return outputCurve;
 }
 
-bool Hatch::QuadraticBezier::splitIntoMajorMonotonicSegments(std::array<Hatch::QuadraticBezier, 2>& out) const
+bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<Hatch::QuadraticBezier, 2>& out)
 {
 	// Getting derivatives for our quadratic bezier
 	auto major = (uint)SelectedMajorAxis;
-	auto a = 2.0 * p[1][major] - p[0][major];
-	auto b = 2.0 * p[2][major] - p[1][major];
+	auto a = 2.0 * bezier.P1[major] - bezier.P0[major];
+	auto b = 2.0 * bezier.P2[major] - bezier.P1[major];
 
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto rcp = 1.0 / (b - a);
 	auto t = -a * rcp;
 	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return true;
-	out = { splitCurveTakeLower(t), splitCurveTakeUpper(t) };
+	out = { splitCurveTakeLower(bezier, t), splitCurveTakeUpper(bezier, t) };
 	return false;
 }
 
 // https://pomax.github.io/bezierinfo/#boundingbox
-std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMinor() const
+std::pair<float64_t2, float64_t2> Hatch::getBezierBoundingBoxMinor(const QuadraticBezier& bezier)
 {
 	auto minor = (uint)SelectedMinorAxis;
-	double A = p[0][minor] - 2.0 * p[1][minor] + p[2][minor];
-	double B = 2.0 * (p[1][minor] - p[0][minor]);
+	double A = bezier.P0[minor] - 2.0 * bezier.P1[minor] + bezier.P2[minor];
+	double B = 2.0 * (bezier.P1[minor] - bezier.P0[minor]);
 
 	const int searchTSize = 3;
 	double searchT[searchTSize];
@@ -750,7 +735,7 @@ std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMi
 		double t = searchT[i];
 		if (t < 0.0 || t > 1.0 || isnan(t))
 			continue;
-		float64_t2 value = evaluateBezier(t);
+		float64_t2 value = bezier.evaluate(t);
 		min = float64_t2(std::min(min.x, value.x), std::min(min.y, value.y));
 		max = float64_t2(std::max(max.x, value.x), std::max(max.y, value.y));
 	}
@@ -758,9 +743,9 @@ std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMi
 	return std::pair<float64_t2, float64_t2>(min, max);
 }
 
-bool Hatch::isLineSegment(const nbl::hlsl::shapes::QuadraticBezier<float>& bezier)
+bool Hatch::isLineSegment(const QuadraticBezier& bezier)
 {
-	auto quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(bezier);
+	auto quadratic = QuadraticEquation::constructFromBezier(bezier);
 	float64_t lenSqA = dot(quadratic.A, quadratic.A);
 	return lenSqA < exp(-23.0f) * dot(quadratic.B, quadratic.B);
 }
