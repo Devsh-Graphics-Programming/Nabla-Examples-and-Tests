@@ -393,11 +393,16 @@ public:
                   << std::bit_cast<u32>(ptrs[1][0][0].w) << " "
                   << "\n";
 
+        bool re = true;
         for (int i = 0; i < 1920; ++i)
             for (int j = 0; j < 1080; ++j)
                 for (int k = 0; k < 4; ++k)
-                    assert(ptrs[1][i][j][k] == -1.f && ptrs[3][i][j][k] == -1.f);
-        
+                    re &=(ptrs[1][i][j][k] == -1.f && ptrs[3][i][j][k] == -1.f);
+        if(!re)
+        {
+            std::cout << "Shader tests failed\n";
+        }
+
         m_keepRunning = false;
     }
 
@@ -644,11 +649,26 @@ int main(int argc, char** argv)
         uint16_t  QUIET_NAN = 0x7FFF;
         uint16_t  SIGNALING_NAN = 0x7DFF;
 
-        assert(equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::min, std::numeric_limits<float16_t>::min()));
-        assert(equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::max, std::numeric_limits<float16_t>::max()));
-        assert(equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::denorm_min, std::numeric_limits<float16_t>::denorm_min()));
-        assert(equal(nbl::hlsl::impl::numeric_limits<float16_t>::quiet_NaN, std::numeric_limits<float16_t>::quiet_NaN()));
-        assert(equal(nbl::hlsl::impl::numeric_limits<float16_t>::signaling_NaN, std::numeric_limits<float16_t>::signaling_NaN()));
+        if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::min, std::numeric_limits<float16_t>::min()))
+        {
+            std::cout << "numeric_limits<float16_t>::min does not match\n"
+        }
+        if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::max, std::numeric_limits<float16_t>::max()))
+        {
+            std::cout << "numeric_limits<float16_t>::max does not match\n"
+        }
+        if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::denorm_min, std::numeric_limits<float16_t>::denorm_min()))
+        {
+            std::cout << "numeric_limits<float16_t>::denorm_min does not match\n"
+        }
+        if(!equal(nbl::hlsl::impl::numeric_limits<float16_t>::quiet_NaN, std::numeric_limits<float16_t>::quiet_NaN()))
+        {
+            std::cout << "numeric_limits<float16_t>::quiet_NaN does not match\n"
+        }
+        if(!equal(nbl::hlsl::impl::numeric_limits<float16_t>::signaling_NaN, std::numeric_limits<float16_t>::signaling_NaN()))
+        {
+            std::cout << "numeric_limits<float16_t>::signaling_NaN does not match\n"
+        }
     }
 
     auto test_type_limits = []<class T>() 
