@@ -1029,7 +1029,9 @@ protected:
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
 		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferHatchBoxes);
-		uploadableObjects = core::min(uploadableObjects, hatch.getHatchBoxCount());
+
+		uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
+		uploadableObjects = core::min(uploadableObjects, remainingObjects);
 
 		for (uint32_t i = 0; i < uploadableObjects; i++)
 		{
