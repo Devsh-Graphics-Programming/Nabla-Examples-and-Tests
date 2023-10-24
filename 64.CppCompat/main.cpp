@@ -394,8 +394,8 @@ public:
                   << "\n";
 
         bool re = true;
-        for (int i = 0; i < 1920; ++i)
-            for (int j = 0; j < 1080; ++j)
+        for (int i = 0; i < 1080; ++i)
+            for (int j = 0; j < 1920; ++j)
                 for (int k = 0; k < 4; ++k)
                     re &=(ptrs[1][i][j][k] == -1.f && ptrs[3][i][j][k] == -1.f);
         if(!re)
@@ -651,23 +651,23 @@ int main(int argc, char** argv)
 
         if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::min, std::numeric_limits<float16_t>::min()))
         {
-            std::cout << "numeric_limits<float16_t>::min does not match\n"
+            std::cout << "numeric_limits<float16_t>::min does not match\n";
         }
         if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::max, std::numeric_limits<float16_t>::max()))
         {
-            std::cout << "numeric_limits<float16_t>::max does not match\n"
+            std::cout << "numeric_limits<float16_t>::max does not match\n";
         }
         if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::denorm_min, std::numeric_limits<float16_t>::denorm_min()))
         {
-            std::cout << "numeric_limits<float16_t>::denorm_min does not match\n"
+            std::cout << "numeric_limits<float16_t>::denorm_min does not match\n";
         }
         if(!equal(nbl::hlsl::impl::numeric_limits<float16_t>::quiet_NaN, std::numeric_limits<float16_t>::quiet_NaN()))
         {
-            std::cout << "numeric_limits<float16_t>::quiet_NaN does not match\n"
+            std::cout << "numeric_limits<float16_t>::quiet_NaN does not match\n";
         }
         if(!equal(nbl::hlsl::impl::numeric_limits<float16_t>::signaling_NaN, std::numeric_limits<float16_t>::signaling_NaN()))
         {
-            std::cout << "numeric_limits<float16_t>::signaling_NaN does not match\n"
+            std::cout << "numeric_limits<float16_t>::signaling_NaN does not match\n";
         }
     }
 
