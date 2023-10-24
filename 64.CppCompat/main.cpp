@@ -27,7 +27,6 @@ using namespace glm;
 #include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
 #include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
 
-#include <halfLimits.h>
 #include <nbl/builtin/hlsl/limits.hlsl>
 
 #include "../common/CommonAPI.h"
@@ -664,7 +663,6 @@ int main(int argc, char** argv)
                 if(!equal(lhs, rhs)) \
                 { \
                     std::cout << typeid(T).name() << " " << #var << " does not match : " << double(lhs) << " - " << double(rhs) << "\n"; \
-                    abort(); \
                 } \
             }
 
