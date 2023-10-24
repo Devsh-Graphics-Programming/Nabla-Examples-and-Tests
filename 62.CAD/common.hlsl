@@ -182,9 +182,9 @@ struct PrecomputedRootFinder
     static PrecomputedRootFinder construct(nbl::hlsl::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
-        result.C2 = quadratic.C * 2.0;
-        result.negB = -quadratic.B;
-        result.det = quadratic.B * quadratic.B - 4.0 * quadratic.A * quadratic.C;
+        result.C2 = quadratic.c * 2.0;
+        result.negB = -quadratic.b;
+        result.det = quadratic.b * quadratic.b - 4.0 * quadratic.a * quadratic.c;
         return result;
     }
 };
@@ -245,14 +245,14 @@ struct PSInput
     }
 
     void setCurveMinBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
-        data2.x = bezier.A;
-        data2.y = bezier.B;
-        data2.z = bezier.C;
+        data2.x = bezier.a;
+        data2.y = bezier.b;
+        data2.z = bezier.c;
     }
     void setCurveMaxBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
-        data2.w = bezier.A;
-        data3.x = bezier.B;
-        data3.y = bezier.C;
+        data2.w = bezier.a;
+        data3.x = bezier.b;
+        data3.y = bezier.c;
     }
 
     // interp_data5, interp_data6    
