@@ -944,7 +944,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
+		addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
@@ -989,7 +989,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
+		addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
@@ -1060,13 +1060,13 @@ protected:
 		}
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(currentDrawObjectCount, uploadableObjects);
+		addCagedObjectIndices_Internal(currentDrawObjectCount, uploadableObjects);
 		currentDrawObjectCount += uploadableObjects;
 		currentObjectInSection += uploadableObjects;
 	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addPolylineObjectIndices_Internal(uint32_t startObject, uint32_t objectCount)
+	void addCagedObjectIndices_Internal(uint32_t startObject, uint32_t objectCount)
 	{
 		constexpr bool oddProvokingVertex = true; // was useful before, might probably deprecate it later for simplicity or it might be useful for some tricks later on
 		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
