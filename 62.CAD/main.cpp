@@ -1060,7 +1060,7 @@ protected:
 		}
 
 		// Add Indices
-		addHatchIndices_Internal(currentDrawObjectCount, uploadableObjects);
+		addPolylineObjectIndices_Internal(currentDrawObjectCount, uploadableObjects);
 		currentDrawObjectCount += uploadableObjects;
 		currentObjectInSection += uploadableObjects;
 	}
@@ -1095,23 +1095,6 @@ protected:
 				indices[i * 6 + 3u] = objIndex * 4u + 2u;
 				indices[i * 6 + 4u] = objIndex * 4u + 1u;
 			}
-			indices[i * 6 + 5u] = objIndex * 4u + 3u;
-		}
-		currentIndexCount += objectCount * 6u;
-	}
-
-	void addHatchIndices_Internal(uint32_t startObject, uint32_t objectCount)
-	{
-		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
-
-		for (uint32_t i = 0u; i < objectCount; ++i)
-		{
-			index_buffer_type objIndex = startObject + i;
-			indices[i * 6 + 0u] = objIndex * 4u;
-			indices[i * 6 + 1u] = objIndex * 4u + 1u;
-			indices[i * 6 + 2u] = objIndex * 4u + 2u;
-			indices[i * 6 + 3u] = objIndex * 4u + 1u;
-			indices[i * 6 + 4u] = objIndex * 4u + 2u;
 			indices[i * 6 + 5u] = objIndex * 4u + 3u;
 		}
 		currentIndexCount += objectCount * 6u;
