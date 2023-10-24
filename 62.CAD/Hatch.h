@@ -7,6 +7,10 @@
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include "curves.h"
 
+#include <nbl/builtin/hlsl/equations/cubic.hlsl>
+#include <nbl/builtin/hlsl/equations/quartic.hlsl>
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+
 using namespace nbl;
 
 namespace hatchutils {
@@ -41,8 +45,12 @@ public:
 		// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
 		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor() const;
 
-		bool isLineSegment() const;
+		// TODO: temp
+		nbl::hlsl::shapes::QuadraticBezier<float> getHlslCompatBezier() const;
 	};
+
+
+	static bool isLineSegment(const nbl::hlsl::shapes::QuadraticBezier<float>& bezier);
 
 	class Segment
 	{

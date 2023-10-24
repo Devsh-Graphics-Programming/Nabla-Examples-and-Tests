@@ -3,9 +3,8 @@
 using namespace nbl::hlsl;
 
 #include "common.hlsl"
-#include <nbl/builtin/hlsl/equations/cubic.hlsl>
-#include <nbl/builtin/hlsl/equations/quartic.hlsl>
-#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+
+#define DEBUG_HATCH_VISUALLY
 
 namespace hatchutils {
     
@@ -98,6 +97,11 @@ static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v
 	return intersectionPoint;
 }
 
+nbl::hlsl::shapes::QuadraticBezier<float> Hatch::QuadraticBezier::getHlslCompatBezier() const
+{
+	return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p[0], p[1], p[2]);
+}
+
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 {
 	auto major = (int)SelectedMajorAxis;
@@ -107,8 +111,8 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	int resultIdx = 0;
 
 	// Use line intersections if one or both of the beziers are linear (a = 0)
-	const bool selfLinear = originalBezier->isLineSegment(),
-		otherLinear = other.originalBezier->isLineSegment();
+	const bool selfLinear = isLineSegment(originalBezier->getHlslCompatBezier()),
+		otherLinear = isLineSegment(other.originalBezier->getHlslCompatBezier());
 	if (selfLinear && otherLinear)
 	{
 		// Line/line intersection
@@ -368,12 +372,16 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			float64_t2 rTan = rhs.originalBezier->tangent(rhs.t_start);
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
+			// negative values mess with the comparison operator when using multiplication
+			// they should be positive because of major monotonicity
+			assert(lTan[major] >= 0.0);
+			assert(rTan[major] >= 0.0);
 			if (_lhs == _rhs)
 			{
 				float64_t2 lAcc = lhs.originalBezier->p[0] - 2.0 * lhs.originalBezier->p[1] + lhs.originalBezier->p[2];
 				float64_t2 rAcc = rhs.originalBezier->p[0] - 2.0 * rhs.originalBezier->p[1] + rhs.originalBezier->p[2];
-				_lhs = lAcc[minor] * rTan[major];
-				_rhs = rTan[minor] * lAcc[major];
+				_lhs = (lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) / (lTan[major] * lTan[major] * lTan[major]);
+				_rhs = (rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) / (rTan[major] * rTan[major] * rTan[major]);
 			}
 		}
 		return _lhs < _rhs;
@@ -531,18 +539,21 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                 // so we wont need to convert here
                 auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, float64_t2* output) {
                     auto rcpAabbExtents = float64_t2(1.0,1.0) / (aabbMax - aabbMin);
-                    auto p0 = (bezier.p[0] - aabbMin) * rcpAabbExtents;
-                    auto p1 = (bezier.p[1] - aabbMin) * rcpAabbExtents;
-                    auto p2 = (bezier.p[2] - aabbMin) * rcpAabbExtents;
-                    output[0] = p0 - 2.0 * p1 + p2;
-					if (output[0].y < 1e-6) output[0].y = 0.0;
-                    output[1] = 2.0 * (p1 - p0);
-                    output[2] = p0;
-					//printf(std::format("Transformed curve A, B, C ({}, {}), ({}, {}), ({}, {})\n",
-					//	output[0].x, output[0].y,
-					//	output[1].x, output[1].y,
-					//	output[2].x, output[2].y
-					//).c_str());
+					// TODO: when nbl::hlsl::shapes::Quadratic<double> works, use it
+					auto transformedBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(
+						(bezier.p[0] - aabbMin) * rcpAabbExtents,
+						(bezier.p[1] - aabbMin) * rcpAabbExtents,
+						(bezier.p[2] - aabbMin) * rcpAabbExtents
+					);
+					auto quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(transformedBezier);
+                    output[0] = quadratic.A;
+					output[1] = quadratic.B;
+					output[2] = quadratic.C;
+					if (Hatch::isLineSegment(transformedBezier)) 
+						output[0].y = 0.0;
+					// B == 0.0 would mean this is a constant line in major direction, which
+					// should've been ruled out at this point (isStraightLineCosntantMajor gets skipped)
+					assert(quadratic.B.y != 0.0);
                 };
                 transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
                 transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);
@@ -747,8 +758,9 @@ std::pair<float64_t2, float64_t2> Hatch::QuadraticBezier::getBezierBoundingBoxMi
 	return std::pair<float64_t2, float64_t2>(min, max);
 }
 
-bool Hatch::QuadraticBezier::isLineSegment() const
+bool Hatch::isLineSegment(const nbl::hlsl::shapes::QuadraticBezier<float>& bezier)
 {
-	float64_t2 A = p[0] - 2.0 * p[1] + p[2];
-	return abs(A.x) < 1e-6 && abs(A.y) < 1e-6;
+	auto quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(bezier);
+	float64_t lenSqA = dot(quadratic.A, quadratic.A);
+	return lenSqA < exp(-23.0f) * dot(quadratic.B, quadratic.B);
 }
