@@ -151,7 +151,7 @@ struct CPULineStyle
 		phaseShift = phaseShift * reciprocalStipplePatternLen;
 		if (stipplePatternTransformed[0] == 0.0)
 		{
-			phaseShift -= 0.0001; // TODO: find more reasonable value
+			phaseShift -= 1e-3; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
 		}
 
 	}
@@ -2391,7 +2391,7 @@ public:
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
 					// cpuLineStyles[i].phaseShift -= 0.0001;
-					cpuLineStyles[i].phaseShift = 2.0 * abs(cos(m_timeElapsed * 0.00032f));
+					// cpuLineStyles[i].phaseShift = 2.0 * abs(cos(m_timeElapsed * 0.00032f));
 					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
 
 					float64_t2 linePoints[2u] = {};
