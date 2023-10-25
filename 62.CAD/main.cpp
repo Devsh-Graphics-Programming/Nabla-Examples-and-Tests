@@ -2257,8 +2257,8 @@ public:
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
 			CPULineStyle cpuLineStyle;
-			cpuLineStyle.screenSpaceLineWidth = 7.0f;
-			cpuLineStyle.worldSpaceLineWidth = 0.0f;
+			cpuLineStyle.screenSpaceLineWidth = 0.0f;
+			cpuLineStyle.worldSpaceLineWidth = 2.0f;
 			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
 
 			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
@@ -2348,13 +2348,13 @@ public:
 				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
 					// test case 0: test curve
-				stipplePatterns[0] = { 0.0f, -5.0f, 2.0f, -5.0f };
+				stipplePatterns[0] = { 10.0f, -10.0f, 0.0, -6.0, 0.0, -7.0 };
 					// test case 1: lots of redundant values, should look exactly like stipplePattern[0]
-				stipplePatterns[1] = { 1.0f, 2.0f, 2.0f, -4.0f, -1.0f, 1.0f, -3.0f, -1.5f, -0.3f, -0.2f }; 
+				stipplePatterns[1] = { 0.0f, -5.0f, 2.0f, -5.0f };
 					// test case 2:stipplePattern[0] but shifted curve but shifted to left by 2.5f
-				stipplePatterns[2] = { 2.5f, -5.0f, 1.0f, -5.0f, 2.5f };
+				stipplePatterns[2] = { 5.0f, -5.0f };
 					// test case 3: starts and ends with negative value, stipplePattern[2] reversed (I'm suspisious about that, need more testing)
-				stipplePatterns[3] = { -2.5f, 5.0f, -1.0f, 5.0f, -2.5f };
+				stipplePatterns[3] = { -5.0f, 5.0f };
 					// test case 4: starts with "don't draw section"
 				stipplePatterns[4] = { -5.0f, 5.0f };
 					// test case 5: invisible curve (shouldn't be send to GPU)
@@ -2362,33 +2362,35 @@ public:
 					// test case 6: invisible curve (shouldn't be send to GPU)
 				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
 					// test case 7: continous curuve
-				stipplePatterns[7] = { 25.0f, 25.0f };
+				stipplePatterns[7] = { };
 					// test case 8: empty pattern (draw line with no pattern)
 				stipplePatterns[8] = {};
 					// test case 9: max pattern size
-				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
+				stipplePatterns[9] = {};
 					// test case 10: A = 0 (line), evenly distributed controll points (doesn't work)
-				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[10] = {};
 					// test case 11: A = 0 (line), not evenly distributed controll points
-				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[11] = {};
 					// test case 12: A = 0 (line), folds itself
-				stipplePatterns[12] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[12] = { -5.0f, 5.0f };
 					// test case 13: oblique line 
-				stipplePatterns[13] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[13] = { -5.0f, 5.0f };
 					// test case 14: curve with A.x = 0
-				stipplePatterns[14] = { 0.0f, -0.5f, 0.2f, -0.5f };
+				stipplePatterns[14] = { -5.0f, 5.0f };
 					// test case 15: long parabola
-				stipplePatterns[15] = { 5.0f, -5.0f, 1.0f, -5.0f };
+				stipplePatterns[15] = { -5.0f, 5.0f };
 
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+					// cpuLineStyles[i].phaseShift = 0.5;
+					cpuLineStyles[i].phaseShift = 2.0 * abs(cos(m_timeElapsed * 0.00032f));
+					// polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
 
 					float64_t2 linePoints[2u] = {};
-					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
-					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
+					linePoints[0] = { -100.0, 50.0 - 5.0 * i };
+					linePoints[1] = { 100.0, 50.0 - 6.0 * i };
 					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
 
 					activIdx.push_back(i);
