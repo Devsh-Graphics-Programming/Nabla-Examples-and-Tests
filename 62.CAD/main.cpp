@@ -18,11 +18,12 @@ enum class ExampleMode
 	CASE_2, // hatches
 	CASE_3, // CURVES AND LINES
 	CASE_4, // STIPPLE PATTERN
+	CASE_5  // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 #include "common.hlsl"
 
@@ -290,7 +291,7 @@ public:
 		return m_quadBeziers[idx];
 	}
 
-	const float64_t2& getLinePointAt(const uint32_t idx) const
+	const LinePointInfo& getLinePointAt(const uint32_t idx) const
 	{
 		return m_linePoints[idx];
 	}
@@ -317,7 +318,7 @@ public:
 
 		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
 		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
-		bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
+		const bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
@@ -367,13 +368,35 @@ public:
 			you initially set them to 0 in addLinePoints/addQuadBeziers
 
 		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
-	*/ 
+	*/
+
+	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
+	{
+		for (auto& section : m_sections)
+		{
+			for (uint32_t i = 0u; i < section.count; i++)
+			{
+				auto& linePoint = m_linePoints[section.index + i];
+				if (i == 0u)
+				{
+					linePoint.phaseShift = lineStyle.phaseShift;
+					continue;
+				}
+
+				const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
+				const double lineLen = glm::length(linePoint.p - prevLinePoint.p);
+
+				const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+				linePoint.phaseShift = prevLinePoint.phaseShift + nextLineInSectionLocalPhaseShift;
+			}
+		}
+	}
 
 protected:
 	// TODO[Przemek]: a vector of polyline connetor objects
 	std::vector<SectionInfo> m_sections;
 	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
-	std::vector<float64_t2> m_linePoints;
+	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 };
 
@@ -933,7 +956,7 @@ protected:
 		assert(section.count >= 1u);
 		assert(section.type == ObjectType::LINE);
 
-		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(float64_t2);
+		const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(LinePointInfo);
 		const auto maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
 
 		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
@@ -957,13 +980,13 @@ protected:
 			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
 			memcpy(dst, &drawObj, sizeof(DrawObject));
 			currentDrawObjectCount += 1u;
-			drawObj.geometryAddress += sizeof(float64_t2);
+			drawObj.geometryAddress += sizeof(LinePointInfo);
 		}
 
 		// Add Geometry
 		if (objectsToUpload > 0u)
 		{
-			const auto pointsByteSize = sizeof(float64_t2) * (objectsToUpload + 1u);
+			const auto pointsByteSize = sizeof(LinePointInfo) * (objectsToUpload + 1u);
 			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 			auto& linePoint = polyline.getLinePointAt(section.index + currentObjectInSection);
 			memcpy(dst, &linePoint, pointsByteSize);
@@ -2665,6 +2688,33 @@ public:
 
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		}
+		else if (mode == ExampleMode::CASE_5)
+		{
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 2.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			
+			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0004) + 1.0f) * 10.0f;
+			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+
+			CPolyline polyline;
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, -50.0 });
+				linePoints.push_back({ 50.0, 50.0 });
+				linePoints.push_back({ 50.0, -50.0 });
+				linePoints.push_back({ 80.0, -50.0 });
+				linePoints.push_back({ 80.0, 70.0 });
+				linePoints.push_back({ 100.0, 70.0 });
+				linePoints.push_back({ 120.0, 50.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);

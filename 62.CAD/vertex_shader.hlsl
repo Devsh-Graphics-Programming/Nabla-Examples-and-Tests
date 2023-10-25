@@ -190,12 +190,15 @@ PSInput main(uint vertexID : SV_VertexID)
                 float64_t2 p; // 16*3=48bytes
                 float32_t phaseShit;
                 float32_t _reserved_pad;
-            }
+            };
             and here we load two LinePointInfos from geometryAddress and use the first one's phaseshift
         */
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+
+        float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
+        outV.setCurrentPhaseShift(phaseShift);
 
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)

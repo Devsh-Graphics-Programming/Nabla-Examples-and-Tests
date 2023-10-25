@@ -52,9 +52,10 @@ struct StyleClipper
     // TODO[Przemek]: this should now also include a float phaseShift which is in style's normalized space
     static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
         CurveType curve,
-        typename CurveType::ArcLengthCalculator arcLenCalc)
+        typename CurveType::ArcLengthCalculator arcLenCalc,
+        float phaseShift)
     {
-        StyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc };
+        StyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc, phaseShift };
         return ret;
     }
 
@@ -65,7 +66,8 @@ struct StyleClipper
         t = clamp(t, 0.0f, 1.0f);
         const float worldSpaceArcLen = arcLen * float(globals.worldToScreenRatio);
         // TODO[Przemek]: apply the phase shift of the curve here as well
-        float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
+        //float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
+        float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
@@ -102,6 +104,7 @@ struct StyleClipper
     StyleAccessor styleAccessor;
     CurveType curve;
     typename CurveType::ArcLengthCalculator arcLenCalc;
+    float phaseShift;
 };
 
 template<typename CurveType, typename Clipper = DefaultClipper<typename CurveType::scalar_t> >
@@ -205,7 +208,6 @@ float4 main(PSInput input) : SV_TARGET
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     uint32_t currentMainObjectIdx = input.getMainObjectIdx();
-    
 
     // TODO:[Przemek]: handle another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
 
@@ -227,7 +229,7 @@ float4 main(PSInput input) : SV_TARGET
         else
         {
             StyleAccessor styleAccessor = { styleIdx };
-            LineStyleClipper clipper = LineStyleClipper::construct(styleAccessor, lineSegment, arcLenCalc);
+            LineStyleClipper clipper = LineStyleClipper::construct(styleAccessor, lineSegment, arcLenCalc, input.getCurrentPhaseShift());
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, clipper);
         }
 
@@ -250,7 +252,7 @@ float4 main(PSInput input) : SV_TARGET
         else
         {
             StyleAccessor styleAccessor = { styleIdx };
-            BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc);
+            BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc, input.getCurrentPhaseShift());
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, clipper);
         }
         

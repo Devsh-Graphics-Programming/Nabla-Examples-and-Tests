@@ -252,7 +252,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 							addBezier({ 
 								// TODO: it was suggested at some point the middle point should be NaN for this,
 								// should we go ahead with that instead?
-								{ begin, (begin + end) * 0.5, end }
+								{ begin.p, (begin.p + end.p) * 0.5, end.p }
 							});
 						}
 					}

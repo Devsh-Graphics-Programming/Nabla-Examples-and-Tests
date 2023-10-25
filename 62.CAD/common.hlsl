@@ -37,6 +37,13 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
+struct LinePointInfo
+{
+    float64_t2 p;
+    float32_t phaseShift;
+    float32_t _reserved_pad;
+};
+
 struct QuadraticBezierInfo
 {
     float64_t2 p[3]; // 16*3=48bytes
@@ -44,7 +51,6 @@ struct QuadraticBezierInfo
     * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
     */
 };
-
 
 // TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
@@ -202,7 +208,7 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
         // ArcLengthCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-    // Data segments that need interpolation, mostly for hatches
+        // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     [[vk::location(6)]] float4 interp_data6 : COLOR6;
 
@@ -313,6 +319,18 @@ struct PSInput
     nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
     {
         return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+    }
+
+    // data5.x
+
+    void setCurrentPhaseShift(float phaseShift)
+    {
+        interp_data5.x = phaseShift;
+    }
+
+    float getCurrentPhaseShift()
+    {
+        return interp_data5.x;
     }
 
     // TODO[Przemek][1.Continous Stipples]: find a free slot for currentPhaseShift (I suggest merging Lucas' work an use the "non-interpolation" ones used for the hatches, since hatches don't have stipples you can reuse it's data to pass curve phase shift
