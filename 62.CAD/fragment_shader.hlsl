@@ -78,7 +78,7 @@ struct StyleClipper
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
 
-        const float_t InvalidT = 696969696969.969696969696; // use numeric limits inf?
+        const float_t InvalidT = 696969696969.969696969696; // use numeric limits inf
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
@@ -212,7 +212,7 @@ struct ClippedSignedDistance
     {
         typename CurveType::Candidates candidates = curve.getClosestCandidates(pos);
 
-        const float_t InvalidT = 69696969.696969; // use numeric limits inf
+        const float_t InvalidT = 696969696969.969696969696; // use numeric limits inf
         const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f);
 
         bool clipped = false;
@@ -226,7 +226,7 @@ struct ClippedSignedDistance
             {
                 float_t2 snappedTs = clipper(candidates[i]);
 
-                if (snappedTs[0] == 69696969.696969)
+                if (snappedTs[0] == InvalidT)
                 {
                     continue;
                 }
