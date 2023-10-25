@@ -127,8 +127,9 @@ struct StyleClipper
             {
                 if (ret[1] < 0.0 + AccuracyThresholdT)
                 {
+                    // TODO: needs fix
                     const bool rightIsDot = 
-                        (patternIdx >= style.stipplePatternSize - 1 && style.stipplePattern[0] == 0.0) ||
+                        (patternIdx == style.stipplePatternSize && style.stipplePattern[0] == 0.0) ||
                         (patternIdx <= style.stipplePatternSize - 2  && style.stipplePattern[patternIdx] == style.stipplePattern[patternIdx + 1]);
                     if (rightIsDot)
                     {
