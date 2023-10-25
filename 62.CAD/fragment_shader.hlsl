@@ -105,7 +105,7 @@ struct StyleClipper
             {
                 if (ret[0] > 1.0 - AccuracyThresholdT)
                 {
-                    // TODO: Check, am I doing it right?
+                    // stipplePatternSize is odd by construction (pattern starts with + and ends with -)
                     const bool leftIsDot = 
                         (patternIdx > 1 && style.stipplePattern[patternIdx - 1] == style.stipplePattern[patternIdx - 2]) ||
                         (patternIdx == 1 && style.stipplePattern[0] == 0.0);
@@ -130,7 +130,7 @@ struct StyleClipper
             {
                 if (ret[1] < 0.0 + AccuracyThresholdT)
                 {
-                    // TODO: Check, am I doing it right?
+                    // stipplePatternSize is odd by construction (pattern starts with + and ends with -)
                     const bool rightIsDot =
                         (patternIdx == style.stipplePatternSize && style.stipplePattern[0] == 0.0) ||
                         (patternIdx + 2 <= style.stipplePatternSize && style.stipplePattern[patternIdx] == style.stipplePattern[patternIdx + 1]);
