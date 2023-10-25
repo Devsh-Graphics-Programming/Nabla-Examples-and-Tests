@@ -10,6 +10,8 @@
 #include <nabla.h>
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/type_traits.hlsl>
+#include <nbl/builtin/hlsl/mpl.hlsl>
 #include <nbl/builtin/hlsl/barycentric/utils.hlsl>
 //#include <nbl/builtin/hlsl/cpp_compat/promote.hlsl>
 #include <nbl/builtin/hlsl/mpl.hlsl>
@@ -24,6 +26,8 @@ using namespace glm;
 #include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
 #include <nbl/builtin/glsl/colorspace/encodeCIEXYZ.glsl>
 #include <nbl/builtin/glsl/colorspace/decodeCIEXYZ.glsl>
+
+#include <nbl/builtin/hlsl/limits.hlsl>
 
 #include "../common/CommonAPI.h"
 
@@ -99,6 +103,31 @@ struct T
     float32_t4      h;
 };
 
+// numeric limits API
+// is_specialized
+// is_signed
+// is_integer
+// is_exact
+// has_infinity
+// has_quiet_NaN
+// has_signaling_NaN
+// has_denorm
+// has_denorm_loss
+// round_style
+// is_iec559
+// is_bounded
+// is_modulo
+// digits
+// digits10
+// max_digits10
+// radix
+// min_exponent
+// min_exponent10
+// max_exponent
+// max_exponent10
+// traps
+// tinyness_before
+
 #include "../common/CommonAPI.h"
 
 class CompatibilityTest : public ApplicationBase
@@ -110,7 +139,11 @@ public:
         initParams.windowCb = core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback>(this);
         initParams.apiType = video::EAT_VULKAN;
         initParams.appName = { "HLSL-CPP compatibility test" };
-        
+        initParams.physicalDeviceFilter.requiredFeatures.runtimeDescriptorArray = true;
+        initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
+        initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
+
+
         auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
         m_system = std::move(initOutput.system);
         m_logicalDevice = std::move(initOutput.logicalDevice);
@@ -128,9 +161,6 @@ public:
             1,
             &m_cmdbuf);
 
-        core::smart_refctd_ptr<video::IGPUPipelineLayout> pipelineLayout =
-            m_logicalDevice->createPipelineLayout();
-
         video::IGPUObjectFromAssetConverter CPU2GPU;
         const char* pathToShader = "../test.hlsl"; // TODO: XD
         core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
@@ -142,11 +172,113 @@ public:
         }
         assert(specializedShader);
 
-        m_pipeline = m_logicalDevice->createComputePipeline(nullptr,
-            core::smart_refctd_ptr(pipelineLayout), core::smart_refctd_ptr(specializedShader));
 
-        m_semaphores[0] = m_logicalDevice->createSemaphore();
-        m_semaphores[1] = m_logicalDevice->createSemaphore();
+		const uint32_t bindingCount = 4u;
+		video::IGPUDescriptorSetLayout::SBinding bindings[bindingCount] = {};
+		{
+			bindings[0].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+			bindings[1].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+			bindings[2].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+			bindings[3].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+		}
+        
+        for(int i = 0; i < bindingCount; ++i)
+        {
+            bindings[i].stageFlags = asset::IShader::ESS_COMPUTE;
+            bindings[i].count = 1;
+            bindings[i].binding = i;
+        }
+		m_descriptorSetLayout = m_logicalDevice->createDescriptorSetLayout(bindings, bindings + bindingCount);
+		asset::SPushConstantRange pcRange = {};
+		pcRange.stageFlags = asset::IShader::ESS_COMPUTE;
+		pcRange.offset = 0u;
+		pcRange.size = 2 * sizeof(uint32_t);
+		auto pipelineLayout = m_logicalDevice->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(m_descriptorSetLayout));
+        m_pipeline = m_logicalDevice->createComputePipeline(nullptr, std::move(pipelineLayout), core::smart_refctd_ptr(specializedShader));
+
+        for (int i = 0; i < 2; ++i)
+        {
+            m_images[i] = m_logicalDevice->createImage(nbl::video::IGPUImage::SCreationParams {
+                {
+                    .type = nbl::video::IGPUImage::E_TYPE::ET_2D,
+                    .samples = nbl::video::IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+                    .format = nbl::asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
+                    .extent = { 1920,1080,1 },
+                    .mipLevels = 1,
+                    .arrayLayers = 1,
+                    .usage = nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT 
+                        | nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT
+                        | nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT,
+                }, {}, nbl::video::IGPUImage::E_TILING::ET_LINEAR,
+            });
+
+            auto reqs = m_images[i]->getMemoryReqs();
+            reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+            m_logicalDevice->allocate(reqs, m_images[i].get());
+
+            m_imageViews[i] = m_logicalDevice->createImageView(nbl::video::IGPUImageView::SCreationParams {
+                .image = m_images[i],
+                    .viewType = nbl::video::IGPUImageView::E_TYPE::ET_2D,
+                    .format = nbl::asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
+                    // .subresourceRange = { nbl::video::IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT, 0, 1, 0, 1 },
+            });
+
+            m_buffers[i] = m_logicalDevice->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
+                {.size = reqs.size, .usage = 
+                    nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | 
+                    nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT,
+                }
+            });
+
+            reqs = m_buffers[i]->getMemoryReqs();
+            reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+            m_logicalDevice->allocate(reqs, m_buffers[i].get());
+
+            m_readbackBuffers[i] = m_logicalDevice->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
+                {.size = reqs.size, .usage = nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT }
+            });
+
+            reqs = m_readbackBuffers[i]->getMemoryReqs();
+            reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+            m_logicalDevice->allocate(reqs, m_readbackBuffers[i].get());
+        }
+
+        core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
+        {
+            video::IDescriptorPool::SCreateInfo createInfo = {};
+            createInfo.maxSets = 1;
+            createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = 2;
+            createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 2;
+            descriptorPool = m_logicalDevice->createDescriptorPool(std::move(createInfo));
+        }
+
+        m_descriptorSet = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(m_descriptorSetLayout));
+
+
+        video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[bindingCount] = {};
+        video::IGPUDescriptorSet::SWriteDescriptorSet writeDescriptorSets[bindingCount] = {};
+        
+        for(int i = 0; i < bindingCount; ++i)
+        {
+            writeDescriptorSets[i].info = &descriptorInfos[i];
+            writeDescriptorSets[i].dstSet = m_descriptorSet.get();
+            writeDescriptorSets[i].binding = i;
+            writeDescriptorSets[i].count = bindings[i].count;
+            writeDescriptorSets[i].descriptorType = bindings[i].type;
+
+            if(i<2)
+            {
+                descriptorInfos[i].desc = m_imageViews[i];
+                descriptorInfos[i].info.image.imageLayout = asset::IImage::EL_GENERAL;
+            }
+            else
+            {
+                descriptorInfos[i].desc = m_buffers[i-2];
+                descriptorInfos[i].info.buffer.size = ~0ull;
+            }
+        }
+
+        m_logicalDevice->updateDescriptorSets(bindingCount, writeDescriptorSets, 0u, nullptr);
     }
 
     void onAppTerminated_impl() override
@@ -162,18 +294,114 @@ public:
         m_cmdbuf->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
         m_cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 
+
+        video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarriers[2] = {
+            {
+            .barrier = { .srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0), .dstAccessMask = asset::EAF_SHADER_WRITE_BIT, },
+            .oldLayout = asset::IImage::EL_UNDEFINED,
+            .newLayout = asset::IImage::EL_GENERAL,
+            .srcQueueFamilyIndex = ~0u,
+            .dstQueueFamilyIndex = ~0u,
+            .image = core::smart_refctd_ptr<video::IGPUImage>(m_images[0]),
+            .subresourceRange = {
+                .aspectMask = asset::IImage::EAF_COLOR_BIT,
+                .baseMipLevel = 0u,
+                .levelCount = 1u,
+                .baseArrayLayer = 0u,
+                .layerCount = 1u,
+                }
+            }
+        };
+
+        layoutTransBarriers[1] = layoutTransBarriers[0];
+        layoutTransBarriers[1].image = m_images[1];
+
+        m_cmdbuf->pipelineBarrier(
+            asset::EPSF_TOP_OF_PIPE_BIT,
+            asset::EPSF_COMPUTE_SHADER_BIT,
+            static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+            0u, nullptr,
+            0u, nullptr,
+            2u, layoutTransBarriers);
+
+        const uint32_t pushConstants[2] = { 1920, 1080 };
+        const video::IGPUDescriptorSet* set = m_descriptorSet.get();
         m_cmdbuf->bindComputePipeline(m_pipeline.get());
-        m_cmdbuf->dispatch(1u, 1u, 1u);
+        m_cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &set);
+        m_cmdbuf->dispatch(240, 135, 1u);
+        
+        for (int i = 0; i < 2; ++i)
+        {
+            layoutTransBarriers[i].barrier.srcAccessMask = layoutTransBarriers[i].barrier.dstAccessMask;
+            layoutTransBarriers[i].barrier.dstAccessMask = asset::EAF_TRANSFER_READ_BIT;
+            layoutTransBarriers[i].oldLayout = layoutTransBarriers[i].newLayout;
+            layoutTransBarriers[i].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+        }
+
+        m_cmdbuf->pipelineBarrier(
+            asset::EPSF_COMPUTE_SHADER_BIT,
+            asset::EPSF_TRANSFER_BIT,
+            static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+            0u, nullptr,
+            0u, nullptr,
+            2u, layoutTransBarriers);
+
+        nbl::asset::IImage::SBufferCopy copy = {
+            .imageSubresource = { 
+                .aspectMask = nbl::video::IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+                .mipLevel = 0,
+                .baseArrayLayer = 0,
+                .layerCount = 1,
+            },
+            .imageExtent = {1920, 1080, 1},
+        };
+
+        m_cmdbuf->copyImageToBuffer(m_images[0].get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL, m_readbackBuffers[0].get(), 1, &copy);
+        m_cmdbuf->copyImageToBuffer(m_images[1].get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL, m_readbackBuffers[1].get(), 1, &copy);
         m_cmdbuf->end();
 
-            //TODO: fix semaphores
         CommonAPI::Submit(
             m_logicalDevice.get(),
             m_cmdbuf.get(),
             m_queues[CommonAPI::InitOutput::EQT_COMPUTE],
-            m_semaphores[0].get(),
-            m_semaphores[1].get(),
+            nullptr,
+            nullptr,
             m_fence.get());
+
+        m_logicalDevice->blockForFences(1u, &m_fence.get());
+        
+        using row = float32_t4[1920];
+        row* ptrs[4] = {};
+
+        for (int i = 0; i < 4; ++i)
+        {
+            auto mem = (i < 2 ? m_buffers[i] : m_readbackBuffers[i-2])->getBoundMemory();
+            assert(mem->isMappable());
+            m_logicalDevice->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()));
+            ptrs[i] = (row*)mem->getMappedPointer();
+        }
+
+        std::cout << ptrs[1][0][0].x << " " 
+                  << ptrs[1][0][0].y << " "
+                  << ptrs[1][0][0].z << " "
+                  << ptrs[1][0][0].w << " "
+                  << "\n";
+                  
+        std::cout << std::bit_cast<u32>(ptrs[1][0][0].x) << " " 
+                  << std::bit_cast<u32>(ptrs[1][0][0].y) << " "
+                  << std::bit_cast<u32>(ptrs[1][0][0].z) << " "
+                  << std::bit_cast<u32>(ptrs[1][0][0].w) << " "
+                  << "\n";
+
+        bool re = true;
+        for (int i = 0; i < 1080; ++i)
+            for (int j = 0; j < 1920; ++j)
+                for (int k = 0; k < 4; ++k)
+                    re &=(ptrs[1][i][j][k] == -1.f && ptrs[3][i][j][k] == -1.f);
+        if(!re)
+        {
+            std::cout << "Shader tests failed\n";
+        }
 
         m_keepRunning = false;
     }
@@ -205,9 +433,15 @@ private:
     core::smart_refctd_ptr<nbl::system::ISystem> m_system;
     core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_logicalDevice;
     core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline = nullptr;
+    core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> m_descriptorSetLayout;
+    core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet;
+
+    core::smart_refctd_ptr<nbl::video::IGPUImage> m_images[2];
+    core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_buffers[2];
+    core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_readbackBuffers[2];
+    core::smart_refctd_ptr<nbl::video::IGPUImageView> m_imageViews[2];
     core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf = nullptr;
     std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> m_queues;
-    core::smart_refctd_ptr<video::IGPUSemaphore> m_semaphores[2u] = {nullptr};
     core::smart_refctd_ptr<video::IGPUFence> m_fence = nullptr;
     std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
     core::smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
@@ -222,6 +456,24 @@ constexpr bool val(T a)
 {
     return std::is_const_v<T>;
 }
+
+template<class T, class U> 
+bool equal(T l, U r)
+{
+    static_assert(sizeof(T) == sizeof(U));
+    return 0==memcmp(&l, &r, sizeof(T));
+}
+
+template<class T>
+constexpr auto limits_var(T obj)
+{
+    if constexpr (std::is_function_v<std::remove_pointer_t<T>>)
+        return obj();
+    else
+        return obj;
+}
+
+
 
 int main(int argc, char** argv)
 {
@@ -386,9 +638,102 @@ int main(int argc, char** argv)
     float32_t3x3 z_inv = inverse(z);
     auto mid = lerp(x,x,0.5f);
     auto w = transpose(y);
+    
+
+    // half test
+    {
+
+        float16_t MIN = 6.103515e-05F;
+        float16_t MAX = 65504.0F;
+        float16_t DENORM_MIN = 5.96046448e-08F;
+        uint16_t  QUIET_NAN = 0x7FFF;
+        uint16_t  SIGNALING_NAN = 0x7DFF;
+
+        if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::min, std::numeric_limits<float16_t>::min()))
+        {
+            std::cout << "numeric_limits<float16_t>::min does not match\n";
+        }
+        if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::max, std::numeric_limits<float16_t>::max()))
+        {
+            std::cout << "numeric_limits<float16_t>::max does not match\n";
+        }
+        if(!equal((float16_t)nbl::hlsl::impl::numeric_limits<float16_t>::denorm_min, std::numeric_limits<float16_t>::denorm_min()))
+        {
+            std::cout << "numeric_limits<float16_t>::denorm_min does not match\n";
+        }
+        if(!equal(nbl::hlsl::impl::numeric_limits<float16_t>::quiet_NaN, std::numeric_limits<float16_t>::quiet_NaN()))
+        {
+            std::cout << "numeric_limits<float16_t>::quiet_NaN does not match\n";
+        }
+        if(!equal(nbl::hlsl::impl::numeric_limits<float16_t>::signaling_NaN, std::numeric_limits<float16_t>::signaling_NaN()))
+        {
+            std::cout << "numeric_limits<float16_t>::signaling_NaN does not match\n";
+        }
+    }
+
+    auto test_type_limits = []<class T>() 
+    {
+        using L = std::numeric_limits<T>;
+        using R = nbl::hlsl::impl::numeric_limits<T>;
+        
+        #define TEST_AND_LOG(var) \
+            { \
+                auto rhs = limits_var(R::var); \
+                auto lhs = limits_var(L::var); \
+                if(!equal(lhs, rhs)) \
+                { \
+                    std::cout << typeid(T).name() << " " << #var << " does not match : " << double(lhs) << " - " << double(rhs) << "\n"; \
+                } \
+            }
+
+        TEST_AND_LOG(is_specialized);
+        TEST_AND_LOG(is_signed);
+        TEST_AND_LOG(is_integer);
+        TEST_AND_LOG(is_exact);
+        TEST_AND_LOG(has_infinity);
+        TEST_AND_LOG(has_quiet_NaN);
+        TEST_AND_LOG(has_signaling_NaN);
+        TEST_AND_LOG(has_denorm);
+        TEST_AND_LOG(has_denorm_loss);
+        TEST_AND_LOG(round_style);
+        TEST_AND_LOG(is_iec559);
+        TEST_AND_LOG(is_bounded);
+        TEST_AND_LOG(is_modulo);
+        TEST_AND_LOG(digits);
+        TEST_AND_LOG(digits10);
+        TEST_AND_LOG(max_digits10);
+        TEST_AND_LOG(radix);
+        TEST_AND_LOG(min_exponent);
+        TEST_AND_LOG(min_exponent10);
+        TEST_AND_LOG(max_exponent);
+        TEST_AND_LOG(max_exponent10);
+        TEST_AND_LOG(traps);
+        TEST_AND_LOG(tinyness_before);
+        TEST_AND_LOG(min);
+        TEST_AND_LOG(max);
+        TEST_AND_LOG(lowest);
+        TEST_AND_LOG(epsilon);
+        TEST_AND_LOG(round_error);
+        TEST_AND_LOG(infinity);
+        TEST_AND_LOG(quiet_NaN);
+        TEST_AND_LOG(signaling_NaN);
+        TEST_AND_LOG(denorm_min);
+    };
+
+    test_type_limits.template operator()<float32_t>();
+    test_type_limits.template operator()<float64_t>();
+    test_type_limits.template operator()<int8_t>();
+    test_type_limits.template operator()<int16_t>();
+    test_type_limits.template operator()<int32_t>();
+    test_type_limits.template operator()<int64_t>();
+    test_type_limits.template operator()<uint8_t>();
+    test_type_limits.template operator()<uint16_t>();
+    test_type_limits.template operator()<uint32_t>();
+    test_type_limits.template operator()<uint64_t>();
+    test_type_limits.template operator()<bool>();
 
     // countl_zero test
-    mpl::countl_zero<5>::value;
+    mpl::countl_zero<uint32_t, 5>::value;
     std::countl_zero(5u);
     nbl::hlsl::countl_zero(5u);
 
