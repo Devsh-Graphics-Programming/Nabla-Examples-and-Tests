@@ -65,9 +65,9 @@ struct StyleClipper
 
     float_t2 operator()(float_t t)
     {
-        // basicaly 0.0 and 1.0 but with a small guardband to discard outside the range
-        const float_t minT = 0.0 - 10;
-        const float_t maxT = 1.0 + 10;
+        // basicaly 0.0 and 1.0 but with a guardband to discard outside the range
+        const float_t minT = 0.0 - 2.0;
+        const float_t maxT = 1.0 + 2.0;
 
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float_t arcLen = arcLenCalc.calcArcLen(t);
@@ -78,7 +78,7 @@ struct StyleClipper
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
 
-        const float_t InvalidT = 696969696969.969696969696; // use numeric limits inf
+        const float_t InvalidT = 3.402823466e+38F; // TODO: use numeric limits
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
@@ -212,7 +212,7 @@ struct ClippedSignedDistance
     {
         typename CurveType::Candidates candidates = curve.getClosestCandidates(pos);
 
-        const float_t InvalidT = 696969696969.969696969696; // use numeric limits inf
+        const float_t InvalidT = 3.402823466e+38F; // TODO: use numeric limits
         const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f);
 
         bool clipped = false;
