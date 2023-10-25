@@ -20,6 +20,7 @@ template<typename float_t>
 struct DefaultClipper
 {
     using float_t2 = vector<float_t, 2>;
+    NBL_CONSTEXPR_STATIC_INLINE float_t AccuracyThresholdT = 0.0;
 
     static DefaultClipper construct()
     {
@@ -48,6 +49,11 @@ struct StyleAccessor
 template<typename CurveType, typename StyleAccessor>
 struct StyleClipper
 {
+    using float_t = typename CurveType::scalar_t;
+    using float_t2 = typename CurveType::float_t2;
+    using float_t3 = typename CurveType::float_t3;
+    NBL_CONSTEXPR_STATIC_INLINE float_t AccuracyThresholdT = 0.000001;
+
     // TODO[Przemek]: this should now also include a float phaseShift which is in style's normalized space
     static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
         CurveType curve,
@@ -57,44 +63,43 @@ struct StyleClipper
         return ret;
     }
 
-    float2 operator()(float t)
+    float_t2 operator()(float_t t)
     {
+        // basicaly 0.0 and 1.0 but with a small guardband to discard outside the range
+        const float_t minT = 0.0 - 1e-7;
+        const float_t maxT = 1.0 + 1e-7;
+
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
-        const float arcLen = arcLenCalc.calcArcLen(t);
-        t = clamp(t, 0.0f, 1.0f);
-        const float worldSpaceArcLen = arcLen * float(globals.worldToScreenRatio);
+        const float_t arcLen = arcLenCalc.calcArcLen(t);
+        t = clamp(t, minT, maxT);
+        const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
         // TODO[Przemek]: apply the phase shift of the curve here as well
-        float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
+        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
         if (patternIdx & 0x1)
         {
-            float diffToLeftDrawableSection = style.stipplePattern[patternIdx - 1];
-            float diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0f : style.stipplePattern[patternIdx];
+            float_t diffToLeftDrawableSection = style.stipplePattern[patternIdx - 1];
+            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0f : style.stipplePattern[patternIdx];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
             diffToRightDrawableSection -= normalizedPlaceInPattern;
 
-            const float patternLen = float(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
-            float scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
-            float scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
+            const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
+            float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
 
-            const float arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
-            const float arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
-            const float totalArcLen = arcLenCalc.calcArcLen(1.0f);
+            const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
+            const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
 
-            // TODO [Erfan]: implement, for now code below fills "no draw sections" at begginging and end of curves
-            //const float t0 = (0.0f <= arcLenForT0 && totalArcLen >= arcLenForT0) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen0, 0.000001f, t) : t;
-            //const float t1 = (0.0f <= arcLenForT1 && totalArcLen >= arcLenForT1) ? arcLenCalc.calcArcLenInverse(curve, arcLen + scrSpcOffsetToArcLen1, 0.000001f, t) : t;
+            float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
+            float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
 
-            const float t0 = arcLenCalc.calcArcLenInverse(curve, arcLenForT0, 0.000001f, t);
-            const float t1 = arcLenCalc.calcArcLenInverse(curve, arcLenForT1, 0.000001f, t);
-
-            return float2(t0, t1);
+            return float_t2(t0, t1);
         }
         else
         {
-            return t.xx;
+            return float_t2(t, t);
         }
     }
 
@@ -118,21 +123,37 @@ struct ClippedSignedDistance
 
         bool clipped = false;
         float_t closestDistanceSquared = MAX_DISTANCE_SQUARED;
-        float_t closestT = 0.0f; // use numeric limits inf?
+        float_t closestT = 696969696969.969696969696; // use numeric limits inf?
         [[unroll(CurveType::MaxCandidates)]]
         for (uint32_t i = 0; i < CurveType::MaxCandidates; i++)
         {
             const float_t candidateDistanceSquared = length(curve.evaluate(candidates[i]) - pos);
             if (candidateDistanceSquared < closestDistanceSquared)
             {
-                float2 snappedTs = clipper(candidates[i]);
+                float_t2 snappedTs = clipper(candidates[i]);
+
+                if (snappedTs[0] < Clipper::AccuracyThresholdT)
+                {
+                    if (snappedTs[1] < Clipper::AccuracyThresholdT)
+                        continue;
+                    else
+                        snappedTs[0] = snappedTs[1];
+                }
+                if (snappedTs[1] > 1.0 - Clipper::AccuracyThresholdT)
+                {
+                    if (snappedTs[0] > 1.0 - Clipper::AccuracyThresholdT)
+                        continue;
+                    else
+                        snappedTs[1] = snappedTs[0];
+                }
+
                 if (snappedTs[0] != candidates[i])
                 {
-                    clipped = true;
                     // left snapped or clamped
                     const float_t leftSnappedCandidateDistanceSquared = length(curve.evaluate(snappedTs[0]) - pos);
                     if (leftSnappedCandidateDistanceSquared < closestDistanceSquared)
                     {
+                        clipped = true;
                         closestT = snappedTs[0];
                         closestDistanceSquared = leftSnappedCandidateDistanceSquared;
                     }
@@ -143,6 +164,7 @@ struct ClippedSignedDistance
                         const float_t rightSnappedCandidateDistanceSquared = length(curve.evaluate(snappedTs[1]) - pos);
                         if (rightSnappedCandidateDistanceSquared < closestDistanceSquared)
                         {
+                            clipped = true;
                             closestT = snappedTs[1];
                             closestDistanceSquared = rightSnappedCandidateDistanceSquared;
                         }
@@ -153,6 +175,7 @@ struct ClippedSignedDistance
                     // no snapping
                     if (candidateDistanceSquared < closestDistanceSquared)
                     {
+                        clipped = false;
                         closestT = candidates[i];
                         closestDistanceSquared = candidateDistanceSquared;
                     }
@@ -161,7 +184,6 @@ struct ClippedSignedDistance
         }
 
         float_t roundedDistance = closestDistanceSquared - thickness;
-
 
 // TODO[Przemek]: if style `isRoadStyle` is true use rectCapped, else use normal roundedDistance and remove this #ifdef
 #define ROUNDED
@@ -252,7 +274,7 @@ float4 main(PSInput input) : SV_TARGET
             BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, clipper);
         }
-        
+
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
