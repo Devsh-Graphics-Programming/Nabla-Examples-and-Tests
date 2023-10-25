@@ -111,7 +111,7 @@ struct CPULineStyle
 		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 		if (firstComponentPositive == lastComponentPositive)
 		{
-			phaseShift = std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+			phaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
 			stipplePatternTransformed.pop_back();
 		}
@@ -139,6 +139,7 @@ struct CPULineStyle
 		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
 			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
+
 		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
 		for (int i = 0; i < PREFIX_SUM_SZ; i++)
@@ -148,6 +149,11 @@ struct CPULineStyle
 		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
 
 		phaseShift = phaseShift * reciprocalStipplePatternLen;
+		if (stipplePatternTransformed[0] == 0.0)
+		{
+			phaseShift -= 0.0001; // TODO: find more reasonable value
+		}
+
 	}
 
 	LineStyle getAsGPUData() const
@@ -1134,8 +1140,8 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
-	constexpr static uint32_t REQUESTED_WIN_H = 900u;
+	constexpr static uint32_t REQUESTED_WIN_W = 1400u;
+	constexpr static uint32_t REQUESTED_WIN_H = 720u;
 
 	//constexpr static uint32_t REQUESTED_WIN_W = 3840u;
 	//constexpr static uint32_t REQUESTED_WIN_H = 2160u;
@@ -2384,9 +2390,9 @@ public:
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					// cpuLineStyles[i].phaseShift = 0.5;
+					// cpuLineStyles[i].phaseShift -= 0.0001;
 					cpuLineStyles[i].phaseShift = 2.0 * abs(cos(m_timeElapsed * 0.00032f));
-					// polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
 
 					float64_t2 linePoints[2u] = {};
 					linePoints[0] = { -100.0, 50.0 - 5.0 * i };
