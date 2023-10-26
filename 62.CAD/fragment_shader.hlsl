@@ -44,6 +44,11 @@ struct StyleAccessor
     {
         return lineStyles[styleIdx].stipplePattern[ix];
     }
+
+    bool isDotPattern(const uint32_t ix)
+    {
+        return false;
+    }
 };
 
 template<typename CurveType, typename StyleAccessor>
@@ -66,8 +71,8 @@ struct StyleClipper
     float_t2 operator()(float_t t)
     {
         // basicaly 0.0 and 1.0 but with a guardband to discard outside the range
-        const float_t minT = 0.0 - 2.0;
-        const float_t maxT = 1.0 + 2.0;
+        const float_t minT = 0.0 - 1.0;
+        const float_t maxT = 1.0 + 1.0;
 
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float_t arcLen = arcLenCalc.calcArcLen(t);
