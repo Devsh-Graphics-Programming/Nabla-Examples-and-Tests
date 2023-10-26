@@ -2367,11 +2367,11 @@ public:
 				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
 					// test case 7: continous curuve
 				stipplePatterns[7] = { 25.0f, 25.0f };
-					// test case 8: empty pattern (draw line with no pattern)
-				stipplePatterns[8] = {};
+					// test case 8: start with `0` pattern + 2 `0` patterns close together
+				stipplePatterns[8] = { 0.0, -10.0f, 0.0, -1.0, 0.0, -7.0 };
 					// test case 9: max pattern size
 				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
-					// test case 10: A = 0 (line), evenly distributed controll points (doesn't work)
+					// test case 10: A = 0 (line), evenly distributed controll points
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 11: A = 0 (line), not evenly distributed controll points
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };
