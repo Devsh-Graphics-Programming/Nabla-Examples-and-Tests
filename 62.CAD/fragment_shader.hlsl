@@ -71,7 +71,6 @@ struct StyleClipper
 
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float_t arcLen = arcLenCalc.calcArcLen(t);
-        t = clamp(t, minT, maxT);
         const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
         // TODO[Przemek]: apply the phase shift of the curve here as well
         float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
@@ -81,24 +80,32 @@ struct StyleClipper
         const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::infinity; 
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
+        const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
-        if (patternIdx & 0x1)
+        const bool notInDrawSection = patternIdx & 0x1;
+        const bool tAfterBezierInterior = t > 1.0 - AccuracyThresholdT;
+        const bool tBeforeBezierInterior = t < 0.0 + AccuracyThresholdT;
+        float_t t0, t1; // t snapped to left and right
+
+        if (notInDrawSection || tAfterBezierInterior)
         {
             float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : style.stipplePattern[patternIdx - 1];
-            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : style.stipplePattern[patternIdx];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
-            diffToRightDrawableSection -= normalizedPlaceInPattern;
-
-            const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
             float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
-            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
-
             const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
+            t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
+        }
+        if (notInDrawSection || tBeforeBezierInterior)
+        {
+            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : style.stipplePattern[patternIdx];
+            diffToRightDrawableSection -= normalizedPlaceInPattern;
+            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
             const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
+            t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
+        }
 
-            float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
-            float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
-
+        if (notInDrawSection)
+        {
             ret = float_t2(t0, t1);
 
             if (ret[1] > 1.0 - AccuracyThresholdT)
@@ -125,8 +132,7 @@ struct StyleClipper
                     ret[1] = ret[0];
                 }
             }
-
-            if (ret[0] < 0.0 + AccuracyThresholdT)
+            else if (ret[0] < 0.0 + AccuracyThresholdT)
             {
                 if (ret[1] < 0.0 + AccuracyThresholdT)
                 {
@@ -154,40 +160,22 @@ struct StyleClipper
         }
         else
         {
-            const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
-
-            if (t > 1.0 - AccuracyThresholdT)
+            if (tAfterBezierInterior)
             {
-                float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : style.stipplePattern[patternIdx - 1];
-                diffToLeftDrawableSection -= normalizedPlaceInPattern;
-                float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
-                const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
-                float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
+                // We 1.discard or 2.clamp based on whether the nearest draw section to the bezier has left it's interior or not
                 if (t0 > 1.0 - AccuracyThresholdT)
-                {
                     t = InvalidT;
-                }
                 else
-                {
                     t = 1.0;
-                }
             }
 
-            if (t < 0.0 + AccuracyThresholdT)
+            if (tBeforeBezierInterior)
             {
-                float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : style.stipplePattern[patternIdx];
-                diffToRightDrawableSection -= normalizedPlaceInPattern;
-                float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
-                const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
-                float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
+                // We 1.discard or 2.clamp based on whether the nearest draw section to the bezier has left it's interior or not
                 if (t1 < 0.0 + AccuracyThresholdT)
-                {
                     t = InvalidT;
-                }
                 else
-                {
                     t = 0.0;
-                }
             }
 
             ret = float_t2(t, t);
