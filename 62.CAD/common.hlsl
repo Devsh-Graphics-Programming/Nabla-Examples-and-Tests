@@ -50,6 +50,8 @@ struct QuadraticBezierInfo
     /*
     * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
     */
+    float32_t phaseShift;
+    float32_t _reserved_pad;
 };
 
 // TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift

@@ -197,7 +197,7 @@ PSInput main(uint vertexID : SV_VertexID)
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
-        float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
+        const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
         outV.setCurrentPhaseShift(phaseShift);
 
         float2 transformedPoints[2u];
@@ -241,6 +241,9 @@ PSInput main(uint vertexID : SV_VertexID)
         points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
         points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
 
+        const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
+        outV.setCurrentPhaseShift(phaseShift);
+
         // transform these points into screen space and pass to fragment
         float2 transformedPoints[3u];
         for (uint i = 0u; i < 3u; ++i)
@@ -251,7 +254,7 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
         nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
         nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
-        
+
         outV.setQuadratic(quadratic);
         outV.setQuadraticPrecomputedArcLenData(preCompData);
 

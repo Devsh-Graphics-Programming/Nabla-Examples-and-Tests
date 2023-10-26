@@ -331,7 +331,15 @@ public:
 		{
 			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
 		}
-		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
+
+		constexpr LinePointInfo EMPTY_LINE_POINT_INFO = {};
+		std::vector<LinePointInfo> linePointInfos(linePoints.size(), EMPTY_LINE_POINT_INFO);
+		for (uint32_t i = 0u; i < linePoints.size(); i++)
+		{
+			linePointInfos[i].p = linePoints[i];
+		}
+
+		m_linePoints.insert(m_linePoints.end(), linePointInfos.begin(), linePointInfos.end());
 	}
 
 	void addEllipticalArcs(const core::SRange<curves::EllipticalArcInfo>& ellipses)
@@ -340,6 +348,7 @@ public:
 	}
 
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
+	// TODO: delete
 	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
 	{
 		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
@@ -358,6 +367,34 @@ public:
 		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
 	}
 
+	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers)
+	{
+		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
+		if (addNewSection)
+		{
+			SectionInfo newSection = {};
+			newSection.type = ObjectType::QUAD_BEZIER;
+			newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
+			newSection.count = static_cast<uint32_t>(quadBeziers.size());
+			m_sections.push_back(newSection);
+		}
+		else
+		{
+			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
+		}
+
+		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
+		std::vector<QuadraticBezierInfo> quadraticBezierInfos(quadBeziers.size(), EMPTY_QUADRATIC_BEZIER_INFO);
+		for (uint32_t i = 0u; i < quadBeziers.size(); i++)
+		{
+			quadraticBezierInfos[i].p[0] = quadBeziers[i].P0;
+			quadraticBezierInfos[i].p[1] = quadBeziers[i].P1;
+			quadraticBezierInfos[i].p[2] = quadBeziers[i].P2;
+		}
+
+		m_quadBeziers.insert(m_quadBeziers.end(), quadraticBezierInfos.begin(), quadraticBezierInfos.end());
+	}
+
 	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
 	/*
 	*  this preprocess should:
@@ -372,22 +409,53 @@ public:
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
+		float phaseShiftTotal = lineStyle.phaseShift;
 		for (auto& section : m_sections)
 		{
-			for (uint32_t i = 0u; i < section.count; i++)
+			if (section.type == ObjectType::LINE)
 			{
-				auto& linePoint = m_linePoints[section.index + i];
-				if (i == 0u)
+				const uint32_t linePointCnt = section.count + 1u;
+				for (uint32_t i = 0u; i < linePointCnt; i++)
 				{
-					linePoint.phaseShift = lineStyle.phaseShift;
-					continue;
+					const uint32_t currIdx = section.index + i;
+					auto& linePoint = m_linePoints[currIdx];
+					if (i == 0u)
+					{
+						linePoint.phaseShift = phaseShiftTotal;
+						continue;
+					}
+
+					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
+					const double lineLen = glm::length(linePoint.p - prevLinePoint.p);
+
+					const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					linePoint.phaseShift = glm::fract(prevLinePoint.phaseShift + nextLineInSectionLocalPhaseShift);
+					phaseShiftTotal = linePoint.phaseShift;
 				}
+			}
+			else if (section.type == ObjectType::QUAD_BEZIER)
+			{
+				const uint32_t quadBezierCnt = section.count;
+				for (uint32_t i = 0u; i < quadBezierCnt; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+					QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+					if (i == 0u)
+					{
+						quadBezierInfo.phaseShift = phaseShiftTotal;
+						continue;
+					}
 
-				const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
-				const double lineLen = glm::length(linePoint.p - prevLinePoint.p);
+					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
+					shapes::QuadraticBezier<double> quadraticBezier = shapes::QuadraticBezier<double>::construct(prevQuadBezierInfo.p[0], prevQuadBezierInfo.p[1], prevQuadBezierInfo.p[2]);
+					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(quadraticBezier);
+					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+					const double lineLen = arcLenCalc.calcArcLen(1.0f);
 
-				const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-				linePoint.phaseShift = prevLinePoint.phaseShift + nextLineInSectionLocalPhaseShift;
+					const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					quadBezierInfo.phaseShift = glm::fract(prevQuadBezierInfo.phaseShift + nextLineInSectionLocalPhaseShift);
+					phaseShiftTotal = quadBezierInfo.phaseShift;
+				}
 			}
 		}
 	}
@@ -2696,12 +2764,13 @@ public:
 			style.worldSpaceLineWidth = 2.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 			
-			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0004) + 1.0f) * 10.0f;
+			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
 			{
+				// section 1: lines
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 50.0, 50.0 });
@@ -2711,6 +2780,36 @@ public:
 				linePoints.push_back({ 100.0, 70.0 });
 				linePoints.push_back({ 120.0, 50.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+				// section 2: beziers
+				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
+				quadratics[0].P0 = { 120.0, 50.0 };
+				quadratics[0].P1 = { 200.0, 80.0 };
+				quadratics[0].P2 = { 140.0, 30.0 };
+				quadratics[1].P0 = { 140.0, 30.0 };
+				quadratics[1].P1 = { 100.0, 15.0 };
+				quadratics[1].P2 = { 140.0, 0.0 };
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+
+				// section 3: lines
+				std::vector<float64_t2> linePoints2;
+				linePoints2.push_back({ 140.0, 0.0 });
+				linePoints2.push_back({ 140.0, -80.0 });
+				linePoints2.push_back({ -140.0, -80.0 });
+				linePoints2.push_back({ -150.0, 20.0,});
+				linePoints2.push_back({ -100.0, 50.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
+
+				// section 4: beziers
+				std::vector<shapes::QuadraticBezier<double>> quadratics2(1u);
+				quadratics2[0].P0 = { -100.0, 50.0 };
+				quadratics2[0].P1 = { -80.0, 30.0 };
+				quadratics2[0].P2 = { -60.0, 50.0 };
+				//quadratics2[1].P0 = { 140.0, 30.0 };
+				//quadratics2[1].P1 = { 100.0, 15.0 };
+				//quadratics2[1].P2 = { 140.0, 0.0 };
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
+
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
