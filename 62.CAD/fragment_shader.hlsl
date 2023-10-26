@@ -264,7 +264,10 @@ float4 main(PSInput input) : SV_TARGET
         const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         const float maxEv = input.getCurveMaxBezier().evaluate(maxT);
         
-        const float curveMinorDistance = min(minorBBoxUv - minEv, maxEv - minorBBoxUv);
+        const float curveMinorDistance = min(
+            normalize(input.getMinCurveNormal()) * (minorBBoxUv - minEv), 
+            normalize(input.getMaxCurveNormal()) * (maxEv - minorBBoxUv)
+        );
         const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
 
         const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);

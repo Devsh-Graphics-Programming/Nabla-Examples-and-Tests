@@ -268,8 +268,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					}
 
 #ifdef DEBUG_HATCH_VISUALLY
-					if (debugOutput)
-						drawDebugBezier(outputBezier, float32_t4(0.0, 0.0, 0.0, 1.0));
+					//if (debugOutput)
+					//	drawDebugBezier(outputBezier, float32_t4(0.0, 0.0, 0.0, 1.0));
 #endif
 					beziers.push_back(outputBezier);
 				};
@@ -309,13 +309,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                         {
                             addBezier(monotonicSegments.data()[0]);
                             addBezier(monotonicSegments.data()[1]);
-#ifdef DEBUG_HATCH_VISUALLY
-                            if (debugOutput)
-                            {
-                                drawDebugBezier(monotonicSegments.data()[0], float32_t4(0.0, 0.6, 0.0, 0.5));
-                                drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 0.0, 0.6, 0.5));
-							}
-#endif
                         }
                     }
                 }
@@ -337,7 +330,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
         std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P2[major] > b.originalBezier->P2[major]; });
         for (Segment& segment : segments)
-			ends.push(segment.originalBezier->P2[major]);
+			if (ends.empty() || ends.top() != segment.originalBezier->P2[major])
+				ends.push(segment.originalBezier->P2[major]);
         maxMajor = segments.front().originalBezier->P2[major];
     }
 
@@ -538,12 +532,12 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						(bezier.P1 - aabbMin) * rcpAabbExtents,
 						(bezier.P2 - aabbMin) * rcpAabbExtents
 					);
-					auto quadratic = QuadraticEquation::constructFromBezier(transformedBezier);
-                    output[0] = quadratic.A;
-					output[1] = quadratic.B;
-					output[2] = quadratic.C;
+                    output[0] = transformedBezier.P0;
+					output[1] = transformedBezier.P1;
+					output[2] = transformedBezier.P2;
 					if (isLineSegment(transformedBezier)) 
 						output[0].y = 0.0;
+					auto quadratic = QuadraticEquation::constructFromBezier(transformedBezier);
 					// B == 0.0 would mean this is a constant line in major direction, which
 					// should've been ruled out at this point (isStraightLineCosntantMajor gets skipped)
 					assert(quadratic.B.y != 0.0);
