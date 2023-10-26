@@ -2,7 +2,7 @@
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/limits.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #endif

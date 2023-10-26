@@ -78,7 +78,7 @@ struct StyleClipper
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
 
-        const float_t InvalidT = 3.402823466e+38F; // TODO: use numeric limits
+        const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::infinity; 
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
