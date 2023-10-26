@@ -348,24 +348,6 @@ public:
 	}
 
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	// TODO: delete
-	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
-	{
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::QUAD_BEZIER;
-			newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
-			newSection.count = static_cast<uint32_t>(quadBeziers.size());
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
-		}
-		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
-	}
 
 	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers)
 	{
@@ -2456,7 +2438,7 @@ public:
 				points.push_back(float64_t2(-sqrt3 / 2, 0.5));
 				points.push_back(float64_t2(0, 1));
 
-				std::vector<QuadraticBezierInfo> beziers;
+				std::vector<shapes::QuadraticBezier<double>> beziers;
 				beziers.push_back({
 					float64_t2(-0.5, -0.25),
 					float64_t2(-sqrt3 / 2, 0.0),
@@ -2469,12 +2451,15 @@ public:
 				for (uint32_t i = 0; i < points.size(); i++)
 					points[i] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * points[i];
 				for (uint32_t i = 0; i < beziers.size(); i++)
-					for (uint32_t j = 0; j < 3; j++)
-						beziers[i].p[j] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].p[j];
+				{
+					beziers[i].P0 = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].P0;
+					beziers[i].P1 = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].P1;
+					beziers[i].P2 = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].P2;
+				}
 
 				CPolyline polyline;
 				polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
-				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
 
 				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
 				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
@@ -2484,7 +2469,7 @@ public:
 			if (hatchDebugStep > 0)
 			{
 				CPolyline polyline;
-				std::vector<QuadraticBezierInfo> beziers;
+				std::vector<shapes::QuadraticBezier<double>> beziers;
 				beziers.push_back({
 					100.0 * float64_t2(-0.4, 0.13),
 					100.0 * float64_t2(7.7, 3.57),
@@ -2493,7 +2478,7 @@ public:
 					100.0 * float64_t2(6.6, 0.13),
 					100.0 * float64_t2(-1.97, 3.2),
 					100.0 * float64_t2(3.7, 7.27) });
-				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
 			
 				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
 				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
@@ -2522,12 +2507,12 @@ public:
 				float Right = 100;
 				float Base = -25;
 				srand(95);
-				std::vector<QuadraticBezierInfo> quadBeziers;
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 				for (int i = 0; i < 1; i++) {
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[1] = float64_t2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
-					quadratic1.p[2] = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
+					shapes::QuadraticBezier<double> quadratic1;
+					quadratic1.P0 = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.P1 = float64_t2(0 + (rand() % 200 - 100), (rand() % 200 - 100));
+					quadratic1.P2 = float64_t2((rand() % 200 - 100), (rand() % 200 - 100));
 					quadBeziers.push_back(quadratic1);
 				}
 				
@@ -2546,29 +2531,29 @@ public:
 				//	quadBeziers.push_back(quadratic1);
 				//}
 
-				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 			{
-				std::vector<QuadraticBezierInfo> quadBeziers;
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 				{
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = float64_t2(0.0, 0.0);
-					quadratic1.p[1] = float64_t2(20.0, 50.0);
-					quadratic1.p[2] = float64_t2(80.0, 0.0);
+					shapes::QuadraticBezier<double> quadratic1;
+					quadratic1.P0 = float64_t2(0.0, 0.0);
+					quadratic1.P1 = float64_t2(20.0, 50.0);
+					quadratic1.P2 = float64_t2(80.0, 0.0);
 					//quadBeziers.push_back(quadratic1);
 				}
 				{
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = float64_t2(80.0, 0.0);
-					quadratic1.p[1] = float64_t2(220.0, 50.0);
-					quadratic1.p[2] = float64_t2(180.0, 200.0);
+					shapes::QuadraticBezier<double> quadratic1;
+					quadratic1.P0 = float64_t2(80.0, 0.0);
+					quadratic1.P1 = float64_t2(220.0, 50.0);
+					quadratic1.P2 = float64_t2(180.0, 200.0);
 					//quadBeziers.push_back(quadratic1);
 				}
 				{
-					QuadraticBezierInfo quadratic1;
-					quadratic1.p[0] = float64_t2(180.0, 200.0);
-					quadratic1.p[1] = float64_t2(-20.0, 100.0);
-					quadratic1.p[2] = float64_t2(30.0, -50.0);
+					shapes::QuadraticBezier<double> quadratic1;
+					quadratic1.P0 = float64_t2(180.0, 200.0);
+					quadratic1.P1 = float64_t2(-20.0, 100.0);
+					quadratic1.P2 = float64_t2(30.0, -50.0);
 					//quadBeziers.push_back(quadratic1);
 				}
 
@@ -2589,7 +2574,7 @@ public:
 				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
 				// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
-				curves::Subdivision::AddBezierFunc addToBezier = [&](QuadraticBezierInfo&& info) -> void
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
 					{
 						quadBeziers.push_back(info);
 					};
@@ -2602,7 +2587,7 @@ public:
 				// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
 				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
-				polyline2.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				polyline2.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 				// VISUALIZE INFLECTION POINT
 				std::vector<float64_t2> linePoints;
@@ -2640,7 +2625,7 @@ public:
 			std::vector<CPolyline> polylines(CURVE_CNT);
 
 			{
-				std::vector<QuadraticBezierInfo> quadratics(CURVE_CNT);
+				std::vector<shapes::QuadraticBezier<double>> quadratics(CURVE_CNT);
 
 				// setting controll points
 				{
@@ -2653,9 +2638,9 @@ public:
 					uint32_t curveIdx = 0;
 					while(curveIdx < CURVE_CNT - SPECIAL_CASE_CNT)
 					{
-						quadratics[curveIdx].p[0] = P0;
-						quadratics[curveIdx].p[1] = P1;
-						quadratics[curveIdx].p[2] = P2;
+						quadratics[curveIdx].P0 = P0;
+						quadratics[curveIdx].P1 = P1;
+						quadratics[curveIdx].P2 = P2;
 
 						P0 += translationVector;
 						P1 += translationVector;
@@ -2665,21 +2650,21 @@ public:
 					}
 
 					// special case 0 (line, evenly spaced points)
-					const double prevLineLowestY = quadratics[curveIdx - 1].p[2].y;
+					const double prevLineLowestY = quadratics[curveIdx - 1].P2.y;
 					double lineY = prevLineLowestY - 10.0;
 
-					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(0, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
+					quadratics[curveIdx].P0 = float64_t2(-100, lineY);
+					quadratics[curveIdx].P1 = float64_t2(0, lineY);
+					quadratics[curveIdx].P2 = float64_t2(100, lineY);
 					cpuLineStyles[curveIdx].color = float64_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 					// special case 1 (line, not evenly spaced points)
 					lineY -= 10.0;
 					curveIdx++;
 
-					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(20, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(100, lineY);
+					quadratics[curveIdx].P0 = float64_t2(-100, lineY);
+					quadratics[curveIdx].P1 = float64_t2(20, lineY);
+					quadratics[curveIdx].P2 = float64_t2(100, lineY);
 
 					// special case 2 (folded line)
 					lineY -= 10.0;
@@ -2689,32 +2674,32 @@ public:
 					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
 					quadratics[curveIdx].p[2] = float64_t2(100, lineY);*/
 
-					quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(100, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(50, lineY);
+					quadratics[curveIdx].P0 = float64_t2(-100, lineY);
+					quadratics[curveIdx].P1 = float64_t2(100, lineY);
+					quadratics[curveIdx].P2 = float64_t2(50, lineY);
 
 					// oblique line
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(-100, 100);
-					quadratics[curveIdx].p[1] = float64_t2(50.0, -50.0);
-					quadratics[curveIdx].p[2] = float64_t2(100, -100);
+					quadratics[curveIdx].P0 = float64_t2(-100, 100);
+					quadratics[curveIdx].P1 = float64_t2(50.0, -50.0);
+					quadratics[curveIdx].P2 = float64_t2(100, -100);
 
 					// special case 3 (A.x == 0)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(0.0, 0.0);
-					quadratics[curveIdx].p[1] = float64_t2(3.0, 4.14);
-					quadratics[curveIdx].p[2] = float64_t2(6.0, 4.0);
+					quadratics[curveIdx].P0 = float64_t2(0.0, 0.0);
+					quadratics[curveIdx].P1 = float64_t2(3.0, 4.14);
+					quadratics[curveIdx].P2 = float64_t2(6.0, 4.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 						// make sure A.x == 0
-					float64_t2 A = quadratics[curveIdx].p[0] - 2.0 * quadratics[curveIdx].p[1] + quadratics[curveIdx].p[2];
+					float64_t2 A = quadratics[curveIdx].P0 - 2.0 * quadratics[curveIdx].P1 + quadratics[curveIdx].P2;
 					assert(A.x == 0);
 
 					// special case 4 (symetric parabola)
 					curveIdx++;
-					quadratics[curveIdx].p[0] = float64_t2(-150.0, 1.0);
-					quadratics[curveIdx].p[1] = float64_t2(2000.0, 0.0);
-					quadratics[curveIdx].p[2] = float64_t2(-150.0, -1.0);
+					quadratics[curveIdx].P0 = float64_t2(-150.0, 1.0);
+					quadratics[curveIdx].P1 = float64_t2(2000.0, 0.0);
+					quadratics[curveIdx].P2 = float64_t2(-150.0, -1.0);
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
@@ -2759,7 +2744,7 @@ public:
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
-					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
+					polylines[i].addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(&quadratics[i], &quadratics[i] + 1u));
 
 					float64_t2 linePoints[2u] = {};
 					linePoints[0] = { -200.0, 50.0 - 5.0 * i };

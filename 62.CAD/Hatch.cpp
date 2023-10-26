@@ -189,13 +189,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
     auto drawDebugBezier = [&](QuadraticBezier bezier, float32_t4 color)
     {
         CPolyline outputPolyline;
-        std::vector<QuadraticBezierInfo> beziers;
-        QuadraticBezierInfo bezierInfo;
-        bezierInfo.p[0] = bezier.p[0];
-        bezierInfo.p[1] = bezier.p[1];
-        bezierInfo.p[2] = bezier.p[2];
+        std::vector<shapes::QuadraticBezier<double>> beziers;
+		shapes::QuadraticBezier<double> bezierInfo;
+        bezierInfo.P0 = bezier.p[0];
+        bezierInfo.P1 = bezier.p[1];
+        bezierInfo.P2 = bezier.p[2];
         beziers.push_back(bezierInfo);
-        outputPolyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+        outputPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
 
         CPULineStyle cpuLineStyle;
         cpuLineStyle.screenSpaceLineWidth = 4.0f;

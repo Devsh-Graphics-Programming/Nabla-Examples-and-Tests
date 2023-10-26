@@ -23,11 +23,11 @@ static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v
 }
 
 //TODO[Przemek]: Move these bezier functions inside the bezier struct in hlsl
-static  float64_t bezierYatT(const QuadraticBezierInfo& bezier, const float64_t t)
+static  float64_t bezierYatT(const shapes::QuadraticBezier<double>& bezier, const float64_t t)
 {
-    const float64_t a = bezier.p[0].y - 2.0 * bezier.p[1].y + bezier.p[2].y;
-    const float64_t b = 2.0 * (bezier.p[1].y - bezier.p[0].y);
-    const float64_t c = bezier.p[0].y;
+    const float64_t a = bezier.P0.y - 2.0 * bezier.P1.y + bezier.P2.y;
+    const float64_t b = 2.0 * (bezier.P1.y - bezier.P0.y);
+    const float64_t c = bezier.P0.y;
     return ((a * t) + b) * t + c; // computePosition at t1
 }
 
@@ -58,11 +58,11 @@ static float64_t2 solveQuadraticRoot(const float64_t a, const float64_t b, const
 
 // TODO[Przemek]: implement YatX as a helper tool in bezier.hlsl Quadratic curve
 // returns nan if found X is outside of bounds or not found at all
-static float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
+static float64_t bezierYatX(const shapes::QuadraticBezier<double>& bezier, float64_t x)
 {
-    const float64_t a = bezier.p[0].x - 2.0 * bezier.p[1].x + bezier.p[2].x;
-    const float64_t b = 2.0 * (bezier.p[1].x - bezier.p[0].x);
-    const float64_t c = bezier.p[0].x - x;
+    const float64_t a = bezier.P0.x - 2.0 * bezier.P1.x + bezier.P2.x;
+    const float64_t b = 2.0 * (bezier.P1.x - bezier.P0.x);
+    const float64_t c = bezier.P0.x - x;
 
     float64_t2 roots = solveQuadraticRoot(a, b, c);
 
@@ -78,12 +78,12 @@ static float64_t bezierYatX(const QuadraticBezierInfo& bezier, float64_t x)
 }
 
 // TODO[Przemek] move this to QuadraticBezier static construct methods in beziers.hlsl
-static QuadraticBezierInfo constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t2 v0, float64_t2 P2, float64_t2 v2)
+static shapes::QuadraticBezier<double> constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t2 v0, float64_t2 P2, float64_t2 v2)
 {
-    QuadraticBezierInfo out = {};
-    out.p[0] = P0;
-    out.p[2] = P2;
-    out.p[1] = LineLineIntersection(P0, v0, P2, v2);
+    shapes::QuadraticBezier<double> out = {};
+    out.P0 = P0;
+    out.P2 = P2;
+    out.P1 = LineLineIntersection(P0, v0, P2, v2);
     return out;
 }
 
@@ -460,15 +460,15 @@ float64_t ExplicitMixedCircle::getSign(float64_t x)
 // Fix Bezier Hack for when P1 is "outside" P0 -> P2
 // We project P1 into P0->P2 line and see whether it lies inside.
 // Because our curves shouldn't go back on themselves in the direction of the chord
-static void fixBezierMidPoint(QuadraticBezierInfo& bezier)
+static void fixBezierMidPoint(shapes::QuadraticBezier<double>& bezier)
 {
-    const float64_t2 localChord = bezier.p[2] - bezier.p[0];
-    const float64_t localX = dot(normalize(localChord), bezier.p[1] - bezier.p[0]);
+    const float64_t2 localChord = bezier.P2 - bezier.P0;
+    const float64_t localX = dot(normalize(localChord), bezier.P1 - bezier.P0);
     const bool outside = localX<0 || localX>length(localChord);
-    if (outside || isnan(bezier.p[1].x) || isnan(bezier.p[1].y))
+    if (outside || isnan(bezier.P1.x) || isnan(bezier.P1.y))
     {
         // _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
-        bezier.p[1] = bezier.p[0] * 0.4 + bezier.p[2] * 0.6;
+        bezier.P1 = bezier.P0 * 0.4 + bezier.P2 * 0.6;
     }
 }
 
@@ -504,14 +504,14 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
         float64_t2(normalizedMajor.y, normalizedMajor.x)
         });
 
-    AddBezierFunc addTransformedBezier = [&](QuadraticBezierInfo&& quadBezier)
+    AddBezierFunc addTransformedBezier = [&](shapes::QuadraticBezier<double>&& quadBezier)
         {
-            quadBezier.p[0] = mul(rotate, quadBezier.p[0]);
-            quadBezier.p[1] = mul(rotate, quadBezier.p[1]);
-            quadBezier.p[2] = mul(rotate, quadBezier.p[2]);
-            quadBezier.p[0] += ellipse.center;
-            quadBezier.p[1] += ellipse.center;
-            quadBezier.p[2] += ellipse.center;
+            quadBezier.P0 = mul(rotate, quadBezier.P0);
+            quadBezier.P1 = mul(rotate, quadBezier.P1);
+            quadBezier.P2 = mul(rotate, quadBezier.P2);
+            quadBezier.P0 += ellipse.center;
+            quadBezier.P1 += ellipse.center;
+            quadBezier.P2 += ellipse.center;
             addBezierFunc(std::move(quadBezier));
         };
 
@@ -587,7 +587,7 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
     const float64_t2 V0 = curve.computeTangent(min);
     const float64_t2 P2 = curve.computePosition(max);
     const float64_t2 V2 = curve.computeTangent(max);
-    QuadraticBezierInfo bezier = constructBezierWithTwoPointsAndTangents(P0, V0, P2, V2);
+    shapes::QuadraticBezier<double> bezier = constructBezierWithTwoPointsAndTangents(P0, V0, P2, V2);
 
     bool shouldSubdivide = false;
 
