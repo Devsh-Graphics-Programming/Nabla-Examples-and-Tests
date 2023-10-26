@@ -410,10 +410,13 @@ public:
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
 		float phaseShiftTotal = lineStyle.phaseShift;
-		for (auto& section : m_sections)
+		for (uint32_t i = 0u; i < m_sections.size(); i++)
 		{
+			const auto& section = m_sections[i];
+
 			if (section.type == ObjectType::LINE)
 			{
+				// calculate phase shift at each point of each line in section
 				const uint32_t linePointCnt = section.count + 1u;
 				for (uint32_t i = 0u; i < linePointCnt; i++)
 				{
@@ -428,13 +431,14 @@ public:
 					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
 					const double lineLen = glm::length(linePoint.p - prevLinePoint.p);
 
-					const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					linePoint.phaseShift = glm::fract(prevLinePoint.phaseShift + nextLineInSectionLocalPhaseShift);
+					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint); // TODO: fract may be unecessary since we fract anyway in fragment shader
 					phaseShiftTotal = linePoint.phaseShift;
 				}
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
+				// calculate phase shift at point P0 of each bezier
 				const uint32_t quadBezierCnt = section.count;
 				for (uint32_t i = 0u; i < quadBezierCnt; i++)
 				{
@@ -453,8 +457,22 @@ public:
 					const double lineLen = arcLenCalc.calcArcLen(1.0f);
 
 					const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					quadBezierInfo.phaseShift = glm::fract(prevQuadBezierInfo.phaseShift + nextLineInSectionLocalPhaseShift);
+					quadBezierInfo.phaseShift = glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift); // TODO: fract may be unecessary since we fract anyway in fragment shader
 					phaseShiftTotal = quadBezierInfo.phaseShift;
+				}
+
+				// calculate phase shift at end of the section, unecessary if last section
+				if(i < m_sections.size() - 1u)
+				{
+					const QuadraticBezierInfo& lastQuadBezierInfo = m_quadBeziers[quadBezierCnt - 1u];
+					shapes::QuadraticBezier<double> quadraticBezier = shapes::QuadraticBezier<double>::construct(lastQuadBezierInfo.p[0], lastQuadBezierInfo.p[1], lastQuadBezierInfo.p[2]);
+					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(quadraticBezier);
+					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+					const double lineLen = arcLenCalc.calcArcLen(1.0f);
+
+					const double phaseShiftAtEndOfSection = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					phaseShiftTotal += phaseShiftAtEndOfSection;
+					phaseShiftTotal = glm::fract(phaseShiftTotal); // TODO: fract may be unecessary since we fract anyway in fragment shader
 				}
 			}
 		}
@@ -2801,13 +2819,19 @@ public:
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
 
 				// section 4: beziers
-				std::vector<shapes::QuadraticBezier<double>> quadratics2(1u);
+				std::vector<shapes::QuadraticBezier<double>> quadratics2(4u);
 				quadratics2[0].P0 = { -100.0, 50.0 };
 				quadratics2[0].P1 = { -80.0, 30.0 };
 				quadratics2[0].P2 = { -60.0, 50.0 };
-				//quadratics2[1].P0 = { 140.0, 30.0 };
-				//quadratics2[1].P1 = { 100.0, 15.0 };
-				//quadratics2[1].P2 = { 140.0, 0.0 };
+				quadratics2[1].P0 = { -60.0, 50.0 };
+				quadratics2[1].P1 = { -40.0, 80.0 };
+				quadratics2[1].P2 = { -20.0, 50.0 };
+				quadratics2[2].P0 = { -20.0, 50.0 };
+				quadratics2[2].P1 = { 0.0, 30.0 };
+				quadratics2[2].P2 = { 20.0, 50.0 };
+				quadratics2[3].P0 = { 20.0, 50.0 };
+				quadratics2[3].P1 = { -80.0, 100.0 };
+				quadratics2[3].P2 = { -100.0, 90.0 };
 				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
 
 				polyline.preprocessPolylineWithStyle(style);
