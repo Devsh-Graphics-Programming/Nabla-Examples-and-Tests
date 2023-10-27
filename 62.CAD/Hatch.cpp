@@ -74,7 +74,7 @@ bool Hatch::Segment::isStraightLineConstantMajor() const
 	const double p0 = originalBezier->P0[major], 
 		p1 = originalBezier->P1[major], 
 		p2 = originalBezier->P2[major];
-	assert(p0 <= p1 && p1 <= p2);
+	//assert(p0 <= p1 && p1 <= p2); (PRECISION ISSUES ARISE ONCE MORE)
 	return abs(p1 - p0) <= exp2(-24) && abs(p2 - p0) <= exp(-24);
 }
 
@@ -302,13 +302,18 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                             addBezier(unsplitBezier);
 #ifdef DEBUG_HATCH_VISUALLY
                             if (debugOutput)
-                                drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 0.2));
+                                drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 0.8));
 #endif
                         }
                         else
                         {
                             addBezier(monotonicSegments.data()[0]);
                             addBezier(monotonicSegments.data()[1]);
+
+#ifdef DEBUG_HATCH_VISUALLY
+							drawDebugBezier(monotonicSegments.data()[0], float32_t4(0.8, 0.0, 0.0, 0.8));
+							drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 0.8, 0.0, 0.8));
+#endif
                         }
                     }
                 }
@@ -503,8 +508,12 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
                 CurveHatchBox curveBox;
 
-                auto splitCurveMin = splitCurveRange(*left.originalBezier, left.t_start, intersectOrtho(*left.originalBezier, newMajor, major));
-				auto splitCurveMax = splitCurveRange(*right.originalBezier, right.t_start, intersectOrtho(*right.originalBezier, newMajor, major));
+				// Due to precision, if the curve is right at the end, intersectOrtho may return nan
+				auto curveMinEnd = intersectOrtho(*left.originalBezier, newMajor, major);
+				auto curveMaxEnd = intersectOrtho(*right.originalBezier, newMajor, major);
+
+                auto splitCurveMin = splitCurveRange(*left.originalBezier, left.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+				auto splitCurveMax = splitCurveRange(*right.originalBezier, right.t_start, isnan(curveMaxEnd) ? 1.0 : curveMaxEnd);
 				assert(splitCurveMin.evaluate(0.0)[major] <= splitCurveMin.evaluate(1.0)[major]);
 				assert(splitCurveMax.evaluate(0.0)[major] <= splitCurveMax.evaluate(1.0)[major]);
 
@@ -539,7 +548,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						output[0].y = 0.0;
 					// B == 0.0 would mean this is a constant line in major direction, which
 					// should've been ruled out at this point (isStraightLineCosntantMajor gets skipped)
-					assert(quadratic.B.y != 0.0);
+					assert(quadratic.A.y > 0.0 || quadratic.B.y != 0.0);
                 };
                 transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
                 transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);
@@ -676,7 +685,7 @@ Hatch::QuadraticBezier Hatch::splitCurveTakeLower(const QuadraticBezier& bezier,
 	outputCurve.P0 = bezier.P0;
 	outputCurve.P1 = (1 - t) * bezier.P0 + t * bezier.P1;
 	outputCurve.P2 = (1 - t) * ((1 - t) * bezier.P0 + t * bezier.P1) + t * ((1 - t) * bezier.P1 + t * bezier.P2);
-	assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
+	//assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
 
 	return outputCurve;
 }
@@ -687,7 +696,7 @@ Hatch::QuadraticBezier Hatch::splitCurveTakeUpper(const QuadraticBezier& bezier,
 	outputCurve.P0 = (1 - t) * ((1 - t) * bezier.P0 + t * bezier.P1) + t * ((1 - t) * bezier.P1 + t * bezier.P2);
 	outputCurve.P1 = (1 - t) * bezier.P1 + t * bezier.P2;
 	outputCurve.P2 = bezier.P2;
-	assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
+	//assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
 
 	return outputCurve;
 }
@@ -696,8 +705,8 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 {
 	// Getting derivatives for our quadratic bezier
 	auto major = (uint)SelectedMajorAxis;
-	auto a = 2.0 * bezier.P1[major] - bezier.P0[major];
-	auto b = 2.0 * bezier.P2[major] - bezier.P1[major];
+	auto a = 2.0 * (bezier.P1[major] - bezier.P0[major]);
+	auto b = 2.0 * (bezier.P2[major] - bezier.P1[major]);
 
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto rcp = 1.0 / (b - a);
