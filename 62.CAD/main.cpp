@@ -113,7 +113,7 @@ struct CPULineStyle
 		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 		if (firstComponentPositive == lastComponentPositive)
 		{
-			phaseShift = std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+			phaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
 			stipplePatternTransformed.pop_back();
 		}
@@ -150,12 +150,35 @@ struct CPULineStyle
 		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
 
 		phaseShift = phaseShift * reciprocalStipplePatternLen;
+		if (stipplePatternTransformed[0] == 0.0)
+		{
+			phaseShift -= 1e-3; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
+		}
 	}
 
 	LineStyle getAsGPUData() const
 	{
-		LineStyle ret;
-		std::memcpy(ret.stipplePattern, stipplePattern, STIPPLE_PATTERN_MAX_SZ*sizeof(float));
+		LineStyle ret = {};
+
+		// pack into uint32_t
+		for (uint32_t i = 0; i < stipplePatternSize; ++i)
+		{
+			const bool leftIsDot =
+				(i > 1 && stipplePattern[i - 1] == stipplePattern[i - 2]) ||
+				(i == 1 && stipplePattern[0] == 0.0);
+
+			const bool rightIsDot =
+				(i == stipplePatternSize && stipplePattern[0] == 0.0) ||
+				(i + 2 <= stipplePatternSize && stipplePattern[i] == stipplePattern[i + 1]);
+
+			ret.stipplePattern[i] = static_cast<uint32_t>(stipplePattern[i] * (1u << 29u));
+
+			if (leftIsDot)
+				ret.stipplePattern[i] |= 1u << 30u;
+			if (rightIsDot)
+				ret.stipplePattern[i] |= 1u << 31u;
+		}
+
 		ret.color = color;
 		ret.screenSpaceLineWidth = screenSpaceLineWidth;
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
@@ -2723,11 +2746,11 @@ public:
 				stipplePatterns[6] = { -1.0f, -5.0f, -10.0f };
 					// test case 7: continous curuve
 				stipplePatterns[7] = { 25.0f, 25.0f };
-					// test case 8: empty pattern (draw line with no pattern)
-				stipplePatterns[8] = {};
+					// test case 8: start with `0` pattern + 2 `0` patterns close together
+				stipplePatterns[8] = { 0.0, -10.0f, 0.0, -1.0, 0.0, -7.0 };
 					// test case 9: max pattern size
 				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
-					// test case 10: A = 0 (line), evenly distributed controll points (doesn't work)
+					// test case 10: A = 0 (line), evenly distributed controll points
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 11: A = 0 (line), not evenly distributed controll points
 				stipplePatterns[11] = { 5.0f, -5.0f, 1.0f, -5.0f };

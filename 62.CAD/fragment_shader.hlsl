@@ -43,7 +43,7 @@ struct StyleAccessor
 
     float operator[](const uint32_t ix)
     {
-        return lineStyles[styleIdx].stipplePattern[ix];
+        return lineStyles[styleIdx].getStippleValue(ix);
     }
 };
 
@@ -67,43 +67,118 @@ struct StyleClipper
 
     float_t2 operator()(float_t t)
     {
-        // basicaly 0.0 and 1.0 but with a small guardband to discard outside the range
-        const float_t minT = 0.0 - 1e-7;
-        const float_t maxT = 1.0 + 1e-7;
+        // basicaly 0.0 and 1.0 but with a guardband to discard outside the range
+        const float_t minT = 0.0 - 1.0;
+        const float_t maxT = 1.0 + 1.0;
 
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float_t arcLen = arcLenCalc.calcArcLen(t);
-        t = clamp(t, minT, maxT);
         const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
         // TODO[Przemek]: apply the phase shift of the curve here as well
         //float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
+
+        const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::infinity; 
+        float_t2 ret = float_t2(InvalidT, InvalidT);
+
+        const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
-        if (patternIdx & 0x1)
+        const bool notInDrawSection = patternIdx & 0x1;
+        const bool tAfterBezierInterior = t > 1.0 - AccuracyThresholdT;
+        const bool tBeforeBezierInterior = t < 0.0 + AccuracyThresholdT;
+        float_t t0, t1; // t snapped to left and right
+
+        if (notInDrawSection || tAfterBezierInterior)
         {
-            float_t diffToLeftDrawableSection = style.stipplePattern[patternIdx - 1];
-            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0f : style.stipplePattern[patternIdx];
+            float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : styleAccessor[patternIdx - 1];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
-            diffToRightDrawableSection -= normalizedPlaceInPattern;
-
-            const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
             float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
-            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
-
             const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
+            t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
+        }
+        if (notInDrawSection || tBeforeBezierInterior)
+        {
+            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdx];
+            diffToRightDrawableSection -= normalizedPlaceInPattern;
+            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
             const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
+            t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
+        }
 
-            float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
-            float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
+        if (notInDrawSection)
+        {
+            ret = float_t2(t0, t1);
 
-            return float_t2(t0, t1);
+            if (ret[1] > 1.0 - AccuracyThresholdT)
+            {
+                if (ret[0] > 1.0 - AccuracyThresholdT)
+                {
+                    const bool leftIsDot = style.isLeftDot(patternIdx);
+                    if (leftIsDot)
+                    {
+                        ret[0] = InvalidT;
+                        ret[1] = InvalidT;
+                    }
+                    else
+                    {
+                        ret[0] = 1.0;
+                        ret[1] = 1.0;
+                    }
+                }
+                else
+                {
+                    ret[1] = ret[0];
+                }
+            }
+            else if (ret[0] < 0.0 + AccuracyThresholdT)
+            {
+                if (ret[1] < 0.0 + AccuracyThresholdT)
+                {
+                    const bool rightIsDot = style.isRightDot(patternIdx);
+
+                    if (rightIsDot)
+                    {
+                        ret[0] = InvalidT;
+                        ret[1] = InvalidT;
+                    }
+                    else
+                    {
+                        ret[0] = 0.0;
+                        ret[1] = 0.0;
+                    }
+                }
+                else
+                {
+                    ret[0] = ret[1];
+                }
+            }
         }
         else
         {
-            return float_t2(t, t);
+            if (tAfterBezierInterior)
+            {
+                // We 1.discard or 2.clamp based on whether the nearest draw section to the bezier has left it's interior or not
+                if (t0 > 1.0 - AccuracyThresholdT)
+                    t = InvalidT;
+                else
+                    t = 1.0;
+            }
+
+            if (tBeforeBezierInterior)
+            {
+                // We 1.discard or 2.clamp based on whether the nearest draw section to the bezier has left it's interior or not
+                if (t1 < 0.0 + AccuracyThresholdT)
+                    t = InvalidT;
+                else
+                    t = 0.0;
+            }
+
+            ret = float_t2(t, t);
         }
+
+        return ret;
     }
 
     StyleAccessor styleAccessor;
@@ -123,11 +198,12 @@ struct ClippedSignedDistance
     {
         typename CurveType::Candidates candidates = curve.getClosestCandidates(pos);
 
+        const float_t InvalidT = 3.402823466e+38F; // TODO: use numeric limits
         const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f);
 
         bool clipped = false;
         float_t closestDistanceSquared = MAX_DISTANCE_SQUARED;
-        float_t closestT = 696969696969.969696969696; // use numeric limits inf?
+        float_t closestT = InvalidT;
         [[unroll(CurveType::MaxCandidates)]]
         for (uint32_t i = 0; i < CurveType::MaxCandidates; i++)
         {
@@ -136,19 +212,9 @@ struct ClippedSignedDistance
             {
                 float_t2 snappedTs = clipper(candidates[i]);
 
-                if (snappedTs[0] < Clipper::AccuracyThresholdT)
+                if (snappedTs[0] == InvalidT)
                 {
-                    if (snappedTs[1] < Clipper::AccuracyThresholdT)
-                        continue;
-                    else
-                        snappedTs[0] = snappedTs[1];
-                }
-                if (snappedTs[1] > 1.0 - Clipper::AccuracyThresholdT)
-                {
-                    if (snappedTs[0] > 1.0 - Clipper::AccuracyThresholdT)
-                        continue;
-                    else
-                        snappedTs[1] = snappedTs[0];
+                    continue;
                 }
 
                 if (snappedTs[0] != candidates[i])
@@ -189,7 +255,7 @@ struct ClippedSignedDistance
 
         float_t roundedDistance = closestDistanceSquared - thickness;
 
-// TODO[Przemek]: if style `isRoadStyle` is true use rectCapped, else use normal roundedDistance and remove this #ifdef
+        // TODO[Przemek]: if style `isRoadStyle` is true use rectCapped, else use normal roundedDistance and remove this #ifdef
 #define ROUNDED
 #ifdef ROUNDED
         return roundedDistance;
@@ -262,11 +328,11 @@ float4 main(PSInput input) : SV_TARGET
     {
         nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
         nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
-        
+
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
         float distance;
-        
+
         if (!lineStyles[styleIdx].hasStipples())
         {
             distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness);
@@ -305,32 +371,32 @@ float4 main(PSInput input) : SV_TARGET
 
     uint2 fragCoord = uint2(input.position.xy);
     float4 col;
-    
+
     if (localAlpha <= 0)
         discard;
 
-  
+
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
         beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
 
-    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha*255.f);
+    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
     const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
     // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
     const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
-    const bool resolve = currentMainObjectIdx!=mainObjectIdx;
-    if (resolve || localQuantizedAlpha>quantizedAlpha)
+    const bool resolve = currentMainObjectIdx != mainObjectIdx;
+    if (resolve || localQuantizedAlpha > quantizedAlpha)
         pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
 
     endInvocationInterlockEXT();
-    
+
     if (!resolve)
         discard;
-    
+
     // draw with previous geometry's style's color :kek:
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
-    col.w *= float(quantizedAlpha)/255.f;
+    col.w *= float(quantizedAlpha) / 255.f;
 #else
     col = input.getColor();
     col.w *= localAlpha;
