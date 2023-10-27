@@ -258,16 +258,38 @@ float4 main(PSInput input) : SV_TARGET
         const float minorBBoxUv = input.getMinorBBoxUv();
         const float majorBBoxUv = input.getMajorBBoxUv();
 
+
+        //outV.data7.x = (float)curveMin.A[major];
+        //outV.data7.y = (float)curveMin.B[major];
+        //outV.data7.z = (float)curveMax.A[major];
+        //outV.data7.w = (float)curveMax.B[major];
+
+
         const float minT = clamp(input.getMinCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         const float minEv = input.getCurveMinBezier().evaluate(minT);
         
         const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         const float maxEv = input.getCurveMaxBezier().evaluate(maxT);
         
-        const float curveMinorDistance = min(
-            normalize(input.getMinCurveNormal()) * (minorBBoxUv - minEv), 
-            normalize(input.getMaxCurveNormal()) * (maxEv - minorBBoxUv)
-        );
+        nbl::hlsl::equations::Quadratic<float> MinCurveMinor = input.getCurveMinBezier();
+        nbl::hlsl::equations::Quadratic<float> MinCurveMajor = nbl::hlsl::equations::Quadratic<float>::construct(input.data7.x, input.data7.y, 0.0 /*not important*/);
+        nbl::hlsl::equations::Quadratic<float> MaxCurveMinor = input.getCurveMaxBezier();
+        nbl::hlsl::equations::Quadratic<float> MaxCurveMajor = nbl::hlsl::equations::Quadratic<float>::construct(input.data7.z, input.data7.w, 0.0 /*not important*/);
+
+        float2 tangentMinCurve = float2(
+            2.0 * MinCurveMinor.a * minT + MinCurveMinor.b,
+            2.0 * MinCurveMajor.a * minT + MinCurveMajor.b);
+        tangentMinCurve = normalize(tangentMinCurve / float2(fwidth(minorBBoxUv), fwidth(majorBBoxUv)));
+
+        float2 tangentMaxCurve = float2(
+            2.0 * MaxCurveMinor.a * maxT + MaxCurveMinor.b,
+            2.0 * MaxCurveMajor.a * maxT + MaxCurveMajor.b);
+        tangentMaxCurve = normalize(tangentMaxCurve / float2(fwidth(minorBBoxUv), fwidth(majorBBoxUv)));
+
+        float curveMinorDistance = min(
+            tangentMinCurve.y * (minorBBoxUv - minEv),
+            tangentMaxCurve.y * 1.0 * (maxEv - minorBBoxUv));
+
         const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
 
         const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);

@@ -201,7 +201,7 @@ struct PSInput
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     [[vk::location(6)]] float4 interp_data6 : COLOR6;
-    [[vk::location(7)]] float4 interp_data7 : COLOR7;
+    [[vk::location(7)]] nointerpolation float4 data7 : COLOR7;
     
         // ArcLenCalculator<float>
 
@@ -287,12 +287,6 @@ struct PSInput
         interp_data6.x = rootFinder.C2;
         interp_data6.y = rootFinder.det;
     }
-
-    float2 getMinCurveNormal() { return interp_data6.zw; }
-    float2 getMaxCurveNormal() { return interp_data7.xy; }
-    
-    void setMinCurveNormal(float2 normal) { interp_data6.zw = normal; }
-    void setMaxCurveNormal(float2 normal) { interp_data7.xy = normal; }
     
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()

@@ -88,7 +88,6 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data4 = float4(0, 0, 0, 0);
     outV.interp_data5 = float4(0, 0, 0, 0);
     outV.interp_data6 = float4(0, 0, 0, 0);
-    outV.interp_data7 = float4(0, 0, 0, 0);
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
@@ -383,12 +382,10 @@ PSInput main(uint vertexID : SV_VertexID)
         const uint major = (uint)SelectedMajorAxis;
         const uint minor = 1-major;
 
-        nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(
-            nbl::hlsl::shapes::QuadraticBezier<double>::construct(
-                curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]));
-        nbl::hlsl::shapes::Quadratic<double> curveMax = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(
-            nbl::hlsl::shapes::QuadraticBezier<double>::construct(
-                curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]));
+        nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::construct(
+            curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
+        nbl::hlsl::shapes::Quadratic<double> curveMax = nbl::hlsl::shapes::Quadratic<double>::construct(
+            curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);
@@ -401,9 +398,15 @@ PSInput main(uint vertexID : SV_VertexID)
             (float)curveMax.A[minor], 
             (float)curveMax.B[minor], 
             (float)curveMax.C[minor]);
+
         outV.setCurveMinBezier(curveMinMinorAxis);
         outV.setCurveMaxBezier(curveMaxMinorAxis);
         
+        outV.data7.x = (float)curveMin.A[major];
+        outV.data7.y = (float)curveMin.B[major];
+        outV.data7.z = (float)curveMax.A[major];
+        outV.data7.w = (float)curveMax.B[major];
+
         nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[major], 
             (float)curveMin.B[major], 
@@ -414,32 +417,6 @@ PSInput main(uint vertexID : SV_VertexID)
             (float)curveMax.C[major] - maxCorner[major]);
         outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
         outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
-
-        float t = 1.0 - maxCorner[major];
-        {
-            float dminorDt = (float) (
-                2.0 * (1 - t) * (curveBox.curveMin[1][minor] - curveBox.curveMin[0][minor]) +
-                    2.0 * t * (curveBox.curveMin[2][minor] - curveBox.curveMin[1][minor])
-            );
-            float dmajorDt = (float) (
-                2.0 * (1 - t) * (curveBox.curveMin[1][major] - curveBox.curveMin[0][major]) +
-                    2.0 * t * (curveBox.curveMin[2][major] - curveBox.curveMin[1][major])
-            );
-            float2 normal = float2(dmajorDt, -dminorDt);
-            outV.setMinCurveNormal(normalize(normal));
-        }
-        {
-            float dminorDt = (float) (
-                2.0 * (1 - t) * (curveBox.curveMax[1][minor] - curveBox.curveMax[0][minor]) +
-                    2.0 * t * (curveBox.curveMax[2][minor] - curveBox.curveMax[1][minor])
-            );
-            float dmajorDt = (float) (
-                2.0 * (1 - t) * (curveBox.curveMax[1][major] - curveBox.curveMax[0][major]) +
-                    2.0 * t * (curveBox.curveMax[2][major] - curveBox.curveMax[1][major])
-            );
-            float2 normal = float2(dmajorDt, -dminorDt);
-            outV.setMaxCurveNormal(normalize(normal));
-        }
     }
     
     
