@@ -1,26 +1,32 @@
 
 #include "curves.h"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
+#include <nbl/builtin/hlsl/shapes/util.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 
 namespace curves
 {
 //TODO[Przemek]: move this to cpp-compat hlsl builtins and make it float_t templated
-static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
-{
-    float64_t denominator = v1.y * v2.x - v1.x * v2.y;
-    float64_t2 diff = p1 - p2;
-    float64_t numerator = dot(float64_t2(v2.y, -v2.x), float64_t2(diff.x, diff.y));
-
-    if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
-    {
-        // are parallel and the same
-        return (p1 + p2) / 2.0;
-    }
-
-    float64_t t = numerator / denominator;
-    float64_t2 intersectionPoint = p1 + t * v1;
-    return intersectionPoint;
-}
+//#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+//template<typename float_t>
+//static float64_t2 LineLineIntersection(const nbl::hlsl::vector<float_t, 2>& p1, const nbl::hlsl::vector<float_t, 2>& v1, const nbl::hlsl::vector<float_t, 2>& p2, const nbl::hlsl::vector<float_t, 2>& v2)
+//{
+//    using float_t2 = vector<float_t, 2>;
+//
+//    float_t denominator = v1.y * v2.x - v1.x * v2.y;
+//    float_t2 diff = p1 - p2;
+//    float_t numerator = dot(float_t2(v2.y, -v2.x), float_t2(diff.x, diff.y));
+//
+//    if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
+//    {
+//        // are parallel and the same
+//        return (p1 + p2) / 2.0;
+//    }
+//
+//    float_t t = numerator / denominator;
+//    float_t2 intersectionPoint = p1 + t * v1;
+//    return intersectionPoint;
+//}
 
 //TODO[Przemek]: Move these bezier functions inside the bezier struct in hlsl
 static  float64_t bezierYatT(const shapes::QuadraticBezier<double>& bezier, const float64_t t)
@@ -31,31 +37,6 @@ static  float64_t bezierYatT(const shapes::QuadraticBezier<double>& bezier, cons
     return ((a * t) + b) * t + c; // computePosition at t1
 }
 
-// TODO[Przemek]: Lucas has already moved it to math/equations/quadratic remove this and use this there
-static float64_t2 solveQuadraticRoot(const float64_t a, const float64_t b, const float64_t c)
-{
-    float64_t2 ret;
-
-    const float64_t det = b * b - 4.0 * a * c;
-    const float64_t detSqrt = sqrt(det);
-    const float64_t rcp = 0.5 / a;
-    const float64_t bOver2A = b * rcp;
-
-    float64_t t0 = 0.0, t1 = 0.0;
-    if (b >= 0)
-    {
-        ret[0] = -detSqrt * rcp - bOver2A;
-        ret[1] = 2 * c / (-b - detSqrt);
-    }
-    else
-    {
-        ret[0] = 2 * c / (-b + detSqrt);
-        ret[1] = +detSqrt * rcp - bOver2A;
-    }
-
-    return ret;
-}
-
 // TODO[Przemek]: implement YatX as a helper tool in bezier.hlsl Quadratic curve
 // returns nan if found X is outside of bounds or not found at all
 static float64_t bezierYatX(const shapes::QuadraticBezier<double>& bezier, float64_t x)
@@ -64,7 +45,8 @@ static float64_t bezierYatX(const shapes::QuadraticBezier<double>& bezier, float
     const float64_t b = 2.0 * (bezier.P1.x - bezier.P0.x);
     const float64_t c = bezier.P0.x - x;
 
-    float64_t2 roots = solveQuadraticRoot(a, b, c);
+    equations::Quadratic<float64_t> quadratic = equations::Quadratic<float64_t>::construct(a, b, c);
+    const float64_t2 roots = quadratic.computeRoots();
 
     // _NBL_DEBUG_BREAK_IF(!isnan(roots[0]) && !isnan(roots[1])); // should only have 1 solution
 
@@ -75,16 +57,6 @@ static float64_t bezierYatX(const shapes::QuadraticBezier<double>& bezier, float
     else
         return std::numeric_limits<double>::quiet_NaN();
 
-}
-
-// TODO[Przemek] move this to QuadraticBezier static construct methods in beziers.hlsl
-static shapes::QuadraticBezier<double> constructBezierWithTwoPointsAndTangents(float64_t2 P0, float64_t2 v0, float64_t2 P2, float64_t2 v2)
-{
-    shapes::QuadraticBezier<double> out = {};
-    out.P0 = P0;
-    out.P2 = P2;
-    out.P1 = LineLineIntersection(P0, v0, P2, v2);
-    return out;
 }
 
 float64_t ParametricCurve::arcLen(float64_t t0, float64_t t1) const
@@ -201,7 +173,8 @@ float64_t CubicCurve::computeInflectionPoint(float64_t errorThreshold) const
     const float64_t b = 6.0 * (2.0 * X[1] * Y[0] - 2.0 * X[0] * Y[1] + X[2] * Y[0] - X[0] * Y[2]);
     const float64_t c = 2.0 * (X[2] * Y[1] - X[1] * Y[2]);
 
-    const float64_t2 roots = solveQuadraticRoot(a, b, c);
+    equations::Quadratic<float64_t> quadratic = equations::Quadratic<float64_t>::construct(a, b, c);
+    const float64_t2 roots = quadratic.computeRoots();
     if (roots[0] <= 1.0 && roots[0] >= 0.0)
         return roots[0];
     if (roots[1] <= 1.0 && roots[1] >= 0.0)
@@ -366,7 +339,7 @@ ExplicitMixedCircle::ExplicitCircle ExplicitMixedCircle::ExplicitCircle::fromThr
     const float64_t2 Mid1 = (P1 + P2) / 2.0;
     const float64_t2 Normal1 = float64_t2(P2.y - P1.y, P1.x - P2.x);
 
-    const float64_t2 origin = LineLineIntersection(Mid0, Normal0, Mid1, Normal1);
+    const float64_t2 origin = util::LineLineIntersection(Mid0, Normal0, Mid1, Normal1);
     const float64_t radius = glm::length(P0 - origin);
     return ExplicitCircle(origin, radius);
 
@@ -587,7 +560,7 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
     const float64_t2 V0 = curve.computeTangent(min);
     const float64_t2 P2 = curve.computePosition(max);
     const float64_t2 V2 = curve.computeTangent(max);
-    shapes::QuadraticBezier<double> bezier = constructBezierWithTwoPointsAndTangents(P0, V0, P2, V2);
+    shapes::QuadraticBezier<double> bezier = shapes::QuadraticBezier<double>::constructBezierWithTwoPointsAndTangents(P0, V0, P2, V2);
 
     bool shouldSubdivide = false;
 
