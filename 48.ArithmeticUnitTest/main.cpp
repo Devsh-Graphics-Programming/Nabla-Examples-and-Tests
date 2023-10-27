@@ -1,6 +1,3 @@
-#define _IRR_STATIC_LIB_
-#include <nabla.h>
-
 #include "../common/CommonAPI.h"
 
 using namespace nbl;
@@ -185,7 +182,6 @@ struct emulatedWorkgroupScanInclusive
 };
 
 #include "common.glsl"
-#define HLSL
 constexpr uint32_t kBufferSize = (1u + BUFFER_DWORD_COUNT) * sizeof(uint32_t);
 
 //returns true if result matches
@@ -394,7 +390,6 @@ public:
 		};
 
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
-#ifdef HLSL
 		{
 			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupReduce.comp.hlsl"),
 			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupExclusive.comp.hlsl"),
@@ -403,32 +398,14 @@ public:
 			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupInclusive.comp.hlsl"),
 			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupExclusive.comp.hlsl"),
 		};
-#else
-		{
-			getShaderGLSL("../testSubgroupReduce.comp")/*,
-			getShaderGLSL("../testSubgroupExclusive.comp"),
-			getShaderGLSL("../testSubgroupInclusive.comp"),
-			getShaderGLSL("../testWorkgroupReduce.comp"),
-			getShaderGLSL("../testWorkgroupExclusive.comp"),
-			getShaderGLSL("../testWorkgroupInclusive.comp")*/
-		};
-#endif
 
 		constexpr auto kTestTypeCount = sizeof(shaders) / sizeof(const void*);
 
 		auto getGPUShader = [&](ICPUSpecializedShader* shader, uint32_t wg_count) -> auto
 		{
-#ifdef HLSL
-			auto overriddenUnspecialized = CHLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_HLSL_WORKGROUP_SIZE_ %d\n", wg_count);
+			auto overriddenUnspecialized = CHLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_WORKGROUP_SIZE_ %d\n", wg_count);
 			auto cs = core::make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(overriddenUnspecialized), std::move(ISpecializedShader::SInfo(nullptr, nullptr, "main")));
 			return cpu2gpu.getGPUObjectsFromAssets(&cs, &cs + 1, cpu2gpuParams)->front();
-#else
-			auto overridenUnspecialized = CGLSLCompiler::createOverridenCopy(shader->getUnspecialized(), "#define _NBL_GLSL_WORKGROUP_SIZE_ %d\n", wg_count);
-			ISpecializedShader::SInfo specInfo = shader->getSpecializationInfo();
-			auto cs = core::make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(overridenUnspecialized), std::move(specInfo));
-			return cpu2gpu.getGPUObjectsFromAssets(&cs, &cs + 1, cpu2gpuParams)->front();
-			// no need to wait on fences because its only a shader create, does not result in the filling of image or buffers
-#endif
 		};
 
 		auto logTestOutcome = [this](bool passed, uint32_t workgroupSize)
