@@ -42,12 +42,7 @@ struct StyleAccessor
 
     float operator[](const uint32_t ix)
     {
-        return lineStyles[styleIdx].stipplePattern[ix];
-    }
-
-    bool isDotPattern(const uint32_t ix)
-    {
-        return false;
+        return lineStyles[styleIdx].getStippleValue(ix);
     }
 };
 
@@ -94,7 +89,7 @@ struct StyleClipper
 
         if (notInDrawSection || tAfterBezierInterior)
         {
-            float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : style.stipplePattern[patternIdx - 1];
+            float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : styleAccessor[patternIdx - 1];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
             float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
             const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
@@ -102,7 +97,7 @@ struct StyleClipper
         }
         if (notInDrawSection || tBeforeBezierInterior)
         {
-            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : style.stipplePattern[patternIdx];
+            float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdx];
             diffToRightDrawableSection -= normalizedPlaceInPattern;
             float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
             const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
@@ -117,10 +112,7 @@ struct StyleClipper
             {
                 if (ret[0] > 1.0 - AccuracyThresholdT)
                 {
-                    // stipplePatternSize is odd by construction (pattern starts with + and ends with -)
-                    const bool leftIsDot = 
-                        (patternIdx > 1 && style.stipplePattern[patternIdx - 1] == style.stipplePattern[patternIdx - 2]) ||
-                        (patternIdx == 1 && style.stipplePattern[0] == 0.0);
+                    const bool leftIsDot = style.isLeftDot(patternIdx);
                     if (leftIsDot)
                     {
                         ret[0] = InvalidT;
@@ -141,10 +133,7 @@ struct StyleClipper
             {
                 if (ret[1] < 0.0 + AccuracyThresholdT)
                 {
-                    // stipplePatternSize is odd by construction (pattern starts with + and ends with -)
-                    const bool rightIsDot =
-                        (patternIdx == style.stipplePatternSize && style.stipplePattern[0] == 0.0) ||
-                        (patternIdx + 2 <= style.stipplePatternSize && style.stipplePattern[patternIdx] == style.stipplePattern[patternIdx + 1]);
+                    const bool rightIsDot = style.isRightDot(patternIdx);
 
                     if (rightIsDot)
                     {

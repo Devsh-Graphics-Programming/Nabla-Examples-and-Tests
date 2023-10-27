@@ -156,8 +156,27 @@ struct CPULineStyle
 
 	LineStyle getAsGPUData() const
 	{
-		LineStyle ret;
-		std::memcpy(ret.stipplePattern, stipplePattern, STIPPLE_PATTERN_MAX_SZ*sizeof(float));
+		LineStyle ret = {};
+
+		// pack into uint32_t
+		for (uint32_t i = 0; i < stipplePatternSize; ++i)
+		{
+			const bool leftIsDot =
+				(i > 1 && stipplePattern[i - 1] == stipplePattern[i - 2]) ||
+				(i == 1 && stipplePattern[0] == 0.0);
+
+			const bool rightIsDot =
+				(i == stipplePatternSize && stipplePattern[0] == 0.0) ||
+				(i + 2 <= stipplePatternSize && stipplePattern[i] == stipplePattern[i + 1]);
+
+			ret.stipplePattern[i] = static_cast<uint32_t>(stipplePattern[i] * (1u << 29u));
+
+			if (leftIsDot)
+				ret.stipplePattern[i] |= 1u << 30u;
+			if (rightIsDot)
+				ret.stipplePattern[i] |= 1u << 31u;
+		}
+
 		ret.color = color;
 		ret.screenSpaceLineWidth = screenSpaceLineWidth;
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
@@ -2388,6 +2407,7 @@ public:
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
 					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
+					cpuLineStyles[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
 					polylines[i].addQuadBeziers(core::SRange<QuadraticBezierInfo>(&quadratics[i], &quadratics[i] + 1u));
 
 					float64_t2 linePoints[2u] = {};
