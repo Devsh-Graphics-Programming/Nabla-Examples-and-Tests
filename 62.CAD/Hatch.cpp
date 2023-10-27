@@ -268,8 +268,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					}
 
 #ifdef DEBUG_HATCH_VISUALLY
-					if (debugOutput)
-						drawDebugBezier(outputBezier, float32_t4(0.0, 0.0, 0.0, 1.0));
+					//if (debugOutput)
+						//drawDebugBezier(outputBezier, float32_t4(0.0, 0.0, 0.0, 1.0));
 #endif
 					beziers.push_back(outputBezier);
 				};
@@ -309,13 +309,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                         {
                             addBezier(monotonicSegments.data()[0]);
                             addBezier(monotonicSegments.data()[1]);
-#ifdef DEBUG_HATCH_VISUALLY
-                            if (debugOutput)
-                            {
-                                drawDebugBezier(monotonicSegments.data()[0], float32_t4(0.0, 0.6, 0.0, 0.5));
-                                drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 0.0, 0.6, 0.5));
-							}
-#endif
                         }
                     }
                 }

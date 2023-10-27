@@ -201,7 +201,6 @@ struct PSInput
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     [[vk::location(6)]] float4 interp_data6 : COLOR6;
-    [[vk::location(7)]] nointerpolation float4 data7 : COLOR7;
     
         // ArcLenCalculator<float>
 
@@ -238,22 +237,39 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::equations::Quadratic<float> getCurveMinBezier() {
+    nbl::hlsl::equations::Quadratic<float> getCurveMinMinor() {
         return nbl::hlsl::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::equations::Quadratic<float> getCurveMaxBezier() {
+    nbl::hlsl::equations::Quadratic<float> getCurveMaxMinor() {
         return nbl::hlsl::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
+    void setCurveMinMinor(nbl::hlsl::equations::Quadratic<float> bezier) {
         data2.x = bezier.a;
         data2.y = bezier.b;
         data2.z = bezier.c;
     }
-    void setCurveMaxBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
+    void setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float> bezier) {
         data2.w = bezier.a;
         data3.x = bezier.b;
         data3.y = bezier.c;
+    }
+
+    // data4
+    nbl::hlsl::equations::Quadratic<float> getCurveMinMajor() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data4.x, data4.y, 0.0 /* unused */);
+    }
+    nbl::hlsl::equations::Quadratic<float> getCurveMaxMajor() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data4.z, data4.w, 0.0 /* unused */);
+    }
+
+    void setCurveMinMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data4.x = bezier.a;
+        data4.y = bezier.b;
+    }
+    void setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data4.z = bezier.a;
+        data4.w = bezier.b;
     }
 
     // interp_data5, interp_data6    
@@ -287,7 +303,7 @@ struct PSInput
         interp_data6.x = rootFinder.C2;
         interp_data6.y = rootFinder.det;
     }
-    
+
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
     {

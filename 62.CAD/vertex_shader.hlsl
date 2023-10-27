@@ -390,22 +390,23 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);
 
-        nbl::hlsl::equations::Quadratic<float> curveMinMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
+        outV.setCurveMinMinor(nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[minor], 
             (float)curveMin.B[minor], 
-            (float)curveMin.C[minor]);
-        nbl::hlsl::equations::Quadratic<float> curveMaxMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)curveMin.C[minor]));
+        outV.setCurveMinMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)curveMin.A[major], 
+            (float)curveMin.B[major], 
+            (float)curveMin.C[major]));
+
+        outV.setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMax.A[minor], 
             (float)curveMax.B[minor], 
-            (float)curveMax.C[minor]);
-
-        outV.setCurveMinBezier(curveMinMinorAxis);
-        outV.setCurveMaxBezier(curveMaxMinorAxis);
-        
-        outV.data7.x = (float)curveMin.A[major];
-        outV.data7.y = (float)curveMin.B[major];
-        outV.data7.z = (float)curveMax.A[major];
-        outV.data7.w = (float)curveMax.B[major];
+            (float)curveMax.C[minor]));
+        outV.setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+            (float)curveMax.A[major], 
+            (float)curveMax.B[major], 
+            (float)curveMax.C[major]));
 
         nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
             (float)curveMin.A[major], 
