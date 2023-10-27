@@ -1,26 +1,20 @@
-// REVIEW: Not sure how the register types are chosen
-// u -> For buffers that will be accessed randomly by threads i.e. thread 3 might access index 16
-// b -> For uniform buffers
-// t -> For buffers where each thread accesses its own index
-
-// Instead of register(...) we can also use [[vk::binding(uint)]]
-
 #pragma shader_stage(compute)
 
+#include "common.hlsl"
 
-#include "../examples_tests/48.ArithmeticUnitTest/common.glsl"
-
-#include "nbl/builtin/hlsl/workgroup/scratch_sz.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
-#include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
-#include "nbl/builtin/hlsl/memory_accessor.hlsl"
+#include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 
-struct Output {
-	uint subgroupSize;
-	uint output[BUFFER_DWORD_COUNT];
-};
+// annoying things necessary to do until DXC implements proposal 0011
+static uint32_t __gl_LocalInvocationIndex;
+uint32_t nbl::hlsl::glsl::gl_LocalInvocationIndex() {return __gl_LocalInvocationIndex;}
+static uint32_t3 __gl_GlobalInvocationID;
+uint32_t3 nbl::hlsl::glsl::gl_GlobalInvocationID() {return __gl_GlobalInvocationID;}
 
+
+
+// TODO: see if DXC chokes if we make these static :D
 [[vk::binding(0, 0)]] StructuredBuffer<uint> inputValue; // read-only
 
 [[vk::binding(1, 0)]] RWStructuredBuffer<Output> outand;
@@ -32,53 +26,42 @@ struct Output {
 [[vk::binding(7, 0)]] RWStructuredBuffer<Output> outmax;
 [[vk::binding(8, 0)]] RWStructuredBuffer<Output> outbitcount;
 
-template<uint32_t WGSZ,uint32_t SGSZ>
-struct required_scratch_size : nbl::hlsl::workgroup::impl::trunc_geom_series<WGSZ,SGSZ> {};
-static const uint arithmeticSz = required_scratch_size<_NBL_WORKGROUP_SIZE_, nbl::hlsl::subgroup::MinSubgroupSize>::value;
-static const uint32_t ballotSz = nbl::hlsl::workgroup::impl::uballotBitfieldCount + 1;
-static const uint32_t broadcastSz = ballotSz;
-static const uint32_t scratchSz = arithmeticSz + ballotSz + broadcastSz;
-groupshared uint32_t scratch[scratchSz];
-
-template<uint32_t offset>
-struct ScratchProxy
+template<template<class> class operation_t>
+struct test
 {
-	uint get(uint ix)
+	static void run()
 	{
-		return scratch[ix + offset];
+		const uint32_t globalIx = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
+		const uint32_t sourceVal = inputValue[globalIx];
+
+		outand[0].subgroupSize
+			= outxor[0].subgroupSize
+			= outor[0].subgroupSize
+			= outadd[0].subgroupSize
+			= outmul[0].subgroupSize
+			= outmin[0].subgroupSize
+			= outmax[0].subgroupSize
+			= nbl::hlsl::glsl::gl_SubgroupSize();
+
+		operation_t<nbl::hlsl::bit_and<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_and;
+		outand[0].output[globalIx] = r_and(sourceVal);
+
+		operation_t<nbl::hlsl::bit_xor<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_xor;
+		outxor[0].output[globalIx] = r_xor(sourceVal);
+
+		operation_t<nbl::hlsl::bit_or<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_or;
+		outor[0].output[globalIx] = r_or(sourceVal);
+
+		operation_t<nbl::hlsl::plus<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_add;
+		outadd[0].output[globalIx] = r_add(sourceVal);
+
+		operation_t<nbl::hlsl::multiplies<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_mul;
+		outmul[0].output[globalIx] = r_mul(sourceVal);
+
+		operation_t<nbl::hlsl::minimum<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_min;
+		outmin[0].output[globalIx] = r_min(sourceVal);
+
+		operation_t<nbl::hlsl::maximum<nbl::hlsl::remove_const<decltype(sourceVal)>::type> > r_max;
+		outmax[0].output[globalIx] = r_max(sourceVal);
 	}
-
-	void set(uint ix, uint value)
-	{
-		scratch[ix + offset] = value;
-	}
-
-	uint atomicAdd(in uint ix, uint data)
-	{
-		return nbl::hlsl::glsl::atomicAdd(scratch[ix + offset], data);
-	}
-
-	uint atomicOr(in uint ix, uint data)
-	{
-		return nbl::hlsl::glsl::atomicOr(scratch[ix + offset], data);
-	}
-
-    void workgroupExecutionAndMemoryBarrier() {
-        nbl::hlsl::glsl::barrier();
-        nbl::hlsl::glsl::memoryBarrierShared();
-    }
-};
-
-struct SharedMemory
-{
-	nbl::hlsl::MemoryAdaptor<ScratchProxy<0> > main;
-	nbl::hlsl::MemoryAdaptor<ScratchProxy<arithmeticSz> > ballot;
-	nbl::hlsl::MemoryAdaptor<ScratchProxy<arithmeticSz + ballotSz> > broadcast;
-
-    void workgroupExecutionAndMemoryBarrier()
-    {
-        main.workgroupExecutionAndMemoryBarrier();
-        ballot.workgroupExecutionAndMemoryBarrier();
-        broadcast.workgroupExecutionAndMemoryBarrier();
-    }
 };

@@ -2,8 +2,9 @@ static uint3 gl_GlobalInvocationID;
 static uint3 gl_WorkGroupID;
 static uint gl_LocalInvocationIndex;
 
+#include "shaderCommon.hlsl"
+
 #include "nbl/builtin/hlsl/workgroup/basic.hlsl"
-#include "../examples_tests/48.ArithmeticUnitTest/hlsl/shaderCommon.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/memory_accessor.hlsl"
 
