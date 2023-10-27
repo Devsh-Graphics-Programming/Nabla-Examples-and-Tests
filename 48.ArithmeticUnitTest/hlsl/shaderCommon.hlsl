@@ -1,5 +1,3 @@
-#pragma shader_stage(compute)
-
 #include "common.hlsl"
 
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
@@ -19,28 +17,34 @@ uint32_t3 nbl::hlsl::glsl::gl_GlobalInvocationID() {return __gl_GlobalInvocation
 [[vk::binding(1, 0)]] RWByteAddressBuffer output[8];
 
 
-template<template<class> class operation_t>
-struct test
+#ifndef OPERATION
+#error "Define OPERATION!"
+#endif
+template<template<class> class binop, typename T>
+static void subtest(NBL_CONST_REF_ARG(T) sourceVal)
 {
-	static void run()
-	{
-		const uint32_t sourceVal = inputValue[nbl::hlsl::glsl::gl_GlobalInvocationID().x];
-		
-		subtest<bit_and>(sourceVal);
-		subtest<bit_xor>(sourceVal);
-		subtest<bit_or>(sourceVal);
-		subtest<plus>(sourceVal);
-		subtest<multiplies>(sourceVal);
-		subtest<minimum>(sourceVal);
-		subtest<maximum>(sourceVal);
-	}
-
-	template<template<class> class binop, typename T>
-	static void subtest(T sourceVal)
-	{
+	const uint32_t globalIndex = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
+	if (globalIndex==0u)
 		output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
 		
-		operation_t<typename binop<T>::base_t> func;
-		output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*nbl::hlsl::glsl::gl_GlobalInvocationID().x,func(sourceVal));
-	}
-};
+	operation_t<typename binop<T>::base_t> func;
+	output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*globalIndex,func(sourceVal/*,accessor*/));
+}
+// how to fix the accessor conundrum?
+
+[numthreads(WORKGROUP_SIZE,1,1)]
+void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThreadID)
+{
+	__gl_LocalInvocationIndex = invIdx;
+	__gl_GlobalInvocationID = globalId;
+	const uint32_t sourceVal = inputValue[nbl::hlsl::glsl::gl_GlobalInvocationID().x];
+
+	subtest<bit_and>(sourceVal);
+	subtest<bit_xor>(sourceVal);
+	subtest<bit_or>(sourceVal);
+	subtest<plus>(sourceVal);
+	subtest<multiplies>(sourceVal);
+	subtest<minimum>(sourceVal);
+	subtest<maximum>(sourceVal);
+	subtest<ballot>(sourceVal);
+}

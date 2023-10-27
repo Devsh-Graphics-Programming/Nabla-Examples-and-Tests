@@ -230,7 +230,7 @@ public:
 			return smart_refctd_ptr<ICPUShader>(smart_refctd_ptr_static_cast<ICPUSpecializedShader>(firstAssetInBundle)->getUnspecialized());
 		};
 		auto subgroupShader = getShaderSource("../hlsl/testSubgroup.comp.hlsl");
-//		auto workgroupTestSource = getShaderSource("../hlsl/testWorkgroup.comp.hlsl");
+		auto workgroupTestSource = getShaderSource("../hlsl/testWorkgroup.comp.hlsl");
 
 		// create pipeline (specialized every test) [TODO: turn into a future/async]
 		auto createPipeline = [&](const smart_refctd_ptr<const ICPUShader>& source, const char* opName, const uint32_t workgroupSize, const uint32_t itemsPerWG=0) -> smart_refctd_ptr<IGPUComputePipeline>

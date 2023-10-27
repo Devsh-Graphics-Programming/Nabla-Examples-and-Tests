@@ -1,60 +1,62 @@
 #include "shaderCommon.hlsl"
 
 #include "nbl/builtin/hlsl/workgroup/scratch_sz.hlsl"
-#include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
-#include "nbl/builtin/hlsl/memory_accessor.hlsl"
 
+uint32_t3 gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
 
-// TODO: move to a builtin!
-template<uint32_t WGSZ,uint32_t SGSZ>
-struct required_scratch_size : nbl::hlsl::workgroup::impl::trunc_geom_series<WGSZ,SGSZ> {};
+static const uint32_t ArithmeticSz = nbl::hlsl::workgroup::scratch_size_arithmetic<ITEMS_PER_WG>::value;
+static const uint32_t BallotSz = nbl::hlsl::workgroup::scratch_size_ballot<ITEMS_PER_WG>::value;
+static const uint32_t ScratchSz = arithmeticSz+ballotSz+nbl::hlsl::workgroup::scratch_size_broadcast;
 
-static const uint arithmeticSz = required_scratch_size<_NBL_WORKGROUP_SIZE_, nbl::hlsl::subgroup::MinSubgroupSize>::value;
-
-static const uint32_t ballotSz = nbl::hlsl::workgroup::impl::uballotBitfieldCount + 1;
-static const uint32_t broadcastSz = ballotSz;
-static const uint32_t scratchSz = arithmeticSz + ballotSz + broadcastSz;
-groupshared uint32_t scratch[scratchSz];
+// TODO: Can we make it a static variable?
+groupshared uint32_t scratch[ScratchSz];
 
 template<uint32_t offset>
 struct ScratchProxy
 {
-	uint get(uint ix)
+	uint32_t get(const uint32_t ix)
 	{
-		return scratch[ix + offset];
+		return scratch[ix+offset];
 	}
 
-	void set(uint ix, uint value)
+	void set(const uint32_t ix, const uint32_t value)
 	{
-		scratch[ix + offset] = value;
+		scratch[ix+offset] = value;
 	}
 
-	uint atomicAdd(in uint ix, uint data)
+	uint32_t atomicAdd(const uint32_t ix, const uint32_t data)
 	{
-		return nbl::hlsl::glsl::atomicAdd(scratch[ix + offset], data);
+		return nbl::hlsl::glsl::atomicAdd(scratch[ix+offset], data);
 	}
 
-	uint atomicOr(in uint ix, uint data)
+	uint32_t atomicOr(const uint32_t ix, const uint32_t data)
 	{
-		return nbl::hlsl::glsl::atomicOr(scratch[ix + offset], data);
+		return nbl::hlsl::glsl::atomicOr(scratch[ix+offset],data);
 	}
 
-    void workgroupExecutionAndMemoryBarrier() {
+    void workgroupExecutionAndMemoryBarrier()
+	{
         nbl::hlsl::glsl::barrier();
-        nbl::hlsl::glsl::memoryBarrierShared();
+        //nbl::hlsl::glsl::memoryBarrierShared(); implied by the above
     }
 };
 
 struct SharedMemory
 {
-	nbl::hlsl::MemoryAdaptor<ScratchProxy<0> > main;
-	nbl::hlsl::MemoryAdaptor<ScratchProxy<arithmeticSz> > ballot;
-	nbl::hlsl::MemoryAdaptor<ScratchProxy<arithmeticSz + ballotSz> > broadcast;
+	nbl::hlsl::MemoryAdaptor<ScratchProxy<0> > arithmetic;
+	nbl::hlsl::MemoryAdaptor<ScratchProxy<ArithmeticSz> > ballot;
+	nbl::hlsl::MemoryAdaptor<ScratchProxy<ArithmeticSz+BallotSz> > broadcast;
+};
 
-    void workgroupExecutionAndMemoryBarrier()
-    {
-        main.workgroupExecutionAndMemoryBarrier();
-        ballot.workgroupExecutionAndMemoryBarrier();
-        broadcast.workgroupExecutionAndMemoryBarrier();
-    }
+#include "nbl/builtin/hlsl/workgroup/broadcast.hlsl"
+
+template<class Binop>
+struct operation_t// : nbl::hlsl::workgroup::OPERATION<Binop,SharedMemory>
+{
+	SharedMemory accessors;
+
+	type_t operator()(NBL_CONST_REF_ARG(type_t) value)
+	{
+		return value;
+	}
 };
