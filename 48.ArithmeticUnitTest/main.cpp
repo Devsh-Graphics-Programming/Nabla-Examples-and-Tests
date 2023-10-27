@@ -79,7 +79,7 @@ struct max_op
 	static inline constexpr const char* name = "max";
 };
 template<typename T>
-struct ballot : add_op<T> 
+struct ballot : add_op<T>
 {
 	static inline constexpr const char* name = "bitcount";
 };
@@ -322,7 +322,7 @@ public:
 
 		nbl::video::IGPUObjectFromAssetConverter cpu2gpu;
 #pragma endregion Init
-		
+
 		inputData = new uint32_t[BUFFER_DWORD_COUNT];
 		{
 			std::mt19937 randGenerator(std::time(0));
@@ -396,12 +396,12 @@ public:
 		core::smart_refctd_ptr<ICPUSpecializedShader> shaders[] =
 #ifdef HLSL
 		{
-			getShaderGLSL("../hlsl/testSubgroupReduce.comp.hlsl"),
-			getShaderGLSL("../hlsl/testSubgroupExclusive.comp.hlsl"),
-			getShaderGLSL("../hlsl/testSubgroupInclusive.comp.hlsl"),
-			//getShaderGLSL("../hlsl/testWorkgroupReduce.comp.hlsl"),
-			//getShaderGLSL("../hlsl/testWorkgroupInclusive.comp.hlsl"),
-			//getShaderGLSL("../hlsl/testWorkgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupReduce.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupExclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testSubgroupInclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupReduce.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupInclusive.comp.hlsl"),
+			getShaderGLSL("../examples_tests/48.ArithmeticUnitTest/hlsl/testWorkgroupExclusive.comp.hlsl"),
 		};
 #else
 		{
@@ -450,7 +450,7 @@ public:
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		logicalDevice->createCommandBuffers(cmdPools[0].get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 		computeQueue->startCapture();
-		for (uint32_t workgroupSize=45u; workgroupSize<=1024; workgroupSize++)
+		for (uint32_t workgroupSize=512; workgroupSize<=513; workgroupSize+=100)
 		{
 			logger->log("Testing Workgroup Size %u", system::ILogger::ELL_INFO, workgroupSize);
 			core::smart_refctd_ptr<IGPUComputePipeline> pipelines[kTestTypeCount];
@@ -466,12 +466,12 @@ public:
 			logTestOutcome(passed, workgroupSize);
 			passed = runTest<emulatedSubgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[2u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get()) && passed;
 			logTestOutcome(passed, workgroupSize);
-			//passed = runTest<emulatedWorkgroupReduction>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[3u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
-			//logTestOutcome(passed, workgroupSize);
-			//passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[4u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
-			//logTestOutcome(passed, workgroupSize);
-			//passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[5u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
-			//logTestOutcome(passed, workgroupSize);
+			passed = runTest<emulatedWorkgroupReduction>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[3u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			logTestOutcome(passed, workgroupSize);
+			passed = runTest<emulatedWorkgroupScanInclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[4u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			logTestOutcome(passed, workgroupSize);
+			passed = runTest<emulatedWorkgroupScanExclusive>(logicalDevice.get(), utilities.get(), transferDownQueue, computeQueue, fence.get(), cmdbuf.get(), pipelines[5u].get(), descriptorSet.get(), inputData, workgroupSize, buffers, logger.get(), true) && passed;
+			logTestOutcome(passed, workgroupSize);
 		}
 		computeQueue->endCapture();
 	}
