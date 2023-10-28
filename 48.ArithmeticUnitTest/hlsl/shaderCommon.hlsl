@@ -28,7 +28,7 @@ static void subtest(NBL_CONST_REF_ARG(T) sourceVal)
 		output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
 		
 	operation_t<typename binop<T>::base_t> func;
-	output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*globalIndex,func(sourceVal/*,accessor*/));
+	output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*globalIndex,func(sourceVal));
 }
 // how to fix the accessor conundrum?
 

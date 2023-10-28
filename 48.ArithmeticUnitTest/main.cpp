@@ -196,7 +196,6 @@ public:
 				logTestOutcome(passed,workgroupSize);
 				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
 				{
-					/*
 					logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
@@ -204,7 +203,6 @@ public:
 					logTestOutcome(passed,itemsPerWG);
 					passed = runTest<emulatedScanExclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
-					*/
 				}
 				computeQueue->endCapture();
 			}
@@ -260,6 +258,7 @@ public:
 					source.get(),"#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
 					(("workgroup::")+arith_name).c_str(),workgroupSize,itemsPerWG
 				);
+				return true;
 			}
 			else
 			{
