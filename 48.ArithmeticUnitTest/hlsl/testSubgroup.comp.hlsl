@@ -1,5 +1,5 @@
 #pragma shader_stage(compute)
 
-#define operation_t nbl::hlsl::subgroup::OPERATION
+#define operation_t nbl::hlsl::OPERATION
 
 #include "shaderCommon.hlsl"

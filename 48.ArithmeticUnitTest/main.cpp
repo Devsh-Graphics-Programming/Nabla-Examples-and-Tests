@@ -7,106 +7,42 @@ using namespace nbl::asset;
 using namespace nbl::system;
 using namespace nbl::video;
 
-//subgroup method emulations on the CPU, to verify the results of the GPU methods
-template<class CRTP, typename T>
-struct emulatedSubgroupCommon
+// method emulations on the CPU, to verify the results of the GPU methods
+template<class Binop>
+struct emulatedReduction
 {
-	using type_t = T;
+	using type_t = typename Binop::type_t;
 
-	inline void operator()(type_t* outputData, const type_t* workgroupData, uint32_t workgroupSize, uint32_t subgroupSize)
+	static inline void impl(type_t* out, const type_t* in, const uint32_t itemCount)
 	{
-		for (uint32_t pseudoSubgroupID=0u; pseudoSubgroupID<workgroupSize; pseudoSubgroupID+=subgroupSize)
-		{
-			type_t* outSubgroupData = outputData+pseudoSubgroupID;
-			const type_t* subgroupData = workgroupData+pseudoSubgroupID;
-			CRTP::impl(outSubgroupData,subgroupData,min<uint32_t>(subgroupSize,workgroupSize-pseudoSubgroupID));
-		}
+		const type_t red = std::reduce(in,in+itemCount,Binop::identity,Binop());
+		std::fill(out,out+itemCount,red);
 	}
+
+	static inline constexpr const char* name = "reduction";
 };
-template<class OP>
-struct emulatedSubgroupReduction : emulatedSubgroupCommon<emulatedSubgroupReduction<OP>,typename OP::type_t>
+template<class Binop>
+struct emulatedScanInclusive
 {
-	using type_t = typename OP::type_t;
+	using type_t = typename Binop::type_t;
 
-	static inline void impl(type_t* outSubgroupData, const type_t* subgroupData, const uint32_t clampedSubgroupSize)
+	static inline void impl(type_t* out, const type_t* in, const uint32_t itemCount)
 	{
-		type_t red = subgroupData[0];
-		for (auto i=1u; i<clampedSubgroupSize; i++)
-			red = OP()(red,subgroupData[i]);
-		std::fill(outSubgroupData,outSubgroupData+clampedSubgroupSize,red);
+		std::inclusive_scan(in,in+itemCount,out,Binop());
 	}
-	static inline constexpr const char* name = "subgroup reduction";
+	static inline constexpr const char* name = "inclusive_scan";
 };
-template<class OP>
-struct emulatedSubgroupScanExclusive : emulatedSubgroupCommon<emulatedSubgroupScanExclusive<OP>,typename OP::type_t>
+template<class Binop>
+struct emulatedScanExclusive
 {
-	using type_t = typename OP::type_t;
+	using type_t = typename Binop::type_t;
 
-	static inline void impl(type_t* outSubgroupData, const type_t* subgroupData, const uint32_t clampedSubgroupSize)
+	static inline void impl(type_t* out, const type_t* in, const uint32_t itemCount)
 	{
-		outSubgroupData[0u] = OP::identity;
-		for (auto i=1u; i<clampedSubgroupSize; i++)
-			outSubgroupData[i] = OP()(outSubgroupData[i-1u],subgroupData[i-1u]);
+		std::exclusive_scan(in,in+itemCount,out,Binop::identity,Binop());
 	}
-	static inline constexpr const char* name = "subgroup exclusive scan";
+	static inline constexpr const char* name = "exclusive_scan";
 };
-template<class OP>
-struct emulatedSubgroupScanInclusive : emulatedSubgroupCommon<emulatedSubgroupScanInclusive<OP>,typename OP::type_t>
-{
-	using type_t = typename OP::type_t;
-
-	static inline void impl(type_t* outSubgroupData, const type_t* subgroupData, const uint32_t clampedSubgroupSize)
-	{
-		outSubgroupData[0u] = subgroupData[0u];
-		for (auto i=1u; i<clampedSubgroupSize; i++)
-			outSubgroupData[i] = OP()(outSubgroupData[i-1u],subgroupData[i]);
-	}
-	static inline constexpr const char* name = "subgroup inclusive scan";
-};
-
-#if 0
-//workgroup methods
-template<class OP>
-struct emulatedWorkgroupReduction
-{
-	using type_t = typename OP::type_t;
-
-	inline void operator()(type_t* outputData, const type_t* workgroupData, uint32_t workgroupSize, uint32_t subgroupSize)
-	{
-		type_t red = workgroupData[0];
-		for (auto i=1u; i<workgroupSize; i++)
-			red = OP()(red,workgroupData[i]);
-		std::fill(outputData,outputData+workgroupSize,red);
-	}
-	static inline constexpr const char* name = "workgroup reduction";
-};
-template<class OP>
-struct emulatedWorkgroupScanExclusive
-{
-	using type_t = typename OP::type_t;
-
-	inline void operator()(type_t* outputData, const type_t* workgroupData, uint32_t workgroupSize, uint32_t subgroupSize)
-	{
-		outputData[0u] = OP::identity;
-		for (auto i=1u; i<workgroupSize; i++)
-			outputData[i] = OP()(outputData[i-1u],workgroupData[i-1u]);
-	}
-	static inline constexpr const char* name = "workgroup exclusive scan";
-};
-template<class OP>
-struct emulatedWorkgroupScanInclusive
-{
-	using type_t = typename OP::type_t;
-
-	inline void operator()(type_t* outputData, const type_t* workgroupData, uint32_t workgroupSize, uint32_t subgroupSize)
-	{
-		outputData[0u] = workgroupData[0u];
-		for (auto i=1u; i<workgroupSize; i++)
-			outputData[i] = OP()(outputData[i-1u],workgroupData[i]);
-	}
-	static inline constexpr const char* name = "workgroup inclusive scan";
-};
-#endif
 
 
 class ArithmeticUnitTestApp : public NonGraphicalApplicationBase
@@ -149,7 +85,7 @@ public:
 		{
 			std::mt19937 randGenerator(std::time(0));
 			for (uint32_t i=0u; i<elementCount; i++)
-				inputData[i] = randGenerator();
+				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0])*elementCount;
@@ -177,7 +113,6 @@ public:
 		}
 
 		// create Descriptor Set and Pipeline Layout
-		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 		{
 			// create Descriptor Set Layout
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
@@ -229,17 +164,8 @@ public:
 			auto firstAssetInBundle = bundle.getContents()[0];
 			return smart_refctd_ptr<ICPUShader>(smart_refctd_ptr_static_cast<ICPUSpecializedShader>(firstAssetInBundle)->getUnspecialized());
 		};
-		auto subgroupShader = getShaderSource("../hlsl/testSubgroup.comp.hlsl");
+		auto subgroupTestSource = getShaderSource("../hlsl/testSubgroup.comp.hlsl");
 		auto workgroupTestSource = getShaderSource("../hlsl/testWorkgroup.comp.hlsl");
-
-		// create pipeline (specialized every test) [TODO: turn into a future/async]
-		auto createPipeline = [&](const smart_refctd_ptr<const ICPUShader>& source, const char* opName, const uint32_t workgroupSize, const uint32_t itemsPerWG=0) -> smart_refctd_ptr<IGPUComputePipeline>
-		{
-			auto overridenUnspecialized = CHLSLCompiler::createOverridenCopy(source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d",opName,workgroupSize,itemsPerWG);
-			auto shader = logicalDevice->createShader(std::move(overridenUnspecialized));
-			auto specialized = logicalDevice->createSpecializedShader(shader.get(),ISpecializedShader::SInfo(nullptr,nullptr,"main"));
-			return logicalDevice->createComputePipeline(nullptr,smart_refctd_ptr(pipelineLayout),std::move(specialized));
-		};
 
 		// now create or retrieve final resources to run our tests
 		computeQueue = initOutput.queues[CommonAPI::InitOutput::EQT_COMPUTE];
@@ -258,26 +184,27 @@ public:
 				// make sure renderdoc captures everything for debugging
 				computeQueue->startCapture();
 				logger->log("Testing Workgroup Size %u", ILogger::ELL_INFO, workgroupSize);
-				logger->log("Testing Item Count %u", ILogger::ELL_INFO, workgroupSize);
 
 				bool passed = true;
 
 				// TODO async the testing
-				const IGPUDescriptorSet* ds = descriptorSet.get();
-				passed = runTest<emulatedSubgroupReduction>(elementCount,createPipeline(subgroupShader,"reduction",workgroupSize),workgroupSize) && passed;
-				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedSubgroupScanInclusive>(elementCount,createPipeline(subgroupShader,"inclusive_scan",workgroupSize),workgroupSize) && passed;
-				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedSubgroupScanExclusive>(elementCount,createPipeline(subgroupShader,"exclusive_scan",workgroupSize),workgroupSize) && passed;
-				logTestOutcome(passed, workgroupSize);
+				passed = runTest<emulatedReduction,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
+				logTestOutcome(passed,workgroupSize);
+				passed = runTest<emulatedScanInclusive,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
+				logTestOutcome(passed,workgroupSize);
+				passed = runTest<emulatedScanExclusive,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
+				logTestOutcome(passed,workgroupSize);
 				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
 				{
-					//passed = runTest<emulatedWorkgroupReduction>(pipelines[3u].get(), workgroupSize, true) && passed;
-					logTestOutcome(passed, itemsPerWG);
-					//passed = runTest<emulatedWorkgroupScanInclusive>(pipelines[4u].get(), workgroupSize, true) && passed;
-					logTestOutcome(passed, itemsPerWG);
-					//passed = runTest<emulatedWorkgroupScanExclusive>(pipelines[5u].get(), workgroupSize, true) && passed;
-					logTestOutcome(passed, itemsPerWG);
+					/*
+					logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
+					passed = runTest<emulatedReduction,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
+					logTestOutcome(passed,itemsPerWG);
+					passed = runTest<emulatedScanInclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
+					logTestOutcome(passed,itemsPerWG);
+					passed = runTest<emulatedScanExclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
+					logTestOutcome(passed,itemsPerWG);
+					*/
 				}
 				computeQueue->endCapture();
 			}
@@ -312,14 +239,40 @@ public:
 				logger->log("Failed test #%u", ILogger::ELL_ERROR, workgroupSize);
 			}
 		}
-
-
-		template<template<class> class Arithmetic>
-		bool runTest(const uint32_t elementCount, smart_refctd_ptr<IGPUComputePipeline>&& pipeline, const uint32_t workgroupSize, bool is_workgroup_test = false)
+		
+		// create pipeline (specialized every test) [TODO: turn into a future/async]
+		smart_refctd_ptr<IGPUComputePipeline> createPipeline(smart_refctd_ptr<ICPUShader>&& overridenUnspecialized)
 		{
-			// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
-			const uint32_t workgroupCount = elementCount/workgroupSize;
+			auto shader = logicalDevice->createShader(std::move(overridenUnspecialized));
+			auto specialized = logicalDevice->createSpecializedShader(shader.get(),ISpecializedShader::SInfo(nullptr,nullptr,"main"));
+			return logicalDevice->createComputePipeline(nullptr,smart_refctd_ptr(pipelineLayout),std::move(specialized));
+		}
 
+		template<template<class> class Arithmetic, bool WorkgroupTest>
+		bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint32_t workgroupSize, uint32_t itemsPerWG=~0u)
+		{			
+			constexpr std::string arith_name = Arithmetic<bit_xor<float>>::name;
+
+			smart_refctd_ptr<ICPUShader> overridenUnspecialized;
+			if constexpr (WorkgroupTest)
+			{
+				overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+					source.get(),"#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
+					(("workgroup::")+arith_name).c_str(),workgroupSize,itemsPerWG
+				);
+			}
+			else
+			{
+				itemsPerWG = workgroupSize;
+				overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+					source.get(),"#define OPERATION %s\n#define WORKGROUP_SIZE %d\n",
+					(("subgroup::")+arith_name).c_str(),workgroupSize
+				);
+			}
+			auto pipeline = createPipeline(std::move(overridenUnspecialized));
+			
+			// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
+			const uint32_t workgroupCount = elementCount/itemsPerWG;
 			cmdbuf->begin(IGPUCommandBuffer::EU_NONE);
 			cmdbuf->bindComputePipeline(pipeline.get());
 			cmdbuf->bindDescriptorSets(EPBP_COMPUTE,pipeline->getLayout(),0u,1u,&descriptorSet.get());
@@ -351,28 +304,26 @@ public:
 			logicalDevice->blockForFences(1u,&fence.get());
 			logicalDevice->resetFences(1u,&fence.get());
 	
-			//check results 
-			bool passed = validateResults<Arithmetic,bit_and<uint32_t>>(workgroupSize, workgroupCount);
-			passed = validateResults<Arithmetic,bit_xor<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			passed = validateResults<Arithmetic,bit_or<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			passed = validateResults<Arithmetic,plus<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			passed = validateResults<Arithmetic,multiplies<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			passed = validateResults<Arithmetic,minimum<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			passed = validateResults<Arithmetic,maximum<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			if(is_workgroup_test)
-			{
-				passed = validateResults<Arithmetic,ballot<uint32_t>>(workgroupSize, workgroupCount)&&passed;
-			}
-
+			// check results
+			bool passed = validateResults<Arithmetic,bit_and<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount);
+			passed = validateResults<Arithmetic,bit_xor<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+			passed = validateResults<Arithmetic,bit_or<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+			passed = validateResults<Arithmetic,plus<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+			passed = validateResults<Arithmetic,multiplies<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+			passed = validateResults<Arithmetic,minimum<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+			passed = validateResults<Arithmetic,maximum<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+			if constexpr(WorkgroupTest)
+				passed = validateResults<Arithmetic,ballot<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			return passed;
 		}
 
 		//returns true if result matches
-		template<template<class> class Arithmetic, class Binop>
-		bool validateResults(const uint32_t workgroupSize, const uint32_t workgroupCount)
+		template<template<class> class Arithmetic, class Binop, bool WorkgroupTest>
+		bool validateResults(const uint32_t itemsPerWG, const uint32_t workgroupCount)
 		{
 			bool success = true;
 
+			// download data
 			SBufferRange<IGPUBuffer> bufferRange = {0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex]};
 			utilities->downloadBufferRangeViaStagingBufferAutoSubmit(bufferRange, resultsBuffer->getPointer(), transferDownQueue);
 
@@ -381,37 +332,47 @@ public:
 			const auto subgroupSize = dataFromBuffer[0];
 			if (subgroupSize<nbl::hlsl::subgroup::MinSubgroupSize || subgroupSize>nbl::hlsl::subgroup::MaxSubgroupSize)
 			{
-				logger->log("Unexpected Subgroup Size #%u", ILogger::ELL_ERROR, workgroupSize);
+				logger->log("Unexpected Subgroup Size %u", ILogger::ELL_ERROR, subgroupSize);
 				return false;
 			}
-			const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer+1);
 
-			// TODO: parallel for
+			const auto testData = reinterpret_cast<const type_t*>(dataFromBuffer+1);
+			// TODO: parallel for (the temporary values need to be threadlocal or what?)
 			// now check if the data obtained has valid values
-			type_t* tmp = new type_t[workgroupSize];
-			type_t* ballotInput = new type_t[workgroupSize];
+			type_t* tmp = new type_t[itemsPerWG];
+			type_t* ballotInput = new type_t[itemsPerWG];
 			for (uint32_t workgroupID=0u; success&&workgroupID<workgroupCount; workgroupID++)
 			{
-				const auto workgroupOffset = workgroupID*workgroupSize;
+				const auto workgroupOffset = workgroupID*itemsPerWG;
 
-				if constexpr (std::is_same_v<ballot<type_t>,Binop>)
-				{
-					for (auto i=0u; i<workgroupSize; i++)
-						ballotInput[i] = inputData[i+workgroupOffset]&0x1u;
-					Arithmetic<Binop>()(tmp,ballotInput,workgroupSize,subgroupSize);
+				if constexpr (WorkgroupTest)
+				{	
+					if constexpr (std::is_same_v<ballot<type_t>,Binop>)
+					{
+						for (auto i=0u; i<itemsPerWG; i++)
+							ballotInput[i] = inputData[i+workgroupOffset]&0x1u;
+						Arithmetic<Binop>::impl(tmp,ballotInput,itemsPerWG);
+					}
+					else
+						Arithmetic<Binop>::impl(tmp,inputData+workgroupOffset,itemsPerWG);
 				}
 				else
-					Arithmetic<Binop>()(tmp,inputData+workgroupOffset,workgroupSize,subgroupSize);
+				{
+					for (uint32_t pseudoSubgroupID=0u; pseudoSubgroupID<itemsPerWG; pseudoSubgroupID+=subgroupSize)
+						Arithmetic<Binop>::impl(tmp+pseudoSubgroupID,inputData+workgroupOffset+pseudoSubgroupID,subgroupSize);
+				}
 
-				for (uint32_t localInvocationIndex=0u; localInvocationIndex<workgroupSize; localInvocationIndex++)
+				for (uint32_t localInvocationIndex=0u; localInvocationIndex<itemsPerWG; localInvocationIndex++)
 				{
 					const auto globalInvocationIndex = workgroupOffset+localInvocationIndex;
-					if (tmp[localInvocationIndex]!=testData[globalInvocationIndex])
+					const auto cpuVal = tmp[localInvocationIndex];
+					const auto gpuVal = testData[globalInvocationIndex];
+					if (cpuVal!=gpuVal)
 					{
 						logger->log(
 							"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",
-							ILogger::ELL_ERROR,workgroupSize,Arithmetic<Binop>::name,Binop::name,
-							tmp[localInvocationIndex], testData[globalInvocationIndex], workgroupOffset, localInvocationIndex
+							ILogger::ELL_ERROR,itemsPerWG,WorkgroupTest ? "workgroup":"subgroup",Binop::name,
+							cpuVal,gpuVal,workgroupOffset,localInvocationIndex
 						);
 						success = false;
 						break;
@@ -436,6 +397,7 @@ public:
 		constexpr static inline uint32_t OutputBufferCount = 8u;
 		smart_refctd_ptr<IGPUBuffer> outputBuffers[OutputBufferCount];
 		smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
+		smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 
 		smart_refctd_ptr<IGPUFence> fence;
 		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
