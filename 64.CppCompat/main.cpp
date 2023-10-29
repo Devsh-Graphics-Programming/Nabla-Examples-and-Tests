@@ -9,6 +9,7 @@
 #include <assert.h>
 #include <nabla.h>
 
+#include <nbl/builtin/hlsl/cmath.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/type_traits.hlsl>
 #include <nbl/builtin/hlsl/mpl.hlsl>
@@ -225,7 +226,7 @@ public:
             });
 
             m_buffers[i] = m_logicalDevice->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
-                {.size = reqs.size, .usage = 
+                {.size = 1920 * 1080 * sizeof(float32_t4), .usage =
                     nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | 
                     nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT,
                 }
@@ -370,8 +371,9 @@ public:
             m_fence.get());
 
         m_logicalDevice->blockForFences(1u, &m_fence.get());
-        
         using row = float32_t4[1920];
+
+
         row* ptrs[4] = {};
 
         for (int i = 0; i < 4; ++i)
@@ -382,23 +384,17 @@ public:
             ptrs[i] = (row*)mem->getMappedPointer();
         }
 
-        std::cout << ptrs[1][0][0].x << " " 
-                  << ptrs[1][0][0].y << " "
-                  << ptrs[1][0][0].z << " "
-                  << ptrs[1][0][0].w << " "
-                  << "\n";
-                  
-        std::cout << std::bit_cast<u32>(ptrs[1][0][0].x) << " " 
-                  << std::bit_cast<u32>(ptrs[1][0][0].y) << " "
-                  << std::bit_cast<u32>(ptrs[1][0][0].z) << " "
-                  << std::bit_cast<u32>(ptrs[1][0][0].w) << " "
+        std::cout << ptrs[1][0][0][0] << " " 
+                  << ptrs[1][0][0][1] << " "
+                  << ptrs[1][0][0][2] << " "
+                  << ptrs[1][0][0][3] << " "
                   << "\n";
 
         for (int i = 0; i < 1920; ++i)
             for (int j = 0; j < 1080; ++j)
                 for (int k = 0; k < 4; ++k)
-                    assert(ptrs[1][i][j][k] == -1.f && ptrs[3][i][j][k] == -1.f);
-        
+                    assert(ptrs[1][j][i][k] == -1.f && ptrs[3][j][i][k] == -1.f);
+
         m_keepRunning = false;
     }
 
@@ -460,6 +456,12 @@ bool equal(T l, U r)
     return 0==memcmp(&l, &r, sizeof(T));
 }
 
+
+bool almost_equal(float l, float r)
+{
+    return fabs(l - r) < std::numeric_limits<float>::epsilon() * 1000;
+}
+
 template<class T>
 constexpr auto limits_var(T obj)
 {
@@ -469,7 +471,11 @@ constexpr auto limits_var(T obj)
         return obj;
 }
 
-
+template<class T>
+T random(T lo, T hi)
+{
+     return (hi-lo)/RAND_MAX * rand() + lo;
+}
 
 int main(int argc, char** argv)
 {
@@ -700,6 +706,7 @@ int main(int argc, char** argv)
         TEST_AND_LOG(quiet_NaN);
         TEST_AND_LOG(signaling_NaN);
         TEST_AND_LOG(denorm_min);
+        #undef TEST_AND_LOG
     };
 
     test_type_limits.template operator()<float32_t>();
@@ -722,5 +729,96 @@ int main(int argc, char** argv)
     // bit.hlsl test
     /*nbl::hlsl::rotl(1u, 1u);
     nbl::hlsl::rotr(1u, 1u);*/
+
+
+    // cmath
+
+
+#define PASS_VARS1 x0
+#define PASS_VARS2 x0,x1
+#define PASS_VARS3 x0,x1,x2
+#define PASS_VARS(count) PASS_VARS##count
+
+
+#define ASSERT_EQ(fn) \
+    if (!almost_equal(lhs, rhs)) \
+        std::cout << #fn << " does not match " << lhs << " vs " << rhs << '\n';
+
+#define INIT_VARS(T) \
+    T x0 = random(T(-10000), T(10000)); \
+    T x1 = random(T(1), T(1000)); \
+    T x2 = random(T(1), T(1000)); \
+
+#define TEST_CMATH(fn, varcount, T) \
+    {   INIT_VARS(T)\
+        auto lhs = nbl::hlsl::fn(PASS_VARS(varcount)); \
+        auto rhs = std::fn(PASS_VARS(varcount)); \
+        ASSERT_EQ(fn); \
+    }
+
+#define TEST_CMATHT(fn, out_type, varcount, T) \
+    {   INIT_VARS(T) \
+        out_type o0, o1; \
+        auto lhs = nbl::hlsl::fn(PASS_VARS(varcount),o0); \
+        auto rhs = std::fn(PASS_VARS(varcount),&o1); \
+        ASSERT_EQ(fn); \
+        assert(almost_equal(o0,o1)); \
+    }
+    
+#define TEST_CMATH_FOR_TYPE(type) \
+    TEST_CMATH(cos, 1, type) \
+    TEST_CMATH(sin, 1, type) \
+    TEST_CMATH(tan, 1, type) \
+    TEST_CMATH(acos, 1, type) \
+    TEST_CMATH(asin, 1, type) \
+    TEST_CMATH(atan, 1, type) \
+    TEST_CMATH(atan2, 2, type) \
+    TEST_CMATH(cosh, 1, type) \
+    TEST_CMATH(sinh, 1, type) \
+    TEST_CMATH(tanh, 1, type) \
+    TEST_CMATH(acosh, 1, type) \
+    TEST_CMATH(asinh, 1, type) \
+    TEST_CMATH(atanh, 1, type) \
+    TEST_CMATH(exp, 1, type) \
+    TEST_CMATHT(frexp, int, 1, type) \
+    TEST_CMATH(ldexp, 2, type) \
+    TEST_CMATH(log,1,type) \
+    TEST_CMATH(log10,1,type) \
+    TEST_CMATHT(modf, type, 1, type) \
+    TEST_CMATH(exp2, 1, type) \
+    TEST_CMATH(log2, 1, type) \
+    TEST_CMATH(logb, 1, type) \
+    TEST_CMATH(expm1, 1, type) \
+    TEST_CMATH(log1p, 1, type) \
+    TEST_CMATH(ilogb, 1, type) \
+    TEST_CMATH(scalbn, 2, type) \
+    TEST_CMATH(pow, 2, type) \
+    TEST_CMATH(sqrt, 1, type) \
+    TEST_CMATH(cbrt, 1, type) \
+    TEST_CMATH(hypot, 2, type) \
+    TEST_CMATH(copysign, 2, type) \
+    TEST_CMATH(erf, 1, type) \
+    TEST_CMATH(erfc, 1, type) \
+    TEST_CMATH(tgamma, 1, type) \
+    TEST_CMATH(lgamma, 1, type) \
+    TEST_CMATH(ceil, 1, type) \
+    TEST_CMATH(floor, 1, type) \
+    TEST_CMATH(fmod, 2, type) \
+    TEST_CMATH(trunc, 1, type) \
+    TEST_CMATH(round, 1, type) \
+    TEST_CMATH(rint, 1, type) \
+    TEST_CMATH(nearbyint, 1, type) \
+    TEST_CMATHT(remquo, int, 2, type) \
+    TEST_CMATH(remainder, 2, type) \
+    TEST_CMATH(abs, 1, type) \
+    TEST_CMATH(fabs, 1, type) \
+    TEST_CMATH(fma, 3, type) \
+    TEST_CMATH(fmax, 2, type) \
+    TEST_CMATH(fmin, 2, type) \
+    TEST_CMATH(fdim, 2, type) \
+
+
+TEST_CMATH_FOR_TYPE(float32_t)
+TEST_CMATH_FOR_TYPE(float64_t)
 
 }
