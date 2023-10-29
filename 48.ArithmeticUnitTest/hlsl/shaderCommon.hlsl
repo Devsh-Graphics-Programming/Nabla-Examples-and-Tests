@@ -30,13 +30,9 @@ static void subtest(NBL_CONST_REF_ARG(T) sourceVal)
 	operation_t<typename binop<T>::base_t> func;
 	output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*globalIndex,func(sourceVal));
 }
-// how to fix the accessor conundrum?
 
-[numthreads(WORKGROUP_SIZE,1,1)]
-void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThreadID)
+uint32_t test()
 {
-	__gl_LocalInvocationIndex = invIdx;
-	__gl_GlobalInvocationID = globalId;
 	const uint32_t sourceVal = inputValue[nbl::hlsl::glsl::gl_GlobalInvocationID().x];
 
 	subtest<bit_and>(sourceVal);
@@ -46,5 +42,5 @@ void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThrea
 	subtest<multiplies>(sourceVal);
 	subtest<minimum>(sourceVal);
 	subtest<maximum>(sourceVal);
-	subtest<ballot>(sourceVal);
+	return sourceVal;
 }
