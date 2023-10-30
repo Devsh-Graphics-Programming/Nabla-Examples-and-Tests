@@ -63,7 +63,7 @@ struct CPULineStyle
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
 	// gpu stipple pattern data form
-	int32_t stipplePatternSize;
+	int32_t stipplePatternSize = 0u;
 	float reciprocalStipplePatternLen;
 	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
 	float phaseShift;
@@ -635,6 +635,7 @@ public:
 	{
 		CPULineStyle lineStyle;
 		lineStyle.color = color;
+		lineStyle.stipplePatternSize = 0u;
 
 		uint32_t styleIdx;
 		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
