@@ -357,15 +357,18 @@ float4 main(PSInput input) : SV_TARGET
         const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         const float maxEv = curveMaxMinor.evaluate(maxT);
         
+        const float minorBBoxDdxLen = length(ddx(minorBBoxUv));
+        const float majorBBoxDdyLen = length(ddy(majorBBoxUv));
+
         float2 tangentMinCurve = float2(
             2.0 * curveMinMinor.a * minT + curveMinMinor.b,
             2.0 * curveMinMajor.a * minT + curveMinMajor.b);
-        tangentMinCurve = normalize(tangentMinCurve / float2(fwidth(minorBBoxUv), fwidth(majorBBoxUv)));
+        tangentMinCurve = normalize(tangentMinCurve / float2(minorBBoxDdxLen, majorBBoxDdyLen));
 
         float2 tangentMaxCurve = float2(
             2.0 * curveMaxMinor.a * maxT + curveMaxMinor.b,
             2.0 * curveMaxMajor.a * maxT + curveMaxMajor.b);
-        tangentMaxCurve = normalize(tangentMaxCurve / float2(fwidth(minorBBoxUv), fwidth(majorBBoxUv)));
+        tangentMaxCurve = normalize(tangentMaxCurve / float2(minorBBoxDdxLen, majorBBoxDdyLen));
 
         float curveMinorDistance = min(
             tangentMinCurve.y * (minorBBoxUv - minEv),
