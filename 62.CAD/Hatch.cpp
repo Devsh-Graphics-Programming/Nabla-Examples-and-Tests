@@ -1,59 +1,53 @@
 
 #include "Hatch.h"
-using namespace nbl::hlsl;
-
-#include "common.hlsl"
 
 #define DEBUG_HATCH_VISUALLY
 
-namespace hatchutils {
-    
-	// Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
-	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
+// Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
+std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
+{
+	constexpr double QUARTIC_THRESHHOLD = 1e-10;
+
+	std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
+
+	const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
+	const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
+	if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
 	{
-		constexpr double QUARTIC_THRESHHOLD = 1e-10;
-
-		std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
-
-		const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
-		const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
-		if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
-		{
-			auto res = equations::Quartic<double>::construct(a, b, c, d, e).computeRoots();
-			memcpy(&t[0], &res.x, sizeof(double) * 4);
-		}
-		else if (abs(b) > quadCoeffMag * QUARTIC_THRESHHOLD)
-		{
-			auto res = equations::Cubic<double>::construct(b, c, d, e).computeRoots();
-			memcpy(&t[0], &res.x, sizeof(double) * 3);
-		}
-		else
-		{
-			auto res = equations::Quadratic<double>::construct(c, d, e).computeRoots();
-			memcpy(&t[0], &res.x, sizeof(double) * 2);
-		}
-
-		// If either is NaN or both are equal
-		// Same as: 
-		// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
-		if (!(t[0] != t[1]))
-			t[0] = t[0] != t_start ? t_start : t_end;
-
-		//// TODO: check that this clamp works with t[i] as NaN
-		//for (auto i = 0; i < 2; i++)
-		//	t[i] = nbl::core::clamp(t[i], t_start, t_end);
-		//
-		//// fix up a fuckup where both roots are NaN or were on the same side of the valid integral
-		//
-		//// TODO: do some Halley or Householder method steps on t
-		////while ()
-		////{
-		////}
-
-		// neither t still not in range, your beziers don't intersect
-		return t;
+		auto res = equations::Quartic<double>::construct(a, b, c, d, e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 4);
 	}
-};
+	else if (abs(b) > quadCoeffMag * QUARTIC_THRESHHOLD)
+	{
+		auto res = equations::Cubic<double>::construct(b, c, d, e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 3);
+	}
+	else
+	{
+		auto res = equations::Quadratic<double>::construct(c, d, e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 2);
+	}
+
+	// If either is NaN or both are equal
+	// Same as: 
+	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
+	if (!(t[0] != t[1]))
+		t[0] = t[0] != t_start ? t_start : t_end;
+
+	//// TODO: check that this clamp works with t[i] as NaN
+	//for (auto i = 0; i < 2; i++)
+	//	t[i] = nbl::core::clamp(t[i], t_start, t_end);
+	//
+	//// fix up a fuckup where both roots are NaN or were on the same side of the valid integral
+	//
+	//// TODO: do some Halley or Householder method steps on t
+	////while ()
+	////{
+	////}
+
+	// neither t still not in range, your beziers don't intersect
+	return t;
+}
 
 Hatch::QuadraticBezier Hatch::splitCurveRange(const QuadraticBezier& bezier, double minT, double maxT)
 {
@@ -106,8 +100,8 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	int resultIdx = 0;
 
 	// Use line intersections if one or both of the beziers are linear (a = 0)
-	const bool selfLinear = isLineSegment(*originalBezier),
-		otherLinear = isLineSegment(*other.originalBezier);
+	const bool selfLinear = isLineSegment(*originalBezier);
+	const bool otherLinear = isLineSegment(*other.originalBezier);
 	if (selfLinear && otherLinear)
 	{
 		// Line/line intersection
@@ -139,23 +133,23 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	else if (selfLinear || otherLinear)
 	{
 		// Line/curve intersection
-		auto line = selfLinear ? originalBezier : other.originalBezier;
-		auto curve = selfLinear ? other.originalBezier : originalBezier;
+		const auto& line = selfLinear ? *originalBezier : *other.originalBezier;
+		const auto& curve = selfLinear ? *other.originalBezier : *originalBezier;
 
-		float64_t2  D = normalize(line->P2 - line->P0);
+		float64_t2  D = normalize(line.P2 - line.P0);
 		float64_t2x2 rotation = { 
 			{D.x, -D.y}, 
 			{D.y, D.x} 
 		};
 		QuadraticBezier rotatedCurve = {
-			mul(rotation, curve->P0 - line->P0),
-			mul(rotation, curve->P1 - line->P0),
-			mul(rotation, curve->P2 - line->P0)
+			mul(rotation, curve.P0 - line.P0),
+			mul(rotation, curve.P1 - line.P0),
+			mul(rotation, curve.P2 - line.P0)
 		};
 
 		auto intersectionCurveT = intersectOrtho(rotatedCurve, 0, (int)MajorAxis::MAJOR_Y /* Always in rotation to align with X Axis */);
 		auto intersectionMajor = other.originalBezier->evaluate(intersectionCurveT)[major];
-		auto intersectionLineT = intersectOrtho(*line, intersectionMajor, major);
+		auto intersectionLineT = intersectOrtho(line, intersectionMajor, major);
 
 		auto thisT = selfLinear ? intersectionLineT : intersectionCurveT;
 		auto otherT = selfLinear ? intersectionCurveT : intersectionLineT;
@@ -667,7 +661,7 @@ std::array<double, 4> Hatch::linePossibleIntersections(const QuadraticBezier& be
 	double d = (2 * B.x * C.x * t0) + (B.x * C.y * t1) + (B.x * t3) + (C.x * B.y * t1) + (2 * B.y * C.y * t2) + (B.y * t4);
 	double e = ((C.x * C.x) * t0) + (C.x * C.y * t1) + (C.x * t3) + ((C.y * C.y) * t2) + (C.y * t4) + (t5);
 
-	return hatchutils::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
+	return Hatch::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
 }
 
 double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int component)

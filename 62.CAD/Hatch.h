@@ -1,21 +1,23 @@
+#define _NBL_STATIC_LIB_
+#include <nabla.h>
 
-#include "../common/CommonAPI.h"
-#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include "curves.h"
+#include "Renderer.h"
+
+typedef uint32_t uint;
+
+#include "common.hlsl"
 
 #include <nbl/builtin/hlsl/equations/cubic.hlsl>
 #include <nbl/builtin/hlsl/equations/quartic.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 using namespace nbl;
-
-namespace hatchutils {
-	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
-}
 
 class Hatch
 {
@@ -24,7 +26,7 @@ public:
 	struct CurveHatchBox
 	{
 		float64_t2 aabbMin, aabbMax;
-		// Stored as Unorm
+		// A & B stored as Snorm/2, C stored as Unorm
 		uint32_t2 curveMin[3];
 		uint32_t2 curveMax[3];
 	};
@@ -32,6 +34,8 @@ public:
 	using bezier_float_t = double;
 	using QuadraticBezier = nbl::hlsl::shapes::QuadraticBezier<bezier_float_t>;
 	using QuadraticEquation = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
+
+	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
 
 	static std::array<double, 4> linePossibleIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
 	static double intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int major);
