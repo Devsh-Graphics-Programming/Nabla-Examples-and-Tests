@@ -2,3 +2,9 @@
 *.pdb
 *.sse
 */bin/*
+*/.profiles/*
+*/runAllTests.py
+*/test/nbl.py
+*.pyc
+*/.vscode/*
+*/__main__.py
