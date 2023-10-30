@@ -3,7 +3,7 @@
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
-
+#include <nbl/builtin/hlsl/limits.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/equations/quadratic.hlsl>
@@ -105,9 +105,27 @@ struct LineStyle
     // stipple pattern data
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
-    float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
+    uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
     float phaseShift;
-    
+
+    float getStippleValue(const uint32_t ix)
+    {
+        const uint32_t floatValBis = 0xffffffff >> 2; // clear two msb bits reserved for something else
+        return (stipplePattern[ix] & floatValBis) / float(1u << 29);
+    }
+
+    bool isLeftDot(const uint32_t ix)
+    {
+        // stipplePatternSize is odd by construction (pattern starts with + and ends with -)
+        return (stipplePattern[ix] & (1u << 30)) > 0;
+    }
+
+    bool isRightDot(const uint32_t ix)
+    {
+        // stipplePatternSize is odd by construction (pattern starts with + and ends with -)
+        return (stipplePattern[ix] & (1u << 31)) > 0;
+    }
+
     // TODO[Przemek] Add bool isRoadStyle, which we use to know if to use normal rounded joins and sdf OR rect sdf with miter joins
     
     inline bool hasStipples()

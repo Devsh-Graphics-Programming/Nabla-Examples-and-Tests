@@ -642,11 +642,11 @@ public:
 			submit.commandBufferCount = 1u;
 			submit.commandBuffers = &cmdbuf;
 			nbl::video::IGPUSemaphore* signalsem = renderFinishedSemaphore;
-			submit.signalSemaphoreCount = waitSemaphore ? 1u:0u;
+			submit.signalSemaphoreCount = signalsem ? 1u:0u;
 			submit.pSignalSemaphores = &signalsem;
 			nbl::video::IGPUSemaphore* waitsem = waitSemaphore;
 			asset::E_PIPELINE_STAGE_FLAGS dstWait = waitDstStageMask.value;
-			submit.waitSemaphoreCount = 1u;
+			submit.waitSemaphoreCount = waitsem ? 1u:0u;
 			submit.pWaitSemaphores = &waitsem;
 			submit.pWaitDstStageMask = &dstWait;
 
