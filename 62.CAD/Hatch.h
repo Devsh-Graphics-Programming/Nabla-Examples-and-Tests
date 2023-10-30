@@ -24,8 +24,9 @@ public:
 	struct CurveHatchBox
 	{
 		float64_t2 aabbMin, aabbMax;
-		float64_t2 curveMin[3];
-		float64_t2 curveMax[3];
+		// Stored as Unorm
+		uint32_t2 curveMin[3];
+		uint32_t2 curveMax[3];
 	};
 
 	using bezier_float_t = double;

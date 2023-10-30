@@ -1066,8 +1066,8 @@ protected:
 				CurveBox curveBox;
 				curveBox.aabbMin = hatchBox.aabbMin;
 				curveBox.aabbMax = hatchBox.aabbMax;
-				memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(float64_t2) * 3);
-				memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(float64_t2) * 3);
+				memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(uint32_t2) * 3);
+				memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(uint32_t2) * 3);
 
 				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 				memcpy(dst, &curveBox, sizeof(CurveBox));

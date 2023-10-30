@@ -532,23 +532,43 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
                 // Transform curves into AABB UV space and turn them into quadratic coefficients
                 // so we wont need to convert here
-                auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, float64_t2* output) {
-                    auto rcpAabbExtents = float64_t2(1.0,1.0) / (aabbMax - aabbMin);
-					// TODO: when nbl::hlsl::shapes::Quadratic<double> works, use it
+				auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, uint32_t2* output) {
+					auto rcpAabbExtents = float64_t2(1.0, 1.0) / (aabbMax - aabbMin);
 					auto transformedBezier = QuadraticBezier::construct(
 						(bezier.P0 - aabbMin) * rcpAabbExtents,
 						(bezier.P1 - aabbMin) * rcpAabbExtents,
 						(bezier.P2 - aabbMin) * rcpAabbExtents
 					);
 					auto quadratic = QuadraticEquation::constructFromBezier(transformedBezier);
-                    output[0] = quadratic.A;
-					output[1] = quadratic.B;
-					output[2] = quadratic.C;
-					if (isLineSegment(transformedBezier)) 
-						output[0].y = 0.0;
-					// B == 0.0 would mean this is a constant line in major direction, which
+
+					if (isLineSegment(transformedBezier))
+						quadratic.A = float64_t2(0.0);
+
+					auto convertToUnorm = [](float64_t2 value) {
+						return static_cast<uint32_t2>(value * float64_t2(static_cast<double>(std::numeric_limits<uint32_t>::max())));
+					};
+					auto convertToSnorm = [](float64_t2 value) {
+						auto tmp = static_cast<int32_t2>(value * float64_t2(static_cast<double>(std::numeric_limits<int32_t>::max())));
+						uint32_t2 out;
+						std::memcpy(&out, &tmp, sizeof(tmp));
+						return out;
+					};
+					
+					// Values P0, P1 & P2 are in [0,1]
+					//
+					// A = P0 - 2 * P1 + P2; Range: [-2, 2]
+					// B = 2 * (P1 - P0); Range: [-2, 2]
+					// C = P0; Range: [0, 1]
+					//
+					// Convert A, B to [-1, 1], encode as Snorm
+					// Convert C to [0, 1], encode as Unorm
+					output[0] = convertToSnorm(quadratic.A / 2.0);
+					output[1] = convertToSnorm(quadratic.B / 2.0);
+					output[2] = convertToUnorm(quadratic.C);
+
+					// B == 0.0 && A == 0.0 would mean this is a constant line in major direction, which
 					// should've been ruled out at this point (isStraightLineCosntantMajor gets skipped)
-					assert(quadratic.A.y > 0.0 || quadratic.B.y != 0.0);
+					assert(quadratic.A.y != 0.0 || quadratic.B.y != 0.0);
                 };
                 transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
                 transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);

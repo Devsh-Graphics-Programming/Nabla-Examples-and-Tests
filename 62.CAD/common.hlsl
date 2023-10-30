@@ -47,10 +47,10 @@ struct QuadraticBezierInfo
 struct CurveBox 
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    float64_t2 aabbMin;
+    float64_t2 aabbMin; // 16
     float64_t2 aabbMax; // 32
-    float64_t2 curveMin[3]; // 80
-    float64_t2 curveMax[3]; // 128
+    uint32_t2 curveMin[3]; // 56
+    uint32_t2 curveMax[3]; // 80
 };
     /*
     * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
@@ -218,6 +218,20 @@ struct PSInput
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     [[vk::location(6)]] float4 interp_data6 : COLOR6;
+
+    [[vk::location(7)]] float2 curveMinA : curveMinA;
+    [[vk::location(8)]] float2 curveMinB : curveMinB;
+    [[vk::location(9)]] float2 curveMinC : curveMinC;
+    [[vk::location(10)]] float2 curveMaxA : curveMaxA;
+    [[vk::location(11)]] float2 curveMaxB : curveMaxB;
+    [[vk::location(12)]] float2 curveMaxC : curveMaxC;
+    
+    [[vk::location(13)]] float2 fromUnormCurveMinA : fromUnormCurveMinA;
+    [[vk::location(14)]] float2 fromUnormCurveMinB : fromUnormCurveMinB;
+    [[vk::location(15)]] float2 fromUnormCurveMinC : fromUnormCurveMinC;
+    [[vk::location(16)]] float2 fromUnormCurveMaxA : fromUnormCurveMaxA;
+    [[vk::location(17)]] float2 fromUnormCurveMaxB : fromUnormCurveMaxB;
+    [[vk::location(18)]] float2 fromUnormCurveMaxC : fromUnormCurveMaxC;
     
         // ArcLenCalculator<float>
 
