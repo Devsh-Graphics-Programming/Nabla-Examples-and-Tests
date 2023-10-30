@@ -390,32 +390,21 @@ public:
 
 		const auto sectionsCount = 1;
 
-		uint32_t currentSectionIdx = 0u;
 		uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
 
-		while (currentSectionIdx < sectionsCount)
+		while (true)
 		{
 			bool shouldSubmit = false;
 			addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
 
 			const auto sectionObjectCount = hatch.getHatchBoxCount();
 			if (currentObjectInSection >= sectionObjectCount)
-			{
-				currentSectionIdx++;
-				currentObjectInSection = 0u;
-			}
-			else
-				shouldSubmit = true;
+				break;
 
-			if (shouldSubmit)
-			{
-				intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-				intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
-				resetIndexCounters();
-				resetGeometryCounters();
-				// We don't reset counters for linestyles and mainObjects because we will be reusing them
-				shouldSubmit = false;
-			}
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetIndexCounters();
+			resetGeometryCounters();
 		}
 
 		return intendedNextSubmit;
@@ -1020,7 +1009,7 @@ class CADApp : public ApplicationBase
 			drawBuffers[i].allocateIndexBuffer(logicalDevice.get(), maxIndices);
 			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice.get(), maxObjects);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice.get(), maxObjects * 5u);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 16u);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 32u);
 			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice.get(), 128u);
 
 			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)

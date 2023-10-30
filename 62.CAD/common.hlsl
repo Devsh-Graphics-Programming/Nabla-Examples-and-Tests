@@ -56,6 +56,12 @@ struct CurveBox
     * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
     */
 
+#ifndef __HLSL_VERSION
+static_assert(offsetof(CurveBox, aabbMin) == 0u);
+static_assert(offsetof(CurveBox, aabbMax) == 16u);
+static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
+static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
+#endif
 
 // TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
