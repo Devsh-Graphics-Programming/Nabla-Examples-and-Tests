@@ -66,16 +66,6 @@ float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d)
     return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
 }
 
-float2 convertFromUnorm(uint2 value)
-{
-    return float2(value) / float(nbl::hlsl::numeric_limits<uint32_t>::max);
-}
-
-float2 convertFromSnorm(uint2 value)
-{
-    return float2(asint(value)) / float(nbl::hlsl::numeric_limits<int32_t>::max);
-}
-
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -393,22 +383,9 @@ PSInput main(uint vertexID : SV_VertexID)
         // A, B & C get converted from unorm to [0, 1]
         // A & B get converted from [0,1] to [-2, 2]
         nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
-            convertFromSnorm(curveBox.curveMin[0]) * 2, convertFromSnorm(curveBox.curveMin[1]) * 2, convertFromUnorm(curveBox.curveMin[2]));
+            unpackCurveBoxSnorm(asint(curveBox.curveMin[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMin[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMin[2]));
         nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
-            convertFromSnorm(curveBox.curveMax[0]) * 2, convertFromSnorm(curveBox.curveMax[1]) * 2, convertFromUnorm(curveBox.curveMax[2]));
-
-        outV.curveMinA = curveMin.A;
-        outV.curveMinB = curveMin.B;
-        outV.curveMinC = curveMin.C;
-        outV.curveMaxA = curveMax.A;
-        outV.curveMaxB = curveMax.B;
-        outV.curveMaxC = curveMax.C;
-        outV.fromUnormCurveMinA = convertFromSnorm(curveBox.curveMin[0]);
-        outV.fromUnormCurveMinB = convertFromSnorm(curveBox.curveMin[1]);
-        outV.fromUnormCurveMinC = convertFromUnorm(curveBox.curveMin[2]);
-        outV.fromUnormCurveMaxA = convertFromSnorm(curveBox.curveMax[0]);
-        outV.fromUnormCurveMaxB = convertFromSnorm(curveBox.curveMax[1]);
-        outV.fromUnormCurveMaxC = convertFromUnorm(curveBox.curveMax[2]);
+            unpackCurveBoxSnorm(asint(curveBox.curveMax[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMax[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMax[2]));
 
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);

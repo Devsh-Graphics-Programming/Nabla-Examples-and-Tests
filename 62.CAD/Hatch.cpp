@@ -544,6 +544,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					if (isLineSegment(transformedBezier))
 						quadratic.A = float64_t2(0.0);
 
+					// TODO: Use common.hlsl packCurveBoxUnorm & packCurveBoxSnorm after fixing nbl::hlsl::numeric_limits<uint32_t> on c++
 					auto convertToUnorm = [](float64_t2 value) {
 						return static_cast<uint32_t2>(value * float64_t2(static_cast<double>(std::numeric_limits<uint32_t>::max())));
 					};

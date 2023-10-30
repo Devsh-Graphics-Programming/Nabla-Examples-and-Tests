@@ -145,6 +145,28 @@ NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1
 
 #ifndef __cplusplus
 
+// TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
+float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
+{
+    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+}
+
+float32_t2 unpackCurveBoxSnorm(int32_t2 value)
+{
+    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+}
+
+
+uint32_t2 packCurveBoxUnorm(float32_t2 value)
+{
+    return value * float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+}
+
+int32_t2 packCurveBoxSnorm(float32_t2 value)
+{
+    return value * float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+}
+
 uint bitfieldInsert(uint base, uint insert, int offset, int bits)
 {
 	const uint mask = (1u << bits) - 1u;
@@ -219,20 +241,6 @@ struct PSInput
     [[vk::location(5)]] float4 interp_data5 : COLOR5;
     [[vk::location(6)]] float4 interp_data6 : COLOR6;
 
-    [[vk::location(7)]] float2 curveMinA : curveMinA;
-    [[vk::location(8)]] float2 curveMinB : curveMinB;
-    [[vk::location(9)]] float2 curveMinC : curveMinC;
-    [[vk::location(10)]] float2 curveMaxA : curveMaxA;
-    [[vk::location(11)]] float2 curveMaxB : curveMaxB;
-    [[vk::location(12)]] float2 curveMaxC : curveMaxC;
-    
-    [[vk::location(13)]] float2 fromUnormCurveMinA : fromUnormCurveMinA;
-    [[vk::location(14)]] float2 fromUnormCurveMinB : fromUnormCurveMinB;
-    [[vk::location(15)]] float2 fromUnormCurveMinC : fromUnormCurveMinC;
-    [[vk::location(16)]] float2 fromUnormCurveMaxA : fromUnormCurveMaxA;
-    [[vk::location(17)]] float2 fromUnormCurveMaxB : fromUnormCurveMaxB;
-    [[vk::location(18)]] float2 fromUnormCurveMaxC : fromUnormCurveMaxC;
-    
         // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
