@@ -10,13 +10,11 @@ float cross2D(float2 a, float2 b)
     return determinant(float2x2(a,b));
 }
 
-// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 {
     return 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
 }
 
-// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
     return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
