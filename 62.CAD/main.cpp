@@ -1320,7 +1320,7 @@ public:
 			shaders[3u] = gpuShaders->begin()[3u];
 		}
 
-		initDrawObjects(20u);
+		initDrawObjects(20480u);
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
