@@ -117,7 +117,6 @@ struct LineStyle
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
     uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
-    float phaseShift;
 
     float getStippleValue(const uint32_t ix)
     {

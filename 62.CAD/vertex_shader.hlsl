@@ -42,56 +42,6 @@ float2 LineLineIntersection(float2 p1, float2 p2, float2 v1, float2 v2)
     return intersectionPoint;
 }
 
-bool estimateTransformation(float2 p01, float2 p11, float2 p21, out float2 translation, out float2x2 rotation)
-{
-    float2 p1 = p11 - p01;
-    float2 p2 = p21 - p01;
-
-    float2 a = p2 - 2.0 * p1;
-    float2 b = 2.0 * p1;
-
-    float2 mean = a / 3.0 + b / 2.0;
-
-    float axy = a.x * a.y;
-    float bxy = a.x * b.y + b.x * a.y;
-    float cxy = b.x * b.y;
-
-    float2 aB = a * a;
-    float2 bB = a * b * 2.0;
-    float2 cB = b * b;
-
-    float xy = axy / 5.0 + bxy / 4.0 + cxy / 3.0;
-    float xx = aB.x / 5.0 + bB.x / 4.0 + cB.x / 3.0;
-    float yy = aB.y / 5.0 + bB.y / 4.0 + cB.y / 3.0;
-
-    float cov_00 = xx - mean.x * mean.x;
-    float cov_01 = xy - mean.x * mean.y;
-    float cov_11 = yy - mean.y * mean.y;
-
-    float eigen_a = 1.0;
-    float eigen_b_neghalf = -(cov_00 + cov_11) * -0.5;
-    float eigen_c = (cov_00 * cov_11 - cov_01 * cov_01);
-
-    float discr = eigen_b_neghalf * eigen_b_neghalf - eigen_a * eigen_c;
-    if (discr <= 0.0)
-        return false;
-
-    discr = sqrt(discr);
-
-    float lambda0 = (eigen_b_neghalf - discr) / eigen_a;
-    float lambda1 = (eigen_b_neghalf + discr) / eigen_a;
-
-    float2 eigenvector0 = float2(cov_01, lambda0 - cov_00);
-    float2 eigenvector1 = float2(cov_01, lambda1 - cov_00);
-
-    rotation[0] = normalize(eigenvector0);
-    rotation[1] = normalize(eigenvector1);
-
-    translation = mean + p01;
-
-    return true;
-}
-
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
 {
     if (mainObj.clipProjectionIdx != InvalidClipProjectionIdx)

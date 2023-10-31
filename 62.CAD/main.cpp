@@ -36,12 +36,10 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
 		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
 		lhs.stipplePatternSize == rhs.stipplePatternSize &&
-		lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
-		lhs.phaseShift == rhs.phaseShift;
+		lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen;
 
 	if (!areParametersEqual)
 		return false;
-	return true;
 
 	if (lhs.stipplePatternSize == -1)
 		return true;
@@ -184,7 +182,6 @@ struct CPULineStyle
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
-		ret.phaseShift = phaseShift;
 
 		return ret;
 	}
@@ -196,7 +193,7 @@ struct CPULineStyle
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(Globals) == 112u);
-static_assert(sizeof(LineStyle) == 96u);
+static_assert(sizeof(LineStyle) == 92u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
@@ -356,13 +353,14 @@ public:
 		}
 
 		constexpr LinePointInfo EMPTY_LINE_POINT_INFO = {};
-		std::vector<LinePointInfo> linePointInfos(linePoints.size(), EMPTY_LINE_POINT_INFO);
+		const uint32_t newLinePointSize = m_linePoints.size() + linePoints.size();
+		m_quadBeziers.reserve(newLinePointSize);
 		for (uint32_t i = 0u; i < linePoints.size(); i++)
 		{
-			linePointInfos[i].p = linePoints[i];
+			m_linePoints.emplace_back(EMPTY_LINE_POINT_INFO);
+			auto& lastLinePoint = m_linePoints[m_linePoints.size() - 1u];
+			lastLinePoint.p = linePoints[i];
 		}
-
-		m_linePoints.insert(m_linePoints.end(), linePointInfos.begin(), linePointInfos.end());
 	}
 
 	void addEllipticalArcs(const core::SRange<curves::EllipticalArcInfo>& ellipses)
@@ -389,15 +387,16 @@ public:
 		}
 
 		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
-		std::vector<QuadraticBezierInfo> quadraticBezierInfos(quadBeziers.size(), EMPTY_QUADRATIC_BEZIER_INFO);
+		const uint32_t newQuadBezierSize = m_quadBeziers.size() + quadBeziers.size();
+		m_quadBeziers.reserve(newQuadBezierSize);
 		for (uint32_t i = 0u; i < quadBeziers.size(); i++)
 		{
-			quadraticBezierInfos[i].p[0] = quadBeziers[i].P0;
-			quadraticBezierInfos[i].p[1] = quadBeziers[i].P1;
-			quadraticBezierInfos[i].p[2] = quadBeziers[i].P2;
+			m_quadBeziers.emplace_back(EMPTY_QUADRATIC_BEZIER_INFO);
+			auto& lastBezier = m_quadBeziers[m_quadBeziers.size() - 1u];
+			lastBezier.p[0] = quadBeziers[i].P0;
+			lastBezier.p[1] = quadBeziers[i].P1;
+			lastBezier.p[2] = quadBeziers[i].P2;
 		}
-
-		m_quadBeziers.insert(m_quadBeziers.end(), quadraticBezierInfos.begin(), quadraticBezierInfos.end());
 	}
 
 	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
@@ -415,9 +414,9 @@ public:
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
 		float phaseShiftTotal = lineStyle.phaseShift;
-		for (uint32_t i = 0u; i < m_sections.size(); i++)
+		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
 		{
-			const auto& section = m_sections[i];
+			const auto& section = m_sections[sectionIdx];
 
 			if (section.type == ObjectType::LINE)
 			{
@@ -437,7 +436,7 @@ public:
 					const double lineLen = glm::length(linePoint.p - prevLinePoint.p);
 
 					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint); // TODO: fract may be unecessary since we fract anyway in fragment shader
+					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint);
 					phaseShiftTotal = linePoint.phaseShift;
 				}
 			}
@@ -445,39 +444,38 @@ public:
 			{
 				// calculate phase shift at point P0 of each bezier
 				const uint32_t quadBezierCnt = section.count;
-				for (uint32_t i = 0u; i < quadBezierCnt; i++)
+				const bool isLastSection = sectionIdx == m_sections.size() - 1u;
+
+				for (uint32_t i = 0u; i <= quadBezierCnt; i++)
 				{
-					const uint32_t currIdx = section.index + i;
-					QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
-					if (i == 0u)
+					// there is no need to calculate anything for the last bezier in the last section
+					if (isLastSection && i == quadBezierCnt)
 					{
-						quadBezierInfo.phaseShift = phaseShiftTotal;
-						continue;
+						break;
 					}
 
+					const uint32_t currIdx = section.index + i;
+					if (i == 0u)
+					{
+						QuadraticBezierInfo& firstInSectionQuadBezierInfo = m_quadBeziers[currIdx];
+						firstInSectionQuadBezierInfo.phaseShift = phaseShiftTotal;
+						continue;
+					}
+					
 					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
 					shapes::QuadraticBezier<double> quadraticBezier = shapes::QuadraticBezier<double>::construct(prevQuadBezierInfo.p[0], prevQuadBezierInfo.p[1], prevQuadBezierInfo.p[2]);
 					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(quadraticBezier);
 					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
-					const double lineLen = arcLenCalc.calcArcLen(1.0f);
+					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
 
-					const double nextLineInSectionLocalPhaseShift = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					quadBezierInfo.phaseShift = glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift); // TODO: fract may be unecessary since we fract anyway in fragment shader
-					phaseShiftTotal = quadBezierInfo.phaseShift;
-				}
+					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					phaseShiftTotal = glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift);
 
-				// calculate phase shift at end of the section, unecessary if last section
-				if(i < m_sections.size() - 1u)
-				{
-					const QuadraticBezierInfo& lastQuadBezierInfo = m_quadBeziers[quadBezierCnt - 1u];
-					shapes::QuadraticBezier<double> quadraticBezier = shapes::QuadraticBezier<double>::construct(lastQuadBezierInfo.p[0], lastQuadBezierInfo.p[1], lastQuadBezierInfo.p[2]);
-					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(quadraticBezier);
-					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
-					const double lineLen = arcLenCalc.calcArcLen(1.0f);
-
-					const double phaseShiftAtEndOfSection = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					phaseShiftTotal += phaseShiftAtEndOfSection;
-					phaseShiftTotal = glm::fract(phaseShiftTotal); // TODO: fract may be unecessary since we fract anyway in fragment shader
+					if (i < quadBezierCnt)
+					{
+						QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+						quadBezierInfo.phaseShift = phaseShiftTotal;
+					}
 				}
 			}
 		}
@@ -2777,6 +2775,8 @@ public:
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
 						cpuLineStyles[i].stipplePatternSize = -1;
+
+					polylines[i].preprocessPolylineWithStyle(cpuLineStyles[i]);
 				}
 			}
 
