@@ -1320,7 +1320,7 @@ public:
 			shaders[3u] = gpuShaders->begin()[3u];
 		}
 
-		initDrawObjects(20480u);
+		initDrawObjects(20u);
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
@@ -1754,7 +1754,8 @@ public:
 			bufferBarriers[0u].buffer = currentDrawBuffers.gpuDrawBuffers.indexBuffer;
 			bufferBarriers[0u].offset = 0u;
 			bufferBarriers[0u].size = currentDrawBuffers.getCurrentIndexBufferSize();
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
+			if (currentDrawBuffers.getCurrentIndexBufferSize() > 0u)
+				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
 		}
 		{
 			constexpr uint32_t MaxBufferBarriersCount = 5u;
@@ -1816,7 +1817,8 @@ public:
 				bufferBarrier.offset = 0u;
 				bufferBarrier.size = currentDrawBuffers.getCurrentCustomClipProjectionBufferSize();
 			}
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
+			if (bufferBarriersCount > 0)
+				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
 		}
 	}
 
@@ -2499,6 +2501,13 @@ public:
 		cmdbuf->bindIndexBuffer(drawBuffers[resourceIdx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
 		cmdbuf->bindGraphicsPipeline(graphicsPipeline.get());
 		cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+
+		if (fragmentShaderInterlockEnabled)
+		{
+			cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+			cmdbuf->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
+			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cmdbuf);
+		}
 
 		if constexpr (DebugMode)
 		{

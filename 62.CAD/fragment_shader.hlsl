@@ -357,18 +357,18 @@ float4 main(PSInput input) : SV_TARGET
         const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
         const float maxEv = curveMaxMinor.evaluate(maxT);
         
-        const float minorBBoxDdxLen = length(ddx(minorBBoxUv));
-        const float majorBBoxDdyLen = length(ddy(majorBBoxUv));
+        const float minorDirectionOverScreenSpaceChange = length(float2(ddx(minorBBoxUv),ddy(minorBBoxUv))); // we decided to do this instead of fwidth for dMinor/dScreen
+        const float majorDirectionOverScreenSpaceChange = length(float2(ddx(majorBBoxUv),ddy(majorBBoxUv))); // we decided to do this instead of fwidth
 
         float2 tangentMinCurve = float2(
             2.0 * curveMinMinor.a * minT + curveMinMinor.b,
             2.0 * curveMinMajor.a * minT + curveMinMajor.b);
-        tangentMinCurve = normalize(tangentMinCurve / float2(minorBBoxDdxLen, majorBBoxDdyLen));
+        tangentMinCurve = normalize(tangentMinCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
 
         float2 tangentMaxCurve = float2(
             2.0 * curveMaxMinor.a * maxT + curveMaxMinor.b,
             2.0 * curveMaxMajor.a * maxT + curveMaxMajor.b);
-        tangentMaxCurve = normalize(tangentMaxCurve / float2(minorBBoxDdxLen, majorBBoxDdyLen));
+        tangentMaxCurve = normalize(tangentMaxCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
 
         float curveMinorDistance = min(
             tangentMinCurve.y * (minorBBoxUv - minEv),
