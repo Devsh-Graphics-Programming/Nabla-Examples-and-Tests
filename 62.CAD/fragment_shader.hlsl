@@ -351,8 +351,8 @@ float4 main(PSInput input) : SV_TARGET
         nbl::hlsl::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
         nbl::hlsl::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
 
-        nbl::hlsl::equations::Quadratic<float> minCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.0,1.0));
-        nbl::hlsl::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.0,1.0));
+        nbl::hlsl::equations::Quadratic<float> minCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.001,0.999));
+        nbl::hlsl::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.001,0.999));
 
         const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
         const float minEv = curveMinMinor.evaluate(minT);
