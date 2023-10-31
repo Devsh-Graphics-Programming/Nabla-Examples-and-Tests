@@ -1980,8 +1980,8 @@ public:
 					line(float64_t2(-100, -100), float64_t2(0.0, -40));
 					beziers.push_back({ float64_t2(-10, -50), float64_t2(10, -10), float64_t2(30, -50), });
 					line(float64_t2(-10, -50), float64_t2(30, -50));
-					beziers.push_back({ float64_t2(-50, 20), float64_t2(0, -80), float64_t2(50, 20), });
-					line(float64_t2(-50, 20), float64_t2(50, 20));
+					beziers.push_back({ float64_t2(-20, 20), float64_t2(30, -70), float64_t2(80, 20), });
+					line(float64_t2(-20, 20), float64_t2(80, 20));
 
 					line(float64_t2(-30, -100), float64_t2(-30, -50));
 					line(float64_t2(100, -100), float64_t2(100, -50));
