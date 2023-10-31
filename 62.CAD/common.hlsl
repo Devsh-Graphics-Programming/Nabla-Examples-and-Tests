@@ -244,8 +244,7 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
-    [[vk::location(5)]] float4 interp_data5 : COLOR5;
-    [[vk::location(6)]] float4 interp_data6 : COLOR6;
+    [[vk::location(5)]] float2 interp_data5 : COLOR5;
 
         // ArcLenCalculator<float>
 

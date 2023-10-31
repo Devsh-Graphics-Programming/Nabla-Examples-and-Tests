@@ -84,8 +84,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
     outV.data4 = float4(0, 0, 0, 0);
-    outV.interp_data5 = float4(0, 0, 0, 0);
-    outV.interp_data6 = float4(0, 0, 0, 0);
+    outV.interp_data5 = float2(0, 0);
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
