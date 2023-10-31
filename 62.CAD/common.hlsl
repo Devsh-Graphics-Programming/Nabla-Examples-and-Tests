@@ -302,19 +302,21 @@ struct PSInput
 
     // data4
     nbl::hlsl::equations::Quadratic<float> getCurveMinMajor() {
-        return nbl::hlsl::equations::Quadratic<float>::construct(data4.x, data4.y, 0.0 /* unused */);
+        return nbl::hlsl::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
     }
     nbl::hlsl::equations::Quadratic<float> getCurveMaxMajor() {
-        return nbl::hlsl::equations::Quadratic<float>::construct(data4.z, data4.w, 0.0 /* unused */);
+        return nbl::hlsl::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
     }
 
     void setCurveMinMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
         data4.x = bezier.a;
         data4.y = bezier.b;
+        data3.z = bezier.c;
     }
     void setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
         data4.z = bezier.a;
         data4.w = bezier.b;
+        data3.w = bezier.c;
     }
 
     // interp_data5, interp_data6    
@@ -331,23 +333,23 @@ struct PSInput
     //
     // a, b, c = curveMin.a,b,c()[major] - uv[major]
 
-    PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
-        return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
-    }
-    PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
-        return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
-    }
+    //PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
+    //    return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
+    //}
+    //PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
+    //    return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
+    //}
 
-    void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-        data3.z = rootFinder.negB;
-        interp_data5.z = rootFinder.C2;
-        interp_data5.w = rootFinder.det;
-    }
-    void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-        data3.w = rootFinder.negB;
-        interp_data6.x = rootFinder.C2;
-        interp_data6.y = rootFinder.det;
-    }
+    //void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+    //    data3.z = rootFinder.negB;
+    //    interp_data5.z = rootFinder.C2;
+    //    interp_data5.w = rootFinder.det;
+    //}
+    //void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+    //    data3.w = rootFinder.negB;
+    //    interp_data6.x = rootFinder.C2;
+    //    interp_data6.y = rootFinder.det;
+    //}
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()

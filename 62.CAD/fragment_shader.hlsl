@@ -351,23 +351,26 @@ float4 main(PSInput input) : SV_TARGET
         nbl::hlsl::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
         nbl::hlsl::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
 
-        const float minT = clamp(input.getMinCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
+        nbl::hlsl::equations::Quadratic<float> minCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.0,1.0));
+        nbl::hlsl::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.0,1.0));
+
+        const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
         const float minEv = curveMinMinor.evaluate(minT);
         
-        const float maxT = clamp(input.getMaxCurvePrecomputedRootFinders().computeRoots().x, 0.0, 1.0);
+        const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
         const float maxEv = curveMaxMinor.evaluate(maxT);
         
         const float minorDirectionOverScreenSpaceChange = length(float2(ddx(minorBBoxUv),ddy(minorBBoxUv))); // we decided to do this instead of fwidth for dMinor/dScreen
         const float majorDirectionOverScreenSpaceChange = length(float2(ddx(majorBBoxUv),ddy(majorBBoxUv))); // we decided to do this instead of fwidth
 
         float2 tangentMinCurve = float2(
-            2.0 * curveMinMinor.a * minT + curveMinMinor.b,
-            2.0 * curveMinMajor.a * minT + curveMinMajor.b);
+            curveMinMinor.a * minT + curveMinMinor.b,
+            curveMinMajor.a * minT + curveMinMajor.b);
         tangentMinCurve = normalize(tangentMinCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
 
         float2 tangentMaxCurve = float2(
-            2.0 * curveMaxMinor.a * maxT + curveMaxMinor.b,
-            2.0 * curveMaxMajor.a * maxT + curveMaxMajor.b);
+            curveMaxMinor.a * maxT + curveMaxMinor.b,
+            curveMaxMajor.a * maxT + curveMaxMajor.b);
         tangentMaxCurve = normalize(tangentMaxCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
 
         float curveMinorDistance = min(

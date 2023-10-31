@@ -408,16 +408,16 @@ PSInput main(uint vertexID : SV_VertexID)
             curveMax.B[major], 
             curveMax.C[major]));
 
-        nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
-            curveMin.A[major], 
-            curveMin.B[major], 
-            curveMin.C[major] - maxCorner[major]);
-        nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
-            curveMax.A[major], 
-            curveMax.B[major], 
-            curveMax.C[major] - maxCorner[major]);
-        outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
-        outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
+        //nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //    curveMin.A[major], 
+        //    curveMin.B[major], 
+        //    curveMin.C[major] - maxCorner[major]);
+        //nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //    curveMax.A[major], 
+        //    curveMax.B[major], 
+        //    curveMax.C[major] - maxCorner[major]);
+        //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
+        //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
     
     
