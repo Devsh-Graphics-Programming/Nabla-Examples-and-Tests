@@ -303,11 +303,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                         {
                             addBezier(monotonicSegments.data()[0]);
                             addBezier(monotonicSegments.data()[1]);
-
-#ifdef DEBUG_HATCH_VISUALLY
-							drawDebugBezier(monotonicSegments.data()[0], float32_t4(0.8, 0.0, 0.0, 0.8));
-							drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 0.8, 0.0, 0.8));
-#endif
                         }
                     }
                 }
@@ -333,6 +328,10 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
         maxMajor = segments.front().originalBezier->P2[major];
     }
 
+#ifdef DEBUG_HATCH_VISUALLY
+	int32_t step = 0;
+#endif
+
     // Sweep line algorithm
     std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
 
@@ -346,6 +345,15 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		double lenLhs = glm::distance(lhs.originalBezier->P0, lhs.originalBezier->P2);
 		double lenRhs = glm::distance(rhs.originalBezier->P0, rhs.originalBezier->P2);
 		auto minLen = std::min(lenLhs, lenRhs);
+#ifdef DEBUG_HATCH_VISUALLY
+		if (debugOutput && step == debugStep)
+		{
+			drawDebugLine(float64_t2(_lhs, -1000.0), float64_t2(_lhs, 1000.0), float64_t4(0.1, 0.1, 1.0, 1.0));
+			drawDebugLine(float64_t2(_rhs, -1000.0), float64_t2(_rhs, 1000.0), float64_t4(0.1, 1.0, 1.0, 1.0));
+			printf(std::format("(comparing minor) _lhs: {} (len: {}) _rhs: {} (len: {}) minLen: {} diff: {} ",
+				_lhs, lenLhs, _rhs, lenRhs, minLen, abs(_lhs - _rhs)).c_str());
+		}
+#endif
 
 		// Threshhold here for intersection points, where the minor values for the curves are
 		// very close but could be smaller, causing the curves to be in the wrong order
@@ -357,6 +365,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			float64_t2 rTan = tangent(*rhs.originalBezier, rhs.t_start);
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
+#ifdef DEBUG_HATCH_VISUALLY
+			if (debugOutput && step == debugStep)
+			{
+				printf(std::format("(comparing tangent) lTan: {}, {} rTan: {}, {} _lhs: {} _rhs: {} ",
+					lTan.x, lTan.y, rTan.x, rTan.y, _lhs, _rhs).c_str());
+			}
+#endif
 			// negative values mess with the comparison operator when using multiplication
 			// they should be positive because of major monotonicity
 			assert(lTan[major] >= 0.0);
@@ -365,16 +380,25 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			{
 				float64_t2 lAcc = lhs.originalBezier->P0 - 2.0 * lhs.originalBezier->P1 + lhs.originalBezier->P2;
 				float64_t2 rAcc = rhs.originalBezier->P0 - 2.0 * rhs.originalBezier->P1 + rhs.originalBezier->P2;
-				_lhs = (lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) / (lTan[major] * lTan[major] * lTan[major]);
-				_rhs = (rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) / (rTan[major] * rTan[major] * rTan[major]);
+				_lhs = lAcc[minor] * rTan[major];//(lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) * (rTan[major] * rTan[major] * rTan[major]);
+				_rhs = rTan[minor] * lAcc[major];//(rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) * (lTan[major] * lTan[major] * lTan[major]);
+#ifdef DEBUG_HATCH_VISUALLY
+				if (debugOutput && step == debugStep)
+				{
+					printf(std::format("(comparing A) lAcc: {}, {} rAcc: {}, {} _lhs: {} _rhs: {} ",
+						lAcc.x, lAcc.y, rAcc.x, rAcc.y, _lhs, _rhs).c_str());
+				}
+#endif
 			}
 		}
+#ifdef DEBUG_HATCH_VISUALLY
+		if (debugOutput && step == debugStep)
+		{
+			printf("\n");
+		}
+#endif
 		return _lhs < _rhs;
 	};
-#ifdef DEBUG_HATCH_VISUALLY
-	int32_t step = 0;
-#endif
-
     auto addToCandidateSet = [&](const Segment& entry)
     {
 		if (entry.isStraightLineConstantMajor())
