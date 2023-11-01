@@ -1964,6 +1964,45 @@ public:
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
+				auto circleThing = [&](float64_t2 offset)
+				{
+					CPolyline polyline;
+					std::vector<QuadraticBezierInfo> beziers;
+
+					beziers.push_back({ float64_t2(0, -1), float64_t2(-1, -1),float64_t2(-1, 0) });
+					beziers.push_back({ float64_t2(0, -1), float64_t2(1, -1),float64_t2(1, 0) });
+					beziers.push_back({ float64_t2(-1, 0), float64_t2(-1, 1),float64_t2(0, 1) });
+					beziers.push_back({ float64_t2(1, 0), float64_t2(1, 1),float64_t2(0, 1) });
+
+					for (uint32_t i = 0; i < beziers.size(); i++)
+						for (uint32_t j = 0; j < 3; j++)
+							beziers[i].p[j] = (beziers[i].p[j] * 200.0) + offset;
+
+					polyline.addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+
+					polylines.push_back(polyline);
+				};
+				circleThing(float64_t2(-500, 0));
+				circleThing(float64_t2(500, 0));
+				circleThing(float64_t2(0, -500));
+				circleThing(float64_t2(0, 500));
+
+				for (auto polyline = polylines.begin(); polyline != polylines.end(); polyline++)
+				{
+					CPULineStyle style2 = {};
+					style2.screenSpaceLineWidth = 1.0f;
+					style2.worldSpaceLineWidth = 0.0f;
+					style2.color = float32_t4(0.0, 0.0, 0.0, 1.0);
+					debug(*polyline, style2);
+				}
+
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
 					std::vector<float64_t2> points = {
 						begin, end
