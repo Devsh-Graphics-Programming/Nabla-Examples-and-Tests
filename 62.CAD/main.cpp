@@ -2022,6 +2022,11 @@ public:
 					beziers.push_back({ float64_t2(-20, 20), float64_t2(30, -70), float64_t2(80, 20), });
 					line(float64_t2(-20, 20), float64_t2(80, 20));
 
+
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+
 					line(float64_t2(-30, -100), float64_t2(-30, -50));
 					line(float64_t2(100, -100), float64_t2(100, -50));
 
