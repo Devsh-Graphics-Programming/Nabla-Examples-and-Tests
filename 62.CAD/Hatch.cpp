@@ -164,7 +164,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		auto p0 = originalBezier->P0;
 		auto p1 = originalBezier->P1;
 		auto p2 = originalBezier->P2;
-		bool sideP1 = nbl::core::sign((p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x));
+		bool sideP1 = (p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x) >= 0.0;
 
 		auto otherBezier = *other.originalBezier;
 		const std::array<double, 4> intersections = linePossibleIntersections(*originalBezier, otherBezier);
@@ -176,7 +176,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 				continue;
 
 			auto intersection = other.originalBezier->evaluate(t);
-			bool sideIntersection = nbl::core::sign<double>((p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x));
+			bool sideIntersection = (p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x) >= 0.0;
 
 			// If both P1 and the intersection point are on the same side of the P0 -> P2 line
 			// for the current line, we consider this as a valid intersection
