@@ -1,8 +1,7 @@
 #pragma shader_stage(compute)
 
-#include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
 
-uint32_t3 gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE, 1, 1); }
+#include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
 
 static const uint32_t ArithmeticSz = nbl::hlsl::workgroup::scratch_size_arithmetic<ITEMS_PER_WG>::value;
 static const uint32_t BallotSz = nbl::hlsl::workgroup::scratch_size_ballot<ITEMS_PER_WG>::value;
@@ -11,27 +10,31 @@ static const uint32_t ScratchSz = ArithmeticSz+BallotSz;
 // TODO: Can we make it a static variable?
 groupshared uint32_t scratch[ScratchSz];
 
+
+#include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
+
+
 template<uint32_t offset>
 struct ScratchProxy
 {
 	uint32_t get(const uint32_t ix)
 	{
-		return scratch[ix + offset];
+		return scratch[ix+offset];
 	}
 
 	void set(const uint32_t ix, const uint32_t value)
 	{
-		scratch[ix + offset] = value;
+		scratch[ix+offset] = value;
 	}
 
 	uint32_t atomicAdd(const uint32_t ix, const uint32_t data)
 	{
-		return nbl::hlsl::glsl::atomicAdd(scratch[ix + offset], data);
+		return nbl::hlsl::glsl::atomicAdd(scratch[ix+offset],data);
 	}
 
 	uint32_t atomicOr(const uint32_t ix, const uint32_t data)
 	{
-		return nbl::hlsl::glsl::atomicOr(scratch[ix + offset], data);
+		return nbl::hlsl::glsl::atomicOr(scratch[ix+offset],data);
 	}
 
 	void workgroupExecutionAndMemoryBarrier()
@@ -41,44 +44,56 @@ struct ScratchProxy
 	}
 };
 
-ScratchProxy<0> arithmeticAccessor;
-ScratchProxy<ArithmeticSz> ballotAccessor;
+static ScratchProxy<0> arithmeticAccessor;
 
 
 #include "nbl/builtin/hlsl/workgroup/broadcast.hlsl"
 
-template<class Binop>
-struct operation_t : nbl::hlsl::OPERATION<Binop>
-{
-	using base_t = nbl::hlsl::OPERATION<Binop>;
-	using type_t = typename Binop::type_t;
 
-	SharedMemory accessors;
+template<class Binop>
+struct operation_t// : nbl::hlsl::OPERATION<Binop,ITEMS_PER_WG>
+{
+//	using base_t = nbl::hlsl::OPERATION<Binop,ITEMS_PER_WG>;
+	using type_t = typename Binop::type_t;
 
 	type_t operator()(type_t value)
 	{
+//		type_t retval = base_t::template __call<ScratchProxy<0> >(value,arithmeticAccessor);
 		// we barrier before because we alias the accessors for Binop
-		memoryAccessor.workgroupExecutionAndMemoryBarrier();
-		// ballots need a special codepath
-		if (nbl::hlsl::is_same<ballot<type_t>,Binop>::value)
-		{
-			// we can only ballot booleans, so low bit
-			nbl::hlsl::workgroup::ballot(bool(value&0x1u),ballotAccessor);
-			if (nbl::hlsl::is_same<nbl::hlsl::workgroup::reduction<Binop>,base_t>::value)
-				return nbl::hlsl::workgroup::ballotBitCount<SharedMemory>(ballotAccessor);
-			else if (nbl::hlsl::is_same<nbl::hlsl::workgroup::inclusive_scan<Binop>,base_t>::value)
-				return nbl::hlsl::workgroup::ballotInclusiveBitCount<SharedMemory>(ballotAccessor);
-			else if (nbl::hlsl::is_same<nbl::hlsl::workgroup::exclusive_scan<Binop>,base_t>::value)
-				return nbl::hlsl::workgroup::ballotExclusiveBitCount<SharedMemory>(ballotAccessor);
-			else
-			{
-				assert(false);
-				return 0xdeadbeefu;
-			}
-		}
-		else
-			return oxdeadbeefu;//base_t::operator()(value,arithmeticAccessor);
+		arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+//		return retval;
+		return value;
 	}
 };
 
+
 #include "shaderCommon.hlsl"
+
+static ScratchProxy<ArithmeticSz> ballotAccessor;
+
+uint32_t3 gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE,1,1); }
+
+
+
+[numthreads(WORKGROUP_SIZE,1,1)]
+void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThreadID)
+{
+	__gl_LocalInvocationIndex = invIdx;
+	__gl_GlobalInvocationID = globalId;
+
+	const type_t sourceVal = test();
+	if (globalId.x==0u)
+		output[ballot<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+#if 0
+	// we can only ballot booleans, so low bit
+	nbl::hlsl::workgroup::ballot(bool(sourceVal&0x1u),ballotAccessor);
+	uint32_t destVal = 0xdeadbeefu;
+	if (false)
+		destVal =  nbl::hlsl::workgroup::ballotBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
+	else
+	{
+		assert(false);
+	}
+	output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalId.x,destVal);
+#endif
+}
