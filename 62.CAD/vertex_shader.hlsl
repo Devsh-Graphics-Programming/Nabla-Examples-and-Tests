@@ -353,28 +353,28 @@ PSInput main(uint vertexID : SV_VertexID)
         curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<uint32_t4>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * i, 4u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<uint32_t4>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * (3 + i), 4u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<uint32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<uint32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * (3 + i), 4u);
         }
 
-        const double2 ndcAabbExtents = double2(
-            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin)),
-            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin))
+        const float2 ndcAabbExtents = float2(
+            length((float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin)),
+            length((float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin))
         );
         // Max corner stores the quad's UVs:
         // (0,1)|--|(1,1)
         //      |  |
         // (0,0)|--|(1,0)
-        const double2 undilatedMaxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        const float2 undilatedMaxCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         
         // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
         // sometimes it falls outside the pixel center and creates a hole in major axis)
         // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
-        const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * ((globals.antiAliasingFactor + 1.0) / double2(globals.resolution));
+        const float2 dilatedAabbExtents = ndcAabbExtents + 2.0 * ((globals.antiAliasingFactor + 1.0) / float2(globals.resolution));
         // Dilate the UVs
-        const double2 maxCorner = ((((undilatedMaxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
-        const double2 coord = transformPointNdc(clipProjectionData.projectionToNDC, lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
-        outV.position = float4((float2) coord, 0.f, 1.f);
+        const float2 maxCorner = ((((undilatedMaxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
+        const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin * (1.0 - maxCorner) + curveBox.aabbMax * maxCorner);  // lerp has no overload for double
+        outV.position = float4(coord, 0.f, 1.f);
 
         const uint major = (uint)SelectedMajorAxis;
         const uint minor = 1-major;
