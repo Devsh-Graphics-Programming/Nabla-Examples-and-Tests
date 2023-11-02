@@ -10,8 +10,6 @@
 #include "Hatch.h"
 #include "Renderer.h"
 
-#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
-
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;

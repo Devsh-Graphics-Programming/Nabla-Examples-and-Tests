@@ -86,7 +86,7 @@ struct StyleClipper
         float_t minDrawT = 0.0;
         float_t maxDrawT = 1.0;
         {
-            float_t normalizedPlaceInPatternBegin = frac(style.phaseShift);
+            float_t normalizedPlaceInPatternBegin = frac(phaseShift);
             uint32_t patternIdxBegin = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternBegin);
             const bool BeginInNonDrawSection = patternIdxBegin & 0x1;
 
@@ -101,7 +101,7 @@ struct StyleClipper
 
             const float_t arcLenEnd = arcLenCalc.calcArcLen(1.0);
             const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(globals.worldToScreenRatio);
-            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * style.reciprocalStipplePatternLen + style.phaseShift);
+            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * style.reciprocalStipplePatternLen + phaseShift);
             uint32_t patternIdxEnd = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternEnd);
             const bool EndInNonDrawSection = patternIdxEnd & 0x1;
 
