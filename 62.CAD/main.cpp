@@ -1,28 +1,31 @@
-#define _NBL_STATIC_LIB_
+﻿#define _NBL_STATIC_LIB_
 #include <nabla.h>
 
 #include "../common/CommonAPI.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include "curves.h"
+#include "Hatch.h"
+#include "Renderer.h"
 
-#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+static constexpr bool DebugMode = false;
+static constexpr bool DebugRotatingViewProj = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
 	CASE_0, // Simple Line, Camera Zoom In/Out
 	CASE_1,	// Overdraw Fragment Shader Stress Test
-	CASE_2, // NOT USED
+	CASE_2, // hatches
 	CASE_3, // CURVES AND LINES
 	CASE_4, // STIPPLE PATTERN
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
-static constexpr bool DebugMode = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
+
+typedef uint32_t uint;
 
 #include "common.hlsl"
 
@@ -40,6 +43,7 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
 	if (!areParametersEqual)
 		return false;
+	return true;
 
 	if (lhs.stipplePatternSize == -1)
 		return true;
@@ -50,152 +54,6 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
 	return areParametersEqual && isStipplePatternArrayEqual;
 }
-
-// holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
-struct CPULineStyle
-{
-	static constexpr int32_t InvalidStipplePatternSize = -1;
-	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
-
-	float32_t4 color;
-	float screenSpaceLineWidth;
-	float worldSpaceLineWidth;
-	// gpu stipple pattern data form
-	int32_t stipplePatternSize;
-	float reciprocalStipplePatternLen;
-	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
-	float phaseShift;
-
-	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
-	//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
-	{
-		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
-
-		if (stipplePatternCPURepresentation.size() == 0)
-		{
-			stipplePatternSize = 0;
-			return;
-		}
-
-		nbl::core::vector<float> stipplePatternTransformed;
-
-		// just to make sure we have a consistent definition of what's positive and what's negative
-		auto isValuePositive = [](float x)
-			{
-				return (x >= 0);
-			};
-
-		// merge redundant values
-		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
-		{
-			float redundantConsecutiveValuesSum = 0.0f;
-			const bool firstValueSign = isValuePositive(*it);
-			do
-			{
-				redundantConsecutiveValuesSum += *it;
-				it++;
-			} while (it != stipplePatternCPURepresentation.end() && (firstValueSign == isValuePositive(*it)));
-
-			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
-		}
-
-		if (stipplePatternTransformed.size() == 1)
-		{
-			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? InvalidStipplePatternSize : 0;
-			return;
-		}
-
-		// merge first and last value if their sign matches
-		phaseShift = 0.0f;
-		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
-		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
-		if (firstComponentPositive == lastComponentPositive)
-		{
-			phaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
-			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
-			stipplePatternTransformed.pop_back();
-		}
-
-		if (stipplePatternTransformed.size() == 1)
-		{
-			stipplePatternSize = (firstComponentPositive) ? 0 : InvalidStipplePatternSize;
-			return;
-		}
-
-		// rotate values if first value is negative value
-		if (!firstComponentPositive)
-		{
-			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
-			phaseShift += std::abs(stipplePatternTransformed[0]);
-		}
-
-		// calculate normalized prefix sum
-		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
-		const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
-
-		float prefixSum[PREFIX_SUM_MAX_SZ];
-		prefixSum[0] = stipplePatternTransformed[0];
-
-		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
-
-		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
-
-		for (int i = 0; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] *= reciprocalStipplePatternLen;
-
-		stipplePatternSize = PREFIX_SUM_SZ;
-		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
-
-		phaseShift = phaseShift * reciprocalStipplePatternLen;
-		if (stipplePatternTransformed[0] == 0.0)
-		{
-			phaseShift -= 1e-3; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
-		}
-	}
-
-	LineStyle getAsGPUData() const
-	{
-		LineStyle ret = {};
-
-		// pack into uint32_t
-		for (uint32_t i = 0; i < stipplePatternSize; ++i)
-		{
-			const bool leftIsDot =
-				(i > 1 && stipplePattern[i - 1] == stipplePattern[i - 2]) ||
-				(i == 1 && stipplePattern[0] == 0.0);
-
-			const bool rightIsDot =
-				(i == stipplePatternSize && stipplePattern[0] == 0.0) ||
-				(i + 2 <= stipplePatternSize && stipplePattern[i] == stipplePattern[i + 1]);
-
-			ret.stipplePattern[i] = static_cast<uint32_t>(stipplePattern[i] * (1u << 29u));
-
-			if (leftIsDot)
-				ret.stipplePattern[i] |= 1u << 30u;
-			if (rightIsDot)
-				ret.stipplePattern[i] |= 1u << 31u;
-		}
-
-		ret.color = color;
-		ret.screenSpaceLineWidth = screenSpaceLineWidth;
-		ret.worldSpaceLineWidth = worldSpaceLineWidth;
-		ret.stipplePatternSize = stipplePatternSize;
-		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
-		ret.phaseShift = phaseShift;
-
-		return ret;
-	}
-
-	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
-
-};
-
-static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 112u);
-static_assert(sizeof(LineStyle) == 96u);
-static_assert(sizeof(ClipProjectionData) == 88u);
 
 using namespace nbl;
 using namespace ui;
@@ -228,12 +86,12 @@ public:
 
 	float64_t3x3 constructViewProjection()
 	{
-		float64_t3x3 ret = {};
+		auto ret = float64_t3x3();
 
 		ret[0][0] = 2.0 / m_bounds.x;
 		ret[1][1] = -2.0 / m_bounds.y;
 		ret[2][2] = 1.0;
-
+		
 		ret[0][2] = (-2.0 * m_origin.x) / m_bounds.x;
 		ret[1][2] = (2.0 * m_origin.y) / m_bounds.y;
 
@@ -262,19 +120,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 1;
+				m_origin.y += 2;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 1;
+				m_origin.x -= 2;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 1;
+				m_origin.y -= 2;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 1;
+				m_origin.x += 2;
 			}
 		}
 	}
@@ -283,164 +141,6 @@ private:
 	double m_aspectRatio = 0.0;
 	float64_t2 m_bounds = {};
 	float64_t2 m_origin = {};
-};
-
-// It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
-// This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
-class CPolyline
-{
-public:
-
-	// each section consists of multiple connected lines or multiple connected ellipses
-	struct SectionInfo
-	{
-		ObjectType	type;
-		uint32_t	index; // can't make this a void* cause of vector resize
-		uint32_t	count;
-	};
-
-	size_t getSectionsCount() const { return m_sections.size(); }
-
-	const SectionInfo& getSectionInfoAt(const uint32_t idx) const
-	{
-		return m_sections[idx];
-	}
-
-	const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const
-	{
-		return m_quadBeziers[idx];
-	}
-
-	const float64_t2& getLinePointAt(const uint32_t idx) const
-	{
-		return m_linePoints[idx];
-	}
-
-	void clearEverything()
-	{
-		m_sections.clear();
-		m_linePoints.clear();
-	}
-
-	// Reserves memory with worst case
-	void reserveMemory(uint32_t noOfLines, uint32_t noOfBeziers)
-	{
-		m_sections.reserve(noOfLines + noOfBeziers);
-		m_linePoints.reserve(noOfLines * 2u);
-		m_quadBeziers.reserve(noOfBeziers);
-	}
-
-	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool addToPreviousLineSectionIfAvailable = false)
-	{
-		if (linePoints.size() <= 1u)
-			return;
-
-		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
-		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
-		bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::LINE;
-			newSection.index = static_cast<uint32_t>(m_linePoints.size());
-			newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
-		}
-		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
-	}
-
-	void addEllipticalArcs(const core::SRange<curves::EllipticalArcInfo>& ellipses)
-	{
-		// TODO[Erfan] Approximate with quadratic beziers
-	}
-
-	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers)
-	{
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::QUAD_BEZIER;
-			newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
-			newSection.count = static_cast<uint32_t>(quadBeziers.size());
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
-		}
-		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
-	}
-
-	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
-	/*
-	*  this preprocess should:
-	*	1. if style has road info try to generate miters:
-	*		if tangents are not in the same direction with some error add a PolylineConnector object
-		2. go over the list of sections (line and beziers in order) compute the phase shift by computing their arclen and divisions with style length and
-			fill the phaseShift part of the QuadraticBezierInfo and LinePointInfo, 
-			you initially set them to 0 in addLinePoints/addQuadBeziers
-
-		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
-	*/ 
-
-protected:
-	// TODO[Przemek]: a vector of polyline connetor objects
-	std::vector<SectionInfo> m_sections;
-	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
-	std::vector<float64_t2> m_linePoints;
-	std::vector<QuadraticBezierInfo> m_quadBeziers;
-};
-
-// Basically 2D CSG
-// TODO[Lucas]:
-class Hatch
-{
-	/*
-		This class will input a list of Polylines (core::SRange)
-		and then output bunch of HatchBoxes
-		The hatch box generation algorithm will be used here
-	*/
-
-	/*
-		Here are additional info you need for the hatch box generation algorithm:
-
-		1. Curve-Curve Intersection
-			For curve curve intersection you'd need one curve's implicit formula F(x,y)=0 and another ones parametric formula x=x(t) and y=y(t)
-			we substitude x and y in F(x,y) with x(t) and y(t) and that results in a polynomial F(x(t),y(t))=g(t)
-			whose roots are the parameter values of the points of intersection
-			for more info See Chapter 17.8 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			For quadratic beziers the equation will be quartic (degree 4 of t). solve the quartic using the method here https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
-
-		2. Implicitization
-			See Chapter 17.6 of https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub
-			You need to implicitize the quadratic bezier curve which results in a polynomial like this: ax^2+by^2+cxy+dx+ey+f.
-			that's beautiful cause all you need to store this is 6 doubles just like a quadratic bezier,
-			you could even standardize and divide every component by 'a' and use 5 doubles, but let's not do that yet, I'm a bit scared of divisions and haven't thought about this fully
-			We need a implicitized curve per curve (1 to 1 mapping) in our algorithm, we don't need to store these in the Hatch class
-			And here is my desmos showing the implicitization process https://www.desmos.com/calculator/8jfbzqrazh
-
-		3. for the segment sorting you also need to evaluate derivatives in the case that multiple beziers go through the same point
-			(Talk with Matt, he figure out the math)
-	*/
-
-	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
-	struct CurveBox
-	{
-		// aabb (float64_t2 min, max)
-		// reference to min curve (could be left curve if sweeping in y dir) and it's tmin tmax
-		// reference to max curve (could be right curve if sweeping in y dir) and it's tmin tmax
-		// any reference to texture or colour or style used to fill it Or we could fill that in It's drawObj (latter is better if we could alias with lineStyle address)
-	};
-
-	// note: even though in this example we can reference to the polyline bezier and lines somehow, we want to eventualy be able to serialize/deserialize 
-	// this object and should be independant of any outside references so here we will also be keeping a list/vector of quadratic beziers which CurveBox can index into
-	// we have two different types (line,bezier) but we don't want to keep two seperate lists, we will have the lines have the mid point (p1) set to nan adn everything as "beziers"
 };
 
 template <typename BufferType>
@@ -516,7 +216,7 @@ public:
 	{
 		maxDrawObjects = drawObjects;
 		size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
-
+		 
 		video::IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
 		drawObjectsCreationParams.size = drawObjectsBufferSize;
 		drawObjectsCreationParams.usage = video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
@@ -659,7 +359,6 @@ public:
 		return intendedNextSubmit;
 	}
 
-	// TODO[Lucas]: drawHatch function with similar signature to drawPolyline
 	// If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
 	// But we don't have that so we have to follow a similar auto submission as the "drawPolyline" function with some mutations:
 	// We have to find the MAX number of "CurveBoxes" we could draw, and since both the "Curves" and "CurveBoxes" reside in geometry buffer,
@@ -667,6 +366,49 @@ public:
 	// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
 	// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
 	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
+	video::IGPUQueue::SSubmitInfo drawHatch(
+		const Hatch& hatch,
+		// If more parameters from cpu line style are used here later, make a new HatchStyle & use that
+		const float32_t4 color, 
+		const uint32_t clipProjectionIdx,
+		video::IGPUQueue* submissionQueue,
+		video::IGPUFence* submissionFence,
+		video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	{
+		CPULineStyle lineStyle;
+		lineStyle.color = color;
+		lineStyle.stipplePatternSize = 0u;
+
+		uint32_t styleIdx;
+		intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+		
+		MainObject mainObj = {};
+		mainObj.styleIdx = styleIdx;
+		mainObj.clipProjectionIdx = clipProjectionIdx;
+		uint32_t mainObjIdx;
+		intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+		const auto sectionsCount = 1;
+
+		uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
+
+		while (true)
+		{
+			bool shouldSubmit = false;
+			addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
+
+			const auto sectionObjectCount = hatch.getHatchBoxCount();
+			if (currentObjectInSection >= sectionObjectCount)
+				break;
+
+			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			resetIndexCounters();
+			resetGeometryCounters();
+		}
+
+		return intendedNextSubmit;
+	}
 
 	video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
 		video::IGPUQueue* submissionQueue,
@@ -957,7 +699,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
+		addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
@@ -988,7 +730,7 @@ protected:
 	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
-		constexpr uint32_t IndicesPerQuadBezier	= 6u * CagesPerQuadBezier;
+		constexpr uint32_t IndicesPerQuadBezier = 6u * CagesPerQuadBezier;
 		assert(section.type == ObjectType::QUAD_BEZIER);
 
 		const auto maxGeometryBufferBeziers = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
@@ -1002,7 +744,7 @@ protected:
 		uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
 
 		// Add Indices
-		addPolylineObjectIndices_Internal(currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
+		addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
 
 		// Add DrawObjs
 		DrawObject drawObj = {};
@@ -1033,21 +775,53 @@ protected:
 		currentObjectInSection += objectsToUpload;
 	}
 
-	// TODO[Lucas] addHatch_Internal with similar signature to functions above. 
-	/*
-	* this does:
-		- iterates through the "Boxes" in a hatch
-		- finds the curves referenced by it and copies both the boxes and the curves into correct places of the geometry buffer
-		- constructs drawObjs and copies them into correct place of the drawobj buffer
-		- and correctly advances the memory tracker and counters
-		- it will iterate to a point where it ends OR there is not enough memory left
-		- For example we might have enough memory left for 10 curve boxes in the geometry buffer,
-			but that doesn't mean we could draw 10 curve boxes because their curves need to also reside in mem,
-			the solution is simple when we iterate on curve boxes and keep track of what curves we have already copied into mem (a map from cpuCurveIndex to geomBufferOffset)
-	*/
+	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex)
+	{
+		constexpr uint32_t IndicesPerHatchBox = 6u;
+
+		const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(Hatch::CurveHatchBox);
+
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
+		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferHatchBoxes);
+
+		uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
+		uploadableObjects = core::min(uploadableObjects, remainingObjects);
+
+		for (uint32_t i = 0; i < uploadableObjects; i++)
+		{
+			const Hatch::CurveHatchBox& hatchBox = hatch.getHatchBox(i + currentObjectInSection);
+
+			uint64_t hatchBoxAddress;
+			{
+				CurveBox curveBox;
+				curveBox.aabbMin = hatchBox.aabbMin;
+				curveBox.aabbMax = hatchBox.aabbMax;
+				memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(uint32_t2) * 3);
+				memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(uint32_t2) * 3);
+
+				void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+				memcpy(dst, &curveBox, sizeof(CurveBox));
+				hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
+				currentGeometryBufferSize += sizeof(CurveBox);
+			}
+
+			DrawObject drawObj = {};
+			drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
+			drawObj.mainObjIndex = mainObjIndex;
+			drawObj.geometryAddress = hatchBoxAddress;
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+		}
+
+		// Add Indices
+		addCagedObjectIndices_Internal(currentDrawObjectCount, uploadableObjects);
+		currentDrawObjectCount += uploadableObjects;
+		currentObjectInSection += uploadableObjects;
+	}
 
 	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addPolylineObjectIndices_Internal(uint32_t startObject, uint32_t objectCount)
+	void addCagedObjectIndices_Internal(uint32_t startObject, uint32_t objectCount)
 	{
 		constexpr bool oddProvokingVertex = true; // was useful before, might probably deprecate it later for simplicity or it might be useful for some tricks later on
 		index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
@@ -1235,7 +1009,7 @@ class CADApp : public ApplicationBase
 			drawBuffers[i].allocateIndexBuffer(logicalDevice.get(), maxIndices);
 			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice.get(), maxObjects);
 			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice.get(), maxObjects * 5u);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 16u);
+			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 32u);
 			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice.get(), 128u);
 
 			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
@@ -1771,6 +1545,10 @@ public:
 		m_Camera.setOrigin({ 0.0, 0.0 });
 		m_Camera.setAspectRatio((double)window->getWidth() / window->getHeight());
 		m_Camera.setSize(10.0);
+		if constexpr (mode == ExampleMode::CASE_2)
+		{
+			m_Camera.setSize(200.0);
+		}
 
 		m_timeElapsed = 0.0;
 
@@ -1852,15 +1630,40 @@ public:
 		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
 		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
 		cb->beginDebugMarker("Frame");
+
+		
+
+		float64_t3x3 projectionToNDC;
+		// TODO: figure out why the matrix multiplication overload isn't getting detected here
+		// 
+		//if constexpr (DebugRotatingViewProj)
+		//{
+		//	double theta = (m_timeElapsed * 0.00008) * (2.0 * nbl::core::PI<double>());
+		//
+		//	auto rotation = float64_t3x3(
+		//		cos(theta), -sin(theta), 0.0,
+		//		sin(theta), cos(theta), 1.0,
+		//		0.0, 0.0, 1.0
+		//	);
+		//
+		//	auto vp = m_Camera.constructViewProjection();
+		//	projectionToNDC = nbl::hlsl::mul(rotation, vp);
+		//}
+		//else
+		//{
+		//	projectionToNDC = m_Camera.constructViewProjection();
+		//}
+		projectionToNDC = m_Camera.constructViewProjection();
+		
 		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0f;// + abs(cos(m_timeElapsed * 0.0008))*20.0f;
+		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = m_Camera.constructViewProjection();
+		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		globalData.screenToWorldRatio = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.worldToScreenRatio = 1.0f/globalData.screenToWorldRatio;
-
+		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.screenToWorldRatio = (float) screenToWorld;
+		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -1951,7 +1754,8 @@ public:
 			bufferBarriers[0u].buffer = currentDrawBuffers.gpuDrawBuffers.indexBuffer;
 			bufferBarriers[0u].offset = 0u;
 			bufferBarriers[0u].size = currentDrawBuffers.getCurrentIndexBufferSize();
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
+			if (currentDrawBuffers.getCurrentIndexBufferSize() > 0u)
+				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
 		}
 		{
 			constexpr uint32_t MaxBufferBarriersCount = 5u;
@@ -2013,9 +1817,12 @@ public:
 				bufferBarrier.offset = 0u;
 				bufferBarrier.size = currentDrawBuffers.getCurrentCustomClipProjectionBufferSize();
 			}
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
+			if (bufferBarriersCount > 0)
+				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
 		}
 	}
+
+	uint32_t m_hatchDebugStep = 0u;
 
 	void endFrameRender()
 	{
@@ -2147,6 +1954,270 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
+			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
+			{
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			};
+			
+			int32_t hatchDebugStep = m_hatchDebugStep;
+
+			if (hatchDebugStep > 0)
+			{
+				std::vector <CPolyline> polylines;
+				auto circleThing = [&](float64_t2 offset)
+				{
+					CPolyline polyline;
+					std::vector<QuadraticBezierInfo> beziers;
+
+					beziers.push_back({ float64_t2(0, -1), float64_t2(-1, -1),float64_t2(-1, 0) });
+					beziers.push_back({ float64_t2(0, -1), float64_t2(1, -1),float64_t2(1, 0) });
+					beziers.push_back({ float64_t2(-1, 0), float64_t2(-1, 1),float64_t2(0, 1) });
+					beziers.push_back({ float64_t2(1, 0), float64_t2(1, 1),float64_t2(0, 1) });
+
+					for (uint32_t i = 0; i < beziers.size(); i++)
+						for (uint32_t j = 0; j < 3; j++)
+							beziers[i].p[j] = (beziers[i].p[j] * 200.0) + offset;
+
+					polyline.addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+
+					polylines.push_back(polyline);
+				};
+				circleThing(float64_t2(-500, 0));
+				circleThing(float64_t2(500, 0));
+				circleThing(float64_t2(0, -500));
+				circleThing(float64_t2(0, 500));
+
+				for (auto polyline = polylines.begin(); polyline != polylines.end(); polyline++)
+				{
+					CPULineStyle style2 = {};
+					style2.screenSpaceLineWidth = 1.0f;
+					style2.worldSpaceLineWidth = 0.0f;
+					style2.color = float32_t4(0.0, 0.0, 0.0, 1.0);
+					debug(*polyline, style2);
+				}
+
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				std::vector <CPolyline> polylines;
+				auto line = [&](float64_t2 begin, float64_t2 end) {
+					std::vector<float64_t2> points = {
+						begin, end
+					};
+					CPolyline polyline;
+					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polylines.push_back(polyline);
+				};
+				{
+					CPolyline polyline;
+					std::vector<QuadraticBezierInfo> beziers;
+
+					beziers.push_back({ float64_t2(-100, -100), float64_t2(-20, 40), float64_t2(0, -40), });
+					line(float64_t2(-100, -100), float64_t2(0.0, -40));
+					beziers.push_back({ float64_t2(-10, -50), float64_t2(10, -10), float64_t2(30, -50), });
+					line(float64_t2(-10, -50), float64_t2(30, -50));
+					beziers.push_back({ float64_t2(-20, 20), float64_t2(30, -70), float64_t2(80, 20), });
+					line(float64_t2(-20, 20), float64_t2(80, 20));
+
+
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+
+					line(float64_t2(-30, -100), float64_t2(-30, -50));
+					line(float64_t2(100, -100), float64_t2(100, -50));
+
+					polyline.addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+
+					polylines.push_back(polyline);
+				}
+
+				for (auto polyline = polylines.begin(); polyline != polylines.end(); polyline++)
+				{
+					CPULineStyle style2 = {};
+					style2.screenSpaceLineWidth = 1.0f;
+					style2.worldSpaceLineWidth = 0.0f;
+					style2.color = float32_t4(0.0, 0.0, 0.0, 1.0);
+					debug(*polyline, style2);
+				}
+
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.6, 0.6, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				std::vector <CPolyline> polylines;
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(119.196, -152.568),
+						float64_t2(121.566, -87.564),
+						float64_t2(237.850, -85.817),
+						float64_t2(236.852, -152.194),
+						float64_t2(206.159, -150.447),
+						float64_t2(205.785, -125.618),
+						float64_t2(205.785, -125.618),
+						float64_t2(196.180, -122.051),
+						float64_t2(186.820, -124.870),
+						float64_t2(185.733, -136.350),
+						float64_t2(185.822, -149.075),
+						float64_t2(172.488, -155.349),
+						float64_t2(159.621, -150.447),
+						float64_t2(159.638, -137.831),
+						float64_t2(159.246, -125.618),
+						float64_t2(149.309, -121.398),
+						float64_t2(139.907, -123.872),
+						float64_t2(140.281, -149.075),
+						float64_t2(140.281, -149.075),
+						float64_t2(119.196, -152.568)
+					};
+					CPolyline polyline;
+					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polylines.push_back(polyline);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(110.846, -97.918),
+						float64_t2(113.217, -32.914),
+						float64_t2(229.501, -31.167),
+						float64_t2(228.503, -97.544),
+						float64_t2(197.810, -95.797),
+						float64_t2(197.435, -70.968),
+						float64_t2(197.435, -70.968),
+						float64_t2(187.831, -67.401),
+						float64_t2(178.471, -70.220),
+						float64_t2(177.384, -81.700),
+						float64_t2(177.473, -94.425),
+						float64_t2(164.138, -100.699),
+						float64_t2(151.271, -95.797),
+						float64_t2(151.289, -83.181),
+						float64_t2(150.897, -70.968),
+						float64_t2(140.960, -66.748),
+						float64_t2(131.558, -69.222),
+						float64_t2(131.932, -94.425),
+						float64_t2(131.932, -94.425),
+						float64_t2(110.846, -97.918)
+					};
+					CPolyline polyline;
+					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polylines.push_back(polyline);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(50.504, -128.469),
+						float64_t2(52.874, -63.465),
+						float64_t2(169.158, -61.718),
+						float64_t2(168.160, -128.095),
+						float64_t2(137.467, -126.348),
+						float64_t2(137.093, -101.519),
+						float64_t2(137.093, -101.519),
+						float64_t2(127.488, -97.952),
+						float64_t2(118.128, -100.771),
+						float64_t2(117.041, -112.251),
+						float64_t2(117.130, -124.976),
+						float64_t2(103.796, -131.250),
+						float64_t2(90.929, -126.348),
+						float64_t2(90.946, -113.732),
+						float64_t2(90.554, -101.519),
+						float64_t2(80.617, -97.298),
+						float64_t2(71.215, -99.772),
+						float64_t2(71.589, -124.976),
+						float64_t2(71.589, -124.976),
+						float64_t2(50.504, -128.469)
+					};
+					CPolyline polyline;
+					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polylines.push_back(polyline);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(98.133, -111.581),
+						float64_t2(100.503, -46.577),
+						float64_t2(216.787, -44.830),
+						float64_t2(215.789, -111.206),
+						float64_t2(185.096, -109.460),
+						float64_t2(184.722, -84.631),
+						float64_t2(184.722, -84.631),
+						float64_t2(175.117, -81.064),
+						float64_t2(165.757, -83.882),
+						float64_t2(164.670, -95.363),
+						float64_t2(164.759, -108.087),
+						float64_t2(151.425, -114.361),
+						float64_t2(138.558, -109.460),
+						float64_t2(138.575, -96.843),
+						float64_t2(138.183, -84.631),
+						float64_t2(128.246, -80.410),
+						float64_t2(118.844, -82.884),
+						float64_t2(119.218, -108.087),
+						float64_t2(119.218, -108.087),
+						float64_t2(98.133, -111.581)
+					};
+					CPolyline polyline;
+					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polylines.push_back(polyline);
+				}
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+			
+			if (hatchDebugStep > 0)
+			{
+				std::vector<float64_t2> points;
+				double sqrt3 = sqrt(3.0);
+				points.push_back(float64_t2(0, 1));
+				points.push_back(float64_t2(sqrt3 / 2, 0.5));
+				points.push_back(float64_t2(sqrt3 / 2, -0.5));
+				points.push_back(float64_t2(0, -1));
+				points.push_back(float64_t2(-sqrt3 / 2, -0.5));
+				points.push_back(float64_t2(-sqrt3 / 2, 0.5));
+				points.push_back(float64_t2(0, 1));
+			
+				std::vector<QuadraticBezierInfo> beziers;
+				beziers.push_back({
+					float64_t2(-0.5, -0.25),
+					float64_t2(-sqrt3 / 2, 0.0),
+					float64_t2(-0.5, 0.25) });
+				beziers.push_back({
+					float64_t2(0.5, -0.25),
+					float64_t2(sqrt3 / 2, 0.0),
+					float64_t2(0.5, 0.25) });
+			
+				for (uint32_t i = 0; i < points.size(); i++)
+					points[i] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * points[i];
+				for (uint32_t i = 0; i < beziers.size(); i++)
+					for (uint32_t j = 0; j < 3; j++)
+						beziers[i].p[j] = float64_t2(-200.0, 0.0) + float64_t2(10.0 + abs(cos(m_timeElapsed * 0.00008)) * 150.0f, 100.0) * beziers[i].p[j];
+			
+				CPolyline polyline;
+				polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+			
+				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+			
+			if (hatchDebugStep > 0)
+			{
+				CPolyline polyline;
+				std::vector<QuadraticBezierInfo> beziers;
+				beziers.push_back({
+					100.0 * float64_t2(-0.4, 0.13),
+					100.0 * float64_t2(7.7, 3.57),
+					100.0 * float64_t2(8.8, 7.27) });
+				beziers.push_back({
+					100.0 * float64_t2(6.6, 0.13),
+					100.0 * float64_t2(-1.97, 3.2),
+					100.0 * float64_t2(3.7, 7.27) });
+				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+			
+				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
@@ -2193,7 +2264,6 @@ public:
 				//	quadratic1.p[2] = float64_t2(300, 300);
 				//	quadBeziers.push_back(quadratic1);
 				//}
-
 				polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 			}
 			{
@@ -2476,6 +2546,13 @@ public:
 		cmdbuf->bindGraphicsPipeline(graphicsPipeline.get());
 		cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
+		if (fragmentShaderInterlockEnabled)
+		{
+			cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+			cmdbuf->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
+			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cmdbuf);
+		}
+
 		if constexpr (DebugMode)
 		{
 			cmdbuf->bindGraphicsPipeline(debugGraphicsPipeline.get());
@@ -2539,6 +2616,20 @@ public:
 		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 			{
 				m_Camera.keyboardProcess(events);
+
+				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+				{
+					auto ev = *eventIt;
+
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
+					{
+						m_hatchDebugStep++;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_Q)
+					{
+						m_hatchDebugStep--;
+					}
+				}
 			}
 		, logger.get());
 

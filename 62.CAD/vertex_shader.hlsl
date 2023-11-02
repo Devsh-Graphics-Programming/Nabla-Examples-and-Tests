@@ -1,6 +1,8 @@
 #pragma shader_stage(vertex)
 
 #include "common.hlsl"
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -8,19 +10,14 @@ float cross2D(float2 a, float2 b)
     return determinant(float2x2(a,b));
 }
 
-// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 {
     return 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
 }
 
-// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
-{   
-    float tt = t * t;
-    float oneMinusT = 1.0f - t;
-    float oneMinusTT = oneMinusT * oneMinusT;
-    return p0 * oneMinusTT + 2.0f * p1 * oneMinusT * t + p2 * tt;
+{
+    return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
 }
 
 // Caller should make sure the lines are not parallel, i.e. cross2D(direction1, direction2) != 0, otherwise a division-by-zero will cause NaN values
@@ -55,12 +52,27 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
+double2 transformPointNdc(float64_t3x3 transformation, double2 point2d)
+{
+    return mul(transformation, float64_t3(point2d, 1)).xy;
+}
+double2 transformVectorNdc(float64_t3x3 transformation, double2 vector3d)
+{
+    return mul(transformation, float64_t3(vector3d, 0)).xy;
+}
+float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d) 
+{
+    double2 ndc = transformPointNdc(transformation, point2d);
+    return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
+}
+
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
     const uint objectID = vertexID >> 2;
 
     DrawObject drawObj = drawObjects[objectID];
+
     ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
     uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
     PSInput outV;
@@ -72,8 +84,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
     outV.data4 = float4(0, 0, 0, 0);
-    outV.clip = float4(0,0,0,0);
-
+    outV.interp_data5 = float2(0, 0);
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
@@ -136,8 +147,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
         {
-            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
-            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+            transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
         }
 
         const float2 lineVector = normalize(transformedPoints[1u] - transformedPoints[0u]);
@@ -169,8 +179,6 @@ PSInput main(uint vertexID : SV_VertexID)
     {
         outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-        
-        const double3x3 transformation = clipProjectionData.projectionToNDC;
 
         double2 points[3u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -181,8 +189,7 @@ PSInput main(uint vertexID : SV_VertexID)
         float2 transformedPoints[3u];
         for (uint i = 0u; i < 3u; ++i)
         {
-            double2 ndc = mul(transformation, double3(points[i], 1)).xy; // Transform to NDC
-            transformedPoints[i] = (float2)((ndc + 1.0) * 0.5 * globals.resolution); // Transform to Screen Space
+            transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
         }
         
         nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
@@ -336,17 +343,81 @@ PSInput main(uint vertexID : SV_VertexID)
 
         outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
     }
-    /*
-        TODO[Lucas]:
-        Another `else if` for CurveBox Object Type,
-        What you basically need to do here is transform the box min,max and set `outV.position` correctly based on that + vertexIdx
-        and you need to do certain outV.setXXX() functions to set the correct (transformed) data to frag shader
+    else if (objType == ObjectType::CURVE_BOX)
+    {
+        outV.setColor(lineStyle.color);
+        outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
-        Another note: you may know that for transparency we draw objects twice
-        only when `writeToAlpha` is true (even provoking vertex), sdf calculations will happen and alpha will be set
-        otherwise it's just a second draw to "Resolve" and the only important thing on "Resolves" is the same `outV.position` as the previous draw (basically the same cage)
-        So if you do any precomputation, etc for sdf caluclations you could skip that :D and save yourself the trouble if `writeToAlpha` is false.
-    */
+        CurveBox curveBox;
+        curveBox.aabbMin = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        for (uint32_t i = 0; i < 3; i ++)
+        {
+            curveBox.curveMin[i] = vk::RawBufferLoad<uint32_t4>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<uint32_t4>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * (3 + i), 4u);
+        }
+
+        const double2 ndcAabbExtents = double2(
+            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin)),
+            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin))
+        );
+        // Max corner stores the quad's UVs:
+        // (0,1)|--|(1,1)
+        //      |  |
+        // (0,0)|--|(1,0)
+        double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        
+        // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
+        // sometimes it falls outside the pixel center and creates a hole in major axis)
+        // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
+        const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * ((globals.antiAliasingFactor + 1.0) / double2(globals.resolution));
+        // Dilate the UVs
+        maxCorner = ((((maxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
+        const double2 coord = transformPointNdc(clipProjectionData.projectionToNDC, lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
+        outV.position = float4((float2) coord, 0.f, 1.f);
+
+        const uint major = (uint)SelectedMajorAxis;
+        const uint minor = 1-major;
+
+        // A, B & C get converted from unorm to [0, 1]
+        // A & B get converted from [0,1] to [-2, 2]
+        nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
+            unpackCurveBoxSnorm(asint(curveBox.curveMin[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMin[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMin[2]));
+        nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
+            unpackCurveBoxSnorm(asint(curveBox.curveMax[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMax[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMax[2]));
+
+        outV.setMinorBBoxUv(maxCorner[minor]);
+        outV.setMajorBBoxUv(maxCorner[major]);
+
+        outV.setCurveMinMinor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMin.A[minor], 
+            curveMin.B[minor], 
+            curveMin.C[minor]));
+        outV.setCurveMinMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMin.A[major], 
+            curveMin.B[major], 
+            curveMin.C[major]));
+
+        outV.setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMax.A[minor], 
+            curveMax.B[minor], 
+            curveMax.C[minor]));
+        outV.setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMax.A[major], 
+            curveMax.B[major], 
+            curveMax.C[major]));
+
+        //nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //    curveMin.A[major], 
+        //    curveMin.B[major], 
+        //    curveMin.C[major] - maxCorner[major]);
+        //nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //    curveMax.A[major], 
+        //    curveMax.B[major], 
+        //    curveMax.C[major] - maxCorner[major]);
+        //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
+        //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
+    }
     
     
 // Make the cage fullscreen for testing:

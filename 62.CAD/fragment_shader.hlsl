@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
+#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -11,10 +12,6 @@ void beginInvocationInterlockEXT();
 [[vk::ext_instruction(/* OpEndInvocationInterlockEXT */ 5365)]]
 void endInvocationInterlockEXT();
 #endif
-
-// TODO[Lucas]: have a function for quadratic equation solving
-// Write a general one, and maybe another one that uses precomputed values, and move these to somewhere nice in our builtin hlsl shaders if we don't have one
-// See: https://github.com/erich666/GraphicsGems/blob/master/gems/Roots3And4.c
 
 template<typename float_t>
 struct DefaultClipper
@@ -288,7 +285,7 @@ float4 main(PSInput input) : SV_TARGET
     [[vk::ext_extension("SPV_EXT_fragment_shader_interlock")]]
     vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
 #endif
-
+	
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     uint32_t currentMainObjectIdx = input.getMainObjectIdx();
@@ -344,12 +341,51 @@ float4 main(PSInput input) : SV_TARGET
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
-    /*
-    TODO[Lucas]:
-        Another else case for CurveBox where you simply do what I said in the notes of common.hlsl PSInput
-        and solve two quadratic equations, you could check for it being a "line" for the mid point being nan
-        you will use input.getXXX() to get values needed for this computation
-    */
+    else if (objType == ObjectType::CURVE_BOX) 
+    {
+        const float minorBBoxUv = input.getMinorBBoxUv();
+        const float majorBBoxUv = input.getMajorBBoxUv();
+
+        nbl::hlsl::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
+        nbl::hlsl::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
+        nbl::hlsl::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
+        nbl::hlsl::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
+
+        nbl::hlsl::equations::Quadratic<float> minCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.001,0.999));
+        nbl::hlsl::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.001,0.999));
+
+        const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
+        const float minEv = curveMinMinor.evaluate(minT);
+        
+        const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
+        const float maxEv = curveMaxMinor.evaluate(maxT);
+        
+        const float minorDirectionOverScreenSpaceChange = length(float2(ddx(minorBBoxUv),ddy(minorBBoxUv))); // we decided to do this instead of fwidth for dMinor/dScreen
+        const float majorDirectionOverScreenSpaceChange = length(float2(ddx(majorBBoxUv),ddy(majorBBoxUv))); // we decided to do this instead of fwidth
+
+        float2 tangentMinCurve = float2(
+            curveMinMinor.a * minT + curveMinMinor.b,
+            curveMinMajor.a * minT + curveMinMajor.b);
+        tangentMinCurve = normalize(tangentMinCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
+
+        float2 tangentMaxCurve = float2(
+            curveMaxMinor.a * maxT + curveMaxMinor.b,
+            curveMaxMajor.a * maxT + curveMaxMajor.b);
+        tangentMaxCurve = normalize(tangentMaxCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
+
+        float curveMinorDistance = min(
+            tangentMinCurve.y * (minorBBoxUv - minEv),
+            tangentMaxCurve.y * 1.0 * (maxEv - minorBBoxUv));
+
+        const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
+
+        const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);
+        const float antiAliasingFactorMajor = globals.antiAliasingFactor * fwidth(majorBBoxUv);
+
+        localAlpha = 1.0;
+        localAlpha *= smoothstep(-antiAliasingFactorMajor, 0.0, aabbMajorDistance);
+        localAlpha *= smoothstep(-antiAliasingFactorMinor, antiAliasingFactorMinor, curveMinorDistance);
+    }
 
     uint2 fragCoord = uint2(input.position.xy);
     float4 col;
@@ -359,7 +395,7 @@ float4 main(PSInput input) : SV_TARGET
 
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-    beginInvocationInterlockEXT();
+        beginInvocationInterlockEXT();
 
     const uint32_t packedData = pseudoStencil[fragCoord];
 
