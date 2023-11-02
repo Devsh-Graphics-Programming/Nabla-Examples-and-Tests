@@ -379,45 +379,61 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			assert(lTan[major] >= 0.0);
 			assert(rTan[major] >= 0.0);
 
-			if (abs(_lhs - _rhs) < TangentComparisonThreshhold && abs(_lhs - 0.0) < TangentComparisonThreshhold)
+			if (abs(_lhs - _rhs) < TangentComparisonThreshhold)
 			{ 
-				// TODO https://discord.com/channels/593902898015109131/723305695046533151/1169377896658383008
-				bool lTanSign = lTan[minor] >= 0.0;
-				bool rTanSign = rTan[minor] >= 0.0;
-				// If the signs differ, negative one is the left curve
-				if (lTanSign != rTanSign)
+				// In this branch, _lhs == _rhs == 0 (tangents are both 0)
+				if (abs(_lhs - 0.0) < TangentComparisonThreshhold)
 				{
+					// TODO https://discord.com/channels/593902898015109131/723305695046533151/1169377896658383008
+					bool lTanSign = lTan[minor] >= 0.0;
+					bool rTanSign = rTan[minor] >= 0.0;
+					// CASE A
+					// 
+					// If the signs of the horizontal tangents differ, we know thje negative 
+					// one belongs to the left curve
+					if (lTanSign != rTanSign)
+					{
+#ifdef DEBUG_HATCH_VISUALLY
+						if (debugOutput && step == debugStep)
+						{
+							printf(std::format("(comparing sign) lTanSign: {} rTanSign: {} ",
+								lTanSign ? "positive" : "negative", rTanSign ? "positive" : "negative").c_str());
+						}
+#endif
+						// We want to return true if lhs < rhs (lhs is to the left of rhs)
+						// For this to be false, rhs would need to be the left one (and therefore negative)
+						return rTanSign;
+					}
+
+					// Otherwise (CASE B)
+					// 
+					// In this case tangents are both on the same side
+					// so only the magnitude / abs of the d2Major / dMinor2 is important
+					auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
+					auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
+
+					_lhs = -abs(lhsQuadratic.A.x * lhsQuadratic.B.y - lhsQuadratic.A.y * lhsQuadratic.B.x) * (rhsQuadratic.B.x * rhsQuadratic.B.x * rhsQuadratic.B.x);
+					_rhs = -abs(rhsQuadratic.A.x * rhsQuadratic.B.y - rhsQuadratic.A.y * rhsQuadratic.B.x) * (lhsQuadratic.B.x * lhsQuadratic.B.x * lhsQuadratic.B.x);
 #ifdef DEBUG_HATCH_VISUALLY
 					if (debugOutput && step == debugStep)
 					{
-						printf(std::format("(comparing sign) lTanSign: {} rTanSign: {} ",
-							lTanSign ? "positive" : "negative", rTanSign ? "positive" : "negative").c_str());
+						printf(std::format("(comparing second derivatives) A1={},{} B1={},{} A2={},{} B2={},{} _lhs={} _rhs={}",
+							lhsQuadratic.A.x, lhsQuadratic.A.y, lhsQuadratic.B.x, lhsQuadratic.B.y,
+							rhsQuadratic.A.x, rhsQuadratic.A.y, rhsQuadratic.B.x, rhsQuadratic.B.y,
+							_lhs, _rhs
+						).c_str());
 					}
 #endif
-					// We want to return true if lhs < rhs (lhs is to the left of rhs)
-					// For this to be false, rhs would need to be the left one (and therefore negative)
-					return rTanSign;
 				}
-
-				// Otherwise (CASE B)
-				// 
-				// In this case tangents are both on the same side.
-				// so only the magnitude / abs of the d2Major / dMinor2 is important
-				auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
-				auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
-
-				_lhs = -abs(lhsQuadratic.A.x * lhsQuadratic.B.y - lhsQuadratic.A.y * lhsQuadratic.B.x) * (rhsQuadratic.B.x * rhsQuadratic.B.x * rhsQuadratic.B.x) ;
-				_rhs = -abs(rhsQuadratic.A.x * rhsQuadratic.B.y - rhsQuadratic.A.y * rhsQuadratic.B.x) * (lhsQuadratic.B.x * lhsQuadratic.B.x * lhsQuadratic.B.x);
-#ifdef DEBUG_HATCH_VISUALLY
-				if (debugOutput && step == debugStep)
+				else
 				{
-					printf(std::format("(comparing second derivatives) A1={},{} B1={},{} A2={},{} B2={},{} _lhs={} _rhs={}",
-						lhsQuadratic.A.x, lhsQuadratic.A.y, lhsQuadratic.B.x, lhsQuadratic.B.y,
-						rhsQuadratic.A.x, rhsQuadratic.A.y, rhsQuadratic.B.x, rhsQuadratic.B.y,
-						_lhs, _rhs
-					).c_str());
+					// Otherwise, we can use the tangents
+					auto lAcc = lhs.originalBezier->P0 - 2.0 * lhs.originalBezier->P1 + lhs.originalBezier->P2;
+					auto rAcc = rhs.originalBezier->P0 - 2.0 * rhs.originalBezier->P1 + rhs.originalBezier->P2;
+
+					_lhs = (lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) * (rTan[major] * rTan[major] * rTan[major]);
+					_rhs = (rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) * (lTan[major] * lTan[major] * lTan[major]);
 				}
-#endif
 			}
 		}
 #ifdef DEBUG_HATCH_VISUALLY

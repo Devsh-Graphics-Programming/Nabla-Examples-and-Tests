@@ -1964,6 +1964,47 @@ public:
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
+				auto line = [&](float64_t2 begin, float64_t2 end) {
+					std::vector<float64_t2> points = {
+						begin, end
+					};
+					CPolyline polyline;
+					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polylines.push_back(polyline);
+				};
+
+				{
+					CPolyline polyline;
+					std::vector<QuadraticBezierInfo> beziers;
+
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
+					line(float64_t2(30, 90), float64_t2(20, 90));
+
+					beziers.push_back({ float64_t2(26, 20), float64_t2(37.25, 29.15), float64_t2(34.9, 42.75), });
+					beziers.push_back({ float64_t2(26, 20), float64_t2(33.8, 26.35), float64_t2(15.72, 40.84), });
+					line(float64_t2(34.9, 42.75), float64_t2(15.72, 40.84));
+
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
+					line(float64_t2(35, 0), float64_t2(10, 0));
+
+					polyline.addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+
+					polylines.push_back(polyline);
+				}
+
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				std::vector <CPolyline> polylines;
 				auto circleThing = [&](float64_t2 offset)
 				{
 					CPolyline polyline;
@@ -2021,11 +2062,6 @@ public:
 					line(float64_t2(-10, -50), float64_t2(30, -50));
 					beziers.push_back({ float64_t2(-20, 20), float64_t2(30, -70), float64_t2(80, 20), });
 					line(float64_t2(-20, 20), float64_t2(80, 20));
-
-
-					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
-					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
-					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
 
 					line(float64_t2(-30, -100), float64_t2(-30, -50));
 					line(float64_t2(100, -100), float64_t2(100, -50));

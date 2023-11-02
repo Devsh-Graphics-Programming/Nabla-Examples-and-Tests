@@ -328,19 +328,19 @@ float4 main(PSInput input) : SV_TARGET
         const float minorDirectionOverScreenSpaceChange = length(float2(ddx(minorBBoxUv),ddy(minorBBoxUv))); // we decided to do this instead of fwidth for dMinor/dScreen
         const float majorDirectionOverScreenSpaceChange = length(float2(ddx(majorBBoxUv),ddy(majorBBoxUv))); // we decided to do this instead of fwidth
 
-        float2 tangentMinCurve = float2(
-            curveMinMinor.a * minT + curveMinMinor.b,
-            curveMinMajor.a * minT + curveMinMajor.b);
-        tangentMinCurve = normalize(tangentMinCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
+        float2 normalMinCurve = float2(
+            2.0 * curveMinMajor.a * minT + curveMinMajor.b,
+            2.0 * curveMinMinor.a * minT + curveMinMinor.b);
+        normalMinCurve = normalize(normalMinCurve * float2(minorDirectionOverScreenSpaceChange, -majorDirectionOverScreenSpaceChange));
 
-        float2 tangentMaxCurve = float2(
-            curveMaxMinor.a * maxT + curveMaxMinor.b,
-            curveMaxMajor.a * maxT + curveMaxMajor.b);
-        tangentMaxCurve = normalize(tangentMaxCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
+        float2 normalMaxCurve = float2(
+            2.0 * curveMaxMajor.a * maxT + curveMaxMajor.b,
+            2.0 * curveMaxMinor.a * maxT + curveMaxMinor.b);
+        normalMaxCurve = normalize(normalMaxCurve * float2(minorDirectionOverScreenSpaceChange, -majorDirectionOverScreenSpaceChange));
 
         float curveMinorDistance = min(
-            tangentMinCurve.y * (minorBBoxUv - minEv),
-            tangentMaxCurve.y * 1.0 * (maxEv - minorBBoxUv));
+            normalMinCurve.x * (minorBBoxUv - minEv),
+            normalMaxCurve.x * (maxEv - minorBBoxUv));
 
         const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
 
