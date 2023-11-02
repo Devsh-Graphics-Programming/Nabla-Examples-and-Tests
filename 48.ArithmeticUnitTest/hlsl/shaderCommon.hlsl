@@ -31,9 +31,12 @@ static void subtest(NBL_CONST_REF_ARG(T) sourceVal)
 	output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*globalIndex,func(sourceVal));
 }
 
-uint32_t test()
+//typedef decltype(inputValue[0]) type_t;
+typedef uint32_t type_t;
+
+type_t test()
 {
-	const uint32_t sourceVal = inputValue[nbl::hlsl::glsl::gl_GlobalInvocationID().x];
+	const type_t sourceVal = inputValue[nbl::hlsl::glsl::gl_GlobalInvocationID().x];
 
 	subtest<bit_and>(sourceVal);
 	subtest<bit_xor>(sourceVal);

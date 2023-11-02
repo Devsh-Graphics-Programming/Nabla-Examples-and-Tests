@@ -14,27 +14,26 @@ groupshared uint32_t scratch[ScratchSz];
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 
 
-template<uint32_t offset>
+template<uint16_t offset>
 struct ScratchProxy
 {
 	uint32_t get(const uint32_t ix)
 	{
 		return scratch[ix+offset];
 	}
-
 	void set(const uint32_t ix, const uint32_t value)
 	{
 		scratch[ix+offset] = value;
 	}
 
+	// using MemorySemanticsMaskNone because the execution barrier later ensures availability and visibility for smem
 	uint32_t atomicAdd(const uint32_t ix, const uint32_t data)
 	{
-		return nbl::hlsl::glsl::atomicAdd(scratch[ix+offset],data);
+		return nbl::hlsl::spirv::atomicAdd(scratch[ix+offset],spv::ScopeWorkgroup,spv::MemorySemanticsMaskNone,data);
 	}
-
 	uint32_t atomicOr(const uint32_t ix, const uint32_t data)
 	{
-		return nbl::hlsl::glsl::atomicOr(scratch[ix+offset],data);
+		return nbl::hlsl::spirv::atomicOr(scratch[ix+offset],spv::ScopeWorkgroup,spv::MemorySemanticsMaskNone,data);
 	}
 
 	void workgroupExecutionAndMemoryBarrier()
@@ -51,18 +50,16 @@ static ScratchProxy<0> arithmeticAccessor;
 
 
 template<class Binop>
-struct operation_t// : nbl::hlsl::OPERATION<Binop,ITEMS_PER_WG>
+struct operation_t
 {
-//	using base_t = nbl::hlsl::OPERATION<Binop,ITEMS_PER_WG>;
 	using type_t = typename Binop::type_t;
 
 	type_t operator()(type_t value)
 	{
-//		type_t retval = base_t::template __call<ScratchProxy<0> >(value,arithmeticAccessor);
+		type_t retval = nbl::hlsl::OPERATION<Binop,ITEMS_PER_WG>::template __call<ScratchProxy<0> >(value,arithmeticAccessor);
 		// we barrier before because we alias the accessors for Binop
 		arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
-//		return retval;
-		return value;
+		return retval;
 	}
 };
 
@@ -71,9 +68,7 @@ struct operation_t// : nbl::hlsl::OPERATION<Binop,ITEMS_PER_WG>
 
 static ScratchProxy<ArithmeticSz> ballotAccessor;
 
-uint32_t3 gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE,1,1); }
-
-
+uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE,1,1); }
 
 [numthreads(WORKGROUP_SIZE,1,1)]
 void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThreadID)
@@ -84,16 +79,15 @@ void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThrea
 	const type_t sourceVal = test();
 	if (globalId.x==0u)
 		output[ballot<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
-#if 0
+
 	// we can only ballot booleans, so low bit
-	nbl::hlsl::workgroup::ballot(bool(sourceVal&0x1u),ballotAccessor);
+	nbl::hlsl::workgroup::ballot<ScratchProxy<ArithmeticSz> >(bool(sourceVal&0x1u),ballotAccessor);
 	uint32_t destVal = 0xdeadbeefu;
-	if (false)
-		destVal =  nbl::hlsl::workgroup::ballotBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
+	if (true)
+		destVal = nbl::hlsl::workgroup::ballotBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
 	else
 	{
 		assert(false);
 	}
 	output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalId.x,destVal);
-#endif
 }

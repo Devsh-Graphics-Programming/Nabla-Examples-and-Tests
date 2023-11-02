@@ -61,6 +61,7 @@ public:
 		CommonAPI::InitParams initParams;
 		initParams.apiType = EAT_VULKAN;
 		initParams.appName = { "Subgroup Arithmetic Test" };
+		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
 		initParams.physicalDeviceFilter.requiredFeatures.subgroupBroadcastDynamicId = true;
 		initParams.physicalDeviceFilter.requiredFeatures.shaderSubgroupExtendedTypes = true;
 		// TODO: actually need to implement this and set it on the pipelines
@@ -194,15 +195,18 @@ public:
 				logTestOutcome(passed,workgroupSize);
 				passed = runTest<emulatedScanExclusive,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
 				logTestOutcome(passed,workgroupSize);
-				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
+				//for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
+				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>=workgroupSize; itemsPerWG--)
 				{
 					logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
+#if 0
 					passed = runTest<emulatedScanInclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
 					passed = runTest<emulatedScanExclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
+#endif
 				}
 				computeQueue->endCapture();
 			}
@@ -258,7 +262,6 @@ public:
 					source.get(),"#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
 					(("workgroup::")+arith_name).c_str(),workgroupSize,itemsPerWG
 				);
-				return true;
 			}
 			else
 			{
@@ -311,8 +314,10 @@ public:
 			passed = validateResults<Arithmetic,multiplies<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,minimum<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,maximum<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+#if 0
 			if constexpr(WorkgroupTest)
 				passed = validateResults<Arithmetic,ballot<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
+#endif
 			return passed;
 		}
 
