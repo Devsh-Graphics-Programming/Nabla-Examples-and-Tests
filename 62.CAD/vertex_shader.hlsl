@@ -10,13 +10,11 @@ float cross2D(float2 a, float2 b)
     return determinant(float2x2(a,b));
 }
 
-// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 {
     return 2.0 * (1.0 - t) * (p1 - p0) + 2.0 * t * (p2 - p1);
 }
 
-// TODO[Przemek] Remove this function and use our builtin bezier functions
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
     return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
@@ -86,9 +84,7 @@ PSInput main(uint vertexID : SV_VertexID)
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
     outV.data4 = float4(0, 0, 0, 0);
-    outV.interp_data5 = float4(0, 0, 0, 0);
-    outV.clip = float4(0,0,0,0);
-
+    outV.interp_data5 = float2(0, 0);
     outV.setObjType(objType);
     outV.setMainObjectIdx(drawObj.mainObjIndex);
 
@@ -362,19 +358,25 @@ PSInput main(uint vertexID : SV_VertexID)
         curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + i), 8u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * (2 + 3 + i), 8u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<uint32_t4>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<uint32_t4>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * (3 + i), 4u);
         }
 
         const double2 ndcAabbExtents = double2(
-            length(abs(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin))),
-            length(abs(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin)))
+            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin)),
+            length(transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin))
         );
+        // Max corner stores the quad's UVs:
+        // (0,1)|--|(1,1)
+        //      |  |
+        // (0,0)|--|(1,0)
+        double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        
         // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
         // sometimes it falls outside the pixel center and creates a hole in major axis)
-        // Doubling the factor for both the left/top and right/bottom sides
+        // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
         const double2 dilatedAabbExtents = ndcAabbExtents + 2.0 * ((globals.antiAliasingFactor + 1.0) / double2(globals.resolution));
-        double2 maxCorner = double2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        // Dilate the UVs
         maxCorner = ((((maxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
         const double2 coord = transformPointNdc(clipProjectionData.projectionToNDC, lerp(curveBox.aabbMin, curveBox.aabbMax, maxCorner));
         outV.position = float4((float2) coord, 0.f, 1.f);
@@ -382,35 +384,44 @@ PSInput main(uint vertexID : SV_VertexID)
         const uint major = (uint)SelectedMajorAxis;
         const uint minor = 1-major;
 
-        nbl::hlsl::shapes::Quadratic<double> curveMin = nbl::hlsl::shapes::Quadratic<double>::construct(
-            curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
-        nbl::hlsl::shapes::Quadratic<double> curveMax = nbl::hlsl::shapes::Quadratic<double>::construct(
-            curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
+        // A, B & C get converted from unorm to [0, 1]
+        // A & B get converted from [0,1] to [-2, 2]
+        nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
+            unpackCurveBoxSnorm(asint(curveBox.curveMin[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMin[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMin[2]));
+        nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
+            unpackCurveBoxSnorm(asint(curveBox.curveMax[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMax[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMax[2]));
 
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);
 
-        nbl::hlsl::equations::Quadratic<float> curveMinMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
-            (float)curveMin.A[minor], 
-            (float)curveMin.B[minor], 
-            (float)curveMin.C[minor]);
-        nbl::hlsl::equations::Quadratic<float> curveMaxMinorAxis = nbl::hlsl::equations::Quadratic<float>::construct(
-            (float)curveMax.A[minor], 
-            (float)curveMax.B[minor], 
-            (float)curveMax.C[minor]);
-        outV.setCurveMinBezier(curveMinMinorAxis);
-        outV.setCurveMaxBezier(curveMaxMinorAxis);
-        
-        nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
-            (float)curveMin.A[major], 
-            (float)curveMin.B[major], 
-            (float)curveMin.C[major] - maxCorner[major]);
-        nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
-            (float)curveMax.A[major], 
-            (float)curveMax.B[major], 
-            (float)curveMax.C[major] - maxCorner[major]);
-        outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
-        outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
+        outV.setCurveMinMinor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMin.A[minor], 
+            curveMin.B[minor], 
+            curveMin.C[minor]));
+        outV.setCurveMinMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMin.A[major], 
+            curveMin.B[major], 
+            curveMin.C[major]));
+
+        outV.setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMax.A[minor], 
+            curveMax.B[minor], 
+            curveMax.C[minor]));
+        outV.setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+            curveMax.A[major], 
+            curveMax.B[major], 
+            curveMax.C[major]));
+
+        //nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //    curveMin.A[major], 
+        //    curveMin.B[major], 
+        //    curveMin.C[major] - maxCorner[major]);
+        //nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //    curveMax.A[major], 
+        //    curveMax.B[major], 
+        //    curveMax.C[major] - maxCorner[major]);
+        //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
+        //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
     
     

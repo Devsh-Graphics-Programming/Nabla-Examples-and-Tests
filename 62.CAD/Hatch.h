@@ -1,21 +1,23 @@
+#define _NBL_STATIC_LIB_
+#include <nabla.h>
 
-#include "../common/CommonAPI.h"
-#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include "curves.h"
+#include "Renderer.h"
+
+typedef uint32_t uint;
+
+#include "common.hlsl"
+
+#include <nbl/builtin/hlsl/equations/cubic.hlsl>
+#include <nbl/builtin/hlsl/equations/quartic.hlsl>
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 using namespace nbl;
-
-namespace hatchutils {
-	static constexpr double QUARTIC_THRESHHOLD = 1e-10;
-
-	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
-    
-	static float64_t2 getCurveRoot(double p0, double p1, double p2);
-}
 
 class Hatch
 {
@@ -24,32 +26,34 @@ public:
 	struct CurveHatchBox
 	{
 		float64_t2 aabbMin, aabbMax;
-		float64_t2 curveMin[3];
-		float64_t2 curveMax[3];
+		// A & B stored as Snorm/2, C stored as Unorm
+		uint32_t2 curveMin[3];
+		uint32_t2 curveMax[3];
 	};
 
-	// TODO: start using A, B, C here
-	struct QuadraticBezier {
-		float64_t2 p[3];
+	using bezier_float_t = double;
+	using QuadraticBezier = nbl::hlsl::shapes::QuadraticBezier<bezier_float_t>;
+	using QuadraticEquation = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
 
-		std::array<double, 4> linePossibleIntersections(const QuadraticBezier& other) const;
-		double intersectOrtho(double coordinate, int major) const;
-		float64_t2 evaluateBezier(double t) const;
-		float64_t2 tangent(double t) const;
-		// Functions for splitting a curve based on t, where 
-		// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
-		QuadraticBezier splitCurveTakeLower(double t) const;
-		QuadraticBezier splitCurveTakeUpper(double t) const;
-		// Splits the bezier into segments such that it is now monotonic in the major axis. 
-		bool splitIntoMajorMonotonicSegments(std::array<QuadraticBezier, 2>& segments) const;
-		// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
-		std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor() const;
+	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
 
-		bool isLineSegment() const;
-	};
+	static std::array<double, 4> linePossibleIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
+	static double intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int major);
+	static float64_t2 tangent(const QuadraticBezier& bezier, double t);
 
-	std::vector<QuadraticBezier> beziers;
-	std::vector<CurveHatchBox> hatchBoxes;
+	// Splits the bezier into segments such that it is now monotonic in the major axis. 
+	static bool splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<QuadraticBezier, 2>& segments);
+
+	// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
+	static std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor(const QuadraticBezier& bezier);
+
+	// Functions for splitting a curve based on t, where 
+	// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
+	static QuadraticBezier splitCurveTakeLower(const QuadraticBezier& bezier, double t);
+	static QuadraticBezier splitCurveTakeUpper(const QuadraticBezier& bezier, double t);
+	static QuadraticBezier splitCurveRange(const QuadraticBezier& bezier, double left, double right);
+
+	static bool isLineSegment(const QuadraticBezier& bezier);
 
 	class Segment
 	{
@@ -59,7 +63,6 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
-		QuadraticBezier splitCurveRange(QuadraticBezier curve, double left, double right) const;
 		QuadraticBezier getSplitCurve() const;
 		std::array<double, 2> intersect(const Segment& other) const;
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
@@ -67,9 +70,14 @@ public:
 	};
 	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */);
 	// (temporary)
-	Hatch(std::vector<QuadraticBezier>&& in_beziers, std::vector<CurveHatchBox>&& in_hatchBoxes) : 
-		beziers(std::move(in_beziers)),
-		hatchBoxes(std::move(in_hatchBoxes)) 
+	Hatch(std::vector<CurveHatchBox>&& in_hatchBoxes) :
+		hatchBoxes(std::move(in_hatchBoxes))
 	{
 	};
+
+	const CurveHatchBox& getHatchBox(uint32_t idx) const { return hatchBoxes[idx]; }
+	uint32_t getHatchBoxCount() const { return hatchBoxes.size(); }
+
+private:
+	std::vector<CurveHatchBox> hatchBoxes;
 };

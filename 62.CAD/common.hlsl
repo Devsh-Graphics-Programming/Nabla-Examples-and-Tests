@@ -56,20 +56,23 @@ struct QuadraticBezierInfo
 
 // TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
-// TODO[Lucas]:
-/*
-You need a struct here that represents a curve which is referenced by a "CurveBox"
-Which is basically the same as QuadraticBezierInfo, if the middle point is "nan" it means it's a line connected by p0 and p2
-*/
-
 struct CurveBox 
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    float64_t2 aabbMin;
+    float64_t2 aabbMin; // 16
     float64_t2 aabbMax; // 32
-    float64_t2 curveMin[3]; // 80
-    float64_t2 curveMax[3]; // 128
+    uint32_t2 curveMin[3]; // 56
+    uint32_t2 curveMax[3]; // 80
 };
+
+#ifndef __HLSL_VERSION
+static_assert(offsetof(CurveBox, aabbMin) == 0u);
+static_assert(offsetof(CurveBox, aabbMax) == 16u);
+static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
+static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
+#endif
+
+// TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -156,6 +159,28 @@ NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1
 
 #ifndef __cplusplus
 
+// TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
+float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
+{
+    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+}
+
+float32_t2 unpackCurveBoxSnorm(int32_t2 value)
+{
+    return float32_t2(value) / float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+}
+
+
+uint32_t2 packCurveBoxUnorm(float32_t2 value)
+{
+    return value * float32_t(nbl::hlsl::numeric_limits<uint32_t>::max);
+}
+
+int32_t2 packCurveBoxSnorm(float32_t2 value)
+{
+    return value * float32_t(nbl::hlsl::numeric_limits<int32_t>::max);
+}
+
 uint bitfieldInsert(uint base, uint insert, int offset, int bits)
 {
 	const uint mask = (1u << bits) - 1u;
@@ -210,9 +235,9 @@ struct PrecomputedRootFinder
     static PrecomputedRootFinder construct(nbl::hlsl::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
-        result.C2 = quadratic.C * 2.0;
-        result.negB = -quadratic.B;
-        result.det = quadratic.B * quadratic.B - 4.0 * quadratic.A * quadratic.C;
+        result.C2 = quadratic.c * 2.0;
+        result.negB = -quadratic.b;
+        result.det = quadratic.b * quadratic.b - 4.0 * quadratic.a * quadratic.c;
         return result;
     }
 };
@@ -225,11 +250,11 @@ struct PSInput
     [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
     [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
     [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
-        // ArcLengthCalculator<float>
     [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
-        // Data segments that need interpolation, mostly for hatches
-    [[vk::location(5)]] float4 interp_data5 : COLOR5;
-    [[vk::location(6)]] float4 interp_data6 : COLOR6;
+    // Data segments that need interpolation, mostly for hatches
+    [[vk::location(5)]] float2 interp_data5 : COLOR5;
+
+        // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
@@ -264,22 +289,41 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::equations::Quadratic<float> getCurveMinBezier() {
+    nbl::hlsl::equations::Quadratic<float> getCurveMinMinor() {
         return nbl::hlsl::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::equations::Quadratic<float> getCurveMaxBezier() {
+    nbl::hlsl::equations::Quadratic<float> getCurveMaxMinor() {
         return nbl::hlsl::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
-        data2.x = bezier.A;
-        data2.y = bezier.B;
-        data2.z = bezier.C;
+    void setCurveMinMinor(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data2.x = bezier.a;
+        data2.y = bezier.b;
+        data2.z = bezier.c;
     }
-    void setCurveMaxBezier(nbl::hlsl::equations::Quadratic<float> bezier) {
-        data2.w = bezier.A;
-        data3.x = bezier.B;
-        data3.y = bezier.C;
+    void setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data2.w = bezier.a;
+        data3.x = bezier.b;
+        data3.y = bezier.c;
+    }
+
+    // data4
+    nbl::hlsl::equations::Quadratic<float> getCurveMinMajor() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
+    }
+    nbl::hlsl::equations::Quadratic<float> getCurveMaxMajor() {
+        return nbl::hlsl::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
+    }
+
+    void setCurveMinMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data4.x = bezier.a;
+        data4.y = bezier.b;
+        data3.z = bezier.c;
+    }
+    void setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
+        data4.z = bezier.a;
+        data4.w = bezier.b;
+        data3.w = bezier.c;
     }
 
     // interp_data5, interp_data6    
@@ -296,24 +340,24 @@ struct PSInput
     //
     // a, b, c = curveMin.a,b,c()[major] - uv[major]
 
-    PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
-        return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
-    }
-    PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
-        return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
-    }
+    //PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
+    //    return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
+    //}
+    //PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
+    //    return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
+    //}
 
-    void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-        data3.z = rootFinder.negB;
-        interp_data5.z = rootFinder.C2;
-        interp_data5.w = rootFinder.det;
-    }
-    void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-        data3.w = rootFinder.negB;
-        interp_data6.x = rootFinder.C2;
-        interp_data6.y = rootFinder.det;
-    }
-    
+    //void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+    //    data3.z = rootFinder.negB;
+    //    interp_data5.z = rootFinder.C2;
+    //    interp_data5.w = rootFinder.det;
+    //}
+    //void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
+    //    data3.w = rootFinder.negB;
+    //    interp_data6.x = rootFinder.C2;
+    //    interp_data6.y = rootFinder.det;
+    //}
+
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
     {
