@@ -73,102 +73,67 @@ struct StyleClipper
         float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
-
         const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::infinity; 
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
         const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
         const bool notInDrawSection = patternIdx & 0x1;
-        const bool tAfterBezierInterior = t > 1.0 - AccuracyThresholdT;
-        const bool tBeforeBezierInterior = t < 0.0 + AccuracyThresholdT;
-        float_t t0, t1; // t snapped to left and right
+        
+        // TODO[Erfan]: Disable this piece of code after clipping, and comment the reason, that the bezier start and end at 0.0 and 1.0 should be in drawable sections
+        float_t minDrawT = 0.0;
+        float_t maxDrawT = 1.0;
+        {
+            float_t normalizedPlaceInPatternBegin = frac(style.phaseShift);
+            uint32_t patternIdxBegin = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternBegin);
+            const bool BeginInNonDrawSection = patternIdxBegin & 0x1;
 
-        if (notInDrawSection || tAfterBezierInterior)
+            if (BeginInNonDrawSection)
+            {
+                float_t diffToRightDrawableSection = (patternIdxBegin == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdxBegin];
+                diffToRightDrawableSection -= normalizedPlaceInPatternBegin;
+                float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
+                const float_t arcLenForT1 = 0.0 + scrSpcOffsetToArcLen1;
+                minDrawT = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, 0.0);
+            }
+
+            const float_t arcLenEnd = arcLenCalc.calcArcLen(1.0);
+            const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(globals.worldToScreenRatio);
+            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * style.reciprocalStipplePatternLen + style.phaseShift);
+            uint32_t patternIdxEnd = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternEnd);
+            const bool EndInNonDrawSection = patternIdxEnd & 0x1;
+
+            if (EndInNonDrawSection)
+            {
+                float_t diffToLeftDrawableSection = (patternIdxEnd == 0) ? 0.0 : styleAccessor[patternIdxEnd - 1];
+                diffToLeftDrawableSection -= normalizedPlaceInPatternEnd;
+                float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+                const float_t arcLenForT0 = arcLenEnd + scrSpcOffsetToArcLen0;
+                maxDrawT = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, 1.0);
+            }
+        }
+
+        if (notInDrawSection)
         {
             float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : styleAccessor[patternIdx - 1];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
             float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
             const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
-            t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
-        }
-        if (notInDrawSection || tBeforeBezierInterior)
-        {
+            float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
+            t0 = clamp(t0, minDrawT, maxDrawT);
+
             float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdx];
             diffToRightDrawableSection -= normalizedPlaceInPattern;
             float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
             const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
-            t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
-        }
+            float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
+            t1 = clamp(t1, minDrawT, maxDrawT);
 
-        if (notInDrawSection)
-        {
             ret = float_t2(t0, t1);
-
-            if (ret[1] > 1.0 - AccuracyThresholdT)
-            {
-                if (ret[0] > 1.0 - AccuracyThresholdT)
-                {
-                    const bool leftIsDot = style.isLeftDot(patternIdx);
-                    if (leftIsDot)
-                    {
-                        ret[0] = InvalidT;
-                        ret[1] = InvalidT;
-                    }
-                    else
-                    {
-                        ret[0] = 1.0;
-                        ret[1] = 1.0;
-                    }
-                }
-                else
-                {
-                    ret[1] = ret[0];
-                }
-            }
-            else if (ret[0] < 0.0 + AccuracyThresholdT)
-            {
-                if (ret[1] < 0.0 + AccuracyThresholdT)
-                {
-                    const bool rightIsDot = style.isRightDot(patternIdx);
-
-                    if (rightIsDot)
-                    {
-                        ret[0] = InvalidT;
-                        ret[1] = InvalidT;
-                    }
-                    else
-                    {
-                        ret[0] = 0.0;
-                        ret[1] = 0.0;
-                    }
-                }
-                else
-                {
-                    ret[0] = ret[1];
-                }
-            }
         }
         else
         {
-            if (tAfterBezierInterior)
-            {
-                // We 1.discard or 2.clamp based on whether the nearest draw section to the bezier has left it's interior or not
-                if (t0 > 1.0 - AccuracyThresholdT)
-                    t = InvalidT;
-                else
-                    t = 1.0;
-            }
-
-            if (tBeforeBezierInterior)
-            {
-                // We 1.discard or 2.clamp based on whether the nearest draw section to the bezier has left it's interior or not
-                if (t1 < 0.0 + AccuracyThresholdT)
-                    t = InvalidT;
-                else
-                    t = 0.0;
-            }
-
+            t = clamp(t, minDrawT, maxDrawT);
             ret = float_t2(t, t);
         }
 
