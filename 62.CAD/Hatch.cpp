@@ -138,8 +138,8 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 
 		float64_t2  D = normalize(line.P2 - line.P0);
 		float64_t2x2 rotation = { 
-			{D.x, -D.y}, 
-			{D.y, D.x} 
+			{D.x, D.y}, 
+			{-D.y, D.x} 
 		};
 		QuadraticBezier rotatedCurve = {
 			mul(rotation, curve.P0 - line.P0),
@@ -362,8 +362,11 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		{
 			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
-			float64_t2 lTan = tangent(*lhs.originalBezier, lhs.t_start);
-			float64_t2 rTan = tangent(*rhs.originalBezier, rhs.t_start);
+			auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
+			auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
+
+			float64_t2 lTan = 2.0 * lhsQuadratic.A * lhs.t_start + lhsQuadratic.B;
+			float64_t2 rTan = 2.0 * rhsQuadratic.A * rhs.t_start + rhsQuadratic.B;
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 #ifdef DEBUG_HATCH_VISUALLY
@@ -380,7 +383,10 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			assert(rTan[major] >= 0.0);
 
 			if (abs(_lhs - _rhs) < TangentComparisonThreshhold)
-			{ 
+			{
+				float64_t2 lAcc = 2.0 * lhsQuadratic.A;
+				float64_t2 rAcc = 2.0 * rhsQuadratic.A;
+
 				// In this branch, _lhs == _rhs == 0 (tangents are both 0)
 				if (abs(_lhs - 0.0) < TangentComparisonThreshhold)
 				{
@@ -409,11 +415,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					// 
 					// In this case tangents are both on the same side
 					// so only the magnitude / abs of the d2Major / dMinor2 is important
-					auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
-					auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
-
-					_lhs = -abs(lhsQuadratic.A.x * lhsQuadratic.B.y - lhsQuadratic.A.y * lhsQuadratic.B.x) * (rhsQuadratic.B.x * rhsQuadratic.B.x * rhsQuadratic.B.x);
-					_rhs = -abs(rhsQuadratic.A.x * rhsQuadratic.B.y - rhsQuadratic.A.y * rhsQuadratic.B.x) * (lhsQuadratic.B.x * lhsQuadratic.B.x * lhsQuadratic.B.x);
+					_lhs = -abs(lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) * pow(rTan[minor], 3.0);
+					_rhs = -abs(rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) * pow(lTan[minor], 3.0);
 #ifdef DEBUG_HATCH_VISUALLY
 					if (debugOutput && step == debugStep)
 					{
@@ -427,12 +430,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				}
 				else
 				{
-					// Otherwise, we can use the tangents
-					auto lAcc = lhs.originalBezier->P0 - 2.0 * lhs.originalBezier->P1 + lhs.originalBezier->P2;
-					auto rAcc = rhs.originalBezier->P0 - 2.0 * rhs.originalBezier->P1 + rhs.originalBezier->P2;
-
-					_lhs = (lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) * (rTan[major] * rTan[major] * rTan[major]);
-					_rhs = (rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) * (lTan[major] * lTan[major] * lTan[major]);
+					_lhs = (lAcc[minor] * lTan[major] - lAcc[major] * lTan[minor]) * pow(rTan[major], 3.0);
+					_rhs = (rAcc[minor] * rTan[major] - rAcc[major] * rTan[minor]) * pow(lTan[major], 3.0);
 				}
 			}
 		}
