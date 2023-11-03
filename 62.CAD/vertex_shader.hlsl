@@ -382,9 +382,9 @@ PSInput main(uint vertexID : SV_VertexID)
         // A, B & C get converted from unorm to [0, 1]
         // A & B get converted from [0,1] to [-2, 2]
         nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
-            unpackCurveBoxSnorm(asint(curveBox.curveMin[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMin[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMin[2]));
+            unpackCurveBoxSnorm(asint(curveBox.curveMin[0])) * 8.0f, unpackCurveBoxSnorm(asint(curveBox.curveMin[1])) * 8.0f, unpackCurveBoxUnorm(curveBox.curveMin[2]));
         nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
-            unpackCurveBoxSnorm(asint(curveBox.curveMax[0])) * 2, unpackCurveBoxSnorm(asint(curveBox.curveMax[1])) * 2, unpackCurveBoxUnorm(curveBox.curveMax[2]));
+            unpackCurveBoxSnorm(asint(curveBox.curveMax[0])) * 8.0f, unpackCurveBoxSnorm(asint(curveBox.curveMax[1])) * 8.0f, unpackCurveBoxUnorm(curveBox.curveMax[2]));
 
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);

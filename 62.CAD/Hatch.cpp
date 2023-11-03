@@ -619,14 +619,14 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					
 					// Values P0, P1 & P2 are in [0,1]
 					//
-					// A = P0 - 2 * P1 + P2; Range: [-2, 2]
-					// B = 2 * (P1 - P0); Range: [-2, 2]
+					// A = P0 - 2 * P1 + P2; Range: [-8, 8]
+					// B = 2 * (P1 - P0); Range: [-8, 8]
 					// C = P0; Range: [0, 1]
 					//
 					// Convert A, B to [-1, 1], encode as Snorm
 					// Convert C to [0, 1], encode as Unorm
-					output[0] = convertToSnorm(quadratic.A / 2.0);
-					output[1] = convertToSnorm(quadratic.B / 2.0);
+					output[0] = convertToSnorm(quadratic.A / 8.0);
+					output[1] = convertToSnorm(quadratic.B / 8.0);
 					output[2] = convertToUnorm(quadratic.C);
 
 					// B == 0.0 && A == 0.0 would mean this is a constant line in major direction, which
