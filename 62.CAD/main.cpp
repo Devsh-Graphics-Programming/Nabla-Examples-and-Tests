@@ -12,7 +12,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
