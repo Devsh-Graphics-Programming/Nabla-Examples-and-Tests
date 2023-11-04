@@ -5,3 +5,10 @@
 # shader debug sideeffects
 preprocessed.hlsl
 compiled.spv
+# AnastaZluk and Hazard CI framework
+*/.profiles/*
+*/runAllTests.py
+*/test/nbl.py
+*.pyc
+*/.vscode/*
+*/__main__.py
