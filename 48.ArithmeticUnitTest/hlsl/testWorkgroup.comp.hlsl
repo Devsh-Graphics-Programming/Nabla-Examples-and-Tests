@@ -74,6 +74,11 @@ uint32_t globalIndex()
 	return nbl::hlsl::glsl::gl_WorkGroupID().x*ITEMS_PER_WG+nbl::hlsl::workgroup::SubgroupContiguousIndex();
 }
 
+bool canStore()
+{
+	return nbl::hlsl::workgroup::SubgroupContiguousIndex()<ITEMS_PER_WG;
+}
+
 [numthreads(WORKGROUP_SIZE,1,1)]
 void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 wgId : SV_GroupID)
 {
@@ -95,5 +100,6 @@ void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 wgId : SV_GroupID)
 		assert(false);
 	}
 #endif
-	output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),destVal);
+	if (canStore())
+		output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),destVal);
 }

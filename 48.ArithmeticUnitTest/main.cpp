@@ -86,7 +86,7 @@ public:
 		{
 			std::mt19937 randGenerator(0xdeadbeefu);
 			for (uint32_t i=0u; i<elementCount; i++)
-				inputData[i] = i;// randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
+				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0])*elementCount;
@@ -194,8 +194,7 @@ public:
 				logTestOutcome(passed,workgroupSize);
 				passed = runTest<emulatedScanExclusive,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
 				logTestOutcome(passed,workgroupSize);
-				//for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
-				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize; itemsPerWG--)
+				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
 				{
 					logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
