@@ -26,16 +26,6 @@ struct ScratchProxy
 		scratch[ix+offset] = value;
 	}
 
-	// using MemorySemanticsMaskNone because the execution barrier later ensures availability and visibility for smem
-	uint32_t atomicAdd(const uint32_t ix, const uint32_t data)
-	{
-		return nbl::hlsl::spirv::atomicAdd(scratch[ix+offset],spv::ScopeWorkgroup,spv::MemorySemanticsMaskNone,data);
-	}
-	uint32_t atomicOr(const uint32_t ix, const uint32_t data)
-	{
-		return nbl::hlsl::spirv::atomicOr(scratch[ix+offset],spv::ScopeWorkgroup,spv::MemorySemanticsMaskNone,data);
-	}
-
 	void workgroupExecutionAndMemoryBarrier()
 	{
 		nbl::hlsl::glsl::barrier();
@@ -91,15 +81,23 @@ void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 wgId : SV_GroupID)
 
 	// we can only ballot booleans, so low bit
 	nbl::hlsl::workgroup::ballot<ScratchProxy<ArithmeticSz> >(bool(sourceVal&0x1u),ballotAccessor);
+	// need to barrier between ballot and usages of a ballot by myself
+	ballotAccessor.workgroupExecutionAndMemoryBarrier();
+
 	uint32_t destVal = 0xdeadbeefu;
-#if 1
-	if (true)
+#define CONSTEXPR_OP_TYPE_TEST(IS_OP) nbl::hlsl::is_same<nbl::hlsl::OPERATION<nbl::hlsl::bit_xor<float>,0x45>,nbl::hlsl::workgroup::IS_OP<nbl::hlsl::bit_xor<float>,0x45> >::value
+	if (CONSTEXPR_OP_TYPE_TEST(reduction))
 		destVal = nbl::hlsl::workgroup::ballotBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
+	else if (CONSTEXPR_OP_TYPE_TEST(inclusive_scan))
+		destVal = nbl::hlsl::workgroup::ballotInclusiveBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
+	else if (CONSTEXPR_OP_TYPE_TEST(exclusive_scan))
+		destVal = nbl::hlsl::workgroup::ballotExclusiveBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
 	else
 	{
 		assert(false);
 	}
-#endif
+#undef CONSTEXPR_OP_TYPE_TEST
+
 	if (canStore())
 		output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),destVal);
 }

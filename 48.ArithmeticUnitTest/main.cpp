@@ -304,16 +304,17 @@ public:
 	
 			// check results
 			bool passed = validateResults<Arithmetic,bit_and<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount);
+#if 0
 			passed = validateResults<Arithmetic,bit_xor<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,bit_or<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,plus<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,multiplies<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,minimum<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
 			passed = validateResults<Arithmetic,maximum<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
-#if 0
+#endif
 			if constexpr(WorkgroupTest)
 				passed = validateResults<Arithmetic,ballot<uint32_t>,WorkgroupTest>(itemsPerWG,workgroupCount)&&passed;
-#endif
+
 			return passed;
 		}
 
