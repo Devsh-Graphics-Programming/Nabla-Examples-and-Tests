@@ -201,12 +201,10 @@ public:
 					logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
-#if 0
 					passed = runTest<emulatedScanInclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
 					passed = runTest<emulatedScanExclusive,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
 					logTestOutcome(passed,itemsPerWG);
-#endif
 				}
 				computeQueue->endCapture();
 			}
