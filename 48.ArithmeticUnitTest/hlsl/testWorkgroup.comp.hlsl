@@ -68,26 +68,32 @@ struct operation_t
 
 static ScratchProxy<ArithmeticSz> ballotAccessor;
 
-uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE,1,1); }
+
+uint32_t globalIndex()
+{
+	return nbl::hlsl::glsl::gl_WorkGroupID().x*ITEMS_PER_WG+nbl::hlsl::workgroup::SubgroupContiguousIndex();
+}
 
 [numthreads(WORKGROUP_SIZE,1,1)]
-void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 globalId : SV_DispatchThreadID)
+void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 wgId : SV_GroupID)
 {
 	__gl_LocalInvocationIndex = invIdx;
-	__gl_GlobalInvocationID = globalId;
+	__gl_WorkGroupID = wgId;
 
 	const type_t sourceVal = test();
-	if (globalId.x==0u)
+	if (globalIndex()==0u)
 		output[ballot<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
 
 	// we can only ballot booleans, so low bit
 	nbl::hlsl::workgroup::ballot<ScratchProxy<ArithmeticSz> >(bool(sourceVal&0x1u),ballotAccessor);
 	uint32_t destVal = 0xdeadbeefu;
+#if 1
 	if (true)
 		destVal = nbl::hlsl::workgroup::ballotBitCount<ITEMS_PER_WG>(ballotAccessor,arithmeticAccessor);
 	else
 	{
 		assert(false);
 	}
-	output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalId.x,destVal);
+#endif
+	output[ballot<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),destVal);
 }

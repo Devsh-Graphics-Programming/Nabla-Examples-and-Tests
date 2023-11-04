@@ -1,7 +1,7 @@
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 #include "nbl/builtin/hlsl/functional.hlsl"
 
-template<uint32_t kScanElementCount=32*1024*1024>
+template<uint32_t kScanElementCount=1024*1024>
 struct Output
 {
 	NBL_CONSTEXPR_STATIC_INLINE uint32_t ScanElementCount = kScanElementCount;

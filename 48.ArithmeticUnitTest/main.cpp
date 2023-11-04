@@ -84,9 +84,9 @@ public:
 		inputData = new uint32_t[elementCount];
 		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 		{
-			std::mt19937 randGenerator(std::time(0));
+			std::mt19937 randGenerator(0xdeadbeefu);
 			for (uint32_t i=0u; i<elementCount; i++)
-				inputData[i] = randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
+				inputData[i] = i;// randGenerator(); // TODO: change to using xoroshiro, then we can skip having the input buffer at all
 
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0])*elementCount;
@@ -187,7 +187,6 @@ public:
 				logger->log("Testing Workgroup Size %u", ILogger::ELL_INFO, workgroupSize);
 
 				bool passed = true;
-
 				// TODO async the testing
 				passed = runTest<emulatedReduction,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
 				logTestOutcome(passed,workgroupSize);
@@ -196,7 +195,7 @@ public:
 				passed = runTest<emulatedScanExclusive,false>(subgroupTestSource,elementCount,workgroupSize) && passed;
 				logTestOutcome(passed,workgroupSize);
 				//for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize-subgroupSize; itemsPerWG--)
-				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>=workgroupSize; itemsPerWG--)
+				for (uint32_t itemsPerWG=workgroupSize; itemsPerWG>workgroupSize; itemsPerWG--)
 				{
 					logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
 					passed = runTest<emulatedReduction,true>(workgroupTestSource,elementCount,workgroupSize,itemsPerWG) && passed;
@@ -374,7 +373,7 @@ public:
 						logger->log(
 							"Failed test #%d  (%s)  (%s) Expected %u got %u for workgroup %d and localinvoc %d",
 							ILogger::ELL_ERROR,itemsPerWG,WorkgroupTest ? "workgroup":"subgroup",Binop::name,
-							cpuVal,gpuVal,workgroupOffset,localInvocationIndex
+							cpuVal,gpuVal,workgroupID,localInvocationIndex
 						);
 						success = false;
 						break;

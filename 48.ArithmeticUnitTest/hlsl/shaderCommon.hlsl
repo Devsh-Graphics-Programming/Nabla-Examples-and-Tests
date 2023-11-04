@@ -6,9 +6,10 @@
 
 // annoying things necessary to do until DXC implements proposal 0011
 static uint32_t __gl_LocalInvocationIndex;
-uint32_t nbl::hlsl::glsl::gl_LocalInvocationIndex() {return __gl_LocalInvocationIndex;}
-static uint32_t3 __gl_GlobalInvocationID;
-uint32_t3 nbl::hlsl::glsl::gl_GlobalInvocationID() {return __gl_GlobalInvocationID;}
+uint32_t nbl::hlsl::glsl::gl_LocalInvocationIndex() {return __gl_LocalInvocationIndex;} // need this becacuse of the circular way `gl_SubgroupID` is currently defined
+uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() { return uint32_t3(WORKGROUP_SIZE,1,1); }
+static uint32_t3 __gl_WorkGroupID;
+uint32_t3 nbl::hlsl::glsl::gl_WorkGroupID() {return __gl_WorkGroupID;}
 
 
 // unfortunately DXC chokes on descriptors as static members
@@ -16,27 +17,29 @@ uint32_t3 nbl::hlsl::glsl::gl_GlobalInvocationID() {return __gl_GlobalInvocation
 [[vk::binding(0, 0)]] StructuredBuffer<uint32_t> inputValue;
 [[vk::binding(1, 0)]] RWByteAddressBuffer output[8];
 
-
-#ifndef OPERATION
-#error "Define OPERATION!"
-#endif
-template<template<class> class binop, typename T>
-static void subtest(NBL_CONST_REF_ARG(T) sourceVal)
-{
-	const uint32_t globalIndex = nbl::hlsl::glsl::gl_GlobalInvocationID().x;
-	if (globalIndex==0u)
-		output[binop<T>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
-		
-	operation_t<typename binop<T>::base_t> func;
-	output[binop<T>::BindingIndex].template Store<T>(sizeof(uint32_t)+sizeof(T)*globalIndex,func(sourceVal));
-}
+uint32_t globalIndex();
 
 //typedef decltype(inputValue[0]) type_t;
 typedef uint32_t type_t;
 
+
+#ifndef OPERATION
+#error "Define OPERATION!"
+#endif
+template<template<class> class binop>
+static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
+{
+	if (globalIndex()==0u)
+		output[binop<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+		
+	operation_t<typename binop<type_t>::base_t> func;
+	output[binop<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
+}
+
+
 type_t test()
 {
-	const type_t sourceVal = inputValue[nbl::hlsl::glsl::gl_GlobalInvocationID().x];
+	const type_t sourceVal = inputValue[globalIndex()];
 
 	subtest<bit_and>(sourceVal);
 	subtest<bit_xor>(sourceVal);
@@ -47,3 +50,5 @@ type_t test()
 	subtest<maximum>(sourceVal);
 	return sourceVal;
 }
+
+#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
