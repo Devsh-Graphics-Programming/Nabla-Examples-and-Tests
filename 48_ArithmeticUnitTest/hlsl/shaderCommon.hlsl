@@ -1,73 +1,58 @@
-// REVIEW: Not sure how the register types are chosen
-// u -> For buffers that will be accessed randomly by threads i.e. thread 3 might access index 16
-// b -> For uniform buffers
-// t -> For buffers where each thread accesses its own index
+#include "common.hlsl"
 
-// Instead of register(...) we can also use [[vk::binding(uint)]]
-
-#pragma shader_stage(compute)
-
-#ifndef _NBL_HLSL_WORKGROUP_SIZE_
-#define _NBL_HLSL_WORKGROUP_SIZE_ 256
-#endif
-
-#include "../common.glsl"
-
-//#include "nbl/builtin/hlsl/workgroup/scratch_sz.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
-//#include "nbl/builtin/hlsl/workgroup/ballot.hlsl"
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
-//#include "nbl/builtin/hlsl/shared_memory_accessor.hlsl"
+#include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 
-struct Output {
-	uint subgroupSize;
-	uint output[BUFFER_DWORD_COUNT];
-};
+// annoying things necessary to do until DXC implements proposal 0011
+static uint32_t __gl_LocalInvocationIndex;
+uint32_t nbl::hlsl::glsl::gl_LocalInvocationIndex() {return __gl_LocalInvocationIndex;} // need this becacuse of the circular way `gl_SubgroupID` is currently defined
+uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
+static uint32_t3 __gl_WorkGroupID;
+uint32_t3 nbl::hlsl::glsl::gl_WorkGroupID() {return __gl_WorkGroupID;}
 
-[[vk::binding(0, 0)]] StructuredBuffer<uint> inputValue; // read-only
 
-[[vk::binding(1, 0)]] RWStructuredBuffer<Output> outand;
-[[vk::binding(2, 0)]] RWStructuredBuffer<Output> outxor;
-[[vk::binding(3, 0)]] RWStructuredBuffer<Output> outor;
-[[vk::binding(4, 0)]] RWStructuredBuffer<Output> outadd;
-[[vk::binding(5, 0)]] RWStructuredBuffer<Output> outmul;
-[[vk::binding(6, 0)]] RWStructuredBuffer<Output> outmin;
-[[vk::binding(7, 0)]] RWStructuredBuffer<Output> outmax;
-[[vk::binding(8, 0)]] RWStructuredBuffer<Output> outbitcount;
+// unfortunately DXC chokes on descriptors as static members
+// https://github.com/microsoft/DirectXShaderCompiler/issues/5940
+[[vk::binding(0, 0)]] StructuredBuffer<uint32_t> inputValue;
+[[vk::binding(1, 0)]] RWByteAddressBuffer output[8];
 
-// template<uint32_t WGSZ,uint32_t SGSZ>
-// struct required_scratch_size : nbl::hlsl::workgroup::impl::trunc_geom_series<WGSZ,SGSZ> {};
-// static const uint arithmeticSz = required_scratch_size<_NBL_HLSL_WORKGROUP_SIZE_, nbl::hlsl::subgroup::MinSubgroupSize>::value;
-// static const uint32_t ballotSz = nbl::hlsl::workgroup::uballotBitfieldCount + 1;
-// static const uint32_t scratchSz = arithmeticSz + ballotSz;
-// groupshared uint32_t scratch[scratchSz];
+// because subgroups don't match `gl_LocalInvocationIndex` snake curve addressing, we also can't load inputs that way
+uint32_t globalIndex();
+// since we test ITEMS_PER_WG<WorkgroupSize we need this so workgroups don't overwrite each other's outputs
+bool canStore();
 
-// template<uint32_t offset>
-// struct ScratchProxy
-// {
-// 	uint get(uint ix)
-// 	{
-// 		return scratch[ix + offset];
-// 	}
+//typedef decltype(inputValue[0]) type_t;
+typedef uint32_t type_t;
 
-// 	void set(uint ix, uint value)
-// 	{
-// 		scratch[ix + offset] = value;
-// 	}
 
-// 	uint atomicAdd(in uint ix, uint data)
-// 	{
-// 		return nbl::hlsl::glsl::atomicAdd(scratch[ix + offset], data);
-// 	}
+#ifndef OPERATION
+#error "Define OPERATION!"
+#endif
+template<template<class> class binop>
+static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
+{
+	if (globalIndex()==0u)
+		output[binop<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
+		
+	operation_t<typename binop<type_t>::base_t> func;
+	if (canStore())
+		output[binop<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
+}
 
-// 	uint atomicOr(in uint ix, uint data)
-// 	{
-// 		return nbl::hlsl::glsl::atomicOr(scratch[ix + offset], data);
-// 	}
-// };
 
-// struct SharedMemory
-// {
-// 	nbl::hlsl::SharedMemoryAdaptor<ScratchProxy<0> > main;
-// 	nbl::hlsl::SharedMemoryAdaptor<ScratchProxy<arithmeticSz> > broadcast;
-// };
+type_t test()
+{
+	const type_t sourceVal = inputValue[globalIndex()];
+
+	subtest<bit_and>(sourceVal);
+	subtest<bit_xor>(sourceVal);
+	subtest<bit_or>(sourceVal);
+	subtest<plus>(sourceVal);
+	subtest<multiplies>(sourceVal);
+	subtest<minimum>(sourceVal);
+	subtest<maximum>(sourceVal);
+	return sourceVal;
+}
+
+#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
