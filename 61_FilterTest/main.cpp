@@ -226,7 +226,7 @@ class BlitFilterTestApp : public ApplicationBase
 					region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
 					region.imageOffset = { imageParams.extent.width / 2, imageParams.extent.height / 2, 0u };
 					const auto blockSize = asset::getBlockDimensions(inImageFormat);
-					region.bufferOffset += (region.bufferRowLength*(region.imageOffset.y/blockSize[1])+region.imageOffset.x/blockSize[0])*asset::getTexelOrBlockBytesize(inImageFormat);
+					region.bufferOffset += ((region.bufferRowLength/blockSize[0])*(region.imageOffset.y/blockSize[1])+region.imageOffset.x/blockSize[0])*asset::getTexelOrBlockBytesize(inImageFormat);
 				}
 
 				flattenInImage = ICPUImage::create(std::move(imageParams));
@@ -359,7 +359,8 @@ class BlitFilterTestApp : public ApplicationBase
 		bool run() override
 		{
 			assert(m_inImage->getCreationParameters().mipLevels == 1);
-			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, blit_utils_t>;
+			// GPU clamps when storing to a texture, so the CPU needs to as well
+			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, true, blit_utils_t>;
 
 			const asset::E_FORMAT inImageFormat = m_inImage->getCreationParameters().format;
 			const asset::E_FORMAT outImageFormat = inImageFormat;
@@ -1205,7 +1206,7 @@ public:
 				}
 			}
 
-			// Test 4: Non-trivial normalization
+			// Test 4: Non-trivial normalization (warning, supposed to look like crap)
 			{
 				const char* path = "../../media/envmap/envmap_0.exr";
 				auto inImage = loadImage(path);
