@@ -682,6 +682,7 @@ class BlitFilterTestApp : public ApplicationBase
 				blitFilter->updateDescriptorSet(blitDS.get(), blitWeightsDS.get(), inImageView, normalizationInImageView, coverageAdjustmentScratchBuffer, scaledKernelPhasedLUTView);
 
 				m_parentApp->logger->log("GPU begin..");
+				m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]->startCapture();
 				blitFilter->blit<BlitUtilities>(
 					m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE], m_alphaSemantic,
 					blitDS.get(), alphaTestPipeline.get(),
@@ -691,6 +692,7 @@ class BlitFilterTestApp : public ApplicationBase
 					layersToBlit,
 					coverageAdjustmentScratchBuffer, m_referenceAlpha,
 					m_alphaBinCount, BlitWorkgroupSize);
+				m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]->endCapture();
 				m_parentApp->logger->log("GPU end..");
 
 				if (outImageGPU->getCreationParameters().type == asset::IImage::ET_2D)

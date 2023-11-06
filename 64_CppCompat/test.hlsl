@@ -16,6 +16,9 @@
     } while(!con); \
 } 
 
+// tcpp dies, we need to fix first!
+//#include <boost/preprocessor.hpp>
+
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/type_traits.hlsl>
