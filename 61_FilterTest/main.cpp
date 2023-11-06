@@ -128,7 +128,8 @@ class BlitFilterTestApp : public ApplicationBase
 				return false;
 			}
 
-			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, false, BlitUtilities>;
+			// enabled clamping so the test outputs don't look weird on Kaiser filters which ring
+			using BlitFilter = asset::CBlitImageFilter<asset::VoidSwizzle, asset::IdentityDither, void, true, BlitUtilities>;
 			typename BlitFilter::state_type blitFilterState(m_convolutionKernels);
 
 			blitFilterState.inOffsetBaseLayer = core::vectorSIMDu32();
@@ -196,9 +197,6 @@ class BlitFilterTestApp : public ApplicationBase
 			const auto& inImageFormat = m_inImage->getCreationParameters().format;
 			const uint32_t inImageMipCount = m_inImage->getCreationParameters().mipLevels;
 
-			// We use the very first block of the image as fill value for the filter.
-			std::unique_ptr<uint8_t[]> fillValueBlock = std::make_unique<uint8_t[]>(asset::getTexelOrBlockBytesize(inImageFormat));
-
 			core::smart_refctd_ptr<ICPUImage> flattenInImage;
 			{
 				const uint64_t bufferSizeNeeded = (inImageExtent.width * inImageExtent.height * inImageExtent.depth * asset::getTexelOrBlockBytesize(inImageFormat)) / 2ull;
@@ -212,36 +210,23 @@ class BlitFilterTestApp : public ApplicationBase
 				imageParams.samples = asset::ICPUImage::ESCF_1_BIT;
 
 				auto imageRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<asset::IImage::SBufferCopy>>(2ull);
+				std::fill(imageRegions->begin(),imageRegions->end(),*m_inImage->getRegion(0,core::vectorSIMDu32(0,0,0)));
 				{
 					auto& region = (*imageRegions)[0];
 					region.bufferOffset = 0ull;
-					region.bufferRowLength = imageParams.extent.width / 2;
-					region.bufferImageHeight = imageParams.extent.height / 2;
+					if (!region.bufferRowLength)
+						region.bufferRowLength = region.imageExtent.width;
 					region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
 					region.imageOffset = { 0u, 0u, 0u };
-					region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-					region.imageSubresource.baseArrayLayer = 0u;
-					region.imageSubresource.layerCount = imageParams.arrayLayers;
-					region.imageSubresource.mipLevel = 0;
 				}
 				{
 					auto& region = (*imageRegions)[1];
-					region.bufferOffset = bufferSizeNeeded / 2ull;
-					region.bufferRowLength = imageParams.extent.width / 2;
-					region.bufferImageHeight = imageParams.extent.height / 2;
+					if (!region.bufferRowLength)
+						region.bufferRowLength = region.imageExtent.width;
 					region.imageExtent = { imageParams.extent.width / 2, imageParams.extent.height / 2, core::max(imageParams.extent.depth / 2, 1) };
 					region.imageOffset = { imageParams.extent.width / 2, imageParams.extent.height / 2, 0u };
-					region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-					region.imageSubresource.baseArrayLayer = 0u;
-					region.imageSubresource.layerCount = imageParams.arrayLayers;
-					region.imageSubresource.mipLevel = 0;
-				}
-
-				auto imageBuffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(bufferSizeNeeded);
-				if (!imageBuffer)
-				{
-					m_parentApp->logger->log("Failed to create backing buffer for flatten input image.", system::ILogger::ELL_ERROR);
-					return false;
+					const auto blockSize = asset::getBlockDimensions(inImageFormat);
+					region.bufferOffset += (region.bufferRowLength*(region.imageOffset.y/blockSize[1])+region.imageOffset.x/blockSize[0])*asset::getTexelOrBlockBytesize(inImageFormat);
 				}
 
 				flattenInImage = ICPUImage::create(std::move(imageParams));
@@ -251,41 +236,7 @@ class BlitFilterTestApp : public ApplicationBase
 					return false;
 				}
 
-				flattenInImage->setBufferAndRegions(core::smart_refctd_ptr(imageBuffer), imageRegions);
-
-				const auto blockDim = asset::getBlockDimensions(inImageFormat);
-				const uint32_t blockCountX = inImageExtent.width / blockDim.x;
-				const uint32_t blockCountY = inImageExtent.height / blockDim.y;
-				const auto blockSize = asset::getTexelOrBlockBytesize(inImageFormat);
-
-				uint8_t* src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer());
-				uint8_t* dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer());
-				for (uint32_t y = 0; y < blockCountY / 2; ++y)
-				{
-					for (uint32_t x = 0; x < blockCountX / 2; ++x)
-					{
-						if (x == 0 && y == 0)
-							memcpy(fillValueBlock.get(), src, blockSize);
-
-						const uint64_t byteOffset = (y * blockCountX + x) * blockSize;
-						memcpy(dst, src + byteOffset, blockSize);
-						dst += blockSize;
-					}
-				}
-
-				const auto& regions = flattenInImage->getRegions();
-
-				src = reinterpret_cast<uint8_t*>(m_inImage->getBuffer()->getPointer());
-				dst = reinterpret_cast<uint8_t*>(flattenInImage->getBuffer()->getPointer()) + regions.begin()[1].bufferOffset;
-				for (uint32_t y = 0; y < blockCountY / 2; ++y)
-				{
-					for (uint32_t x = 0; x < blockCountX / 2; ++x)
-					{
-						const uint64_t byteOffset = ((y + (blockCountY / 2)) * blockCountX + (x + (blockCountX / 2))) * blockSize;
-						memcpy(dst, src + byteOffset, blockSize);
-						dst += blockSize;
-					}
-				}
+				flattenInImage->setBufferAndRegions(core::smart_refctd_ptr<ICPUBuffer>(m_inImage->getBuffer()), imageRegions);
 			}
 
 			asset::CFlattenRegionsImageFilter::CState filterState;
@@ -302,7 +253,7 @@ class BlitFilterTestApp : public ApplicationBase
 					filterState.fillValue.asFloat = m_fillColorValue.asFloat;
 				else
 					_NBL_TODO();
-			}
+			} 
 
 			if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
 			{
@@ -1069,13 +1020,14 @@ public:
 
 		if (TestFlattenFilter)
 		{
-			auto getFillValueAsFirstBlockOrTexel = [](asset::IImageFilter::IState::ColorValue& result, asset::ICPUImage* image)
+			asset::IImageFilter::IState::ColorValue fillColorValue;
+			auto getFillValueAsFirstBlockOrTexel = [&fillColorValue](asset::ICPUImage* image)
 			{
 				const auto format = image->getCreationParameters().format;
 				if (asset::isBlockCompressionFormat(format))
-					memcpy(result.asCompressedBlock, image->getBuffer()->getPointer(), asset::getTexelOrBlockBytesize(format));
+					memcpy(fillColorValue.asCompressedBlock, image->getBuffer()->getPointer(), asset::getTexelOrBlockBytesize(format));
 				else if (asset::isFloatingPointFormat(format))
-					result.asFloat.set(reinterpret_cast<float*>(image->getBuffer()->getPointer()));
+					fillColorValue.asFloat.set(reinterpret_cast<float*>(image->getBuffer()->getPointer()));
 				else
 					_NBL_TODO();				
 			};
@@ -1093,8 +1045,7 @@ public:
 				if (inImage)
 				{
 					const auto inImageFormat = inImage->getCreationParameters().format;
-					asset::IImageFilter::IState::ColorValue fillColorValue;
-					getFillValueAsFirstBlockOrTexel(fillColorValue, inImage.get());
+					getFillValueAsFirstBlockOrTexel(inImage.get());
 
 					tests[0] = std::make_unique<CFlattenRegionsImageFilterTest>
 					(
@@ -1115,8 +1066,7 @@ public:
 				if (inImage)
 				{
 					const auto inImageFormat = inImage->getCreationParameters().format;
-					asset::IImageFilter::IState::ColorValue fillColorValue;
-					getFillValueAsFirstBlockOrTexel(fillColorValue, inImage.get());
+					getFillValueAsFirstBlockOrTexel(inImage.get());
 
 					tests[1] = std::make_unique<CFlattenRegionsImageFilterTest>
 					(
