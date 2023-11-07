@@ -387,17 +387,25 @@ public:
                   << ptrs[1][0][0].w << " "
                   << "\n";
                   
-        std::cout << std::bit_cast<u32>(ptrs[1][0][0].x) << " " 
-                  << std::bit_cast<u32>(ptrs[1][0][0].y) << " "
-                  << std::bit_cast<u32>(ptrs[1][0][0].z) << " "
-                  << std::bit_cast<u32>(ptrs[1][0][0].w) << " "
-                  << "\n";
+        const std::ios::fmtflags f(std::cout.flags());
+        std::cout << std::hex
+            << std::bit_cast<u32>(ptrs[1][0][0].x) << " " 
+            << std::bit_cast<u32>(ptrs[1][0][0].y) << " "
+            << std::bit_cast<u32>(ptrs[1][0][0].z) << " "
+            << std::bit_cast<u32>(ptrs[1][0][0].w) << " "
+            << "\n";
+        std::cout.flags(f);
 
         bool re = true;
         for (int i = 0; i < 1080; ++i)
-            for (int j = 0; j < 1920; ++j)
-                for (int k = 0; k < 4; ++k)
-                    re &=(ptrs[1][i][j][k] == -1.f && ptrs[3][i][j][k] == -1.f);
+        for (int j = 0; j < 1920; ++j)
+        for (int k = 0; k < 4; ++k)
+        if (ptrs[1][i][j][k] != -1.f || ptrs[3][i][j][k] != -1.f) // TODO FIXME: there's some issue with ptrs[3][i][j]==0,0,0,0
+        {
+            re = false;
+            break;
+        }
+
         if(!re)
         {
             std::cout << "Shader tests failed\n";
