@@ -10,6 +10,10 @@ endif()
 add_subdirectory(common EXCLUDE_FROM_ALL)
 #message(FATAL_ERROR ${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET})
 
+
+# non-framework examples
+add_subdirectory(01_HelloSystemAssetUI EXCLUDE_FROM_ALL)
+
 # Nabla framework examples
 add_subdirectory(01_HelloWorld EXCLUDE_FROM_ALL)
 add_subdirectory(02_ComputeShader EXCLUDE_FROM_ALL)
@@ -66,7 +70,6 @@ add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
 add_subdirectory(48_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 # add_subdirectory(49_ComputeFFT EXCLUDE_FROM_ALL)
 # add_subdirectory(51_RadixSort EXCLUDE_FROM_ALL)
-add_subdirectory(52_SystemTest EXCLUDE_FROM_ALL)
 add_subdirectory(53_ComputeShaders EXCLUDE_FROM_ALL)
 add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
@@ -81,4 +84,6 @@ add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 add_subdirectory(64_CppCompat)
+
+
 unset(NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET CACHE)

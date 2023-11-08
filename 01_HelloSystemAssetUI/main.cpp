@@ -2,15 +2,16 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// always include nabla first before std:: headers
 #include "nabla.h"
 
-#include <iostream>
-#include <cstdio>
-
-#include "../common/CommonAPI.h"
 #include "nbl/system/CStdoutLogger.h"
 #include "nbl/system/CFileLogger.h"
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
+#include "nbl/system/IApplicationFramework.h"
+
+#include <iostream>
+#include <cstdio>
 
 //! builtin resources archive test
 #ifdef NBL_EMBED_BUILTIN_RESOURCES
@@ -26,6 +27,7 @@ using namespace asset;
 
 class WindowEventCallback;
 
+// a basic input system which detects connection of keyboards and mice, then defaults to the most recently active one
 class InputSystem : public IReferenceCounted
 {
 	public:
@@ -123,6 +125,7 @@ class InputSystem : public IReferenceCounted
 		Channels<IKeyboardEventChannel> m_keyboard;
 };
 
+// this is a callback necessary to handle a window
 class WindowEventCallback : public IWindow::IEventCallback
 {
 public:
@@ -213,13 +216,17 @@ private:
 
 int main(int argc, char** argv)
 {
+	// the application only needs to call this to delay-load Shared Libraries, if you have a static build, it will do nothing
 	IApplicationFramework::GlobalsInit();
+	// we will actually use `IApplicationFramework` in later samples
+
 	const path CWD = path(argv[0]).parent_path().generic_string() + "/";
 	const path mediaWD = CWD.generic_string() + "../../media/";
 
-	auto system = CommonAPI::createSystem();
+	auto system = IApplicationFramework::createSystem();
 	// TODO: system->deleteFile("log.txt");
 
+	// in this sample we will write some of the logger output to a file
 	core::smart_refctd_ptr<system::ILogger> logger;
 	{
 		system::ISystem::future_t<smart_refctd_ptr<system::IFile>> future;
@@ -472,7 +479,7 @@ int main(int argc, char** argv)
 	for (const auto& item : items)
 		logger->log("%s",system::ILogger::ELL_DEBUG,item.c_str());
 
-/* TODO: Tart Archive reader test
+/* TODO: Tar Archive reader test
 	system->moveFileOrDirectory("file.tar","movedFile.tar");
 	{
 		system::future<smart_refctd_ptr<IFile>> fut;
@@ -491,8 +498,12 @@ int main(int argc, char** argv)
 	}
 */
 
+	// monitor input for N seconds
 	using namespace std::chrono;
-	for (auto start=steady_clock::now(); windowCb->isWindowOpen() && duration_cast<seconds>(steady_clock::now()-start)<seconds(5);)
+	auto timeout = seconds(~0u);
+	if (argc>=3 && core::string("-timeout_seconds")==argv[1])
+		timeout = seconds(std::atoi(argv[2]));
+	for (auto start=steady_clock::now(); windowCb->isWindowOpen() && duration_cast<decltype(timeout)>(steady_clock::now()-start)<timeout;)
 	{
 		input->getDefaultMouse(&mouse);
 		input->getDefaultKeyboard(&keyboard);

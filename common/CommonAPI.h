@@ -12,14 +12,6 @@
 #include "nbl/ui/IGraphicalApplicationFramework.h"
 
 // TODO: see TODO below
-#if defined(_NBL_PLATFORM_WINDOWS_)
-#include <nbl/system/CColoredStdoutLoggerWin32.h>
-#elif defined(_NBL_PLATFORM_ANDROID_)
-#include <nbl/system/CStdoutLoggerAndroid.h>
-#endif
-#include "nbl/system/CSystemAndroid.h"
-#include "nbl/system/CSystemLinux.h"
-#include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
 #include "nbl/video/utilities/SPhysicalDeviceFilter.h"
@@ -303,21 +295,6 @@ public:
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 		bool m_gotWindowClosedMsg;
 	};
-
-	static nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
-	{
-		using namespace nbl;
-		using namespace system;
-#ifdef _NBL_PLATFORM_WINDOWS_
-		return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemWin32>();
-#elif defined(_NBL_PLATFORM_ANDROID_)
-#if 0
-		return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemAndroid>(std::move(caller));
-#endif
-#endif
-		return nullptr;
-
-	}
 	
 	class IPhysicalDeviceSelector
 	{
@@ -474,7 +451,7 @@ public:
 		bool headlessCompute = params.isHeadlessCompute();
 
 #ifdef _NBL_PLATFORM_WINDOWS_
-		result.system = createSystem();
+		result.system = nbl::system::IApplicationFramework::createSystem();
 #endif
 
 #ifdef _NBL_PLATFORM_WINDOWS_
