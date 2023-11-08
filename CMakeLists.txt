@@ -24,7 +24,6 @@ add_subdirectory(01_HelloWorld EXCLUDE_FROM_ALL)
 add_subdirectory(02_ComputeShader EXCLUDE_FROM_ALL)
 
 # semi-working examples
-add_subdirectory(05_NablaTutorialExample EXCLUDE_FROM_ALL)
 add_subdirectory(06_MeshLoaders EXCLUDE_FROM_ALL)
 add_subdirectory(07_SubpassBaking EXCLUDE_FROM_ALL)
 #add_subdirectory(08.REUSE EXCLUDE_FROM_ALL)
