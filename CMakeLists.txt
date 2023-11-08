@@ -11,8 +11,10 @@ add_subdirectory(common EXCLUDE_FROM_ALL)
 #message(FATAL_ERROR ${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET})
 
 
-# non-framework examples
-add_subdirectory(01_HelloSystemAssetUI EXCLUDE_FROM_ALL)
+# showcase the use of `nbl::core`,`nbl::system` and `nbl::asset`
+add_subdirectory(01_HelloCoreSystemAsset EXCLUDE_FROM_ALL)
+# showcase the use of `nbl::ui` and `IApplicationFramework`
+add_subdirectory(02_HelloUI EXCLUDE_FROM_ALL)
 
 # Nabla framework examples
 add_subdirectory(01_HelloWorld EXCLUDE_FROM_ALL)
