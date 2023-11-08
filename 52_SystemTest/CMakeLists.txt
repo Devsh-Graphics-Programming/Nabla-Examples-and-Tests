@@ -23,6 +23,4 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 	endif()
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} systemTestBuiltinResourceData)
-	
-	target_compile_definitions(${EXECUTABLE_NAME} PUBLIC _BR_TEST_)
 endif()

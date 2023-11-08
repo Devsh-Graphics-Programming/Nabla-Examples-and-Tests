@@ -13,7 +13,7 @@
 #include "nbl/system/CColoredStdoutLoggerWin32.h"
 
 //! builtin resources archive test
-#ifdef _BR_TEST_
+#ifdef NBL_EMBED_BUILTIN_RESOURCES
 #include "nbl/builtin/CArchive.h"
 #include "yourNamespace/builtin/CArchive.h"
 #endif
@@ -278,7 +278,7 @@ int main(int argc, char** argv)
 	}
 
 	//! builtin resources archive test
-	#ifdef _BR_TEST_
+#ifdef NBL_EMBED_BUILTIN_RESOURCES
 	// Nabla case
 	{
 		auto testFile = [&](const std::string& hashPath) -> void
@@ -304,11 +304,12 @@ int main(int argc, char** argv)
 		};
 
 		testFile("nbl/builtin/glsl/utils/acceleration_structures.glsl"); // nbl internal BRs
-		testFile("spirv/1.2/spirv.hpp"); // dxc internal BRs
+		testFile("spirv/unified1/spirv.hpp"); // dxc internal BRs
 		testFile("boost/preprocessor.hpp"); // boost preprocessor internal BRs
 	}
 	// Custom case
 	{
+		// don't actually put embedded resources in their own standalone DLLs, this is just for testing
 		#ifdef _NBL_SHARED_BUILD_
 		{
 			const auto brOutputDLLAbsoluteDirectory = std::filesystem::absolute(std::filesystem::path(_BR_DLL_DIRECTORY_)).string();
@@ -359,7 +360,7 @@ int main(int argc, char** argv)
 			std::cout << testStream << "\n\n\n\n\n===================================================================\n\n\n\n\n";
 		}
 	}
-	#endif // _BR_TEST_
+#endif
 
 	// polling for events!
 	InputSystem::ChannelReader<IMouseEventChannel> mouse;
@@ -490,7 +491,8 @@ int main(int argc, char** argv)
 	}
 */
 
-	while (windowCb->isWindowOpen())
+	using namespace std::chrono;
+	for (auto start=steady_clock::now(); windowCb->isWindowOpen() && duration_cast<seconds>(steady_clock::now()-start)<seconds(5);)
 	{
 		input->getDefaultMouse(&mouse);
 		input->getDefaultKeyboard(&keyboard);
@@ -498,4 +500,5 @@ int main(int argc, char** argv)
 		mouse.consumeEvents(mouseProcess,logger.get());
 		keyboard.consumeEvents(keyboardProcess,logger.get());
 	}
+	return 0;
 }
