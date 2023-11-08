@@ -1,15 +1,133 @@
 
 #include "Hatch.h"
 
+#include <complex.h>
+#include <tgmath.h>
+
 #define DEBUG_HATCH_VISUALLY
+
+using std::complex;
+
+template<typename T, size_t Order>
+std::array<complex<T>, Order> polynomialDerivative(std::array<complex<T>, Order + 1> values)
+{
+	std::array<complex<T>, Order> output;
+	for (uint32_t i = 0; i < Order; i++)
+	{
+		complex<T> originalValue = values[i];
+		uint32_t originalPosition = Order - i;
+		output[i] = T(originalPosition) * originalValue;
+	}
+	return output;
+}
+
+template<typename T, size_t Order>
+complex<T> evaluatePolynomial(std::array<complex<T>, Order + 1> values, complex<T> x)
+{
+	if constexpr (Order == -1)
+		return complex<T>(0.0, 0.0);
+	complex<T> acc = values[0];
+	for (uint32_t i = 0; i < Order + 1; i++)
+	{
+		acc += values[i] * pow(x, T(Order - i));
+	}
+
+
+	return acc;
+}
+
+constexpr double LaguerrePolynomialThreshhold = 1e-5;
+constexpr double LaguerreAThreshhold = 1e-5;
+constexpr double LaguerreInitialGuess = 0.0;
+
+// https://en.m.wikipedia.org/wiki/Laguerre's_method
+template<typename T, size_t Order>
+complex<T> solveLaguerreRoot(std::array<complex<T>, Order + 1> p, complex<T> initialGuess)
+{
+	using CT = complex<T>;
+
+	std::array<CT, Order> pd = polynomialDerivative<T, Order>(p);
+	std::array<CT, Order - 1> pdd = polynomialDerivative <T, Order - 1>(pd);
+
+	const uint32_t n = Order;
+	uint32_t k = 0;
+	CT x = initialGuess;
+	CT a;
+
+	do {
+		CT f = evaluatePolynomial<T, Order>(p, x); // p(x)
+		CT fd = evaluatePolynomial<T, Order - 1>(pd, x); // p'(x)
+		CT fdd = evaluatePolynomial<T, Order - 2>(pdd, x); // p''(x)
+		// If p(x) is very small, exit the loop
+		if (abs(f) < LaguerrePolynomialThreshhold) break;
+
+		CT G = fd / f; // p'(x) / p(x)
+		CT H = G * G - fdd / f; // G² - p''(x) / p(x)
+		CT det = std::sqrt(CT(n - 1, 0.0) * (CT(n, 0.0) * H - G * G));
+
+		// n / (G +- sqrt((n - 1) * (nH - G²)))
+		CT aSign0 = G + det;
+		CT aSign1 = G - det;
+		a = CT(n, 0.0) / (abs(aSign0) > abs(aSign1) ? aSign0 : aSign1);
+		//if (isnan(a) || isinf(a)) return nbl::core::nan<double>();
+		x -= a;
+		k++;
+	// Repeat until a is small enough or if the maximum number of iterations has been reached.
+	} while (abs(a) >= LaguerreAThreshhold && k < 128);
+	
+	return x;
+}
+
+template<typename T>
+std::array<complex<T>, 4> solveQuarticRootsLaguerre(std::array<T, 5> p)
+{
+	std::array<complex<T>, 5> polynomial = {
+		complex<T>(p[0]),complex<T>(p[1]),complex<T>(p[2]),complex<T>(p[3]),complex<T>(p[4])
+	};
+	std::array<complex<T>, 4> roots = {};
+
+	auto deflatePolynomial = [&](complex<T> root, uint32_t skipItems)
+	{
+		std::array<complex<T>, 5> tmpPolynomial = polynomial;
+		for (uint32_t i = skipItems; i < 5; i++)
+		{
+			polynomial[i] = root * tmpPolynomial[i] + tmpPolynomial[i - 1];
+		}
+	};
+
+	// If a root has been found, the corresponding linear factor can be removed from p.
+	// This deflation step reduces the degree of the polynomial by one, so that eventually,
+	// approximations for all roots of p can be found.Note however that deflation can lead 
+	// to approximate factors that differ significantly from the corresponding exact factors.
+	// This error is least if the roots are found in the order of increasing magnitude.
+	roots[0] = solveLaguerreRoot<T, 4>({ polynomial[0], polynomial[1], polynomial[2], polynomial[3], polynomial[4] }, LaguerreInitialGuess);
+	deflatePolynomial(roots[0], 1);
+	roots[1] = solveLaguerreRoot<T, 3>({ polynomial[1], polynomial[2], polynomial[3], polynomial[4] }, LaguerreInitialGuess);
+	deflatePolynomial(roots[0], 2);
+	roots[2] = solveLaguerreRoot<T, 2>({ polynomial[2], polynomial[3], polynomial[4] }, LaguerreInitialGuess);
+	deflatePolynomial(roots[0], 3);
+	roots[3] = solveLaguerreRoot<T, 1>({ polynomial[3], polynomial[4] }, LaguerreInitialGuess);
+
+	polynomial = {
+		complex<T>(p[0]),complex<T>(p[1]),complex<T>(p[2]),complex<T>(p[3]),complex<T>(p[4])
+	};
+	for (uint32_t i = 0; i < roots.size(); i++)
+	{
+		roots[i] = solveLaguerreRoot<T, 4>(polynomial, roots[i]);
+	}
+
+	return roots;
+}
 
 // Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
 std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
 {
+	auto laguerreRoots = solveQuarticRootsLaguerre<double>({ a, b, c, d, e });
+
 	constexpr double QUARTIC_THRESHHOLD = 1e-10;
-
+	
 	std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
-
+	
 	const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
 	const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
 	if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
@@ -27,24 +145,21 @@ std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, dou
 		auto res = equations::Quadratic<double>::construct(c, d, e).computeRoots();
 		memcpy(&t[0], &res.x, sizeof(double) * 2);
 	}
-
+	
 	// If either is NaN or both are equal
 	// Same as: 
 	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
 	if (!(t[0] != t[1]))
 		t[0] = t[0] != t_start ? t_start : t_end;
 
-	//// TODO: check that this clamp works with t[i] as NaN
-	//for (auto i = 0; i < 2; i++)
-	//	t[i] = nbl::core::clamp(t[i], t_start, t_end);
-	//
-	//// fix up a fuckup where both roots are NaN or were on the same side of the valid integral
-	//
-	//// TODO: do some Halley or Householder method steps on t
-	////while ()
-	////{
-	////}
-
+	printf(std::format("Laguerre roots: {}+{}i {}+{}i {}+{}i {}+{}i Analytical roots: {} {} {} {}\n",
+		laguerreRoots[0].real(), laguerreRoots[0].imag(),
+		laguerreRoots[1].real(), laguerreRoots[1].imag(),
+		laguerreRoots[2].real(), laguerreRoots[2].imag(),
+		laguerreRoots[3].real(), laguerreRoots[3].imag(),
+		t[0], t[1], t[2], t[2]
+		).c_str());
+	
 	// neither t still not in range, your beziers don't intersect
 	return t;
 }
