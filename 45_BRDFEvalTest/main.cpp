@@ -9,6 +9,9 @@
 
 #include "../common/Camera.hpp"
 #include "../common/CommonAPI.h"
+#ifdef NBL_EMBED_BUILTIN_RESOURCES
+#include "example_data/builtin/CArchive.h"
+#endif
 
 using namespace nbl;
 using namespace asset;
@@ -197,7 +200,10 @@ public:
     auto gpuPipelineLayout = logicalDevice->createPipelineLayout(
         rng, rng + 2, nullptr, nullptr, nullptr, nullptr);
 
-    auto vertexShaderBundle = assetManager->getAsset("../shader.vert", {});
+    // mount our resources
+    system->mount(core::make_smart_refctd_ptr<example_data::builtin::CArchive>(core::smart_refctd_ptr(logger)));
+
+    auto vertexShaderBundle = assetManager->getAsset("example_data/shader.vert", {});
     {
       bool status = !vertexShaderBundle.getContents().empty();
       assert(status);
@@ -216,7 +222,7 @@ public:
       gpuVertexShader = (*gpu_array)[0];
     }
 
-    auto fragmentShaderBundle = assetManager->getAsset("../shader.frag", {});
+    auto fragmentShaderBundle = assetManager->getAsset("example_data/shader.frag", {});
     {
       bool status = !fragmentShaderBundle.getContents().empty();
       assert(status);
