@@ -123,8 +123,8 @@ int main(int argc, char** argv)
 		if (pFile)
 		{
 			// word of warning, unless your file is `const IFile` then the overload of `getMappedPointer()` which will be matched is the non-const one that returns `void*`
-			const auto file = pFile->get();
-			// The `void* getMappedPointer()` checks for the write-access flag which we omitted and would return nullptr to you, so this is why its important `file` be `const`
+			const IFile* file = pFile->get();
+			// The `void* getMappedPointer()` checks for the write-access flag which we omitted and would return nullptr to you, so this is why its important `file` be `const IFile*`
 			if (file && file->getMappedPointer())
 			{
 				// the only reason why we even copy the data is because of needing to ensure the null char is present for the logger
