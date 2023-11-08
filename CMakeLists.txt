@@ -13,44 +13,36 @@ add_subdirectory(common EXCLUDE_FROM_ALL)
 
 # showcase the use of `nbl::core`,`nbl::system` and `nbl::asset`
 add_subdirectory(01_HelloCoreSystemAsset EXCLUDE_FROM_ALL)
-# showcase the use of `nbl::ui` and `IApplicationFramework`
-add_subdirectory(02_HelloUI EXCLUDE_FROM_ALL)
+# showcase the use of `system::IApplicationFramework` and `nbl::video`
+add_subdirectory(02_HelloCompute EXCLUDE_FROM_ALL)
+
+add_subdirectory(03_HelloUI EXCLUDE_FROM_ALL)
+# swapchain
 
 # Nabla framework examples
 add_subdirectory(01_HelloWorld EXCLUDE_FROM_ALL)
 add_subdirectory(02_ComputeShader EXCLUDE_FROM_ALL)
-add_subdirectory(03_GPU_Mesh EXCLUDE_FROM_ALL)
-# add_subdirectory(04_Keyframe EXCLUDE_FROM_ALL)
+
+# semi-working examples
 add_subdirectory(05_NablaTutorialExample EXCLUDE_FROM_ALL)
 add_subdirectory(06_MeshLoaders EXCLUDE_FROM_ALL)
 add_subdirectory(07_SubpassBaking EXCLUDE_FROM_ALL)
 #add_subdirectory(08.REUSE EXCLUDE_FROM_ALL)
 add_subdirectory(09_ColorSpaceTest EXCLUDE_FROM_ALL)
 add_subdirectory(10_AllocatorTest EXCLUDE_FROM_ALL)
-add_subdirectory(11_LoDSystem EXCLUDE_FROM_ALL)
-add_subdirectory(12_glTF EXCLUDE_FROM_ALL)
-#add_subdirectory(13.REUSE EXCLUDE_FROM_ALL)
-add_subdirectory(14_ComputeScan EXCLUDE_FROM_ALL)
-#REUSE 15 is reserved for Erfan
-add_subdirectory(16_OrderIndependentTransparency EXCLUDE_FROM_ALL)
-if (NBL_BUILD_BULLET AND NOT NBL_BUILD_ANDROID) # The reason why bullet shouldn't build on android: https://github.com/bulletphysics/bullet3/issues/4025
-	add_subdirectory(17_SimpleBulletIntegration EXCLUDE_FROM_ALL) # Needs example 08 to come back first
-endif()
-if (NBL_BUILD_MITSUBA_LOADER)
-	add_subdirectory(18_MitsubaLoader EXCLUDE_FROM_ALL)
-endif()
-#REUSE 19
-add_subdirectory(20_Megatexture EXCLUDE_FROM_ALL)
-add_subdirectory(21_DynamicTextureIndexing EXCLUDE_FROM_ALL) # TODO: revive
+
+#if (NBL_BUILD_BULLET AND NOT NBL_BUILD_ANDROID) # The reason why bullet shouldn't build on android: https://github.com/bulletphysics/bullet3/issues/4025
+#	add_subdirectory(17_SimpleBulletIntegration EXCLUDE_FROM_ALL) # Needs example 08 to come back first
+#endif()
+#if (NBL_BUILD_MITSUBA_LOADER)
+#	add_subdirectory(18_MitsubaLoader EXCLUDE_FROM_ALL)
+#endif()
 if (NBL_BUILD_MITSUBA_LOADER)
 	add_subdirectory(22_RaytracedAO EXCLUDE_FROM_ALL)
 endif()
 # add_subdirectory(23_Autoexposure EXCLUDE_FROM_ALL)
-# add_subdirectory(24.REUSE EXCLUDE_FROM_ALL) # TODO: @Anastazluk or @Hazardu
 # add_subdirectory(25_Blur EXCLUDE_FROM_ALL)
-# add_subdirectory(26.MultidrawIndirectVSCPUCull EXCLUDE_FROM_ALL)
 add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
-# add_subdirectory(28.REUSE EXCLUDE_FROM_ALL)
 add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 # add_subdirectory(32.REUSE EXCLUDE_FROM_ALL) # TODO: @Anastazluk make this into example 04
 add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
@@ -61,24 +53,17 @@ add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
 # if (NBL_BUILD_MITSUBA_LOADER AND NBL_BUILD_OPTIX)
 #	add_subdirectory(39_DenoiserTonemapper EXCLUDE_FROM_ALL)
 # endif()
-# REUSE 40
 # add_subdirectory(41_VisibilityBuffer EXCLUDE_FROM_ALL) #TODO: waits for SPIRV-Cross issue about barycentrics
 add_subdirectory(42_FragmentShaderPathTracer EXCLUDE_FROM_ALL)
 add_subdirectory(43_SumAndCDFFilters EXCLUDE_FROM_ALL)
-# add_subdirectory(44_LevelCurveExtraction EXCLUDE_FROM_ALL)
 add_subdirectory(45_BRDFEvalTest EXCLUDE_FROM_ALL)
 add_subdirectory(46_SamplingValidation EXCLUDE_FROM_ALL)
 add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
 add_subdirectory(48_ArithmeticUnitTest EXCLUDE_FROM_ALL)
-# add_subdirectory(49_ComputeFFT EXCLUDE_FROM_ALL)
-# add_subdirectory(51_RadixSort EXCLUDE_FROM_ALL)
 add_subdirectory(53_ComputeShaders EXCLUDE_FROM_ALL)
 add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
-if (NOT NBL_BUILD_ANDROID)
-	add_subdirectory(58_MediaUnpackingOnAndroid EXCLUDE_FROM_ALL)
-endif()
 add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
 add_subdirectory(61_FilterTest EXCLUDE_FROM_ALL)
 add_subdirectory(61_UI EXCLUDE_FROM_ALL)
