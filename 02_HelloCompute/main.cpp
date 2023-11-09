@@ -2,11 +2,9 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-// always include nabla first before std:: headers
-#include "nabla.h"
 
-#include "nbl/system/CColoredStdoutLoggerANSI.h"
-#include "nbl/system/IApplicationFramework.h"
+// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
+#include "../common/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -14,24 +12,23 @@ using namespace system;
 using namespace asset;
 using namespace video;
 
-// this time instead of defining our own `int main()` 
-class HelloComputeApp : public IApplicationFramework
+
+// this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
+class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplication
 {
+		using base_t = examples::MonoSystemMonoLoggerApplication;
 	public:
 		// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
-		using IApplicationFramework::IApplicationFramework;
+		using base_t::base_t;
 
-		// we stuff all our work here
+		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
-			// This is a weird pattern, basically on some platforms all file & system operations need to go through a "God Object" only handed to you in some plaform specific way
-			// On "normal" platforms like win32 and Linux we can just create system objects at will and there's no special state we need to find.
-			if (!system)
-				system = IApplicationFramework::createSystem();
-
-			// create a logger with default logging level masks
-			auto logger = make_smart_refctd_ptr<CColoredStdoutLoggerANSI>();
-			auto logFail = [&logger]<typename... Args>(const char* msg, Args&&... args) -> void {logger->log(msg,ILogger::ELL_ERROR,std::forward<Args>(args)...);};
+			// Remember to call the base class initialization!
+			if (!base_t::onAppInitialized(std::move(system)))
+				return false;
+			// `system` could have been null (see the comments in `MonoSystemMonoLoggerApplication::onAppInitialized` as for why)
+			// use `MonoSystemMonoLoggerApplication::m_system` throughout the example instead!
 
 			// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
 			smart_refctd_ptr<nbl::video::CVulkanConnection> api;
@@ -44,7 +41,7 @@ class HelloComputeApp : public IApplicationFramework
 				// want to make sure we have this so we can name resources for vieweing in RenderDoc captures
 				apiFeaturesToEnable.debugUtils = true;
 				// create our Vulkan instance
-				if (!(api=CVulkanConnection::create(smart_refctd_ptr(system),0,_NBL_APP_NAME_,smart_refctd_ptr(logger),apiFeaturesToEnable)))
+				if (!(api=CVulkanConnection::create(smart_refctd_ptr(m_system),0,_NBL_APP_NAME_,smart_refctd_ptr(base_t::m_logger),apiFeaturesToEnable)))
 				{
 					logFail("Failed to crate an IAPIConnection!");
 					return false;
@@ -103,7 +100,7 @@ class HelloComputeApp : public IApplicationFramework
 			{
 				// Normally we'd use the ISystem and the IAssetManager to load shaders flexibly from (virtual) files for ease of development (syntax highlighting and Intellisense),
 				// but I want to show the full process of assembling a shader from raw source code at least once.
-				smart_refctd_ptr<nbl::asset::IShaderCompiler> compiler = make_smart_refctd_ptr<nbl::asset::CHLSLCompiler>(smart_refctd_ptr(system));
+				smart_refctd_ptr<nbl::asset::IShaderCompiler> compiler = make_smart_refctd_ptr<nbl::asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 
 				// A simple shader that writes out the Global Invocation Index to the position it corresponds to in the buffer
 				// Note the injection of a define from C++ to keep the workgroup size in sync.
@@ -128,7 +125,7 @@ class HelloComputeApp : public IApplicationFramework
 					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NON_SEMANTIC_BIT;
 				// if you don't set the logger and source identifier you'll have no meaningful errors
 				options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
-				options.preprocessorOptions.logger = logger.get();
+				options.preprocessorOptions.logger = m_logger.get();
 				cpuShader = compiler->compileToSPIRV(source.c_str(), options);
 
 				if (!cpuShader)
@@ -326,9 +323,6 @@ class HelloComputeApp : public IApplicationFramework
 
 		// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
 		bool keepRunning() override {return false;}
-
-		// normally you'd deinitialize everything here but this is a single shot application
-		bool onAppTerminated() override {return true;}
 
 };
 

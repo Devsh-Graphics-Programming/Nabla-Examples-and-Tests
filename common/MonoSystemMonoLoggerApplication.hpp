@@ -1,0 +1,59 @@
+// Copyright (C) 2023-2023 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+#ifndef _NBL_EXAMPLES_COMMON_MONO_SYSTEM_MONO_LOGGER_APPLICATION_HPP_INCLUDED_
+#define _NBL_EXAMPLES_COMMON_MONO_SYSTEM_MONO_LOGGER_APPLICATION_HPP_INCLUDED_
+
+// always include nabla first
+#include "nabla.h"
+
+// TODO: get these all included by the appropriate namespace headers!
+#include "nbl/system/CColoredStdoutLoggerANSI.h"
+#include "nbl/system/IApplicationFramework.h"
+
+namespace nbl::examples
+{
+
+// Virtual Inheritance because apps might end up doing diamond inheritance
+class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFramework
+{
+		using base_t = system::IApplicationFramework;
+
+	public:
+		using base_t::base_t;
+
+		inline bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
+		{
+			// This is a weird pattern, basically on some platforms all file & system operations need to go through a "God Object" only handed to you in some plaform specific way
+			// On "normal" platforms like win32 and Linux we can just create system objects at will and there's no special state we need to find.
+			if (system)
+				m_system = std::move(system);
+			else
+				m_system = system::IApplicationFramework::createSystem();
+
+			// create a logger with default logging level masks
+			m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>();
+			m_logger->log("Logger Created!",system::ILogger::ELL_INFO);
+			return true;
+		}
+
+		inline bool onAppTerminated() override
+		{
+			m_logger->log("Example Terminated Successfully!",system::ILogger::ELL_INFO);
+			return true;
+		}
+
+	protected:
+		template<typename... Args>
+		inline void logFail(const char* msg, Args&&... args)
+		{
+			m_logger->log(msg,system::ILogger::ELL_ERROR,std::forward<Args>(args)...);
+		}
+
+		core::smart_refctd_ptr<system::ISystem> m_system;
+		core::smart_refctd_ptr<system::ILogger> m_logger;
+};
+
+}
+
+#endif // _CAMERA_IMPL_
