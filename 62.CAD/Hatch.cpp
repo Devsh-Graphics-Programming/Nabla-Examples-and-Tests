@@ -101,46 +101,59 @@ polynomial<complex<T>> deflatePolynomial(polynomial<complex<T>> poly, complex<T>
 	return poly / polynomial<complex<T>>(divisionPoly.data(), 1);
 }
 
+// https://stackoverflow.com/a/12683219
+template<size_t Order, typename T>
+class SolvePolynomialRoots
+{
+public:
+	static std::array<complex<T>, Order> solveRoots(polynomial<complex<T>> p)
+	{
+		std::array<complex<T>, Order> roots = {};
+		polynomial <complex<T>> poly = p;
+
+		// Values of 0 may reduce the order of the polynomial, so we always check before performing
+		// solveLaguerreRoot for that order
+		if (p.size() == Order + 1)
+		{
+			roots[0] = solveLaguerreRoot<T, Order>(p, LaguerreInitialGuess);
+			// If a root has been found, the corresponding linear factor can be removed from p.
+			// This deflation step reduces the degree of the polynomial by one, so that eventually,
+			// approximations for all roots of p can be found.Note however that deflation can lead 
+			// to approximate factors that differ significantly from the corresponding exact factors.
+			// This error is least if the roots are found in the order of increasing magnitude.
+			poly = deflatePolynomial<T>(poly, roots[0]);
+		}
+
+		auto otherRoots = SolvePolynomialRoots<Order - 1, T>::solveRoots(poly);
+		std::copy(otherRoots.begin(), otherRoots.end(), roots.begin() + 1);
+		return roots;
+	}
+};
+
+template<typename T>
+class SolvePolynomialRoots<1, T>
+{
+public:
+	static std::array<complex<T>, 1> solveRoots(polynomial<complex<T>> p)
+	{
+		if (p.size() == 2)
+			return { solveLaguerreRoot<T, 1>(p, LaguerreInitialGuess) };
+		return { complex<T>(core::nan<double>()) };
+	}
+};
+
 template<typename T>
 std::array<complex<T>, 4> solveQuarticRootsLaguerre(std::array<T, 5> p)
 {
 	std::array<complex<T>, 5> polynomialValues = {
 		complex<T>(p[0]),complex<T>(p[1]),complex<T>(p[2]),complex<T>(p[3]),complex<T>(p[4])
 	};
-	polynomial <complex<T>> poly(polynomialValues.data(), 4);
-	std::array<complex<T>, 4> roots = { complex<T>(-1), complex<T>(-1), complex<T>(-1), complex<T>(-1) };
-
-	// If a root has been found, the corresponding linear factor can be removed from p.
-	// This deflation step reduces the degree of the polynomial by one, so that eventually,
-	// approximations for all roots of p can be found.Note however that deflation can lead 
-	// to approximate factors that differ significantly from the corresponding exact factors.
-	// This error is least if the roots are found in the order of increasing magnitude.
-	//
-	// Values of 0 may reduce the order of the array, so we always check before performing
-	// solveLaguerreRoot for that order
-	// TODO: Maybe do this with template fuckery instead?
-	if (poly.size() == 5)
-	{
-		roots[0] = solveLaguerreRoot<T, 4>(poly, LaguerreInitialGuess);
-		poly = deflatePolynomial<T>(poly, roots[0]);
-	}
-	if (poly.size() == 4)
-	{
-		roots[1] = solveLaguerreRoot<T, 3>(poly, LaguerreInitialGuess);
-		poly = deflatePolynomial<T>(poly, roots[1]);
-	}
-	if (poly.size() == 3)
-	{
-		roots[2] = solveLaguerreRoot<T, 2>(poly, LaguerreInitialGuess);
-		poly = deflatePolynomial<T>(poly, roots[2]);
-	}
-	if (poly.size() == 2)
-		roots[3] = solveLaguerreRoot<T, 1>(poly, LaguerreInitialGuess);
+	std::array<complex<T>, 4> roots = SolvePolynomialRoots<4, T>::solveRoots(polynomial <complex<T>>(polynomialValues.data(), 4));
 
 	// Improve initial guess (polish numerical error)
 	// TODO: use Halley for this?
 	// TODO: find better way of checking for the size
-	poly = polynomial <complex<T>>(polynomialValues.data(), 4);
+	polynomial<complex<T>> poly(polynomialValues.data(), 4);
 	if (poly.size() == 5)
 	{
 		for (uint32_t i = 0; i < roots.size(); i++)
