@@ -1646,7 +1646,7 @@ const nbl::system::path& _sharedOutputCWD) : NonGraphicalApplicationBase(app, en
 #define NBL_COMMON_API_MAIN(android_app_class) NBL_ANDROID_MAIN_FUNC(android_app_class, CommonAPI::CommonAPIEventCallback)
 #else
 using ApplicationBase = GraphicalApplication;
-class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework, public nbl::core::IReferenceCounted
+class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework
 {
 public:
 	using Base = nbl::system::IApplicationFramework;

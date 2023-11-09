@@ -95,15 +95,7 @@ public:
 	bool m_gotWindowClosedMsg = false;
 };
 
-static core::smart_refctd_ptr<system::ISystem> createSystem()
-{
-#ifdef _NBL_PLATFORM_WINDOWS_
-	return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemWin32>();
-#endif
-	return nullptr;
-}
-
-class HelloWorldSampleApp : public system::IApplicationFramework, public ui::IGraphicalApplicationFramework, public core::IReferenceCounted
+class HelloWorldSampleApp : public system::IApplicationFramework, public ui::IGraphicalApplicationFramework
 {
 	constexpr static uint32_t WIN_W = 800u;
 	constexpr static uint32_t WIN_H = 600u;
@@ -182,12 +174,6 @@ public:
 	{
 		return nbl::asset::EF_D32_SFLOAT;
 	}
-
-	HelloWorldSampleApp(
-		const std::filesystem::path& _localInputCWD,
-		const std::filesystem::path& _localOutputCWD,
-		const std::filesystem::path& _sharedInputCWD,
-		const std::filesystem::path& _sharedOutputCWD) : system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	void onAppInitialized_impl() override
 	{
@@ -543,32 +529,5 @@ public:
 	}
 };
 
-int main(int argc, char** argv)
-{
-#ifndef _NBL_PLATFORM_ANDROID_
-	system::path CWD = system::path(argv[0]).parent_path().generic_string() + "/";
-	nbl::system::path sharedInputCWD = CWD / "../../media/";
-	nbl::system::path sharedOutputCWD = CWD / "../../tmp/";;
-	nbl::system::path localInputCWD = CWD / "../";
-	nbl::system::path localOutputCWD = CWD;
-
-	auto app = nbl::core::template make_smart_refctd_ptr<HelloWorldSampleApp>(
-		localInputCWD,
-		localOutputCWD,
-		sharedInputCWD,
-		sharedOutputCWD);
-
-	for (size_t i = 0; i < argc; ++i)
-		app->argv.push_back(std::string(argv[i]));
-
-	app->onAppInitialized();
-	while (app->keepRunning())
-	{
-		app->workLoopBody();
-	}
-	app->onAppTerminated();
-#endif
-
-	return 0;
-}
+NBL_MAIN_FUNC(HelloWorldSampleApp)
 
