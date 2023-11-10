@@ -24,8 +24,9 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 		using device_base_t = examples::MonoDeviceApplication;
 		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 	public:
-		// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
-		using device_base_t::device_base_t;
+		// Yay thanks to multiple inheritance we cannot forward ctors anymore
+		DeviceSelectionAndSharedSourcesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+			system::IApplicationFramework(_localInputCWD,_localOutputCWD,_sharedInputCWD,_sharedOutputCWD) {}
 
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -47,31 +48,46 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 
 			// It would be super weird if loading a shader from a file produced more than 1 asset
 			assert(assets.size()==1);
+			smart_refctd_ptr<ICPUSpecializedShader> source = IAsset::castDown<ICPUSpecializedShader>(assets[0]);
 
 			// Now is the time to introduce the SPIR-V introspector which will let you "guess" Layouts and Pipelines Creation Parameters!
-			smart_refctd_ptr<nbl::asset::CSPIRVIntrospector> introspector = make_smart_refctd_ptr<CSPIRVIntrospector>();
+			auto introspector = std::make_unique<CSPIRVIntrospector>();
 
-			//
-			const CSPIRVIntrospector::SIntrospectionParams inspctParams = {.entryPoint="main",.cpuShader=IAsset::castDown<ICPUShader>(assets[0])};
-			smart_refctd_ptr<CSPIRVIntrospector::CIntrospectionData> introspection = introspector->introspect(inspctParams);
-
-			// By the way, ILogicalDriver can be fed HLSL shaders too! (It will just compile them by itself under the hood)
-			// The nice thing is that when you load a shader from file, it has a correctly set `filePathHint`
-			// so it plays nicely with the preprocessor, and finds `#include`s without intervention.
-			auto shader = m_device->createShader(std::move(inspctParams.cpuShader));
-			if (!shader)
+			smart_refctd_ptr<const CSPIRVIntrospector::CIntrospectionData> introspection;
 			{
-				logFail("Failed to create a GPU Shader, probably failed compilation!\n");
-				return false;
+				// Unfortunately introspection only works on SPIR-V so we still have to compile the shader by hand
+				// This time we use a more "generic" option struct which works with all compilers
+				nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+				// The Shader Asset Loaders deduce the stage from the file extension,
+				// if the extension is generic (.glsl or .hlsl) the stage is unknown.
+				// But it can still be overriden from within the source with a `#pragma shader_stage`
+				options.stage = source->getUnspecialized()->getStage();
+				options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+				// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
+				options.spirvOptimizer = nullptr;
+				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+				// The nice thing is that when you load a shader from file, it has a correctly set `filePathHint`
+				// so it plays nicely with the preprocessor, and finds `#include`s without intervention.
+				options.preprocessorOptions.sourceIdentifier = source->getUnspecialized()->getFilepathHint();
+				options.preprocessorOptions.logger = m_logger.get();
+
+				// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
+				const CSPIRVIntrospector::SIntrospectionParams inspctParams = {
+					.entryPoint=source->getSpecializationInfo().entryPoint,
+					.cpuShader=m_assetMgr->getCompilerSet()->compileToSPIRV(source->getUnspecialized(),options)
+				};
+
+				introspection = introspector->introspect(inspctParams);
+				if (!introspection)
+					return logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
 			}
 
 			// Just a check that out specialization info will match
 			if (!introspection->canSpecializationlesslyCreateDescSetFrom())
 				return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
-			smart_refctd_ptr<nbl::asset::ICPUSpecializedShader> specializedShader = make_smart_refctd_ptr<ICPUSpecializedShader>(ISpecializedShader::SInfo{nullptr,nullptr,inspctParams.entryPoint});
 
 			// We've now skipped the manual creation of a descriptor set layout, pipeline layout
-			smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(specializedShader.get());
+			smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(source.get());
 
 			// And now I show you how to save 100 lines of code to create all objects between a Compute Pipeline and a Shader
 			smart_refctd_ptr<IGPUComputePipeline> pipeline;
@@ -79,7 +95,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				// This is the main workhorse of our asset system, it automates the creation of matching IGPU objects for ICPU object while
 				// making sure that if two ICPU objects reference the same dependency, that structure carries over to their associated IGPU objects.
 				// We're working on a new improved Hash Tree based system which will catch identically defined ICPU objects even if their pointers differ.
-				smart_refctd_ptr<nbl::video::IGPUObjectFromAssetConverter> assetConverter = make_smart_refctd_ptr<IGPUObjectFromAssetConverter>();
+				auto assetConverter = std::make_unique<IGPUObjectFromAssetConverter>();
 
 				// Thankfully because we're not doing any conversions on Memory Backed objects we don't need to set up the queue parameters
 				IGPUObjectFromAssetConverter::SParams conversionParams = {};
@@ -101,7 +117,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				// Why doesn't the Asset simply get deleted?
 				// We need a stable key (the old pointer) and ability to compare for them for true equality, so that our CPU->GPU hash map prevents the creation of duplicate GPU objects.
 				// Also this allows us to retain some information in-case we need to "restore" a dummy by reloading it, for example when one wishes to create a derivative map from a heightmap.
-				assert(inspctParams.cpuShader->getContent()->getPointer() == nullptr);
+				assert(source->getUnspecialized()->getContent()->getPointer() == nullptr);
 
 				pipeline = convertedGPUObjects->front();
 			}
@@ -126,7 +142,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 						// so associated GPU Object must have been found
 						assert(found);
 						//
-						dsLayouts[i] = nbl::core::move_and_static_cast<IGPUDescriptorSetLayout>(found);
+						dsLayouts[i] = nbl::core::move_and_dynamic_cast<IGPUDescriptorSetLayout>(found);
 					}
 				}
 				// The signature is `T* const& smart_refctd_ptr<T>::get()` which makes it possible to neatly
@@ -208,17 +224,42 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 					return logFail("Failed to write Descriptor Sets");
 			}
 
-#if 0
-			// To be able to read the contents of the buffer we need to map its memory
-			// P.S. Nabla mandates Persistent Memory Mappings on all backends (but not coherent memory types)
-			const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(allocation.memory.get(),0ull,allocation.memory->getAllocationSize());
-			auto ptr = m_device->mapMemory(memoryRange,IDeviceMemoryAllocation::EMCAF_READ);
-			if (!ptr)
+			// Make a utility since we have to touch 3 buffers
+			auto mapBuffer = [&]<typename PtrT>(const PtrT& buff, bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> accessHint) -> uint32_t*
 			{
-				logFail("Failed to map the Device Memory!\n");
-				return false;
+				auto* const memory = outputBuff->getBoundMemory();
+				const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(memory,0ull,memory->getAllocationSize());
+
+				void* ptr = m_device->mapMemory(memoryRange,accessHint);
+				if (!ptr)
+					m_logger->log("Failed to map the whole Memory Allocation of a GPU Buffer %p for access %d!\n",ILogger::ELL_ERROR,buff,accessHint);
+				
+				if (accessHint.hasFlags(IDeviceMemoryAllocation::EMCAF_READ))
+				if (!memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+					m_device->invalidateMappedMemoryRanges(1,&memoryRange);
+
+				return reinterpret_cast<uint32_t*>(ptr);
+			};
+			
+			// We'll fill the buffers in a way they always add up to WorkgrouCount*WorkgroupSize
+			constexpr auto DWORDCount = WorkgroupSize*WorkgroupCount;
+			{
+				constexpr auto writeFlag = IDeviceMemoryAllocation::EMCAF_WRITE;
+				uint32_t* const inputs[2] = {mapBuffer(inputBuff[0],writeFlag),mapBuffer(inputBuff[1],writeFlag)};
+				for (auto i=0; i<DWORDCount; i++)
+				{
+					inputs[0][i] = i;
+					inputs[1][i] = DWORDCount - i;
+				}
+				for (auto j=0; j<2; j++)
+				{
+					auto* const memory = inputBuff[j]->getBoundMemory();
+					// New thing to learn, if the mapping is not coherent and you write it, you need to flush!
+					const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(memory,0ull,memory->getAllocationSize());
+					m_device->flushMappedMemoryRanges(1,&memoryRange);
+					m_device->unmapMemory(memory);
+				}
 			}
-#endif
 
 			// create, record, submit and await commandbuffers
 			{
@@ -235,8 +276,8 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				
 					cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 					cmdbuf->bindComputePipeline(pipeline.get());
-					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
-					cmdbuf->dispatch(WorkgroupCount, 1, 1);
+					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE,pipeline->getLayout(),0,MaxDescriptorSets,&ds->get());
+					cmdbuf->dispatch(WorkgroupCount,1,1);
 					cmdbuf->end();
 				}
 
@@ -255,21 +296,13 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				m_device->blockForFences(1,&done.get());
 			}
 
-			// if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
-			if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-				m_device->invalidateMappedMemoryRanges(1,&memoryRange);
-
-#if 0
 			// a simple test to check we got the right thing back
-			auto buffData = reinterpret_cast<const uint32_t*>(ptr);
+			auto outputData = mapBuffer(outputBuff,IDeviceMemoryAllocation::EMCAF_READ);
 			for (auto i=0; i<WorkgroupSize*WorkgroupCount; i++)
-			if (buffData[i]!=i)
-			{
-				logFail("DWORD at position %d doesn't match!\n",i);
-				return false;
-			}
-			m_device->unmapMemory(allocation.memory.get());
-#endif
+			if (outputData[i]!=i)
+				return logFail("DWORD at position %d doesn't match!\n",i);
+			m_device->unmapMemory(outputBuff->getBoundMemory());
+
 			return true;
 		}
 
@@ -282,4 +315,4 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 };
 
 
-NBL_MAIN_FUNC(HelloComputeApp)
+NBL_MAIN_FUNC(DeviceSelectionAndSharedSourcesApp)

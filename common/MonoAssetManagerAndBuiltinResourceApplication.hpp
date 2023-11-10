@@ -6,6 +6,9 @@
 
 // we need a system and a logger
 #include "../common/MonoSystemMonoLoggerApplication.hpp"
+#ifdef NBL_EMBED_BUILTIN_RESOURCES
+#include "nbl/this_example/builtin/CArchive.h"
+#endif
 
 namespace nbl::examples
 {
@@ -19,6 +22,9 @@ class MonoAssetManagerAndBuiltinResourceApplication : public virtual MonoSystemM
 		using base_t::base_t;
 
 	protected:
+		// need this one for skipping passing all args into ApplicationFramework
+		MonoAssetManagerAndBuiltinResourceApplication() = default;
+
 		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			if (!base_t::onAppInitialized(std::move(system)))
@@ -28,16 +34,15 @@ class MonoAssetManagerAndBuiltinResourceApplication : public virtual MonoSystemM
 			m_assetMgr = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
 
 		#ifdef NBL_EMBED_BUILTIN_RESOURCES
-			system->mount(make_smart_refctd_ptr<nbl::this_example::CArchive>(smart_refctd_ptr(m_logger)),"app_resources");
+			m_system->mount(make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger)),"app_resources");
 		#else
-			system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get()));
+			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get()));
 		#endif
 
 			return true;
 		}
 
 		core::smart_refctd_ptr<asset::IAssetManager> m_assetMgr;
-		smart_refctd_ptr<nbl::video::IGPUObjectFromAssetConverter> assetConverter;
 };
 
 }

@@ -19,6 +19,9 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		using base_t::base_t;
 
 	protected:
+		// need this one for skipping passing all args into ApplicationFramework
+		MonoDeviceApplication() = default;
+
 		// This time we build upon the Mono-System and Mono-Logger application and add the choice of a single physical device and creation of utilities
 		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
@@ -260,6 +263,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			using namespace video;
 			core::vector<ILogicalDevice::SQueueCreationParams> retval(1);
 
+			retval[0].count = 1;
 			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
 			for (auto i=0u; i<familyProperties.size(); i++)
 			if (familyProperties[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))

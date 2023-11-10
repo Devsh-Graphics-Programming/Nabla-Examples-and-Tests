@@ -29,6 +29,9 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 		}
 
 	protected:
+		// need this one for skipping passing all args into ApplicationFramework
+		MonoSystemMonoLoggerApplication() = default;
+
 		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			// protect against double initialization call (diamond inheritance)
