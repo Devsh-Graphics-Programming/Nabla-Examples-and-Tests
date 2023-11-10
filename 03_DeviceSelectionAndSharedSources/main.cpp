@@ -200,17 +200,16 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 							m_logger->log("Unexpected Type of (in set %d) Descriptor Binding %d (count %d) detected by SPIR-V Reflection!",ILogger::ELL_ERROR,i,binding.binding,binding.descriptorCount);
 							continue;
 						}
-						const nbl::asset::SShaderResource<ESRT_STORAGE_BUFFER>& memoryBlock = binding.get<E_SHADER_RESOURCE_TYPE::ESRT_STORAGE_BUFFER>();
 						// This is why I'm not a fan of connecting stuff up based on reflection, because you need to know what to expect anyway (e.g. name string).
 						// I prefer to keep Host and Device code in-sync w.r.t. Descriptor Binding mapping by using a shared HLSL header with NBL_CONSTEXPR
 						const smart_refctd_ptr<IGPUBuffer>* buffers = nullptr;
-						if (memoryBlock.name=="inputs")
+						if (binding.name=="inputs")
 							buffers = inputBuff;
-						else if (memoryBlock.name=="output")
+						else if (binding.name=="output")
 							buffers = &outputBuff;
 						else
 						{
-							m_logger->log("Unexpected Named of Descriptor %s in Set %d, Binding %d detected by SPIR-V Reflection!",ILogger::ELL_ERROR,memoryBlock.name.c_str(),i,binding.binding,binding.descriptorCount);
+							m_logger->log("Unexpected Named of Descriptor %s in Set %d, Binding %d detected by SPIR-V Reflection!",ILogger::ELL_ERROR,binding.name.c_str(),i,binding.binding,binding.descriptorCount);
 							continue;
 						}
 						// Introspection of SPIR-V cannot tell you whether an UBO or SSBO is a DYNAMIC OFFSET kind or not,
@@ -226,6 +225,9 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 						}
 					}
 				}
+				// fix up the info pointers
+				for (auto& write : writes)
+					write.info = infos.data()+ptrdiff_t(write.info);
 				if (!m_device->updateDescriptorSets(writes.size(),writes.data(),0u,nullptr))
 					return logFail("Failed to write Descriptor Sets");
 			}
@@ -233,7 +235,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 			// Make a utility since we have to touch 3 buffers
 			auto mapBuffer = [&]<typename PtrT>(const PtrT& buff, bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> accessHint) -> uint32_t*
 			{
-				auto* const memory = outputBuff->getBoundMemory();
+				auto* const memory = buff->getBoundMemory();
 				const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(memory,0ull,memory->getAllocationSize());
 
 				void* ptr = m_device->mapMemory(memoryRange,accessHint);
