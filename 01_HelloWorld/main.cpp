@@ -127,6 +127,8 @@ class HelloWorldSampleApp : public system::IApplicationFramework, public ui::IGr
 	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf[FRAMES_IN_FLIGHT] = { nullptr };
 
 public:
+	using IApplicationFramework::IApplicationFramework;
+
 	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
 	{
 		window = std::move(wnd);

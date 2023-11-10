@@ -22,6 +22,13 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 	public:
 		using base_t::base_t;
 
+		inline bool onAppTerminated() override
+		{
+			m_logger->log("Example Terminated Successfully!",system::ILogger::ELL_INFO);
+			return true;
+		}
+
+	protected:
 		inline bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			// This is a weird pattern, basically on some platforms all file & system operations need to go through a "God Object" only handed to you in some plaform specific way
@@ -32,22 +39,23 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 				m_system = system::IApplicationFramework::createSystem();
 
 			// create a logger with default logging level masks
-			m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>();
+			m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(getLogLevelMask());
 			m_logger->log("Logger Created!",system::ILogger::ELL_INFO);
 			return true;
 		}
 
-		inline bool onAppTerminated() override
+		// some examples may need to override this because they're Headless (no window output)
+		virtual core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask()
 		{
-			m_logger->log("Example Terminated Successfully!",system::ILogger::ELL_INFO);
-			return true;
+			return system::ILogger::DefaultLogMask();
 		}
 
-	protected:
+		// made it return false so we can save some lines writing `if (failCond) {logFail(); return false;}`
 		template<typename... Args>
-		inline void logFail(const char* msg, Args&&... args)
+		inline bool logFail(const char* msg, Args&&... args)
 		{
 			m_logger->log(msg,system::ILogger::ELL_ERROR,std::forward<Args>(args)...);
+			return false;
 		}
 
 		core::smart_refctd_ptr<system::ISystem> m_system;
