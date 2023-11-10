@@ -1,5 +1,5 @@
 // intentionally making my live difficult here, to showcase the power of reflection
-[[vk::binding(2,3)]] ByteAddressBuffer inputs[2];
+[[vk::binding(2,1)]] ByteAddressBuffer inputs[2];
 [[vk::binding(6,3)]] RWByteAddressBuffer output;
 
 [numthreads(WorkgroupSize, 1, 1)]

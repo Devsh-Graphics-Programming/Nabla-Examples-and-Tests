@@ -37,6 +37,7 @@ class MonoAssetManagerAndBuiltinResourceApplication : public virtual MonoSystemM
 		}
 
 		core::smart_refctd_ptr<asset::IAssetManager> m_assetMgr;
+		smart_refctd_ptr<nbl::video::IGPUObjectFromAssetConverter> assetConverter;
 };
 
 }
