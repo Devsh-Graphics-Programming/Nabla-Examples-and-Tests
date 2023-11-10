@@ -42,10 +42,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				apiFeaturesToEnable.debugUtils = true;
 				// create our Vulkan instance
 				if (!(api=CVulkanConnection::create(smart_refctd_ptr(m_system),0,_NBL_APP_NAME_,smart_refctd_ptr(base_t::m_logger),apiFeaturesToEnable)))
-				{
-					logFail("Failed to crate an IAPIConnection!");
-					return false;
-				}
+					return logFail("Failed to crate an IAPIConnection!");
 			}
 
 			// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
@@ -67,10 +64,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				}
 			}
 			if (!physDev)
-			{
-				logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
-				return false;
-			}
+				return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
 
 			// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
 			smart_refctd_ptr<ILogicalDevice> device;
@@ -82,10 +76,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				params.queueParamsCount = 1;
 				params.queueParams = &queueParams;
 				if (!(device=physDev->createLogicalDevice(std::move(params))))
-				{
-					logFail("Failed to create a Logical Device!");
-					return false;
-				}
+					return logFail("Failed to create a Logical Device!");
 			}
 
 			constexpr uint32_t WorkgroupSize = 256;
@@ -126,22 +117,14 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				// if you don't set the logger and source identifier you'll have no meaningful errors
 				options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
 				options.preprocessorOptions.logger = m_logger.get();
-				cpuShader = compiler->compileToSPIRV(source.c_str(), options);
-
-				if (!cpuShader)
-				{
-					logFail("Failed to compile following HLSL Shader:\n%s\n",source);
-					return false;
-				}
+				if (!(cpuShader=compiler->compileToSPIRV(source.c_str(),options)))
+					return logFail("Failed to compile following HLSL Shader:\n%s\n",source);
 			}
 
 			// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
 			smart_refctd_ptr<nbl::video::IGPUShader> shader = device->createShader(std::move(cpuShader));
 			if (!shader)
-			{
-				logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
-				return false;
-			}
+				return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
 			// we'll cover the specialization constant API in another example
 			const nbl::asset::ISpecializedShader::SInfo info(nullptr,nullptr,"main");
@@ -161,18 +144,12 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			};
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = device->createDescriptorSetLayout(bindings,bindings+1);
 			if (!dsLayout)
-			{
-				logFail("Failed to create a Descriptor Layout!\n");
-				return false;
-			}
+				return logFail("Failed to create a Descriptor Layout!\n");
 
 			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
 			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout(nullptr,nullptr,smart_refctd_ptr(dsLayout));
 			if (!pplnLayout)
-			{
-				logFail("Failed to create a Pipeline Layout!\n");
-				return false;
-			}
+				return logFail("Failed to create a Pipeline Layout!\n");
 
 			// we use strong typing on the pipelines, since there's no reason to polymorphically switch between different pipelines
 			smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline = device->createComputePipeline(nullptr,smart_refctd_ptr(pplnLayout),std::move(specShader));
@@ -196,10 +173,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 				smart_refctd_ptr<IGPUBuffer> outputBuff = device->createBuffer(std::move(params));
 				if (!outputBuff)
-				{
-					logFail("Failed to create a GPU Buffer of size %d!\n",params.size);
-					return false;
-				}
+					return logFail("Failed to create a GPU Buffer of size %d!\n",params.size);
 
 				// Naming objects is cool because not only errors (such as Vulkan Validation Layers) will show their names, but RenderDoc captures too.
 				outputBuff->setObjectDebugName("My Output Buffer");
@@ -216,10 +190,8 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				// the default is from lowest index to highest, but skipping over incompatible types.
 				allocation = device->allocate(reqs,outputBuff.get(),nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
 				if (!allocation.isValid())
-				{
-					logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
-					return false;
-				}
+					return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
 				// Note that we performed a Dedicated Allocation above, so there's no need to bind the memory anymore (since the allocator knows the dedication, it can already bind).
 				// This is a carryover from having an OpenGL backend, where you couldn't have a memory allocation separate from the resource, so all allocations had to be "dedicated".
 				// In Vulkan dedicated allocations are the most performant and still make sense as long as you won't blow the 4096 allocation limit on windows.
@@ -248,20 +220,14 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(allocation.memory.get(),0ull,allocation.memory->getAllocationSize());
 			auto ptr = device->mapMemory(memoryRange,IDeviceMemoryAllocation::EMCAF_READ);
 			if (!ptr)
-			{
-				logFail("Failed to map the Device Memory!\n");
-				return false;
-			}
+				return logFail("Failed to map the Device Memory!\n");
 
 			// Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
 			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 			{
 				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(queueParams.familyIndex,IGPUCommandPool::ECF_TRANSIENT_BIT);
 				if (!device->createCommandBuffers(cmdpool.get(),IGPUCommandBuffer::EL_PRIMARY,1u,&cmdbuf))
-				{
-					logFail("Failed to create Command Buffers!\n");
-					return false;
-				}
+					return logFail("Failed to create Command Buffers!\n");
 			}
 
 			cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
@@ -309,10 +275,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			auto buffData = reinterpret_cast<const uint32_t*>(ptr);
 			for (auto i=0; i<WorkgroupSize*WorkgroupCount; i++)
 			if (buffData[i]!=i)
-			{
-				logFail("DWORD at position %d doesn't match!\n",i);
-				return false;
-			}
+				return logFail("DWORD at position %d doesn't match!\n",i);
 			device->unmapMemory(allocation.memory.get());
 
 			return true;

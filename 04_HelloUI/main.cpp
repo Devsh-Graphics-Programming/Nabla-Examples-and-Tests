@@ -30,12 +30,17 @@ class HelloUIApp final : public examples::MonoSystemMonoLoggerApplication
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override;
 
 		// This time we'll consume input events in the loop
-		inline void workLoopBody() override;
+		void workLoopBody() override;
 
 		// Keep invoking the above as long as all windows are open or we haven't exceeded the timeout
 		bool keepRunning() override;
 
 	protected:
+		inline core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() override
+		{
+			return system::ILogger::E_LOG_LEVEL::ELL_ALL;
+		}
+
 		WindowEventDemoCallback* getWindowCallback(const uint32_t id);
 
 		smart_refctd_ptr<nbl::ui::IWindow> windows[WindowCount];
@@ -142,76 +147,76 @@ class WindowEventDemoCallback : public nbl::ui::IWindow::IEventCallback
 		// for now lets say they all need to return true if they return bool
 		bool onWindowShown_impl() override 
 		{
-			m_logger.log("Window Shown");
+			m_logger.log("Window Shown", ILogger::ELL_INFO);
 			return true;
 		}
 		bool onWindowHidden_impl() override
 		{
-			m_logger.log("Window hidden");
+			m_logger.log("Window hidden", ILogger::ELL_INFO);
 			return true;
 		}
 		// Using `ILogger::ELL_PERFORMANCE` because it always prints in all configs (doesn't get filtered out).
 		bool onWindowMoved_impl(int32_t x, int32_t y) override
 		{
-			m_logger.log("Window window moved to { %d, %d }", ILogger::ELL_PERFORMANCE, x, y);
+			m_logger.log("Window window moved to { %d, %d }", ILogger::ELL_DEBUG, x, y);
 			return true;
 		}
 		bool onWindowResized_impl(uint32_t w, uint32_t h) override
 		{
-			m_logger.log("Window resized to { %u, %u }", ILogger::ELL_PERFORMANCE, w, h);
+			m_logger.log("Window resized to { %u, %u }", ILogger::ELL_DEBUG, w, h);
 			return true;
 		}
 		bool onWindowMinimized_impl() override
 		{
-			m_logger.log("Window minimized", ILogger::ELL_PERFORMANCE);
+			m_logger.log("Window minimized", ILogger::ELL_INFO);
 			return true;
 		}
 		bool onWindowMaximized_impl() override
 		{
-			m_logger.log("Window maximized", ILogger::ELL_PERFORMANCE);
+			m_logger.log("Window maximized", ILogger::ELL_INFO);
 			return true;
 		}
 		void onGainedMouseFocus_impl() override
 		{
-			m_logger.log("Window gained mouse focus", ILogger::ELL_PERFORMANCE);
+			m_logger.log("Window gained mouse focus", ILogger::ELL_INFO);
 		}
 		void onLostMouseFocus_impl() override
 		{
-			m_logger.log("Window lost mouse focus", ILogger::ELL_PERFORMANCE);
+			m_logger.log("Window lost mouse focus", ILogger::ELL_INFO);
 		}
 		void onGainedKeyboardFocus_impl() override
 		{
-			m_logger.log("Window gained keyboard focus", ILogger::ELL_PERFORMANCE);
+			m_logger.log("Window gained keyboard focus", ILogger::ELL_INFO);
 		}
 		void onLostKeyboardFocus_impl() override
 		{
-			m_logger.log("Window lost keyboard focus", ILogger::ELL_PERFORMANCE);
+			m_logger.log("Window lost keyboard focus", ILogger::ELL_INFO);
 		}
 		bool onWindowClosed_impl() override
 		{
-			m_logger.log("Window closed");
+			m_logger.log("Window closed", ILogger::ELL_INFO);
 			m_gotWindowClosedMsg = true;
 			return true;
 		}
 		
 		void onMouseConnected_impl(smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
 		{
-			m_logger.log("A mouse %p has been connected", ILogger::ELL_WARNING, mch);
+			m_logger.log("A mouse %p has been connected", ILogger::ELL_INFO, mch);
 			m_mice.add(std::move(mch),m_logger.get().get());
 		}
 		void onMouseDisconnected_impl(IMouseEventChannel* mch) override
 		{
-			m_logger.log("A mouse %p has been disconnected", ILogger::ELL_ERROR, mch);
+			m_logger.log("A mouse %p has been disconnected", ILogger::ELL_INFO, mch);
 			m_mice.remove(mch);
 		}
 		void onKeyboardConnected_impl(smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
 		{
-			m_logger.log("A keyboard %p has been connected", ILogger::ELL_WARNING, kbch);
+			m_logger.log("A keyboard %p has been connected", ILogger::ELL_INFO, kbch);
 			m_keyboards.add(std::move(kbch),m_logger.get().get());
 		}
 		void onKeyboardDisconnected_impl(IKeyboardEventChannel* kbch) override
 		{
-			m_logger.log("A keyboard %p has been disconnected", ILogger::ELL_ERROR, kbch);
+			m_logger.log("A keyboard %p has been disconnected", ILogger::ELL_INFO, kbch);
 			m_keyboards.remove(kbch);
 		}
 
@@ -236,6 +241,7 @@ bool HelloUIApp::onAppInitialized(smart_refctd_ptr<ISystem>&& system)
 		return false;
 
 	// Help the CI a bit by providing a timeout option
+	// TODO: @Hazardu maybe we should make a unified argument parser/handler for all examples?
 	if (base_t::argv.size()>=3 && argv[1]=="-timeout_seconds")
 		timeout = std::chrono::seconds(std::atoi(argv[2].c_str()));
 

@@ -15,9 +15,12 @@ add_subdirectory(common EXCLUDE_FROM_ALL)
 add_subdirectory(01_HelloCoreSystemAsset EXCLUDE_FROM_ALL)
 # showcase the use of `system::IApplicationFramework` and `nbl::video`
 add_subdirectory(02_HelloCompute EXCLUDE_FROM_ALL)
-
-add_subdirectory(03_HelloUI EXCLUDE_FROM_ALL)
-# swapchain
+# showcase physical device selection, resource embedding and the use of identical headers in HLSL and C++
+add_subdirectory(03_DeviceSelectionAndSharedSources EXCLUDE_FROM_ALL)
+# showcase the creation of windows and polling for input
+add_subdirectory(04_HelloUI EXCLUDE_FROM_ALL)
+# showcase the creation of a swapchain and rendering into it
+#add_subdirectory(05_HelloSwapchain EXCLUDE_FROM_ALL)
 
 # Nabla framework examples
 add_subdirectory(01_HelloWorld EXCLUDE_FROM_ALL)

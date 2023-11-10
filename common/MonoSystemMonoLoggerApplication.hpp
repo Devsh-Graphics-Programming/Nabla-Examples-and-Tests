@@ -22,14 +22,14 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 	public:
 		using base_t::base_t;
 
-		inline bool onAppTerminated() override
+		virtual bool onAppTerminated() override
 		{
 			m_logger->log("Example Terminated Successfully!",system::ILogger::ELL_INFO);
 			return true;
 		}
 
 	protected:
-		inline bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
+		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			// This is a weird pattern, basically on some platforms all file & system operations need to go through a "God Object" only handed to you in some plaform specific way
 			// On "normal" platforms like win32 and Linux we can just create system objects at will and there's no special state we need to find.
@@ -47,6 +47,7 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 		// some examples may need to override this because they're Headless (no window output)
 		virtual core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask()
 		{
+			// @Hazardu probably need a commandline option to override
 			return system::ILogger::DefaultLogMask();
 		}
 
