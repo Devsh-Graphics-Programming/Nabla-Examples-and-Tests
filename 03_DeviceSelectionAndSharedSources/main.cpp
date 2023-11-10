@@ -5,6 +5,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "../common/MonoDeviceApplication.hpp"
+#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -13,20 +14,40 @@ using namespace asset;
 using namespace video;
 
 
-// this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
-class DeviceSelectionAndSharedSourcesApp final : public nbl::examples::MonoDeviceApplication
+// This is the most nuts thing you'll ever see, a header of HLSL included both in C++ and HLSL
+#include "app_resources/common.hlsl"
+
+
+// This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
+class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using base_t = examples::MonoDeviceApplication;
+		using device_base_t = examples::MonoDeviceApplication;
+		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 	public:
 		// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
-		using base_t::base_t;
+		using device_base_t::device_base_t;
 
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
-			if (!base_t::onAppInitialized(std::move(system)))
+			if (!device_base_t::onAppInitialized(std::move(system)))
 				return false;
+			if (!asset_base_t::onAppInitialized(std::move(system)))
+				return false;
+
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = ""; // virtual root
+			// this time we load a shader directly from a file
+			auto shaderBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
+			const auto shaders = shaderBundle.getContents();
+			if (shaders.empty())
+				return logFail("Could not load shader!");
+
+			// it would be super weird if loading a shader from a file produced more than 1 asset
+			assert(shaders.size()==1);
+			auto cpuShader = IAsset::castDown<ICPUShader>(shaders[0]);
 
 			// TODO: redo completely the rest of the sample
 

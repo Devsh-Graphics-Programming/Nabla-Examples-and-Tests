@@ -43,13 +43,14 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 
 			// we're very constrained by the physical device selection so there's nothing to override here
 			{
+				IPhysicalDevice* selectedDevice = selectPhysicalDevice(suitablePhysicalDevices);
+
 				ILogicalDevice::SCreationParams params = {};
 
-				const auto queueParams = getQueueCreationParameters();
+				const auto queueParams = getQueueCreationParameters(selectedDevice->getQueueFamilyProperties());
 				params.queueParamsCount = queueParams.size();
-				params.queueParams = queueParams.data();
+				std::copy_n(queueParams.begin(),params.queueParamsCount,params.queueParams.begin());
 				
-				IPhysicalDevice* selectedDevice = selectPhysicalDevice(suitablePhysicalDevices);
 				params.featuresToEnable = getRequiredDeviceFeatures(); // .union(getPreferredDeviceFeatures().intersect(selectedDevice->getFeatures()))
 				
 				m_device = selectedDevice->createLogicalDevice(std::move(params));
@@ -207,7 +208,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			
 			using flags_t = IPhysicalDevice::E_QUEUE_FLAGS;
 			// The Graphics Queue should be able to do Compute and image transfers of any granularity (transfer only queue families can have problems with that)
-			retval.push_back({.requiredFlags=flags_t::EQF_GRAPHICS_BIT|flags_t::EQF_COMPUTE_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
+			retval.push_back({.requiredFlags=flags_t::EQF_COMPUTE_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
 
 			return retval;
 		}
@@ -253,14 +254,16 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return nullptr;
 		}
 
-		// Queue choice is a bit complicated, for basic usage 1 graphics, 1 async compute, and 2 async transfer queues are enough.
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters()
+		// This will most certainly be overriden
+		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const core::SRange<const video::IPhysicalDevice::SQueueFamilyProperties>& familyProperties)
 		{
 			using namespace video;
-			core::vector<ILogicalDevice::SQueueCreationParams> retval;
+			core::vector<ILogicalDevice::SQueueCreationParams> retval(1);
 
-			// TODO: redo this
-			retval.push_back({.flags=IGPUQueue::ECF_NONE,.familyIndex=0,.count=1});
+			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
+			for (auto i=0u; i<familyProperties.size(); i++)
+			if (familyProperties[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
+				retval[0].familyIndex = i;
 
 			return retval;
 		}
