@@ -56,30 +56,36 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 			smart_refctd_ptr<const CSPIRVIntrospector::CIntrospectionData> introspection;
 			{
 				// Unfortunately introspection only works on SPIR-V so we still have to compile the shader by hand
+				const ICPUShader* unspecialized = source->getUnspecialized();
+
+				// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
+				auto* compilerSet = m_assetMgr->getCompilerSet();
+
 				// This time we use a more "generic" option struct which works with all compilers
 				nbl::asset::IShaderCompiler::SCompilerOptions options = {};
 				// The Shader Asset Loaders deduce the stage from the file extension,
 				// if the extension is generic (.glsl or .hlsl) the stage is unknown.
 				// But it can still be overriden from within the source with a `#pragma shader_stage`
-				options.stage = source->getUnspecialized()->getStage();
+				options.stage = unspecialized->getStage();
 				options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 				// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 				options.spirvOptimizer = nullptr;
 				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
 				// The nice thing is that when you load a shader from file, it has a correctly set `filePathHint`
 				// so it plays nicely with the preprocessor, and finds `#include`s without intervention.
-				options.preprocessorOptions.sourceIdentifier = source->getUnspecialized()->getFilepathHint();
+				options.preprocessorOptions.sourceIdentifier = unspecialized->getFilepathHint();
 				options.preprocessorOptions.logger = m_logger.get();
+				options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(unspecialized->getContentType())->getDefaultIncludeFinder();
 
-				// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
-				const CSPIRVIntrospector::SIntrospectionParams inspctParams = {
-					.entryPoint=source->getSpecializationInfo().entryPoint,
-					.cpuShader=m_assetMgr->getCompilerSet()->compileToSPIRV(source->getUnspecialized(),options)
-				};
+				auto spirvUnspecialized = compilerSet->compileToSPIRV(unspecialized,options);
+				const CSPIRVIntrospector::SIntrospectionParams inspctParams = {.entryPoint=source->getSpecializationInfo().entryPoint,.cpuShader=spirvUnspecialized};
 
 				introspection = introspector->introspect(inspctParams);
 				if (!introspection)
 					return logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
+
+				// now we need to swap out the HLSL for SPIR-V
+				source = make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(spirvUnspecialized),ISpecializedShader::SInfo(nullptr,nullptr,source->getSpecializationInfo().entryPoint));
 			}
 
 			// Just a check that out specialization info will match
@@ -148,7 +154,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				// The signature is `T* const& smart_refctd_ptr<T>::get()` which makes it possible to neatly
 				// get a raw pointer to a constant array of raw pointers from an array of smart pointers
 				// by taking the address of the first element's get() method return value
-				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,&dsLayouts->get(),&dsLayouts->get());
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,&dsLayouts->get(),&dsLayouts->get()+MaxDescriptorSets);
 				pool->createDescriptorSets(MaxDescriptorSets,&dsLayouts->get(),ds);
 			}
 
@@ -299,7 +305,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 			// a simple test to check we got the right thing back
 			auto outputData = mapBuffer(outputBuff,IDeviceMemoryAllocation::EMCAF_READ);
 			for (auto i=0; i<WorkgroupSize*WorkgroupCount; i++)
-			if (outputData[i]!=i)
+			if (outputData[i]!=DWORDCount)
 				return logFail("DWORD at position %d doesn't match!\n",i);
 			m_device->unmapMemory(outputBuff->getBoundMemory());
 
