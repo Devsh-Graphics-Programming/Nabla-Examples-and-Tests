@@ -14,7 +14,7 @@ using namespace video;
 
 
 // this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
-class HelloComputeApp final : public nbl::examples::MonoDeviceApplication
+class DeviceSelectionAndSharedSourcesApp final : public nbl::examples::MonoDeviceApplication
 {
 		using base_t = examples::MonoDeviceApplication;
 	public:

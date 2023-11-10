@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CSystemTestBuilder extends IBuilder
+class CCoreSystemAssetBuilder extends IBuilder
 {
-	public CSystemTestBuilder(Agent _agent, _info)
+	public CCoreSystemAssetBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CSystemTestBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CSystemTestBuilder(_agent, _info)
+	return new CCoreSystemAssetBuilder(_agent, _info)
 }
 
 return this
