@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CStreamingAndMultiQueueBuilder extends IBuilder
+class CStreamingAndBufferDeviceAddressBuilder extends IBuilder
 {
-	public CStreamingAndMultiQueueBuilder(Agent _agent, _info)
+	public CStreamingAndBufferDeviceAddressBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CStreamingAndMultiQueueBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CStreamingAndMultiQueueBuilder(_agent, _info)
+	return new CStreamingAndBufferDeviceAddressBuilder(_agent, _info)
 }
 
 return this

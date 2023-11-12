@@ -19,8 +19,8 @@ add_subdirectory(02_HelloCompute EXCLUDE_FROM_ALL)
 add_subdirectory(03_DeviceSelectionAndSharedSources EXCLUDE_FROM_ALL)
 # showcase the creation of windows and polling for input
 add_subdirectory(04_HelloUI EXCLUDE_FROM_ALL)
-# showcase the creation of a swapchain and rendering into it
-add_subdirectory(05_StreamingAndMultiQueue EXCLUDE_FROM_ALL)
+# showcase the semi-advanced use of Nabla's Streaming Buffers and BDA
+add_subdirectory(05_StreamingAndBufferDeviceAddressApp EXCLUDE_FROM_ALL)
 
 # Nabla framework examples
 add_subdirectory(01_HelloWorld EXCLUDE_FROM_ALL)

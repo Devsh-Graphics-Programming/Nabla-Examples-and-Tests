@@ -70,7 +70,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 		smart_refctd_ptr<nbl::video::ICommandPoolCache> m_poolCache;
 
 		// We'll run the iterations in reverse, easier to write "keep running"
-		uint32_t m_iteration = 1000;
+		uint32_t m_iteration = 200;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
