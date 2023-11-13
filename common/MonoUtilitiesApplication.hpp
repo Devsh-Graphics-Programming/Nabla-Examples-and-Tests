@@ -19,11 +19,8 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		using base_t::base_t;
 
 	protected:
-		// need this one for skipping passing all args into ApplicationFramework
-		MonoDeviceApplication() = default;
-
 		// This time we build upon the Mono-System and Mono-Logger application and add the choice of a single physical device and creation of utilities
-		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
+		inline bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			if (!base_t::onAppInitialized(std::move(system)))
 				return false;
@@ -42,21 +39,15 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 
 			const core::set<video::IPhysicalDevice*> suitablePhysicalDevices = filterDevices(gpus);
 			if (suitablePhysicalDevices.empty())
-				return logFail("No PhysicalDevice met the feature requirements of the application!");
+				return logFail("No found PhysicalDevice met the feature requirements of the application!");
 
 			// we're very constrained by the physical device selection so there's nothing to override here
 			{
-				IPhysicalDevice* selectedDevice = selectPhysicalDevice(suitablePhysicalDevices);
-
-				ILogicalDevice::SCreationParams params = {};
-
-				const auto queueParams = getQueueCreationParameters(selectedDevice->getQueueFamilyProperties());
-				params.queueParamsCount = queueParams.size();
-				std::copy_n(queueParams.begin(),params.queueParamsCount,params.queueParams.begin());
-				
-				params.featuresToEnable = getRequiredDeviceFeatures(); // .union(getPreferredDeviceFeatures().intersect(selectedDevice->getFeatures()))
-				
-				m_device = selectedDevice->createLogicalDevice(std::move(params));
+				ILogicalDevice::SCreationParams retval = {};
+//				retval.queueParamsCount = 1;
+//				retval.queueParams = &queueParams;
+				retval.featuresToEnable = getRequiredDeviceFeatures(getPreferredDeviceFeatures());
+				m_device = selectPhysicalDevice()->createLogicalDevice(getDeviceCreationParams());
 				if (!m_device)
 					return logFail("Failed to create a Logical Device!");
 			}
@@ -77,23 +68,24 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		// a device filter helps you create a set of physical devices that satisfy your requirements in terms of features, limits etc.
 		virtual core::set<video::IPhysicalDevice*> filterDevices(const core::SRange<video::IPhysicalDevice* const>& physicalDevices) const
 		{
-			video::SPhysicalDeviceFilter deviceFilter = {};
+			SPhysicalDeviceFilter deviceFilter = {};
 
 			deviceFilter.minApiVersion = { 1,3,0 };
-			deviceFilter.minConformanceVersion = {1,3,0,0};
+			// TODO: require later
+			//deviceFilter.minConformanceVersion = {1,3,0,0};
 
-			deviceFilter.minimumLimits = getRequiredDeviceLimits();
+			deviceFilter.requiredLimits = getRequiredDeviceLimits();
 			deviceFilter.requiredFeatures = getRequiredDeviceFeatures();
 
 			deviceFilter.requiredImageFormatUsagesOptimalTiling = getRequiredOptimalTilingImageUsages();
 
 			const auto memoryReqs = getMemoryRequirements();
-			deviceFilter.memoryRequirements = memoryReqs.data();
-			deviceFilter.memoryRequirementsCount = memoryReqs.size();
+			deviceFilter.memoryRequirements = memoryReqs.size();
+			deviceFilter.memoryRequirementsCount = memoryReqs.data();
 
 			const auto queueReqs = getQueueRequirements();
-			deviceFilter.queueRequirements = queueReqs.data();
-			deviceFilter.queueRequirementsCount = queueReqs.size();
+			deviceFilter.queueRequirements = queueReqs.size();
+			deviceFilter.queueRequirementsCount = queueReqs.data();
 			
 			return deviceFilter(physicalDevices);
 		}
@@ -122,16 +114,15 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			retval.externalFence = true;
 			retval.externalMemory = true;
 			retval.externalSemaphore = true;
-			retval.spirvVersion = asset::IShaderCompiler::E_SPIRV_VERSION::ESV_1_5; // TODO: erm why is 1.6 not supported by my driver?
+			retval.spirvVersion = asset::IShaderCompiler::E_SPIRV_VERSION::ESV_1_6;
 
 			return retval;
 		}
 
+		// There's no intersection operator (yet) on the features, so the required features get the base ones to tack onto
 		// virtual function so you can override as needed for some example father down the line
-		virtual video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const
+		virtual video::SPhysicalDeviceFeatures getRequiredDeviceFeatures(video::SPhysicalDeviceFeatures retval = {}) const
 		{
-			video::SPhysicalDeviceFeatures retval = {};
-
 			// TODO: remove most on vulkan_1_3 branch as most will be required
 			retval.fullDrawIndexUint32 = true;
 			retval.multiDrawIndirect = true;
@@ -172,10 +163,10 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			// we care that certain "basic" formats are usable in some "basic" ways
 			retval[EF_R32_UINT] = shaderStorageAtomic;
 			const format_usage_t opaqueRendering = sampling|transferUpAndDown|attachment|mipmapGeneration;
-			const format_usage_t genericRendering = opaqueRendering|attachmentBlend|mipmapGeneration;
 			retval[EF_R8_UNORM] = genericRendering;
 			retval[EF_R8G8_UNORM] = genericRendering;
 			retval[EF_R8G8B8A8_UNORM] = genericRendering;
+			const format_usage_t genericRendering = opaqueRendering|attachmentBlend|mipmapGeneration;
 			retval[EF_R8G8B8A8_SRGB] = genericRendering;
 			const format_usage_t renderingAndStorage = genericRendering|shaderStorage;
 			retval[EF_R16_SFLOAT] = renderingAndStorage;
@@ -189,13 +180,13 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// virtual function so you can override as needed for some example father down the line
-		virtual core::vector<video::SPhysicalDeviceFilter::MemoryRequirement> getMemoryRequirements() const
+		virtual core::vector<video::SPhysicalDeviceFilter::MemoryRequirement> getMemoryRequirements()
 		{
 			using namespace core;
 			using namespace video;
 			
 			vector<SPhysicalDeviceFilter::MemoryRequirement> retval;
-			using memory_flags_t = IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS;
+			using memory_flags_t = IDeviceMemoryAllocations::E_MEMORY_PROPERTY_FLAGS;
 			// at least 512 MB of Device Local Memory
 			retval.push_back({.size=512<<20,.memoryFlags=memory_flags_t::EMPF_DEVICE_LOCAL_BIT});
 
@@ -203,29 +194,34 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// virtual function so you can override as needed for some example father down the line
-		virtual core::vector<video::SPhysicalDeviceFilter::QueueRequirement> getQueueRequirements() const
+		virtual core::vector<video::SPhysicalDeviceFilter::QueueRequirement> getQueueRequirements()
 		{
 			using namespace core;
 			using namespace video;
 			vector<SPhysicalDeviceFilter::QueueRequirement> retval;
 			
 			using flags_t = IPhysicalDevice::E_QUEUE_FLAGS;
-			// The Graphics Queue should be able to do Compute and image transfers of any granularity (transfer only queue families can have problems with that)
-			retval.push_back({.requiredFlags=flags_t::EQF_COMPUTE_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
+			// The Graphics Queue should be able to do image transfers of any granularity (transfer only queue families can have problems with that)
+			retval.push_back({.requiredFlags=flags_t::EQF_GRAPHICS_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
+			retval.push_back({.requiredFlags=flags_t::EQF_COMPUTE_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1});
+			// we'll create the two transfer queues from the same family probably
+			retval.push_back({.requiredFlags=flags_t::EQF_TRANSFER_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=2});
 
 			return retval;
 		}
 
 		// These features are features you'll enable if present but won't interfere with your choice of device
-		// There's no intersection operator (yet) on the features, so its not used yet!
 		// virtual function so you can override as needed for some example father down the line
 		virtual video::SPhysicalDeviceFeatures getPreferredDeviceFeatures() const
 		{
 			video::SPhysicalDeviceFeatures retval = {};
 
+			// TODO: remove most on vulkan_1_3 branch as most will be moved to limits
 			retval.shaderFloat64 = true;
 			retval.shaderDrawParameters = true;
 			retval.drawIndirectCount = true;
+			retval.vulkanMemoryModelDeviceScope = true;
+			retval.vulkanMemoryModelAvailabilityVisibilityChains = true;
 
 			return retval;
 		}
@@ -237,7 +233,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 
 			using driver_id_enum = IPhysicalDevice::E_DRIVER_ID;
 			// from least to most buggy
-			const core::vector<driver_id_enum> preference = {
+			const std::array<driver_id_enum> preference = {
 				driver_id_enum::EDI_NVIDIA_PROPRIETARY,
 				driver_id_enum::EDI_INTEL_OPEN_SOURCE_MESA,
 				driver_id_enum::EDI_MESA_RADV,
@@ -257,36 +253,12 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return nullptr;
 		}
 
-		// This will most certainly be overriden
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const core::SRange<const video::IPhysicalDevice::SQueueFamilyProperties>& familyProperties)
-		{
-			using namespace video;
-			core::vector<ILogicalDevice::SQueueCreationParams> retval(1);
-
-			retval[0].count = 1;
-			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
-			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
-				retval[0].familyIndex = i;
-
-			return retval;
-		}
-
-		// virtual to allow aliasing and total flexibility
-		virtual video::IGPUQueue* getComputeQueue() const
-		{
-			// In the default implementation of everything I asked only for one queue from first compute family
-			const auto familyProperties = m_device->getPhysicalDevice()->getQueueFamilyProperties();
-			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(video::IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
-				return m_device->getQueue(i,0);
-
-			return nullptr;
-		}
-
-
 		core::smart_refctd_ptr<video::CVulkanConnection> m_api;
 		core::smart_refctd_ptr<video::ILogicalDevice> m_device;
+		// Queue choice is a bit complicated, for basic usage 1 async compute, and 2 async transfer queues are enough.
+		// However some devices might not have that many queues so here we'll "alias" a queue to multiple uses if needed.
+		video::IGPUQueue* m_computeQueue;
+//		std::array<video::IGPUQueue*,Queue::Count> m_queues = { nullptr, nullptr, nullptr, nullptr };
 };
 
 }

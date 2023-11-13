@@ -5,6 +5,7 @@
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "../common/MonoDeviceApplication.hpp"
+#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -13,250 +14,302 @@ using namespace asset;
 using namespace video;
 
 
-// this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
-class DeviceSelectionAndSharedSourcesApp final : public nbl::examples::MonoDeviceApplication
+// This is the most nuts thing you'll ever see, a header of HLSL included both in C++ and HLSL
+#include "app_resources/common.hlsl"
+
+
+// This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
+class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using base_t = examples::MonoDeviceApplication;
+		using device_base_t = examples::MonoDeviceApplication;
+		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 	public:
-		// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
-		using base_t::base_t;
+		// Yay thanks to multiple inheritance we cannot forward ctors anymore
+		DeviceSelectionAndSharedSourcesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+			system::IApplicationFramework(_localInputCWD,_localOutputCWD,_sharedInputCWD,_sharedOutputCWD) {}
 
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
-			if (!base_t::onAppInitialized(std::move(system)))
+			if (!device_base_t::onAppInitialized(std::move(system)))
+				return false;
+			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
-			// TODO: redo completely the rest of the sample
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = ""; // virtual root
+			// this time we load a shader directly from a file
+			auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+				return logFail("Could not load shader!");
 
+			// It would be super weird if loading a shader from a file produced more than 1 asset
+			assert(assets.size()==1);
+			smart_refctd_ptr<ICPUSpecializedShader> source = IAsset::castDown<ICPUSpecializedShader>(assets[0]);
 
-			constexpr uint32_t WorkgroupSize = 256;
-			constexpr uint32_t WorkgroupCount = 2048;
-			// A word about `nbl::asset::IAsset`s, whenever you see an `nbl::asset::ICPUSomething` you can be sure an `nbl::video::IGPUSomething exists, and they both inherit from `nbl::asset::ISomething`.
-			// The convention is that an `ICPU` object represents a potentially Mutable (and in the past, Serializable) recipe for creating an `IGPU` object, and later examples will show automated systems for doing that.
-			// The Assets always form a Directed Acyclic Graph and our type system enforces that property at compile time (i.e. an `IBuffer` cannot reference an `IImageView` even indirectly).
-			// Another reason for the 1:1 pairing of types is that one can use a CPU-to-GPU associative cache (asset manager has a default one) and use the pointers to the CPU objects as UUIDs.
-			// The ICPUShader is just a mutable container for source code (can be high level like HLSL needing compilation to SPIR-V or SPIR-V itself) held in an `nbl::asset::ICPUBuffer`.
-			// They can be created: from buffers of code, by compilation from some other source code, or loaded from files (next example will do that).
-			smart_refctd_ptr<nbl::asset::ICPUShader> cpuShader;
+			// Now is the time to introduce the SPIR-V introspector which will let you "guess" Layouts and Pipelines Creation Parameters!
+			auto introspector = std::make_unique<CSPIRVIntrospector>();
+
+			smart_refctd_ptr<const CSPIRVIntrospector::CIntrospectionData> introspection;
 			{
-				// Normally we'd use the ISystem and the IAssetManager to load shaders flexibly from (virtual) files for ease of development (syntax highlighting and Intellisense),
-				// but I want to show the full process of assembling a shader from raw source code at least once.
-				smart_refctd_ptr<nbl::asset::IShaderCompiler> compiler = make_smart_refctd_ptr<nbl::asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
+				// Unfortunately introspection only works on SPIR-V so we still have to compile the shader by hand
+				const ICPUShader* unspecialized = source->getUnspecialized();
 
-				// A simple shader that writes out the Global Invocation Index to the position it corresponds to in the buffer
-				// Note the injection of a define from C++ to keep the workgroup size in sync.
-				// P.S. We don't have an entry point name compiler option because we expect that future compilers should support multiple entry points, so for now there must be a single entry point called "main".
-				// P.P.S. Yes we know workgroup sizes can come from specialization constants, however DXC has a problem with that https://github.com/microsoft/DirectXShaderCompiler/issues/3092
-				const string source = "#define WORKGROUP_SIZE "+std::to_string(WorkgroupSize)+R"===(
-					[[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> buff;
+				// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
+				auto* compilerSet = m_assetMgr->getCompilerSet();
 
-					[numthreads(WORKGROUP_SIZE,1,1)]
-					void main(uint32_t3 ID : SV_DispatchThreadID)
-					{
-						buff[ID.x] = ID.x;
-					}
-				)===";
-
-				CHLSLCompiler::SOptions options = {};
-				options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
-				// want as much debug as possible
-				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-				// this lets you source-level debug/step shaders in renderdoc
-				if (m_device->getPhysicalDevice()->getLimits().shaderNonSemanticInfo)
-					options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NON_SEMANTIC_BIT;
-				// if you don't set the logger and source identifier you'll have no meaningful errors
-				options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
+				// This time we use a more "generic" option struct which works with all compilers
+				nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+				// The Shader Asset Loaders deduce the stage from the file extension,
+				// if the extension is generic (.glsl or .hlsl) the stage is unknown.
+				// But it can still be overriden from within the source with a `#pragma shader_stage`
+				options.stage = unspecialized->getStage();
+				options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+				// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
+				options.spirvOptimizer = nullptr;
+				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+				// The nice thing is that when you load a shader from file, it has a correctly set `filePathHint`
+				// so it plays nicely with the preprocessor, and finds `#include`s without intervention.
+				options.preprocessorOptions.sourceIdentifier = unspecialized->getFilepathHint();
 				options.preprocessorOptions.logger = m_logger.get();
-				cpuShader = compiler->compileToSPIRV(source.c_str(), options);
+				options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(unspecialized->getContentType())->getDefaultIncludeFinder();
 
-				if (!cpuShader)
+				auto spirvUnspecialized = compilerSet->compileToSPIRV(unspecialized,options);
+				const CSPIRVIntrospector::SIntrospectionParams inspctParams = {.entryPoint=source->getSpecializationInfo().entryPoint,.cpuShader=spirvUnspecialized};
+
+				introspection = introspector->introspect(inspctParams);
+				if (!introspection)
+					return logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
+
+				// now we need to swap out the HLSL for SPIR-V
+				source = make_smart_refctd_ptr<ICPUSpecializedShader>(std::move(spirvUnspecialized),ISpecializedShader::SInfo(nullptr,nullptr,source->getSpecializationInfo().entryPoint));
+			}
+
+			// Just a check that out specialization info will match
+			if (!introspection->canSpecializationlesslyCreateDescSetFrom())
+				return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
+
+			// We've now skipped the manual creation of a descriptor set layout, pipeline layout
+			smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(source.get());
+
+			// And now I show you how to save 100 lines of code to create all objects between a Compute Pipeline and a Shader
+			smart_refctd_ptr<IGPUComputePipeline> pipeline;
+			{
+				// This is the main workhorse of our asset system, it automates the creation of matching IGPU objects for ICPU object while
+				// making sure that if two ICPU objects reference the same dependency, that structure carries over to their associated IGPU objects.
+				// We're working on a new improved Hash Tree based system which will catch identically defined ICPU objects even if their pointers differ.
+				auto assetConverter = std::make_unique<IGPUObjectFromAssetConverter>();
+
+				// Thankfully because we're not doing any conversions on Memory Backed objects we don't need to set up the queue parameters
+				IGPUObjectFromAssetConverter::SParams conversionParams = {};
+				conversionParams.device = m_device.get();
+				// The asset manager is necessary in the conversion process to provide the CPU2GPU associative cache,
+				// basically if we detect an ICPUAsset in the DAG already has an associated IGPUAsset resulting from
+				// a previous conversion, that IGPUAsset will be used in place of creating a new ICPUAsset.
+				// There's a new an improved system coming which will use Merkle Trees to catch duplicate subgraphs better.
+				// In that system the cache will be split off from the Asset Manager and be its own thing to improve the API.
+				// However Asset Manager will still be needed for "restore from dummy" operations (more on that later).
+				conversionParams.assetManager = m_assetMgr.get();
+
+				// Note that the Conversion Parameters are reusable between multiple runs
+				nbl::video::created_gpu_object_array<ICPUComputePipeline> convertedGPUObjects = assetConverter->getGPUObjectsFromAssets(&cpuPipeline,&cpuPipeline+1,conversionParams);
+				assert(convertedGPUObjects->size() == 1);
+				// What does it mean that an asset is a "dummy"? It means it has been "hollowed out", degraded to a husk with enough metadata to allow us to hash and compare it for equality.
+				assert(cpuPipeline->isADummyObjectForCache());
+				// The default asset converter turns every converted asset into a dummy, releasing memory backing `IAsset`s, which are mostly the allocations backing an `ICPUBuffer`
+				// Why doesn't the Asset simply get deleted?
+				// We need a stable key (the old pointer) and ability to compare for them for true equality, so that our CPU->GPU hash map prevents the creation of duplicate GPU objects.
+				// Also this allows us to retain some information in-case we need to "restore" a dummy by reloading it, for example when one wishes to create a derivative map from a heightmap.
+				assert(source->getUnspecialized()->getContent()->getPointer() == nullptr);
+
+				pipeline = convertedGPUObjects->front();
+			}
+
+			// Nabla hardcodes the maximum descriptor set count to 4
+			constexpr uint32_t MaxDescriptorSets = 4; //SPhysicalDeviceLimits::MaxDescriptorSets;
+			smart_refctd_ptr<IGPUDescriptorSet> ds[MaxDescriptorSets];
+
+			// Aside from being mutable, ICPU Assets are reflectable too! And that's how we'll create the Descriptor Sets.
+			{
+				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayouts[MaxDescriptorSets];
+				for (auto i=0; i<MaxDescriptorSets; i++)
 				{
-					logFail("Failed to compile following HLSL Shader:\n%s\n",source);
-					return false;
+					ICPUDescriptorSetLayout* cpuDSLayout = cpuPipeline->getLayout()->getDescriptorSetLayout(i);
+					if (cpuDSLayout)
+					{
+						// This is bad design which we'll fix by splitting the CPU2GPU cache off from the Asset Manager
+						// Unfortunate side-effect of current design is that the returned entry is typeless,
+						// because of a ban on introducing dependencies from `video` namespace into `asset`.
+						smart_refctd_ptr<IReferenceCounted> found = m_assetMgr->findGPUObject(cpuDSLayout);
+						// We converted our original CPU Assets without an override that disables de-duplication,
+						// so associated GPU Object must have been found
+						assert(found);
+						//
+						dsLayouts[i] = nbl::core::move_and_dynamic_cast<IGPUDescriptorSetLayout>(found);
+					}
 				}
+				// The signature is `T* const& smart_refctd_ptr<T>::get()` which makes it possible to neatly
+				// get a raw pointer to a constant array of raw pointers from an array of smart pointers
+				// by taking the address of the first element's get() method return value
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,&dsLayouts->get(),&dsLayouts->get()+MaxDescriptorSets);
+				pool->createDescriptorSets(MaxDescriptorSets,&dsLayouts->get(),ds);
 			}
 
-			// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
-			smart_refctd_ptr<nbl::video::IGPUShader> shader = m_device->createShader(std::move(cpuShader));
-			if (!shader)
+			// Need to know input and output sizes by ourselves obviously
+			constexpr size_t WorkgroupCount = 4096;
+			constexpr size_t BufferSize = sizeof(uint32_t)*WorkgroupSize*WorkgroupCount;
+
+			// Lets make the buffers for our shader, but lets fill them later
+			auto allocateBuffer = [&]() -> smart_refctd_ptr<IGPUBuffer>
 			{
-				logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
-				return false;
-			}
-
-			// we'll cover the specialization constant API in another example
-			const nbl::asset::ISpecializedShader::SInfo info(nullptr,nullptr,"main");
-			// theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one
-			smart_refctd_ptr<nbl::video::IGPUSpecializedShader> specShader = m_device->createSpecializedShader(shader.get(),info);
-
-			// the simplest example would have used push constants and BDA, but RenderDoc's debugging of that sucks, so I'll demonstrate "classical" binding of buffers with descriptors
-			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
-				{
-					.binding=0,
-					.type=nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
-					.stageFlags=IGPUShader::ESS_COMPUTE,
-					.count=1,
-					.samplers=nullptr // irrelevant for a buffer
-				}
-			};
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings,bindings+1);
-			if (!dsLayout)
-			{
-				logFail("Failed to create a Descriptor Layout!\n");
-				return false;
-			}
-
-			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
-			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(nullptr,nullptr,smart_refctd_ptr(dsLayout));
-			if (!pplnLayout)
-			{
-				logFail("Failed to create a Pipeline Layout!\n");
-				return false;
-			}
-
-			// we use strong typing on the pipelines, since there's no reason to polymorphically switch between different pipelines
-			smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline = m_device->createComputePipeline(nullptr,smart_refctd_ptr(pplnLayout),std::move(specShader));
-
-			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
-			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
-			smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
-
-			// A `nbl::video::DeviceMemoryAllocator` is an interface to implement anything that can dish out free memory range to bind to back a `nbl::video::IGPUBuffer` or a `nbl::video::IGPUImage`
-			// The Logical Device itself implements the interface and behaves as the most simple allocator, it will create a new `nbl::video::IDeviceMemoryAllocation` every single time.
-			// We will cover allocators and suballocation in a later example.
-			nbl::video::IDeviceMemoryAllocator::SMemoryOffset allocation = {};
-			{
-				constexpr size_t BufferSize = sizeof(uint32_t)*WorkgroupSize*WorkgroupCount;
-
-				// Always default the creation parameters, there's a lot of extra stuff for DirectX/CUDA interop and slotting into external engines you don't usually care about. 
-				nbl::video::IGPUBuffer::SCreationParams params = {};
+				IGPUBuffer::SCreationParams params = {};
 				params.size = BufferSize;
-				// While the usages on `ICPUBuffers` are mere hints to our automated CPU-to-GPU conversion systems which need to be patched up anyway,
-				// the usages on an `IGPUBuffer` are crucial to specify correctly.
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-				smart_refctd_ptr<IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
-				if (!outputBuff)
+				auto buff = m_device->createBuffer(std::move(params));
+				if (!buff)
 				{
-					logFail("Failed to create a GPU Buffer of size %d!\n",params.size);
-					return false;
+					m_logger->log("Failed to create a GPU Buffer for an SSBO of size %d!\n",ILogger::ELL_ERROR,params.size);
+					return nullptr;
 				}
 
-				// Naming objects is cool because not only errors (such as Vulkan Validation Layers) will show their names, but RenderDoc captures too.
-				outputBuff->setObjectDebugName("My Output Buffer");
-
-				// We don't want to bother explaining best staging buffer practices just yet, so we will create a buffer over
-				// a memory type thats Host Visible (can be mapped and give the CPU a direct pointer to read from)
-				nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
-				// you can simply constrain the memory requirements by AND-ing the type bits of the host visible memory types
+				auto reqs = buff->getMemoryReqs();
+				// same as last time we make the buffers mappable for easy access
 				reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+				// and we make the allocation dedicated
+				m_device->allocate(reqs,buff.get(),nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
 
-				// There are actually two `allocate` overloads, one which allocates memory if you already know the type you want.
-				// And this one which is a utility which tries to allocate from every type that matches your requirements in some order of preference.
-				// The other of preference (iteration over compatible types) can be controlled by the method's template parameter,
-				// the default is from lowest index to highest, but skipping over incompatible types.
-				allocation = m_device->allocate(reqs,outputBuff.get(),nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
-				if (!allocation.isValid())
-				{
-					logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
-					return false;
-				}
-				// Note that we performed a Dedicated Allocation above, so there's no need to bind the memory anymore (since the allocator knows the dedication, it can already bind).
-				// This is a carryover from having an OpenGL backend, where you couldn't have a memory allocation separate from the resource, so all allocations had to be "dedicated".
-				// In Vulkan dedicated allocations are the most performant and still make sense as long as you won't blow the 4096 allocation limit on windows.
-				// You should always use dedicated allocations for images used for swapchains, framebuffer attachments (esp transient), as well as objects used in CUDA/DirectX interop.
-				assert(outputBuff->getBoundMemory()==allocation.memory.get());
+				return buff;
+			};
+			smart_refctd_ptr<IGPUBuffer> inputBuff[2] = {allocateBuffer(),allocateBuffer()};
+			auto outputBuff = allocateBuffer();
 
-				// This is a cool utility you can use instead of counting up how much of each descriptor type you need to N_i allocate descriptor sets with layout L_i from a single pool
-				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,&dsLayout.get(),&dsLayout.get()+1);
-
-				// note how the pool will go out of scope but thanks for backreferences in each object to its parent/dependency it will be kept alive for as long as all the Sets it allocated
-				ds = pool->createDescriptorSet(std::move(dsLayout));
-				// we still use Vulkan 1.0 descriptor update style, could move to Update Templates but Descriptor Buffer ubiquity seems just around the corner
-				{
-					IGPUDescriptorSet::SDescriptorInfo info[1];
-					info[0].desc = smart_refctd_ptr(outputBuff); // bad API, too late to change, should just take raw-pointers since not consumed
-					info[0].info.buffer = {.offset=0,.size=BufferSize};
-					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-						{.dstSet=ds.get(),.binding=0,.arrayElement=0,.count=1,.descriptorType=IDescriptor::E_TYPE::ET_STORAGE_BUFFER,.info=info}
-					};
-					m_device->updateDescriptorSets(1u,writes,0u,nullptr);
-				}
-			}
-
-			// To be able to read the contents of the buffer we need to map its memory
-			// P.S. Nabla mandates Persistent Memory Mappings on all backends (but not coherent memory types)
-			const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(allocation.memory.get(),0ull,allocation.memory->getAllocationSize());
-			auto ptr = m_device->mapMemory(memoryRange,IDeviceMemoryAllocation::EMCAF_READ);
-			if (!ptr)
+			// Now lets get to filling the descriptor sets from the introspection data
 			{
-				logFail("Failed to map the Device Memory!\n");
-				return false;
+				vector<IGPUDescriptorSet::SWriteDescriptorSet> writes;
+				vector<IGPUDescriptorSet::SDescriptorInfo> infos;
+				for (auto i=0; i<MaxDescriptorSets; i++)
+				{
+					for (const auto& binding : introspection->descriptorSetBindings[i])
+					{
+						// We know to always expect a buffer for this shader.
+						if (binding.type!=nbl::asset::E_SHADER_RESOURCE_TYPE::ESRT_STORAGE_BUFFER)
+						{
+							m_logger->log("Unexpected Type of (in set %d) Descriptor Binding %d (count %d) detected by SPIR-V Reflection!",ILogger::ELL_ERROR,i,binding.binding,binding.descriptorCount);
+							continue;
+						}
+						// This is why I'm not a fan of connecting stuff up based on reflection, because you need to know what to expect anyway (e.g. name string).
+						// I prefer to keep Host and Device code in-sync w.r.t. Descriptor Binding mapping by using a shared HLSL header with NBL_CONSTEXPR
+						const smart_refctd_ptr<IGPUBuffer>* buffers = nullptr;
+						if (binding.name=="inputs")
+							buffers = inputBuff;
+						else if (binding.name=="output")
+							buffers = &outputBuff;
+						else
+						{
+							m_logger->log("Unexpected Named of Descriptor %s in Set %d, Binding %d detected by SPIR-V Reflection!",ILogger::ELL_ERROR,binding.name.c_str(),i,binding.binding,binding.descriptorCount);
+							continue;
+						}
+						// Introspection of SPIR-V cannot tell you whether an UBO or SSBO is a DYNAMIC OFFSET kind or not,
+						// it had to be "guessed" for the Approximate Pipeline Layout created by the introspection
+						const nbl::asset::IDescriptor::E_TYPE type = CSPIRVIntrospector::resType2descType(binding.type);
+						// Don't want to fall victim to `infos` reallocating after a push_back, so will patch up the pointers later
+						writes.push_back({ds[i].get(),binding.binding,0,binding.descriptorCount,type,reinterpret_cast<IGPUDescriptorSet::SDescriptorInfo*>(infos.size())});
+						for (auto j=0; j<binding.descriptorCount; j++)
+						{
+							auto& info = infos.emplace_back();
+							info.desc = buffers[j];
+							info.info.buffer = {0u,buffers[j]->getSize()};
+						}
+					}
+				}
+				// fix up the info pointers
+				for (auto& write : writes)
+					write.info = infos.data()+ptrdiff_t(write.info);
+				if (!m_device->updateDescriptorSets(writes.size(),writes.data(),0u,nullptr))
+					return logFail("Failed to write Descriptor Sets");
 			}
 
-			// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
-			IGPUQueue* const queue = getComputeQueue();
-
-			// Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
-			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+			// Make a utility since we have to touch 3 buffers
+			auto mapBuffer = [&]<typename PtrT>(const PtrT& buff, bitflag<IDeviceMemoryAllocation::E_MAPPING_CPU_ACCESS_FLAGS> accessHint) -> uint32_t*
 			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_TRANSIENT_BIT);
-				if (!m_device->createCommandBuffers(cmdpool.get(),IGPUCommandBuffer::EL_PRIMARY,1u,&cmdbuf))
+				auto* const memory = buff->getBoundMemory();
+				const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(memory,0ull,memory->getAllocationSize());
+
+				void* ptr = m_device->mapMemory(memoryRange,accessHint);
+				if (!ptr)
+					m_logger->log("Failed to map the whole Memory Allocation of a GPU Buffer %p for access %d!\n",ILogger::ELL_ERROR,buff,accessHint);
+				
+				if (accessHint.hasFlags(IDeviceMemoryAllocation::EMCAF_READ))
+				if (!memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+					m_device->invalidateMappedMemoryRanges(1,&memoryRange);
+
+				return reinterpret_cast<uint32_t*>(ptr);
+			};
+			
+			// We'll fill the buffers in a way they always add up to WorkgrouCount*WorkgroupSize
+			constexpr auto DWORDCount = WorkgroupSize*WorkgroupCount;
+			{
+				constexpr auto writeFlag = IDeviceMemoryAllocation::EMCAF_WRITE;
+				uint32_t* const inputs[2] = {mapBuffer(inputBuff[0],writeFlag),mapBuffer(inputBuff[1],writeFlag)};
+				for (auto i=0; i<DWORDCount; i++)
 				{
-					logFail("Failed to create Command Buffers!\n");
-					return false;
+					inputs[0][i] = i;
+					inputs[1][i] = DWORDCount - i;
+				}
+				for (auto j=0; j<2; j++)
+				{
+					auto* const memory = inputBuff[j]->getBoundMemory();
+					// New thing to learn, if the mapping is not coherent and you write it, you need to flush!
+					const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(memory,0ull,memory->getAllocationSize());
+					m_device->flushMappedMemoryRanges(1,&memoryRange);
+					m_device->unmapMemory(memory);
 				}
 			}
 
-			cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-			// If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
-			cmdbuf->beginDebugMarker("My Compute Dispatch",core::vectorSIMDf(0,1,0,1));
-			// you want to bind the pipeline first to avoid accidental unbind of descriptor sets due to compatibility matching
-			cmdbuf->bindComputePipeline(pipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE,pplnLayout.get(),0,1,&ds.get());
-			cmdbuf->dispatch(WorkgroupCount,1,1);
-			cmdbuf->endDebugMarker();
-			// Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
-			// however waiting on a timeline semaphore (or fence) on the Host makes all Device writes visible.
-			cmdbuf->end();
-
-			// TODO: Redo with timeline semaphores
-			smart_refctd_ptr<IGPUFence> done = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
+			// create, record, submit and await commandbuffers
 			{
-				// Default, we have no semaphores to wait on before we can start our workload
-				IGPUQueue::SSubmitInfo submitInfo = {};
-				// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
-				// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
-				submitInfo.commandBufferCount = 1;
-				submitInfo.commandBuffers = &cmdbuf.get();
+				IGPUQueue* const queue = getComputeQueue();
 
-				// We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
-				// This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
-				queue->startCapture();
-				queue->submit(1u,&submitInfo,done.get());
-				queue->endCapture();
+				smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+				{
+					smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_TRANSIENT_BIT);
+					if (!m_device->createCommandBuffers(cmdpool.get(),IGPUCommandBuffer::EL_PRIMARY,1u,&cmdbuf))
+					{
+						logFail("Failed to create Command Buffers!\n");
+						return false;
+					}
+				
+					cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+					cmdbuf->bindComputePipeline(pipeline.get());
+					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE,pipeline->getLayout(),0,MaxDescriptorSets,&ds->get());
+					cmdbuf->dispatch(WorkgroupCount,1,1);
+					cmdbuf->end();
+				}
+
+				// A sidenote: Waiting for the Device or Queue to become idle does not give the same memory visibility guarantees as a signalled fence or semaphore
+				smart_refctd_ptr<IGPUFence> done = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
+				{
+					IGPUQueue::SSubmitInfo submitInfo = {};
+					submitInfo.commandBufferCount = 1;
+					submitInfo.commandBuffers = &cmdbuf.get();
+
+					// To keep the sample renderdoc-able
+					queue->startCapture();
+					queue->submit(1u,&submitInfo,done.get());
+					queue->endCapture();
+				}
+				m_device->blockForFences(1,&done.get());
 			}
-			// As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
-			m_device->blockForFences(1,&done.get());
-
-			// You don't need to do this, but putting it here to demonstrate that its safe to drop a commandbuffer after GPU is done (try moving it above and see if you BSOD or just get a validation error). 
-			cmdbuf = nullptr;
-
-			// if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
-			if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-				m_device->invalidateMappedMemoryRanges(1,&memoryRange);
 
 			// a simple test to check we got the right thing back
-			auto buffData = reinterpret_cast<const uint32_t*>(ptr);
+			auto outputData = mapBuffer(outputBuff,IDeviceMemoryAllocation::EMCAF_READ);
 			for (auto i=0; i<WorkgroupSize*WorkgroupCount; i++)
-			if (buffData[i]!=i)
-			{
-				logFail("DWORD at position %d doesn't match!\n",i);
-				return false;
-			}
-			m_device->unmapMemory(allocation.memory.get());
+			if (outputData[i]!=DWORDCount)
+				return logFail("DWORD at position %d doesn't match!\n",i);
+			m_device->unmapMemory(outputBuff->getBoundMemory());
 
 			return true;
 		}
@@ -270,4 +323,4 @@ class DeviceSelectionAndSharedSourcesApp final : public nbl::examples::MonoDevic
 };
 
 
-NBL_MAIN_FUNC(HelloComputeApp)
+NBL_MAIN_FUNC(DeviceSelectionAndSharedSourcesApp)

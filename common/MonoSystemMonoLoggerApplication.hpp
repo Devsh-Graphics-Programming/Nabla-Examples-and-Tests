@@ -29,18 +29,28 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 		}
 
 	protected:
+		// need this one for skipping passing all args into ApplicationFramework
+		MonoSystemMonoLoggerApplication() = default;
+
 		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
-			// This is a weird pattern, basically on some platforms all file & system operations need to go through a "God Object" only handed to you in some plaform specific way
-			// On "normal" platforms like win32 and Linux we can just create system objects at will and there's no special state we need to find.
-			if (system)
-				m_system = std::move(system);
-			else
-				m_system = system::IApplicationFramework::createSystem();
+			// protect against double initialization call (diamond inheritance)
+			if (!m_system)
+			{
+				// This is a weird pattern, basically on some platforms all file & system operations need to go through a "God Object" only handed to you in some plaform specific way
+				// On "normal" platforms like win32 and Linux we can just create system objects at will and there's no special state we need to find.
+				if (system)
+					m_system = std::move(system);
+				else
+					m_system = system::IApplicationFramework::createSystem();
+			}
 
 			// create a logger with default logging level masks
-			m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(getLogLevelMask());
-			m_logger->log("Logger Created!",system::ILogger::ELL_INFO);
+			if (!m_logger)
+			{
+				m_logger = core::make_smart_refctd_ptr<system::CColoredStdoutLoggerANSI>(getLogLevelMask());
+				m_logger->log("Logger Created!",system::ILogger::ELL_INFO);
+			}
 			return true;
 		}
 

@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CMediaUnpackingOnAndroidBuilder extends IBuilder
+class CStreamingAndBufferDeviceAddressBuilder extends IBuilder
 {
-	public CMediaUnpackingOnAndroidBuilder(Agent _agent, _info)
+	public CStreamingAndBufferDeviceAddressBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CMediaUnpackingOnAndroidBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CMediaUnpackingOnAndroidBuilder(_agent, _info)
+	return new CStreamingAndBufferDeviceAddressBuilder(_agent, _info)
 }
 
 return this

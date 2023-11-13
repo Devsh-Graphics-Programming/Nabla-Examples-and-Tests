@@ -285,7 +285,7 @@ int main(int argc, char** argv)
 	system->copy(CWD/"pngWriteSuccessful.png", CWD/"pngCopy.png");
 	// creating a directory and copying a whole directory
 	system->createDirectory(CWD/"textures1");
-	system->copy(CWD/"textures", CWD/"textures1");
+	system->copy(CWD/"textures1", CWD/"textures");
 	// copying from a mounted archive to folder on disk
 	system->copy("sponza/textures", CWD/"textures");
 

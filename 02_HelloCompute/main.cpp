@@ -48,9 +48,10 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
 			// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
 			nbl::video::IPhysicalDevice* physDev = nullptr;
-			nbl::video::ILogicalDevice::SQueueCreationParams queueParams = {};
+			ILogicalDevice::SCreationParams params = {};
 			// we will only deal with a single queue in this example
-			queueParams.count = 1;
+			params.queueParamsCount = 1;
+			params.queueParams[0].count = 1;
 			for (auto physDevIt=api->getPhysicalDevices().begin(); physDevIt!=api->getPhysicalDevices().end(); physDevIt++)
 			{
 				const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
@@ -59,7 +60,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				if (familyProps[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
 				{
 					physDev = *physDevIt;
-					queueParams.familyIndex = i;
+					params.queueParams[0].familyIndex  = i;
 					break;
 				}
 			}
@@ -67,17 +68,9 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
 
 			// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
-			smart_refctd_ptr<ILogicalDevice> device;
-			{
-				float priority = 1;
-				queueParams.flags = static_cast<IGPUQueue::E_CREATE_FLAGS>(0); // TODO: make this go away on the `vulkan_1_3` branch
-				queueParams.priorities = &priority; // TODO: make this go away on the `vulkan_1_3` branch
-				ILogicalDevice::SCreationParams params = {};
-				params.queueParamsCount = 1;
-				params.queueParams = &queueParams;
-				if (!(device=physDev->createLogicalDevice(std::move(params))))
-					return logFail("Failed to create a Logical Device!");
-			}
+			smart_refctd_ptr<ILogicalDevice> device = physDev->createLogicalDevice(std::move(params));
+			if (!device)
+				return logFail("Failed to create a Logical Device!");
 
 			constexpr uint32_t WorkgroupSize = 256;
 			constexpr uint32_t WorkgroupCount = 2048;
@@ -225,7 +218,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			// Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
 			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(queueParams.familyIndex,IGPUCommandPool::ECF_TRANSIENT_BIT);
+				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(params.queueParams[0].familyIndex,IGPUCommandPool::ECF_TRANSIENT_BIT);
 				if (!device->createCommandBuffers(cmdpool.get(),IGPUCommandBuffer::EL_PRIMARY,1u,&cmdbuf))
 					return logFail("Failed to create Command Buffers!\n");
 			}
@@ -246,7 +239,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			smart_refctd_ptr<IGPUFence> done = device->createFence(IGPUFence::ECF_UNSIGNALED);
 			{
 				// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
-				IGPUQueue* queue = device->getQueue(queueParams.familyIndex,0);
+				IGPUQueue* queue = device->getQueue(params.queueParams[0].familyIndex,0);
 
 				// Default, we have no semaphores to wait on before we can start our workload
 				IGPUQueue::SSubmitInfo submitInfo = {};
