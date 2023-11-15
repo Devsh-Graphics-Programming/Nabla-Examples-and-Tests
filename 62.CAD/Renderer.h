@@ -19,6 +19,7 @@ struct CPULineStyle
 	float reciprocalStipplePatternLen;
 	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
 	float phaseShift;
+	bool isRoadStyleFlag;
 
 	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
 		//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
@@ -136,6 +137,7 @@ struct CPULineStyle
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
+		ret.isRoadStyleFlag = isRoadStyleFlag;
 
 		return ret;
 	}
@@ -146,7 +148,7 @@ struct CPULineStyle
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
 static_assert(sizeof(Globals) == 112u);
-static_assert(sizeof(LineStyle) == 92u);
+static_assert(sizeof(LineStyle) == 96u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
 // It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
@@ -178,6 +180,11 @@ public:
 	const LinePointInfo& getLinePointAt(const uint32_t idx) const
 	{
 		return m_linePoints[idx];
+	}
+
+	const std::vector<PolylineConnector>& getConnectors() const
+	{
+		return m_polylineConnector;
 	}
 
 	void clearEverything()
@@ -275,6 +282,7 @@ public:
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
+		core::vector<PolylineConnectorHelperInfo> connectorInfos;
 		float phaseShiftTotal = lineStyle.phaseShift;
 		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
 		{
@@ -295,11 +303,22 @@ public:
 					}
 
 					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
-					const double lineLen = glm::length(linePoint.p - prevLinePoint.p);
+					const float64_t2 line = linePoint.p - prevLinePoint.p;
+					const double lineLen = glm::length(line);
 
 					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
 					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint);
 					phaseShiftTotal = linePoint.phaseShift;
+
+					if (lineStyle.isRoadStyleFlag)
+					{
+						PolylineConnectorHelperInfo connectorInfo;
+						connectorInfo.worldSpaceCircleCenter = linePoint.p;
+						connectorInfo.normal = float32_t2(-line.x, line.y) / static_cast<float>(lineLen);
+						connectorInfo.phaseShift = linePoint.phaseShift;
+
+						connectorInfos.push_back(connectorInfo);
+					}
 				}
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
@@ -338,6 +357,42 @@ public:
 						QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
 						quadBezierInfo.phaseShift = phaseShiftTotal;
 					}
+
+					// TODO: bezier tangent
+					//if (lineStyle.isRoadStyleFlag)
+					//{
+
+					//}
+				}
+			}
+
+			// generate miters
+			if (lineStyle.isRoadStyleFlag)
+			{
+				for (uint32_t i = 1u; i < connectorInfos.size(); i++)
+				{
+					PolylineConnector res{};
+
+					//// TODO[Przemek]: this is tailored for specific case and not correct, every line has 2 normals at P0, and there should be other way to find the correct ones
+					//const float32_t2 N0 = connectorInfos[i - 1].normal;
+					//const float32_t2 N1 = -connectorInfos[i].normal;
+
+					//res.circleCenter = connectorInfos[i].worldSpaceCircleCenter;
+
+					//const float cosTheta = N1.x; // dot(N1, { 1, 0 }) = N1.x * 1
+					//const float cosAlpha = N0.x; // dot(N0, { 1, 0 }) = N0.x * 1
+					//const float theta = std::acos(cosTheta);
+					//const float alpha = std::acos(cosAlpha);
+					//const float sinTheta = std::sin(theta);
+					////const float beta = std::abs(alpha - theta);
+					//res.cosAngleDifferenceHalf = std::abs(cosTheta - cosAlpha) * 0.5f;
+
+					//// calculate intersection point in circle space
+					//const glm::mat2x2 rotationMatrix = glm::mat2x2(-cosTheta, -sinTheta, -sinTheta, cosTheta); // TODO: use glm::rotate
+					//res.v = rotationMatrix * float32_t2(lineStyle.screenSpaceLineWidth, lineStyle.screenSpaceLineWidth * std::tan(acos(res.cosAngleDifferenceHalf)));
+
+					res.circleCenter = connectorInfos[i].worldSpaceCircleCenter;
+					m_polylineConnector.push_back(res);
 				}
 			}
 		}
@@ -345,8 +400,17 @@ public:
 
 protected:
 	// TODO[Przemek]: a vector of polyline connetor objects
+	std::vector<PolylineConnector> m_polylineConnector;
 	std::vector<SectionInfo> m_sections;
-	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
 	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+
+private:
+	struct PolylineConnectorHelperInfo
+	{
+		float32_t2 worldSpaceCircleCenter;
+		float32_t2 normal;
+		float phaseShift;
+	};
+
 };

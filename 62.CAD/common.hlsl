@@ -13,6 +13,7 @@ enum class ObjectType : uint32_t
     LINE = 0u,
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
+    POLYLINE_CONNECTOR = 3u
 };
 
 enum class MajorAxis : uint32_t
@@ -47,14 +48,18 @@ struct LinePointInfo
 struct QuadraticBezierInfo
 {
     float64_t2 p[3]; // 16*3=48bytes
-    /*
-    * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
-    */
     float32_t phaseShift;
     float32_t _reserved_pad;
 };
 
 // TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
+struct PolylineConnector
+{
+    float64_t2 circleCenter;
+    float32_t2 v; // TODO [Przemek]: use half2
+    float32_t cosAngleDifferenceHalf; //pack into first part of uint32_t
+    float32_t phaseShift;
+};
 
 struct CurveBox 
 {
@@ -120,6 +125,8 @@ struct LineStyle
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
     uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
+    bool isRoadStyleFlag;
+    bool _padding[3u];
 
     float getStippleValue(const uint32_t ix)
     {
@@ -140,8 +147,8 @@ struct LineStyle
     }
 
     // TODO[Przemek] Add bool isRoadStyle, which we use to know if to use normal rounded joins and sdf OR rect sdf with miter joins
-    
-    inline bool hasStipples()
+
+    bool hasStipples()
     {
         return stipplePatternSize > 0 ? true : false;
     }

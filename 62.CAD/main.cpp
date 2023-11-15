@@ -354,6 +354,27 @@ public:
 		}
 
 		// TODO[Prezmek]: A similar and simpler while loop as above where you try to addPolylineConnectors_Internal, If you couldn't do the whole section completely then -> finalizeAllCopies, submit and reset stuff as above.
+		if (!polyline.getConnectors().empty())
+		{
+			uint32_t currentConnectorPolylineObject = 0u;
+			while (true)
+			{
+				addPolylineConnectors_Internal(polyline, currentConnectorPolylineObject, polylineMainObjIdx);
+
+				if (currentConnectorPolylineObject >= polyline.getConnectors().size())
+				{
+					break;
+				}
+				else
+				{
+					intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+					resetIndexCounters();
+					resetGeometryCounters();
+					// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
+				}
+			}
+		}
 
 		return intendedNextSubmit;
 	}
@@ -678,8 +699,50 @@ protected:
 
 	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a core::Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
 	// And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
+	void addPolylineConnectors_Internal(const CPolyline& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx)
+	{
+		const auto maxGeometryBufferConnectors = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(PolylineConnector);
 
-	// TODO[Prezmek]: this function will change a little as you'll be copying LinePointInfos instead of double2's
+		constexpr uint32_t INDEX_COUNT_PER_CAGE = 6u;
+		uint32_t uploadableObjects = (maxIndices - currentIndexCount) / INDEX_COUNT_PER_CAGE;
+		uploadableObjects = core::min(uploadableObjects, maxGeometryBufferConnectors);
+		uploadableObjects = core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+
+		const auto connectorCount = polyline.getConnectors().size();
+		const auto remainingObjects = connectorCount - currentPolylineConnectorObj;
+
+		const uint32_t objectsToUpload = core::min(uploadableObjects, remainingObjects);
+
+		// Add Indices
+		addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
+
+		// Add DrawObjs
+		DrawObject drawObj = {};
+		drawObj.mainObjIndex = mainObjIdx;
+		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::POLYLINE_CONNECTOR) | 0 << 16);
+		drawObj.geometryAddress = geometryBufferAddress + currentGeometryBufferSize;
+		for (uint32_t i = 0u; i < objectsToUpload; ++i)
+		{
+			void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+			memcpy(dst, &drawObj, sizeof(DrawObject));
+			currentDrawObjectCount += 1u;
+			drawObj.geometryAddress += sizeof(PolylineConnector);
+		}
+
+		// Add Geometry
+		if (objectsToUpload > 0u)
+		{
+			const auto connectorsByteSize = sizeof(PolylineConnector) * objectsToUpload;
+			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			auto& connector = polyline.getConnectors()[currentPolylineConnectorObj];
+			memcpy(dst, &connector, connectorsByteSize);
+			currentGeometryBufferSize += connectorsByteSize;
+		}
+
+		currentPolylineConnectorObj += objectsToUpload;
+	}
+
+	// TODO[Przemek]: this function will change a little as you'll be copying LinePointInfos instead of double2's
 	// Make sure to test with small memory to trigger submitInBetween function when you run out of memory to see if your changes here didn't mess things up, ask Lucas for help if you're not sure on how to do this
 	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
@@ -2499,6 +2562,8 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
+// test polyline 1
+#if 0
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 2.0f;
@@ -2556,6 +2621,30 @@ public:
 				quadratics2[3].P2 = { -100.0, 90.0 };
 				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
 
+				polyline.preprocessPolylineWithStyle(style);
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+#endif
+
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 2.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = true;
+
+			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
+			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			std::array<float, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+
+			CPolyline polyline;
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, -50.0 });
+				linePoints.push_back({ 0.0, 0.0 });
+				linePoints.push_back({ 50.0, -50.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 			}
 

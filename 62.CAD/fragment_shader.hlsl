@@ -51,7 +51,6 @@ struct StyleClipper
     using float_t3 = typename CurveType::float_t3;
     NBL_CONSTEXPR_STATIC_INLINE float_t AccuracyThresholdT = 0.000001;
 
-    // TODO[Przemek]: this should now also include a float phaseShift which is in style's normalized space
     static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
         CurveType curve,
         typename CurveType::ArcLengthCalculator arcLenCalc,
@@ -70,8 +69,6 @@ struct StyleClipper
         const LineStyle style = lineStyles[styleAccessor.styleIdx];
         const float_t arcLen = arcLenCalc.calcArcLen(t);
         const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
-        // TODO[Przemek]: apply the phase shift of the curve here as well
-        //float normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + style.phaseShift);
         float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + phaseShift);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
@@ -155,12 +152,12 @@ struct ClippedSignedDistance
     using float_t2 = typename CurveType::float_t2;
     using float_t3 = typename CurveType::float_t3;
 
-    const static float_t sdf(CurveType curve, float_t2 pos, float_t thickness, Clipper clipper = DefaultClipper<typename CurveType::scalar_t>::construct())
+    const static float_t sdf(CurveType curve, float_t2 pos, float_t thickness, bool isRoadStyle, Clipper clipper = DefaultClipper<typename CurveType::scalar_t>::construct())
     {
         typename CurveType::Candidates candidates = curve.getClosestCandidates(pos);
 
         const float_t InvalidT = 3.402823466e+38F; // TODO: use numeric limits
-        const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f);
+        const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f); // TODO: ' + 1' is too much?
 
         bool clipped = false;
         float_t closestDistanceSquared = MAX_DISTANCE_SQUARED;
@@ -217,23 +214,27 @@ struct ClippedSignedDistance
         float_t roundedDistance = closestDistanceSquared - thickness;
 
         // TODO[Przemek]: if style `isRoadStyle` is true use rectCapped, else use normal roundedDistance and remove this #ifdef
-#define ROUNDED
-#ifdef ROUNDED
-        return roundedDistance;
-#else
-        const float_t aaWidth = globals.antiAliasingFactor;
-        float_t rectCappedDistance = roundedDistance;
-
-        if (clipped)
+        if(!isRoadStyle)
         {
-            float_t2 q = mul(curve.getLocalCoordinateSpace(closestT), pos - curve.evaluate(closestT));
-            rectCappedDistance = capSquare(q, thickness, aaWidth);
+            return roundedDistance;
         }
         else
-            rectCappedDistance = rectCappedDistance;
+        {
+            const float_t aaWidth = globals.antiAliasingFactor;
+            float_t rectCappedDistance = roundedDistance;
 
-        return rectCappedDistance;
-#endif
+            if (clipped)
+            {
+                float_t2 q = mul(curve.getLocalCoordinateSpace(closestT), pos - curve.evaluate(closestT));
+                rectCappedDistance = capSquare(q, thickness, aaWidth);
+            }
+            else
+            {
+                rectCappedDistance = rectCappedDistance;
+            }
+
+            return rectCappedDistance;
+        }
     }
 
     static float capSquare(float_t2 q, float_t th, float_t aaWidth)
@@ -266,6 +267,7 @@ float4 main(PSInput input) : SV_TARGET
         const float2 end = input.getLineEnd();
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
+        const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
@@ -273,13 +275,13 @@ float4 main(PSInput input) : SV_TARGET
         float distance;
         if (!lineStyles[styleIdx].hasStipples())
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, isRoadStyle);
         }
         else
         {
             StyleAccessor styleAccessor = { styleIdx };
             LineStyleClipper clipper = LineStyleClipper::construct(styleAccessor, lineSegment, arcLenCalc, input.getCurrentPhaseShift());
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, clipper);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, isRoadStyle, clipper);
         }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -292,17 +294,18 @@ float4 main(PSInput input) : SV_TARGET
 
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
+        const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
         float distance;
 
         if (!lineStyles[styleIdx].hasStipples())
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, isRoadStyle);
         }
         else
         {
             StyleAccessor styleAccessor = { styleIdx };
             BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc, input.getCurrentPhaseShift());
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, clipper);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, isRoadStyle, clipper);
         }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -352,6 +355,10 @@ float4 main(PSInput input) : SV_TARGET
         localAlpha = 1.0;
         localAlpha *= smoothstep(-antiAliasingFactorMajor, 0.0, aabbMajorDistance);
         localAlpha *= smoothstep(-antiAliasingFactorMinor, antiAliasingFactorMinor, curveMinorDistance);
+    }
+    else if (objType == ObjectType::POLYLINE_CONNECTOR)
+    {
+        return float4(0.0f, 1.0f, 0.0f, 0.5f);
     }
 
     uint2 fragCoord = uint2(input.position.xy);
