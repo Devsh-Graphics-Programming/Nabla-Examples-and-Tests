@@ -7,7 +7,7 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include "curves.h"
-#include "Renderer.h"
+#include "Polyline.h"
 
 typedef uint32_t uint;
 
