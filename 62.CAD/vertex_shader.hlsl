@@ -2,7 +2,7 @@
 
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
-#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -389,29 +389,29 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);
 
-        outV.setCurveMinMinor(nbl::hlsl::equations::Quadratic<float>::construct(
+        outV.setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMin.A[minor], 
             curveMin.B[minor], 
             curveMin.C[minor]));
-        outV.setCurveMinMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+        outV.setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMin.A[major], 
             curveMin.B[major], 
             curveMin.C[major]));
 
-        outV.setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float>::construct(
+        outV.setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMax.A[minor], 
             curveMax.B[minor], 
             curveMax.C[minor]));
-        outV.setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float>::construct(
+        outV.setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMax.A[major], 
             curveMax.B[major], 
             curveMax.C[major]));
 
-        //nbl::hlsl::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //nbl::hlsl::math::equations::Quadratic<float> curveMinRootFinding = nbl::hlsl::math::equations::Quadratic<float>::construct(
         //    curveMin.A[major], 
         //    curveMin.B[major], 
         //    curveMin.C[major] - maxCorner[major]);
-        //nbl::hlsl::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::equations::Quadratic<float>::construct(
+        //nbl::hlsl::math::equations::Quadratic<float> curveMaxRootFinding = nbl::hlsl::math::equations::Quadratic<float>::construct(
         //    curveMax.A[major], 
         //    curveMax.B[major], 
         //    curveMax.C[major] - maxCorner[major]);

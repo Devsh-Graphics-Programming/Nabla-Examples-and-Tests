@@ -14,17 +14,17 @@ std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, dou
 	const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
 	if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
 	{
-		auto res = equations::Quartic<double>::construct(a, b, c, d, e).computeRoots();
+		auto res = math::equations::Quartic<double>::construct(a, b, c, d, e).computeRoots();
 		memcpy(&t[0], &res.x, sizeof(double) * 4);
 	}
 	else if (abs(b) > quadCoeffMag * QUARTIC_THRESHHOLD)
 	{
-		auto res = equations::Cubic<double>::construct(b, c, d, e).computeRoots();
+		auto res = math::equations::Cubic<double>::construct(b, c, d, e).computeRoots();
 		memcpy(&t[0], &res.x, sizeof(double) * 3);
 	}
 	else
 	{
-		auto res = equations::Quadratic<double>::construct(c, d, e).computeRoots();
+		auto res = math::equations::Quadratic<double>::construct(c, d, e).computeRoots();
 		memcpy(&t[0], &res.x, sizeof(double) * 2);
 	}
 
@@ -732,7 +732,7 @@ double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant,
 	float64_t B = 2.0 * (points[1] - points[0]);
 	float64_t C = points[0];
 
-	float64_t2 roots = nbl::hlsl::equations::Quadratic<float64_t>::construct(A, B, C).computeRoots();
+	float64_t2 roots = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(A, B, C).computeRoots();
 	if (roots.x >= 0.0 && roots.x <= 1.0) return roots.x;
 	if (roots.y >= 0.0 && roots.y <= 1.0) return roots.y;
 	return core::nan<double>();
