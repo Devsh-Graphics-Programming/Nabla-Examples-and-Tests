@@ -1,6 +1,7 @@
 
 #include "curves.h"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
+#include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 
 namespace curves
 {
@@ -457,6 +458,37 @@ float64_t ExplicitMixedCircle::getSign(float64_t x)
     return static_cast<float64_t>((x > 0.0)) - static_cast<float64_t>((x <= 0.0));
 }
 
+float64_t2 OffsettedBezier::computePosition(float64_t t) const
+{
+    const float64_t2 deriv = quadratic.derivative(t);
+    const float64_t2 normal = normalize(float64_t2(deriv.y, -deriv.x));
+    return quadratic.evaluate(t) + offset * normal;
+}
+
+float64_t2 OffsettedBezier::computeTangent(float64_t t) const
+{
+    const float64_t2 ddt = quadratic.derivative(t);
+    const float64_t2 d2dt2 = quadratic.secondDerivative(t);
+    const float64_t g = offset * (ddt.x * d2dt2.y - ddt.y * d2dt2.x);
+    return ddt + (ddt * g) / glm::length(ddt);
+}
+
+float64_t OffsettedBezier::differentialArcLen(float64_t t) const
+{
+    return length(computeTangent(t));
+}
+
+inline float64_t2 OffsettedBezier::findCusps() const
+{
+    // we're basically solving for t in "offset = radiusOfCurvature(t)"
+    const float64_t lhs = pow(offset * 2.0 * abs(quadratic.B.x * quadratic.A.y - quadratic.B.y * quadratic.A.x), 2.0 / 3.0);
+    const float64_t a = 4.0 * (quadratic.A.x * quadratic.A.x + quadratic.A.y * quadratic.A.y);
+    const float64_t b = 4.0 * (quadratic.A.x * quadratic.B.x + quadratic.A.y * quadratic.B.y);
+    const float64_t c = quadratic.B.x * quadratic.B.x + quadratic.B.y * quadratic.B.y - lhs;
+    nbl::hlsl::math::equations::Quadratic<float64_t> findCuspsQuadratic = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(a, b, c);
+    return findCuspsQuadratic.computeRoots();
+}
+
 // Fix Bezier Hack for when P1 is "outside" P0 -> P2
 // We project P1 into P0->P2 line and see whether it lies inside.
 // Because our curves shouldn't go back on themselves in the direction of the chord
@@ -572,6 +604,30 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
     }
 }
 
+void Subdivision::adaptive(const OffsettedBezier& curve, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth)
+{
+    const float64_t2 cusps = curve.findCusps();
+
+    const float64_t t0 = min(cusps[0], cusps[1]);
+    const float64_t t1 = max(cusps[0], cusps[1]);
+
+    const bool firstCusp = t0 > 0.0 && t0 < 1.0;
+    const bool secondCusp = t1 > 0.0 && t1 < 1.0;
+
+    // if there are two cusps (offset = radius of curvature) then we have that unwanted gouging and we prefer to seperately subdivide those three sections
+    if (firstCusp && secondCusp)
+    {
+        adaptive_impl(curve, 0.0, t0, targetMaxError, addBezierFunc, maxDepth);
+        adaptive_impl(curve, t0, t1, targetMaxError, addBezierFunc, maxDepth);
+        adaptive_impl(curve, t1, 1.0, targetMaxError, addBezierFunc, maxDepth);
+    }
+    // otherwise just subdivide from start/0.0 to end/1.0
+    else
+    {
+        adaptive_impl(curve, 0.0, 1.0, targetMaxError, addBezierFunc, maxDepth);
+    }
+}
+
 void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
 {
     float64_t split = curve.inverseArcLen_BisectionSearch(0.5, min, max);
@@ -608,8 +664,8 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
             else
             {
                 const float64_t2 curvePositionAtSplit = curve.computePosition(split);
-                const float64_t bezierYAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
-                _NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit));
+                float64_t bezierYAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
+                //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit));
                 if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
                     shouldSubdivide = true;
             }
@@ -626,4 +682,6 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
         addBezierFunc(std::move(bezier));
     }
 }
+
+
 }

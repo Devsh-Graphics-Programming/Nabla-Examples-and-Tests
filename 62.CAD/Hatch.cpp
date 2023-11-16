@@ -928,7 +928,7 @@ double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant,
 	float64_t B = 2.0 * (points[1] - points[0]);
 	float64_t C = points[0];
 
-	float64_t2 roots = nbl::hlsl::equations::Quadratic<float64_t>::construct(A, B, C).computeRoots();
+	float64_t2 roots = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(A, B, C).computeRoots();
 	if (roots.x >= 0.0 && roots.x <= 1.0) return roots.x;
 	if (roots.y >= 0.0 && roots.y <= 1.0) return roots.y;
 	return core::nan<double>();

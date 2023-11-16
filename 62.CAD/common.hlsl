@@ -5,7 +5,7 @@
 #include <nbl/builtin/hlsl/limits.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
-#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #endif
 
 // TODO:[Przemek]: add another object type: POLYLINE_CONNECTOR which is our miters eventually
@@ -224,7 +224,7 @@ struct PrecomputedRootFinder
         return result;
     }
 
-    static PrecomputedRootFinder construct(nbl::hlsl::equations::Quadratic<float_t> quadratic)
+    static PrecomputedRootFinder construct(nbl::hlsl::math::equations::Quadratic<float_t> quadratic)
     {
         PrecomputedRootFinder result;
         result.C2 = quadratic.c * 2.0;
@@ -281,38 +281,38 @@ struct PSInput
     // TODO: possible optimization: passing precomputed values for solving the quadratic equation instead
 
     // data2, data3, data4
-    nbl::hlsl::equations::Quadratic<float> getCurveMinMinor() {
-        return nbl::hlsl::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
+    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMinor() {
+        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.x, data2.y, data2.z);
     }
-    nbl::hlsl::equations::Quadratic<float> getCurveMaxMinor() {
-        return nbl::hlsl::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
+    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMinor() {
+        return nbl::hlsl::math::equations::Quadratic<float>::construct(data2.w, data3.x, data3.y);
     }
 
-    void setCurveMinMinor(nbl::hlsl::equations::Quadratic<float> bezier) {
+    void setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
         data2.x = bezier.a;
         data2.y = bezier.b;
         data2.z = bezier.c;
     }
-    void setCurveMaxMinor(nbl::hlsl::equations::Quadratic<float> bezier) {
+    void setCurveMaxMinor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
         data2.w = bezier.a;
         data3.x = bezier.b;
         data3.y = bezier.c;
     }
 
     // data4
-    nbl::hlsl::equations::Quadratic<float> getCurveMinMajor() {
-        return nbl::hlsl::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
+    nbl::hlsl::math::equations::Quadratic<float> getCurveMinMajor() {
+        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.x, data4.y, data3.z);
     }
-    nbl::hlsl::equations::Quadratic<float> getCurveMaxMajor() {
-        return nbl::hlsl::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
+    nbl::hlsl::math::equations::Quadratic<float> getCurveMaxMajor() {
+        return nbl::hlsl::math::equations::Quadratic<float>::construct(data4.z, data4.w, data3.w);
     }
 
-    void setCurveMinMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
+    void setCurveMinMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
         data4.x = bezier.a;
         data4.y = bezier.b;
         data3.z = bezier.c;
     }
-    void setCurveMaxMajor(nbl::hlsl::equations::Quadratic<float> bezier) {
+    void setCurveMaxMajor(nbl::hlsl::math::equations::Quadratic<float> bezier) {
         data4.z = bezier.a;
         data4.w = bezier.b;
         data3.w = bezier.c;

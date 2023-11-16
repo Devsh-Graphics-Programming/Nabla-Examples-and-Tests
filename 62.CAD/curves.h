@@ -3,6 +3,7 @@
 
 #include <nabla.h>
 #include "glm/glm/glm.hpp"
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 using namespace nbl::hlsl;
@@ -271,6 +272,29 @@ namespace curves
         }
     };
 
+    struct OffsettedBezier : public ParametricCurve
+    {
+        nbl::hlsl::shapes::Quadratic<float64_t> quadratic;
+        float64_t offset;
+
+        OffsettedBezier(const QuadraticBezierInfo& quadBezier, float64_t offset)
+            : offset(offset)
+        {
+            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.p[0], quadBezier.p[1], quadBezier.p[2]);
+        }
+
+        float64_t2 computePosition(float64_t t) const override;
+
+        //! compute unnormalized tangent vector at t
+        float64_t2 computeTangent(float64_t t) const override;
+
+        //! compute differential arc length at t
+        float64_t differentialArcLen(float64_t t) const override;
+
+        //! if offset is more than minimum radius of curvature then we get an unwanted gouging/cusp
+        float64_t2 findCusps() const;
+    };
+
     class Subdivision final
     {
     public:
@@ -284,6 +308,8 @@ namespace curves
         static void adaptive(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12);
 
         static void adaptive(const EllipticalArcInfo& ellipse, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12);
+        
+        static void adaptive(const OffsettedBezier& curve, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t maxDepth = 12);
 
     private:
         static void adaptive_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth);
