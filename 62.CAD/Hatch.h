@@ -7,14 +7,14 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 #include "curves.h"
-#include "Renderer.h"
+#include "Polyline.h"
 
 typedef uint32_t uint;
 
 #include "common.hlsl"
 
-#include <nbl/builtin/hlsl/equations/cubic.hlsl>
-#include <nbl/builtin/hlsl/equations/quartic.hlsl>
+#include <nbl/builtin/hlsl/math/equations/cubic.hlsl>
+#include <nbl/builtin/hlsl/math/equations/quartic.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 using namespace nbl;

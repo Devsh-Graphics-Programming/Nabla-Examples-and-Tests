@@ -4,7 +4,7 @@
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
-#include <nbl/builtin/hlsl/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -316,13 +316,13 @@ float4 main(PSInput input) : SV_TARGET
         const float minorBBoxUv = input.getMinorBBoxUv();
         const float majorBBoxUv = input.getMajorBBoxUv();
 
-        nbl::hlsl::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
-        nbl::hlsl::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
-        nbl::hlsl::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
-        nbl::hlsl::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
+        nbl::hlsl::math::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
+        nbl::hlsl::math::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
+        nbl::hlsl::math::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
+        nbl::hlsl::math::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
 
-        nbl::hlsl::equations::Quadratic<float> minCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.001,0.999));
-        nbl::hlsl::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.001,0.999));
+        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.001,0.999));
+        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.001,0.999));
 
         const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
         const float minEv = curveMinMinor.evaluate(minT);

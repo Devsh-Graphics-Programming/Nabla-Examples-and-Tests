@@ -8,7 +8,7 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include "curves.h"
 #include "Hatch.h"
-#include "Renderer.h"
+#include "Polyline.h"
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
