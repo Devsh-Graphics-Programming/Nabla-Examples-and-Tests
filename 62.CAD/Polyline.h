@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nabla.h>
+#include "curves.h"
 
 using namespace nbl;
 using namespace ui;
@@ -254,6 +255,61 @@ public:
 
 		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
 	*/
+
+	void offset(float64_t offset)
+	{
+		for (uint32_t i = 0; i < m_sections.size(); ++i)
+		{
+
+		}
+	}
+
+	CPolyline generateParallelPolyline(float64_t offset) const 
+	{
+		CPolyline parallelPolyline = {};
+
+		for (uint32_t i = 0; i < m_sections.size(); ++i)
+		{
+			const auto& section = m_sections[i];
+			if (section.type == ObjectType::LINE)
+			{
+				std::vector<float64_t2> newLinePoints;
+				newLinePoints.reserve(m_linePoints.size());
+				for (uint32_t j = 0; j < section.count + 1; ++j)
+				{
+					const uint32_t linePointIdx = section.index + j;
+					float64_t2 offsetVector;
+					if (j == 0)
+					{
+						// start
+						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+						offsetVector = float64_t2(tangent.y, -tangent.x);
+					}
+					else if (j == section.count)
+					{
+						// end
+						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+						offsetVector = float64_t2(tangent.y, -tangent.x);
+					}
+					else
+					{
+						const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+						const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
+						const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+						const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
+
+						const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
+						const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
+						offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
+					}
+					newLinePoints.push_back(m_linePoints[linePointIdx] + offsetVector * offset);
+				}
+				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(newLinePoints.begin()._Ptr, newLinePoints.end()._Ptr));
+			}
+		}
+
+		return parallelPolyline;
+	}
 
 protected:
 	// TODO[Przemek]: a vector of polyline connetor objects
