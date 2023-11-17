@@ -6,11 +6,12 @@
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include "curves.h"
 #include "Hatch.h"
 #include "Polyline.h"
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
@@ -1301,6 +1302,7 @@ public:
 		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
 		initParams.physicalDeviceFilter.requiredFeatures.shaderClipDistance = true;
 		initParams.physicalDeviceFilter.requiredFeatures.scalarBlockLayout = true;
+		initParams.physicalDeviceFilter.requiredFeatures.shaderDemoteToHelperInvocation = true; //delete later?
 		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
 
 		system = std::move(initOutput.system);
@@ -2562,13 +2564,18 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
-// test polyline 1
-#if 0
+//#define CASE_5_POLYLINE_1
+//#define CASE_5_POLYLINE_2
+//#define CASE_5_POLYLINE_3
+//#define CASE_5_POLYLINE_4
+#define CASE_5_POLYLINE_5
+
+#if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 2.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
-			
+
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
@@ -2601,7 +2608,7 @@ public:
 				linePoints2.push_back({ 140.0, 0.0 });
 				linePoints2.push_back({ 140.0, -80.0 });
 				linePoints2.push_back({ -140.0, -80.0 });
-				linePoints2.push_back({ -150.0, 20.0,});
+				linePoints2.push_back({ -150.0, 20.0, });
 				linePoints2.push_back({ -100.0, 50.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
 
@@ -2625,7 +2632,8 @@ public:
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-#endif
+
+#elif defined(CASE_5_POLYLINE_2)
 
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
@@ -2644,11 +2652,101 @@ public:
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 0.0, 0.0 });
 				linePoints.push_back({ 50.0, -50.0 });
+				linePoints.push_back({ 0.0, -50.0 });
+				linePoints.push_back({ 50.0, 0.0 });
+				linePoints.push_back({ 0.0, 50.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+#elif defined(CASE_5_POLYLINE_3)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 5.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = true;
+
+			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
+			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			std::array<float, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+
+			CPolyline polyline;
+			{
+				std::vector<float64_t2> linePoints;
+				const double animationFactor = std::cos(m_timeElapsed * 0.0003);
+				linePoints.push_back({-200.0,  50.0 * animationFactor});
+				linePoints.push_back({-150.0, -50.0 * animationFactor});
+				linePoints.push_back({-100.0,  50.0 * animationFactor});
+				linePoints.push_back({-50.0,  -50.0 * animationFactor});
+				linePoints.push_back({ 0.0,    50.0 * animationFactor});
+				linePoints.push_back({ 50.0,  -50.0 * animationFactor});
+				linePoints.push_back({ 100.0,  50.0 * animationFactor});
+				linePoints.push_back({ 150.0, -50.0 * animationFactor});
+				linePoints.push_back({ 200.0,  50.0 * animationFactor});
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+#elif defined(CASE_5_POLYLINE_4)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 5.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = true;
+
+			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
+			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			std::array<float, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+
+			CPolyline polyline;
+			{
+				std::vector<float64_t2> linePoints;
+
+				const float rotationAngle = m_timeElapsed * 0.0005;
+				const float64_t rotationAngleCos = std::cos(rotationAngle);
+				const float64_t rotationAngleSin = std::sin(rotationAngle);
+				const float64_t2x2 rotationMatrix = float64_t2x2(rotationAngleCos, -rotationAngleSin, rotationAngleSin, rotationAngleCos);
+				linePoints.push_back({ 0.0, -50.0 });
+				linePoints.push_back({ 0.0,  0.0 });
+				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)));
+
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+#elif defined(CASE_5_POLYLINE_5)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 5.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = true;
+			
+			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
+			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			std::array<float, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			
+			CPolyline polyline;
+			{
+				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
+				quadratics[0].P0 = { 0.0, 0.0 };
+				quadratics[0].P1 = { 20.0, 80.0 };
+				quadratics[0].P2 = { 40.0, 0.0 };
+
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.preprocessPolylineWithStyle(style);
+			}
+			
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+#endif
+
 		}
 
 		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);

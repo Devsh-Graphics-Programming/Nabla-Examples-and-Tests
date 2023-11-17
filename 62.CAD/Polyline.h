@@ -1,6 +1,7 @@
 #pragma once
 
 #include <nabla.h>
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
 
 using namespace nbl;
 using namespace ui;
@@ -313,8 +314,8 @@ public:
 					if (lineStyle.isRoadStyleFlag)
 					{
 						PolylineConnectorHelperInfo connectorInfo;
-						connectorInfo.worldSpaceCircleCenter = linePoint.p;
-						connectorInfo.normal = float32_t2(-line.x, line.y) / static_cast<float>(lineLen);
+						connectorInfo.worldSpaceCircleCenter = prevLinePoint.p;
+						connectorInfo.normal = float32_t2(-line.y, line.x) / static_cast<float>(lineLen);
 						connectorInfo.phaseShift = linePoint.phaseShift;
 
 						connectorInfos.push_back(connectorInfo);
@@ -358,7 +359,7 @@ public:
 						quadBezierInfo.phaseShift = phaseShiftTotal;
 					}
 
-					// TODO: bezier tangent
+					// TODO: bezier normal
 					//if (lineStyle.isRoadStyleFlag)
 					//{
 
@@ -371,27 +372,29 @@ public:
 			{
 				for (uint32_t i = 1u; i < connectorInfos.size(); i++)
 				{
+					// TODO[Przemek]: this is tailored for specific case and not correct, every line has 2 normals at P0, and there should be other way to find the correct ones
+					const float32_t2 prevLineNormal = connectorInfos[i - 1].normal;
+					const float32_t2 nextLineNormal = connectorInfos[i].normal;
+
+					// This basicly tells me if theta < alpha
+					const float crossProductZ = nextLineNormal.x * prevLineNormal.y - prevLineNormal.x * nextLineNormal.y;
+
+					if (std::abs(crossProductZ) < 0.000001f)
+						continue;
+
+					const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
+					const float64_t cosAngleBetweenNormals = glm::dot(prevLineNormal, nextLineNormal);
+
 					PolylineConnector res{};
-
-					//// TODO[Przemek]: this is tailored for specific case and not correct, every line has 2 normals at P0, and there should be other way to find the correct ones
-					//const float32_t2 N0 = connectorInfos[i - 1].normal;
-					//const float32_t2 N1 = -connectorInfos[i].normal;
-
-					//res.circleCenter = connectorInfos[i].worldSpaceCircleCenter;
-
-					//const float cosTheta = N1.x; // dot(N1, { 1, 0 }) = N1.x * 1
-					//const float cosAlpha = N0.x; // dot(N0, { 1, 0 }) = N0.x * 1
-					//const float theta = std::acos(cosTheta);
-					//const float alpha = std::acos(cosAlpha);
-					//const float sinTheta = std::sin(theta);
-					////const float beta = std::abs(alpha - theta);
-					//res.cosAngleDifferenceHalf = std::abs(cosTheta - cosAlpha) * 0.5f;
-
-					//// calculate intersection point in circle space
-					//const glm::mat2x2 rotationMatrix = glm::mat2x2(-cosTheta, -sinTheta, -sinTheta, cosTheta); // TODO: use glm::rotate
-					//res.v = rotationMatrix * float32_t2(lineStyle.screenSpaceLineWidth, lineStyle.screenSpaceLineWidth * std::tan(acos(res.cosAngleDifferenceHalf)));
-
 					res.circleCenter = connectorInfos[i].worldSpaceCircleCenter;
+					res.v = static_cast<float32_t2>(intersectionDirection * std::sqrt(2.0 / (1.0 + cosAngleBetweenNormals)));
+					//res.cosAngleDifferenceHalf = std::cos(std::acos(cosAngleBetweenNormals) * 0.5f);
+					res.cosAngleDifferenceHalf = static_cast<float32_t>(std::sqrt((1.0 + cosAngleBetweenNormals) * 0.5));
+					res.phaseShift = connectorInfos[i].phaseShift;
+
+					if (crossProductZ < 0.0f)
+						res.v = -res.v;
+
 					m_polylineConnector.push_back(res);
 				}
 			}

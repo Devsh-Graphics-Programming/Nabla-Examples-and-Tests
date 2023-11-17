@@ -393,13 +393,52 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        outV.setColor(lineStyle.color);
-        outV.setLineThickness(screenSpaceLineWidth / 2.0f);
+        //outV.setColor(lineStyle.color);
+        outV.setColor(float4(0.0f, 0.0f, 1.0f, 0.5f));
+        const float lineThickness = screenSpaceLineWidth / 2.0f;
+        outV.setLineThickness(lineThickness);
+
+        double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
+
+        float2 vScreenSpace = float2(v.x, -v.y);
+        float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+        //float2 circleCenterNDC = transformPointNdc(clipProjectionData.projectionToNDC, circleCenter);
+
+        if (vertexIdx == 0u)
+        {
+            const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
+            const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
+            const float2 v1ScreenSpace = normalize(mul(vScreenSpace, rotationMatrix)) * lineThickness;
+
+            outV.position = float4(circleCenterScreenSpace + v1ScreenSpace, 0.0f, 1.0f);
+        }
+        else if (vertexIdx == 1u)
+        {
+            outV.position = float4(circleCenterScreenSpace, 0.0f, 1.0f);
+        }
+        else if (vertexIdx == 2u)
+        {
+            outV.position = float4(circleCenterScreenSpace + vScreenSpace * lineThickness, 0.0f, 1.0f);
+        }
+        else if (vertexIdx == 3u)
+        {
+            const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
+            const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
+            const float2 v2ScreenSpace = normalize(mul(rotationMatrix, vScreenSpace)) * lineThickness;
+
+            outV.position = float4(circleCenterScreenSpace + v2ScreenSpace, 0.0f, 1.0f);
+        }
+
+        // convert back to ndc
+        outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
+        outV.position.w = 1u;
     }
     
     
 // Make the cage fullscreen for testing:
-#if 1
+#if 0
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)

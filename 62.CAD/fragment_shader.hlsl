@@ -358,7 +358,7 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        return float4(0.0f, 1.0f, 0.0f, 0.5f);
+        localAlpha = 0.5;
     }
 
     uint2 fragCoord = uint2(input.position.xy);
@@ -393,6 +393,9 @@ float4 main(PSInput input) : SV_TARGET
     col = input.getColor();
     col.w *= localAlpha;
 #endif
-
+    if (objType == ObjectType::POLYLINE_CONNECTOR)
+    {
+        return float4(0.0f, 1.0f, 0.0f, 0.3f);
+    }
     return float4(col);
 }
