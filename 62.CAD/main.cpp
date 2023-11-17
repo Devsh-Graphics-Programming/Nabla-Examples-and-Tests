@@ -2239,11 +2239,15 @@ public:
 			linePoints.push_back({ 20.0, 0.0 });
 			linePoints.push_back({ 10.0, -10.0 });
 			linePoints.push_back({ 10.0, -20.0 });
+			linePoints.push_back({ 0.0, 0.0 });
+			originalPolyline.setClosed(true);
 			originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(5.0 * (cos(m_timeElapsed * 0.0003)));
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(2.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-2.0 * abs(cos(m_timeElapsed * 0.0009)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 			CPolyline polyline;
 

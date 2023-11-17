@@ -267,6 +267,7 @@ public:
 	CPolyline generateParallelPolyline(float64_t offset) const 
 	{
 		CPolyline parallelPolyline = {};
+		parallelPolyline.setClosed(m_closedPolygon);
 
 		for (uint32_t i = 0; i < m_sections.size(); ++i)
 		{
@@ -282,14 +283,42 @@ public:
 					if (j == 0)
 					{
 						// start
-						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
-						offsetVector = float64_t2(tangent.y, -tangent.x);
+						if (m_closedPolygon && i == 0)
+						{
+							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[m_linePoints.size() - 1u] - m_linePoints[m_linePoints.size() - 2u]);
+							const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
+							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+							const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
+
+							const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
+							const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
+							offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
+						}
+						else
+						{
+							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+							offsetVector = float64_t2(tangent.y, -tangent.x);
+						}
 					}
 					else if (j == section.count)
 					{
 						// end
-						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
-						offsetVector = float64_t2(tangent.y, -tangent.x);
+						if (m_closedPolygon && i == m_sections.size() - 1)
+						{
+							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+							const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
+							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[1u] - m_linePoints[0u]);
+							const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
+
+							const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
+							const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
+							offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
+						}
+						else
+						{
+							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+							offsetVector = float64_t2(tangent.y, -tangent.x);
+						}
 					}
 					else
 					{
@@ -311,10 +340,18 @@ public:
 		return parallelPolyline;
 	}
 
+	void setClosed(bool closed)
+	{
+		m_closedPolygon = closed;
+	}
+
 protected:
 	// TODO[Przemek]: a vector of polyline connetor objects
 	std::vector<SectionInfo> m_sections;
 	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
 	std::vector<float64_t2> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+
+	// important for miter and parallel generation
+	bool m_closedPolygon = false;
 };
