@@ -1,0 +1,11 @@
+{
+  "dependencies": [],
+  "data": [
+    {
+      "dependencies": [],
+      "command": [
+        "${CMAKE_COMMAND}", "-E", "echo", "Testing common batch - it executes for each profile!"
+      ]
+    }
+  ]
+}

@@ -4,26 +4,18 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-// TODO: get these all included by the appropriate namespace headers!
-#include "nbl/system/IApplicationFramework.h"
+#include "MonoSystemMonoLoggerApplication.hpp"
 
 #include "nbl/ui/CGraphicalApplicationAndroid.h"
 #include "nbl/ui/CWindowManagerAndroid.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
 
 // TODO: see TODO below
-#if defined(_NBL_PLATFORM_WINDOWS_)
-#include <nbl/system/CColoredStdoutLoggerWin32.h>
-#elif defined(_NBL_PLATFORM_ANDROID_)
-#include <nbl/system/CStdoutLoggerAndroid.h>
-#endif
-#include "nbl/system/CSystemAndroid.h"
-#include "nbl/system/CSystemLinux.h"
-#include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
 #include "nbl/video/utilities/SPhysicalDeviceFilter.h"
 
+#if 0
 class CommonAPI
 {
 	CommonAPI() = delete;
@@ -223,52 +215,6 @@ public:
 			m_inputSystem = std::move(inputSystem);
 		}
 	private:
-		bool onWindowShown_impl() override
-		{
-			m_logger.log("Window Shown");
-			return true;
-		}
-		bool onWindowHidden_impl() override
-		{
-			m_logger.log("Window hidden");
-			return true;
-		}
-		bool onWindowMoved_impl(int32_t x, int32_t y) override
-		{
-			m_logger.log("Window window moved to { %d, %d }", nbl::system::ILogger::ELL_WARNING, x, y);
-			return true;
-		}
-		bool onWindowResized_impl(uint32_t w, uint32_t h) override
-		{
-			m_logger.log("Window resized to { %u, %u }", nbl::system::ILogger::ELL_DEBUG, w, h);
-			return true;
-		}
-		bool onWindowMinimized_impl() override
-		{
-			m_logger.log("Window minimized", nbl::system::ILogger::ELL_ERROR);
-			return true;
-		}
-		bool onWindowMaximized_impl() override
-		{
-			m_logger.log("Window maximized", nbl::system::ILogger::ELL_PERFORMANCE);
-			return true;
-		}
-		void onGainedMouseFocus_impl() override
-		{
-			m_logger.log("Window gained mouse focus", nbl::system::ILogger::ELL_INFO);
-		}
-		void onLostMouseFocus_impl() override
-		{
-			m_logger.log("Window lost mouse focus", nbl::system::ILogger::ELL_INFO);
-		}
-		void onGainedKeyboardFocus_impl() override
-		{
-			m_logger.log("Window gained keyboard focus", nbl::system::ILogger::ELL_INFO);
-		}
-		void onLostKeyboardFocus_impl() override
-		{
-			m_logger.log("Window lost keyboard focus", nbl::system::ILogger::ELL_INFO);
-		}
 		
 		bool onWindowClosed_impl() override
 		{
@@ -303,66 +249,14 @@ public:
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 		bool m_gotWindowClosedMsg;
 	};
-
-	static nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
-	{
-		using namespace nbl;
-		using namespace system;
-#ifdef _NBL_PLATFORM_WINDOWS_
-		return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemWin32>();
-#elif defined(_NBL_PLATFORM_ANDROID_)
-#if 0
-		return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemAndroid>(std::move(caller));
-#endif
-#endif
-		return nullptr;
-
-	}
 	
-	class IPhysicalDeviceSelector
-	{
-	public:
-		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDeviceFilter`
-		virtual nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) = 0;
-	};
-	
-	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
-	{
-	protected:
-		const nbl::video::IPhysicalDevice::E_DRIVER_ID preferredDriver = nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY;
-
-	public:
-
-		CDefaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::E_DRIVER_ID preferredDriver)
-			: preferredDriver(preferredDriver)
-		{}
-
-		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
-		nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) override;
-	};
-
-	template <typename FeatureType>
-	struct SFeatureRequest
-	{
-		uint32_t count = 0u;
-		FeatureType* features = nullptr;
-	};
 	
 	struct InitParams
-	{
-		std::string_view appName;
-		nbl::video::E_API_TYPE apiType = nbl::video::EAT_VULKAN;
-		
+	{		
 		uint32_t framesInFlight = 5u;
 		uint32_t windowWidth = 800u;
 		uint32_t windowHeight = 600u;
 		uint32_t swapchainImageCount = 3u;
-
-		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
-		//! Optional: Physical Device Requirements include features, limits, memory size, queue count, etc. requirements
-		nbl::video::SPhysicalDeviceFilter physicalDeviceFilter = {};
-		//! Optional: PhysicalDevices that meet all the requirements of `physicalDeviceFilter` will go through `physicalDeviceSelector` to select one from the suitable physical devices
-		IPhysicalDeviceSelector* physicalDeviceSelector = nullptr;
 
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE;
 
@@ -399,18 +293,9 @@ public:
 
 	struct InitOutput
 	{
-		enum E_QUEUE_TYPE
-		{
-			EQT_GRAPHICS = 0,
-			EQT_COMPUTE,
-			EQT_TRANSFER_UP,
-			EQT_TRANSFER_DOWN,
-			EQT_COUNT
-		};
 		
 		static constexpr uint32_t MaxQueuesInFamily = 32;
 		static constexpr uint32_t MaxFramesInFlight = 10u;
-		static constexpr uint32_t MaxQueuesCount = EQT_COUNT;
 		static constexpr uint32_t MaxSwapChainImageCount = 4;
 
 		nbl::core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
@@ -418,7 +303,6 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
 		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
 		nbl::video::IPhysicalDevice* physicalDevice;
-		std::array<nbl::video::IGPUQueue*, MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
 		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxFramesInFlight>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderToSwapchainRenderpass;
 		nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
@@ -431,38 +315,6 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	};
 
-	template<typename AppClassName>
-	static void main(int argc, char** argv)
-	{
-#ifndef _NBL_PLATFORM_ANDROID_
-		nbl::system::path CWD = nbl::system::path(argv[0]).parent_path().generic_string() + "/";
-		nbl::system::path sharedInputCWD = CWD / "../../media/";
-		nbl::system::path sharedOutputCWD = CWD / "../../tmp/";;
-		nbl::system::path localInputCWD = CWD / "../assets";
-		nbl::system::path localOutputCWD = CWD;
-		// TODO: make NonGraphicalApplicationBase(IApplicationFramework inherit from nbl::core::IReferenceCounted?)
-		auto app = nbl::core::make_smart_refctd_ptr<AppClassName>(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD);
-
-		for (size_t i = 0; i < argc; ++i)
-			app->argv.push_back(std::string(argv[i]));
-
-		app->onAppInitialized();
-		while (app->keepRunning())
-		{
-			app->workLoopBody();
-		}
-		app->onAppTerminated();
-#endif
-	}
-	
-#ifdef _NBL_PLATFORM_ANDROID_
-	static void recreateSurface(nbl::ui::CGraphicalApplicationAndroid* framework)
-	{
-		// Will handle android properly later
-		_NBL_TODO();
-	}
-#endif
-
 	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback, nbl::video::DeviceFeatureDependantClass... device_feature_dependant_t>
 	static InitOutput Init(InitParams&& params)
 	{
@@ -472,18 +324,6 @@ public:
 		InitOutput result;
 
 		bool headlessCompute = params.isHeadlessCompute();
-
-#ifdef _NBL_PLATFORM_WINDOWS_
-		result.system = createSystem();
-#endif
-
-#ifdef _NBL_PLATFORM_WINDOWS_
-		result.logger = nbl::core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(params.logLevel);
-#elif defined(_NBL_PLATFORM_ANDROID_)
-		result.logger = nbl::core::make_smart_refctd_ptr<system::CStdoutLoggerAndroid>(params.logLevel);
-#endif
-
-		result.compilerSet = nbl::core::make_smart_refctd_ptr<nbl::asset::CCompilerSet>(nbl::core::smart_refctd_ptr(result.system));
 
 		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
 		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system), nbl::core::smart_refctd_ptr(result.compilerSet)); // we should let user choose it?
@@ -716,19 +556,6 @@ public:
 	}
 
 protected:
-	static nbl::core::set<nbl::video::IPhysicalDevice*> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
-	{
-		using namespace nbl;
-		using namespace nbl::video;
-
-		core::set<nbl::video::IPhysicalDevice*> ret;
-		for(auto& physDev : physicalDevices) {
-			if(filter.meetsRequirements(physDev))
-				ret.insert(physDev);
-		}
-		return ret;
-	}
-
 	// Used to help with queue selection
 	struct QueueFamilyProps
 	{
@@ -1046,65 +873,7 @@ protected:
 	
 	template<nbl::video::DeviceFeatureDependantClass... device_feature_dependant_t>
 	static void performGpuInit(InitParams& params, InitOutput& result)
-	{
-		using namespace nbl;
-		using namespace nbl::video;
-
-		bool headlessCompute = params.isHeadlessCompute();
-
-		if (params.apiType == EAT_VULKAN)
-		{
-			auto _apiConnection = nbl::video::CVulkanConnection::create(
-				nbl::core::smart_refctd_ptr(result.system),
-				0,
-				params.appName.data(),
-				nbl::core::smart_refctd_ptr(result.logger),
-				params.apiFeaturesToEnable
-			);
-			assert(_apiConnection);
-
-			if (!headlessCompute)
-			{
-	#ifdef _NBL_PLATFORM_WINDOWS_
-				result.surface = nbl::video::CSurfaceVulkanWin32::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowWin32>(static_cast<nbl::ui::IWindowWin32*>(params.window.get())));
-	#elif defined(_NBL_PLATFORM_ANDROID_)
-				////result.surface = nbl::video::CSurfaceVulkanAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
-	#endif
-			}
-			result.apiConnection = _apiConnection;
-		}
-		else
-		{
-			_NBL_TODO();
-		}
-
-		auto gpus = result.apiConnection->getPhysicalDevices();
-		assert(!gpus.empty());
-
-		(device_feature_dependant_t::enableRequiredFeautres(params.physicalDeviceFilter.requiredFeatures),...);
-
-		auto filteredPhysicalDevices = getFilteredPhysicalDevices(gpus, params.physicalDeviceFilter);
-		
-		if(filteredPhysicalDevices.empty() && result.logger)
-		{
-			result.logger->log("No available PhysicalDevice met the requirements.", nbl::system::ILogger::ELL_ERROR);
-			assert(false);
-			return;
-		}
-
-		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
-		if(params.physicalDeviceSelector == nullptr)
-			params.physicalDeviceSelector = &defaultPhysicalDeviceSelector;
-
-		auto selectedPhysicalDevice = params.physicalDeviceSelector->selectPhysicalDevice(filteredPhysicalDevices);
-		
-		if(selectedPhysicalDevice == nullptr)
-		{
-			result.logger->log("Physical Device selection callback returned no physical device.", nbl::system::ILogger::ELL_ERROR);
-			assert(false);
-			return;
-		}
-		
+	{		
 		(device_feature_dependant_t::enablePreferredFeatures(selectedPhysicalDevice->getFeatures(), params.physicalDeviceFilter.requiredFeatures),...);
 		
 		auto queuesInfo = extractPhysicalDeviceQueueInfos(selectedPhysicalDevice, result.surface, headlessCompute);
@@ -1680,7 +1449,7 @@ const nbl::system::path& _sharedOutputCWD) : NonGraphicalApplicationBase(app, en
 #define NBL_COMMON_API_MAIN(android_app_class) NBL_ANDROID_MAIN_FUNC(android_app_class, CommonAPI::CommonAPIEventCallback)
 #else
 using ApplicationBase = GraphicalApplication;
-class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework, public nbl::core::IReferenceCounted
+class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework
 {
 public:
 	using Base = nbl::system::IApplicationFramework;
@@ -1700,5 +1469,6 @@ CommonAPI::main<app_class>(argc, argv);\
 }
 #endif
 //***** Application framework macros ******
+#endif
 
 #endif
