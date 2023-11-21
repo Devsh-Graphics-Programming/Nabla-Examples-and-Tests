@@ -252,12 +252,12 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 leftTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
             float2 leftNormal = normalize(float2(-leftTangent.y, leftTangent.x)) * flip;
             float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * screenSpaceLineWidth / 2.0f;
-            float2 exterior0 = nbl::hlsl::util::LineLineIntersection(middleExteriorPoint, leftExteriorPoint, midTangent, leftTangent);;
+            float2 exterior0 = nbl::hlsl::util::LineLineIntersection(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
             
             float2 rightTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT));
             float2 rightNormal = normalize(float2(-rightTangent.y, rightTangent.x)) * flip;
             float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) - rightNormal * screenSpaceLineWidth / 2.0f;
-            float2 exterior1 = nbl::hlsl::util::LineLineIntersection(middleExteriorPoint, rightExteriorPoint, midTangent, rightTangent);
+            float2 exterior1 = nbl::hlsl::util::LineLineIntersection(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
 
             // Interiors
             {
@@ -278,7 +278,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 endPointExterior = transformedPoints[0u] - endPointTangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(nbl::hlsl::util::LineLineIntersection(leftExteriorPoint, endPointExterior, leftTangent, endPointNormal), 0.0, 1.0f);
+                    outV.position = float4(nbl::hlsl::util::LineLineIntersection(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[0u] + endPointNormal * screenSpaceLineWidth / 2.0f - endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)
@@ -304,7 +304,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 endPointExterior = transformedPoints[2u] + endPointTangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(nbl::hlsl::util::LineLineIntersection(rightExteriorPoint, endPointExterior, rightTangent, endPointNormal), 0.0, 1.0f);
+                    outV.position = float4(nbl::hlsl::util::LineLineIntersection(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[2u] + endPointNormal * screenSpaceLineWidth / 2.0f + endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)

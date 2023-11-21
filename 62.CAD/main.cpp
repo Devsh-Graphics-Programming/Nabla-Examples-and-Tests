@@ -2735,7 +2735,7 @@ public:
 			
 			CPolyline polyline;
 			{
-				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
+				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
 				quadratics[0].P0 = { 0.0, 0.0 };
 				quadratics[0].P1 = { 20.0, 80.0 };
 				quadratics[0].P2 = { 40.0, 0.0 };

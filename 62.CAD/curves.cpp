@@ -8,27 +8,6 @@ using namespace nbl::hlsl::math;
 
 namespace curves
 {
-//TODO[Przemek]: move this to cpp-compat hlsl builtins and make it float_t templated
-//#include <nbl/builtin/hlsl/cpp_compat.hlsl>
-//template<typename float_t>
-//static float64_t2 LineLineIntersection(const nbl::hlsl::vector<float_t, 2>& p1, const nbl::hlsl::vector<float_t, 2>& v1, const nbl::hlsl::vector<float_t, 2>& p2, const nbl::hlsl::vector<float_t, 2>& v2)
-//{
-//    using float_t2 = vector<float_t, 2>;
-//
-//    float_t denominator = v1.y * v2.x - v1.x * v2.y;
-//    float_t2 diff = p1 - p2;
-//    float_t numerator = dot(float_t2(v2.y, -v2.x), float_t2(diff.x, diff.y));
-//
-//    if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
-//    {
-//        // are parallel and the same
-//        return (p1 + p2) / 2.0;
-//    }
-//
-//    float_t t = numerator / denominator;
-//    float_t2 intersectionPoint = p1 + t * v1;
-//    return intersectionPoint;
-//}
 
 //TODO[Przemek]: Move these bezier functions inside the bezier struct in hlsl
 static  float64_t bezierYatT(const shapes::QuadraticBezier<double>& bezier, const float64_t t)
