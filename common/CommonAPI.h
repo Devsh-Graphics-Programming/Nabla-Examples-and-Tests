@@ -15,197 +15,196 @@
 
 #include "nbl/video/utilities/SPhysicalDeviceFilter.h"
 
-#if 0
 class CommonAPI
 {
 	CommonAPI() = delete;
-public:		
+public:
 	class CommonAPIEventCallback;
 
 	class InputSystem : public nbl::core::IReferenceCounted
 	{
-		public:
-			template <class ChannelType>
-			struct Channels
+	public:
+		template <class ChannelType>
+		struct Channels
+		{
+			nbl::core::mutex lock;
+			std::condition_variable added;
+			nbl::core::vector<nbl::core::smart_refctd_ptr<ChannelType>> channels;
+			nbl::core::vector<std::chrono::microseconds> timeStamps;
+			uint32_t defaultChannelIndex = 0;
+		};
+		// TODO: move to "nbl/ui/InputEventChannel.h" once the interface of this utility struct matures, also maybe rename to `Consumer` ?
+		template <class ChannelType>
+		struct ChannelReader
+		{
+			template<typename F>
+			inline void consumeEvents(F&& processFunc, nbl::system::logger_opt_ptr logger = nullptr)
 			{
-				nbl::core::mutex lock;
-				std::condition_variable added;
-				nbl::core::vector<nbl::core::smart_refctd_ptr<ChannelType>> channels;
-				nbl::core::vector<std::chrono::microseconds> timeStamps;
-				uint32_t defaultChannelIndex = 0;
-			};
-			// TODO: move to "nbl/ui/InputEventChannel.h" once the interface of this utility struct matures, also maybe rename to `Consumer` ?
-			template <class ChannelType>
-			struct ChannelReader
-			{
-				template<typename F>
-				inline void consumeEvents(F&& processFunc, nbl::system::logger_opt_ptr logger=nullptr)
+				auto events = channel->getEvents();
+				const auto frontBufferCapacity = channel->getFrontBufferCapacity();
+				if (events.size() > consumedCounter + frontBufferCapacity)
 				{
-					auto events = channel->getEvents();
-					const auto frontBufferCapacity = channel->getFrontBufferCapacity();
-					if (events.size()>consumedCounter+frontBufferCapacity)
-					{
-						logger.log(
-							"Detected overflow, %d unconsumed events in channel of size %d!",
-							nbl::system::ILogger::ELL_ERROR,events.size()-consumedCounter,frontBufferCapacity
-						);
-						consumedCounter = events.size()-frontBufferCapacity;
-					}
-					typename ChannelType::range_t rng(events.begin() + consumedCounter, events.end());
-					processFunc(rng);
-					consumedCounter = events.size();
+					logger.log(
+						"Detected overflow, %d unconsumed events in channel of size %d!",
+						nbl::system::ILogger::ELL_ERROR, events.size() - consumedCounter, frontBufferCapacity
+					);
+					consumedCounter = events.size() - frontBufferCapacity;
 				}
-
-				nbl::core::smart_refctd_ptr<ChannelType> channel = nullptr;
-				uint64_t consumedCounter = 0ull;
-			};
-		
-			InputSystem(nbl::system::logger_opt_smart_ptr&& logger) : m_logger(std::move(logger)) {}
-
-			void getDefaultMouse(ChannelReader<nbl::ui::IMouseEventChannel>* reader)
-			{
-				getDefault(m_mouse,reader);
+				typename ChannelType::range_t rng(events.begin() + consumedCounter, events.end());
+				processFunc(rng);
+				consumedCounter = events.size();
 			}
-			void getDefaultKeyboard(ChannelReader<nbl::ui::IKeyboardEventChannel>* reader)
+
+			nbl::core::smart_refctd_ptr<ChannelType> channel = nullptr;
+			uint64_t consumedCounter = 0ull;
+		};
+
+		InputSystem(nbl::system::logger_opt_smart_ptr&& logger) : m_logger(std::move(logger)) {}
+
+		void getDefaultMouse(ChannelReader<nbl::ui::IMouseEventChannel>* reader)
+		{
+			getDefault(m_mouse, reader);
+		}
+		void getDefaultKeyboard(ChannelReader<nbl::ui::IKeyboardEventChannel>* reader)
+		{
+			getDefault(m_keyboard, reader);
+		}
+		template<class ChannelType>
+		void add(Channels<ChannelType>& channels, nbl::core::smart_refctd_ptr<ChannelType>&& channel)
+		{
+			std::unique_lock lock(channels.lock);
+			channels.channels.push_back(std::move(channel));
+
+			using namespace std::chrono;
+			auto timeStamp = duration_cast<microseconds>(steady_clock::now().time_since_epoch());
+			channels.timeStamps.push_back(timeStamp);
+
+			channels.added.notify_all();
+		}
+		template<class ChannelType>
+		void remove(Channels<ChannelType>& channels, const ChannelType* channel)
+		{
+			std::unique_lock lock(channels.lock);
+
+			auto to_remove_itr = std::find_if(
+				channels.channels.begin(), channels.channels.end(), [channel](const auto& chan)->bool {return chan.get() == channel; }
+			);
+
+			auto index = std::distance(channels.channels.begin(), to_remove_itr);
+
+			channels.timeStamps.erase(channels.timeStamps.begin() + index);
+			channels.channels.erase(to_remove_itr);
+		}
+		template<class ChannelType>
+		void getDefault(Channels<ChannelType>& channels, ChannelReader<ChannelType>* reader)
+		{
+			/*
+			* TODO: Improve default device switching.
+			* For nice results, we should actually make a multi-channel reader,
+			* and then keep a consumed counter together with a last consumed event from each channel.
+			* If there is considerable pause in events received by our current chosen channel or
+			* we can detect some other channel of the same "compatible class" is producing more events,
+			* Switch the channel choice, but prune away all events younger than the old default's consumption timestamp.
+			* (Basically switch keyboards but dont try to process events older than the events you've processed from the old keyboard)
+			*/
+
+			std::unique_lock lock(channels.lock);
+			while (channels.channels.empty())
 			{
-				getDefault(m_keyboard,reader);
+				m_logger.log("Waiting For Input Device to be connected...", nbl::system::ILogger::ELL_INFO);
+				channels.added.wait(lock);
 			}
-			template<class ChannelType>
-			void add(Channels<ChannelType>& channels, nbl::core::smart_refctd_ptr<ChannelType>&& channel)
-			{
-				std::unique_lock lock(channels.lock);
-				channels.channels.push_back(std::move(channel));
-				
-				using namespace std::chrono;
-				auto timeStamp = duration_cast<microseconds>(steady_clock::now().time_since_epoch());
-				channels.timeStamps.push_back(timeStamp);
 
-				channels.added.notify_all();
-			}
-			template<class ChannelType>
-			void remove(Channels<ChannelType>& channels, const ChannelType* channel)
-			{
-				std::unique_lock lock(channels.lock);
+			uint64_t consumedCounter = 0ull;
 
-				auto to_remove_itr = std::find_if(
-						channels.channels.begin(),channels.channels.end(),[channel](const auto& chan)->bool{return chan.get()==channel;}
-				);
+			using namespace std::chrono;
+			constexpr long long DefaultChannelTimeoutInMicroSeconds = 100 * 1e3; // 100 mili-seconds
+			auto nowTimeStamp = duration_cast<microseconds>(steady_clock::now().time_since_epoch());
 
-				auto index = std::distance(channels.channels.begin(), to_remove_itr);
-
-				channels.timeStamps.erase(channels.timeStamps.begin() + index);
-				channels.channels.erase(to_remove_itr);
-			}
-			template<class ChannelType>
-			void getDefault(Channels<ChannelType>& channels, ChannelReader<ChannelType>* reader)
-			{
-				/*
-				* TODO: Improve default device switching.
-				* For nice results, we should actually make a multi-channel reader,
-				* and then keep a consumed counter together with a last consumed event from each channel.
-				* If there is considerable pause in events received by our current chosen channel or
-				* we can detect some other channel of the same "compatible class" is producing more events,
-				* Switch the channel choice, but prune away all events younger than the old default's consumption timestamp.
-				* (Basically switch keyboards but dont try to process events older than the events you've processed from the old keyboard)
-				*/
-				
-				std::unique_lock lock(channels.lock);
-				while (channels.channels.empty())
-				{
-					m_logger.log("Waiting For Input Device to be connected...",nbl::system::ILogger::ELL_INFO);
-					channels.added.wait(lock);
+			// Update Timestamp of all channels
+			for (uint32_t ch = 0u; ch < channels.channels.size(); ++ch) {
+				auto& channel = channels.channels[ch];
+				auto& timeStamp = channels.timeStamps[ch];
+				auto events = channel->getEvents();
+				if (events.size() > 0) {
+					auto lastEventTimeStamp = (*(events.end() - 1)).timeStamp; // last event timestamp
+					timeStamp = lastEventTimeStamp;
 				}
-				
-				uint64_t consumedCounter = 0ull;
+			}
 
-				using namespace std::chrono;
-				constexpr long long DefaultChannelTimeoutInMicroSeconds = 100*1e3; // 100 mili-seconds
-				auto nowTimeStamp = duration_cast<microseconds>(steady_clock::now().time_since_epoch());
+			auto defaultIdx = channels.defaultChannelIndex;
+			if (defaultIdx >= channels.channels.size()) {
+				defaultIdx = 0;
+			}
+			auto defaultChannel = channels.channels[defaultIdx];
+			auto defaultChannelEvents = defaultChannel->getEvents();
+			auto timeDiff = (nowTimeStamp - channels.timeStamps[defaultIdx]).count();
 
-				// Update Timestamp of all channels
-				for(uint32_t ch = 0u; ch < channels.channels.size(); ++ch) {
-					auto & channel = channels.channels[ch];
-					auto & timeStamp = channels.timeStamps[ch];
-					auto events = channel->getEvents();
-					if(events.size() > 0) {
-						auto lastEventTimeStamp = (*(events.end() - 1)).timeStamp; // last event timestamp
-						timeStamp = lastEventTimeStamp;
-					}
-				}
+			constexpr size_t RewindBackEvents = 50u;
 
-				auto defaultIdx = channels.defaultChannelIndex;
-				if(defaultIdx >= channels.channels.size()) {
-					defaultIdx = 0;
-				}
-				auto defaultChannel = channels.channels[defaultIdx];
-				auto defaultChannelEvents = defaultChannel->getEvents();
-				auto timeDiff = (nowTimeStamp - channels.timeStamps[defaultIdx]).count();
-				
-				constexpr size_t RewindBackEvents = 50u;
+			// If the current one hasn't been active for a while
+			if (defaultChannel->empty()) {
+				if (timeDiff > DefaultChannelTimeoutInMicroSeconds) {
+					// Look for the most active channel (the channel which has got the most events recently)
+					auto newDefaultIdx = defaultIdx;
+					microseconds maxEventTimeStamp = microseconds(0);
 
-				// If the current one hasn't been active for a while
-				if(defaultChannel->empty()) {
-					if(timeDiff > DefaultChannelTimeoutInMicroSeconds) {
-						// Look for the most active channel (the channel which has got the most events recently)
-						auto newDefaultIdx = defaultIdx;
-						microseconds maxEventTimeStamp = microseconds(0);
-
-						for(uint32_t chIdx = 0; chIdx < channels.channels.size(); ++chIdx) {
-							if(defaultIdx != chIdx) 
+					for (uint32_t chIdx = 0; chIdx < channels.channels.size(); ++chIdx) {
+						if (defaultIdx != chIdx)
+						{
+							auto channelTimeDiff = (nowTimeStamp - channels.timeStamps[chIdx]).count();
+							// Check if was more recently active than the current most active
+							if (channelTimeDiff < DefaultChannelTimeoutInMicroSeconds)
 							{
-								auto channelTimeDiff = (nowTimeStamp - channels.timeStamps[chIdx]).count();
-								// Check if was more recently active than the current most active
-								if(channelTimeDiff < DefaultChannelTimeoutInMicroSeconds)
-								{
-									auto & channel = channels.channels[chIdx];
-									auto channelEvents = channel->getEvents();
-									auto channelEventSize = channelEvents.size();
-									const auto frontBufferCapacity = channel->getFrontBufferCapacity();
+								auto& channel = channels.channels[chIdx];
+								auto channelEvents = channel->getEvents();
+								auto channelEventSize = channelEvents.size();
+								const auto frontBufferCapacity = channel->getFrontBufferCapacity();
 
-									size_t rewindBack = std::min(RewindBackEvents, frontBufferCapacity);
-									rewindBack = std::min(rewindBack, channelEventSize);
+								size_t rewindBack = std::min(RewindBackEvents, frontBufferCapacity);
+								rewindBack = std::min(rewindBack, channelEventSize);
 
-									auto oldEvent = *(channelEvents.end() - rewindBack);
+								auto oldEvent = *(channelEvents.end() - rewindBack);
 
-									// Which oldEvent of channels are most recent.
-									if(oldEvent.timeStamp > maxEventTimeStamp) {
-										maxEventTimeStamp = oldEvent.timeStamp;
-										newDefaultIdx = chIdx;
-									}
+								// Which oldEvent of channels are most recent.
+								if (oldEvent.timeStamp > maxEventTimeStamp) {
+									maxEventTimeStamp = oldEvent.timeStamp;
+									newDefaultIdx = chIdx;
 								}
 							}
 						}
+					}
 
-						if(defaultIdx != newDefaultIdx) {
-							m_logger.log("Default InputChannel for ChannelType changed from %u to %u",nbl::system::ILogger::ELL_INFO, defaultIdx, newDefaultIdx);
+					if (defaultIdx != newDefaultIdx) {
+						m_logger.log("Default InputChannel for ChannelType changed from %u to %u", nbl::system::ILogger::ELL_INFO, defaultIdx, newDefaultIdx);
 
-							defaultIdx = newDefaultIdx;
-							channels.defaultChannelIndex = newDefaultIdx;
-							defaultChannel = channels.channels[newDefaultIdx];
-							
-							consumedCounter = defaultChannel->getEvents().size() - defaultChannel->getFrontBufferCapacity(); // to not get overflow in reader when consuming.
-						}
+						defaultIdx = newDefaultIdx;
+						channels.defaultChannelIndex = newDefaultIdx;
+						defaultChannel = channels.channels[newDefaultIdx];
+
+						consumedCounter = defaultChannel->getEvents().size() - defaultChannel->getFrontBufferCapacity(); // to not get overflow in reader when consuming.
 					}
 				}
-
-				if (reader->channel==defaultChannel)
-					return;
-
-				reader->channel = defaultChannel;
-				reader->consumedCounter = consumedCounter;
 			}
 
-			nbl::system::logger_opt_smart_ptr m_logger;
-			Channels<nbl::ui::IMouseEventChannel> m_mouse;
-			Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
+			if (reader->channel == defaultChannel)
+				return;
+
+			reader->channel = defaultChannel;
+			reader->consumedCounter = consumedCounter;
+		}
+
+		nbl::system::logger_opt_smart_ptr m_logger;
+		Channels<nbl::ui::IMouseEventChannel> m_mouse;
+		Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
 	};
 
 	class CommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
 	{
 	public:
-		CommonAPIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false){}
+		CommonAPIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false) {}
 		CommonAPIEventCallback() {}
-		bool isWindowOpen() const {return !m_gotWindowClosedMsg;}
+		bool isWindowOpen() const { return !m_gotWindowClosedMsg; }
 		void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 		{
 			m_logger = logger;
@@ -215,7 +214,53 @@ public:
 			m_inputSystem = std::move(inputSystem);
 		}
 	private:
-		
+		bool onWindowShown_impl() override
+		{
+			m_logger.log("Window Shown");
+			return true;
+		}
+		bool onWindowHidden_impl() override
+		{
+			m_logger.log("Window hidden");
+			return true;
+		}
+		bool onWindowMoved_impl(int32_t x, int32_t y) override
+		{
+			m_logger.log("Window window moved to { %d, %d }", nbl::system::ILogger::ELL_WARNING, x, y);
+			return true;
+		}
+		bool onWindowResized_impl(uint32_t w, uint32_t h) override
+		{
+			m_logger.log("Window resized to { %u, %u }", nbl::system::ILogger::ELL_DEBUG, w, h);
+			return true;
+		}
+		bool onWindowMinimized_impl() override
+		{
+			m_logger.log("Window minimized", nbl::system::ILogger::ELL_ERROR);
+			return true;
+		}
+		bool onWindowMaximized_impl() override
+		{
+			m_logger.log("Window maximized", nbl::system::ILogger::ELL_PERFORMANCE);
+			return true;
+		}
+		void onGainedMouseFocus_impl() override
+		{
+			m_logger.log("Window gained mouse focus", nbl::system::ILogger::ELL_INFO);
+		}
+		void onLostMouseFocus_impl() override
+		{
+			m_logger.log("Window lost mouse focus", nbl::system::ILogger::ELL_INFO);
+		}
+		void onGainedKeyboardFocus_impl() override
+		{
+			m_logger.log("Window gained keyboard focus", nbl::system::ILogger::ELL_INFO);
+		}
+		void onLostKeyboardFocus_impl() override
+		{
+			m_logger.log("Window lost keyboard focus", nbl::system::ILogger::ELL_INFO);
+		}
+
 		bool onWindowClosed_impl() override
 		{
 			m_logger.log("Window closed");
@@ -226,22 +271,22 @@ public:
 		void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
 		{
 			m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
-			m_inputSystem.get()->add(m_inputSystem.get()->m_mouse,std::move(mch));
+			m_inputSystem.get()->add(m_inputSystem.get()->m_mouse, std::move(mch));
 		}
 		void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
 		{
 			m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
-			m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse,mch);
+			m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse, mch);
 		}
 		void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
 		{
 			m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
-			m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard,std::move(kbch));
+			m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard, std::move(kbch));
 		}
 		void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
 		{
 			m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
-			m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard,kbch);
+			m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard, kbch);
 		}
 
 	private:
@@ -249,14 +294,51 @@ public:
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
 		bool m_gotWindowClosedMsg;
 	};
-	
-	
+
+	class IPhysicalDeviceSelector
+	{
+	public:
+		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDeviceFilter`
+		virtual nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) = 0;
+	};
+
+	class CDefaultPhysicalDeviceSelector : public CommonAPI::IPhysicalDeviceSelector
+	{
+	protected:
+		const nbl::video::IPhysicalDevice::E_DRIVER_ID preferredDriver = nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY;
+
+	public:
+
+		CDefaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::E_DRIVER_ID preferredDriver)
+			: preferredDriver(preferredDriver)
+		{}
+
+		// ! this will get called after all physical devices go through filtering via `InitParams::physicalDevicesFilter`
+		nbl::video::IPhysicalDevice* selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices) override;
+	};
+
+	template <typename FeatureType>
+	struct SFeatureRequest
+	{
+		uint32_t count = 0u;
+		FeatureType* features = nullptr;
+	};
+
 	struct InitParams
-	{		
+	{
+		std::string_view appName;
+		nbl::video::E_API_TYPE apiType = nbl::video::EAT_VULKAN;
+
 		uint32_t framesInFlight = 5u;
 		uint32_t windowWidth = 800u;
 		uint32_t windowHeight = 600u;
 		uint32_t swapchainImageCount = 3u;
+
+		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
+		//! Optional: Physical Device Requirements include features, limits, memory size, queue count, etc. requirements
+		nbl::video::SPhysicalDeviceFilter physicalDeviceFilter = {};
+		//! Optional: PhysicalDevices that meet all the requirements of `physicalDeviceFilter` will go through `physicalDeviceSelector` to select one from the suitable physical devices
+		IPhysicalDeviceSelector* physicalDeviceSelector = nullptr;
 
 		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE;
 
@@ -293,9 +375,17 @@ public:
 
 	struct InitOutput
 	{
-		
-		static constexpr uint32_t MaxQueuesInFamily = 32;
+		enum E_QUEUE_TYPE
+		{
+			EQT_GRAPHICS = 0,
+			EQT_COMPUTE,
+			EQT_TRANSFER_UP,
+			EQT_TRANSFER_DOWN,
+			EQT_COUNT
+		};
+
 		static constexpr uint32_t MaxFramesInFlight = 10u;
+		static constexpr uint32_t MaxQueuesCount = EQT_COUNT;
 		static constexpr uint32_t MaxSwapChainImageCount = 4;
 
 		nbl::core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
@@ -303,6 +393,7 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
 		nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
 		nbl::video::IPhysicalDevice* physicalDevice;
+		std::array<nbl::video::IGPUQueue*, MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
 		std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, MaxFramesInFlight>, MaxQueuesCount> commandPools; // TODO: Multibuffer and reset the commandpools
 		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderToSwapchainRenderpass;
 		nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
@@ -315,6 +406,38 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	};
 
+	template<typename AppClassName>
+	static void main(int argc, char** argv)
+	{
+#ifndef _NBL_PLATFORM_ANDROID_
+		nbl::system::path CWD = nbl::system::path(argv[0]).parent_path().generic_string() + "/";
+		nbl::system::path sharedInputCWD = CWD / "../../media/";
+		nbl::system::path sharedOutputCWD = CWD / "../../tmp/";;
+		nbl::system::path localInputCWD = CWD / "../assets";
+		nbl::system::path localOutputCWD = CWD;
+		// TODO: make NonGraphicalApplicationBase(IApplicationFramework inherit from nbl::core::IReferenceCounted?)
+		auto app = nbl::core::make_smart_refctd_ptr<AppClassName>(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD);
+
+		//for (size_t i = 0; i < argc; ++i)
+		//	app->argv.push_back(std::string(argv[i]));
+
+		app->onAppInitialized();
+		while (app->keepRunning())
+		{
+			app->workLoopBody();
+		}
+		app->onAppTerminated();
+#endif
+	}
+
+#ifdef _NBL_PLATFORM_ANDROID_
+	static void recreateSurface(nbl::ui::CGraphicalApplicationAndroid* framework)
+	{
+		// Will handle android properly later
+		_NBL_TODO();
+	}
+#endif
+
 	template<bool gpuInit = true, class EventCallback = CommonAPIEventCallback, nbl::video::DeviceFeatureDependantClass... device_feature_dependant_t>
 	static InitOutput Init(InitParams&& params)
 	{
@@ -324,6 +447,18 @@ public:
 		InitOutput result;
 
 		bool headlessCompute = params.isHeadlessCompute();
+
+#ifdef _NBL_PLATFORM_WINDOWS_
+		result.system = nbl::system::IApplicationFramework::createSystem();
+#endif
+
+#ifdef _NBL_PLATFORM_WINDOWS_
+		result.logger = nbl::core::make_smart_refctd_ptr<system::CColoredStdoutLoggerWin32>(params.logLevel);
+#elif defined(_NBL_PLATFORM_ANDROID_)
+		result.logger = nbl::core::make_smart_refctd_ptr<system::CStdoutLoggerAndroid>(params.logLevel);
+#endif
+
+		result.compilerSet = nbl::core::make_smart_refctd_ptr<nbl::asset::CCompilerSet>(nbl::core::smart_refctd_ptr(result.system));
 
 		result.inputSystem = nbl::core::make_smart_refctd_ptr<InputSystem>(system::logger_opt_smart_ptr(nbl::core::smart_refctd_ptr(result.logger)));
 		result.assetManager = nbl::core::make_smart_refctd_ptr<nbl::asset::IAssetManager>(nbl::core::smart_refctd_ptr(result.system), nbl::core::smart_refctd_ptr(result.compilerSet)); // we should let user choose it?
@@ -337,14 +472,14 @@ public:
 			params.windowCb->setInputSystem(nbl::core::smart_refctd_ptr(result.inputSystem));
 			if (!params.window)
 			{
-				#ifdef _NBL_PLATFORM_WINDOWS_
-					result.windowManager = ui::IWindowManagerWin32::create(); // on the Windows path
-				#elif defined(_NBL_PLATFORM_LINUX_)
-					result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerX11>(); // on the Android path
-				#else
-					#error "Unsupported platform"
-				#endif
-				
+#ifdef _NBL_PLATFORM_WINDOWS_
+				result.windowManager = ui::IWindowManagerWin32::create(); // on the Windows path
+#elif defined(_NBL_PLATFORM_LINUX_)
+				result.windowManager = nbl::core::make_smart_refctd_ptr<nbl::ui::CWindowManagerX11>(); // on the Android path
+#else
+#error "Unsupported platform"
+#endif
+
 				nbl::ui::IWindow::SCreationParams windowsCreationParams;
 				windowsCreationParams.width = params.windowWidth;
 				windowsCreationParams.height = params.windowHeight;
@@ -355,19 +490,8 @@ public:
 				windowsCreationParams.callback = params.windowCb;
 
 				params.window = result.windowManager->createWindow(std::move(windowsCreationParams));
-
-				if (params.window->getWidth() != params.windowWidth || params.window->getHeight() != params.windowHeight)
-				{
-					std::stringstream ss;
-					ss << "Requested window size ";
-					ss << '(' << params.windowWidth << 'x' << params.windowHeight << ')';
-					ss << " could not be applied, actual size: ";
-					ss << '(' << params.window->getWidth() << 'x' << params.window->getHeight() << ")";
-
-					result.logger->log(ss.str(), system::ILogger::ELL_INFO);
-				}
 			}
-			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*) params.window->getEventCallback());
+			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*)params.window->getEventCallback());
 		}
 
 		if constexpr (gpuInit)
@@ -378,14 +502,13 @@ public:
 		{
 			result.cpu2gpuParams.device = nullptr;
 			result.cpu2gpuParams.finalQueueFamIx = 0u;
-			result.cpu2gpuParams.limits = {};
 			result.cpu2gpuParams.pipelineCache = nullptr;
 			result.cpu2gpuParams.utilities = nullptr;
 		}
 
 		return result;
 	}
-	
+
 	static nbl::video::ISwapchain::SCreationParams computeSwapchainCreationParams(
 		uint32_t& imageCount,
 		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
@@ -400,7 +523,7 @@ public:
 	);
 
 
-	class IRetiredSwapchainResources: public nbl::video::ICleanup
+	class IRetiredSwapchainResources : public nbl::video::ICleanup
 	{
 	public:
 		// nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain = nullptr; // this gets dropped along with the images
@@ -428,7 +551,7 @@ public:
 		apiFeaturesToEnable.validations = true;
 		apiFeaturesToEnable.debugUtils = true;
 		params.apiFeaturesToEnable = apiFeaturesToEnable;
-		
+
 		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
 #endif
 
@@ -472,8 +595,8 @@ public:
 		nbl::video::IGPUQueue* queue,
 		nbl::video::IGPUSemaphore* const waitSemaphore, // usually the image acquire semaphore
 		nbl::video::IGPUSemaphore* const renderFinishedSemaphore,
-		nbl::video::IGPUFence* fence=nullptr,
-		const nbl::core::bitflag<nbl::asset::E_PIPELINE_STAGE_FLAGS> waitDstStageMask=DefaultSubmitWaitStage // only matters if `waitSemaphore` not null
+		nbl::video::IGPUFence* fence = nullptr,
+		const nbl::core::bitflag<nbl::asset::E_PIPELINE_STAGE_FLAGS> waitDstStageMask = DefaultSubmitWaitStage // only matters if `waitSemaphore` not null
 	)
 	{
 		using namespace nbl;
@@ -482,15 +605,15 @@ public:
 			submit.commandBufferCount = 1u;
 			submit.commandBuffers = &cmdbuf;
 			nbl::video::IGPUSemaphore* signalsem = renderFinishedSemaphore;
-			submit.signalSemaphoreCount = signalsem ? 1u:0u;
+			submit.signalSemaphoreCount = signalsem ? 1u : 0u;
 			submit.pSignalSemaphores = &signalsem;
 			nbl::video::IGPUSemaphore* waitsem = waitSemaphore;
 			asset::E_PIPELINE_STAGE_FLAGS dstWait = waitDstStageMask.value;
-			submit.waitSemaphoreCount = waitsem ? 1u:0u;
+			submit.waitSemaphoreCount = waitsem ? 1u : 0u;
 			submit.pWaitSemaphores = &waitsem;
 			submit.pWaitDstStageMask = &dstWait;
 
-			queue->submit(1u,&submit,fence);
+			queue->submit(1u, &submit, fence);
 		}
 	}
 
@@ -556,19 +679,32 @@ public:
 	}
 
 protected:
+	static nbl::core::set<nbl::video::IPhysicalDevice*> getFilteredPhysicalDevices(nbl::core::SRange<nbl::video::IPhysicalDevice* const> physicalDevices, const nbl::video::SPhysicalDeviceFilter& filter)
+	{
+		using namespace nbl;
+		using namespace nbl::video;
+
+		core::set<nbl::video::IPhysicalDevice*> ret;
+		for (auto& physDev : physicalDevices) {
+			if (filter.meetsRequirements(physDev))
+				ret.insert(physDev);
+		}
+		return ret;
+	}
+
 	// Used to help with queue selection
 	struct QueueFamilyProps
 	{
 		static constexpr uint32_t InvalidIndex = ~0u;
-		uint32_t index					= InvalidIndex;
-		uint32_t dedicatedQueueCount	= 0u;
-		uint32_t score					= 0u;
-		bool supportsGraphics			: 1;
-		bool supportsCompute			: 1;
-		bool supportsTransfer			: 1;
-		bool supportsSparseBinding		: 1;
-		bool supportsPresent			: 1;
-		bool supportsProtected			: 1;
+		uint32_t index = InvalidIndex;
+		uint32_t dedicatedQueueCount = 0u;
+		uint32_t score = 0u;
+		bool supportsGraphics : 1;
+		bool supportsCompute : 1;
+		bool supportsTransfer : 1;
+		bool supportsSparseBinding : 1;
+		bool supportsPresent : 1;
+		bool supportsProtected : 1;
 	};
 
 	struct PhysicalDeviceQueuesInfo
@@ -870,21 +1006,77 @@ protected:
 		return queuesInfo;
 	}
 
-	
+
 	template<nbl::video::DeviceFeatureDependantClass... device_feature_dependant_t>
 	static void performGpuInit(InitParams& params, InitOutput& result)
-	{		
-		(device_feature_dependant_t::enablePreferredFeatures(selectedPhysicalDevice->getFeatures(), params.physicalDeviceFilter.requiredFeatures),...);
-		
-		auto queuesInfo = extractPhysicalDeviceQueueInfos(selectedPhysicalDevice, result.surface, headlessCompute);
-		
-		// Fill QueueCreationParams
-		constexpr uint32_t MaxQueuesInFamily = 32;
-		float queuePriorities[MaxQueuesInFamily];
-		std::fill(queuePriorities, queuePriorities + MaxQueuesInFamily, IGPUQueue::DEFAULT_QUEUE_PRIORITY);
+	{
+		using namespace nbl;
+		using namespace nbl::video;
 
-		constexpr uint32_t MaxQueueFamilyCount = 4;
-		nbl::video::ILogicalDevice::SQueueCreationParams qcp[MaxQueueFamilyCount] = {};
+		bool headlessCompute = params.isHeadlessCompute();
+
+		if (params.apiType == EAT_VULKAN)
+		{
+			auto _apiConnection = nbl::video::CVulkanConnection::create(
+				nbl::core::smart_refctd_ptr(result.system),
+				0,
+				params.appName.data(),
+				nbl::core::smart_refctd_ptr(result.logger),
+				params.apiFeaturesToEnable
+			);
+			assert(_apiConnection);
+
+			if (!headlessCompute)
+			{
+#ifdef _NBL_PLATFORM_WINDOWS_
+				result.surface = nbl::video::CSurfaceVulkanWin32::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowWin32>(static_cast<nbl::ui::IWindowWin32*>(params.window.get())));
+#elif defined(_NBL_PLATFORM_ANDROID_)
+				////result.surface = nbl::video::CSurfaceVulkanAndroid::create(nbl::core::smart_refctd_ptr(_apiConnection), nbl::core::smart_refctd_ptr<nbl::ui::IWindowAndroid>(static_cast<nbl::ui::IWindowAndroid*>(params.window.get())));
+#endif
+			}
+			result.apiConnection = _apiConnection;
+		}
+		else
+		{
+			_NBL_TODO();
+		}
+
+		auto gpus = result.apiConnection->getPhysicalDevices();
+		assert(!gpus.empty());
+
+		(device_feature_dependant_t::enableRequiredFeautres(params.physicalDeviceFilter.requiredFeatures), ...);
+
+		auto filteredPhysicalDevices = getFilteredPhysicalDevices(gpus, params.physicalDeviceFilter);
+
+		if (filteredPhysicalDevices.empty() && result.logger)
+		{
+			result.logger->log("No available PhysicalDevice met the requirements.", nbl::system::ILogger::ELL_ERROR);
+			assert(false);
+			return;
+		}
+
+		CDefaultPhysicalDeviceSelector defaultPhysicalDeviceSelector(nbl::video::IPhysicalDevice::EDI_NVIDIA_PROPRIETARY);  // EDI_INTEL_PROPRIETARY_WINDOWS, EDI_NVIDIA_PROPRIETARY, EDI_AMD_PROPRIETARY
+		if (params.physicalDeviceSelector == nullptr)
+			params.physicalDeviceSelector = &defaultPhysicalDeviceSelector;
+
+		auto selectedPhysicalDevice = params.physicalDeviceSelector->selectPhysicalDevice(filteredPhysicalDevices);
+
+		if (selectedPhysicalDevice == nullptr)
+		{
+			result.logger->log("Physical Device selection callback returned no physical device.", nbl::system::ILogger::ELL_ERROR);
+			assert(false);
+			return;
+		}
+
+		(device_feature_dependant_t::enablePreferredFeatures(selectedPhysicalDevice->getFeatures(), params.physicalDeviceFilter.requiredFeatures), ...);
+
+		auto queuesInfo = extractPhysicalDeviceQueueInfos(selectedPhysicalDevice, result.surface, headlessCompute);
+
+		// Fill QueueCreationParams
+		std::array<float, nbl::video::ILogicalDevice::SQueueCreationParams::MaxQueuesInFamily> queuePriorities;
+		std::fill(queuePriorities.data(), queuePriorities.data() + nbl::video::ILogicalDevice::SQueueCreationParams::MaxQueuesInFamily, IGPUQueue::DEFAULT_QUEUE_PRIORITY);
+
+		std::array<nbl::video::ILogicalDevice::SQueueCreationParams, nbl::video::ILogicalDevice::SCreationParams::MaxQueueFamilies> qcp;
 
 		uint32_t actualQueueParamsCount = 0u;
 
@@ -1059,11 +1251,11 @@ protected:
 		result.queues[InitOutput::EQT_COMPUTE] = result.logicalDevice->getQueue(queuesInfo.compute.index, queuesIndexInFamily[InitOutput::EQT_COMPUTE]);
 
 		// TEMP_FIX
-	#ifdef EXAMPLES_CAN_LIVE_WITHOUT_GRAPHICS_QUEUE
+#ifdef EXAMPLES_CAN_LIVE_WITHOUT_GRAPHICS_QUEUE
 		result.queues[InitOutput::EQT_TRANSFER_UP] = result.logicalDevice->getQueue(queuesInfo.transfer.index, queuesIndexInFamily[EQT_TRANSFER_UP]);
 		result.queues[InitOutput::EQT_TRANSFER_DOWN] = result.logicalDevice->getQueue(queuesInfo.transfer.index, queuesIndexInFamily[EQT_TRANSFER_DOWN]);
-	#else
-		if(queuesInfo.graphics.index != QueueFamilyProps::InvalidIndex)
+#else
+		if (queuesInfo.graphics.index != QueueFamilyProps::InvalidIndex)
 			result.queues[InitOutput::EQT_COMPUTE] = result.logicalDevice->getQueue(queuesInfo.graphics.index, 0u);
 		if (!headlessCompute)
 		{
@@ -1075,7 +1267,7 @@ protected:
 			result.queues[InitOutput::EQT_TRANSFER_UP] = result.logicalDevice->getQueue(queuesInfo.compute.index, queuesIndexInFamily[InitOutput::EQT_COMPUTE]);
 			result.queues[InitOutput::EQT_TRANSFER_DOWN] = result.logicalDevice->getQueue(queuesInfo.compute.index, queuesIndexInFamily[InitOutput::EQT_COMPUTE]);
 		}
-	#endif
+#endif
 		if (!headlessCompute)
 		{
 			result.swapchainCreationParams = computeSwapchainCreationParams(
@@ -1114,7 +1306,6 @@ protected:
 		result.cpu2gpuParams.assetManager = result.assetManager.get();
 		result.cpu2gpuParams.device = result.logicalDevice.get();
 		result.cpu2gpuParams.finalQueueFamIx = mainQueueFamilyIndex;
-		result.cpu2gpuParams.limits = result.physicalDevice->getLimits();
 		result.cpu2gpuParams.pipelineCache = nullptr;
 		result.cpu2gpuParams.utilities = result.utilities.get();
 
@@ -1254,16 +1445,16 @@ public:
 	{}
 
 	std::unique_lock<std::mutex> recreateSwapchain(
-		uint32_t w, uint32_t h, 
-		nbl::video::ISwapchain::SCreationParams& swapchainCreationParams, 
+		uint32_t w, uint32_t h,
+		nbl::video::ISwapchain::SCreationParams& swapchainCreationParams,
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef)
 	{
 		auto logicalDevice = getLogicalDevice();
 		std::unique_lock guard(m_swapchainPtrMutex);
 		CommonAPI::createSwapchain(
 			nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>(logicalDevice),
-			swapchainCreationParams, 
-			w, h, 
+			swapchainCreationParams,
+			w, h,
 			swapchainRef);
 		assert(swapchainRef);
 		m_swapchainIteration++;
@@ -1370,7 +1561,7 @@ public:
 
 		printf(
 			"Blitting from frame %i buffer %i with last render dimensions %ix%i and output %ix%i\n",
-			frameIx, bufferIx, 
+			frameIx, bufferIx,
 			lastRenderW, lastRenderH,
 			image->getCreationParameters().extent.width, image->getCreationParameters().extent.height
 		);
@@ -1469,6 +1660,5 @@ CommonAPI::main<app_class>(argc, argv);\
 }
 #endif
 //***** Application framework macros ******
-#endif
 
 #endif
