@@ -71,10 +71,9 @@ void main()
 			const uvec3 indices = get_triangle_indices(batchInstanceData,triangleID);
 			
 			// positions
-			vec3 geomNormal;
-			const vec3 lastVxPos = load_positions(geomNormal,batchInstanceData,indices);
+			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
 
-			const bool frontfacing = bool((batchInstanceData.determinantSignBit^floatBitsToUint(dot(normalizedV,geomNormal)))&0x80000000u);
+			const bool frontfacing = bool((batchInstanceData.determinantSignBit^floatBitsToUint(dot(normalizedV,normalizedG)))&0x80000000u);
 
 			// get material
 			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
@@ -92,7 +91,7 @@ void main()
 				
 				//
 				normalizedN = load_normal_and_prefetch_textures(
-					batchInstanceData,indices,compactBary,geomNormal,material
+					batchInstanceData,indices,compactBary,material
 #ifdef TEX_PREFETCH_STREAM
 					,mat2(0.0) // TODO: Covariance Rendering
 #endif
@@ -106,7 +105,7 @@ void main()
 				);
 			}
 			else
-				contrib.worldspaceNormal = geomNormal*nbl_glsl_MC_colorToScalar(contrib.albedo);
+				contrib.worldspaceNormal = normalizedG*nbl_glsl_MC_colorToScalar(contrib.albedo);
 		}
 		else
 			Contribution_initMiss(contrib,aovThroughputScale);

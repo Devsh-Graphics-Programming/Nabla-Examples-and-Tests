@@ -60,8 +60,7 @@ void main()
 			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material);
 			
 			// load vertex data
-			vec3 geomNormal;
-			const vec3 lastVxPos = load_positions(geomNormal,batchInstanceData,indices);
+			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
 
 			// little optimization for non-twosided materials
 			if (material.genchoice_count!=0u)
@@ -71,7 +70,7 @@ void main()
 
 				//
 				normalizedN = load_normal_and_prefetch_textures(
-					batchInstanceData,indices,compactBary,geomNormal,material
+					batchInstanceData,indices,compactBary,material
 					#ifdef TEX_PREFETCH_STREAM
 					,dBarydScreen
 					#endif
@@ -90,7 +89,7 @@ void main()
 				);
 			}
 			else
-				contrib.worldspaceNormal = geomNormal*nbl_glsl_MC_colorToScalar(contrib.albedo);
+				contrib.worldspaceNormal = normalizedG*nbl_glsl_MC_colorToScalar(contrib.albedo);
 		}
 		else
 			Contribution_initMiss(contrib,1.f);
