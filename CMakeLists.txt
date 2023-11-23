@@ -20,6 +20,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(04_HelloUI EXCLUDE_FROM_ALL)
 	# showcase the semi-advanced use of Nabla's Streaming Buffers and BDA
 	add_subdirectory(05_StreamingAndBufferDeviceAddressApp EXCLUDE_FROM_ALL)
+	# showcase 
+	add_subdirectory(06_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
 
 	# semi-working examples
 	#add_subdirectory(06_MeshLoaders EXCLUDE_FROM_ALL)
