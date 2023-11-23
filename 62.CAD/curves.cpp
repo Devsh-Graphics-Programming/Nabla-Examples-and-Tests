@@ -9,37 +9,6 @@ using namespace nbl::hlsl::math;
 namespace curves
 {
 
-//TODO[Przemek]: Move these bezier functions inside the bezier struct in hlsl
-static  float64_t bezierYatT(const shapes::QuadraticBezier<double>& bezier, const float64_t t)
-{
-    const float64_t a = bezier.P0.y - 2.0 * bezier.P1.y + bezier.P2.y;
-    const float64_t b = 2.0 * (bezier.P1.y - bezier.P0.y);
-    const float64_t c = bezier.P0.y;
-    return ((a * t) + b) * t + c; // computePosition at t1
-}
-
-// TODO[Przemek]: implement YatX as a helper tool in bezier.hlsl Quadratic curve
-// returns nan if found X is outside of bounds or not found at all
-static float64_t bezierYatX(const shapes::QuadraticBezier<double>& bezier, float64_t x)
-{
-    const float64_t a = bezier.P0.x - 2.0 * bezier.P1.x + bezier.P2.x;
-    const float64_t b = 2.0 * (bezier.P1.x - bezier.P0.x);
-    const float64_t c = bezier.P0.x - x;
-
-    nbl::hlsl::math::equations::Quadratic<float64_t> quadratic = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(a, b, c);
-    const float64_t2 roots = quadratic.computeRoots();
-
-    // _NBL_DEBUG_BREAK_IF(!isnan(roots[0]) && !isnan(roots[1])); // should only have 1 solution
-
-    if (roots[0] >= 0.0 && roots[0] <= 1.0)
-        return bezierYatT(bezier, roots[0]);
-    else if (roots[1] >= 0.0 && roots[1] <= 1.0)
-        return bezierYatT(bezier, roots[1]);
-    else
-        return std::numeric_limits<double>::quiet_NaN();
-
-}
-
 float64_t ParametricCurve::arcLen(float64_t t0, float64_t t1) const
 {
     constexpr uint16_t IntegrationOrder = 10u;
@@ -617,7 +586,7 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
             else
             {
                 const float64_t2 curvePositionAtSplit = curve.computePosition(split);
-                float64_t bezierYAtSplit = bezierYatX(bezier, curvePositionAtSplit.x);
+                float64_t bezierYAtSplit = bezier.calcYatX(curvePositionAtSplit.x);
                 //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit));
                 if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
                     shouldSubdivide = true;
