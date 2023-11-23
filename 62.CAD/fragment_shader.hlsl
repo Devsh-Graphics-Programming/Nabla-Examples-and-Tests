@@ -395,7 +395,8 @@ float4 main(PSInput input) : SV_TARGET
 #endif
     if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        return float4(0.0f, 1.0f, 0.0f, 0.3f);
+        col = input.getColor();
+        col.w *= localAlpha;
     }
     return float4(col);
 }

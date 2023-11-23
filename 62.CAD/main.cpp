@@ -11,7 +11,7 @@
 #include "Hatch.h"
 #include "Polyline.h"
 
-static constexpr bool DebugMode = true;
+static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
@@ -2564,17 +2564,17 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
-//#define CASE_5_POLYLINE_1
-//#define CASE_5_POLYLINE_2
-//#define CASE_5_POLYLINE_3
-//#define CASE_5_POLYLINE_4
-#define CASE_5_POLYLINE_5
+#define CASE_5_POLYLINE_1 // animated stipple pattern
+//#define CASE_5_POLYLINE_2 // miter test static
+//#define CASE_5_POLYLINE_3 // miter test animated
+//#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 2.0f;
+			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = true;
 
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
@@ -2648,6 +2648,17 @@ public:
 
 			CPolyline polyline;
 			{
+				// section 0: beziers
+				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
+				quadratics[0].P0 = { -50.0, -100.0 };
+				quadratics[0].P1 = { -25.0, -75.0 };
+				quadratics[0].P2 = { 0.0, -100.0 };
+				quadratics[1].P0 = { 0.0, -100.0 };
+				quadratics[1].P1 = { -20.0, -75.0 };
+				quadratics[1].P2 = { -50.0, -50.0 };
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+
+				// section 1: lines
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 0.0, 0.0 });
@@ -2656,6 +2667,40 @@ public:
 				linePoints.push_back({ 50.0, 0.0 });
 				linePoints.push_back({ 0.0, 50.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+				// section 2: beziers
+				std::vector<shapes::QuadraticBezier<double>> quadratics2(3u);
+				quadratics2[0].P0 = { 0.0, 50.0 };
+				quadratics2[0].P1 = { -20.0, 30.0 };
+				quadratics2[0].P2 = { -40.0, 50.0 };
+				quadratics2[1].P0 = { -40.0, 50.0 };
+				quadratics2[1].P1 = { -60.0, 35.0 };
+				quadratics2[1].P2 = { -40.0, 20.0 };
+				quadratics2[2].P0 = { -40.0, 20.0 };
+				quadratics2[2].P1 = { -20.0, 30.0 };
+				quadratics2[2].P2 = { 0.0, 20.0 };
+				/*quadratics2[3].P0 = {20.0, 50.0};
+				quadratics2[3].P1 = { -80.0, 100.0 };
+				quadratics2[3].P2 = { -100.0, 90.0 };*/
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics2.data(), quadratics2.data() + quadratics2.size()));
+
+				// section 3: lines
+				std::vector<float64_t2> linePoints2;
+				linePoints2.push_back({ 0.0, 20.0 });
+				linePoints2.push_back({ 0.0, 10.0 });
+				linePoints2.push_back({ -30.0, 10.0 });
+				/*linePoints2.push_back({0.0, -50.0});
+				linePoints2.push_back({ 50.0, 0.0 });
+				linePoints2.push_back({ 0.0, 50.0 });*/
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
+
+				// section 4: beziers
+				std::vector<shapes::QuadraticBezier<double>> quadratics3(1u);
+				quadratics3[0].P0 = { -30.0, 10.0 };
+				quadratics3[0].P1 = { -30.0, 0.0 };
+				quadratics3[0].P2 = { -20.0, 5.0 };
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics3.data(), quadratics3.data() + quadratics3.size()));
+
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
@@ -2705,46 +2750,35 @@ public:
 			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
+			CPolyline polyline2;
 			{
-				std::vector<float64_t2> linePoints;
-
 				const float rotationAngle = m_timeElapsed * 0.0005;
 				const float64_t rotationAngleCos = std::cos(rotationAngle);
 				const float64_t rotationAngleSin = std::sin(rotationAngle);
 				const float64_t2x2 rotationMatrix = float64_t2x2(rotationAngleCos, -rotationAngleSin, rotationAngleSin, rotationAngleCos);
-				linePoints.push_back({ 0.0, -50.0 });
-				linePoints.push_back({ 0.0,  0.0 });
-				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)));
-
+				
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -120.0, -50.0 });
+				linePoints.push_back({ -120.0,  0.0 });
+				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)) - float64_t2(120.0, 0.0));
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
+				quadratics[0].P0 = { 0.0, -50.0 };
+				quadratics[0].P1 = { 0.0, -25.0 };
+				quadratics[0].P2 = { 0.0, 0.0 };
+
+				quadratics[1].P0 = { 0.0, 0.0 };
+				quadratics[1].P1 = { 0.0, 25.0 };
+				quadratics[1].P2 = { mul(rotationMatrix, float64_t2(0.0, 50.0)) };
+				polyline2.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+
 				polyline.preprocessPolylineWithStyle(style);
+				polyline2.preprocessPolylineWithStyle(style);
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-#elif defined(CASE_5_POLYLINE_5)
-			CPULineStyle style = {};
-			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 5.0f;
-			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
-			style.isRoadStyleFlag = true;
-			
-			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
-			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
-			
-			CPolyline polyline;
-			{
-				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
-				quadratics[0].P0 = { 0.0, 0.0 };
-				quadratics[0].P1 = { 20.0, 80.0 };
-				quadratics[0].P2 = { 40.0, 0.0 };
-
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
-				polyline.preprocessPolylineWithStyle(style);
-			}
-			
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 #endif
 
 		}

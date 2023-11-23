@@ -283,7 +283,8 @@ public:
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
-		core::vector<PolylineConnectorHelperInfo> connectorInfos;
+		PolylineConnectorBuilder connectorBuilder;
+
 		float phaseShiftTotal = lineStyle.phaseShift;
 		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
 		{
@@ -307,31 +308,27 @@ public:
 					const float64_t2 line = linePoint.p - prevLinePoint.p;
 					const double lineLen = glm::length(line);
 
+					if (lineStyle.isRoadStyleFlag)
+					{
+						connectorBuilder.addLineNormal(line, lineLen, prevLinePoint.p, phaseShiftTotal);
+					}
+
 					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
 					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint);
 					phaseShiftTotal = linePoint.phaseShift;
-
-					if (lineStyle.isRoadStyleFlag)
-					{
-						PolylineConnectorHelperInfo connectorInfo;
-						connectorInfo.worldSpaceCircleCenter = prevLinePoint.p;
-						connectorInfo.normal = float32_t2(-line.y, line.x) / static_cast<float>(lineLen);
-						connectorInfo.phaseShift = linePoint.phaseShift;
-
-						connectorInfos.push_back(connectorInfo);
-					}
 				}
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
 				// calculate phase shift at point P0 of each bezier
 				const uint32_t quadBezierCnt = section.count;
-				const bool isLastSection = sectionIdx == m_sections.size() - 1u;
+				const bool isLastSection = (sectionIdx == m_sections.size() - 1u);
 
 				for (uint32_t i = 0u; i <= quadBezierCnt; i++)
 				{
+					const bool isLastBezierInSection = (i == quadBezierCnt);
 					// there is no need to calculate anything for the last bezier in the last section
-					if (isLastSection && i == quadBezierCnt)
+					if (isLastSection && isLastBezierInSection)
 					{
 						break;
 					}
@@ -341,6 +338,12 @@ public:
 					{
 						QuadraticBezierInfo& firstInSectionQuadBezierInfo = m_quadBeziers[currIdx];
 						firstInSectionQuadBezierInfo.phaseShift = phaseShiftTotal;
+
+						if (lineStyle.isRoadStyleFlag)
+						{
+							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
+						}
+
 						continue;
 					}
 
@@ -357,46 +360,18 @@ public:
 					{
 						QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
 						quadBezierInfo.phaseShift = phaseShiftTotal;
+
+						if (lineStyle.isRoadStyleFlag)
+						{
+							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
+						}
 					}
-
-					// TODO: bezier normal
-					//if (lineStyle.isRoadStyleFlag)
-					//{
-
-					//}
 				}
 			}
 
-			// generate miters
 			if (lineStyle.isRoadStyleFlag)
 			{
-				for (uint32_t i = 1u; i < connectorInfos.size(); i++)
-				{
-					// TODO[Przemek]: this is tailored for specific case and not correct, every line has 2 normals at P0, and there should be other way to find the correct ones
-					const float32_t2 prevLineNormal = connectorInfos[i - 1].normal;
-					const float32_t2 nextLineNormal = connectorInfos[i].normal;
-
-					// This basicly tells me if theta < alpha
-					const float crossProductZ = nextLineNormal.x * prevLineNormal.y - prevLineNormal.x * nextLineNormal.y;
-
-					if (std::abs(crossProductZ) < 0.000001f)
-						continue;
-
-					const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
-					const float64_t cosAngleBetweenNormals = glm::dot(prevLineNormal, nextLineNormal);
-
-					PolylineConnector res{};
-					res.circleCenter = connectorInfos[i].worldSpaceCircleCenter;
-					res.v = static_cast<float32_t2>(intersectionDirection * std::sqrt(2.0 / (1.0 + cosAngleBetweenNormals)));
-					//res.cosAngleDifferenceHalf = std::cos(std::acos(cosAngleBetweenNormals) * 0.5f);
-					res.cosAngleDifferenceHalf = static_cast<float32_t>(std::sqrt((1.0 + cosAngleBetweenNormals) * 0.5));
-					res.phaseShift = connectorInfos[i].phaseShift;
-
-					if (crossProductZ < 0.0f)
-						res.v = -res.v;
-
-					m_polylineConnector.push_back(res);
-				}
+				m_polylineConnector = connectorBuilder.buildConnectors();
 			}
 		}
 	}
@@ -409,11 +384,118 @@ protected:
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 
 private:
-	struct PolylineConnectorHelperInfo
+	class PolylineConnectorBuilder
 	{
-		float32_t2 worldSpaceCircleCenter;
-		float32_t2 normal;
-		float phaseShift;
+	public:
+		void addLineNormal(const float64_t2& line, float lineLen, const float64_t2& worldSpaceCircleCenter, float phaseShift)
+		{
+			PolylineConnectorNormalHelperInfo connectorNormalInfo;
+			connectorNormalInfo.worldSpaceCircleCenter = float32_t2(worldSpaceCircleCenter);
+			connectorNormalInfo.normal = float32_t2(-line.y, line.x) / static_cast<float>(lineLen);
+			connectorNormalInfo.phaseShift = phaseShift;
+			connectorNormalInfo.type = ObjectType::LINE;
+
+			connectorNormalInfos.push_back(connectorNormalInfo);
+		}
+
+		void addBezierNormals(const QuadraticBezierInfo& quadBezierInfo, float phaseShift)
+		{
+			// TODO: we already calculate quadratic form of each bezier (except of the last one), maybe store this info in an array and use it later to calculate normals?
+			const float64_t2 bezierDerivativeValueAtP0 = 2.0 * (quadBezierInfo.p[1] - quadBezierInfo.p[0]);
+			const float32_t2 tangentAtP0 = glm::normalize(bezierDerivativeValueAtP0);
+			//const float_t2 A = P0 - 2.0 * P1 + P2;
+			const float64_t2 bezierDerivativeValueAtP2 = 2.0 * (quadBezierInfo.p[0] - 2.0 * quadBezierInfo.p[1] + quadBezierInfo.p[2]) + 2.0 * (quadBezierInfo.p[1] - quadBezierInfo.p[0]);
+			const float32_t2 tangentAtP2 = glm::normalize(bezierDerivativeValueAtP2);
+
+			PolylineConnectorNormalHelperInfo connectorNormalInfoAtP0{};
+			connectorNormalInfoAtP0.worldSpaceCircleCenter = quadBezierInfo.p[0];
+			connectorNormalInfoAtP0.normal = float32_t2(-tangentAtP0.y, tangentAtP0.x);
+			connectorNormalInfoAtP0.phaseShift = phaseShift;
+			connectorNormalInfoAtP0.type = ObjectType::QUAD_BEZIER;
+
+			PolylineConnectorNormalHelperInfo connectorNormalInfoAtP2{};
+			connectorNormalInfoAtP2.worldSpaceCircleCenter = quadBezierInfo.p[2];
+			connectorNormalInfoAtP2.normal = float32_t2(-tangentAtP2.y, tangentAtP2.x);
+			connectorNormalInfoAtP2.phaseShift = phaseShift;
+			connectorNormalInfoAtP2.type = ObjectType::QUAD_BEZIER;
+
+			connectorNormalInfos.push_back(connectorNormalInfoAtP0);
+			connectorNormalInfos.push_back(connectorNormalInfoAtP2);
+		}
+
+		std::vector<PolylineConnector> buildConnectors()
+		{
+			std::vector<PolylineConnector> connectors;
+
+			if (connectorNormalInfos.size() < 2u)
+				return {};
+
+			uint32_t i = getConnectorNormalInfoCountOfLineType(connectorNormalInfos[1].type);
+			while (i < connectorNormalInfos.size())
+			{
+				const auto& prevLine = connectorNormalInfos[i - 1];
+				const auto& nextLine = connectorNormalInfos[i];
+
+				const float32_t2 prevLineNormal = connectorNormalInfos[i - 1].normal;
+				const float32_t2 nextLineNormal = connectorNormalInfos[i].normal;
+
+				const float crossProductZ = nextLineNormal.x * prevLineNormal.y - prevLineNormal.x * nextLineNormal.y;
+				const bool isMiterVisible = std::abs(crossProductZ) >= 0.000001f;
+				if (isMiterVisible)
+				{
+					const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
+					const float64_t cosAngleBetweenNormals = glm::dot(prevLineNormal, nextLineNormal);
+
+					PolylineConnector res{};
+					res.circleCenter = connectorNormalInfos[i].worldSpaceCircleCenter;
+					res.v = static_cast<float32_t2>(intersectionDirection * std::sqrt(2.0 / (1.0 + cosAngleBetweenNormals)));
+					res.cosAngleDifferenceHalf = static_cast<float32_t>(std::sqrt((1.0 + cosAngleBetweenNormals) * 0.5));
+					res.phaseShift = connectorNormalInfos[i].phaseShift;
+
+					const bool needToFlipDirection = crossProductZ < 0.0f;
+					if (needToFlipDirection)
+					{
+						res.v = -res.v;
+					}
+
+					connectors.push_back(res);
+				}
+
+				i += getConnectorNormalInfoCountOfLineType(nextLine.type);
+			}
+
+			return connectors;
+		}
+
+	private:
+		struct PolylineConnectorNormalHelperInfo
+		{
+			float32_t2 worldSpaceCircleCenter;
+			float32_t2 normal;
+			float phaseShift;
+			ObjectType type;
+		};
+
+		core::vector<PolylineConnectorNormalHelperInfo> connectorNormalInfos;
+
+		inline uint32_t getConnectorNormalInfoCountOfLineType(ObjectType type)
+		{
+			static constexpr uint32_t NORMAL_INFO_COUNT_OF_A_LINE = 1u;
+			static constexpr uint32_t NORMAL_INFO_COUNT_OF_A_QUADRATIC_BEZIER = 2u;
+
+			if (type == ObjectType::LINE)
+			{
+				return NORMAL_INFO_COUNT_OF_A_LINE;
+			}
+			else if (type == ObjectType::QUAD_BEZIER)
+			{
+				return NORMAL_INFO_COUNT_OF_A_QUADRATIC_BEZIER;
+			}
+			else
+			{
+				assert(false);
+			}
+		}
 	};
 
 };

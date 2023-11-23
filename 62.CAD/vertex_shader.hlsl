@@ -3,6 +3,8 @@
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/limits.hlsl>
+#include <nbl/builtin/hlsl/algorithm.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -45,6 +47,22 @@ float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d)
     double2 ndc = transformPointNdc(transformation, point2d);
     return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
 }
+float4 transformFromSreenSpaceToNdc(float2 pos)
+{
+    return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+}
+
+// TODO[Przemek]: refactor
+struct StyleAccessor
+{
+    uint32_t styleIdx;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return lineStyles[styleIdx].getStippleValue(ix);
+    }
+};
 
 PSInput main(uint vertexID : SV_VertexID)
 {
@@ -141,9 +159,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setLineStart(transformedPoints[0u]);
         outV.setLineEnd(transformedPoints[1u]);
 
-        // convert back to ndc
-        outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
-        outV.position.w = 1u;
+        outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
@@ -393,47 +409,74 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        //outV.setColor(lineStyle.color);
-        outV.setColor(float4(0.0f, 0.0f, 1.0f, 0.5f));
-        const float lineThickness = screenSpaceLineWidth / 2.0f;
-        outV.setLineThickness(lineThickness);
+        const float FLOAT_INF = nbl::hlsl::numeric_limits<float>::infinity;
+        const float4 INVALID_VERTEX = float4(FLOAT_INF, FLOAT_INF, FLOAT_INF, FLOAT_INF);
 
-        double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
-        float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
-
-        float2 vScreenSpace = float2(v.x, -v.y);
-        float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
-        //float2 circleCenterNDC = transformPointNdc(clipProjectionData.projectionToNDC, circleCenter);
-
-        if (vertexIdx == 0u)
+        if (lineStyle.isRoadStyleFlag)
         {
-            const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
-            const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
-            const float2 v1ScreenSpace = normalize(mul(vScreenSpace, rotationMatrix)) * lineThickness;
+            bool isInDrawSection = true;
+            if(lineStyle.hasStipples())
+            {
+                StyleAccessor styleAccessor;
+                styleAccessor.styleIdx = mainObj.styleIdx;
 
-            outV.position = float4(circleCenterScreenSpace + v1ScreenSpace, 0.0f, 1.0f);
-        }
-        else if (vertexIdx == 1u)
-        {
-            outV.position = float4(circleCenterScreenSpace, 0.0f, 1.0f);
-        }
-        else if (vertexIdx == 2u)
-        {
-            outV.position = float4(circleCenterScreenSpace + vScreenSpace * lineThickness, 0.0f, 1.0f);
-        }
-        else if (vertexIdx == 3u)
-        {
-            const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
-            const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
-            const float2 v2ScreenSpace = normalize(mul(rotationMatrix, vScreenSpace)) * lineThickness;
+                const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 8u);
+                const float normalizedPlaceInPattern = frac(phaseShift);
+                const uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, lineStyle.stipplePatternSize, normalizedPlaceInPattern);
+                // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
+                isInDrawSection = !(patternIdx & 0x1);
+            }
 
-            outV.position = float4(circleCenterScreenSpace + v2ScreenSpace, 0.0f, 1.0f);
-        }
+            if (isInDrawSection)
+            {
+                outV.setColor(float4(0.0f, 1.0f, 0.0f, 0.5f));
+                //outV.setColor(lineStyle.color);
+                const float lineThickness = screenSpaceLineWidth / 2.0f;
+                outV.setLineThickness(lineThickness);
+                
+                double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+                float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
+                float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
 
-        // convert back to ndc
-        outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
-        outV.position.w = 1u;
+                float2 vScreenSpace = float2(v.x, -v.y); // TODO: just do that in cpp (CPolyline::preprocessPolylineWithStyle)?
+                float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+
+                if (vertexIdx == 0u)
+                {
+                    const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
+                    const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
+                    const float2 v1ScreenSpace = normalize(mul(vScreenSpace, rotationMatrix)) * lineThickness;
+
+                    outV.position = float4(circleCenterScreenSpace + v1ScreenSpace, 0.0f, 1.0f);
+                }
+                else if (vertexIdx == 1u)
+                {
+                    outV.position = float4(circleCenterScreenSpace, 0.0f, 1.0f);
+                }
+                else if (vertexIdx == 2u)
+                {
+                    outV.position = float4(circleCenterScreenSpace + vScreenSpace * lineThickness, 0.0f, 1.0f);
+                }
+                else if (vertexIdx == 3u)
+                {
+                    const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
+                    const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
+                    const float2 v2ScreenSpace = normalize(mul(rotationMatrix, vScreenSpace)) * lineThickness;
+
+                    outV.position = float4(circleCenterScreenSpace + v2ScreenSpace, 0.0f, 1.0f);
+                }
+
+                outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+            }
+            else
+            {
+                outV.position = INVALID_VERTEX;
+            }
+        }
+        else
+        {
+            outV.position = INVALID_VERTEX;
+        }
     }
     
     
