@@ -273,9 +273,9 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			core::vector<ILogicalDevice::SQueueCreationParams> retval(1);
 
 			retval[0].count = 1;
-			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
+			// since we requested a device that has such a capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
 			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
+			if (familyProperties[i].queueFlags.hasFlags(getQueueRequirements().front().requiredFlags))
 				retval[0].familyIndex = i;
 
 			return retval;
