@@ -13,7 +13,7 @@ using namespace asset;
 using namespace video;
 
 
-// this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
+// this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platforms
 class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplication
 {
 		using base_t = examples::MonoSystemMonoLoggerApplication;

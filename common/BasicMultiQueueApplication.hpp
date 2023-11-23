@@ -18,7 +18,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 	public:
 		using base_t::base_t;
 
-		// So now we need to return "threadsafe" queues because the queues might get aliased
+		// So now we need to return "threadsafe" queues because the queues might get aliased and also used on multiple threads
 		virtual video::CThreadSafeGPUQueueAdapter* getComputeQueue() const
 		{
 			return m_device->getThreadSafeQueue(m_computeQueue.famIx,m_computeQueue.qIx);
