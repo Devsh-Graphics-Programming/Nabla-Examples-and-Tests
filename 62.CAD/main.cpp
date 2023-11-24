@@ -2360,18 +2360,18 @@ public:
 				// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 				// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
 				// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-				//curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
-				curves::EllipticalArcInfo myCurve;
+				// curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
+				/*curves::EllipticalArcInfo myCurve;
 				myCurve.majorAxis = {50.0, 50.0};
 				myCurve.center = { 50.0, 50.0 };
 				myCurve.angleBounds = { 
 					nbl::core::PI<double>() * 1.25,
 					nbl::core::PI<double>() * 1.25 + abs(cos(m_timeElapsed*0.001)) * nbl::core::PI<double>() * 2.0 };
-				myCurve.eccentricity = 0.5;
+				myCurve.eccentricity = 0.5;*/
 
-				// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
-				// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
-				// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
+				curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
+				curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
+				curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
 				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
 					{
@@ -2384,7 +2384,8 @@ public:
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
 				// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
-				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+				//curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+				curves::Subdivision::adaptive(myCurve, -10.0f, 10.0f, 1e-5, addToBezier, 10u);
 
 				polyline2.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
@@ -2564,8 +2565,8 @@ public:
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
-#define CASE_5_POLYLINE_1 // animated stipple pattern
-//#define CASE_5_POLYLINE_2 // miter test static
+//#define CASE_5_POLYLINE_1 // animated stipple pattern
+#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 

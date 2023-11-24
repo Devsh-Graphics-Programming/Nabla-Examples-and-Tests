@@ -211,9 +211,8 @@ struct ClippedSignedDistance
             }
         }
 
-        float_t roundedDistance = closestDistanceSquared - thickness;
 
-        // TODO[Przemek]: if style `isRoadStyle` is true use rectCapped, else use normal roundedDistance and remove this #ifdef
+        float_t roundedDistance = closestDistanceSquared - thickness;
         if(!isRoadStyle)
         {
             return roundedDistance;
@@ -228,10 +227,6 @@ struct ClippedSignedDistance
                 float_t2 q = mul(curve.getLocalCoordinateSpace(closestT), pos - curve.evaluate(closestT));
                 rectCappedDistance = capSquare(q, thickness, aaWidth);
             }
-            else
-            {
-                rectCappedDistance = rectCappedDistance;
-            }
 
             return rectCappedDistance;
         }
@@ -243,6 +238,16 @@ struct ClippedSignedDistance
         return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
     }
 };
+
+float cross2d( in float2 a, in float2 b ) { return a.x*b.y - a.y*b.x; }
+   
+float udSegment( in float2 p, in float2 a, in float2 b )
+{
+    float2 ba = b-a;
+    float2 pa = p-a;
+    float h = dot(pa,ba)/dot(ba,ba);
+    return length(pa-h*ba);
+}
 
 typedef StyleClipper<nbl::hlsl::shapes::Quadratic<float>, StyleAccessor> BezierStyleClipper;
 typedef StyleClipper<nbl::hlsl::shapes::Line<float>, StyleAccessor> LineStyleClipper;
@@ -260,7 +265,6 @@ float4 main(PSInput input) : SV_TARGET
     uint32_t currentMainObjectIdx = input.getMainObjectIdx();
 
     // TODO:[Przemek]: handle another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
-
     if (objType == ObjectType::LINE)
     {
         const float2 start = input.getLineStart();
@@ -358,7 +362,7 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        localAlpha = 0.5;
+        localAlpha = 1.0f;
     }
 
     uint2 fragCoord = uint2(input.position.xy);
@@ -393,10 +397,5 @@ float4 main(PSInput input) : SV_TARGET
     col = input.getColor();
     col.w *= localAlpha;
 #endif
-    if (objType == ObjectType::POLYLINE_CONNECTOR)
-    {
-        col = input.getColor();
-        col.w *= localAlpha;
-    }
     return float4(col);
 }

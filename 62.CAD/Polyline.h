@@ -225,13 +225,12 @@ public:
 		}
 
 		constexpr LinePointInfo EMPTY_LINE_POINT_INFO = {};
-		const uint32_t newLinePointSize = m_linePoints.size() + linePoints.size();
-		m_quadBeziers.reserve(newLinePointSize);
+		const uint32_t oldLinePointSize = m_linePoints.size();
+		const uint32_t newLinePointSize = oldLinePointSize + linePoints.size();
+		m_linePoints.resize(newLinePointSize);
 		for (uint32_t i = 0u; i < linePoints.size(); i++)
 		{
-			m_linePoints.emplace_back(EMPTY_LINE_POINT_INFO);
-			auto& lastLinePoint = m_linePoints[m_linePoints.size() - 1u];
-			lastLinePoint.p = linePoints[i];
+			m_linePoints[oldLinePointSize + i].p = linePoints[i];
 		}
 	}
 
@@ -257,15 +256,15 @@ public:
 		}
 
 		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
-		const uint32_t newQuadBezierSize = m_quadBeziers.size() + quadBeziers.size();
-		m_quadBeziers.reserve(newQuadBezierSize);
+		const uint32_t oldQuadBezierSize = m_quadBeziers.size();
+		const uint32_t newQuadBezierSize = oldQuadBezierSize + quadBeziers.size();
+		m_quadBeziers.resize(newQuadBezierSize);
 		for (uint32_t i = 0u; i < quadBeziers.size(); i++)
 		{
-			m_quadBeziers.emplace_back(EMPTY_QUADRATIC_BEZIER_INFO);
-			auto& lastBezier = m_quadBeziers[m_quadBeziers.size() - 1u];
-			lastBezier.p[0] = quadBeziers[i].P0;
-			lastBezier.p[1] = quadBeziers[i].P1;
-			lastBezier.p[2] = quadBeziers[i].P2;
+			const uint32_t currBezierIdx = oldQuadBezierSize + i;
+			m_quadBeziers[currBezierIdx].p[0] = quadBeziers[i].P0;
+			m_quadBeziers[currBezierIdx].p[1] = quadBeziers[i].P1;
+			m_quadBeziers[currBezierIdx].p[2] = quadBeziers[i].P2;
 		}
 	}
 
@@ -368,11 +367,11 @@ public:
 					}
 				}
 			}
+		}
 
-			if (lineStyle.isRoadStyleFlag)
-			{
-				m_polylineConnector = connectorBuilder.buildConnectors();
-			}
+		if (lineStyle.isRoadStyleFlag)
+		{
+			m_polylineConnector = connectorBuilder.buildConnectors();
 		}
 	}
 
@@ -439,8 +438,9 @@ private:
 				const float32_t2 prevLineNormal = connectorNormalInfos[i - 1].normal;
 				const float32_t2 nextLineNormal = connectorNormalInfos[i].normal;
 
-				const float crossProductZ = nextLineNormal.x * prevLineNormal.y - prevLineNormal.x * nextLineNormal.y;
-				const bool isMiterVisible = std::abs(crossProductZ) >= 0.000001f;
+				const float crossProductZ = nbl::hlsl::cross2D(nextLineNormal, prevLineNormal);
+				constexpr float EPSILON = 0.000001f;
+				const bool isMiterVisible = std::abs(crossProductZ) >= EPSILON;
 				if (isMiterVisible)
 				{
 					const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
@@ -457,6 +457,7 @@ private:
 					{
 						res.v = -res.v;
 					}
+					res.v.y = -res.v.y;
 
 					connectors.push_back(res);
 				}

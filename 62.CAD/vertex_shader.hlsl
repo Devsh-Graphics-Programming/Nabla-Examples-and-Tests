@@ -429,8 +429,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
             if (isInDrawSection)
             {
-                outV.setColor(float4(0.0f, 1.0f, 0.0f, 0.5f));
-                //outV.setColor(lineStyle.color);
+                outV.setColor(lineStyle.color);
                 const float lineThickness = screenSpaceLineWidth / 2.0f;
                 outV.setLineThickness(lineThickness);
                 
@@ -438,16 +437,24 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
                 float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
 
-                float2 vScreenSpace = float2(v.x, -v.y); // TODO: just do that in cpp (CPolyline::preprocessPolylineWithStyle)?
                 float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
 
-                if (vertexIdx == 0u)
+                const float2 intersectionPoint = circleCenterScreenSpace + v * lineThickness;
+                float2 screenSpaceV1;
+                float2 screenSpaceV2;
                 {
                     const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
                     const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
-                    const float2 v1ScreenSpace = normalize(mul(vScreenSpace, rotationMatrix)) * lineThickness;
+                    screenSpaceV1 = circleCenterScreenSpace + normalize(mul(v, rotationMatrix)) * lineThickness;
+                    screenSpaceV2 = circleCenterScreenSpace + normalize(mul(rotationMatrix, v)) * lineThickness;
+                }
+                outV.setPolylineConnectorV(intersectionPoint);
+                outV.setPolylineConnectorV1(screenSpaceV1);
+                outV.setPolylineConnectorV2(screenSpaceV2);
 
-                    outV.position = float4(circleCenterScreenSpace + v1ScreenSpace, 0.0f, 1.0f);
+                if (vertexIdx == 0u)
+                {
+                    outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
                 }
                 else if (vertexIdx == 1u)
                 {
@@ -455,15 +462,11 @@ PSInput main(uint vertexID : SV_VertexID)
                 }
                 else if (vertexIdx == 2u)
                 {
-                    outV.position = float4(circleCenterScreenSpace + vScreenSpace * lineThickness, 0.0f, 1.0f);
+                    outV.position = float4(intersectionPoint, 0.0f, 1.0f);
                 }
                 else if (vertexIdx == 3u)
                 {
-                    const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
-                    const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
-                    const float2 v2ScreenSpace = normalize(mul(rotationMatrix, vScreenSpace)) * lineThickness;
-
-                    outV.position = float4(circleCenterScreenSpace + v2ScreenSpace, 0.0f, 1.0f);
+                    outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                 }
 
                 outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
@@ -480,8 +483,11 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     
     
-// Make the cage fullscreen for testing:
+// Make the cage fullscreen for testing: 
 #if 0
+    // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
+    if(objType != ObjectType::POLYLINE_CONNECTOR)
+    {
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)
@@ -490,6 +496,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position = float4(+1, -1, 0, 1);
         else if (vertexIdx == 3u)
             outV.position = float4(+1, +1, 0, 1);
+    }
 #endif
 
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);
