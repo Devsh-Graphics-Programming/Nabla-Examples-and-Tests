@@ -24,7 +24,6 @@ public:
 		if (!base_t::onAppInitialized(std::move(system)))
 			return false;
 
-	
 
 
 		const bool isItDefaultImage = argc == 1;
@@ -39,7 +38,6 @@ public:
 		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 
 		nbl::asset::IAssetLoader::SAssetLoadParams lp;
-
 	
 
 		const asset::COpenEXRMetadata* meta;
