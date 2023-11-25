@@ -34,7 +34,7 @@ public:
 			m_logger->log((argv[1] + std::string(" specified!")).c_str(), ILogger::ELL_INFO);
 		else
 		{
-			m_logger->log("To many arguments - pass a single filename without .exr extension of OpenEXR image placed in media/OpenEXR!", ILogger::ELL_ERROR);
+			m_logger->log("To many arguments - pass a single filename of OpenEXR image w.r.t CWD.", ILogger::ELL_ERROR);
 			return true;
 		}
 
