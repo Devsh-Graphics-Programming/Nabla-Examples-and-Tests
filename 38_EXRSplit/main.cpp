@@ -30,6 +30,15 @@ public:
 
 		if (isItDefaultImage)
 			m_logger->log("No image specified - loading a default OpenEXR image placed in CWD", ILogger::ELL_INFO);
+		else if (argc == 2)
+			m_logger->log((argv[1] + std::string(" specified!")).c_str(), ILogger::ELL_INFO);
+		else
+		{
+			m_logger->log("To many arguments - pass a single filename without .exr extension of OpenEXR image placed in media/OpenEXR!", ILogger::ELL_ERROR);
+			return true;
+		}
+
+
 
 		constexpr std::string_view defaultImagePath = "spp_benchmark_4k_512.exr";
 		const std::string filePath = std::string(isItDefaultImage ? defaultImagePath.data() : argv[1]);
