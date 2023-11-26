@@ -24,7 +24,7 @@ public:
 		if (!base_t::onAppInitialized(std::move(system)))
 			return false;
 
-
+		int argc = argv.size();
 
 		const bool isItDefaultImage = argc == 1;
 
@@ -37,7 +37,6 @@ public:
 			m_logger->log("To many arguments - pass a single filename of OpenEXR image w.r.t CWD.", ILogger::ELL_ERROR);
 			return true;
 		}
-
 
 
 		constexpr std::string_view defaultImagePath = "spp_benchmark_4k_512.exr";
