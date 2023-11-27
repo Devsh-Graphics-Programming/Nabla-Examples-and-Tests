@@ -22,7 +22,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		// need this one for skipping passing all args into ApplicationFramework
 		MonoDeviceApplication() = default;
 
-		// This time we build upon the Mono-System and Mono-Logger application and add the choice of a single physical device and creation of utilities
+		// This time we build upon the Mono-System and Mono-Logger application and add the choice of a single physical device
 		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			if (!base_t::onAppInitialized(std::move(system)))
@@ -51,6 +51,9 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 				ILogicalDevice::SCreationParams params = {};
 
 				const auto queueParams = getQueueCreationParameters(selectedDevice->getQueueFamilyProperties());
+				if (queueParams.empty())
+					return logFail("Failed to compute queue creation parameters for a Logical Device!");
+
 				params.queueParamsCount = queueParams.size();
 				std::copy_n(queueParams.begin(),params.queueParamsCount,params.queueParams.begin());
 				
@@ -150,40 +153,46 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return retval;
 		}
 
+		// Lets declare a few common usages of images
+		struct CommonFormatImageUsages
+		{
+			using usages_t = video::IPhysicalDevice::SFormatImageUsages;
+			using format_usage_t = usages_t::SUsage;
+			using image_t = nbl::asset::IImage;
+
+			constexpr static inline format_usage_t sampling = format_usage_t(image_t::EUF_SAMPLED_BIT);
+			constexpr static inline format_usage_t transferUpAndDown = format_usage_t(image_t::EUF_TRANSFER_DST_BIT|image_t::EUF_TRANSFER_SRC_BIT);
+			constexpr static inline format_usage_t shaderStorage = format_usage_t(image_t::EUF_STORAGE_BIT);
+			constexpr static inline format_usage_t shaderStorageAtomic = shaderStorage|[]()->auto {format_usage_t tmp; tmp.storageImageAtomic = true; return tmp;}();
+			constexpr static inline format_usage_t attachment = []()->auto {format_usage_t tmp; tmp.attachment = true; return tmp; }();
+			constexpr static inline format_usage_t attachmentBlend = []()->auto {format_usage_t tmp; tmp.attachmentBlend = true; return tmp; }();
+			constexpr static inline format_usage_t blitSrc = []()->auto {format_usage_t tmp; tmp.blitSrc = true; return tmp; }();
+			constexpr static inline format_usage_t blitDst = []()->auto {format_usage_t tmp; tmp.blitDst = true; return tmp; }();
+			// TODO: redo when we incorporate blits into the asset converter (just sampling then)
+			constexpr static inline format_usage_t mipmapGeneration = sampling|blitSrc|blitDst;
+			constexpr static inline format_usage_t opaqueRendering = sampling|transferUpAndDown|attachment|mipmapGeneration;
+			constexpr static inline format_usage_t genericRendering = opaqueRendering|attachmentBlend|mipmapGeneration;
+			constexpr static inline format_usage_t renderingAndStorage = genericRendering|shaderStorage;
+		};
+
 		// virtual function so you can override as needed for some example father down the line
 		virtual video::IPhysicalDevice::SFormatImageUsages getRequiredOptimalTilingImageUsages() const
 		{
-			using usages_t = video::IPhysicalDevice::SFormatImageUsages;
-			usages_t retval = {};
+			video::IPhysicalDevice::SFormatImageUsages retval = {};
 			
-			using format_usage_t = usages_t::SUsage;
 			using namespace nbl::asset;
-			// Lets declare a few common usages of images
-			const format_usage_t sampling(IImage::EUF_SAMPLED_BIT);
-			const format_usage_t transferUpAndDown(IImage::EUF_TRANSFER_DST_BIT|IImage::EUF_TRANSFER_SRC_BIT);
-			const format_usage_t shaderStorage(IImage::EUF_STORAGE_BIT);
-			const format_usage_t shaderStorageAtomic = shaderStorage | []()->auto {format_usage_t tmp; tmp.storageImageAtomic = true; return tmp;}();
-			const format_usage_t attachment = []()->auto {format_usage_t tmp; tmp.attachment = true; return tmp; }();
-			const format_usage_t attachmentBlend = []()->auto {format_usage_t tmp; tmp.attachmentBlend = true; return tmp; }();
-			const format_usage_t blitSrc = []()->auto {format_usage_t tmp; tmp.blitSrc = true; return tmp; }();
-			const format_usage_t blitDst = []()->auto {format_usage_t tmp; tmp.blitDst = true; return tmp; }();
-			// TODO: redo when we incorporate blits into the asset converter (just sampling then)
-			const format_usage_t mipmapGeneration = sampling|blitSrc|blitDst;
 			// we care that certain "basic" formats are usable in some "basic" ways
-			retval[EF_R32_UINT] = shaderStorageAtomic;
-			const format_usage_t opaqueRendering = sampling|transferUpAndDown|attachment|mipmapGeneration;
-			const format_usage_t genericRendering = opaqueRendering|attachmentBlend|mipmapGeneration;
-			retval[EF_R8_UNORM] = genericRendering;
-			retval[EF_R8G8_UNORM] = genericRendering;
-			retval[EF_R8G8B8A8_UNORM] = genericRendering;
-			retval[EF_R8G8B8A8_SRGB] = genericRendering;
-			const format_usage_t renderingAndStorage = genericRendering|shaderStorage;
-			retval[EF_R16_SFLOAT] = renderingAndStorage;
-			retval[EF_R16G16_SFLOAT] = renderingAndStorage;
-			retval[EF_R16G16B16A16_SFLOAT] = renderingAndStorage;
-			retval[EF_R32_SFLOAT] = renderingAndStorage;
-			retval[EF_R32G32_SFLOAT] = renderingAndStorage;
-			retval[EF_R32G32B32A32_SFLOAT] = renderingAndStorage;
+			retval[EF_R32_UINT] = CommonFormatImageUsages::shaderStorageAtomic;
+			retval[EF_R8_UNORM] = CommonFormatImageUsages::genericRendering;
+			retval[EF_R8G8_UNORM] = CommonFormatImageUsages::genericRendering;
+			retval[EF_R8G8B8A8_UNORM] = CommonFormatImageUsages::genericRendering;
+			retval[EF_R8G8B8A8_SRGB] = CommonFormatImageUsages::genericRendering;
+			retval[EF_R16_SFLOAT] = CommonFormatImageUsages::renderingAndStorage;
+			retval[EF_R16G16_SFLOAT] = CommonFormatImageUsages::renderingAndStorage;
+			retval[EF_R16G16B16A16_SFLOAT] = CommonFormatImageUsages::renderingAndStorage;
+			retval[EF_R32_SFLOAT] = CommonFormatImageUsages::renderingAndStorage;
+			retval[EF_R32G32_SFLOAT] = CommonFormatImageUsages::renderingAndStorage;
+			retval[EF_R32G32B32A32_SFLOAT] = CommonFormatImageUsages::renderingAndStorage;
 
 			return retval;
 		}
@@ -203,13 +212,12 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// virtual function so you can override as needed for some example father down the line
-		virtual core::vector<video::SPhysicalDeviceFilter::QueueRequirement> getQueueRequirements() const
+		using queue_req_t = video::SPhysicalDeviceFilter::QueueRequirement;
+		virtual core::vector<queue_req_t> getQueueRequirements() const
 		{
-			using namespace core;
-			using namespace video;
-			vector<SPhysicalDeviceFilter::QueueRequirement> retval;
+			core::vector<queue_req_t> retval;
 			
-			using flags_t = IPhysicalDevice::E_QUEUE_FLAGS;
+			using flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
 			// The Graphics Queue should be able to do Compute and image transfers of any granularity (transfer only queue families can have problems with that)
 			retval.push_back({.requiredFlags=flags_t::EQF_COMPUTE_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
 
@@ -258,15 +266,16 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// This will most certainly be overriden
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const core::SRange<const video::IPhysicalDevice::SQueueFamilyProperties>& familyProperties)
+		using queue_family_range_t = core::SRange<const video::IPhysicalDevice::SQueueFamilyProperties>;
+		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const queue_family_range_t& familyProperties)
 		{
 			using namespace video;
 			core::vector<ILogicalDevice::SQueueCreationParams> retval(1);
 
 			retval[0].count = 1;
-			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
+			// since we requested a device that has such a capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
 			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
+			if (familyProperties[i].queueFlags.hasFlags(getQueueRequirements().front().requiredFlags))
 				retval[0].familyIndex = i;
 
 			return retval;
