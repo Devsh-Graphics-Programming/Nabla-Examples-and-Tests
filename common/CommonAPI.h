@@ -1,7 +1,6 @@
 #ifndef __NBL_COMMON_API_H_INCLUDED__
 #define __NBL_COMMON_API_H_INCLUDED__
 
-#define _NBL_STATIC_LIB_
 #include <nabla.h>
 
 #include "MonoSystemMonoLoggerApplication.hpp"

@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CHelloWorldBuilder extends IBuilder
+class CStagingAndMultipleQueuesBuilder extends IBuilder
 {
-	public CHelloWorldBuilder(Agent _agent, _info)
+	public CStagingAndMultipleQueuesBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CHelloWorldBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CHelloWorldBuilder(_agent, _info)
+	return new CStagingAndMultipleQueuesBuilder(_agent, _info)
 }
 
 return this
