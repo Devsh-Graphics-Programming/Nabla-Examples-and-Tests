@@ -10,10 +10,10 @@
   }, 
   "profiles": [
     {
-      "backend": "vulkan",
+      "backend": "vulkan", // should be none
       "platform": "windows",
-      "buildMode": "",
-      "runConfiguration": "Release",
+      "buildModes": [],
+      "runConfiguration": "Release", // we also need to run in Debug nad RWDI because foundational example
       "gpuArchitectures": []
     }
   ],

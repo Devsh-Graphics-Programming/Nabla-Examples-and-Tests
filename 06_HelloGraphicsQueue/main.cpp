@@ -19,6 +19,7 @@ class HelloGraphicsQueueApp final : public examples::MonoDeviceApplication, publ
 {
 		using device_base_t = examples::MonoDeviceApplication;
 		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
 		HelloGraphicsQueueApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :

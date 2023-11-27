@@ -22,6 +22,7 @@ class StagingAndMultipleQueuesApp final : public examples::BasicMultiQueueApplic
 {
 		using device_base_t = examples::BasicMultiQueueApplication;
 		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
 		StagingAndMultipleQueuesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
