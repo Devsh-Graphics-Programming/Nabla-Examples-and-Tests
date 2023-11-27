@@ -491,6 +491,7 @@ PSInput main(uint vertexID : SV_VertexID)
 #if 0
     // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
     //if(objType != ObjectType::POLYLINE_CONNECTOR)
+    if(objType == ObjectType::POLYLINE_CONNECTOR)
     {
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
