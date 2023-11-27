@@ -24,10 +24,9 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(06_HelloGraphicsQueue EXCLUDE_FROM_ALL)
 	# showcase the set-up of multiple queues
 	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
+	# showcase the set-up of a swapchain and picking of a matching device
+	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
 
-	# semi-working examples
-	#add_subdirectory(06_MeshLoaders EXCLUDE_FROM_ALL)
-	#add_subdirectory(09_ColorSpaceTest EXCLUDE_FROM_ALL)
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
 	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
@@ -56,16 +55,16 @@ if(NBL_BUILD_EXAMPLES)
 	#add_subdirectory(45_BRDFEvalTest EXCLUDE_FROM_ALL)
 	#add_subdirectory(46_SamplingValidation EXCLUDE_FROM_ALL)
 	add_subdirectory(47_DerivMapTest EXCLUDE_FROM_ALL)
-	add_subdirectory(48_ArithmeticUnitTest EXCLUDE_FROM_ALL)
+	#add_subdirectory(48_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 	add_subdirectory(53_ComputeShaders EXCLUDE_FROM_ALL)
 	add_subdirectory(54_Transformations EXCLUDE_FROM_ALL)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
 	add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
 	add_subdirectory(61_FilterTest EXCLUDE_FROM_ALL)
-	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
+	#add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
-	add_subdirectory(64_CppCompat)
+	#add_subdirectory(64_CppCompat)
 endif()

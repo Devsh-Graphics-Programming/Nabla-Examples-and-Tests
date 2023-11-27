@@ -1,8 +1,8 @@
 // Copyright (C) 2023-2023 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#ifndef _NBL_EXAMPLES_COMMON__APPLICATION_HPP_INCLUDED_
-#define _NBL_EXAMPLES_COMMON__APPLICATION_HPP_INCLUDED_
+#ifndef _NBL_EXAMPLES_COMMON_BASIC_MULTI_QUEUE_APPLICATION_HPP_INCLUDED_
+#define _NBL_EXAMPLES_COMMON_BASIC_MULTI_QUEUE_APPLICATION_HPP_INCLUDED_
 
 // Build on top of the previous one
 #include "../common/MonoDeviceApplication.hpp"
@@ -22,6 +22,13 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 		virtual video::CThreadSafeGPUQueueAdapter* getComputeQueue() const
 		{
 			return m_device->getThreadSafeQueue(m_computeQueue.famIx,m_computeQueue.qIx);
+		}
+		virtual video::CThreadSafeGPUQueueAdapter* getGraphicsQueue() const
+		{
+			if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
+				return m_device->getThreadSafeQueue(m_graphicsQueue.famIx,m_graphicsQueue.qIx);
+			assert(isHeadlessCompute());
+			return nullptr;
 		}
 
 		// virtual to allow aliasing and total flexibility, as with the above
@@ -49,11 +56,17 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			return true;
 		}
 
+		// overridable for future graphics queue using examples
+		virtual bool isHeadlessCompute() const {return true;}
+
 		using queue_flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
 		// So because of lovely Intel GPUs that only have one queue, we can't really request anything different
 		virtual core::vector<queue_req_t> getQueueRequirements() const override
 		{
-			return {{.requiredFlags=queue_flags_t::EQF_COMPUTE_BIT|queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}}};
+			queue_req_t singleQueueReq = {.requiredFlags=queue_flags_t::EQF_COMPUTE_BIT|queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
+			if (!isHeadlessCompute())
+				singleQueueReq.requiredFlags |= queue_flags_t::EQF_GRAPHICS_BIT;
+			return {singleQueueReq};
 		}
 
 		// Their allocation and creation gets more complex
@@ -180,7 +193,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			uint8_t famIx=QueueAllocator::InvalidIndex;
 			uint8_t qIx=0;
 		};
-		SQueueIndex m_computeQueue={},m_transferUpQueue={},m_transferDownQueue={};
+		SQueueIndex m_graphicsQueue={},m_computeQueue={},m_transferUpQueue={},m_transferDownQueue={};
 };
 
 }
