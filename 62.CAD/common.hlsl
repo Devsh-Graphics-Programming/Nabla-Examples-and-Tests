@@ -102,6 +102,9 @@ struct Globals
     float worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
+        // based on: https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setmiterlimit
+    float miterLimit; // 116
+    float _padding;
 };
 
 #ifndef __HLSL_VERSION
@@ -110,6 +113,7 @@ static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
 static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
 static_assert(offsetof(Globals, resolution) == 100u);
 static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
+static_assert(offsetof(Globals, miterLimit) == 112u);
 #endif
 
 struct LineStyle
@@ -409,12 +413,14 @@ struct PSInput
     // POLYLINE_CONNECTOR data
 
     void setPolylineConnectorV(float2 V) { data2.xy = V; }
-    void setPolylineConnectorV1(float2 V1) { data2.zw = V1; }
-    void setPolylineConnectorV2(float2 V2) { data3.xy = V2; }
+    void setPolylineConnectorN1(float2 V1) { data2.zw = V1; }
+    void setPolylineConnectorN2(float2 V2) { data3.xy = V2; }
+    void setPolylineConnectorCircleCenter(float2 C) { data3.zw = C; }
 
     float2 getPolylineConnectorV() { return data2.xy; }
-    float2 getPolylineConnectorV1() { return data2.zw; }
-    float2 getPolylineConnectorV2() { return data3.xy; }
+    float2 getPolylineConnectorN1() { return data2.zw; }
+    float2 getPolylineConnectorN2() { return data3.xy; }
+    float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);

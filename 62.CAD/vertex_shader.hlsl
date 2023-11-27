@@ -447,10 +447,14 @@ PSInput main(uint vertexID : SV_VertexID)
                     const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
                     screenSpaceV1 = circleCenterScreenSpace + normalize(mul(v, rotationMatrix)) * lineThickness;
                     screenSpaceV2 = circleCenterScreenSpace + normalize(mul(rotationMatrix, v)) * lineThickness;
+
+                    // TODO: optimize
+                    outV.setPolylineConnectorN1(normalize(mul(v, rotationMatrix)));
+                    outV.setPolylineConnectorN2(normalize(mul(rotationMatrix, v)));
                 }
                 outV.setPolylineConnectorV(intersectionPoint);
-                outV.setPolylineConnectorV1(screenSpaceV1);
-                outV.setPolylineConnectorV2(screenSpaceV2);
+                // TODO: do i even need it
+                outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
                 if (vertexIdx == 0u)
                 {
@@ -486,7 +490,7 @@ PSInput main(uint vertexID : SV_VertexID)
 // Make the cage fullscreen for testing: 
 #if 0
     // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
-    if(objType != ObjectType::POLYLINE_CONNECTOR)
+    //if(objType != ObjectType::POLYLINE_CONNECTOR)
     {
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);

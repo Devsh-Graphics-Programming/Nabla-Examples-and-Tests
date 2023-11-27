@@ -5,6 +5,7 @@
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -238,15 +239,35 @@ struct ClippedSignedDistance
         return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
     }
 };
-
-float cross2d( in float2 a, in float2 b ) { return a.x*b.y - a.y*b.x; }
    
-float udSegment( in float2 p, in float2 a, in float2 b )
+template <typename float_t>
+float udSegment( in vector<float_t, 2> P, in vector<float_t, 2> start, in vector<float_t, 2> dir )
 {
-    float2 ba = b-a;
-    float2 pa = p-a;
-    float h = dot(pa,ba)/dot(ba,ba);
-    return length(pa-h*ba);
+    vector<float_t, 2> pa = P-start;
+    float h = dot(pa,dir)/dot(dir,dir);
+    return length(pa-h*dir);
+}
+
+float miterSdf(in float2 P, in float2 N0, in float2 N1, in float lineThickness)
+{
+    const float cosAngleBetweenNormal = dot(N0, N1);
+    const float2 intersectionDirection = normalize(N0+N1);
+    float2 V = intersectionDirection * sqrt(2.0/(1.0+cosAngleBetweenNormal));
+
+    const float miterLimit = 1.0;
+    const float2 cutoffPoint = /*globals.miterLimit*/ miterLimit * intersectionDirection;
+    const float2 cutoffDir = float2(-intersectionDirection.y, intersectionDirection.x);
+
+    V *= lineThickness;
+    N0 *= lineThickness;
+    N1 *= lineThickness;
+
+    const float d1 = sign(nbl::hlsl::cross2D(N0-P, P-V)) * udSegment(P, N0, V-N0);
+	const float d2 = sign(nbl::hlsl::cross2D(N1-P, V-P)) * udSegment(P, N1, V-N1);
+    //const float d3 = sign(nbl::hlsl::cross2D(cutoffPoint-P, -cutoffDir)) * udSegment(P, cutoffPoint, cutoffDir );
+
+    //const float distance = max(max(d1, d2), d3);
+    return max(d1, d2);
 }
 
 typedef StyleClipper<nbl::hlsl::shapes::Quadratic<float>, StyleAccessor> BezierStyleClipper;
@@ -362,7 +383,16 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        localAlpha = 1.0f;
+        const float2 P = input.position.xy;
+        //const float2 P = float2(input.position.x, -input.position.y);
+        const float2 N0 = input.getPolylineConnectorN1();
+        const float2 N1 = input.getPolylineConnectorN2();
+        const float lineThickness = input.getLineThickness();
+
+        const float distance = miterSdf(P, N0, N1, lineThickness);
+
+        const float antiAliasingFactor = globals.antiAliasingFactor;
+        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
 
     uint2 fragCoord = uint2(input.position.xy);

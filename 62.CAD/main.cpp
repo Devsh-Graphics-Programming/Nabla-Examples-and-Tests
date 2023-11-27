@@ -1723,6 +1723,7 @@ public:
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = (float) screenToWorld;
 		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
+		globalData.miterLimit = 5.0f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -2566,9 +2567,9 @@ public:
 		else if (mode == ExampleMode::CASE_5)
 		{
 //#define CASE_5_POLYLINE_1 // animated stipple pattern
-#define CASE_5_POLYLINE_2 // miter test static
+//#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
-//#define CASE_5_POLYLINE_4 // miter test animated (every angle)
+#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
