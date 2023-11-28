@@ -407,19 +407,16 @@ struct PSInput
         return interp_data5.x;
     }
 
-    // TODO[Przemek][1.Continous Stipples]: find a free slot for currentPhaseShift (I suggest merging Lucas' work an use the "non-interpolation" ones used for the hatches, since hatches don't have stipples you can reuse it's data to pass curve phase shift
-    // TODO:[Przemek][2. Miters]: handle data needed object type POLYLINE_CONNECTOR, you can reuse the data lines and beziers already use, I trust you'll make the best reusing decision
-
     // POLYLINE_CONNECTOR data
 
     void setPolylineConnectorV(float2 V) { data2.xy = V; }
-    void setPolylineConnectorN0(float2 V1) { data2.zw = V1; }
-    void setPolylineConnectorN1(float2 V2) { data3.xy = V2; }
+    void setPolylineConnectorV1(float2 V1) { data2.zw = V1; }
+    void setPolylineConnectorV2(float2 V2) { data3.xy = V2; }
     void setPolylineConnectorCircleCenter(float2 C) { data3.zw = C; }
 
     float2 getPolylineConnectorV() { return data2.xy; }
-    float2 getPolylineConnectorN0() { return data2.zw; }
-    float2 getPolylineConnectorN1() { return data3.xy; }
+    float2 getPolylineConnectorV1() { return data2.zw; }
+    float2 getPolylineConnectorV2() { return data3.xy; }
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 

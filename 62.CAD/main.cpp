@@ -1723,7 +1723,7 @@ public:
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = (float) screenToWorld;
 		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
-		globalData.miterLimit = 10.0f;
+		globalData.miterLimit = 1.0f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 

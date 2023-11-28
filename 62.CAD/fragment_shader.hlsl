@@ -248,21 +248,15 @@ float udSegment( in vector<float_t, 2> P, in vector<float_t, 2> start, in vector
     return length(pa-h*dir);
 }
 
-float miterSdf(in float2 P, in float2 N0, in float2 N1, in float2 C, in float lineThickness)
+float miterSdf(in float2 P, in float2 V, in float2 V1, in float2 V2, in float2 C, in float lineThickness)
 {
-    const float cosAngleBetweenNormal = dot(N0, N1);
-    const float2 intersectionDirection = normalize(N0+N1);
-    float2 V = intersectionDirection * sqrt(2.0/(1.0+cosAngleBetweenNormal));
+    const float2 intersectionDirection = normalize(V);
 
     const float2 cutoffPoint = globals.miterLimit * intersectionDirection * lineThickness;
     const float2 cutoffDir = float2(-intersectionDirection.y, intersectionDirection.x);
 
-    V *= lineThickness;
-    N0 *= lineThickness;
-    N1 *= lineThickness;
-
-    const float d1 = sign(nbl::hlsl::cross2D(N0-P, P-V)) * udSegment(P, N0, V-N0);
-	const float d2 = sign(nbl::hlsl::cross2D(N1-P, V-P)) * udSegment(P, N1, V-N1);
+    const float d1 = sign(nbl::hlsl::cross2D(V1-P, P-V)) * udSegment(P, V1, V-V1);
+	const float d2 = sign(nbl::hlsl::cross2D(V2-P, V-P)) * udSegment(P, V2, V-V2);
     const float d3 = sign(nbl::hlsl::cross2D(P-cutoffPoint, cutoffDir)) * udSegment(P, cutoffPoint, cutoffDir);
 
     return max(max(d1, d2), d3);
@@ -283,7 +277,6 @@ float4 main(PSInput input) : SV_TARGET
     float localAlpha = 0.0f;
     uint32_t currentMainObjectIdx = input.getMainObjectIdx();
 
-    // TODO:[Przemek]: handle another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
     if (objType == ObjectType::LINE)
     {
         const float2 start = input.getLineStart();
@@ -382,11 +375,12 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
         const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-        const float2 N0 = input.getPolylineConnectorN0();
-        const float2 N1 = input.getPolylineConnectorN1();
+        const float2 V = input.getPolylineConnectorV();
+        const float2 V1 = input.getPolylineConnectorV1();
+        const float2 V2 = input.getPolylineConnectorV2();
         const float lineThickness = input.getLineThickness();
 
-        const float distance = miterSdf(P, N0, N1, input.getPolylineConnectorCircleCenter(), lineThickness);
+        const float distance = miterSdf(P, V, V1, V2, input.getPolylineConnectorCircleCenter(), lineThickness);
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);

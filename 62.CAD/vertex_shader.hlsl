@@ -93,31 +93,6 @@ PSInput main(uint vertexID : SV_VertexID)
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
-    /*
-     * TODO:[Przemek]: handle generating vertices another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
-     * the connector from cpu will have a phase shift as well, if it's in a non draw section you can discard it in the vertex shader.
-     * so you'll be doing similar upper_bound computation stuff to figure out if you're in a draw or non draw section here as well.
-     * we'll move this later to compute so you don't have to worry about it per-vertex, that's for later
-     * else if (objType == ObjectType::POLYLINE_CONNECTOR)
-     * {
-     *      if(currentStyle.isRoadStyle)
-     *      {
-     *          if (isInDrawSection)
-     *          {
-     *              do the math needed to generate miter vertices USING: antiAliasedLineWidth, PolylineConnector data in it's struct
-     *          }
-     *          else
-     *          {
-     *              discard
-     *          }
-     *      }
-     *      else
-     *      {
-     *          shouldn't happen but discard, we can add bevel joins and stuff later on
-     *      }
-     * }
-    */
-
     if (objType == ObjectType::LINE)
     {
         outV.setColor(lineStyle.color);
@@ -433,30 +408,32 @@ PSInput main(uint vertexID : SV_VertexID)
                 const float lineThickness = screenSpaceLineWidth / 2.0f;
                 outV.setLineThickness(lineThickness);
                 
-                double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-                float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
-                float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
+                const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
+                const float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
 
-                float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+                const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+                outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
-                const float2 intersectionPoint = circleCenterScreenSpace + v * lineThickness;
+                float2 intersectionPoint = v * lineThickness;
+                outV.setPolylineConnectorV(intersectionPoint);
+                intersectionPoint += circleCenterScreenSpace;
+
                 float2 screenSpaceV1;
                 float2 screenSpaceV2;
                 {
                     const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
                     const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
 
-                    const float2 N0 = normalize(mul(v, rotationMatrix));
-                    const float2 N1 = normalize(mul(rotationMatrix, v));
+                    const float2 V1 = normalize(mul(v, rotationMatrix)) * lineThickness;
+                    const float2 V2 = normalize(mul(rotationMatrix, v)) * lineThickness;
 
-                    screenSpaceV1 = circleCenterScreenSpace + N0 * lineThickness;
-                    screenSpaceV2 = circleCenterScreenSpace + N1 * lineThickness;
+                    screenSpaceV1 = circleCenterScreenSpace + V1;
+                    screenSpaceV2 = circleCenterScreenSpace + V2;
 
-                    outV.setPolylineConnectorN0(N0);
-                    outV.setPolylineConnectorN1(N1);
+                    outV.setPolylineConnectorV1(V1);
+                    outV.setPolylineConnectorV2(V2);
                 }
-                outV.setPolylineConnectorV(intersectionPoint);
-                outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
                 if (vertexIdx == 0u)
                 {
