@@ -55,7 +55,7 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 		}
 
 		// some examples may need to override this because they're Headless (no window output)
-		virtual core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask()
+		virtual core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() //TODO: const
 		{
 			// @Hazardu probably need a commandline option to override
 			return system::ILogger::DefaultLogMask();
