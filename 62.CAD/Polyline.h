@@ -2,6 +2,7 @@
 
 #include <nabla.h>
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/math/geometry.hlsl>
 
 using namespace nbl;
 using namespace ui;

@@ -5,7 +5,7 @@
 #include <nbl/builtin/hlsl/shapes/line.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
+#include <nbl/builtin/hlsl/math/geometry.hlsl>
 
 #if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
 [[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
@@ -263,7 +263,7 @@ float miterSdf(in float2 P, in float2 N0, in float2 N1, in float2 C, in float li
 
     const float d1 = sign(nbl::hlsl::cross2D(N0-P, P-V)) * udSegment(P, N0, V-N0);
 	const float d2 = sign(nbl::hlsl::cross2D(N1-P, V-P)) * udSegment(P, N1, V-N1);
-    const float d3 = sign(nbl::hlsl::cross2D(cutoffPoint-P, -cutoffDir)) * udSegment(P, cutoffPoint, cutoffDir);
+    const float d3 = sign(nbl::hlsl::cross2D(P-cutoffPoint, cutoffDir)) * udSegment(P, cutoffPoint, cutoffDir);
 
     return max(max(d1, d2), d3);
 }

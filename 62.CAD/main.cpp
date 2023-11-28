@@ -11,7 +11,7 @@
 #include "Hatch.h"
 #include "Polyline.h"
 
-static constexpr bool DebugMode = true;
+static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
@@ -1723,7 +1723,7 @@ public:
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = (float) screenToWorld;
 		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
-		globalData.miterLimit = 1.0f;
+		globalData.miterLimit = 10.0f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -2567,9 +2567,9 @@ public:
 		else if (mode == ExampleMode::CASE_5)
 		{
 //#define CASE_5_POLYLINE_1 // animated stipple pattern
-//#define CASE_5_POLYLINE_2 // miter test static
+#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
-#define CASE_5_POLYLINE_4 // miter test animated (every angle)
+//#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
@@ -2742,7 +2742,7 @@ public:
 #elif defined(CASE_5_POLYLINE_4)
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 20.0f;
+			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 			style.isRoadStyleFlag = true;
 
