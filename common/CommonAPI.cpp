@@ -1,6 +1,22 @@
+
 #include "CommonAPI.h"
 
-#if 0
+nbl::video::IPhysicalDevice* CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices)
+{
+
+	if (suitablePhysicalDevices.empty())
+		return nullptr;
+
+	for (auto itr = suitablePhysicalDevices.begin(); itr != suitablePhysicalDevices.end(); ++itr)
+	{
+		nbl::video::IPhysicalDevice* physdev = *itr;
+		if (physdev->getProperties().driverID == preferredDriver)
+			return physdev;
+	}
+
+	return *suitablePhysicalDevices.begin();
+}
+
 nbl::video::ISwapchain::SCreationParams CommonAPI::computeSwapchainCreationParams(
 	uint32_t& imageCount,
 	const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
@@ -309,4 +325,3 @@ bool CommonAPI::createSwapchain(
 
 	return true;
 }
-#endif

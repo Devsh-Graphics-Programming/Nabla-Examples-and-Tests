@@ -2635,7 +2635,4 @@ public:
 	}
 };
 
-//NBL_COMMON_API_MAIN(CADApp)
-int main(int argc, char** argv) {
-	CommonAPI::main<CADApp>(argc, argv);
-}
+NBL_MAIN_FUNC(CADApp)
