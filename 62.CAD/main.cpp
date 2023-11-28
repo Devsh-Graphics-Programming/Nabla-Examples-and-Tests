@@ -2384,7 +2384,6 @@ public:
 				const int pp = (ix / 30) % 10;
 				double error = pow(10.0, -1.0 * double(pp + 1));
 
-				// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
 				//curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 				curves::Subdivision::adaptive(myCurve, -10.0f, 10.0f, 1e-5, addToBezier, 10u);
 

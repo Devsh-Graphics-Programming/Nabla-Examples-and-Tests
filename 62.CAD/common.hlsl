@@ -7,7 +7,6 @@
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #endif
 
-// TODO:[Przemek]: add another object type: POLYLINE_CONNECTOR which is our miters eventually
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
@@ -52,7 +51,6 @@ struct QuadraticBezierInfo
     float32_t _reserved_pad;
 };
 
-// TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 struct PolylineConnector
 {
     float64_t2 circleCenter;

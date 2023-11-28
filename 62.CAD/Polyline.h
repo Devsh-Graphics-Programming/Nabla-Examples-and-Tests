@@ -269,18 +269,6 @@ public:
 		}
 	}
 
-	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
-	/*
-	*  this preprocess should:
-	*	1. if style has road info try to generate miters:
-	*		if tangents are not in the same direction with some error add a PolylineConnector object
-		2. go over the list of sections (line and beziers in order) compute the phase shift by computing their arclen and divisions with style length and
-			fill the phaseShift part of the QuadraticBezierInfo and LinePointInfo,
-			you initially set them to 0 in addLinePoints/addQuadBeziers
-
-		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
-	*/
-
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
 		PolylineConnectorBuilder connectorBuilder;
@@ -377,7 +365,6 @@ public:
 	}
 
 protected:
-	// TODO[Przemek]: a vector of polyline connetor objects
 	std::vector<PolylineConnector> m_polylineConnector;
 	std::vector<SectionInfo> m_sections;
 	std::vector<LinePointInfo> m_linePoints;
