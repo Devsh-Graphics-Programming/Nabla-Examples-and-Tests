@@ -301,7 +301,7 @@ public:
 	private:
 		nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
-		bool m_gotWindowClosedMsg;
+		bool m_gotWindowClosedMsg = false;
 	};
 
 	static nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
