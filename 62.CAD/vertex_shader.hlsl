@@ -445,15 +445,17 @@ PSInput main(uint vertexID : SV_VertexID)
                 {
                     const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
                     const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
-                    screenSpaceV1 = circleCenterScreenSpace + normalize(mul(v, rotationMatrix)) * lineThickness;
-                    screenSpaceV2 = circleCenterScreenSpace + normalize(mul(rotationMatrix, v)) * lineThickness;
 
-                    // TODO: optimize
-                    outV.setPolylineConnectorN1(normalize(mul(v, rotationMatrix)));
-                    outV.setPolylineConnectorN2(normalize(mul(rotationMatrix, v)));
+                    const float2 N0Rotated = normalize(mul(v, rotationMatrix));
+                    const float2 N1Rotated = normalize(mul(rotationMatrix, v));
+
+                    screenSpaceV1 = circleCenterScreenSpace + N0Rotated * lineThickness;
+                    screenSpaceV2 = circleCenterScreenSpace + N1Rotated * lineThickness;
+
+                    outV.setPolylineConnectorN0(N0Rotated);
+                    outV.setPolylineConnectorN1(N1Rotated);
                 }
                 outV.setPolylineConnectorV(intersectionPoint);
-                // TODO: do i even need it
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
                 if (vertexIdx == 0u)

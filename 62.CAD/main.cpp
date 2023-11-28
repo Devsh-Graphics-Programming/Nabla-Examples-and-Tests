@@ -11,7 +11,7 @@
 #include "Hatch.h"
 #include "Polyline.h"
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugMode = true;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
 
@@ -1723,7 +1723,7 @@ public:
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = (float) screenToWorld;
 		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
-		globalData.miterLimit = 20.0f;
+		globalData.miterLimit = 1.0f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -2742,7 +2742,7 @@ public:
 #elif defined(CASE_5_POLYLINE_4)
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
-			style.worldSpaceLineWidth = 5.0f;
+			style.worldSpaceLineWidth = 20.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 			style.isRoadStyleFlag = true;
 
@@ -2760,9 +2760,9 @@ public:
 				const float64_t2x2 rotationMatrix = float64_t2x2(rotationAngleCos, -rotationAngleSin, rotationAngleSin, rotationAngleCos);
 				
 				std::vector<float64_t2> linePoints;
-				linePoints.push_back({ -120.0, -50.0 });
-				linePoints.push_back({ -120.0,  0.0 });
-				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)) - float64_t2(120.0, 0.0));
+				linePoints.push_back({ 0.0, -50.0 });
+				linePoints.push_back({ 0.0,  0.0 });
+				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)));
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);

@@ -254,7 +254,7 @@ float miterSdf(in float2 P, in float2 N0, in float2 N1, in float2 C, in float li
     const float2 intersectionDirection = normalize(N0+N1);
     float2 V = intersectionDirection * sqrt(2.0/(1.0+cosAngleBetweenNormal));
 
-    const float2 cutoffPoint = globals.miterLimit * intersectionDirection;
+    const float2 cutoffPoint = globals.miterLimit * intersectionDirection * lineThickness;
     const float2 cutoffDir = float2(-intersectionDirection.y, intersectionDirection.x);
 
     V *= lineThickness;
@@ -382,8 +382,8 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
         const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-        const float2 N0 = input.getPolylineConnectorN1();
-        const float2 N1 = input.getPolylineConnectorN2();
+        const float2 N0 = input.getPolylineConnectorN0();
+        const float2 N1 = input.getPolylineConnectorN1();
         const float lineThickness = input.getLineThickness();
 
         const float distance = miterSdf(P, N0, N1, input.getPolylineConnectorCircleCenter(), lineThickness);

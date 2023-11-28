@@ -413,13 +413,13 @@ struct PSInput
     // POLYLINE_CONNECTOR data
 
     void setPolylineConnectorV(float2 V) { data2.xy = V; }
-    void setPolylineConnectorN1(float2 V1) { data2.zw = V1; }
-    void setPolylineConnectorN2(float2 V2) { data3.xy = V2; }
+    void setPolylineConnectorN0(float2 V1) { data2.zw = V1; }
+    void setPolylineConnectorN1(float2 V2) { data3.xy = V2; }
     void setPolylineConnectorCircleCenter(float2 C) { data3.zw = C; }
 
     float2 getPolylineConnectorV() { return data2.xy; }
-    float2 getPolylineConnectorN1() { return data2.zw; }
-    float2 getPolylineConnectorN2() { return data3.xy; }
+    float2 getPolylineConnectorN0() { return data2.zw; }
+    float2 getPolylineConnectorN1() { return data3.xy; }
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 
