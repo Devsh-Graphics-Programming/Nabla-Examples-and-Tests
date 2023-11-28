@@ -1,0 +1,36 @@
+{
+  "enableParallelBuild": true,
+  "threadsPerBuildProcess" : 2,
+  "isExecuted": true,
+  "scriptPath": "test/test.py",
+  "cmake": {
+    "configurations": [ "Release", "Debug", "RelWithDebInfo" ],
+    "buildModes": [],
+    "requiredOptions": []
+  },
+  "profiles": [
+    {
+      "backend": "vulkan",
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Release",
+      "gpuArchitectures": [],
+	    "inputs": [
+	      "ext/config/release.json.template"
+	    ]
+    },
+	{
+      "backend": "vulkan",
+      "platform": "windows",
+      "buildModes": [],
+      "runConfiguration": "Debug",
+      "gpuArchitectures": [],
+      "inputs": [
+        "ext/config/debug.json.template"
+      ]
+    }
+  ],
+  "inputs": [
+    "ext/config/common.json.template"
+  ]
+}
