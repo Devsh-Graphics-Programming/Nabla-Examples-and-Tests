@@ -47,6 +47,31 @@ class HelloGraphicsQueueApp final : public examples::MonoDeviceApplication, publ
 			// - save image to disk
 			// all without using IUtilities
 
+			auto redImage = core::make_smart_refctd_ptr< nbl::asset::ICPUImage >;
+			auto blueImage = core::make_smart_refctd_ptr< nbl::asset::ICPUImage >;
+
+			ICPUImageView::SCreationParams redParams;
+			redParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+			redParams.format = EF_R8G8B8A8_SRGB;
+			redParams.image = core::smart_refctd_ptr<ICPUImage>(redImage);
+			redParams.viewType = ICPUImageView::ET_2D;
+			redParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
+			smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(redParams));
+
+			ICPUImageView::SCreationParams blueParams;
+			blueParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+			blueParams.format = EF_R8G8B8A8_SRGB;
+			blueParams.image = core::smart_refctd_ptr<ICPUImage>(blueImage);
+			blueParams.viewType = ICPUImageView::ET_2D;
+			blueParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
+			smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(blueParams));
+
+			auto buff = core::make_smart_refctd_ptr<nbl::asset::IBuffer>;
+
+			asset::IBuffer::SCreationParams bufferParams;
+			bufferParams.size = 256*256;
+
+
 			cmdbuf->begin();
 			// clear the image to a given colour
 			cmdbuf->clearColorImage();
