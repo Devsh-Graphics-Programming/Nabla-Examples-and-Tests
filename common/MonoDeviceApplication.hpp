@@ -46,21 +46,20 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 
 			// we're very constrained by the physical device selection so there's nothing to override here
 			{
-				IPhysicalDevice* selectedDevice = selectPhysicalDevice(suitablePhysicalDevices);
-				m_physicalDevice = selectedDevice;
+				m_physicalDevice = selectPhysicalDevice(suitablePhysicalDevices);
 
 				ILogicalDevice::SCreationParams params = {};
 
-				const auto queueParams = getQueueCreationParameters(selectedDevice->getQueueFamilyProperties());
+				const auto queueParams = getQueueCreationParameters(m_physicalDevice->getQueueFamilyProperties());
 				if (queueParams.empty())
 					return logFail("Failed to compute queue creation parameters for a Logical Device!");
 
 				params.queueParamsCount = queueParams.size();
 				std::copy_n(queueParams.begin(),params.queueParamsCount,params.queueParams.begin());
 				
-				params.featuresToEnable = getRequiredDeviceFeatures(); // .union(getPreferredDeviceFeatures().intersect(selectedDevice->getFeatures()))
+				params.featuresToEnable = getRequiredDeviceFeatures(); // .union(getPreferredDeviceFeatures().intersect(m_physicalDevice->getFeatures()))
 				
-				m_device = selectedDevice->createLogicalDevice(std::move(params));
+				m_device = m_physicalDevice->createLogicalDevice(std::move(params));
 				if (!m_device)
 					return logFail("Failed to create a Logical Device!");
 			}

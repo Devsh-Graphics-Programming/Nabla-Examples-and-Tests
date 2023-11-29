@@ -1,6 +1,6 @@
 #include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "hlsl/common.hlsl"
+#include "app_resources/common.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -141,8 +141,9 @@ public:
 		// load shader source from file
 		auto getShaderSource = [&](const char* filePath) -> auto
 		{
-			IAssetLoader::SAssetLoadParams lparams;
-			lparams.workingDirectory = std::filesystem::current_path();
+			IAssetLoader::SAssetLoadParams lparams = {};
+			lparams.logger = m_logger.get();
+			lparams.workingDirectory = "";
 			auto bundle = m_assetMgr->getAsset(filePath, lparams);
 			if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SPECIALIZED_SHADER)
 			{
@@ -152,9 +153,9 @@ public:
 			auto firstAssetInBundle = bundle.getContents()[0];
 			return smart_refctd_ptr<ICPUShader>(smart_refctd_ptr_static_cast<ICPUSpecializedShader>(firstAssetInBundle)->getUnspecialized());
 		};
-		auto subgroupTestSource = getShaderSource("../hlsl/testSubgroup.comp.hlsl");
-		auto workgroupTestSource = getShaderSource("../hlsl/testWorkgroup.comp.hlsl");
 
+		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
+		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
 		fence = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
 		resultsBuffer = make_smart_refctd_ptr<ICPUBuffer>(outputBuffers[0]->getSize());
