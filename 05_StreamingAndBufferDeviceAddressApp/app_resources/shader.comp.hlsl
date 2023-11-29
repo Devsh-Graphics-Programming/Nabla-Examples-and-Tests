@@ -1,4 +1,8 @@
 #include "common.hlsl"
+
+// just a small test
+#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
+
 [[vk::push_constant]] PushConstantData pushConstants;
 
 [numthreads(WorkgroupSize,1,1)]
