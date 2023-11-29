@@ -47,24 +47,25 @@ class HelloGraphicsQueueApp final : public examples::MonoDeviceApplication, publ
 			// - save image to disk
 			// all without using IUtilities
 
-			auto redImage = core::make_smart_refctd_ptr< nbl::asset::ICPUImage >;
-			auto blueImage = core::make_smart_refctd_ptr< nbl::asset::ICPUImage >;
+			auto redImage = core::make_smart_refctd_ptr< IGPUImage >;
+			auto blueImage = core::make_smart_refctd_ptr< IGPUImage >;
 
-			ICPUImageView::SCreationParams redParams;
-			redParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+			IGPUImageView::SCreationParams redParams;
+			redParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
 			redParams.format = EF_R8G8B8A8_SRGB;
 			redParams.image = core::smart_refctd_ptr<ICPUImage>(redImage);
-			redParams.viewType = ICPUImageView::ET_2D;
+			redParams.viewType = IGPUImageView::ET_2D;
 			redParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
-			smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(redParams));
+			smart_refctd_ptr<IGPUImageView> redImageView = core::make_smart_refctd_ptr<IGPUImageView>(m_device, redParams);
 
-			ICPUImageView::SCreationParams blueParams;
-			blueParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+			IGPUImageView::SCreationParams blueParams;
+			blueParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
 			blueParams.format = EF_R8G8B8A8_SRGB;
-			blueParams.image = core::smart_refctd_ptr<ICPUImage>(blueImage);
-			blueParams.viewType = ICPUImageView::ET_2D;
+			blueParams.image = core::smart_refctd_ptr<IGPUImage>(blueImage);
+			blueParams.viewType = IGPUImageView::ET_2D;
 			blueParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
-			smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(blueParams));
+			smart_refctd_ptr<IGPUImageView> redImageView = core::make_smart_refctd_ptr<IGPUImageView>(m_device, blueParams);
+
 
 			auto buff = core::make_smart_refctd_ptr<nbl::asset::IBuffer>;
 
@@ -96,6 +97,24 @@ class HelloGraphicsQueueApp final : public examples::MonoDeviceApplication, publ
 		bool keepRunning() override {return false;}
 
 	protected:
+
+		// Override will become irrelevant in the vulkan_1_3 branch
+		SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+		{
+			auto retval = device_base_t::getRequiredDeviceFeatures();
+			retval.shaderStorageImageWriteWithoutFormat = true;
+			return retval;
+		}
+
+		// Ideally don't want to have to 
+		SPhysicalDeviceFeatures getPreferredDeviceFeatures() const override
+		{
+			auto retval = device_base_t::getPreferredDeviceFeatures();
+			retval.shaderStorageImageReadWithoutFormat = true;
+			return retval;
+		}
+
+
 		core::vector<queue_req_t> getQueueRequirements() const override
 		{
 			return {{.requiredFlags=flags_t::EQF_GRAPHICS_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}}};
