@@ -47,6 +47,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			// we're very constrained by the physical device selection so there's nothing to override here
 			{
 				IPhysicalDevice* selectedDevice = selectPhysicalDevice(suitablePhysicalDevices);
+				m_physicalDevice = selectedDevice;
 
 				ILogicalDevice::SCreationParams params = {};
 
@@ -296,6 +297,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 
 		core::smart_refctd_ptr<video::CVulkanConnection> m_api;
 		core::smart_refctd_ptr<video::ILogicalDevice> m_device;
+		video::IPhysicalDevice* m_physicalDevice;
 };
 
 }
