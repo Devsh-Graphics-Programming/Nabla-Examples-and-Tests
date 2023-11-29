@@ -89,8 +89,9 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				// A simple shader that writes out the Global Invocation Index to the position it corresponds to in the buffer
 				// Note the injection of a define from C++ to keep the workgroup size in sync.
 				// P.S. We don't have an entry point name compiler option because we expect that future compilers should support multiple entry points, so for now there must be a single entry point called "main".
-				// P.P.S. Yes we know workgroup sizes can come from specialization constants, however DXC has a problem with that https://github.com/microsoft/DirectXShaderCompiler/issues/3092
-				const string source = "#define WORKGROUP_SIZE "+std::to_string(WorkgroupSize)+R"===(
+				constexpr const char* source = R"===(
+					#pragma wave shader_stage(compute)
+
 					[[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> buff;
 
 					[numthreads(WORKGROUP_SIZE,1,1)]
@@ -100,8 +101,13 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 					}
 				)===";
 
+				// Yes we know workgroup sizes can come from specialization constants, however DXC has a problem with that https://github.com/microsoft/DirectXShaderCompiler/issues/3092
+				const string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
+				const IShaderCompiler::SPreprocessorOptions::SMacroDefinition WorkgroupSizeDefine = {"WORKGROUP_SIZE",WorkgroupSizeAsStr};
+
 				CHLSLCompiler::SOptions options = {};
-				options.stage = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
+				// really we should set it to `ESS_COMPUTE` since we know, but we'll test the `#pragma` handling fur teh lulz
+				options.stage = asset::IShader::E_SHADER_STAGE::ESS_UNKNOWN;
 				// want as much debug as possible
 				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
 				// this lets you source-level debug/step shaders in renderdoc
@@ -110,7 +116,8 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				// if you don't set the logger and source identifier you'll have no meaningful errors
 				options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
 				options.preprocessorOptions.logger = m_logger.get();
-				if (!(cpuShader=compiler->compileToSPIRV(source.c_str(),options)))
+				options.preprocessorOptions.extraDefines = {&WorkgroupSizeDefine,&WorkgroupSizeDefine+1};
+				if (!(cpuShader=compiler->compileToSPIRV(source,options)))
 					return logFail("Failed to compile following HLSL Shader:\n%s\n",source);
 			}
 
