@@ -5,9 +5,14 @@
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
+// does absolutely nothing, a later example will show how it gets used
+template<typename capability_traits=nbl::hlsl::jit::device_capabilities_traits>
+void dummyTraitTest() {}
+
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
+	dummyTraitTest();
 	if (ID.x>=pushConstants.dataElementCount)
 		return;
 
