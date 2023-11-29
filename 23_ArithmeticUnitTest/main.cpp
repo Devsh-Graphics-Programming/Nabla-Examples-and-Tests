@@ -1,11 +1,11 @@
-#include "../common/CommonAPI.h"
+#include "../common/MonoDeviceApplication.hpp"
 #include "hlsl/common.hlsl"
 
-
-using namespace nbl::core;
-using namespace nbl::asset;
-using namespace nbl::system;
-using namespace nbl::video;
+using namespace nbl;
+using namespace core;
+using namespace asset;
+using namespace system;
+using namespace video;
 
 // method emulations on the CPU, to verify the results of the GPU methods
 template<class Binop>
@@ -44,7 +44,7 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-
+#if 0
 class ArithmeticUnitTestApp : public NonGraphicalApplicationBase
 {
 
@@ -406,3 +406,119 @@ public:
 };
 
 NBL_COMMON_API_MAIN(ArithmeticUnitTestApp)
+#endif
+
+class ArithmeticUnitTestApp final : public examples::MonoDeviceApplication
+{
+	using device_base_t = examples::MonoDeviceApplication;
+
+public:
+	ArithmeticUnitTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+
+	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+	{
+		if (!device_base_t::onAppInitialized(std::move(system)))
+			return false;
+
+		if (!m_device->createCommandBuffers(nullptr, IGPUCommandBuffer::EL_PRIMARY, 1, &m_cmdbuf))
+			return false;
+
+		return true;
+	}
+
+	virtual video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+	{
+		video::SPhysicalDeviceFeatures retval = {};
+
+		retval.bufferDeviceAddress = true;
+		retval.subgroupBroadcastDynamicId = true;
+		retval.shaderSubgroupExtendedTypes = true;
+		// TODO: actually need to implement this and set it on the pipelines
+		retval.computeFullSubgroups = true;
+		retval.subgroupSizeControl = true;
+
+		return retval;
+	}
+
+	//
+	void workLoopBody() override {}
+
+	//
+	bool keepRunning() override { return false; }
+
+private:
+	/*template<template<class> class Arithmetic, bool WorkgroupTest>
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
+	{
+		constexpr std::string arith_name = Arithmetic<bit_xor<float>>::name;
+
+		smart_refctd_ptr<ICPUShader> overridenUnspecialized;
+		if constexpr (WorkgroupTest)
+		{
+			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n#define ITEMS_PER_WG %d\n",
+				(("workgroup::") + arith_name).c_str(), workgroupSize, itemsPerWG
+			);
+		}
+		else
+		{
+			itemsPerWG = workgroupSize;
+			overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+				source.get(), "#define OPERATION %s\n#define WORKGROUP_SIZE %d\n",
+				(("subgroup::") + arith_name).c_str(), workgroupSize
+			);
+		}
+		auto pipeline = createPipeline(std::move(overridenUnspecialized));
+
+		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
+		const uint32_t workgroupCount = elementCount / itemsPerWG;
+		cmdbuf->begin(IGPUCommandBuffer::EU_NONE);
+		cmdbuf->bindComputePipeline(pipeline.get());
+		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
+		cmdbuf->dispatch(workgroupCount, 1, 1);
+		{
+			IGPUCommandBuffer::SBufferMemoryBarrier memoryBarrier[OutputBufferCount];
+			// in theory we don't need the HOST BITS cause we block on a fence but might as well add them
+			for (auto i = 0u; i < OutputBufferCount; i++)
+			{
+				memoryBarrier[i].barrier.srcAccessMask = EAF_SHADER_WRITE_BIT;
+				memoryBarrier[i].barrier.dstAccessMask = EAF_SHADER_WRITE_BIT | EAF_HOST_READ_BIT;
+				memoryBarrier[i].srcQueueFamilyIndex = cmdbuf->getQueueFamilyIndex();
+				memoryBarrier[i].dstQueueFamilyIndex = cmdbuf->getQueueFamilyIndex();
+				memoryBarrier[i].buffer = outputBuffers[i];
+				memoryBarrier[i].offset = 0u;
+				memoryBarrier[i].size = outputBuffers[i]->getSize();
+			}
+			cmdbuf->pipelineBarrier(
+				EPSF_COMPUTE_SHADER_BIT, EPSF_COMPUTE_SHADER_BIT | EPSF_HOST_BIT, EDF_NONE,
+				0u, nullptr, OutputBufferCount, memoryBarrier, 0u, nullptr
+			);
+		}
+		cmdbuf->end();
+
+		IGPUQueue::SSubmitInfo submit = {};
+		submit.commandBufferCount = 1u;
+		submit.commandBuffers = &cmdbuf.get();
+		computeQueue->submit(1u, &submit, fence.get());
+		logicalDevice->blockForFences(1u, &fence.get());
+		logicalDevice->resetFences(1u, &fence.get());
+
+		// check results
+		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount);
+		passed = validateResults<Arithmetic, bit_xor<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		passed = validateResults<Arithmetic, bit_or<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		passed = validateResults<Arithmetic, plus<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		passed = validateResults<Arithmetic, multiplies<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		passed = validateResults<Arithmetic, minimum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		passed = validateResults<Arithmetic, maximum<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+		if constexpr (WorkgroupTest)
+			passed = validateResults<Arithmetic, ballot<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount) && passed;
+
+		return passed;
+	}*/
+
+	smart_refctd_ptr<IGPUCommandBuffer> m_cmdbuf;
+};
+
+NBL_MAIN_FUNC(ArithmeticUnitTestApp)
