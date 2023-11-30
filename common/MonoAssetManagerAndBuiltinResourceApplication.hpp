@@ -35,11 +35,13 @@ class MonoAssetManagerAndBuiltinResourceApplication : public virtual MonoSystemM
 			using namespace core;
 			m_assetMgr = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
 
-		#ifdef NBL_EMBED_BUILTIN_RESOURCES
-			m_system->mount(make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger)),"app_resources");
-		#else
-			m_system->mount(make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get()));
-		#endif
+			auto resourceArchive =
+			#ifdef NBL_EMBED_BUILTIN_RESOURCES
+				make_smart_refctd_ptr<nbl::this_example::builtin::CArchive>(smart_refctd_ptr(m_logger));
+			#else
+				make_smart_refctd_ptr<system::CMountDirectoryArchive>(localInputCWD/"app_resources",smart_refctd_ptr(m_logger),m_system.get());
+			#endif
+			m_system->mount(std::move(resourceArchive),"app_resources");
 
 			return true;
 		}

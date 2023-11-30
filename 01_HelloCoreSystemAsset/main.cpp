@@ -179,7 +179,7 @@ int main(int argc, char** argv)
 			// Archives are funny, because `getFile` is not meant to defer to a worker thread (it might be invoked on a worker thread as a result of `ISystem::createFile` later on).
 			// This function will basically perform all necessary decompression or copying (for a memory mapped file) and basically block the caller until done, so there is no `ISystem::future_t` here.
 			// CONTRIBUTOR NOTE: We may implement the files in the far future in such a way that they decompress/fill lazily when they page fault.
-			smart_refctd_ptr<IFile> file = archive->getFile("aliasTest1",""); // alias to dir/data/test.txt
+			smart_refctd_ptr<IFile> file = archive->getFile("aliasTest1",IFile::ECF_READ|IFile::ECF_MAPPABLE,""); // alias to dir/data/test.txt
 			
 			if (!testFile(&file))
 				logger->log("Supposed built-in \"aliasTest1\" could not be opened!", ILogger::ELL_ERROR);

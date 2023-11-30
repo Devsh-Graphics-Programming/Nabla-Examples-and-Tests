@@ -2,7 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-
 #include "../common/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
@@ -10,71 +9,100 @@ using namespace core;
 using namespace asset;
 using namespace system;
 
-
 // instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
 class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplication
 {
 	using base_t = examples::MonoSystemMonoLoggerApplication;
 public:
-	// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
 	using base_t::base_t;
 
-	// we stuff all our work here because its a "single shot" app
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		// Remember to call the base class initialization!
 		if (!base_t::onAppInitialized(std::move(system)))
 			return false;
 
+		constexpr std::string_view defaultImagePath = "../../media/noises/spp_benchmark_4k_512.exr";
 
-		// Nabla's virtual filesystem has no notion of a Current Working Directory as its inherently thread-unsafe
-		// everything operates on "absolute" paths
-		const nbl::system::path CWD = path(argv[0]).parent_path().generic_string() + "/";
+		const auto targetFilePath = [&]() -> std::string_view
+		{
+			const auto argc = argv.size();
+			const bool isDefaultImageRequested = argc == 1;
 
-		// we assume you'll run the example `../..` relative to our media dir
-		path mediaWD = CWD.generic_string() + "../../media/";
+			if (isDefaultImageRequested)
+			{
+				m_logger->log("No image specified, loading default \"%s\" OpenEXR image from media directory!", ILogger::ELL_INFO, defaultImagePath.data());
+				return defaultImagePath;
+			}
+			else if (argc == 2)
+			{
+				const std::string_view target(argv[1]);
+				m_logger->log("Requested \"%s\"", ILogger::ELL_INFO, target.data());
+				return { target };
+			}
+			else
+			{
+				m_logger->log("To many arguments! Pass a single filename to an OpenEXR image w.r.t CWD.", ILogger::ELL_ERROR);
+				return {};
+			}
+		}();
 
+		if (targetFilePath.empty())
+			return false;
+			
 		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(m_system));
 
-		// when assets are retrieved you need to provide parameters that control the loading process
 		nbl::asset::IAssetLoader::SAssetLoadParams lp;
-		// at the very least you need to provide the `workingDirectory` if your asset depends on others
-		// this helps resolve relative paths for things such as textures
-		lp.workingDirectory = mediaWD;
-		
+		const asset::COpenEXRMetadata* meta;
 
-		auto checkedLoad = [&]<class T>(const string & key)->smart_refctd_ptr<T>
+		auto image_bundle = assetManager->getAsset(targetFilePath.data(), lp);
+		auto contents = image_bundle.getContents();
 		{
-			nbl::asset::SAssetBundle bundle = assetManager->getAsset(key, lp);
-			if (bundle.getContents().empty())
+			if (contents.empty())
 			{
-				m_logger->log("Asset %s failed to load! Are you sure it exists?", ILogger::ELL_ERROR, key.c_str());
-				return nullptr;
+				m_logger->log("Could not load \"%s\"", ILogger::ELL_ERROR, targetFilePath.data());
+				return false;
 			}
-			// All assets derive from `nbl::asset::IAsset`, and can be casted down if the type matches
-			static_assert(std::is_base_of_v<nbl::asset::IAsset, T>);
-			// The type of the root assets in the bundle is not known until runtime, so this is kinda like a `dynamic_cast` which will return nullptr on type mismatch
-			auto typedAsset = IAsset::castDown<T>(bundle.getContents()[0]); // just grab the first asset in the bundle
-			if (!typedAsset)
-				m_logger->log("Asset type mismatch want %d got %d !", ILogger::ELL_ERROR, T::AssetType, bundle.getAssetType());
-			return typedAsset;
-		};
 
-		if (auto cpuImage = checkedLoad.operator() < nbl::asset::ICPUImage > ("noises/spp_benchmark_4k_512.exr"))
-		{
-			ICPUImageView::SCreationParams imgViewParams;
-			imgViewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
-			imgViewParams.format = cpuImage->getCreationParameters().format;
-			imgViewParams.image = core::smart_refctd_ptr<ICPUImage>(cpuImage);
-			imgViewParams.viewType = ICPUImageView::ET_2D;
-			imgViewParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
-			smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(imgViewParams));
+			meta = image_bundle.getMetadata()->selfCast<const COpenEXRMetadata>();
 
-			nbl::asset::IAssetWriter::SAssetWriteParams wp(imageView.get());
-			wp.workingDirectory = CWD;
-			assetManager->writeAsset("sample_out.exr", wp);
+			if (!meta)
+			{
+				m_logger->log("Could not selfCast \"%s\" asset's metadata to COpenEXRMetadata, the tool expects valid OpenEXR input image, terminating!", ILogger::ELL_ERROR, targetFilePath.data());
+				return false;
+			}
 		}
 
+		uint32_t i = 0u;
+		for (auto asset : contents)
+		{
+			auto image = IAsset::castDown<ICPUImage>(asset);
+			const auto* metadata = static_cast<const COpenEXRMetadata::CImage*>(meta->getAssetSpecificMetadata(image.get()));
+
+			ICPUImageView::SCreationParams imgViewParams;
+			imgViewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
+			imgViewParams.image = std::move(image);
+			imgViewParams.format = imgViewParams.image->getCreationParameters().format;
+			imgViewParams.viewType = ICPUImageView::ET_2D;
+			imgViewParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
+
+			auto imageView = ICPUImageView::create(std::move(imgViewParams));
+			auto channelsName = metadata->m_name;
+
+			std::filesystem::path filename, extension;
+			core::splitFilename(targetFilePath.data(), nullptr, &filename, &extension);
+
+			const std::string finalFileNameWithExtension = filename.string() + extension.string();
+			const std::string finalOutputPath = channelsName.empty() ? (filename.string() + "_" + std::to_string(i++) + extension.string()) : (filename.string() + "_" + channelsName + extension.string());
+
+			const auto writeParams = IAssetWriter::SAssetWriteParams(imageView.get(), EWF_BINARY);
+			if (assetManager->writeAsset(finalOutputPath, writeParams))
+				m_logger->log("Saved \"%s\"!", ILogger::ELL_INFO, finalOutputPath.c_str());
+			else
+			{
+				m_logger->log("Could not save \"%s\", terminating!", ILogger::ELL_ERROR, finalOutputPath.c_str());
+				return false;
+			}		
+		}
 
 		return true;
 	}
@@ -84,6 +112,5 @@ public:
 	bool keepRunning() override { return false; }
 
 };
-
 
 NBL_MAIN_FUNC(HelloComputeApp)
