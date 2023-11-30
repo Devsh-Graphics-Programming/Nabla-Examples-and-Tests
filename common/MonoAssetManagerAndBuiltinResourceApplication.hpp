@@ -10,6 +10,8 @@
 #include "nbl/this_example/builtin/CArchive.h"
 #endif
 
+#include "nbl\system\CMountDirectoryArchive.h"
+
 namespace nbl::examples
 {
 
