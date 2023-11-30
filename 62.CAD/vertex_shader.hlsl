@@ -405,34 +405,42 @@ PSInput main(uint vertexID : SV_VertexID)
             if (isInDrawSection)
             {
                 outV.setColor(lineStyle.color);
-                const float lineThickness = screenSpaceLineWidth / 2.0f;
-                outV.setLineThickness(lineThickness);
+                const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
+                outV.setLineThickness(sdfLineThickness);
                 
                 const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
                 const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
-                const float cosAngleDifferenceHalf = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
+                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
 
                 const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
 
-                float2 intersectionPoint = v * lineThickness;
-                outV.setPolylineConnectorV(intersectionPoint);
+                // find intersection point vertex
+                float2 intersectionPoint = v * antiAliasedLineWidth;
                 intersectionPoint += circleCenterScreenSpace;
 
-                float2 screenSpaceV1;
-                float2 screenSpaceV2;
+                // Find other miter vertices
+                const float sinHalfAngleBetweenNormals = sqrt(1.0f - (cosHalfAngleBetweenNormals * cosHalfAngleBetweenNormals));
+                const float32_t2x2 rotationMatrix = float32_t2x2(cosHalfAngleBetweenNormals, -sinHalfAngleBetweenNormals, sinHalfAngleBetweenNormals, cosHalfAngleBetweenNormals);
+                const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineWidth;
+                const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineWidth;
+                float2 screenSpaceV1 = circleCenterScreenSpace + V1;
+                float2 screenSpaceV2 = circleCenterScreenSpace + V2;
+
+                // Pass the precomputed trapezoid values for the sdf
                 {
-                    const float sinAngleDifferenceHalf = sqrt(1.0f - (cosAngleDifferenceHalf * cosAngleDifferenceHalf));
-                    const float32_t2x2 rotationMatrix = float32_t2x2(cosAngleDifferenceHalf, -sinAngleDifferenceHalf, sinAngleDifferenceHalf, cosAngleDifferenceHalf);
+                    float vLen = length(v);
+                    float2 intersectionDirection = v / vLen;
 
-                    const float2 V1 = normalize(mul(v, rotationMatrix)) * lineThickness;
-                    const float2 V2 = normalize(mul(rotationMatrix, v)) * lineThickness;
+                    float longBase = sinHalfAngleBetweenNormals;
+                    float shortBase = max((vLen - globals.miterLimit) * cosHalfAngleBetweenNormals / sinHalfAngleBetweenNormals, 0.0);
+                    // height of the trapezoid / triangle
+                    float hLen = min(globals.miterLimit, vLen);
 
-                    screenSpaceV1 = circleCenterScreenSpace + V1;
-                    screenSpaceV2 = circleCenterScreenSpace + V2;
-
-                    outV.setPolylineConnectorV1(V1);
-                    outV.setPolylineConnectorV2(V2);
+                    outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection * sdfLineThickness);
+                    outV.setPolylineConnectorTrapezoidEnd(intersectionDirection * hLen * sdfLineThickness);
+                    outV.setPolylineConnectorTrapezoidLongBase(sinHalfAngleBetweenNormals * ((1.0 + vLen) / (vLen - cosHalfAngleBetweenNormals)) * sdfLineThickness);
+                    outV.setPolylineConnectorTrapezoidShortBase(shortBase * sdfLineThickness);
                 }
 
                 if (vertexIdx == 0u)

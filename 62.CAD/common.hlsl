@@ -56,8 +56,8 @@ struct QuadraticBezierInfo
 struct PolylineConnector
 {
     float64_t2 circleCenter;
-    float32_t2 v; // TODO [Przemek]: use half2
-    float32_t cosAngleDifferenceHalf; //pack into first part of uint32_t
+    float32_t2 v;
+    float32_t cosAngleDifferenceHalf;
     float32_t phaseShift;
 };
 
@@ -409,14 +409,16 @@ struct PSInput
 
     // POLYLINE_CONNECTOR data
 
-    void setPolylineConnectorV(float2 V) { data2.xy = V; }
-    void setPolylineConnectorV1(float2 V1) { data2.zw = V1; }
-    void setPolylineConnectorV2(float2 V2) { data3.xy = V2; }
+    void setPolylineConnectorTrapezoidStart(float2 trapezoidStart) { data2.xy = trapezoidStart; }
+    void setPolylineConnectorTrapezoidEnd(float2 trapezoidEnd) { data2.zw = trapezoidEnd; }
+    void setPolylineConnectorTrapezoidShortBase(float shortBase) { data3.x = shortBase; }
+    void setPolylineConnectorTrapezoidLongBase(float longBase) { data3.y = longBase; }
     void setPolylineConnectorCircleCenter(float2 C) { data3.zw = C; }
 
-    float2 getPolylineConnectorV() { return data2.xy; }
-    float2 getPolylineConnectorV1() { return data2.zw; }
-    float2 getPolylineConnectorV2() { return data3.xy; }
+    float2 getPolylineConnectorTrapezoidStart() { return data2.xy; }
+    float2 getPolylineConnectorTrapezoidEnd() { return data2.zw; }
+    float getPolylineConnectorTrapezoidShortBase() { return data3.x; }
+    float getPolylineConnectorTrapezoidLongBase() { return data3.y; }
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 
