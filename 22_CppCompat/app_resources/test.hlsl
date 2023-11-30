@@ -2,9 +2,9 @@
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
-#pragma shader_stage(compute)
+#pragma wave shader_stage(compute)
 
-#define STATIC_ASSERT(C) { nbl::hlsl::conditional<C, int, void>::type a = 0; }
+#define STATIC_ASSERT(...) { nbl::hlsl::conditional<__VA_ARGS__, int, void>::type a = 0; }
 
 #define IS_SAME(L,R) nbl::hlsl::is_same<L,R>::value
 #define SHADER_CRASHING_ASSERT(expr) \
@@ -37,6 +37,8 @@
 #include <nbl/builtin/hlsl/bit.hlsl>
 
 #include <nbl/builtin/hlsl/limits.hlsl>
+
+#include <nbl/builtin/hlsl/member_test_macros.hlsl>
 
 struct PushConstants
 {
@@ -87,6 +89,11 @@ void fill(uint3 invocationID, float4 val)
     outImage[invocationID.xy] = val;
     outBuffer[invocationID.x * invocationID.y] = val;
 }
+struct S
+{
+    int x;
+    int a(int) { return 1; }
+};
 
 
 [numthreads(8, 8, 1)]
@@ -262,6 +269,8 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     }
 
     fill(invocationID, 10);
-
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S,int>::value;   STATIC_ASSERT(nbl::hlsl::e_member_presence::non_static == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S,float>::value; STATIC_ASSERT(nbl::hlsl::e_member_presence::absent     == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S>::value;       STATIC_ASSERT(nbl::hlsl::e_member_presence::absent     == V); }
     fill(invocationID, -1);
 }
