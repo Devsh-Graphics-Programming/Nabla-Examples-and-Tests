@@ -239,27 +239,30 @@ struct ClippedSignedDistance
         return length(max(d, 0.0)) + min(max(d.x, d.y), 0.0);
     }
 };
-   
-template <typename float_t>
-float udSegment( in vector<float_t, 2> P, in vector<float_t, 2> start, in vector<float_t, 2> dir )
+
+// sdf of Isosceles Trapezoid y-aligned by https://iquilezles.org/articles/distfunctions2d/
+float sdTrapezoid(float2 p, float r1, float r2, float he)
 {
-    vector<float_t, 2> pa = P-start;
-    float h = dot(pa,dir)/dot(dir,dir);
-    return length(pa-h*dir);
+    float2 k1 = float2(r2, he);
+    float2 k2 = float2(r2 - r1, 2.0 * he);
+
+    p.x = abs(p.x);
+    float2 ca = float2(max(0.0, p.x - ((p.y < 0.0) ? r1 : r2)), abs(p.y) - he);
+    float2 cb = p - k1 + k2 * clamp(dot(k1 - p, k2) / dot(k2,k2), 0.0, 1.0);
+
+    float s = (cb.x < 0.0 && ca.y < 0.0) ? -1.0 : 1.0;
+
+    return s * sqrt(min(dot(ca,ca), dot(cb,cb)));
 }
 
-float miterSdf(in float2 P, in float2 V, in float2 V1, in float2 V2, in float2 C, in float lineThickness)
+float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb)
 {
-    const float2 intersectionDirection = normalize(V);
-
-    const float2 cutoffPoint = globals.miterLimit * intersectionDirection * lineThickness;
-    const float2 cutoffDir = float2(-intersectionDirection.y, intersectionDirection.x);
-
-    const float d1 = sign(nbl::hlsl::cross2D(V1-P, P-V)) * udSegment(P, V1, V-V1);
-	const float d2 = sign(nbl::hlsl::cross2D(V2-P, V-P)) * udSegment(P, V2, V-V2);
-    const float d3 = sign(nbl::hlsl::cross2D(P-cutoffPoint, cutoffDir)) * udSegment(P, cutoffPoint, cutoffDir);
-
-    return max(max(d1, d2), d3);
+    float h = length(b - a) / 2.0;
+    float2 d = normalize(b - a);
+    float2x2 rot = float2x2(d.y, -d.x, d.x, d.y);
+    p = mul(rot, p);
+    p.y -= h - thickness;
+    return sdTrapezoid(p, ra, rb, h);
 }
 
 typedef StyleClipper<nbl::hlsl::shapes::Quadratic<float>, StyleAccessor> BezierStyleClipper;
@@ -375,12 +378,13 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
         const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-        const float2 V = input.getPolylineConnectorV();
-        const float2 V1 = input.getPolylineConnectorV1();
-        const float2 V2 = input.getPolylineConnectorV2();
-        const float lineThickness = input.getLineThickness();
-
-        const float distance = miterSdf(P, V, V1, V2, input.getPolylineConnectorCircleCenter(), lineThickness);
+        const float distance = miterSDF(
+            P,
+            input.getLineThickness(),
+            input.getPolylineConnectorTrapezoidStart(),
+            input.getPolylineConnectorTrapezoidEnd(),
+            input.getPolylineConnectorTrapezoidLongBase(),
+            input.getPolylineConnectorTrapezoidShortBase());
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
         localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
