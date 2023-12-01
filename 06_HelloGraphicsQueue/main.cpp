@@ -87,6 +87,7 @@ public:
 		bufferMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 		m_device->allocate(bufferMemReqs, buffer.get());
 
+
 		// Clear color values
 		float redColor[] = { 1.0f, 0.0f, 0.0f, 1.0f };
 		SClearColorValue clearColor;
@@ -153,11 +154,10 @@ public:
 		imageViewParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
 		smart_refctd_ptr<nbl::asset::ICPUImageView> imgView = ICPUImageView::create(std::move(imageViewParams));
 
-
-
-		IAssetWriter::SAssetWriteParams wp(imgView.get());
-		wp.workingDirectory = "";
-		assetManager->writeAsset("jpgWriteSuccessful.png", wp);
+		
+//		IAssetWriter::SAssetWriteParams wp(imgView.get());
+//		wp.workingDirectory = "";
+//		assetManager->writeAsset("jpgWriteSuccessful.png", wp);
 
 
 		// read the buffer back, create an ICPUImage with an adopted buffer over its contents
