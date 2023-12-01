@@ -25,7 +25,7 @@ enum class ExampleMode
 	CASE_5  // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 typedef uint32_t uint;
 
@@ -2317,7 +2317,7 @@ public:
 
 			CPolyline polyline;
 
-			std::vector<QuadraticBezierInfo> quadBeziers;
+			std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 
 			// curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
 			// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
@@ -2335,17 +2335,25 @@ public:
 			}
 
 			// OffsettedBezier Test
-			QuadraticBezierInfo quadratic1;
-			quadratic1.p[0] = float64_t2(0.0, 0.0);
-			quadratic1.p[1] = float64_t2(-10.0, 15.0);
-			quadratic1.p[2] = float64_t2(20.0, 20.0);
+			shapes::QuadraticBezier<double> quadratic1;
+			quadratic1.P0 = float64_t2(0.0, 0.0);
+			quadratic1.P1 = float64_t2(-10.0, 15.0);
+			quadratic1.P2 = float64_t2(20.0, 20.0);
 			quadBeziers.push_back(quadratic1);
-			curves::OffsettedBezier myCurve(quadratic1, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
+			//curves::OffsettedBezier myCurve(quadratic1, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
+
+			// TODO[Przemek]: refactor curves:: so they take as argument quadratic of type `shapes::QuadraticBezier<float_t>` instead
+			QuadraticBezierInfo quadraticBezierInfo;
+			quadraticBezierInfo.p[0] = float64_t2(0.0, 0.0);
+			quadraticBezierInfo.p[1] = float64_t2(-10.0, 15.0);
+			quadraticBezierInfo.p[2] = float64_t2(20.0, 20.0);
+			curves::OffsettedBezier myCurve(quadraticBezierInfo, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
+			
 			// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
 			// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
 			// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
 
-			curves::Subdivision::AddBezierFunc addToBezier = [&](QuadraticBezierInfo&& info) -> void
+			curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
 				{
 					quadBeziers.push_back(info);
 				};
@@ -2358,7 +2366,7 @@ public:
 			// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
 			curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
-			polyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+			polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 
 			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 

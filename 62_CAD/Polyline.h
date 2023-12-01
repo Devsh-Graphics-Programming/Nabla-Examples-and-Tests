@@ -394,9 +394,9 @@ public:
 						// start
 						if (m_closedPolygon && i == 0)
 						{
-							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[m_linePoints.size() - 1u] - m_linePoints[m_linePoints.size() - 2u]);
+							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[m_linePoints.size() - 1u].p - m_linePoints[m_linePoints.size() - 2u].p);
 							const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 							const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
 
 							const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
@@ -405,7 +405,7 @@ public:
 						}
 						else
 						{
-							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 							offsetVector = float64_t2(tangent.y, -tangent.x);
 						}
 					}
@@ -414,9 +414,9 @@ public:
 						// end
 						if (m_closedPolygon && i == m_sections.size() - 1)
 						{
-							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 							const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[1u] - m_linePoints[0u]);
+							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[1u].p - m_linePoints[0u].p);
 							const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
 
 							const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
@@ -425,22 +425,22 @@ public:
 						}
 						else
 						{
-							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 							offsetVector = float64_t2(tangent.y, -tangent.x);
 						}
 					}
 					else
 					{
-						const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+						const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 						const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-						const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+						const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 						const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
 
 						const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
 						const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
 						offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
 					}
-					newLinePoints.push_back(m_linePoints[linePointIdx] + offsetVector * offset);
+					newLinePoints.push_back(m_linePoints[linePointIdx].p + offsetVector * offset);
 				}
 				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(newLinePoints.begin()._Ptr, newLinePoints.end()._Ptr));
 			}
