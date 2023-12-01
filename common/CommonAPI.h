@@ -208,7 +208,7 @@ public:
 			Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
 	};
 
-	class CommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
+	class CommonAPIEventCallback : public virtual nbl::ui::IWindow::IEventCallback
 	{
 	public:
 		CommonAPIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false){}
@@ -301,7 +301,7 @@ public:
 	private:
 		nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
-		bool m_gotWindowClosedMsg;
+		bool m_gotWindowClosedMsg = false;
 	};
 
 	static nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
@@ -431,30 +431,6 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	};
 
-	template<typename AppClassName>
-	static void main(int argc, char** argv)
-	{
-#ifndef _NBL_PLATFORM_ANDROID_
-		nbl::system::path CWD = nbl::system::path(argv[0]).parent_path().generic_string() + "/";
-		nbl::system::path sharedInputCWD = CWD / "../../media/";
-		nbl::system::path sharedOutputCWD = CWD / "../../tmp/";;
-		nbl::system::path localInputCWD = CWD / "../assets";
-		nbl::system::path localOutputCWD = CWD;
-		// TODO: make NonGraphicalApplicationBase(IApplicationFramework inherit from nbl::core::IReferenceCounted?)
-		auto app = nbl::core::make_smart_refctd_ptr<AppClassName>(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD);
-
-		for (size_t i = 0; i < argc; ++i)
-			app->argv.push_back(std::string(argv[i]));
-
-		app->onAppInitialized();
-		while (app->keepRunning())
-		{
-			app->workLoopBody();
-		}
-		app->onAppTerminated();
-#endif
-	}
-	
 #ifdef _NBL_PLATFORM_ANDROID_
 	static void recreateSurface(nbl::ui::CGraphicalApplicationAndroid* framework)
 	{
@@ -527,7 +503,7 @@ public:
 					result.logger->log(ss.str(), system::ILogger::ELL_INFO);
 				}
 			}
-			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*) params.window->getEventCallback());
+			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>(dynamic_cast<CommonAPIEventCallback*>(params.window->getEventCallback()));
 		}
 
 		if constexpr (gpuInit)
@@ -538,7 +514,6 @@ public:
 		{
 			result.cpu2gpuParams.device = nullptr;
 			result.cpu2gpuParams.finalQueueFamIx = 0u;
-			result.cpu2gpuParams.limits = {};
 			result.cpu2gpuParams.pipelineCache = nullptr;
 			result.cpu2gpuParams.utilities = nullptr;
 		}
@@ -1110,12 +1085,12 @@ protected:
 		auto queuesInfo = extractPhysicalDeviceQueueInfos(selectedPhysicalDevice, result.surface, headlessCompute);
 		
 		// Fill QueueCreationParams
-		constexpr uint32_t MaxQueuesInFamily = 32;
-		float queuePriorities[MaxQueuesInFamily];
-		std::fill(queuePriorities, queuePriorities + MaxQueuesInFamily, IGPUQueue::DEFAULT_QUEUE_PRIORITY);
+		constexpr uint32_t MaxQueuesInFamily = video::ILogicalDevice::SQueueCreationParams::MaxQueuesInFamily;
+		std::array<float, MaxQueuesInFamily> queuePriorities;
+		queuePriorities.fill(IGPUQueue::DEFAULT_QUEUE_PRIORITY);
 
-		constexpr uint32_t MaxQueueFamilyCount = 4;
-		nbl::video::ILogicalDevice::SQueueCreationParams qcp[MaxQueueFamilyCount] = {};
+		constexpr uint32_t MaxQueueFamilyCount = nbl::video::ILogicalDevice::SCreationParams::MaxQueueFamilies;
+		std::array<nbl::video::ILogicalDevice::SQueueCreationParams, MaxQueueFamilyCount> qcp;
 
 		uint32_t actualQueueParamsCount = 0u;
 
@@ -1345,7 +1320,6 @@ protected:
 		result.cpu2gpuParams.assetManager = result.assetManager.get();
 		result.cpu2gpuParams.device = result.logicalDevice.get();
 		result.cpu2gpuParams.finalQueueFamIx = mainQueueFamilyIndex;
-		result.cpu2gpuParams.limits = result.physicalDevice->getLimits();
 		result.cpu2gpuParams.pipelineCache = nullptr;
 		result.cpu2gpuParams.utilities = result.utilities.get();
 
@@ -1374,7 +1348,7 @@ protected:
 };
 
 #ifndef _NBL_PLATFORM_ANDROID_
-class GraphicalApplication : public CommonAPI::CommonAPIEventCallback, public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
+class GraphicalApplication : public virtual CommonAPI::CommonAPIEventCallback, public virtual nbl::system::IApplicationFramework, public virtual nbl::ui::IGraphicalApplicationFramework
 {
 protected:
 	~GraphicalApplication() {}
@@ -1695,9 +1669,6 @@ const nbl::system::path& _sharedOutputCWD) : ApplicationBase(_localInputCWD, _lo
 const nbl::system::path& _localOutputCWD,\
 const nbl::system::path& _sharedInputCWD,\
 const nbl::system::path& _sharedOutputCWD) : NonGraphicalApplicationBase(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-#define NBL_COMMON_API_MAIN(app_class) int main(int argc, char** argv){\
-CommonAPI::main<app_class>(argc, argv);\
-}
 #endif
 //***** Application framework macros ******
 

@@ -1,0 +1,14 @@
+{
+  "dependencies": [
+	  "../../.dependencies/release.out"
+  ],
+  "data": [
+    {
+      "dependencies": [],
+      "command": [
+        "${NBL_EXECUTABLE_GEN_EXP_FILEPATH}",
+        "../../.dependencies/release.out"
+      ]
+    }
+  ]
+}
