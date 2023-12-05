@@ -271,9 +271,6 @@ public:
             });
 
             auto reqs = m_images[i]->getMemoryReqs();
-            std::cout << "REQ ROW: " << (1 << reqs.alignmentLog2) << "\n";
-            std::cout << "REQ ROW: " << (1 << reqs.alignmentLog2) << "\n";
-            std::cout << "REQ ROW: " << (1 << reqs.alignmentLog2) << "\n";
             reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
             m_logicalDevice->allocate(reqs, m_images[i].get());
 
