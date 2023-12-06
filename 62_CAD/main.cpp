@@ -2762,17 +2762,17 @@ public:
 
 			CPolyline polyline;
 			{
-				//std::vector<float64_t2> linePoints;
+				std::vector<float64_t2> linePoints;
 				//const double animationFactor = std::cos(m_timeElapsed * 0.0003);
-				////const double animationFactor = 1.0;
-				//linePoints.push_back({0.0, -50.0 * animationFactor});
-				//linePoints.push_back({50.0, 0.0});
-				//linePoints.push_back({0.0, 50.0 * animationFactor});
-				//linePoints.push_back({-50.0, 0.0});
-				//linePoints.push_back({ 0.0, -50.0 * animationFactor});
-				//polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
-				//polyline.setClosed(true);
-				//polyline.preprocessPolylineWithStyle(style);
+				const double animationFactor = 1.0;
+				linePoints.push_back({0.0, -50.0 * animationFactor});
+				linePoints.push_back({50.0, 0.0});
+				linePoints.push_back({0.0, 50.0 * animationFactor});
+				linePoints.push_back({-50.0, 0.0});
+				linePoints.push_back({ 0.0, -50.0 * animationFactor});
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.setClosed(true);
+				polyline.preprocessPolylineWithStyle(style);
 			}
 
 			{
@@ -2792,7 +2792,7 @@ public:
 			}
 
 			{
-				std::vector<float64_t2> linePoints;
+				/*std::vector<float64_t2> linePoints;
 				linePoints.push_back({ 0.0, -50.0});
 				linePoints.push_back({ 50.0, 0.0});
 				linePoints.push_back({ 0.0, 50.0});
@@ -2806,7 +2806,7 @@ public:
 				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
 
 				polyline.setClosed(true);
-				polyline.preprocessPolylineWithStyle(style);
+				polyline.preprocessPolylineWithStyle(style);*/
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);

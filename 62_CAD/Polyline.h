@@ -347,19 +347,13 @@ public:
 							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
 						}
 					}
-					else
-					{
-						if (lineStyle.isRoadStyleFlag)
-						{
-							connectorBuilder.setBezierNormalInfoP2PhaseShiftToTheCorrectValue(phaseShiftTotal);
-						}
-					}
 				}
 			}
 		}
 
 		if (lineStyle.isRoadStyleFlag)
 		{
+			connectorBuilder.setPhaseShiftAtEndOfPolyline(phaseShiftTotal);
 			m_polylineConnector = connectorBuilder.buildConnectors(lineStyle, m_closedPolygon);
 		}
 	}
@@ -526,11 +520,9 @@ private:
 			return connectors;
 		}
 
-		inline void setBezierNormalInfoP2PhaseShiftToTheCorrectValue(float phaseShift)
+		inline void setPhaseShiftAtEndOfPolyline(float phaseShift)
 		{
-			auto& normal = connectorNormalInfos[connectorNormalInfos.size() - 1u];
-			assert(normal.type == ObjectType::QUAD_BEZIER);
-			normal.phaseShift = phaseShift;
+			phaseShiftAtEndOfPolyline = phaseShift;
 		}
 
 	private:
@@ -587,7 +579,7 @@ private:
 			bool isMiterInDrawSection = checkIfInDrawSection(lineStyle, nextLine.phaseShift);
 			if (isMiterClosingPolyline)
 			{
-				isMiterInDrawSection = isMiterInDrawSection && checkIfInDrawSection(lineStyle, prevLine.phaseShift);
+				isMiterInDrawSection = isMiterInDrawSection && checkIfInDrawSection(lineStyle, phaseShiftAtEndOfPolyline);
 			}
 
 			if (isMiterVisible && isMiterInDrawSection)
@@ -613,6 +605,7 @@ private:
 		}
 
 		core::vector<PolylineConnectorNormalHelperInfo> connectorNormalInfos;
+		float phaseShiftAtEndOfPolyline = 0.0f;
 	};
 
 	// important for miter and parallel generation
