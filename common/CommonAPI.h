@@ -1348,7 +1348,7 @@ protected:
 };
 
 #ifndef _NBL_PLATFORM_ANDROID_
-class GraphicalApplication : public virtual CommonAPI::CommonAPIEventCallback, public virtual nbl::system::IApplicationFramework, public virtual nbl::ui::IGraphicalApplicationFramework
+class GraphicalApplication : public virtual CommonAPI::CommonAPIEventCallback, public nbl::system::IApplicationFramework, public virtual nbl::ui::IGraphicalApplicationFramework
 {
 protected:
 	~GraphicalApplication() {}
