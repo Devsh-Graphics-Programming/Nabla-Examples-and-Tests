@@ -278,10 +278,10 @@ namespace curves
         nbl::hlsl::shapes::Quadratic<float64_t> quadratic;
         float64_t offset;
 
-        OffsettedBezier(const QuadraticBezierInfo& quadBezier, float64_t offset)
+        OffsettedBezier(const shapes::QuadraticBezier<double>& quadBezier, float64_t offset)
             : offset(offset)
         {
-            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.p[0], quadBezier.p[1], quadBezier.p[2]);
+            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.P0, quadBezier.P1, quadBezier.P2);
         }
 
         float64_t2 computePosition(float64_t t) const override;

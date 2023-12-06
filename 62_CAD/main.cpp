@@ -25,7 +25,7 @@ enum class ExampleMode
 	CASE_5  // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 typedef uint32_t uint;
 
@@ -354,7 +354,6 @@ public:
 			}
 		}
 
-		// TODO[Prezmek]: A similar and simpler while loop as above where you try to addPolylineConnectors_Internal, If you couldn't do the whole section completely then -> finalizeAllCopies, submit and reset stuff as above.
 		if (!polyline.getConnectors().empty())
 		{
 			uint32_t currentConnectorPolylineObject = 0u;
@@ -2340,13 +2339,7 @@ public:
 			quadratic1.P1 = float64_t2(-10.0, 15.0);
 			quadratic1.P2 = float64_t2(20.0, 20.0);
 			quadBeziers.push_back(quadratic1);
-			//curves::OffsettedBezier myCurve(quadratic1, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
-
-			QuadraticBezierInfo quadraticBezierInfo;
-			quadraticBezierInfo.p[0] = float64_t2(0.0, 0.0);
-			quadraticBezierInfo.p[1] = float64_t2(-10.0, 15.0);
-			quadraticBezierInfo.p[2] = float64_t2(20.0, 20.0);
-			curves::OffsettedBezier myCurve(quadraticBezierInfo, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
+			curves::OffsettedBezier myCurve(quadratic1, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
 			
 			// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
 			// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
@@ -2763,13 +2756,11 @@ public:
 			CPolyline polyline;
 			{
 				std::vector<float64_t2> linePoints;
-				//const double animationFactor = std::cos(m_timeElapsed * 0.0003);
-				const double animationFactor = 1.0;
-				linePoints.push_back({0.0, -50.0 * animationFactor});
+				linePoints.push_back({0.0, -50.0});
 				linePoints.push_back({50.0, 0.0});
-				linePoints.push_back({0.0, 50.0 * animationFactor});
+				linePoints.push_back({0.0, 50.0});
 				linePoints.push_back({-50.0, 0.0});
-				linePoints.push_back({ 0.0, -50.0 * animationFactor});
+				linePoints.push_back({ 0.0, -50.0});
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);
