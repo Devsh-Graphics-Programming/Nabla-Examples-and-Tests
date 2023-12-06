@@ -25,7 +25,7 @@ enum class ExampleMode
 	CASE_5  // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 typedef uint32_t uint;
 
@@ -1723,7 +1723,7 @@ public:
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
 		globalData.screenToWorldRatio = (float) screenToWorld;
 		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
-		globalData.miterLimit = 1.0f;
+		globalData.miterLimit = 10.0f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
 
@@ -2342,7 +2342,6 @@ public:
 			quadBeziers.push_back(quadratic1);
 			//curves::OffsettedBezier myCurve(quadratic1, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
 
-			// TODO[Przemek]: refactor curves:: so they take as argument quadratic of type `shapes::QuadraticBezier<float_t>` instead
 			QuadraticBezierInfo quadraticBezierInfo;
 			quadraticBezierInfo.p[0] = float64_t2(0.0, 0.0);
 			quadraticBezierInfo.p[1] = float64_t2(-10.0, 15.0);
@@ -2363,7 +2362,6 @@ public:
 			const int pp = (ix / 30) % 10;
 			double error = pow(10.0, -1.0 * double(pp + 1));
 
-			// TODO[Przemek]: this is how you use the adaptive subdivision algorithm, which construct beziers that estimate the original shape. you can use the tests commented above, all vars name "myCurve"
 			curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
 
 			polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
@@ -2535,9 +2533,10 @@ public:
 		else if (mode == ExampleMode::CASE_5)
 		{
 //#define CASE_5_POLYLINE_1 // animated stipple pattern
-#define CASE_5_POLYLINE_2 // miter test static
+//#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
+#define CASE_5_POLYLINE_5 // closed polygon
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
@@ -2546,7 +2545,7 @@ public:
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 			style.isRoadStyleFlag = true;
 
-			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
+			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.00002) + 1.0f) * 10.0f;
 			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
@@ -2749,6 +2748,68 @@ public:
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+#elif defined(CASE_5_POLYLINE_5)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 0.0f;
+			style.worldSpaceLineWidth = 5.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = true;
+
+			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
+			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			//std::array<float, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+
+			CPolyline polyline;
+			{
+				//std::vector<float64_t2> linePoints;
+				//const double animationFactor = std::cos(m_timeElapsed * 0.0003);
+				////const double animationFactor = 1.0;
+				//linePoints.push_back({0.0, -50.0 * animationFactor});
+				//linePoints.push_back({50.0, 0.0});
+				//linePoints.push_back({0.0, 50.0 * animationFactor});
+				//linePoints.push_back({-50.0, 0.0});
+				//linePoints.push_back({ 0.0, -50.0 * animationFactor});
+				//polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				//polyline.setClosed(true);
+				//polyline.preprocessPolylineWithStyle(style);
+			}
+
+			{
+				/*std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 0.0 });
+				linePoints.push_back({ 0.0, 0.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
+				quadratics[0].P0 = { 0.0, 0.0 };
+				quadratics[0].P1 = { -25.0, -50.0 };
+				quadratics[0].P2 = { -50.0, 0.0 };
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+
+				polyline.setClosed(true);
+				polyline.preprocessPolylineWithStyle(style);*/
+			}
+
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ 0.0, -50.0});
+				linePoints.push_back({ 50.0, 0.0});
+				linePoints.push_back({ 0.0, 50.0});
+				linePoints.push_back({ -50.0, 0.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
+				quadratics[0].P0 = { -50.0, 0.0 };
+				quadratics[0].P1 = { -25.0, 0.0 };
+				quadratics[0].P2 = { 0.0, -50.0 };
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+
+				polyline.setClosed(true);
+				polyline.preprocessPolylineWithStyle(style);
+			}
+
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 #endif
 
 		}

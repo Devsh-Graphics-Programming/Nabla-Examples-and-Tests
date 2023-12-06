@@ -311,16 +311,8 @@ public:
 			{
 				// calculate phase shift at point P0 of each bezier
 				const uint32_t quadBezierCnt = section.count;
-				const bool isLastSection = (sectionIdx == m_sections.size() - 1u);
-
 				for (uint32_t i = 0u; i <= quadBezierCnt; i++)
 				{
-					const bool isLastBezierInSection = (i == quadBezierCnt);
-					// there is no need to calculate anything for the last bezier in the last section
-					if (isLastSection && isLastBezierInSection)
-					{
-						break;
-					}
 
 					const uint32_t currIdx = section.index + i;
 					if (i == 0u)
@@ -355,13 +347,20 @@ public:
 							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
 						}
 					}
+					else
+					{
+						if (lineStyle.isRoadStyleFlag)
+						{
+							connectorBuilder.setBezierNormalInfoP2PhaseShiftToTheCorrectValue(phaseShiftTotal);
+						}
+					}
 				}
 			}
 		}
 
 		if (lineStyle.isRoadStyleFlag)
 		{
-			m_polylineConnector = connectorBuilder.buildConnectors();
+			m_polylineConnector = connectorBuilder.buildConnectors(lineStyle, m_closedPolygon);
 		}
 	}
 
@@ -467,7 +466,7 @@ private:
 		void addLineNormal(const float64_t2& line, float lineLen, const float64_t2& worldSpaceCircleCenter, float phaseShift)
 		{
 			PolylineConnectorNormalHelperInfo connectorNormalInfo;
-			connectorNormalInfo.worldSpaceCircleCenter = float32_t2(worldSpaceCircleCenter);
+			connectorNormalInfo.worldSpaceCircleCenter = worldSpaceCircleCenter;
 			connectorNormalInfo.normal = float32_t2(-line.y, line.x) / static_cast<float>(lineLen);
 			connectorNormalInfo.phaseShift = phaseShift;
 			connectorNormalInfo.type = ObjectType::LINE;
@@ -500,62 +499,48 @@ private:
 			connectorNormalInfos.push_back(connectorNormalInfoAtP2);
 		}
 
-		std::vector<PolylineConnector> buildConnectors()
+		std::vector<PolylineConnector> buildConnectors(const CPULineStyle& lineStyle, bool isClosedPolygon)
 		{
 			std::vector<PolylineConnector> connectors;
 
 			if (connectorNormalInfos.size() < 2u)
 				return {};
 
-			uint32_t i = getConnectorNormalInfoCountOfLineType(connectorNormalInfos[1].type);
+			uint32_t i = getConnectorNormalInfoCountOfLineType(connectorNormalInfos[0].type);
 			while (i < connectorNormalInfos.size())
 			{
 				const auto& prevLine = connectorNormalInfos[i - 1];
 				const auto& nextLine = connectorNormalInfos[i];
-
-				const float32_t2 prevLineNormal = connectorNormalInfos[i - 1].normal;
-				const float32_t2 nextLineNormal = connectorNormalInfos[i].normal;
-
-				const float crossProductZ = nbl::hlsl::cross2D(nextLineNormal, prevLineNormal);
-				constexpr float EPSILON = 0.000001f;
-				const bool isMiterVisible = std::abs(crossProductZ) >= EPSILON;
-				if (isMiterVisible)
-				{
-					const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
-					const float64_t cosAngleBetweenNormals = glm::dot(prevLineNormal, nextLineNormal);
-
-					PolylineConnector res{};
-					res.circleCenter = connectorNormalInfos[i].worldSpaceCircleCenter;
-					res.v = static_cast<float32_t2>(intersectionDirection * std::sqrt(2.0 / (1.0 + cosAngleBetweenNormals)));
-					res.cosAngleDifferenceHalf = static_cast<float32_t>(std::sqrt((1.0 + cosAngleBetweenNormals) * 0.5));
-					res.phaseShift = connectorNormalInfos[i].phaseShift;
-
-					const bool needToFlipDirection = crossProductZ < 0.0f;
-					if (needToFlipDirection)
-					{
-						res.v = -res.v;
-					}
-					res.v.y = -res.v.y;
-
-					connectors.push_back(res);
-				}
+				constructMiterIfVisible(lineStyle, prevLine, nextLine, false, connectors);
 
 				i += getConnectorNormalInfoCountOfLineType(nextLine.type);
+			}
+
+			if (isClosedPolygon)
+			{
+				const auto& prevLine = connectorNormalInfos[connectorNormalInfos.size() - 1u];
+				const auto& nextLine = connectorNormalInfos[0u];
+				constructMiterIfVisible(lineStyle, prevLine, nextLine, true, connectors);
 			}
 
 			return connectors;
 		}
 
+		inline void setBezierNormalInfoP2PhaseShiftToTheCorrectValue(float phaseShift)
+		{
+			auto& normal = connectorNormalInfos[connectorNormalInfos.size() - 1u];
+			assert(normal.type == ObjectType::QUAD_BEZIER);
+			normal.phaseShift = phaseShift;
+		}
+
 	private:
 		struct PolylineConnectorNormalHelperInfo
 		{
-			float32_t2 worldSpaceCircleCenter;
+			float64_t2 worldSpaceCircleCenter;
 			float32_t2 normal;
 			float phaseShift;
 			ObjectType type;
 		};
-
-		core::vector<PolylineConnectorNormalHelperInfo> connectorNormalInfos;
 
 		inline uint32_t getConnectorNormalInfoCountOfLineType(ObjectType type)
 		{
@@ -575,6 +560,59 @@ private:
 				assert(false);
 			}
 		}
+
+		bool checkIfInDrawSection(const CPULineStyle& lineStyle, float normalizedPlaceInPattern)
+		{
+			float integralPart;
+			normalizedPlaceInPattern = std::modf(normalizedPlaceInPattern, &integralPart);
+			const float* patternPtr = std::upper_bound(lineStyle.stipplePattern, lineStyle.stipplePattern + lineStyle.stipplePatternSize, normalizedPlaceInPattern);
+			const uint32_t patternIdx = std::distance(lineStyle.stipplePattern, patternPtr);
+			// odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
+			return !(patternIdx & 0x1);
+		}
+
+		void constructMiterIfVisible(
+			const CPULineStyle& lineStyle, 
+			const PolylineConnectorNormalHelperInfo& prevLine,
+			const PolylineConnectorNormalHelperInfo& nextLine,
+			bool isMiterClosingPolyline,
+			std::vector<PolylineConnector>& connectors)
+		{
+			const float32_t2 prevLineNormal = prevLine.normal;
+			const float32_t2 nextLineNormal = nextLine.normal;
+
+			const float crossProductZ = nbl::hlsl::cross2D(nextLineNormal, prevLineNormal);
+			constexpr float CROSS_PRODUCT_LINEARITY_EPSILON = 1e-6;
+			const bool isMiterVisible = std::abs(crossProductZ) >= CROSS_PRODUCT_LINEARITY_EPSILON;
+			bool isMiterInDrawSection = checkIfInDrawSection(lineStyle, nextLine.phaseShift);
+			if (isMiterClosingPolyline)
+			{
+				isMiterInDrawSection = isMiterInDrawSection && checkIfInDrawSection(lineStyle, prevLine.phaseShift);
+			}
+
+			if (isMiterVisible && isMiterInDrawSection)
+			{
+				const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
+				const float64_t cosAngleBetweenNormals = glm::dot(prevLineNormal, nextLineNormal);
+
+				PolylineConnector res{};
+				res.circleCenter = nextLine.worldSpaceCircleCenter;
+				res.v = static_cast<float32_t2>(intersectionDirection * std::sqrt(2.0 / (1.0 + cosAngleBetweenNormals)));
+				res.cosAngleDifferenceHalf = static_cast<float32_t>(std::sqrt((1.0 + cosAngleBetweenNormals) * 0.5));
+
+				const bool needToFlipDirection = crossProductZ < 0.0f;
+				if (needToFlipDirection)
+				{
+					res.v = -res.v;
+				}
+				// Negating y to avoid doing it in vertex shader when working in screen space, where y is in the opposite direction of worldspace y direction
+				res.v.y = -res.v.y;
+
+				connectors.push_back(res);
+			}
+		}
+
+		core::vector<PolylineConnectorNormalHelperInfo> connectorNormalInfos;
 	};
 
 	// important for miter and parallel generation

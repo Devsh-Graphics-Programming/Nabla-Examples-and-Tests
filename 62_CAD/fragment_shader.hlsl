@@ -33,17 +33,6 @@ struct DefaultClipper
     }
 };
 
-struct StyleAccessor
-{
-    uint32_t styleIdx;
-    using value_type = float;
-
-    float operator[](const uint32_t ix)
-    {
-        return lineStyles[styleIdx].getStippleValue(ix);
-    }
-};
-
 template<typename CurveType, typename StyleAccessor>
 struct StyleClipper
 {

@@ -299,7 +299,6 @@ namespace curves
     class Subdivision final
     {
     public:
-        // TODO[Przemek]: anywhere that uses QuadraticBezierInfo in curves.h/cpp should be changed to output nbl::hlsl::shapes::QuadraticBezier instead 
         typedef std::function<void(shapes::QuadraticBezier<double>&&)> AddBezierFunc;
 
         //! this subdivision algorithm works/converges for any x-monotonic curve (only 1 y for each x) over the [min, max] range and will continue until hits the `maxDepth` or `targetMaxError` threshold

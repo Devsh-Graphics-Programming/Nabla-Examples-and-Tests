@@ -52,18 +52,6 @@ float4 transformFromSreenSpaceToNdc(float2 pos)
     return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
 }
 
-// TODO[Przemek]: refactor
-struct StyleAccessor
-{
-    uint32_t styleIdx;
-    using value_type = float;
-
-    float operator[](const uint32_t ix)
-    {
-        return lineStyles[styleIdx].getStippleValue(ix);
-    }
-};
-
 PSInput main(uint vertexID : SV_VertexID)
 {
     const uint vertexIdx = vertexID & 0x3u;
@@ -389,83 +377,62 @@ PSInput main(uint vertexID : SV_VertexID)
 
         if (lineStyle.isRoadStyleFlag)
         {
-            bool isInDrawSection = true;
-            if(lineStyle.hasStipples())
-            {
-                StyleAccessor styleAccessor;
-                styleAccessor.styleIdx = mainObj.styleIdx;
+            outV.setColor(lineStyle.color);
+            const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
+            outV.setLineThickness(sdfLineThickness);
+                
+            const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+            const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
+            const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
 
-                const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 8u);
-                const float normalizedPlaceInPattern = frac(phaseShift);
-                const uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, lineStyle.stipplePatternSize, normalizedPlaceInPattern);
-                // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
-                isInDrawSection = !(patternIdx & 0x1);
+            const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+            outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
+
+            // Find other miter vertices
+            const float sinHalfAngleBetweenNormals = sqrt(1.0f - (cosHalfAngleBetweenNormals * cosHalfAngleBetweenNormals));
+            const float32_t2x2 rotationMatrix = float32_t2x2(cosHalfAngleBetweenNormals, -sinHalfAngleBetweenNormals, sinHalfAngleBetweenNormals, cosHalfAngleBetweenNormals);
+
+            // Pass the precomputed trapezoid values for the sdf
+            {
+                float vLen = length(v);
+                float2 intersectionDirection = v / vLen;
+
+                float longBase = sinHalfAngleBetweenNormals;
+                float shortBase = max((vLen - globals.miterLimit) * cosHalfAngleBetweenNormals / sinHalfAngleBetweenNormals, 0.0);
+                // height of the trapezoid / triangle
+                float hLen = min(globals.miterLimit, vLen);
+
+                outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection * sdfLineThickness);
+                outV.setPolylineConnectorTrapezoidEnd(intersectionDirection * hLen * sdfLineThickness);
+                outV.setPolylineConnectorTrapezoidLongBase(sinHalfAngleBetweenNormals * ((1.0 + vLen) / (vLen - cosHalfAngleBetweenNormals)) * sdfLineThickness);
+                outV.setPolylineConnectorTrapezoidShortBase(shortBase * sdfLineThickness);
             }
 
-            if (isInDrawSection)
+            if (vertexIdx == 0u)
             {
-                outV.setColor(lineStyle.color);
-                const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
-                outV.setLineThickness(sdfLineThickness);
-                
-                const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
-                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
-
-                const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
-                outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
-
+                const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineWidth;
+                const float2 screenSpaceV1 = circleCenterScreenSpace + V1;
+                outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
+            }
+            else if (vertexIdx == 1u)
+            {
+                outV.position = float4(circleCenterScreenSpace, 0.0f, 1.0f);
+            }
+            else if (vertexIdx == 2u)
+            {
                 // find intersection point vertex
                 float2 intersectionPoint = v * antiAliasedLineWidth;
                 intersectionPoint += circleCenterScreenSpace;
-
-                // Find other miter vertices
-                const float sinHalfAngleBetweenNormals = sqrt(1.0f - (cosHalfAngleBetweenNormals * cosHalfAngleBetweenNormals));
-                const float32_t2x2 rotationMatrix = float32_t2x2(cosHalfAngleBetweenNormals, -sinHalfAngleBetweenNormals, sinHalfAngleBetweenNormals, cosHalfAngleBetweenNormals);
-                const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineWidth;
-                const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineWidth;
-                float2 screenSpaceV1 = circleCenterScreenSpace + V1;
-                float2 screenSpaceV2 = circleCenterScreenSpace + V2;
-
-                // Pass the precomputed trapezoid values for the sdf
-                {
-                    float vLen = length(v);
-                    float2 intersectionDirection = v / vLen;
-
-                    float longBase = sinHalfAngleBetweenNormals;
-                    float shortBase = max((vLen - globals.miterLimit) * cosHalfAngleBetweenNormals / sinHalfAngleBetweenNormals, 0.0);
-                    // height of the trapezoid / triangle
-                    float hLen = min(globals.miterLimit, vLen);
-
-                    outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection * sdfLineThickness);
-                    outV.setPolylineConnectorTrapezoidEnd(intersectionDirection * hLen * sdfLineThickness);
-                    outV.setPolylineConnectorTrapezoidLongBase(sinHalfAngleBetweenNormals * ((1.0 + vLen) / (vLen - cosHalfAngleBetweenNormals)) * sdfLineThickness);
-                    outV.setPolylineConnectorTrapezoidShortBase(shortBase * sdfLineThickness);
-                }
-
-                if (vertexIdx == 0u)
-                {
-                    outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
-                }
-                else if (vertexIdx == 1u)
-                {
-                    outV.position = float4(circleCenterScreenSpace, 0.0f, 1.0f);
-                }
-                else if (vertexIdx == 2u)
-                {
-                    outV.position = float4(intersectionPoint, 0.0f, 1.0f);
-                }
-                else if (vertexIdx == 3u)
-                {
-                    outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
-                }
-
-                outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+                outV.position = float4(intersectionPoint, 0.0f, 1.0f);
             }
-            else
+            else if (vertexIdx == 3u)
             {
-                outV.position = INVALID_VERTEX;
+                const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineWidth;
+                const float2 screenSpaceV2 = circleCenterScreenSpace + V2;
+                outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
             }
+
+            outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
         }
         else
         {

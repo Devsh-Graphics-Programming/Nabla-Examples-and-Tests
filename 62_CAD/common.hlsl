@@ -56,7 +56,7 @@ struct PolylineConnector
     float64_t2 circleCenter;
     float32_t2 v;
     float32_t cosAngleDifferenceHalf;
-    float32_t phaseShift;
+    float32_t _reserved_pad;
 };
 
 struct CurveBox 
@@ -74,8 +74,6 @@ static_assert(offsetof(CurveBox, aabbMax) == 16u);
 static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
 static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
 #endif
-
-// TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -148,8 +146,6 @@ struct LineStyle
         return (stipplePattern[ix] & (1u << 31)) > 0;
     }
 
-    // TODO[Przemek] Add bool isRoadStyle, which we use to know if to use normal rounded joins and sdf OR rect sdf with miter joins
-
     bool hasStipples()
     {
         return stipplePatternSize > 0 ? true : false;
@@ -166,7 +162,7 @@ NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 
-#ifndef __cplusplus
+#ifdef __HLSL_VERSION
 
 // TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
@@ -426,5 +422,18 @@ struct PSInput
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
 [[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+
+// shared by both vertex and fragment shader
+struct StyleAccessor
+{
+    uint32_t styleIdx;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return lineStyles[styleIdx].getStippleValue(ix);
+    }
+};
 #endif
+
 #endif
