@@ -10,6 +10,7 @@ using namespace nbl::hlsl;
 
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 
 namespace curves
@@ -277,10 +278,10 @@ namespace curves
         nbl::hlsl::shapes::Quadratic<float64_t> quadratic;
         float64_t offset;
 
-        OffsettedBezier(const QuadraticBezierInfo& quadBezier, float64_t offset)
+        OffsettedBezier(const shapes::QuadraticBezier<double>& quadBezier, float64_t offset)
             : offset(offset)
         {
-            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.p[0], quadBezier.p[1], quadBezier.p[2]);
+            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.P0, quadBezier.P1, quadBezier.P2);
         }
 
         float64_t2 computePosition(float64_t t) const override;
@@ -298,8 +299,7 @@ namespace curves
     class Subdivision final
     {
     public:
-        // TODO[Przemek]: anywhere that uses QuadraticBezierInfo in curves.h/cpp should be changed to output nbl::hlsl::shapes::QuadraticBezier instead 
-        typedef std::function<void(QuadraticBezierInfo&&)> AddBezierFunc;
+        typedef std::function<void(shapes::QuadraticBezier<double>&&)> AddBezierFunc;
 
         //! this subdivision algorithm works/converges for any x-monotonic curve (only 1 y for each x) over the [min, max] range and will continue until hits the `maxDepth` or `targetMaxError` threshold
         //! this function will call the AddBezierFunc when the bezier is finalized, whether to render it directly, write it to file, add it to a vector, etc.. is up to the user.

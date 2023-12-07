@@ -1,6 +1,8 @@
 #pragma once
 
 #include <nabla.h>
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/math/geometry.hlsl>
 #include "curves.h"
 
 using namespace nbl;
@@ -20,6 +22,7 @@ struct CPULineStyle
 	float reciprocalStipplePatternLen;
 	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
 	float phaseShift;
+	bool isRoadStyleFlag;
 
 	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
 		//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
@@ -137,7 +140,7 @@ struct CPULineStyle
 		ret.worldSpaceLineWidth = worldSpaceLineWidth;
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
-		ret.phaseShift = phaseShift;
+		ret.isRoadStyleFlag = isRoadStyleFlag;
 
 		return ret;
 	}
@@ -147,7 +150,7 @@ struct CPULineStyle
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 112u);
+static_assert(sizeof(Globals) == 128u);
 static_assert(sizeof(LineStyle) == 96u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
@@ -177,9 +180,14 @@ public:
 		return m_quadBeziers[idx];
 	}
 
-	const float64_t2& getLinePointAt(const uint32_t idx) const
+	const LinePointInfo& getLinePointAt(const uint32_t idx) const
 	{
 		return m_linePoints[idx];
+	}
+
+	const std::vector<PolylineConnector>& getConnectors() const
+	{
+		return m_polylineConnector;
 	}
 
 	void clearEverything()
@@ -205,7 +213,7 @@ public:
 
 		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
 		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
-		bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
+		const bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
@@ -218,7 +226,15 @@ public:
 		{
 			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
 		}
-		m_linePoints.insert(m_linePoints.end(), linePoints.begin(), linePoints.end());
+
+		constexpr LinePointInfo EMPTY_LINE_POINT_INFO = {};
+		const uint32_t oldLinePointSize = m_linePoints.size();
+		const uint32_t newLinePointSize = oldLinePointSize + linePoints.size();
+		m_linePoints.resize(newLinePointSize);
+		for (uint32_t i = 0u; i < linePoints.size(); i++)
+		{
+			m_linePoints[oldLinePointSize + i].p = linePoints[i];
+		}
 	}
 
 	void addEllipticalArcs(const core::SRange<curves::EllipticalArcInfo>& ellipses)
@@ -227,7 +243,7 @@ public:
 	}
 
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	void addQuadBeziers(const core::SRange<QuadraticBezierInfo>& quadBeziers, bool addToPreviousSectionIfAvailable = false)
+	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool addToPreviousSectionIfAvailable = false)
 	{
 		// TODO[Erfan]: add warning debug breaks when there is breaks between added beziers and lines
 		const bool previousSectionIsBezier = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::QUAD_BEZIER;
@@ -245,20 +261,107 @@ public:
 		{
 			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
 		}
-		m_quadBeziers.insert(m_quadBeziers.end(), quadBeziers.begin(), quadBeziers.end());
+
+		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
+		const uint32_t oldQuadBezierSize = m_quadBeziers.size();
+		const uint32_t newQuadBezierSize = oldQuadBezierSize + quadBeziers.size();
+		m_quadBeziers.resize(newQuadBezierSize);
+		for (uint32_t i = 0u; i < quadBeziers.size(); i++)
+		{
+			const uint32_t currBezierIdx = oldQuadBezierSize + i;
+			m_quadBeziers[currBezierIdx].p[0] = quadBeziers[i].P0;
+			m_quadBeziers[currBezierIdx].p[1] = quadBeziers[i].P1;
+			m_quadBeziers[currBezierIdx].p[2] = quadBeziers[i].P2;
+		}
 	}
 
-	// TODO[Przemek]: Add a function here named preprocessPolylineWithStyle -> give it the line style
-	/*
-	*  this preprocess should:
-	*	1. if style has road info try to generate miters:
-	*		if tangents are not in the same direction with some error add a PolylineConnector object
-		2. go over the list of sections (line and beziers in order) compute the phase shift by computing their arclen and divisions with style length and
-			fill the phaseShift part of the QuadraticBezierInfo and LinePointInfo,
-			you initially set them to 0 in addLinePoints/addQuadBeziers
+	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
+	{
+		PolylineConnectorBuilder connectorBuilder;
 
-		NOTE that PolylineConnectors are special object types, user does not add them and they should not be part of m_sections vector
-	*/
+		float phaseShiftTotal = lineStyle.phaseShift;
+		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
+		{
+			const auto& section = m_sections[sectionIdx];
+
+			if (section.type == ObjectType::LINE)
+			{
+				// calculate phase shift at each point of each line in section
+				const uint32_t linePointCnt = section.count + 1u;
+				for (uint32_t i = 0u; i < linePointCnt; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+					auto& linePoint = m_linePoints[currIdx];
+					if (i == 0u)
+					{
+						linePoint.phaseShift = phaseShiftTotal;
+						continue;
+					}
+
+					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
+					const float64_t2 line = linePoint.p - prevLinePoint.p;
+					const double lineLen = glm::length(line);
+
+					if (lineStyle.isRoadStyleFlag)
+					{
+						connectorBuilder.addLineNormal(line, lineLen, prevLinePoint.p, phaseShiftTotal);
+					}
+
+					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint);
+					phaseShiftTotal = linePoint.phaseShift;
+				}
+			}
+			else if (section.type == ObjectType::QUAD_BEZIER)
+			{
+				// calculate phase shift at point P0 of each bezier
+				const uint32_t quadBezierCnt = section.count;
+				for (uint32_t i = 0u; i <= quadBezierCnt; i++)
+				{
+
+					const uint32_t currIdx = section.index + i;
+					if (i == 0u)
+					{
+						QuadraticBezierInfo& firstInSectionQuadBezierInfo = m_quadBeziers[currIdx];
+						firstInSectionQuadBezierInfo.phaseShift = phaseShiftTotal;
+
+						if (lineStyle.isRoadStyleFlag)
+						{
+							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
+						}
+
+						continue;
+					}
+
+					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
+					shapes::QuadraticBezier<double> quadraticBezier = shapes::QuadraticBezier<double>::construct(prevQuadBezierInfo.p[0], prevQuadBezierInfo.p[1], prevQuadBezierInfo.p[2]);
+					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(quadraticBezier);
+					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
+
+					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+					phaseShiftTotal = glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift);
+
+					if (i < quadBezierCnt)
+					{
+						QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+						quadBezierInfo.phaseShift = phaseShiftTotal;
+
+						if (lineStyle.isRoadStyleFlag)
+						{
+							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
+						}
+					}
+				}
+			}
+		}
+
+		if (lineStyle.isRoadStyleFlag)
+		{
+			connectorBuilder.setPhaseShiftAtEndOfPolyline(phaseShiftTotal);
+			m_polylineConnector = connectorBuilder.buildConnectors(lineStyle, m_closedPolygon);
+		}
+	}
 
 	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const 
 	{
@@ -266,8 +369,8 @@ public:
 		parallelPolyline.setClosed(m_closedPolygon);
 
 		std::vector<float64_t2> newLinePoints;
-		std::vector<QuadraticBezierInfo> newBeziers;
-		curves::Subdivision::AddBezierFunc addToBezier = [&](QuadraticBezierInfo&& info) -> void
+		std::vector<shapes::QuadraticBezier<double>> newBeziers;
+		curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
 			{
 				newBeziers.push_back(info);
 			};
@@ -285,26 +388,26 @@ public:
 					float64_t2 offsetVector;
 					if (j == 0)
 					{
-						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 						offsetVector = float64_t2(tangent.y, -tangent.x);
 					}
 					else if (j == section.count)
 					{
-						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 						offsetVector = float64_t2(tangent.y, -tangent.x);
 					}
 					else
 					{
-						const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx] - m_linePoints[linePointIdx - 1]);
+						const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
 						const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-						const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1] - m_linePoints[linePointIdx]);
+						const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
 						const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
 
 						const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
 						const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
 						offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
 					}
-					newLinePoints.push_back(m_linePoints[linePointIdx] + offsetVector * offset);
+					newLinePoints.push_back(m_linePoints[linePointIdx].p + offsetVector * offset);
 				}
 				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(newLinePoints.begin()._Ptr, newLinePoints.end()._Ptr));
 				newLinePoints.clear();
@@ -314,12 +417,11 @@ public:
 				for (uint32_t j = 0; j < section.count; ++j)
 				{
 					const uint32_t bezierIdx = section.index + j;
-					// After Merge: const nbl::hlsl::shapes::QuadraticBezier bezier = from current bezier;
-					const QuadraticBezierInfo& bezier = m_quadBeziers[bezierIdx];
+					const shapes::QuadraticBezier<double>& bezier = shapes::QuadraticBezier<double>::construct(m_quadBeziers[bezierIdx].p[0], m_quadBeziers[bezierIdx].p[1], m_quadBeziers[bezierIdx].p[2]);
 					curves::OffsettedBezier offsettedBezier(bezier, offset);
 					curves::Subdivision::adaptive(offsettedBezier, maxError, addToBezier, 10u);
 				}
-				parallelPolyline.addQuadBeziers(nbl::core::SRange<QuadraticBezierInfo>(newBeziers.begin()._Ptr, newBeziers.end()._Ptr));
+				parallelPolyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(newBeziers.begin()._Ptr, newBeziers.end()._Ptr));
 				newBeziers.clear();
 			}
 		}
@@ -357,7 +459,7 @@ public:
 				if (leftSegment.type == ObjectType::LINE)
 				{
 					const uint32_t lastLinePointIdx = leftSegment.index + leftSegment.count;
-					leftTangent = parallelPolyline.m_linePoints[lastLinePointIdx] - parallelPolyline.m_linePoints[lastLinePointIdx - 1];
+					leftTangent = parallelPolyline.m_linePoints[lastLinePointIdx].p - parallelPolyline.m_linePoints[lastLinePointIdx - 1].p;
 				}
 				else if (leftSegment.type == ObjectType::QUAD_BEZIER)
 				{
@@ -368,7 +470,7 @@ public:
 				if (rightSegment.type == ObjectType::LINE)
 				{
 					const uint32_t firstLinePointIdx = rightSegment.index;
-					rightTangent = parallelPolyline.m_linePoints[firstLinePointIdx + 1u] - parallelPolyline.m_linePoints[firstLinePointIdx];
+					rightTangent = parallelPolyline.m_linePoints[firstLinePointIdx + 1u].p - parallelPolyline.m_linePoints[firstLinePointIdx].p;
 				}
 				else if (rightSegment.type == ObjectType::QUAD_BEZIER)
 				{
@@ -391,14 +493,14 @@ public:
 					if (leftSegment.type == ObjectType::LINE)
 					{
 						const uint32_t lastLinePointIdx = leftSegment.index + leftSegment.count;
-						float64_t2 lineEndPos = parallelPolyline.m_linePoints[lastLinePointIdx];
+						float64_t2 lineEndPos = parallelPolyline.m_linePoints[lastLinePointIdx].p;
 						if (rightSegment.type == ObjectType::QUAD_BEZIER)
 						{
 							const uint32_t firstBezierIdx = rightSegment.index;
 							float64_t2 bezierStartPos = parallelPolyline.m_quadBeziers[firstBezierIdx].p[0];
 							float64_t2 intersection = LineLineIntersection(lineEndPos, leftTangent, bezierStartPos, rightTangent);
-							parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, intersection);
-							parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, bezierStartPos);
+							// parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, intersection);
+							// parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, bezierStartPos);
 							lineSegmentsOffsetChange += 2;
 							// Add Intersection + QuadBez Position to end of leftSegment
 						}
@@ -435,11 +537,166 @@ public:
 	}
 
 protected:
-	// TODO[Przemek]: a vector of polyline connetor objects
+	std::vector<PolylineConnector> m_polylineConnector;
 	std::vector<SectionInfo> m_sections;
-	// TODO[Przemek]: instead of float64_t2 for linePoints, store LinePointInfo
-	std::vector<float64_t2> m_linePoints;
+	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+
+private:
+	class PolylineConnectorBuilder
+	{
+	public:
+		void addLineNormal(const float64_t2& line, float lineLen, const float64_t2& worldSpaceCircleCenter, float phaseShift)
+		{
+			PolylineConnectorNormalHelperInfo connectorNormalInfo;
+			connectorNormalInfo.worldSpaceCircleCenter = worldSpaceCircleCenter;
+			connectorNormalInfo.normal = float32_t2(-line.y, line.x) / static_cast<float>(lineLen);
+			connectorNormalInfo.phaseShift = phaseShift;
+			connectorNormalInfo.type = ObjectType::LINE;
+
+			connectorNormalInfos.push_back(connectorNormalInfo);
+		}
+
+		void addBezierNormals(const QuadraticBezierInfo& quadBezierInfo, float phaseShift)
+		{
+			// TODO: we already calculate quadratic form of each bezier (except of the last one), maybe store this info in an array and use it later to calculate normals?
+			const float64_t2 bezierDerivativeValueAtP0 = 2.0 * (quadBezierInfo.p[1] - quadBezierInfo.p[0]);
+			const float32_t2 tangentAtP0 = glm::normalize(bezierDerivativeValueAtP0);
+			//const float_t2 A = P0 - 2.0 * P1 + P2;
+			const float64_t2 bezierDerivativeValueAtP2 = 2.0 * (quadBezierInfo.p[0] - 2.0 * quadBezierInfo.p[1] + quadBezierInfo.p[2]) + 2.0 * (quadBezierInfo.p[1] - quadBezierInfo.p[0]);
+			const float32_t2 tangentAtP2 = glm::normalize(bezierDerivativeValueAtP2);
+
+			PolylineConnectorNormalHelperInfo connectorNormalInfoAtP0{};
+			connectorNormalInfoAtP0.worldSpaceCircleCenter = quadBezierInfo.p[0];
+			connectorNormalInfoAtP0.normal = float32_t2(-tangentAtP0.y, tangentAtP0.x);
+			connectorNormalInfoAtP0.phaseShift = phaseShift;
+			connectorNormalInfoAtP0.type = ObjectType::QUAD_BEZIER;
+
+			PolylineConnectorNormalHelperInfo connectorNormalInfoAtP2{};
+			connectorNormalInfoAtP2.worldSpaceCircleCenter = quadBezierInfo.p[2];
+			connectorNormalInfoAtP2.normal = float32_t2(-tangentAtP2.y, tangentAtP2.x);
+			connectorNormalInfoAtP2.phaseShift = phaseShift;
+			connectorNormalInfoAtP2.type = ObjectType::QUAD_BEZIER;
+
+			connectorNormalInfos.push_back(connectorNormalInfoAtP0);
+			connectorNormalInfos.push_back(connectorNormalInfoAtP2);
+		}
+
+		std::vector<PolylineConnector> buildConnectors(const CPULineStyle& lineStyle, bool isClosedPolygon)
+		{
+			std::vector<PolylineConnector> connectors;
+
+			if (connectorNormalInfos.size() < 2u)
+				return {};
+
+			uint32_t i = getConnectorNormalInfoCountOfLineType(connectorNormalInfos[0].type);
+			while (i < connectorNormalInfos.size())
+			{
+				const auto& prevLine = connectorNormalInfos[i - 1];
+				const auto& nextLine = connectorNormalInfos[i];
+				constructMiterIfVisible(lineStyle, prevLine, nextLine, false, connectors);
+
+				i += getConnectorNormalInfoCountOfLineType(nextLine.type);
+			}
+
+			if (isClosedPolygon)
+			{
+				const auto& prevLine = connectorNormalInfos[connectorNormalInfos.size() - 1u];
+				const auto& nextLine = connectorNormalInfos[0u];
+				constructMiterIfVisible(lineStyle, prevLine, nextLine, true, connectors);
+			}
+
+			return connectors;
+		}
+
+		inline void setPhaseShiftAtEndOfPolyline(float phaseShift)
+		{
+			phaseShiftAtEndOfPolyline = phaseShift;
+		}
+
+	private:
+		struct PolylineConnectorNormalHelperInfo
+		{
+			float64_t2 worldSpaceCircleCenter;
+			float32_t2 normal;
+			float phaseShift;
+			ObjectType type;
+		};
+
+		inline uint32_t getConnectorNormalInfoCountOfLineType(ObjectType type)
+		{
+			static constexpr uint32_t NORMAL_INFO_COUNT_OF_A_LINE = 1u;
+			static constexpr uint32_t NORMAL_INFO_COUNT_OF_A_QUADRATIC_BEZIER = 2u;
+
+			if (type == ObjectType::LINE)
+			{
+				return NORMAL_INFO_COUNT_OF_A_LINE;
+			}
+			else if (type == ObjectType::QUAD_BEZIER)
+			{
+				return NORMAL_INFO_COUNT_OF_A_QUADRATIC_BEZIER;
+			}
+			else
+			{
+				assert(false);
+				return -1u;
+			}
+		}
+
+		bool checkIfInDrawSection(const CPULineStyle& lineStyle, float normalizedPlaceInPattern)
+		{
+			float integralPart;
+			normalizedPlaceInPattern = std::modf(normalizedPlaceInPattern, &integralPart);
+			const float* patternPtr = std::upper_bound(lineStyle.stipplePattern, lineStyle.stipplePattern + lineStyle.stipplePatternSize, normalizedPlaceInPattern);
+			const uint32_t patternIdx = std::distance(lineStyle.stipplePattern, patternPtr);
+			// odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
+			return !(patternIdx & 0x1);
+		}
+
+		void constructMiterIfVisible(
+			const CPULineStyle& lineStyle, 
+			const PolylineConnectorNormalHelperInfo& prevLine,
+			const PolylineConnectorNormalHelperInfo& nextLine,
+			bool isMiterClosingPolyline,
+			std::vector<PolylineConnector>& connectors)
+		{
+			const float32_t2 prevLineNormal = prevLine.normal;
+			const float32_t2 nextLineNormal = nextLine.normal;
+
+			const float crossProductZ = nbl::hlsl::cross2D(nextLineNormal, prevLineNormal);
+			constexpr float CROSS_PRODUCT_LINEARITY_EPSILON = 1e-6;
+			const bool isMiterVisible = std::abs(crossProductZ) >= CROSS_PRODUCT_LINEARITY_EPSILON;
+			bool isMiterInDrawSection = checkIfInDrawSection(lineStyle, nextLine.phaseShift);
+			if (isMiterClosingPolyline)
+			{
+				isMiterInDrawSection = isMiterInDrawSection && checkIfInDrawSection(lineStyle, phaseShiftAtEndOfPolyline);
+			}
+
+			if (isMiterVisible && isMiterInDrawSection)
+			{
+				const float64_t2 intersectionDirection = glm::normalize(prevLineNormal + nextLineNormal);
+				const float64_t cosAngleBetweenNormals = glm::dot(prevLineNormal, nextLineNormal);
+
+				PolylineConnector res{};
+				res.circleCenter = nextLine.worldSpaceCircleCenter;
+				res.v = static_cast<float32_t2>(intersectionDirection * std::sqrt(2.0 / (1.0 + cosAngleBetweenNormals)));
+				res.cosAngleDifferenceHalf = static_cast<float32_t>(std::sqrt((1.0 + cosAngleBetweenNormals) * 0.5));
+
+				const bool needToFlipDirection = crossProductZ < 0.0f;
+				if (needToFlipDirection)
+				{
+					res.v = -res.v;
+				}
+				// Negating y to avoid doing it in vertex shader when working in screen space, where y is in the opposite direction of worldspace y direction
+				res.v.y = -res.v.y;
+
+				connectors.push_back(res);
+			}
+		}
+
+		core::vector<PolylineConnectorNormalHelperInfo> connectorNormalInfos;
+		float phaseShiftAtEndOfPolyline = 0.0f;
+	};
 
 	// important for miter and parallel generation
 	bool m_closedPolygon = false;

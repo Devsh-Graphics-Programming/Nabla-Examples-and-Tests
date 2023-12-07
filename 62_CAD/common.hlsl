@@ -1,4 +1,3 @@
-
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
@@ -8,12 +7,12 @@
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #endif
 
-// TODO:[Przemek]: add another object type: POLYLINE_CONNECTOR which is our miters eventually
 enum class ObjectType : uint32_t
 {
     LINE = 0u,
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
+    POLYLINE_CONNECTOR = 3u
 };
 
 enum class MajorAxis : uint32_t
@@ -38,10 +37,26 @@ struct DrawObject
     uint64_t geometryAddress;
 };
 
+struct LinePointInfo
+{
+    float64_t2 p;
+    float32_t phaseShift;
+    float32_t _reserved_pad;
+};
+
 struct QuadraticBezierInfo
 {
     float64_t2 p[3]; // 16*3=48bytes
-    float64_t2 arcLen;
+    float32_t phaseShift;
+    float32_t _reserved_pad;
+};
+
+struct PolylineConnector
+{
+    float64_t2 circleCenter;
+    float32_t2 v;
+    float32_t cosAngleDifferenceHalf;
+    float32_t _reserved_pad;
 };
 
 struct CurveBox 
@@ -52,9 +67,6 @@ struct CurveBox
     uint32_t2 curveMin[3]; // 56
     uint32_t2 curveMax[3]; // 80
 };
-    /*
-    * TODO[Przemek]: Add `float phaseShift` here + `float _reserved_pad`
-    */
 
 #ifndef __HLSL_VERSION
 static_assert(offsetof(CurveBox, aabbMin) == 0u);
@@ -62,8 +74,6 @@ static_assert(offsetof(CurveBox, aabbMax) == 16u);
 static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
 static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
 #endif
-
-// TODO[Przemek]: Add PolylineConnector Object type which includes data about the tangents that it connects together and the point of connection + phaseShift
 
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
@@ -88,6 +98,8 @@ struct Globals
     float worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
+    float miterLimit; // 116
+    float32_t3 _padding; // 128
 };
 
 #ifndef __HLSL_VERSION
@@ -96,6 +108,7 @@ static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
 static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
 static_assert(offsetof(Globals, resolution) == 100u);
 static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
+static_assert(offsetof(Globals, miterLimit) == 112u);
 #endif
 
 struct LineStyle
@@ -111,7 +124,7 @@ struct LineStyle
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
     uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
-    float phaseShift;
+    uint32_t isRoadStyleFlag; // can pack more bools here in the future
 
     float getStippleValue(const uint32_t ix)
     {
@@ -131,9 +144,7 @@ struct LineStyle
         return (stipplePattern[ix] & (1u << 31)) > 0;
     }
 
-    // TODO[Przemek] Add bool isRoadStyle, which we use to know if to use normal rounded joins and sdf OR rect sdf with miter joins
-    
-    inline bool hasStipples()
+    bool hasStipples()
     {
         return stipplePatternSize > 0 ? true : false;
     }
@@ -149,7 +160,7 @@ NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 
-#ifndef __cplusplus
+#ifdef __HLSL_VERSION
 
 // TODO: Use these in C++ as well once nbl::hlsl::numeric_limits<uint32_t> compiles on C++
 float32_t2 unpackCurveBoxUnorm(uint32_t2 value)
@@ -376,8 +387,31 @@ struct PSInput
         return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
     }
 
-    // TODO[Przemek][1.Continous Stipples]: find a free slot for currentPhaseShift (I suggest merging Lucas' work an use the "non-interpolation" ones used for the hatches, since hatches don't have stipples you can reuse it's data to pass curve phase shift
-    // TODO:[Przemek][2. Miters]: handle data needed object type POLYLINE_CONNECTOR, you can reuse the data lines and beziers already use, I trust you'll make the best reusing decision
+    // data5.x
+
+    void setCurrentPhaseShift(float phaseShift)
+    {
+        interp_data5.x = phaseShift;
+    }
+
+    float getCurrentPhaseShift()
+    {
+        return interp_data5.x;
+    }
+
+    // POLYLINE_CONNECTOR data
+
+    void setPolylineConnectorTrapezoidStart(float2 trapezoidStart) { data2.xy = trapezoidStart; }
+    void setPolylineConnectorTrapezoidEnd(float2 trapezoidEnd) { data2.zw = trapezoidEnd; }
+    void setPolylineConnectorTrapezoidShortBase(float shortBase) { data3.x = shortBase; }
+    void setPolylineConnectorTrapezoidLongBase(float longBase) { data3.y = longBase; }
+    void setPolylineConnectorCircleCenter(float2 C) { data3.zw = C; }
+
+    float2 getPolylineConnectorTrapezoidStart() { return data2.xy; }
+    float2 getPolylineConnectorTrapezoidEnd() { return data2.zw; }
+    float getPolylineConnectorTrapezoidShortBase() { return data3.x; }
+    float getPolylineConnectorTrapezoidLongBase() { return data3.y; }
+    float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
@@ -386,5 +420,18 @@ struct PSInput
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
 [[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+
+// shared by both vertex and fragment shader
+struct StyleAccessor
+{
+    uint32_t styleIdx;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return lineStyles[styleIdx].getStippleValue(ix);
+    }
+};
 #endif
+
 #endif
