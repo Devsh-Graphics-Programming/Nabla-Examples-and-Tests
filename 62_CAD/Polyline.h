@@ -208,9 +208,17 @@ public:
 
 	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool addToPreviousLineSectionIfAvailable = false)
 	{
-		// TODO[Erfan]: add warning debug breaks when there is breaks between added beziers and lines
 		if (linePoints.size() <= 1u)
 			return;
+
+		// Check for continuity
+		//if (m_sections.size() > 0u)
+		//{
+		//	constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
+		//	const float64_t2 newFirstPoint = linePoints[0u];
+		//	const float64_t2 lastPoint = getSectionLastPoint(m_sections[m_sections.size() - 1u]);
+		//	_NBL_DEBUG_BREAK_IF(glm::distance(newFirstPoint, lastPoint) > POINT_EQUALITY_THRESHOLD); // DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore this debug break.
+		//}
 
 		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
 		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
@@ -246,7 +254,15 @@ public:
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
 	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool addToPreviousSectionIfAvailable = false)
 	{
-		// TODO[Erfan]: add warning debug breaks when there is breaks between added beziers and lines
+		// Check for continuity
+		//if (m_sections.size() > 0u)
+		//{
+		//	constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
+		//	const float64_t2 newFirstPoint = quadBeziers[0u].P0;
+		//	const float64_t2 lastPoint = getSectionLastPoint(m_sections[m_sections.size() - 1u]);
+		//	_NBL_DEBUG_BREAK_IF(glm::distance(newFirstPoint, lastPoint) > POINT_EQUALITY_THRESHOLD); // DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore this debug break.
+		//}
+
 		const bool previousSectionIsBezier = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::QUAD_BEZIER;
 		const bool alwaysAddNewSection = !addToPreviousSectionIfAvailable;
 		bool addNewSection = alwaysAddNewSection || !previousSectionIsBezier;
@@ -262,6 +278,7 @@ public:
 		{
 			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
 		}
+
 
 		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
 		const uint32_t oldQuadBezierSize = m_quadBeziers.size();
