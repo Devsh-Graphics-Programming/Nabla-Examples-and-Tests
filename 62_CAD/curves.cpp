@@ -289,7 +289,7 @@ ExplicitMixedCircle::ExplicitCircle ExplicitMixedCircle::ExplicitCircle::fromThr
     const float64_t2 Mid1 = (P1 + P2) / 2.0;
     const float64_t2 Normal1 = float64_t2(P2.y - P1.y, P1.x - P2.x);
 
-    const float64_t2 origin = util::LineLineIntersection(Mid0, Normal0, Mid1, Normal1);
+    const float64_t2 origin = shapes::util::LineLineIntersection(Mid0, Normal0, Mid1, Normal1);
     const float64_t radius = glm::length(P0 - origin);
     return ExplicitCircle(origin, radius);
 
