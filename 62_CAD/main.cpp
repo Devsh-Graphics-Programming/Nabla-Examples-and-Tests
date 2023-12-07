@@ -45,14 +45,9 @@ bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 	if (!areParametersEqual)
 		return false;
 
-	if (lhs.stipplePatternSize == -1)
-		return true;
+	const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize) : true;
 
-	assert(lhs.stipplePatternSize <= LineStyle::STIPPLE_PATTERN_MAX_SZ && lhs.stipplePatternSize >= 0);
-
-	const bool isStipplePatternArrayEqual = std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize);
-
-	return areParametersEqual && isStipplePatternArrayEqual;
+	return isStipplePatternArrayEqual;
 }
 
 using namespace nbl;
@@ -650,6 +645,7 @@ protected:
 	uint32_t addLineStyle_Internal(const CPULineStyle& cpuLineStyle)
 	{
 		LineStyle gpuLineStyle = cpuLineStyle.getAsGPUData();
+		_NBL_DEBUG_BREAK_IF(gpuLineStyle.stipplePatternSize > LineStyle::STIPPLE_PATTERN_MAX_SZ); // Oops, even after style normalization the style is too long to be in gpu mem :(
 		LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 		for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 		{
