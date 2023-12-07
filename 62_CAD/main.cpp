@@ -2294,25 +2294,37 @@ public:
 
 
 			CPolyline originalPolyline;
+			//originalPolyline.setClosed(true);
 			std::vector<float64_t2> linePoints;
 			linePoints.push_back({ 0.0, 0.0 });
 			linePoints.push_back({ 10.0, 10.0 });
 			linePoints.push_back({ 20.0, 0.0 });
 			linePoints.push_back({ 10.0, -10.0 });
+			originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+			std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+			{
+				shapes::QuadraticBezier<double>  quadratic1;
+				quadratic1.P0 = float64_t2(10.0, -10.0);
+				quadratic1.P1 = float64_t2(15.0, -15.0);
+				quadratic1.P2 = float64_t2(10.0, -20.0);
+				quadBeziers.push_back(quadratic1);
+			}
+			originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+			
+			linePoints.clear();
 			linePoints.push_back({ 10.0, -20.0 });
 			linePoints.push_back({ 0.0, 0.0 });
-			originalPolyline.setClosed(true);
 			originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+			
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(2.0 * abs(cos(m_timeElapsed * 0.0009)));
-			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-2.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(1.0 + 0.0 * abs(cos(m_timeElapsed * 0.0009)));
+			// CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-1.0 + -0.0 * abs(cos(m_timeElapsed * 0.0009)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 
 			CPolyline polyline;
 
-			std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 
 			// curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
 			// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));

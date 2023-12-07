@@ -207,6 +207,7 @@ public:
 
 	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool addToPreviousLineSectionIfAvailable = false)
 	{
+		// TODO[Erfan]: add warning debug breaks when there is breaks between added beziers and lines
 		if (linePoints.size() <= 1u)
 			return;
 
@@ -241,9 +242,13 @@ public:
 		// TODO[Erfan] Approximate with quadratic beziers
 	}
 
-	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers)
+	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
+	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool addToPreviousSectionIfAvailable = false)
 	{
-		bool addNewSection = m_sections.size() == 0u || m_sections[m_sections.size() - 1u].type != ObjectType::QUAD_BEZIER;
+		// TODO[Erfan]: add warning debug breaks when there is breaks between added beziers and lines
+		const bool previousSectionIsBezier = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::QUAD_BEZIER;
+		const bool alwaysAddNewSection = !addToPreviousSectionIfAvailable;
+		bool addNewSection = alwaysAddNewSection || !previousSectionIsBezier;
 		if (addNewSection)
 		{
 			SectionInfo newSection = {};
@@ -358,25 +363,24 @@ public:
 		}
 	}
 
-	void offset(float64_t offset)
-	{
-		for (uint32_t i = 0; i < m_sections.size(); ++i)
-		{
-
-		}
-	}
-
-	CPolyline generateParallelPolyline(float64_t offset) const 
+	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const 
 	{
 		CPolyline parallelPolyline = {};
 		parallelPolyline.setClosed(m_closedPolygon);
 
+		std::vector<float64_t2> newLinePoints;
+		std::vector<shapes::QuadraticBezier<double>> newBeziers;
+		curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+			{
+				newBeziers.push_back(info);
+			};
+
+		// Generate Mitered Line Sections and Offseted Beziers -> will still have breaks and disconnections after this loop
 		for (uint32_t i = 0; i < m_sections.size(); ++i)
 		{
 			const auto& section = m_sections[i];
 			if (section.type == ObjectType::LINE)
 			{
-				std::vector<float64_t2> newLinePoints;
 				newLinePoints.reserve(m_linePoints.size());
 				for (uint32_t j = 0; j < section.count + 1; ++j)
 				{
@@ -384,43 +388,13 @@ public:
 					float64_t2 offsetVector;
 					if (j == 0)
 					{
-						// start
-						if (m_closedPolygon && i == 0)
-						{
-							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[m_linePoints.size() - 1u].p - m_linePoints[m_linePoints.size() - 2u].p);
-							const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
-							const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
-
-							const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
-							const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
-							offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
-						}
-						else
-						{
-							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
-							offsetVector = float64_t2(tangent.y, -tangent.x);
-						}
+						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx + 1].p - m_linePoints[linePointIdx].p);
+						offsetVector = float64_t2(tangent.y, -tangent.x);
 					}
 					else if (j == section.count)
 					{
-						// end
-						if (m_closedPolygon && i == m_sections.size() - 1)
-						{
-							const float64_t2 tangentPrevLine = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
-							const float64_t2 normalPrevLine = float64_t2(tangentPrevLine.y, -tangentPrevLine.x);
-							const float64_t2 tangentNextLine = glm::normalize(m_linePoints[1u].p - m_linePoints[0u].p);
-							const float64_t2 normalNextLine = float64_t2(tangentNextLine.y, -tangentNextLine.x);
-
-							const float64_t2 intersectionDirection = glm::normalize(normalPrevLine + normalNextLine);
-							const float64_t cosAngleBetweenNormals = glm::dot(normalPrevLine, normalNextLine);
-							offsetVector = intersectionDirection * sqrt(2.0 / (1.0 + cosAngleBetweenNormals));
-						}
-						else
-						{
-							const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
-							offsetVector = float64_t2(tangent.y, -tangent.x);
-						}
+						const float64_t2 tangent = glm::normalize(m_linePoints[linePointIdx].p - m_linePoints[linePointIdx - 1].p);
+						offsetVector = float64_t2(tangent.y, -tangent.x);
 					}
 					else
 					{
@@ -436,6 +410,121 @@ public:
 					newLinePoints.push_back(m_linePoints[linePointIdx].p + offsetVector * offset);
 				}
 				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(newLinePoints.begin()._Ptr, newLinePoints.end()._Ptr));
+				newLinePoints.clear();
+			}
+			else if (section.type == ObjectType::QUAD_BEZIER)
+			{
+				for (uint32_t j = 0; j < section.count; ++j)
+				{
+					const uint32_t bezierIdx = section.index + j;
+					const shapes::QuadraticBezier<double>& bezier = shapes::QuadraticBezier<double>::construct(m_quadBeziers[bezierIdx].p[0], m_quadBeziers[bezierIdx].p[1], m_quadBeziers[bezierIdx].p[2]);
+					curves::OffsettedBezier offsettedBezier(bezier, offset);
+					curves::Subdivision::adaptive(offsettedBezier, maxError, addToBezier, 10u);
+				}
+				parallelPolyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(newBeziers.begin()._Ptr, newBeziers.end()._Ptr));
+				newBeziers.clear();
+			}
+		}
+
+		// TODO: Remove and use the one in shapes/util.hlsl
+		auto LineLineIntersection = [](const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
+			{
+				float64_t denominator = v1.y * v2.x - v1.x * v2.y;
+				float64_t2 diff = p1 - p2;
+				float64_t numerator = dot(float64_t2(v2.y, -v2.x), float64_t2(diff.x, diff.y));
+
+				if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
+				{
+					// are parallel and the same
+					return (p1 + p2) / 2.0;
+				}
+
+				float64_t t = numerator / denominator;
+				float64_t2 intersectionPoint = p1 + t * v1;
+				return intersectionPoint;
+			};
+
+		// Join Sections Together -> We assume G1 continuity in a single section (the usage of how black box g1 continous curves are estimated as beziers and added as a section/chunk)
+		for (uint32_t i = 0; i < parallelPolyline.m_sections.size(); ++i)
+		{
+			// iteration i, joins section i and i + 1, last section may need join based on the polyline being closed.
+			if (i == parallelPolyline.m_sections.size() - 1u && !parallelPolyline.m_closedPolygon)
+				break;
+
+			auto& leftSegment = parallelPolyline.m_sections[i];
+			auto& rightSegment = (i < parallelPolyline.m_sections.size() - 1u) ? parallelPolyline.m_sections[i+1] : parallelPolyline.m_sections[0];
+			float64_t2 leftTangent;
+			float64_t2 rightTangent;
+			{
+				if (leftSegment.type == ObjectType::LINE)
+				{
+					const uint32_t lastLinePointIdx = leftSegment.index + leftSegment.count;
+					leftTangent = parallelPolyline.m_linePoints[lastLinePointIdx].p - parallelPolyline.m_linePoints[lastLinePointIdx - 1].p;
+				}
+				else if (leftSegment.type == ObjectType::QUAD_BEZIER)
+				{
+					const uint32_t lastBezierIdx = leftSegment.index + leftSegment.count - 1u;
+					leftTangent = parallelPolyline.m_quadBeziers[lastBezierIdx].p[2] - parallelPolyline.m_quadBeziers[lastBezierIdx].p[1];
+				}
+
+				if (rightSegment.type == ObjectType::LINE)
+				{
+					const uint32_t firstLinePointIdx = rightSegment.index;
+					rightTangent = parallelPolyline.m_linePoints[firstLinePointIdx + 1u].p - parallelPolyline.m_linePoints[firstLinePointIdx].p;
+				}
+				else if (rightSegment.type == ObjectType::QUAD_BEZIER)
+				{
+					const uint32_t firstBezierIdx = rightSegment.index;
+					rightTangent = parallelPolyline.m_quadBeziers[firstBezierIdx].p[1] - parallelPolyline.m_quadBeziers[firstBezierIdx].p[0];
+				}
+			}
+
+			// TODO: Replace with cross 2d
+			constexpr float64_t CROSS_PRODUCT_LINEARITY_EPSILON = 1e-5;
+			const float64_t crossProduct = leftTangent.x * rightTangent.y - leftTangent.y * rightTangent.x;
+
+			int32_t lineSegmentsOffsetChange = 0;
+
+			if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
+			{
+				if (crossProduct * offset > 0u)
+				{
+					// outward, need to join by extra lines
+					if (leftSegment.type == ObjectType::LINE)
+					{
+						const uint32_t lastLinePointIdx = leftSegment.index + leftSegment.count;
+						float64_t2 lineEndPos = parallelPolyline.m_linePoints[lastLinePointIdx].p;
+						if (rightSegment.type == ObjectType::QUAD_BEZIER)
+						{
+							const uint32_t firstBezierIdx = rightSegment.index;
+							float64_t2 bezierStartPos = parallelPolyline.m_quadBeziers[firstBezierIdx].p[0];
+							float64_t2 intersection = LineLineIntersection(lineEndPos, leftTangent, bezierStartPos, rightTangent);
+							// parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, intersection);
+							// parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, bezierStartPos);
+							lineSegmentsOffsetChange += 2;
+							// Add Intersection + QuadBez Position to end of leftSegment
+						}
+						else if (rightSegment.type == ObjectType::LINE)
+						{
+							// Add Intersection + right Segment first line position to end of leftSegment
+						}
+					}
+					else if (leftSegment.type == ObjectType::QUAD_BEZIER)
+					{
+						if (rightSegment.type == ObjectType::QUAD_BEZIER)
+						{
+							// Add QuadBez Position + Intersection + QuadBez Position to new segment
+						}
+						else if (rightSegment.type == ObjectType::LINE)
+						{
+							// Add QuadBez Position + Intersection to start of right segment
+						}
+					}
+				}
+				else
+				{
+					// intersection goes inward, need to prune and clip
+				}
 			}
 		}
 
@@ -550,6 +639,7 @@ private:
 			else
 			{
 				assert(false);
+				return -1u;
 			}
 		}
 
