@@ -533,11 +533,11 @@ public:
 				{
 					float64_t2 leftSectionEndPos = parallelPolyline.getSectionLastPoint(leftSection);
 					float64_t2 rightSectionStartPos = parallelPolyline.getSectionFirstPoint(rightSection);
+					float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(leftSectionEndPos, leftTangent, rightSectionStartPos, rightTangent);
 
 					// outward, need to join by extra lines
 					if (leftSection.type == ObjectType::LINE)
 					{
-						float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(leftSectionEndPos, leftTangent, rightSectionStartPos, rightTangent);
 						if (rightSection.type == ObjectType::QUAD_BEZIER)
 						{
 							// Add Intersection + right Segment first line position to end of leftSegment
@@ -564,6 +564,12 @@ public:
 						else if (rightSection.type == ObjectType::LINE)
 						{
 							// Add QuadBez Position + Intersection to start of right segment
+							LinePointInfo newLinePoints[2u] = {};
+							newLinePoints[0u].p = leftSectionEndPos;
+							newLinePoints[1u].p = intersection;
+							parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + rightSection.index, newLinePoints, newLinePoints + 2u);
+							lineSegmentsOffsetChange += 2;
+							rightSection.count += 2;
 						}
 					}
 				}
