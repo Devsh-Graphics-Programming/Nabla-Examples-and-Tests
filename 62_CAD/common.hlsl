@@ -98,9 +98,8 @@ struct Globals
     float worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
-        // based on: https://learn.microsoft.com/en-us/windows/win32/api/wingdi/nf-wingdi-setmiterlimit
     float miterLimit; // 116
-    float _padding;
+    float32_t3 _padding; // 128
 };
 
 #ifndef __HLSL_VERSION
@@ -125,8 +124,7 @@ struct LineStyle
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
     uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
-    bool isRoadStyleFlag;
-    bool _padding[3u];
+    uint32_t isRoadStyleFlag; // can pack more bools here in the future
 
     float getStippleValue(const uint32_t ix)
     {

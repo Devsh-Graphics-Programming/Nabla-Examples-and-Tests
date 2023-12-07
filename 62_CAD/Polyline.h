@@ -150,7 +150,7 @@ struct CPULineStyle
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 120u);
+static_assert(sizeof(Globals) == 128u);
 static_assert(sizeof(LineStyle) == 96u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
