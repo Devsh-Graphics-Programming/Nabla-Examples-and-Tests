@@ -2294,29 +2294,92 @@ public:
 
 
 			CPolyline originalPolyline;
-			//originalPolyline.setClosed(true);
-			std::vector<float64_t2> linePoints;
-			linePoints.push_back({ 0.0, 0.0 });
-			linePoints.push_back({ 10.0, 10.0 });
-			linePoints.push_back({ 20.0, 0.0 });
-			linePoints.push_back({ 10.0, -10.0 });
-			originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
-
-			std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 			{
-				shapes::QuadraticBezier<double>  quadratic1;
-				quadratic1.P0 = float64_t2(10.0, -10.0);
-				quadratic1.P1 = float64_t2(15.0, -15.0);
-				quadratic1.P2 = float64_t2(10.0, -20.0);
-				quadBeziers.push_back(quadratic1);
+				// float64_t2 endPoint = { cos(m_timeElapsed * 0.0005), sin(m_timeElapsed * 0.0005) };
+				float64_t2 endPoint = { 0.0, 0.0 };
+				originalPolyline.setClosed(true);
+				std::vector<float64_t2> linePoints;
+
+				{
+					linePoints.push_back(endPoint);
+					linePoints.push_back({ 10.0, -5.0 });
+					linePoints.push_back({ 20.0, 0.0 });
+					linePoints.push_back({ 20.0, 5.0 });
+					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					shapes::QuadraticBezier<double>  quadratic1;
+					quadratic1.P0 = float64_t2(20.0, 5.0);
+					quadratic1.P1 = float64_t2(30.0, 20.0);
+					quadratic1.P2 = float64_t2(40.0, 5.0);
+					quadBeziers.push_back(quadratic1);
+					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				}
+
+				{
+					linePoints.clear();
+					linePoints.push_back({ 40.0, 5.0 });
+					linePoints.push_back({ 50.0, -10.0 });
+					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					curves::EllipticalArcInfo myCurve;
+					{
+						myCurve.majorAxis = {-20.0, 0.0};
+						myCurve.center = { 30, -10.0 };
+						myCurve.angleBounds = { 
+							nbl::core::PI<double>() * 0.0,
+							nbl::core::PI<double>() * 1.0 };
+						myCurve.eccentricity = 1.0;
+					}
+
+					curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+						{
+							quadBeziers.push_back(info);
+						};
+
+					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					// ellipse arc ends on 10, -10
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					curves::EllipticalArcInfo myCurve;
+					{
+						myCurve.majorAxis = { -10.0, 5.0 };
+						myCurve.center = { 0, -5.0 };
+						myCurve.angleBounds = {
+							nbl::core::PI<double>() * 0.0,
+							nbl::core::PI<double>() * 1.0 };
+						myCurve.eccentricity = 1.0;
+					}
+
+					curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+						{
+							quadBeziers.push_back(info);
+						};
+
+					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					// ellipse arc ends on -10, 0.0
+				}
+
+				{
+					linePoints.clear();
+					linePoints.push_back({ -10.0, 0.0 });
+					linePoints.push_back({ -5.0, -5.0 });
+					linePoints.push_back({ -3.0, -3.0 });
+					linePoints.push_back({ -1.0, -1.0 });
+					linePoints.push_back(endPoint);
+					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				}
 			}
-			originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
-			
-			linePoints.clear();
-			linePoints.push_back({ 10.0, -20.0 });
-			linePoints.push_back({ 0.0, 0.0 });
-			originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
-			
+
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(1.0 + 0.0 * abs(cos(m_timeElapsed * 0.0009)));
 			// CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-1.0 + -0.0 * abs(cos(m_timeElapsed * 0.0009)));
@@ -2326,7 +2389,7 @@ public:
 			CPolyline polyline;
 
 
-			// curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
+			curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
 			// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
 			// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
 			// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
@@ -2341,43 +2404,13 @@ public:
 				//myCurve.eccentricity = 0.5;
 			}
 
-			// OffsettedBezier Test
-			shapes::QuadraticBezier<double> quadratic1;
-			quadratic1.P0 = float64_t2(0.0, 0.0);
-			quadratic1.P1 = float64_t2(-10.0, 15.0);
-			quadratic1.P2 = float64_t2(20.0, 20.0);
-			quadBeziers.push_back(quadratic1);
-			curves::OffsettedBezier myCurve(quadratic1, 10.0 * abs(cos(m_timeElapsed * 0.0003)));
-			
 			// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
 			// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
 			// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
+			//static int ix = 0;
+			//const int pp = (ix / 30) % 10;
+			//double error = pow(10.0, -1.0 * double(pp + 1));
 
-			curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
-				{
-					quadBeziers.push_back(info);
-				};
-
-			static int ix = 0;
-			ix++;
-			const int pp = (ix / 30) % 10;
-			double error = pow(10.0, -1.0 * double(pp + 1));
-
-			curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-
-			polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
-
-			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-
-			ClipProjectionData customClipProject = {};
-			customClipProject.projectionToNDC = m_Camera.constructViewProjection();
-			customClipProject.projectionToNDC[0][0] *= 1.003f;
-			customClipProject.projectionToNDC[1][1] *= 1.003f;
-			customClipProject.maxClipNDC = float32_t2(0.5, 0.5);
-			customClipProject.minClipNDC = float32_t2(-0.5, -0.5);
-			uint32_t clipProjIdx = InvalidClipProjectionIdx;
-			// intendedNextSubmit = currentDrawBuffers.addClipProjectionData_SubmitIfNeeded(customClipProject, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			// intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style2, clipProjIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
