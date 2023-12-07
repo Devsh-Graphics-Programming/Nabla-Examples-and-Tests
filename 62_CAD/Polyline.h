@@ -3,6 +3,7 @@
 #include <nabla.h>
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
+#include <nbl/builtin/hlsl/shapes/util.hlsl>
 #include "curves.h"
 
 using namespace nbl;
@@ -363,6 +364,73 @@ public:
 		}
 	}
 
+	float64_t2 getSectionFirstPoint(const SectionInfo& section)
+	{
+		if (section.type == ObjectType::LINE)
+		{
+			const uint32_t firstLinePointIdx = section.index;
+			return m_linePoints[firstLinePointIdx].p;
+		}
+		else if (section.type == ObjectType::QUAD_BEZIER)
+		{
+			const uint32_t firstBezierIdx = section.index;
+			return m_quadBeziers[firstBezierIdx].p[0];
+		}
+	}
+
+	float64_t2 getSectionLastPoint(const SectionInfo& section)
+	{
+		if (section.type == ObjectType::LINE)
+		{
+			const uint32_t lastLinePointIdx = section.index + section.count;
+			return m_linePoints[lastLinePointIdx].p;
+		}
+		else if (section.type == ObjectType::QUAD_BEZIER)
+		{
+			const uint32_t lastBezierIdx = section.index + section.count - 1u;
+			return m_quadBeziers[lastBezierIdx].p[2];
+		}
+	}
+
+	float64_t2 getSectionFirstTangent(const SectionInfo& section)
+	{
+
+		if (section.type == ObjectType::LINE)
+		{
+			const uint32_t firstLinePointIdx = section.index;
+			return m_linePoints[firstLinePointIdx + 1u].p - m_linePoints[firstLinePointIdx].p;
+		}
+		else if (section.type == ObjectType::QUAD_BEZIER)
+		{
+			const uint32_t firstBezierIdx = section.index;
+			return m_quadBeziers[firstBezierIdx].p[1] - m_quadBeziers[firstBezierIdx].p[0];
+		}
+		{
+			assert(false);
+			return float64_t2{};
+		}
+
+	}
+	float64_t2 getSectionLastTangent(const SectionInfo& section)
+	{
+		if (section.type == ObjectType::LINE)
+		{
+			const uint32_t lastLinePointIdx = section.index + section.count;
+			return m_linePoints[lastLinePointIdx].p - m_linePoints[lastLinePointIdx - 1].p;
+		}
+		else if (section.type == ObjectType::QUAD_BEZIER)
+		{
+			const uint32_t lastBezierIdx = section.index + section.count - 1u;
+			return m_quadBeziers[lastBezierIdx].p[2] - m_quadBeziers[lastBezierIdx].p[1];
+		}
+		else
+		{
+			assert(false);
+			return float64_t2{};
+		}
+
+	}
+
 	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const 
 	{
 		CPolyline parallelPolyline = {};
@@ -426,96 +494,74 @@ public:
 			}
 		}
 
-		// TODO: Remove and use the one in shapes/util.hlsl
-		auto LineLineIntersection = [](const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
-			{
-				float64_t denominator = v1.y * v2.x - v1.x * v2.y;
-				float64_t2 diff = p1 - p2;
-				float64_t numerator = dot(float64_t2(v2.y, -v2.x), float64_t2(diff.x, diff.y));
-
-				if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
-				{
-					// are parallel and the same
-					return (p1 + p2) / 2.0;
-				}
-
-				float64_t t = numerator / denominator;
-				float64_t2 intersectionPoint = p1 + t * v1;
-				return intersectionPoint;
-			};
-
 		// Join Sections Together -> We assume G1 continuity in a single section (the usage of how black box g1 continous curves are estimated as beziers and added as a section/chunk)
+		
+		// we prune old points/beziers or add new points/beziers and we need to update the segment offsets 
+		int32_t lineSegmentsOffsetChange = 0;
+		int32_t beziersOffsetChange = 0;
+
 		for (uint32_t i = 0; i < parallelPolyline.m_sections.size(); ++i)
 		{
 			// iteration i, joins section i and i + 1, last section may need join based on the polyline being closed.
 			if (i == parallelPolyline.m_sections.size() - 1u && !parallelPolyline.m_closedPolygon)
 				break;
 
-			auto& leftSegment = parallelPolyline.m_sections[i];
-			auto& rightSegment = (i < parallelPolyline.m_sections.size() - 1u) ? parallelPolyline.m_sections[i+1] : parallelPolyline.m_sections[0];
-			float64_t2 leftTangent;
-			float64_t2 rightTangent;
+			auto& leftSection = parallelPolyline.m_sections[i];
+			auto& rightSection = (i < parallelPolyline.m_sections.size() - 1u) ? parallelPolyline.m_sections[i+1] : parallelPolyline.m_sections[0];
+			
+			if (i < parallelPolyline.m_sections.size() - 1u)
 			{
-				if (leftSegment.type == ObjectType::LINE)
+				if (rightSection.type == ObjectType::LINE)
 				{
-					const uint32_t lastLinePointIdx = leftSegment.index + leftSegment.count;
-					leftTangent = parallelPolyline.m_linePoints[lastLinePointIdx].p - parallelPolyline.m_linePoints[lastLinePointIdx - 1].p;
+					rightSection.index += lineSegmentsOffsetChange;
 				}
-				else if (leftSegment.type == ObjectType::QUAD_BEZIER)
+				else if (rightSection.type == ObjectType::QUAD_BEZIER)
 				{
-					const uint32_t lastBezierIdx = leftSegment.index + leftSegment.count - 1u;
-					leftTangent = parallelPolyline.m_quadBeziers[lastBezierIdx].p[2] - parallelPolyline.m_quadBeziers[lastBezierIdx].p[1];
-				}
-
-				if (rightSegment.type == ObjectType::LINE)
-				{
-					const uint32_t firstLinePointIdx = rightSegment.index;
-					rightTangent = parallelPolyline.m_linePoints[firstLinePointIdx + 1u].p - parallelPolyline.m_linePoints[firstLinePointIdx].p;
-				}
-				else if (rightSegment.type == ObjectType::QUAD_BEZIER)
-				{
-					const uint32_t firstBezierIdx = rightSegment.index;
-					rightTangent = parallelPolyline.m_quadBeziers[firstBezierIdx].p[1] - parallelPolyline.m_quadBeziers[firstBezierIdx].p[0];
+					rightSection.index += beziersOffsetChange;
 				}
 			}
+			
+			float64_t2 leftTangent = parallelPolyline.getSectionLastTangent(leftSection);
+			float64_t2 rightTangent = parallelPolyline.getSectionFirstTangent(rightSection);
 
-			// TODO: Replace with cross 2d
 			constexpr float64_t CROSS_PRODUCT_LINEARITY_EPSILON = 1e-5;
-			const float64_t crossProduct = leftTangent.x * rightTangent.y - leftTangent.y * rightTangent.x;
-
-			int32_t lineSegmentsOffsetChange = 0;
+			const float64_t crossProduct = nbl::hlsl::cross2D(leftTangent, rightTangent);
 
 			if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
 			{
 				if (crossProduct * offset > 0u)
 				{
+					float64_t2 leftSectionEndPos = parallelPolyline.getSectionLastPoint(leftSection);
+					float64_t2 rightSectionStartPos = parallelPolyline.getSectionFirstPoint(rightSection);
+
 					// outward, need to join by extra lines
-					if (leftSegment.type == ObjectType::LINE)
+					if (leftSection.type == ObjectType::LINE)
 					{
-						const uint32_t lastLinePointIdx = leftSegment.index + leftSegment.count;
-						float64_t2 lineEndPos = parallelPolyline.m_linePoints[lastLinePointIdx].p;
-						if (rightSegment.type == ObjectType::QUAD_BEZIER)
-						{
-							const uint32_t firstBezierIdx = rightSegment.index;
-							float64_t2 bezierStartPos = parallelPolyline.m_quadBeziers[firstBezierIdx].p[0];
-							float64_t2 intersection = LineLineIntersection(lineEndPos, leftTangent, bezierStartPos, rightTangent);
-							// parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, intersection);
-							// parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + lastLinePointIdx + 1u, bezierStartPos);
-							lineSegmentsOffsetChange += 2;
-							// Add Intersection + QuadBez Position to end of leftSegment
-						}
-						else if (rightSegment.type == ObjectType::LINE)
+						float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(leftSectionEndPos, leftTangent, rightSectionStartPos, rightTangent);
+						if (rightSection.type == ObjectType::QUAD_BEZIER)
 						{
 							// Add Intersection + right Segment first line position to end of leftSegment
+							LinePointInfo newLinePoints[2u] = {};
+							newLinePoints[0u].p = intersection;
+							newLinePoints[1u].p = rightSectionStartPos;
+							parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + (leftSection.index + leftSection.count + 1u), newLinePoints, newLinePoints + 2u);
+							lineSegmentsOffsetChange += 2;
+							leftSection.count += 2;
+						}
+						else if (rightSection.type == ObjectType::LINE)
+						{
+							// Change last point of left segment and first point of right segment equal to their intersection.
+							parallelPolyline.m_linePoints[leftSection.index + leftSection.count].p = intersection;
+							parallelPolyline.m_linePoints[rightSection.index].p = intersection;
 						}
 					}
-					else if (leftSegment.type == ObjectType::QUAD_BEZIER)
+					else if (leftSection.type == ObjectType::QUAD_BEZIER)
 					{
-						if (rightSegment.type == ObjectType::QUAD_BEZIER)
+						if (rightSection.type == ObjectType::QUAD_BEZIER)
 						{
 							// Add QuadBez Position + Intersection + QuadBez Position to new segment
 						}
-						else if (rightSegment.type == ObjectType::LINE)
+						else if (rightSection.type == ObjectType::LINE)
 						{
 							// Add QuadBez Position + Intersection to start of right segment
 						}
