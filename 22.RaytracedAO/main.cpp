@@ -128,6 +128,7 @@ struct PersistentState
 	bool isBeauty;
 	bool isInteractiveMode;
 	bool isInteractiveViewMatrixLH;
+	bool isDenoiseDeferred;
 	uint32_t startSensorID;
 	std::string zipPath;
 	std::string xmlPath;
@@ -272,6 +273,7 @@ int main(int argc, char** argv)
 		applicationState.processSensorsBehaviour = cmdHandler.getProcessSensorsBehaviour();
 		applicationState.startSensorID = cmdHandler.getSensorID();
 		applicationState.isInteractiveMode = (applicationState.processSensorsBehaviour == ProcessSensorsBehaviour::PSB_INTERACTIVE_AT_SENSOR);
+		applicationState.isDenoiseDeferred = cmdHandler.getDeferredDenoiseFlag();
 
 		auto sceneDir = cmdHandler.getSceneDirectory();
 		if ((sceneDir.size() == 1) && (sceneDir[0] == "")) // special condition for reloading the application
@@ -947,7 +949,7 @@ int main(int argc, char** argv)
 
 	auto driver = device->getVideoDriver();
 
-	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr);
+	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr,applicationState.isDenoiseDeferred);
 	renderer->initSceneResources(meshes,"LowDiscrepancySequenceCache.bin");
 	meshes = {}; // free memory
 	
@@ -1115,7 +1117,7 @@ int main(int argc, char** argv)
 			else
 			{
 
-				bool shouldDenoise = sensor.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
+				const bool shouldDenoise = sensor.type != ext::MitsubaLoader::CElementSensor::Type::SPHERICAL;
 				renderer->takeAndSaveScreenShot(screenshotFilePath, shouldDenoise, sensor.denoiserInfo);
 				int progress = float(renderer->getTotalSamplesPerPixelComputed())/float(sensor.samplesNeeded) * 100;
 				printf("[INFO] Rendered Successfully - %d%% Progress = %u/%u SamplesPerPixel - FileName = %s. \n", progress, renderer->getTotalSamplesPerPixelComputed(), sensor.samplesNeeded, screenshotFilePath.filename().string().c_str());
@@ -1126,6 +1128,7 @@ int main(int argc, char** argv)
 				stream->emit_json_key_value("output_tonemap", filename_wo_ext.string() +".exr");
 				stream->emit_json_key_value("output_albedo", filename_wo_ext.string() + "_albedo.exr");
 				stream->emit_json_key_value("output_normal", filename_wo_ext.string() + "_normal.exr");
+				// TODO[Przemek]: take look at that, does it need to be deferred as well?
 				if(shouldDenoise)
 					stream->emit_json_key_value("output_denoised", filename_wo_ext.string() + "_denoised.exr");
 				stream->end_json_object();

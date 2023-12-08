@@ -39,6 +39,7 @@ Example Usages :
 constexpr std::string_view SCENE_VAR_NAME						= "SCENE";
 constexpr std::string_view SCREENSHOT_OUTPUT_FOLDER_VAR_NAME	= "SCREENSHOT_OUTPUT_FOLDER";
 constexpr std::string_view PROCESS_SENSORS_VAR_NAME				= "PROCESS_SENSORS";
+constexpr std::string_view DEFER_DENOISE_VAR_NAME               = "DEFER_DENOISE";
 
 constexpr uint32_t MaxRayTracerCommandLineArgs = 8;
 
@@ -46,6 +47,7 @@ enum RaytracerExampleArguments
 {
 	REA_SCENE,
 	REA_PROCESS_SENSORS,
+	REA_DEFER_DENOISE,
 	REA_COUNT,
 };
 
@@ -80,11 +82,17 @@ class CommandLineHandler
 			return sensorID;
 		}
 
+		inline bool getDeferredDenoiseFlag() const
+		{
+			return isDenoiseDeferred;
+		}
+
 	private:
 		void initializeMatchingMap()
 		{
 			rawVariables[REA_SCENE];
 			rawVariables[REA_PROCESS_SENSORS];
+			rawVariables[REA_DEFER_DENOISE];
 		}
 
 		RaytracerExampleArguments getMatchedVariableMapID(const std::string& variableName)
@@ -93,6 +101,8 @@ class CommandLineHandler
 				return REA_SCENE;
 			else if (variableName == PROCESS_SENSORS_VAR_NAME)
 				return REA_PROCESS_SENSORS;
+			else if (variableName == DEFER_DENOISE_VAR_NAME)
+				return REA_DEFER_DENOISE;
 			else
 				return REA_COUNT;
 		}
@@ -138,6 +148,8 @@ class CommandLineHandler
 					}
 				}
 			}
+			
+			isDenoiseDeferred = rawVariables[REA_DEFER_DENOISE].has_value();
 		}
 
 		variablesType rawVariables;
@@ -145,6 +157,7 @@ class CommandLineHandler
 		// Loaded from CMD
 		std::vector<std::string> sceneDirectory; // [0] zip [1] optional xml in zip
 		std::string outputScreenshotsFolderPath;
+		bool isDenoiseDeferred;
 		struct
 		{
 			ProcessSensorsBehaviour processSensorsBehaviour = ProcessSensorsBehaviour::PSB_RENDER_ALL_THEN_INTERACTIVE;

@@ -46,8 +46,8 @@ auto fillIotaDescriptorBindingDeclarations = [](auto* outBindings, uint32_t acce
 	}
 };
 
-Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::ISceneManager* _smgr, bool useDenoiser) :
-		m_useDenoiser(useDenoiser),	m_driver(_driver), m_smgr(_smgr), m_assetManager(_assetManager),
+Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::ISceneManager* _smgr, bool deferDenoise, bool useDenoiser) :
+		m_useDenoiser(useDenoiser), m_deferDenoise(deferDenoise), m_driver(_driver), m_smgr(_smgr), m_assetManager(_assetManager),
 		m_rrManager(ext::RadeonRays::Manager::create(m_driver)),
 		m_prevView(), m_prevCamTform(), m_sceneBound(FLT_MAX,FLT_MAX,FLT_MAX,-FLT_MAX,-FLT_MAX,-FLT_MAX), m_maxAreaLightLuma(0.f),
 		m_framesDispatched(0u), m_rcpPixelSize{0.f,0.f},
@@ -174,11 +174,15 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 
 		m_resolveDSLayout = m_driver->createGPUDescriptorSetLayout(bindings,bindings+resolveDescriptorCount);
 	}
+
+	if(m_deferDenoise)
+		m_deferDenoiseFile.open(DEFER_DENOISE_HOOK_FILE_NAME, std::ios_base::in | std::ios_base::out | std::ios_base::trunc);
 }
 
 Renderer::~Renderer()
 {
 	deinitSceneResources();
+	finalizeDeferredDenoise();
 }
 
 
@@ -1189,6 +1193,18 @@ void Renderer::deinitSceneResources()
 	maxSensorSamples = MaxFreeviewSamples;
 }
 
+void Renderer::finalizeDeferredDenoise()
+{
+	if (!m_deferDenoise)
+		return;
+
+	m_deferDenoiseFile.close();
+	std::cout << "\n---[DENOISER_BEGIN]---" << std::endl;
+	std::system(DEFER_DENOISE_HOOK_FILE_NAME);
+	std::cout << "\n---[DENOISER_END]---" << std::endl;
+	std::remove(DEFER_DENOISE_HOOK_FILE_NAME);
+}
+
 void Renderer::initScreenSizedResources(
 	const uint32_t width, const uint32_t height,
 	const float envMapRegularizationFactor,
@@ -1640,33 +1656,47 @@ void Renderer::takeAndSaveScreenShot(const std::filesystem::path& screenshotFile
 	if (m_normalRslv)
 		ext::ScreenShot::createScreenShot(m_driver,m_assetManager,m_normalRslv.get(),filename_wo_ext.string()+"_normal.exr",format);
 
-	if(denoise)
-	{
-		const std::string defaultBloomFile = "../../media/kernels/physical_flare_512.exr";
-		const std::string defaultTonemapperArgs = "ACES=0.4,0.8";
-		constexpr auto defaultBloomScale = 0.1f;
-		constexpr auto defaultBloomIntensity = 0.1f;
-		auto bloomFilePathStr = (denoiserArgs.bloomFilePath.string().empty()) ? defaultBloomFile : denoiserArgs.bloomFilePath.string();
-		auto bloomScale = (denoiserArgs.bloomScale == 0.0f) ? defaultBloomScale : denoiserArgs.bloomScale;
-		auto bloomIntensity = (denoiserArgs.bloomIntensity == 0.0f) ? defaultBloomIntensity : denoiserArgs.bloomIntensity;
-		auto tonemapperArgs = (denoiserArgs.tonemapperArgs.empty()) ? defaultTonemapperArgs : denoiserArgs.tonemapperArgs;
+	if (!denoise)
+		return;
 
-		std::ostringstream denoiserCmd;
-		// 1.ColorFile 2.AlbedoFile 3.NormalFile 4.BloomPsfFilePath(STRING) 5.BloomScale(FLOAT) 6.BloomIntensity(FLOAT) 7.TonemapperArgs(STRING)
-		denoiserCmd << "call ../denoiser_hook.bat";
-		denoiserCmd << " \"" << filename_wo_ext.string() << ".exr" << "\"";
-		denoiserCmd << " \"" << filename_wo_ext.string() << "_albedo.exr" << "\"";
-		denoiserCmd << " \"" << filename_wo_ext.string() << "_normal.exr" << "\"";
-		denoiserCmd << " \"" << bloomFilePathStr << "\"";
-		denoiserCmd << " " << bloomScale;
-		denoiserCmd << " " << bloomIntensity;
-		denoiserCmd << " " << "\"" << tonemapperArgs << "\"";
+	const std::string defaultBloomFile = "../../media/kernels/physical_flare_512.exr";
+	const std::string defaultTonemapperArgs = "ACES=0.4,0.8";
+	constexpr auto defaultBloomScale = 0.1f;
+	constexpr auto defaultBloomIntensity = 0.1f;
+	auto bloomFilePathStr = (denoiserArgs.bloomFilePath.string().empty()) ? defaultBloomFile : denoiserArgs.bloomFilePath.string();
+	auto bloomScale = (denoiserArgs.bloomScale == 0.0f) ? defaultBloomScale : denoiserArgs.bloomScale;
+	auto bloomIntensity = (denoiserArgs.bloomIntensity == 0.0f) ? defaultBloomIntensity : denoiserArgs.bloomIntensity;
+	auto tonemapperArgs = (denoiserArgs.tonemapperArgs.empty()) ? defaultTonemapperArgs : denoiserArgs.tonemapperArgs;
+
+	std::ostringstream denoiserCmd;
+	// 1.ColorFile 2.AlbedoFile 3.NormalFile 4.BloomPsfFilePath(STRING) 5.BloomScale(FLOAT) 6.BloomIntensity(FLOAT) 7.TonemapperArgs(STRING)
+	denoiserCmd << "call ../denoiser_hook.bat";
+	denoiserCmd << " \"" << filename_wo_ext.string() << ".exr" << "\"";
+	denoiserCmd << " \"" << filename_wo_ext.string() << "_albedo.exr" << "\"";
+	denoiserCmd << " \"" << filename_wo_ext.string() << "_normal.exr" << "\"";
+	denoiserCmd << " \"" << bloomFilePathStr << "\"";
+	denoiserCmd << " " << bloomScale;
+	denoiserCmd << " " << bloomIntensity;
+	denoiserCmd << " " << "\"" << tonemapperArgs << "\"";
+
+	if (m_deferDenoise)
+	{
+		// TODO[Przemek]: what to do when m_deferDenoiseFile is not open? crash or log error?
+		const bool isDeferDenoiseFileOpen = m_deferDenoiseFile.is_open();
+		assert(isDeferDenoiseFileOpen);
+
+		if (isDeferDenoiseFileOpen)
+			m_deferDenoiseFile << denoiserCmd.str() << std::endl;
+	}
+	else
+	{
 		// NOTE/TODO/FIXME : Do as I say, not as I do
 		// https://wiki.sei.cmu.edu/confluence/pages/viewpage.action?pageId=87152177
 		std::cout << "\n---[DENOISER_BEGIN]---" << std::endl;
 		std::system(denoiserCmd.str().c_str());
 		std::cout << "\n---[DENOISER_END]---" << std::endl;
 	}
+
 }
 
 void Renderer::denoiseCubemapFaces(
