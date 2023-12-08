@@ -211,15 +211,6 @@ public:
 		if (linePoints.size() <= 1u)
 			return;
 
-		// Check for continuity
-		//if (m_sections.size() > 0u)
-		//{
-		//	constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
-		//	const float64_t2 newFirstPoint = linePoints[0u];
-		//	const float64_t2 lastPoint = getSectionLastPoint(m_sections[m_sections.size() - 1u]);
-		//	_NBL_DEBUG_BREAK_IF(glm::distance(newFirstPoint, lastPoint) > POINT_EQUALITY_THRESHOLD); // DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore this debug break.
-		//}
-
 		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
 		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
 		const bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
@@ -254,15 +245,6 @@ public:
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
 	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool addToPreviousSectionIfAvailable = false)
 	{
-		// Check for continuity
-		//if (m_sections.size() > 0u)
-		//{
-		//	constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
-		//	const float64_t2 newFirstPoint = quadBeziers[0u].P0;
-		//	const float64_t2 lastPoint = getSectionLastPoint(m_sections[m_sections.size() - 1u]);
-		//	_NBL_DEBUG_BREAK_IF(glm::distance(newFirstPoint, lastPoint) > POINT_EQUALITY_THRESHOLD); // DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore this debug break.
-		//}
-
 		const bool previousSectionIsBezier = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::QUAD_BEZIER;
 		const bool alwaysAddNewSection = !addToPreviousSectionIfAvailable;
 		bool addNewSection = alwaysAddNewSection || !previousSectionIsBezier;
@@ -453,19 +435,109 @@ public:
 		CPolyline parallelPolyline = {};
 		parallelPolyline.setClosed(m_closedPolygon);
 
-		std::vector<float64_t2> newLinePoints;
-		std::vector<shapes::QuadraticBezier<double>> newBeziers;
-		curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+		constexpr float64_t CROSS_PRODUCT_LINEARITY_EPSILON = 1e-5;
+
+		// The next two lamda functions connect offsetted beziers and lines
+		// This function adds a bezier section and connects it to the previous section
+		auto addBezierSection = [&](std::vector<shapes::QuadraticBezier<double>>&& beziers)
 			{
-				newBeziers.push_back(info);
+				// If there is a previous section, connect to that
+				if (parallelPolyline.m_sections.size() > 0u)
+				{
+					auto& prevSection = parallelPolyline.m_sections[parallelPolyline.m_sections.size() - 1u];
+					float64_t2 prevTangent = parallelPolyline.getSectionLastTangent(prevSection);
+					float64_t2 nextTangent = beziers[0].P1 - beziers[0].P0;
+
+					const float64_t crossProduct = nbl::hlsl::cross2D(prevTangent, nextTangent);
+
+					if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
+					{
+						if (crossProduct * offset > 0u) // Outward, needs connection
+						{
+							float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
+							float64_t2 nextSectionStartPos = beziers[0].P0;
+							float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
+
+							if (prevSection.type == ObjectType::LINE)
+							{
+								// Add Intersection + right Segment first line position to end of leftSegment
+								LinePointInfo newLinePoints[2u] = {};
+								newLinePoints[0u].p = intersection;
+								newLinePoints[1u].p = nextSectionStartPos;
+								assert(parallelPolyline.m_linePoints.size() == (prevSection.index + prevSection.count + 1u));
+								parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.end(), newLinePoints, newLinePoints + 2u);
+								prevSection.count += 2;
+								assert(parallelPolyline.m_linePoints.size() == (prevSection.index + prevSection.count + 1u));
+							}
+							else if (prevSection.type == ObjectType::QUAD_BEZIER)
+							{
+								// Add Intersection + right Segment first line position to end of leftSegment
+								float64_t2 newLinePoints[3u] = {};
+								newLinePoints[0u] = prevSectionEndPos;
+								newLinePoints[1u] = intersection;
+								newLinePoints[2u] = nextSectionStartPos;
+								parallelPolyline.addLinePoints(core::SRange<float64_t2>(newLinePoints, newLinePoints + 3u));
+							}
+						}
+						else // Inward, needs clipping or pruning
+						{
+						}
+					}
+				}
+				parallelPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
 			};
 
-		// Generate Mitered Line Sections and Offseted Beziers -> will still have breaks and disconnections after this loop
+		// This function adds a line section and connects it to the previous section
+		auto addLinesSection = [&](std::vector<float64_t2>&& linePoints)
+			{
+				// If there is a previous section, connect to that
+				if (parallelPolyline.m_sections.size() > 0u)
+				{
+					auto& prevSection = parallelPolyline.m_sections[parallelPolyline.m_sections.size() - 1u];
+					float64_t2 prevTangent = parallelPolyline.getSectionLastTangent(prevSection);
+					float64_t2 nextTangent = linePoints[1] - linePoints[0];
+
+					const float64_t crossProduct = nbl::hlsl::cross2D(prevTangent, nextTangent);
+
+					if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
+					{
+						if (crossProduct * offset > 0u) // Outward, needs connection
+						{
+							float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
+							float64_t2 nextSectionStartPos = linePoints[0];
+							float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
+
+							if (prevSection.type == ObjectType::LINE)
+							{
+								// Change last point of left segment and first point of right segment to be equal to their intersection.
+								parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = intersection;
+								linePoints[0] = intersection;
+							}
+							else if (prevSection.type == ObjectType::QUAD_BEZIER)
+							{
+								// Add QuadBez Position + Intersection to start of right segment
+								linePoints.insert(linePoints.begin(), intersection);
+								linePoints.insert(linePoints.begin(), prevSectionEndPos);
+								parallelPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.begin()._Ptr, linePoints.end()._Ptr));
+							}
+						}
+						else // Inward, needs clipping or pruning
+						{
+
+						}
+					}
+				}
+				parallelPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.begin()._Ptr, linePoints.end()._Ptr));
+			};
+
+		// This loop Generates Mitered Line Sections and Offseted Beziers -> will still have breaks and disconnections 
+		// then we call addBezierSection and it connects it to the previous section
 		for (uint32_t i = 0; i < m_sections.size(); ++i)
 		{
 			const auto& section = m_sections[i];
 			if (section.type == ObjectType::LINE)
 			{
+				std::vector<float64_t2> newLinePoints;
 				newLinePoints.reserve(m_linePoints.size());
 				for (uint32_t j = 0; j < section.count + 1; ++j)
 				{
@@ -494,11 +566,15 @@ public:
 					}
 					newLinePoints.push_back(m_linePoints[linePointIdx].p + offsetVector * offset);
 				}
-				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(newLinePoints.begin()._Ptr, newLinePoints.end()._Ptr));
-				newLinePoints.clear();
+				addLinesSection(std::move(newLinePoints));
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
+				std::vector<shapes::QuadraticBezier<double>> newBeziers;
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						newBeziers.push_back(info);
+					};
 				for (uint32_t j = 0; j < section.count; ++j)
 				{
 					const uint32_t bezierIdx = section.index + j;
@@ -506,94 +582,7 @@ public:
 					curves::OffsettedBezier offsettedBezier(bezier, offset);
 					curves::Subdivision::adaptive(offsettedBezier, maxError, addToBezier, 10u);
 				}
-				parallelPolyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(newBeziers.begin()._Ptr, newBeziers.end()._Ptr));
-				newBeziers.clear();
-			}
-		}
-
-		// Join Sections Together -> We assume G1 continuity in a single section (the usage of how black box g1 continous curves are estimated as beziers and added as a section/chunk)
-		
-		// we prune old points/beziers or add new points/beziers and we need to update the segment offsets 
-		int32_t lineSegmentsOffsetChange = 0;
-		int32_t beziersOffsetChange = 0;
-
-		for (uint32_t i = 0; i < parallelPolyline.m_sections.size(); ++i)
-		{
-			// iteration i, joins section i and i + 1, last section may need join based on the polyline being closed.
-			if (i == parallelPolyline.m_sections.size() - 1u && !parallelPolyline.m_closedPolygon)
-				break;
-
-			auto& leftSection = parallelPolyline.m_sections[i];
-			auto& rightSection = (i < parallelPolyline.m_sections.size() - 1u) ? parallelPolyline.m_sections[i+1] : parallelPolyline.m_sections[0];
-			
-			if (i < parallelPolyline.m_sections.size() - 1u)
-			{
-				if (rightSection.type == ObjectType::LINE)
-				{
-					rightSection.index += lineSegmentsOffsetChange;
-				}
-				else if (rightSection.type == ObjectType::QUAD_BEZIER)
-				{
-					rightSection.index += beziersOffsetChange;
-				}
-			}
-			
-			float64_t2 leftTangent = parallelPolyline.getSectionLastTangent(leftSection);
-			float64_t2 rightTangent = parallelPolyline.getSectionFirstTangent(rightSection);
-
-			constexpr float64_t CROSS_PRODUCT_LINEARITY_EPSILON = 1e-5;
-			const float64_t crossProduct = nbl::hlsl::cross2D(leftTangent, rightTangent);
-
-			if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
-			{
-				if (crossProduct * offset > 0u)
-				{
-					float64_t2 leftSectionEndPos = parallelPolyline.getSectionLastPoint(leftSection);
-					float64_t2 rightSectionStartPos = parallelPolyline.getSectionFirstPoint(rightSection);
-					float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(leftSectionEndPos, leftTangent, rightSectionStartPos, rightTangent);
-
-					// outward, need to join by extra lines
-					if (leftSection.type == ObjectType::LINE)
-					{
-						if (rightSection.type == ObjectType::QUAD_BEZIER)
-						{
-							// Add Intersection + right Segment first line position to end of leftSegment
-							LinePointInfo newLinePoints[2u] = {};
-							newLinePoints[0u].p = intersection;
-							newLinePoints[1u].p = rightSectionStartPos;
-							parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + (leftSection.index + leftSection.count + 1u), newLinePoints, newLinePoints + 2u);
-							lineSegmentsOffsetChange += 2;
-							leftSection.count += 2;
-						}
-						else if (rightSection.type == ObjectType::LINE)
-						{
-							// Change last point of left segment and first point of right segment equal to their intersection.
-							parallelPolyline.m_linePoints[leftSection.index + leftSection.count].p = intersection;
-							parallelPolyline.m_linePoints[rightSection.index].p = intersection;
-						}
-					}
-					else if (leftSection.type == ObjectType::QUAD_BEZIER)
-					{
-						if (rightSection.type == ObjectType::QUAD_BEZIER)
-						{
-							// Add QuadBez Position + Intersection + QuadBez Position to new segment
-						}
-						else if (rightSection.type == ObjectType::LINE)
-						{
-							// Add QuadBez Position + Intersection to start of right segment
-							LinePointInfo newLinePoints[2u] = {};
-							newLinePoints[0u].p = leftSectionEndPos;
-							newLinePoints[1u].p = intersection;
-							parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.begin() + rightSection.index, newLinePoints, newLinePoints + 2u);
-							lineSegmentsOffsetChange += 2;
-							rightSection.count += 2;
-						}
-					}
-				}
-				else
-				{
-					// intersection goes inward, need to prune and clip
-				}
+				addBezierSection(std::move(newBeziers));
 			}
 		}
 
@@ -603,6 +592,23 @@ public:
 	void setClosed(bool closed)
 	{
 		m_closedPolygon = closed;
+	}
+
+	bool checkSectionsContunuity()
+	{
+		// Check for continuity
+		for (uint32_t i = 1; i < m_sections.size(); ++i)
+		{
+			constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
+			const float64_t2 firstPoint = getSectionFirstPoint(m_sections[i]);
+			const float64_t2 prevLastPoint = getSectionLastPoint(m_sections[i-1u]);
+			if (glm::distance(firstPoint, prevLastPoint) > POINT_EQUALITY_THRESHOLD)
+			{
+				// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
+				return false;
+			}
+		}
+		return true;
 	}
 
 protected:
