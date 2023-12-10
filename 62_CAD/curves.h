@@ -25,7 +25,7 @@ namespace curves
         virtual float64_t2 computeTangent(float64_t t) const = 0;
 
         //! compute differential arc length at t
-        virtual float64_t differentialArcLen(float64_t t) const = 0;
+        virtual float64_t differentialArcLen(float64_t t) const;
 
         struct ArcLenIntegrand
         {
@@ -106,9 +106,6 @@ namespace curves
 
         //! compute second order differential at t
         float64_t2 computeSecondOrderDifferential(float64_t t) const override;
-
-        //! compute differential arc length at t
-        float64_t differentialArcLen(float64_t t) const override;
 
         float64_t computeInflectionPoint(float64_t errorThreshold) const override;
     };
@@ -219,6 +216,19 @@ namespace curves
         float64_t derivative(float64_t x) const override;
     };
 
+    // Centered at (0,0), aligned with x axis
+    struct AxisAlignedEllipse final : public ParametricCurve
+    {
+        float64_t a, b;
+        AxisAlignedEllipse(float64_t a, float64_t b)
+            : a(a), b(b)
+        {}
+
+        float64_t2 computePosition(float64_t t) const override;
+
+        float64_t2 computeTangent(float64_t t) const override;
+    };
+
     // Centered at (0, 0), P1 and P2 on x axis and P1.x = -P2.x
     struct ExplicitMixedCircle final : public ExplicitCurve
     {
@@ -288,9 +298,6 @@ namespace curves
 
         //! compute unnormalized tangent vector at t
         float64_t2 computeTangent(float64_t t) const override;
-
-        //! compute differential arc length at t
-        float64_t differentialArcLen(float64_t t) const override;
 
         //! if offset is more than minimum radius of curvature then we get an unwanted gouging/cusp
         float64_t2 findCusps() const;

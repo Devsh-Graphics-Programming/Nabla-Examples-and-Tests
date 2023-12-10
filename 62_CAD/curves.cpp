@@ -48,6 +48,11 @@ float64_t ParametricCurve::inverseArcLen(float64_t targetLen, float64_t min, flo
     return inverseArcLen_BisectionSearch(targetLen, min, max, cdfAccuracyThreshold);
 }
 
+float64_t ParametricCurve::differentialArcLen(float64_t t) const
+{
+    return length(computeTangent(t));
+}
+
 float64_t ExplicitCurve::differentialArcLen(float64_t x) const
 {
     float64_t deriv = derivative(x);
@@ -108,12 +113,6 @@ float64_t2 CubicCurve::computeSecondOrderDifferential(float64_t t) const
     );
 }
 
-float64_t CubicCurve::differentialArcLen(float64_t t) const
-{
-    float64_t2 tangent = computeTangent(t);
-    return length(tangent);
-}
-
 float64_t CubicCurve::computeInflectionPoint(float64_t errorThreshold) const
 {
     // solve for signed curvature root 
@@ -159,12 +158,6 @@ float64_t2 CircularArc::computeSecondOrderDifferential(float64_t t) const
     );
 }
 
-float64_t CircularArc::differentialArcLen(float64_t t) const
-{
-    float64_t2 tangent = computeTangent(t);
-    return length(tangent);
-}
-
 float64_t CircularArc::getSign(float64_t x)
 {
     return static_cast<float64_t>((x > 0.0)) - static_cast<float64_t>((x <= 0.0));
@@ -193,12 +186,6 @@ float64_t2 MixedParametricCurves::computeSecondOrderDifferential(float64_t t) co
     const float64_t2 curve1SecondDiff = curve1->computeSecondOrderDifferential(t);
     const float64_t2 curve2SecondDiff = curve2->computeSecondOrderDifferential(t);
     return (1 - t) * curve1SecondDiff + 2.0 * (curve2Tan - curve1Tan) + t * curve2SecondDiff;
-}
-
-float64_t MixedParametricCurves::differentialArcLen(float64_t t) const
-{
-    float64_t2 tangent = computeTangent(t);
-    return length(tangent);
 }
 
 float64_t MixedParametricCurves::computeInflectionPoint(float64_t errorThreshold) const
@@ -279,6 +266,16 @@ float64_t ExplicitEllipse::y(float64_t x) const
 float64_t ExplicitEllipse::derivative(float64_t x) const
 {
     return (-a * x) / ((b * b) * sqrt(1.0 - pow((x / b), 2.0)));
+}
+
+float64_t2 AxisAlignedEllipse::computePosition(float64_t t) const
+{
+    return float64_t2(a * cos(t), b * sin(t));
+}
+
+float64_t2 AxisAlignedEllipse::computeTangent(float64_t t) const
+{
+    return float64_t2(-a * sin(t), b * cos(t));
 }
 
 ExplicitMixedCircle::ExplicitCircle ExplicitMixedCircle::ExplicitCircle::fromThreePoints(float64_t2 P0, float64_t2 P1, float64_t2 P2)
@@ -395,11 +392,6 @@ float64_t2 OffsettedBezier::computeTangent(float64_t t) const
     return ddt + (ddt * g) / glm::length(ddt);
 }
 
-float64_t OffsettedBezier::differentialArcLen(float64_t t) const
-{
-    return length(computeTangent(t));
-}
-
 inline float64_t2 OffsettedBezier::findCusps() const
 {
     // we're basically solving for t in "offset = radiusOfCurvature(t)"
@@ -487,42 +479,37 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
         : (1.0 - fract((-ellipse.angleBounds.x) / TwoPi)) * TwoPi;
     const float64_t endAngle = startAngle + sweepAngle;
 
-    auto subdivideExplicitEllipse = [&](const float64_t start, const float64_t end)
+    auto subdivideAxisAlignedEllipse = [&](const float64_t start, const float64_t end)
         {
-            const float64_t startAngleFract = fract(start / TwoPi);
-            const double sign = (startAngleFract < 0.5) ? 1.0 : -1.0;
-
-            ExplicitEllipse explicitEllipse(sign * lenghtMinor, lenghtMajor);
-            const double x1 = explicitEllipse.b * cos(start);
-            const double x2 = explicitEllipse.b * cos(end);
-            if (x1 != x2)
-                adaptive(explicitEllipse, nbl::core::min(x1, x2), nbl::core::max(x1, x2), targetMaxError, addTransformedBezier, maxDepth);
+            AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor);
+            if (start != end)
+                adaptive(aaEllipse, start, end, targetMaxError, addTransformedBezier, maxDepth);
         };
 
     if (startAngle <= Pi)
     {
         // start to min(Pi, end)
-        subdivideExplicitEllipse(startAngle, nbl::core::min(Pi, endAngle));
+        subdivideAxisAlignedEllipse(startAngle, nbl::core::min(Pi, endAngle));
 
         // Pi to min(2Pi, end)
         if (endAngle > Pi)
-            subdivideExplicitEllipse(Pi, nbl::core::min(TwoPi, endAngle));
+            subdivideAxisAlignedEllipse(Pi, nbl::core::min(TwoPi, endAngle));
         // 2Pi to end
         if (endAngle > TwoPi)
-            subdivideExplicitEllipse(TwoPi, endAngle);
+            subdivideAxisAlignedEllipse(TwoPi, endAngle);
     }
     else
     {
         // start to min(2Pi, end)
-        subdivideExplicitEllipse(startAngle, nbl::core::min(TwoPi, endAngle));
+        subdivideAxisAlignedEllipse(startAngle, nbl::core::min(TwoPi, endAngle));
 
         // Pi to min(3Pi, end)
         if (endAngle > TwoPi)
-            subdivideExplicitEllipse(TwoPi, nbl::core::min(ThreePi, endAngle));
+            subdivideAxisAlignedEllipse(TwoPi, nbl::core::min(ThreePi, endAngle));
 
         // 3Pi to end
         if (endAngle > ThreePi)
-            subdivideExplicitEllipse(ThreePi, endAngle);
+            subdivideAxisAlignedEllipse(ThreePi, endAngle);
     }
 }
 
@@ -604,6 +591,5 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
         addBezierFunc(std::move(bezier));
     }
 }
-
 
 }
