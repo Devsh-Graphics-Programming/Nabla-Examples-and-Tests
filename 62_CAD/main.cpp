@@ -2329,11 +2329,12 @@ public:
 					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 					curves::EllipticalArcInfo myCurve;
 					{
-						myCurve.majorAxis = {-20.0, 0.0};
+						myCurve.majorAxis = { -20.0, 0.0 };
 						myCurve.center = { 30, -10.0 };
-						myCurve.angleBounds = { 
-							nbl::core::PI<double>() * 0.0,
-							nbl::core::PI<double>() * 1.0 };
+						myCurve.angleBounds = {
+							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 0.0
+						};
 						myCurve.eccentricity = 1.0;
 					}
 
@@ -2354,8 +2355,9 @@ public:
 						myCurve.majorAxis = { -10.0, 5.0 };
 						myCurve.center = { 0, -5.0 };
 						myCurve.angleBounds = {
-							nbl::core::PI<double>() * 0.0,
-							nbl::core::PI<double>() * 1.0 };
+							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 0.0
+							};
 						myCurve.eccentricity = 1.0;
 					}
 
@@ -2381,7 +2383,7 @@ public:
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(1.0 + 0.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+1.0 + 0.0 * abs(cos(m_timeElapsed * 0.0009)));
 			// CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-1.0 + -0.0 * abs(cos(m_timeElapsed * 0.0009)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);

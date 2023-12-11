@@ -227,7 +227,6 @@ public:
 			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
 		}
 
-		constexpr LinePointInfo EMPTY_LINE_POINT_INFO = {};
 		const uint32_t oldLinePointSize = m_linePoints.size();
 		const uint32_t newLinePointSize = oldLinePointSize + linePoints.size();
 		m_linePoints.resize(newLinePointSize);
@@ -277,6 +276,8 @@ public:
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
+		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
+		_NBL_DEBUG_BREAK_IF(!checkSectionsContunuity());
 		PolylineConnectorBuilder connectorBuilder;
 
 		float phaseShiftTotal = lineStyle.phaseShift;
@@ -363,7 +364,7 @@ public:
 		}
 	}
 
-	float64_t2 getSectionFirstPoint(const SectionInfo& section)
+	float64_t2 getSectionFirstPoint(const SectionInfo& section) const
 	{
 		if (section.type == ObjectType::LINE)
 		{
@@ -375,9 +376,14 @@ public:
 			const uint32_t firstBezierIdx = section.index;
 			return m_quadBeziers[firstBezierIdx].p[0];
 		}
+		else
+		{
+			assert(false);
+			return float64_t2{};
+		}
 	}
 
-	float64_t2 getSectionLastPoint(const SectionInfo& section)
+	float64_t2 getSectionLastPoint(const SectionInfo& section) const
 	{
 		if (section.type == ObjectType::LINE)
 		{
@@ -389,9 +395,14 @@ public:
 			const uint32_t lastBezierIdx = section.index + section.count - 1u;
 			return m_quadBeziers[lastBezierIdx].p[2];
 		}
+		else
+		{
+			assert(false);
+			return float64_t2{};
+		}
 	}
 
-	float64_t2 getSectionFirstTangent(const SectionInfo& section)
+	float64_t2 getSectionFirstTangent(const SectionInfo& section) const
 	{
 
 		if (section.type == ObjectType::LINE)
@@ -404,13 +415,14 @@ public:
 			const uint32_t firstBezierIdx = section.index;
 			return m_quadBeziers[firstBezierIdx].p[1] - m_quadBeziers[firstBezierIdx].p[0];
 		}
+		else 
 		{
 			assert(false);
 			return float64_t2{};
 		}
-
 	}
-	float64_t2 getSectionLastTangent(const SectionInfo& section)
+
+	float64_t2 getSectionLastTangent(const SectionInfo& section) const
 	{
 		if (section.type == ObjectType::LINE)
 		{
@@ -427,107 +439,131 @@ public:
 			assert(false);
 			return float64_t2{};
 		}
-
 	}
 
 	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const 
 	{
+		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
+		_NBL_DEBUG_BREAK_IF(!checkSectionsContunuity());
+
 		CPolyline parallelPolyline = {};
 		parallelPolyline.setClosed(m_closedPolygon);
 
-		constexpr float64_t CROSS_PRODUCT_LINEARITY_EPSILON = 1e-5;
-
 		// The next two lamda functions connect offsetted beziers and lines
 		// This function adds a bezier section and connects it to the previous section
-		auto addBezierSection = [&](std::vector<shapes::QuadraticBezier<double>>&& beziers)
+		auto& newSections = parallelPolyline.m_sections;
+
+		constexpr uint32_t InvalidSectionIdx = ~0u;
+		uint32_t previousLineSectionIdx = InvalidSectionIdx;
+		constexpr float64_t CROSS_PRODUCT_LINEARITY_EPSILON = 1e-5;
+		auto connectTwoSections = [&](uint32_t prevSectionIdx, uint32_t nextSectionIdx)
 			{
-				// If there is a previous section, connect to that
-				if (parallelPolyline.m_sections.size() > 0u)
+				auto& prevSection = newSections[prevSectionIdx];
+				auto& nextSection = newSections[nextSectionIdx];
+
+				float64_t2 prevTangent = parallelPolyline.getSectionLastTangent(prevSection);
+				float64_t2 nextTangent = parallelPolyline.getSectionFirstTangent(nextSection);
+				const float64_t crossProduct = nbl::hlsl::cross2D(prevTangent, nextTangent);
+
+				if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
 				{
-					auto& prevSection = parallelPolyline.m_sections[parallelPolyline.m_sections.size() - 1u];
-					float64_t2 prevTangent = parallelPolyline.getSectionLastTangent(prevSection);
-					float64_t2 nextTangent = beziers[0].P1 - beziers[0].P0;
+					float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
+					float64_t2 nextSectionStartPos = parallelPolyline.getSectionFirstPoint(nextSection);
+					float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
 
-					const float64_t crossProduct = nbl::hlsl::cross2D(prevTangent, nextTangent);
-
-					if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
+					if (crossProduct * offset > 0u) // Outward, needs connection
 					{
-						if (crossProduct * offset > 0u) // Outward, needs connection
+						if (nextSection.type == ObjectType::LINE)
 						{
-							float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
-							float64_t2 nextSectionStartPos = beziers[0].P0;
-							float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
-
-							if (prevSection.type == ObjectType::LINE)
-							{
-								// Add Intersection + right Segment first line position to end of leftSegment
-								LinePointInfo newLinePoints[2u] = {};
-								newLinePoints[0u].p = intersection;
-								newLinePoints[1u].p = nextSectionStartPos;
-								assert(parallelPolyline.m_linePoints.size() == (prevSection.index + prevSection.count + 1u));
-								parallelPolyline.m_linePoints.insert(parallelPolyline.m_linePoints.end(), newLinePoints, newLinePoints + 2u);
-								prevSection.count += 2;
-								assert(parallelPolyline.m_linePoints.size() == (prevSection.index + prevSection.count + 1u));
-							}
-							else if (prevSection.type == ObjectType::QUAD_BEZIER)
-							{
-								// Add Intersection + right Segment first line position to end of leftSegment
-								float64_t2 newLinePoints[3u] = {};
-								newLinePoints[0u] = prevSectionEndPos;
-								newLinePoints[1u] = intersection;
-								newLinePoints[2u] = nextSectionStartPos;
-								parallelPolyline.addLinePoints(core::SRange<float64_t2>(newLinePoints, newLinePoints + 3u));
-							}
-						}
-						else // Inward, needs clipping or pruning
-						{
-						}
-					}
-				}
-				parallelPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
-			};
-
-		// This function adds a line section and connects it to the previous section
-		auto addLinesSection = [&](std::vector<float64_t2>&& linePoints)
-			{
-				// If there is a previous section, connect to that
-				if (parallelPolyline.m_sections.size() > 0u)
-				{
-					auto& prevSection = parallelPolyline.m_sections[parallelPolyline.m_sections.size() - 1u];
-					float64_t2 prevTangent = parallelPolyline.getSectionLastTangent(prevSection);
-					float64_t2 nextTangent = linePoints[1] - linePoints[0];
-
-					const float64_t crossProduct = nbl::hlsl::cross2D(prevTangent, nextTangent);
-
-					if (abs(crossProduct) > CROSS_PRODUCT_LINEARITY_EPSILON)
-					{
-						if (crossProduct * offset > 0u) // Outward, needs connection
-						{
-							float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
-							float64_t2 nextSectionStartPos = linePoints[0];
-							float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
-
 							if (prevSection.type == ObjectType::LINE)
 							{
 								// Change last point of left segment and first point of right segment to be equal to their intersection.
 								parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = intersection;
-								linePoints[0] = intersection;
+								parallelPolyline.m_linePoints[nextSection.index].p = intersection;
 							}
 							else if (prevSection.type == ObjectType::QUAD_BEZIER)
 							{
 								// Add QuadBez Position + Intersection to start of right segment
-								linePoints.insert(linePoints.begin(), intersection);
-								linePoints.insert(linePoints.begin(), prevSectionEndPos);
-								parallelPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.begin()._Ptr, linePoints.end()._Ptr));
+								float64_t2 newLinePoints[2u] = { prevSectionEndPos, intersection };
+								parallelPolyline.insertLinePointsToSection(nextSectionIdx, 0u, core::SRange<float64_t2>(newLinePoints, newLinePoints + 2u));
 							}
 						}
-						else // Inward, needs clipping or pruning
+						else if (nextSection.type == ObjectType::QUAD_BEZIER)
 						{
+							if (prevSection.type == ObjectType::LINE)
+							{
+								// Add Intersection + right Segment first line position to end of leftSegment
+								float64_t2 newLinePoints[2u] = { intersection, nextSectionStartPos };
+								parallelPolyline.insertLinePointsToSection(prevSectionIdx, prevSection.count + 1u, core::SRange<float64_t2>(newLinePoints, newLinePoints + 2u));
+							}
+							else if (prevSection.type == ObjectType::QUAD_BEZIER)
+							{
+								// Add Intersection + right Segment first line position to end of leftSegment
+								float64_t2 newLinePoints[3u] = { prevSectionEndPos, intersection, nextSectionStartPos };
 
+								uint32_t linePointsInsertion = 0u;
+								if (previousLineSectionIdx != InvalidSectionIdx)
+									linePointsInsertion = newSections[previousLineSectionIdx].index + newSections[previousLineSectionIdx].count + 1u;
+
+								const uint32_t newSectionIdx = prevSectionIdx + 1u;
+								SectionInfo newSection = {};
+								newSection.type = ObjectType::LINE;
+								newSection.index = linePointsInsertion;
+								newSection.count = 0u;
+								newSections.insert(newSections.begin() + newSectionIdx, newSection);
+								parallelPolyline.insertLinePointsToSection(newSectionIdx, 0u, core::SRange<float64_t2>(newLinePoints, newLinePoints + 3u));
+								previousLineSectionIdx = newSectionIdx;
+							}
+						}
+					}
+					else // Inward Needs Trim and Prune
+					{
+						if (nextSection.type == ObjectType::LINE)
+						{
+							if (prevSection.type == ObjectType::LINE)
+							{
+								// Change last point of left segment and first point of right segment to be equal to their intersection.
+								parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = intersection;
+								parallelPolyline.m_linePoints[nextSection.index].p = intersection;
+							}
+							else if (prevSection.type == ObjectType::QUAD_BEZIER)
+							{
+							}
+						}
+						else if (nextSection.type == ObjectType::QUAD_BEZIER)
+						{
+							if (prevSection.type == ObjectType::LINE)
+							{
+							}
+							else if (prevSection.type == ObjectType::QUAD_BEZIER)
+							{
+							}
 						}
 					}
 				}
+			};
+		auto connectBezierSection = [&](std::vector<shapes::QuadraticBezier<double>>&& beziers)
+			{
+				parallelPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
+				// If there is a previous section, connect to that
+				if (newSections.size() > 1u)
+				{
+					const uint32_t prevSectionIdx = newSections.size() - 2u;
+					const uint32_t nextSectionIdx = newSections.size() - 1u;
+					connectTwoSections(prevSectionIdx, nextSectionIdx);
+				}
+			};
+		auto connectLinesSection = [&](std::vector<float64_t2>&& linePoints)
+			{
 				parallelPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.begin()._Ptr, linePoints.end()._Ptr));
+				// If there is a previous section, connect to that
+				if (newSections.size() > 1u)
+				{
+					const uint32_t prevSectionIdx = newSections.size() - 2u;
+					const uint32_t nextSectionIdx = newSections.size() - 1u;
+					connectTwoSections(prevSectionIdx, nextSectionIdx);
+				}
+				previousLineSectionIdx = newSections.size() - 1u;
 			};
 
 		// This loop Generates Mitered Line Sections and Offseted Beziers -> will still have breaks and disconnections 
@@ -566,7 +602,7 @@ public:
 					}
 					newLinePoints.push_back(m_linePoints[linePointIdx].p + offsetVector * offset);
 				}
-				addLinesSection(std::move(newLinePoints));
+				connectLinesSection(std::move(newLinePoints));
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
@@ -582,8 +618,15 @@ public:
 					curves::OffsettedBezier offsettedBezier(bezier, offset);
 					curves::Subdivision::adaptive(offsettedBezier, maxError, addToBezier, 10u);
 				}
-				addBezierSection(std::move(newBeziers));
+				connectBezierSection(std::move(newBeziers));
 			}
+		}
+
+		if (parallelPolyline.m_closedPolygon)
+		{
+			const uint32_t prevSectionIdx = newSections.size() - 1u;
+			const uint32_t nextSectionIdx = 0u;
+			connectTwoSections(prevSectionIdx, nextSectionIdx);
 		}
 
 		return parallelPolyline;
@@ -594,7 +637,7 @@ public:
 		m_closedPolygon = closed;
 	}
 
-	bool checkSectionsContunuity()
+	bool checkSectionsContunuity() const
 	{
 		// Check for continuity
 		for (uint32_t i = 1; i < m_sections.size(); ++i)
@@ -616,6 +659,66 @@ protected:
 	std::vector<SectionInfo> m_sections;
 	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+
+	// Next 3 are protected member functions to modify current lines and bezier sections used in polyline offsetting:
+	
+	void insertLinePointsToSection(uint32_t sectionIdx, uint32_t insertionPoint, const core::SRange<float64_t2>& linePoints)
+	{
+		SectionInfo& section = m_sections[sectionIdx];
+		assert(section.type == ObjectType::LINE);
+		assert(insertionPoint <= section.count + 1u);
+
+		const size_t addedCount = linePoints.size();
+
+		constexpr LinePointInfo EMPTY_LINE_POINT_INFO = {};
+		m_linePoints.insert(m_linePoints.begin() + section.index + insertionPoint, addedCount, EMPTY_LINE_POINT_INFO);
+		for (uint32_t i = 0u; i < linePoints.size(); ++i)
+			m_linePoints[section.index + insertionPoint + i].p = linePoints[i];
+
+		if (section.count > 0)
+			section.count += addedCount; // if it wasn't empty before, every new point constructs a new line
+		else
+			section.count += addedCount - 1u; // if it was empty before, every the first point doesn't create a new line only the next lines after that
+
+		// update next sections offsets
+		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
+		{
+			if (m_sections[i].type == ObjectType::LINE)
+				m_sections[i].index += addedCount;
+		}
+	}
+
+	void removeObjectsFromSection(uint32_t sectionIdx, uint32_t begin, uint32_t count)
+	{
+		if (count <= 0)
+			return;
+
+		SectionInfo& section = m_sections[sectionIdx];
+		const size_t removedCount = count;
+		if (section.type == ObjectType::LINE)
+		{
+			assert(begin + count <= section.count + 1u);
+			m_linePoints.erase(m_linePoints.begin() + section.index + begin, m_linePoints.begin() + section.index + begin + count);
+		}
+		else if (section.type == ObjectType::QUAD_BEZIER)
+		{
+			assert(begin + count <= section.count);
+			m_quadBeziers.erase(m_quadBeziers.begin() + section.index + begin, m_quadBeziers.begin() + section.index + begin + count);
+		}
+
+		if (section.count > removedCount)
+			section.count -= removedCount;
+		else
+			m_sections.erase(m_sections.begin() + sectionIdx);
+
+		// update next sections offsets
+		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
+		{
+			if (m_sections[i].type == section.type)
+				m_sections[i].index -= removedCount;
+		}
+	}
+
 
 private:
 	class PolylineConnectorBuilder
