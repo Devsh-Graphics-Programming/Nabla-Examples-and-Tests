@@ -220,8 +220,9 @@ namespace curves
     struct AxisAlignedEllipse final : public ParametricCurve
     {
         float64_t a, b;
-        AxisAlignedEllipse(float64_t a, float64_t b)
-            : a(a), b(b)
+        float64_t start, end;
+        AxisAlignedEllipse(float64_t a, float64_t b, float64_t start, float64_t end)
+            : a(a), b(b), start(start), end(end)
         {}
 
         float64_t2 computePosition(float64_t t) const override;
@@ -275,9 +276,9 @@ namespace curves
         {
             if (eccentricity > 1.0 || eccentricity <= 0.0)
                 return false;
-            if (angleBounds.y < angleBounds.x)
+            if (angleBounds.y == angleBounds.x)
                 return false;
-            if ((angleBounds.y - angleBounds.x) > 2 * nbl::core::PI<double>())
+            if (abs(angleBounds.y - angleBounds.x) > 2.0 * nbl::core::PI<double>())
                 return false;
             return true;
         }

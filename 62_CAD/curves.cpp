@@ -270,12 +270,15 @@ float64_t ExplicitEllipse::derivative(float64_t x) const
 
 float64_t2 AxisAlignedEllipse::computePosition(float64_t t) const
 {
-    return float64_t2(a * cos(t), b * sin(t));
+    const float64_t theta = start * (1.0 - t) + end * t;
+    return float64_t2(a * cos(theta), b * sin(theta));
 }
 
 float64_t2 AxisAlignedEllipse::computeTangent(float64_t t) const
 {
-    return float64_t2(-a * sin(t), b * cos(t));
+    const float64_t theta = start * (1.0 - t) + end * t;
+    const float64_t dThetaDt = end - start;
+    return float64_t2(-a * dThetaDt * sin(theta), b * dThetaDt * cos(theta));
 }
 
 ExplicitMixedCircle::ExplicitCircle ExplicitMixedCircle::ExplicitCircle::fromThreePoints(float64_t2 P0, float64_t2 P1, float64_t2 P2)
@@ -441,6 +444,11 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
         return;
     }
 
+    // For consistency sometimes we need to flip the direction when we subdivide from min to max to make sure beziers always starts at point corresonding angleBounds.x and ends at angleBounds.y even if angleBounds.x > angleBounds.y (CW rotation instead CCW)
+    bool needsFlipForConsistency = ellipse.angleBounds.x > ellipse.angleBounds.y;
+    float64_t minAngle = min(ellipse.angleBounds.x, ellipse.angleBounds.y);
+    float64_t maxAngle = max(ellipse.angleBounds.x, ellipse.angleBounds.y);
+
     float64_t lenghtMajor = length(ellipse.majorAxis);
     float64_t lenghtMinor = lenghtMajor * ellipse.eccentricity;
     float64_t2 normalizedMajor = ellipse.majorAxis / lenghtMajor;
@@ -473,17 +481,25 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
             return std::modf(num, &uselessIntPart);
         };
 
-    const float64_t sweepAngle = ellipse.angleBounds.y - ellipse.angleBounds.x;
-    const float64_t startAngle = (ellipse.angleBounds.x >= 0)
-        ? fract(ellipse.angleBounds.x / TwoPi) * TwoPi
-        : (1.0 - fract((-ellipse.angleBounds.x) / TwoPi)) * TwoPi;
+    const float64_t sweepAngle = maxAngle - minAngle;
+    const float64_t startAngle = (minAngle >= 0)
+        ? fract(minAngle / TwoPi) * TwoPi
+        : (1.0 - fract((-minAngle) / TwoPi)) * TwoPi;
     const float64_t endAngle = startAngle + sweepAngle;
 
     auto subdivideAxisAlignedEllipse = [&](const float64_t start, const float64_t end)
         {
-            AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor);
             if (start != end)
-                adaptive(aaEllipse, start, end, targetMaxError, addTransformedBezier, maxDepth);
+            {
+                assert(start < end);
+                AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor, start, end);
+                if (needsFlipForConsistency)
+                {
+                    aaEllipse.end = start;
+                    aaEllipse.start = end;
+                }
+                adaptive(aaEllipse, 0.0, 1.0, targetMaxError, addTransformedBezier, maxDepth);
+            }
         };
 
     if (startAngle <= Pi)
@@ -539,6 +555,10 @@ void Subdivision::adaptive(const OffsettedBezier& curve, float64_t targetMaxErro
 
 void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, float64_t max, float64_t targetMaxError, AddBezierFunc& addBezierFunc, uint32_t depth)
 {
+    if (min == max)
+        return;
+    assert(min < max);
+
     float64_t split = curve.inverseArcLen_BisectionSearch(0.5, min, max);
 
     // Shouldn't happen but may happen if we use NewtonRaphson for non convergent inverse CDF
