@@ -1128,7 +1128,6 @@ int main(int argc, char** argv)
 				stream->emit_json_key_value("output_tonemap", filename_wo_ext.string() +".exr");
 				stream->emit_json_key_value("output_albedo", filename_wo_ext.string() + "_albedo.exr");
 				stream->emit_json_key_value("output_normal", filename_wo_ext.string() + "_normal.exr");
-				// TODO[Przemek]: take look at that, does it need to be deferred as well?
 				if(shouldDenoise)
 					stream->emit_json_key_value("output_denoised", filename_wo_ext.string() + "_denoised.exr");
 				stream->end_json_object();

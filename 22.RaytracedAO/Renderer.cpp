@@ -182,6 +182,7 @@ Renderer::Renderer(IVideoDriver* _driver, IAssetManager* _assetManager, scene::I
 Renderer::~Renderer()
 {
 	deinitSceneResources();
+	deinitRenderer();
 	finalizeDeferredDenoise();
 }
 
@@ -1191,6 +1192,14 @@ void Renderer::deinitSceneResources()
 	maxPathDepth = DefaultPathDepth;
 	noRussianRouletteDepth = 5u;
 	maxSensorSamples = MaxFreeviewSamples;
+}
+
+void Renderer::deinitRenderer()
+{
+	m_driver = nullptr;
+	m_smgr = nullptr;
+	m_assetManager = nullptr;
+	m_rrManager = nullptr;
 }
 
 void Renderer::finalizeDeferredDenoise()

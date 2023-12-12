@@ -45,6 +45,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		void deinitSceneResources();
 
+		void deinitRenderer();
+
 		void finalizeDeferredDenoise();
 		
 		void initScreenSizedResources(
