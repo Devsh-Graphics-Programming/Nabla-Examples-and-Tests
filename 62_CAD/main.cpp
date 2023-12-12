@@ -13,7 +13,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -2302,6 +2302,9 @@ public:
 
 				{
 					linePoints.push_back(endPoint);
+					linePoints.push_back({ 1.25, -0.625 });
+					linePoints.push_back({ 2.5, -1.25 });
+					linePoints.push_back({ 5.0, -2.5 });
 					linePoints.push_back({ 10.0, -5.0 });
 					linePoints.push_back({ 20.0, 0.0 });
 					linePoints.push_back({ 20.0, 5.0 });
@@ -2383,7 +2386,7 @@ public:
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+1.0 + 0.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+1.0 + 2.0 * abs(cos(m_timeElapsed * 0.0009)));
 			// CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-1.0 + -0.0 * abs(cos(m_timeElapsed * 0.0009)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
