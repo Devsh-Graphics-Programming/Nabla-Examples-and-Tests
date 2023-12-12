@@ -522,21 +522,80 @@ public:
 						{
 							if (prevSection.type == ObjectType::LINE)
 							{
-								// Change last point of left segment and first point of right segment to be equal to their intersection.
+								uint32_t prevIdx = prevSection.count - 1u;
+								uint32_t nextIdx = 0u;
+
+								// TODO: Do stuff to find these values
+
+								const bool prevSectionModified = prevIdx < prevSection.count - 1u;
+								const bool nextSectionModified = nextIdx > 0;
+
+								parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, prevIdx +1u);
+								parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, nextIdx);
+
+								// intersect again if prev and next section have changed
+								if (prevSectionModified)
+								{
+									prevTangent = parallelPolyline.getSectionLastTangent(prevSection);
+									prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
+								}
+								if (nextSectionModified)
+								{
+									nextTangent = parallelPolyline.getSectionFirstTangent(nextSection);
+									nextSectionStartPos = parallelPolyline.getSectionFirstPoint(nextSection);
+								}
+								if (prevSectionModified || nextSectionModified)
+									intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
+
 								parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = intersection;
 								parallelPolyline.m_linePoints[nextSection.index].p = intersection;
 							}
 							else if (prevSection.type == ObjectType::QUAD_BEZIER)
 							{
+								uint32_t prevIdx = prevSection.count - 1u;
+								uint32_t nextIdx = 0u;
+								float64_t t = 1.0; // for intersected bezier
+
+								// TODO: Do stuff to find these values
+
+								parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, prevIdx + 1u);
+								parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, nextIdx);
+
+								// TODO clip prev section last bezier from 0 to t0
+								// TODO Set next section first point to bezier eval at 1.0
 							}
 						}
 						else if (nextSection.type == ObjectType::QUAD_BEZIER)
 						{
 							if (prevSection.type == ObjectType::LINE)
 							{
+								uint32_t prevIdx = prevSection.count - 1u;
+								uint32_t nextIdx = 0u;
+								float64_t t = 0.0; // for intersected bezier
+
+								// TODO: Do stuff to find these values
+
+								parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, prevIdx + 1u);
+								parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, nextIdx);
+
+								// TODO Set prev section last point to bezier eval at 0.0
+								// TODO clip next section first bezier from t1 to 1.0
 							}
 							else if (prevSection.type == ObjectType::QUAD_BEZIER)
 							{
+								uint32_t prevIdx = prevSection.count - 1u;
+								uint32_t nextIdx = 0u;
+								float64_t t0 = 1.0; // for prev intersected bezier
+								float64_t t1 = 0.0; // for next intersected bezier
+
+								// TODO: Do stuff to find these values
+
+								parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, prevIdx + 1u);
+								parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, nextIdx);
+
+								// TODO clip prev section last bezier from 0 to t0
+								// TODO clip next section first bezier from t1 to 1.0
+
 							}
 						}
 					}
@@ -573,6 +632,7 @@ public:
 			const auto& section = m_sections[i];
 			if (section.type == ObjectType::LINE)
 			{
+				// TODO: try merging lines if they have same tangent (resultin in less points)
 				std::vector<float64_t2> newLinePoints;
 				newLinePoints.reserve(m_linePoints.size());
 				for (uint32_t j = 0; j < section.count + 1; ++j)
@@ -688,23 +748,22 @@ protected:
 		}
 	}
 
-	void removeObjectsFromSection(uint32_t sectionIdx, uint32_t begin, uint32_t count)
+	void removeSectionObjectsFromIdxToEnd(uint32_t sectionIdx, uint32_t idx)
 	{
-		if (count <= 0)
+		SectionInfo& section = m_sections[sectionIdx];
+		if (idx >= section.count)
 			return;
 
-		SectionInfo& section = m_sections[sectionIdx];
-		const size_t removedCount = count;
+		const size_t removedCount = section.count - idx;
 		if (section.type == ObjectType::LINE)
 		{
-			assert(begin + count <= section.count + 1u);
-			m_linePoints.erase(m_linePoints.begin() + section.index + begin, m_linePoints.begin() + section.index + begin + count);
+			if (idx == 0) // if idx==0 it means it wants to delete the whole line section, so we remove all the line points including the first one in the section
+				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + section.count + 1u);
+			else
+				m_linePoints.erase(m_linePoints.begin() + section.index + idx + 1u, m_linePoints.begin() + section.index + section.count + 1u);
 		}
 		else if (section.type == ObjectType::QUAD_BEZIER)
-		{
-			assert(begin + count <= section.count);
-			m_quadBeziers.erase(m_quadBeziers.begin() + section.index + begin, m_quadBeziers.begin() + section.index + begin + count);
-		}
+			m_quadBeziers.erase(m_quadBeziers.begin() + section.index + idx, m_quadBeziers.begin() + section.index + section.count);
 
 		if (section.count > removedCount)
 			section.count -= removedCount;
@@ -719,6 +778,34 @@ protected:
 		}
 	}
 
+	void removeSectionObjectsFromBeginToIdx(uint32_t sectionIdx, uint32_t idx)
+	{
+		SectionInfo& section = m_sections[sectionIdx];
+		if (idx <= 0)
+			return;
+		const size_t removedCount = idx;
+		if (section.type == ObjectType::LINE)
+		{
+			if (idx >= section.count) // if idx==section.count it means it wants to delete the whole line section, so we remove all the line points including the last one in the section
+				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + section.count + 1u);
+			else 
+				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + idx);
+		}
+		else if (section.type == ObjectType::QUAD_BEZIER)
+			m_quadBeziers.erase(m_quadBeziers.begin() + section.index, m_quadBeziers.begin() + section.index + idx);
+
+		if (section.count > removedCount)
+			section.count -= removedCount;
+		else
+			m_sections.erase(m_sections.begin() + sectionIdx);
+
+		// update next sections offsets
+		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
+		{
+			if (m_sections[i].type == section.type)
+				m_sections[i].index -= removedCount;
+		}
+	}
 
 private:
 	class PolylineConnectorBuilder
