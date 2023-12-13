@@ -444,8 +444,18 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					}
 
 #ifdef DEBUG_HATCH_VISUALLY
-					//if (debugOutput)
-						//drawDebugBezier(outputBezier, float32_t4(0.0, 0.0, 0.0, 1.0));
+					if (debugOutput)
+					{
+						uint32_t bezierIdx = beziers.size();
+						float32_t4 colors[5] = {
+							float32_t4(33,150,243, 255) / float32_t4(255.0),
+							float32_t4(29,233,182, 255) / float32_t4(255.0),
+							float32_t4(238,255,65, 255) / float32_t4(255.0),
+							float32_t4(244,81,30, 255) / float32_t4(255.0),
+							float32_t4(211,47,47, 255) / float32_t4(255.0)
+						};
+						drawDebugBezier(bezier, colors[bezierIdx % 5]);
+					}
 #endif
 					beziers.push_back(outputBezier);
 				};
@@ -458,6 +468,10 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 							auto begin = polyline.getLinePointAt(itemIdx);
 							auto end = polyline.getLinePointAt(itemIdx + 1);
 							addBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end));
+#ifdef DEBUG_HATCH_VISUALLY
+                            //if (debugOutput)
+                            //    drawDebugBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end), float32_t4(0.0, 0.0, 1.0, 1.0));
+#endif
 						}
 					}
                 else if (section.type == ObjectType::QUAD_BEZIER)
@@ -477,14 +491,18 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                             // Already was monotonic
                             addBezier(unsplitBezier);
 #ifdef DEBUG_HATCH_VISUALLY
-                            if (debugOutput)
-                                drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 0.8));
+                            //if (debugOutput)
+                                //drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 1.0));
 #endif
                         }
                         else
                         {
                             addBezier(monotonicSegments.data()[0]);
                             addBezier(monotonicSegments.data()[1]);
+#ifdef DEBUG_HATCH_VISUALLY
+							//if (debugOutput)
+							//{ drawDebugBezier(monotonicSegments.data()[0], float32_t4(1.0, 0.0, 0.0, 1.0)); drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 1.0, 0.0, 1.0)); }
+#endif
                         }
                     }
                 }
@@ -530,6 +548,15 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 #ifdef DEBUG_HATCH_VISUALLY
 		if (debugOutput && step == debugStep)
 		{
+			printf(std::format("comparison: lhs = ({}, {}), ({}, {}), ({}, {}) rhs = ({}, {}), ({}, {}), ({}, {})",
+				lhs.originalBezier->P0.x, lhs.originalBezier->P0.y, 
+				lhs.originalBezier->P1.x, lhs.originalBezier->P1.y, 
+				lhs.originalBezier->P2.x, lhs.originalBezier->P2.y, 
+
+				rhs.originalBezier->P0.x, rhs.originalBezier->P0.y, 
+				rhs.originalBezier->P1.x, rhs.originalBezier->P1.y, 
+				rhs.originalBezier->P2.x, rhs.originalBezier->P2.y
+				).c_str());
 			drawDebugLine(float64_t2(_lhs, -1000.0), float64_t2(_lhs, 1000.0), float64_t4(0.1, 0.1, 1.0, 1.0));
 			drawDebugLine(float64_t2(_rhs, -1000.0), float64_t2(_rhs, 1000.0), float64_t4(0.1, 1.0, 1.0, 1.0));
 			printf(std::format("(comparing minor) _lhs: {} (len: {}) _rhs: {} (len: {}) minLen: {} diff: {} ",
@@ -546,8 +573,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
 			auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
 
-			float64_t2 lTan = 2.0 * lhsQuadratic.A * lhs.t_start + lhsQuadratic.B;
-			float64_t2 rTan = 2.0 * rhsQuadratic.A * rhs.t_start + rhsQuadratic.B;
+			float64_t2 lTan = 2.0 * lhsQuadratic.A * lhs.t_start + float64_t2(lhsQuadratic.B.x, max(lhsQuadratic.B.y, 0.0));
+			float64_t2 rTan = 2.0 * rhsQuadratic.A * rhs.t_start + float64_t2(rhsQuadratic.B.x, max(rhsQuadratic.B.y, 0.0));
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 #ifdef DEBUG_HATCH_VISUALLY
@@ -585,6 +612,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						{
 							printf(std::format("(comparing sign) lTanSign: {} rTanSign: {} ",
 								lTanSign ? "positive" : "negative", rTanSign ? "positive" : "negative").c_str());
+							printf("\n");
 						}
 #endif
 						// We want to return true if lhs < rhs (lhs is to the left of rhs)
@@ -743,8 +771,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
 			//std::cout << "Candidates size: " << candidatesSize << "\n";
             // because n4ce works on loops, this must be true
-            assert((candidatesSize % 2u)==0u);
-            for (auto i=0u; i< candidatesSize;)
+            //assert((candidatesSize % 2u)==0u);
+            for (auto i=0u; i< (candidatesSize / 2) * 2;)
             {
                 const Segment& left = activeCandidates[i++];
                 const Segment& right = activeCandidates[i++];
@@ -809,10 +837,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					output[0] = convertToSnorm(quadratic.A / 8.0);
 					output[1] = convertToSnorm(quadratic.B / 8.0);
 					output[2] = convertToUnorm(quadratic.C);
-
-					// B == 0.0 && A == 0.0 would mean this is a constant line in major direction, which
-					// should've been ruled out at this point (isStraightLineCosntantMajor gets skipped)
-					assert(quadratic.A.y != 0.0 || quadratic.B.y != 0.0);
                 };
                 transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
                 transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);
@@ -977,6 +1001,9 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 	auto t = -a * rcp;
 	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return true;
 	out = { splitCurveTakeLower(bezier, t), splitCurveTakeUpper(bezier, t) };
+	std::array<Hatch::QuadraticBezier, 2> tmp;
+	splitIntoMajorMonotonicSegments(out[0], tmp);
+	splitIntoMajorMonotonicSegments(out[1], tmp);
 	return false;
 }
 
