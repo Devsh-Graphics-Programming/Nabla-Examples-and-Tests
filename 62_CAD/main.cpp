@@ -1320,7 +1320,7 @@ public:
 			shaders[3u] = gpuShaders->begin()[3u];
 		}
 
-		initDrawObjects(20480u);
+		initDrawObjects(40960u);
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
@@ -1961,6 +1961,20 @@ public:
 			
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
+			if (hatchDebugStep > 0)
+			{
+#include "bike_hatch.h"
+				for (uint32_t i = 0; i < polylines.size(); i++)
+				{
+					CPULineStyle lineStyle = {};
+					lineStyle.screenSpaceLineWidth = 1.0;
+					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
+					intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				}
+				printf("hatchDebugStep = %d\n", hatchDebugStep);
+				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.3, 0.56, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
