@@ -519,16 +519,14 @@ public:
 					}
 					else // Inward Needs Trim and Prune
 					{
-						const SectionIntersectResult sectionIntersectResult = intersectTwoSections(prevSection, nextSection);
-						assert(sectionIntersectResult.prevObjIndex < prevSection.count);
-						assert(sectionIntersectResult.nextObjIndex < nextSection.count);
-
+						const SectionIntersectResult sectionIntersectResult = parallelPolyline.intersectTwoSections(prevSection, nextSection);
 
 						if (sectionIntersectResult.valid())
 						{
 							parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, sectionIntersectResult.prevObjIndex + 1u);
 							parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, sectionIntersectResult.nextObjIndex);
-
+							assert(sectionIntersectResult.prevObjIndex < prevSection.count);
+							assert(sectionIntersectResult.nextObjIndex < nextSection.count);
 							if (nextSection.type == ObjectType::LINE)
 							{
 								if (prevSection.type == ObjectType::LINE)
@@ -789,13 +787,10 @@ protected:
 			_NBL_DEBUG_BREAK_IF(true); // not impl yet
 			return false;
 		}
-		else if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::LINE)
+		else
 		{
-			_NBL_DEBUG_BREAK_IF(true); // not impl yet
-			return false;
-		}
-		else if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::QUAD_BEZIER)
-		{
+			assert(prevSection.type == ObjectType::QUAD_BEZIER || nextSection.type == ObjectType::LINE);
+			assert(prevSection.type == ObjectType::LINE || nextSection.type == ObjectType::QUAD_BEZIER);
 			_NBL_DEBUG_BREAK_IF(true); // not impl yet
 			return false;
 		}
@@ -817,7 +812,15 @@ protected:
 	SectionIntersectResult intersectTwoSections(const SectionInfo& prevSection, const SectionInfo& nextSection) const
 	{
 		SectionIntersectResult ret = {};
+		ret.prevObjIndex = SectionIntersectResult::InvalidIndex;
+		ret.nextObjIndex = SectionIntersectResult::InvalidIndex;
+		if (prevSection.count == 0 || nextSection.count == 0)
+			return ret;
 
+		// tmp for testing
+		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
+			return ret;
+			
 		const float64_t2 chordDir = glm::normalize(getSectionLastTangent(prevSection));
 		float64_t2x2 rotate = float64_t2x2({ chordDir.x, -chordDir.y }, { chordDir.y, chordDir.x });
 
@@ -830,50 +833,52 @@ protected:
 			bool isInPrevSection;
 		};
 
+		std::vector<SectionObject> objs;
+		auto addSectionToObjects = [&](const SectionInfo& section, bool isPrevSection)
+			{
+				for (uint32_t i = 0u; i < section.count; ++i)
+				{
+					SectionObject obj = {};
+					obj.isInPrevSection = isPrevSection;
+					obj.idxInSection = i;
+
+					if (section.type == ObjectType::LINE)
+					{
+						float64_t2 P0 = mul(rotate, m_linePoints[section.index + i].p);
+						float64_t2 P1 = mul(rotate, m_linePoints[section.index + i + 1u].p);
+						obj.start = min(P0.x, P1.x);
+						obj.end = max(P0.x, P1.x);
+					}
+					else if (section.type == ObjectType::QUAD_BEZIER)
+					{
+						float64_t2 P0 = mul(rotate, m_quadBeziers[section.index + i].p[0]);
+						float64_t2 P1 = mul(rotate, m_quadBeziers[section.index + i].p[1]);
+						float64_t2 P2 = mul(rotate, m_quadBeziers[section.index + i].p[2]);
+						const auto quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(P0, P1, P2);
+						const auto tExtremum = -quadratic.B.x / (2.0 * quadratic.A.x);
+
+						obj.start = min(P0.x, P2.x);
+						obj.end = max(P0.x, P2.x);
+							
+						if (tExtremum >= 0.0 && tExtremum <= 1.0)
+						{
+							float64_t xExtremum = quadratic.evaluate(tExtremum).x;
+							obj.start = min(obj.start, xExtremum);
+							obj.end = max(obj.end, xExtremum);
+						}
+					}
+					objs.push_back(obj);
+				}
+			};
+
+		addSectionToObjects(prevSection, true);
+		addSectionToObjects(nextSection, false);
+		if (objs.empty())
+			return ret;
+
 		std::stack<SectionObject> starts; // Next segments sorted by start points
 		std::stack<float64_t> ends; // Next end points
 		std::vector<SectionObject> activeCandidates;
-
-		std::vector<SectionObject> objs; 
-		{
-			auto addSectionToObjects = [&](const SectionInfo& section, bool isPrevSection)
-				{
-					for (uint32_t i = 0u; i < section.count; ++i)
-					{
-						SectionObject obj = {};
-						obj.isInPrevSection = isPrevSection;
-						obj.idxInSection = i;
-
-						if (section.type == ObjectType::LINE)
-						{
-							float64_t2 P0 = mul(rotate, m_linePoints[section.index].p);
-							float64_t2 P1 = mul(rotate, m_linePoints[section.index + 1u].p);
-							obj.start = min(P0.x, P1.x);
-							obj.end = max(P0.x, P1.x);
-						}
-						else if (section.type == ObjectType::QUAD_BEZIER)
-						{
-							float64_t2 P0 = mul(rotate, m_quadBeziers[section.index].p[0]);
-							float64_t2 P1 = mul(rotate, m_quadBeziers[section.index].p[1]);
-							float64_t2 P2 = mul(rotate, m_quadBeziers[section.index].p[2]);
-							const auto quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(P0, P1, P2);
-							const auto tExtremum = -quadratic.B.x / (2.0 * quadratic.A.x);
-
-							obj.start = min(P0.x, P2.x);
-							obj.end = max(P0.x, P2.x);
-							
-							if (tExtremum >= 0.0 && tExtremum <= 1.0)
-							{
-								float64_t xExtremum = quadratic.evaluate(tExtremum).x;
-								obj.start = min(obj.start, xExtremum);
-								obj.end = max(obj.end, xExtremum);
-							}
-						}
-					}
-				};
-			addSectionToObjects(prevSection, true);
-			addSectionToObjects(nextSection, false);
-		}
 
 		std::sort(objs.begin(), objs.end(), [&](const SectionObject& a, const SectionObject& b) { return a.start > b.start; });
 		for (SectionObject& obj : objs)
@@ -899,8 +904,9 @@ protected:
 						float64_t2 intersectionPoint;
 						if (intersectTwoObjects(prevSection, prevObjIdx, nextSection, nextObjIdx, intersectionPoint, t0, t1))
 						{
-							uint32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
-							if (currentIntersectionObjectRemoveCount < objectsToRemove)
+							int32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
+							assert(objectsToRemove >= 0);
+							if (objectsToRemove > currentIntersectionObjectRemoveCount)
 							{
 								ret.intersection = intersectionPoint;
 								ret.prevT = t0;
