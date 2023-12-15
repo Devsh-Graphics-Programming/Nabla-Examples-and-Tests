@@ -768,35 +768,6 @@ protected:
 		}
 	}
 
-	bool intersectTwoObjects(const SectionInfo& prevSection, uint32_t prevObjIdx, const SectionInfo& nextSection, uint32_t nextObjIdx, float64_t2& outIntersection, float64_t& outT0, float64_t& outT1) const
-	{
-		if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::LINE)
-		{
-			const float64_t2 A0 = m_linePoints[prevSection.index + prevObjIdx].p;
-			const float64_t2 V0 = m_linePoints[prevSection.index + prevObjIdx + 1u].p - A0;
-			const float64_t2 A1 = m_linePoints[nextSection.index + nextObjIdx].p;
-			const float64_t2 V1 = m_linePoints[nextSection.index + nextObjIdx + 1u].p - A1;
-
-			outIntersection = shapes::util::LineLineIntersection(A0, V0, A1, V1);
-			outT0 = nbl::hlsl::dot(V0, outIntersection - A0) / nbl::hlsl::dot(V0, V0);
-			outT1 = nbl::hlsl::dot(V1, outIntersection - A1) / nbl::hlsl::dot(V1, V1);
-			return (outT0 >= 0.0 && outT0 <= 1.0 && outT1 >= 0.0 && outT1 <= 1.0);
-		}
-		else if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
-		{
-			_NBL_DEBUG_BREAK_IF(true); // not impl yet
-			return false;
-		}
-		else
-		{
-			assert(prevSection.type == ObjectType::QUAD_BEZIER || nextSection.type == ObjectType::LINE);
-			assert(prevSection.type == ObjectType::LINE || nextSection.type == ObjectType::QUAD_BEZIER);
-			_NBL_DEBUG_BREAK_IF(true); // not impl yet
-			return false;
-		}
-		return false;
-	}
-
 	struct SectionIntersectResult
 	{
 		static constexpr uint32_t InvalidIndex = ~0u;
@@ -807,13 +778,95 @@ protected:
 		uint32_t nextObjIndex = InvalidIndex;
 
 		bool valid() const { return prevObjIndex != InvalidIndex && nextObjIndex != InvalidIndex; }
+		void invalidate()
+		{
+			prevObjIndex = InvalidIndex;
+			nextObjIndex = InvalidIndex;
+		}
 	};
+
+	SectionIntersectResult intersectLineSectionObjects(const SectionInfo& prevSection, uint32_t prevObjIdx, const SectionInfo& nextSection, uint32_t nextObjIdx) const
+	{
+		SectionIntersectResult res = {};
+		res.invalidate();
+
+		if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::LINE)
+		{
+			const float64_t2 A0 = m_linePoints[prevSection.index + prevObjIdx].p;
+			const float64_t2 V0 = m_linePoints[prevSection.index + prevObjIdx + 1u].p - A0;
+			const float64_t2 A1 = m_linePoints[nextSection.index + nextObjIdx].p;
+			const float64_t2 V1 = m_linePoints[nextSection.index + nextObjIdx + 1u].p - A1;
+
+			const float64_t2 intersection = shapes::util::LineLineIntersection(A0, V0, A1, V1);
+			const float64_t t0 = nbl::hlsl::dot(V0, intersection - A0) / nbl::hlsl::dot(V0, V0);
+			const float64_t t1 = nbl::hlsl::dot(V1, intersection - A1) / nbl::hlsl::dot(V1, V1);
+			if (t0 >= 0.0 && t0 <= 1.0 && t1 >= 0.0 && t1 <= 1.0)
+			{
+				res.intersection = intersection;
+				res.prevObjIndex = prevObjIdx;
+				res.nextObjIndex = nextObjIdx;
+				res.prevT = t0;
+				res.nextT = t1;
+			}
+		}
+
+		return res;
+	}
+
+	// TODO: move this function to a better place
+	static void BezierLineIntersection(nbl::hlsl::shapes::QuadraticBezier<float64_t> bezier, const float64_t2 lineStart, const float64_t2 lineVector, float64_t2& outBezierTs)
+	{
+		float64_t2 lineDir = glm::normalize(lineVector);
+		float64_t2x2 rotate = float64_t2x2({ lineDir.x, -lineDir.y }, { lineDir.y, lineDir.x });
+		bezier.P0 = mul(rotate, bezier.P0 - lineStart);
+		bezier.P1 = mul(rotate, bezier.P1 - lineStart);
+		bezier.P2 = mul(rotate, bezier.P2 - lineStart);
+		shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(bezier);
+		outBezierTs = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(quadratic.A.y, quadratic.B.y, quadratic.C.y).computeRoots();
+	}
+
+	std::array<SectionIntersectResult, 2> intersectLineBezierSectionObjects(const SectionInfo& prevSection, uint32_t prevObjIdx, const SectionInfo& nextSection, uint32_t nextObjIdx) const
+	{
+		std::array<SectionIntersectResult, 2> res = {};
+		res[0].invalidate();
+		res[1].invalidate();
+		
+		if ((prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::LINE) || (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::QUAD_BEZIER))
+		{
+			const uint32_t lineIdx = (prevSection.type == ObjectType::LINE) ? prevSection.index + prevObjIdx : nextSection.index + nextObjIdx;
+			const uint32_t bezierIdx = (prevSection.type == ObjectType::QUAD_BEZIER) ? prevSection.index + prevObjIdx : nextSection.index + nextObjIdx;
+			const float64_t2 A = m_linePoints[lineIdx].p;
+			const float64_t2 V = m_linePoints[lineIdx + 1u].p - A;
+
+			const auto& bezier = nbl::hlsl::shapes::QuadraticBezier<float64_t>::construct(m_quadBeziers[bezierIdx].p[0], m_quadBeziers[bezierIdx].p[1], m_quadBeziers[bezierIdx].p[2]);
+
+			float64_t2 bezierTs;
+			BezierLineIntersection(bezier, A, V, bezierTs);
+
+			uint8_t resIdx = 0u;
+			for (uint32_t i = 0u; i < 2u; ++i)
+			{
+				const float64_t currT = bezierTs[i];
+				if (currT > 0.0 && currT < 1.0)
+				{
+					auto& localRes = res[resIdx++];
+					localRes.prevObjIndex = prevObjIdx;
+					localRes.nextObjIndex = nextObjIdx;
+					localRes.prevT = currT; 
+					localRes.nextT = currT; // we don't care about lineT value 
+					localRes.intersection = bezier.evaluate(currT);
+				}
+			}
+		}
+
+		return res;
+	}
 
 	SectionIntersectResult intersectTwoSections(const SectionInfo& prevSection, const SectionInfo& nextSection) const
 	{
 		SectionIntersectResult ret = {};
-		ret.prevObjIndex = SectionIntersectResult::InvalidIndex;
-		ret.nextObjIndex = SectionIntersectResult::InvalidIndex;
+		ret.invalidate();
+
 		if (prevSection.count == 0 || nextSection.count == 0)
 			return ret;
 
@@ -900,20 +953,36 @@ protected:
 						uint32_t prevObjIdx = (obj.isInPrevSection) ? obj.idxInSection : entry.idxInSection;
 						uint32_t nextObjIdx = (obj.isInPrevSection) ? entry.idxInSection : obj.idxInSection;
 
-						float64_t t0, t1 = 0.0;
-						float64_t2 intersectionPoint;
-						if (intersectTwoObjects(prevSection, prevObjIdx, nextSection, nextObjIdx, intersectionPoint, t0, t1))
+						int32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
+						assert(objectsToRemove >= 0);
+					
+						if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::LINE)
 						{
-							int32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
-							assert(objectsToRemove >= 0);
-							if (objectsToRemove > currentIntersectionObjectRemoveCount)
+							SectionIntersectResult localIntersectionResult = intersectLineSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
+							if (localIntersectionResult.valid())
 							{
-								ret.intersection = intersectionPoint;
-								ret.prevT = t0;
-								ret.nextT = t1;
-								ret.prevObjIndex = prevObjIdx;
-								ret.nextObjIndex = nextObjIdx;
-								currentIntersectionObjectRemoveCount = objectsToRemove;
+								// TODO: Better Criterial to select between multiple intersections of the same objects
+								if (objectsToRemove > currentIntersectionObjectRemoveCount)
+								{
+									ret = localIntersectionResult;
+									currentIntersectionObjectRemoveCount = objectsToRemove;
+								}
+							}
+						}
+						else if ((prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::LINE) || (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::QUAD_BEZIER))
+						{
+							std::array<SectionIntersectResult, 2> localIntersectionResults = intersectLineBezierSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
+							for (const auto& localIntersectionResult : localIntersectionResults)
+							{
+								if (localIntersectionResult.valid())
+								{
+									// TODO: Better Criterial to select between multiple intersections of the same objects
+									if (objectsToRemove > currentIntersectionObjectRemoveCount)
+									{
+										ret = localIntersectionResult;
+										currentIntersectionObjectRemoveCount = objectsToRemove;
+									}
+								}
 							}
 						}
 					}
