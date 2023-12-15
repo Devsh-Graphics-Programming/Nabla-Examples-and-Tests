@@ -173,6 +173,14 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			else
 				m_transferDownQueue.qIx = familyQueueCounts[m_transferDownQueue.famIx]++;
 
+			if (!isHeadlessCompute())
+			{
+				queue_req_t graphicsQueueRequirement = { .requiredFlags = queue_flags_t::EQF_GRAPHICS_BIT,.disallowedFlags = queue_flags_t::EQF_NONE,.queueCount = 1 };
+				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement, { queue_flags_t::EQF_NONE });
+				assert(m_graphicsQueue.famIx != QueueAllocator::InvalidIndex);
+				m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
+			}
+
 			// now after assigning all queues to families and indices, collate the creation parameters
 			core::vector<video::ILogicalDevice::SQueueCreationParams> retval(familyQueueCounts.size());
 			auto oit = retval.begin();
