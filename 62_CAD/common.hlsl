@@ -2,8 +2,8 @@
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/limits.hlsl>
-#ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #endif
 
@@ -46,10 +46,13 @@ struct LinePointInfo
 
 struct QuadraticBezierInfo
 {
-    float64_t2 p[3]; // 16*3=48bytes
+    nbl::hlsl::shapes::QuadraticBezier<float64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
     float32_t phaseShift;
     float32_t _reserved_pad;
 };
+#ifndef __HLSL_VERSION
+static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
+#endif
 
 struct PolylineConnector
 {

@@ -284,7 +284,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                     for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
                     {
                         auto bezierInfo = polyline.getQuadBezierInfoAt(itemIdx);
-                        auto unsplitBezier = QuadraticBezier::construct(bezierInfo.p[0], bezierInfo.p[1], bezierInfo.p[2]);
+                        auto unsplitBezier = bezierInfo.shape;
                         
                         // Beziers must be monotonically increasing along major
                         // First step: Make sure the bezier is monotonic, split it if not
