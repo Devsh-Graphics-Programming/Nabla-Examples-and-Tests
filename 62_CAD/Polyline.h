@@ -269,9 +269,7 @@ public:
 		for (uint32_t i = 0u; i < quadBeziers.size(); i++)
 		{
 			const uint32_t currBezierIdx = oldQuadBezierSize + i;
-			m_quadBeziers[currBezierIdx].p[0] = quadBeziers[i].P0;
-			m_quadBeziers[currBezierIdx].p[1] = quadBeziers[i].P1;
-			m_quadBeziers[currBezierIdx].p[2] = quadBeziers[i].P2;
+			m_quadBeziers[currBezierIdx].shape = quadBeziers[i];
 		}
 	}
 
@@ -336,8 +334,7 @@ public:
 					}
 
 					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
-					shapes::QuadraticBezier<double> quadraticBezier = shapes::QuadraticBezier<double>::construct(prevQuadBezierInfo.p[0], prevQuadBezierInfo.p[1], prevQuadBezierInfo.p[2]);
-					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(quadraticBezier);
+					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(prevQuadBezierInfo.shape);
 					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
 					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
 
@@ -375,7 +372,7 @@ public:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 		{
 			const uint32_t firstBezierIdx = section.index;
-			return m_quadBeziers[firstBezierIdx].p[0];
+			return m_quadBeziers[firstBezierIdx].shape.P0;
 		}
 		else
 		{
@@ -394,7 +391,7 @@ public:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 		{
 			const uint32_t lastBezierIdx = section.index + section.count - 1u;
-			return m_quadBeziers[lastBezierIdx].p[2];
+			return m_quadBeziers[lastBezierIdx].shape.P2;
 		}
 		else
 		{
@@ -414,7 +411,7 @@ public:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 		{
 			const uint32_t firstBezierIdx = section.index;
-			return m_quadBeziers[firstBezierIdx].p[1] - m_quadBeziers[firstBezierIdx].p[0];
+			return m_quadBeziers[firstBezierIdx].shape.P1 - m_quadBeziers[firstBezierIdx].shape.P0;
 		}
 		else 
 		{
@@ -433,7 +430,7 @@ public:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 		{
 			const uint32_t lastBezierIdx = section.index + section.count - 1u;
-			return m_quadBeziers[lastBezierIdx].p[2] - m_quadBeziers[lastBezierIdx].p[1];
+			return m_quadBeziers[lastBezierIdx].shape.P2 - m_quadBeziers[lastBezierIdx].shape.P1;
 		}
 		else
 		{
@@ -523,10 +520,10 @@ public:
 
 						if (sectionIntersectResult.valid())
 						{
-							parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, sectionIntersectResult.prevObjIndex + 1u);
-							parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, sectionIntersectResult.nextObjIndex);
 							assert(sectionIntersectResult.prevObjIndex < prevSection.count);
 							assert(sectionIntersectResult.nextObjIndex < nextSection.count);
+							parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, sectionIntersectResult.prevObjIndex + 1u);
+							parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, sectionIntersectResult.nextObjIndex);
 							if (nextSection.type == ObjectType::LINE)
 							{
 								if (prevSection.type == ObjectType::LINE)
@@ -536,16 +533,16 @@ public:
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
-									// TODO clip prev section last bezier from 0 to t0
-									// TODO Set next section first point to bezier eval at 1.0
+									parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
+									parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
 								}
 							}
 							else if (nextSection.type == ObjectType::QUAD_BEZIER)
 							{
 								if (prevSection.type == ObjectType::LINE)
 								{
-									// TODO Set prev section last point to bezier eval at 0.0
-									// TODO clip next section first bezier from t1 to 1.0
+									parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
+									parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
@@ -635,8 +632,7 @@ public:
 				for (uint32_t j = 0; j < section.count; ++j)
 				{
 					const uint32_t bezierIdx = section.index + j;
-					const shapes::QuadraticBezier<double>& bezier = shapes::QuadraticBezier<double>::construct(m_quadBeziers[bezierIdx].p[0], m_quadBeziers[bezierIdx].p[1], m_quadBeziers[bezierIdx].p[2]);
-					curves::OffsettedBezier offsettedBezier(bezier, offset);
+					curves::OffsettedBezier offsettedBezier(m_quadBeziers[bezierIdx].shape, offset);
 					curves::Subdivision::adaptive(offsettedBezier, maxError, addToBezier, 10u);
 				}
 				connectBezierSection(std::move(newBeziers));
@@ -813,11 +809,11 @@ protected:
 		return res;
 	}
 
-	// TODO: move this function to a better place
+	// TODO: move this function to a better place, shared functionality with hatches
 	static void BezierLineIntersection(nbl::hlsl::shapes::QuadraticBezier<float64_t> bezier, const float64_t2 lineStart, const float64_t2 lineVector, float64_t2& outBezierTs)
 	{
 		float64_t2 lineDir = glm::normalize(lineVector);
-		float64_t2x2 rotate = float64_t2x2({ lineDir.x, -lineDir.y }, { lineDir.y, lineDir.x });
+		float64_t2x2 rotate = float64_t2x2({ lineDir.x, lineDir.y }, { -lineDir.y, lineDir.x });
 		bezier.P0 = mul(rotate, bezier.P0 - lineStart);
 		bezier.P1 = mul(rotate, bezier.P1 - lineStart);
 		bezier.P2 = mul(rotate, bezier.P2 - lineStart);
@@ -838,7 +834,7 @@ protected:
 			const float64_t2 A = m_linePoints[lineIdx].p;
 			const float64_t2 V = m_linePoints[lineIdx + 1u].p - A;
 
-			const auto& bezier = nbl::hlsl::shapes::QuadraticBezier<float64_t>::construct(m_quadBeziers[bezierIdx].p[0], m_quadBeziers[bezierIdx].p[1], m_quadBeziers[bezierIdx].p[2]);
+			const auto& bezier = m_quadBeziers[bezierIdx].shape;
 
 			float64_t2 bezierTs;
 			BezierLineIntersection(bezier, A, V, bezierTs);
@@ -846,17 +842,44 @@ protected:
 			uint8_t resIdx = 0u;
 			for (uint32_t i = 0u; i < 2u; ++i)
 			{
-				const float64_t currT = bezierTs[i];
-				if (currT > 0.0 && currT < 1.0)
+				const float64_t bezierT = bezierTs[i];
+				if (bezierT > 0.0 && bezierT < 1.0)
 				{
-					auto& localRes = res[resIdx++];
-					localRes.prevObjIndex = prevObjIdx;
-					localRes.nextObjIndex = nextObjIdx;
-					localRes.prevT = currT; 
-					localRes.nextT = currT; // we don't care about lineT value 
-					localRes.intersection = bezier.evaluate(currT);
+					const float64_t2 intersection = bezier.evaluate(bezierT);
+					const float64_t tLine = nbl::hlsl::dot(V, intersection - A) / nbl::hlsl::dot(V, V);
+
+					if (tLine > 0.0 && tLine < 1.0)
+					{
+						auto& localRes = res[resIdx++];
+						localRes.prevObjIndex = prevObjIdx;
+						localRes.nextObjIndex = nextObjIdx;
+						if (prevSection.type == ObjectType::LINE)
+						{
+							localRes.prevT = tLine;
+							localRes.nextT = bezierT; // we don't care about lineT value
+						}
+						else
+						{
+							localRes.prevT = bezierT;
+							localRes.nextT = tLine; // we don't care about lineT value
+						}
+						localRes.intersection = intersection;
+					}
 				}
 			}
+		}
+
+		return res;
+	}
+
+	std::array<SectionIntersectResult, 4> intersectBezierBezierSectionObjects(const SectionInfo& prevSection, uint32_t prevObjIdx, const SectionInfo& nextSection, uint32_t nextObjIdx) const
+	{
+		std::array<SectionIntersectResult, 4> res = {};
+		for (uint32_t i = 0u; i < 4u; ++i)
+			res[i].invalidate();
+
+		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
+		{
 		}
 
 		return res;
@@ -874,8 +897,8 @@ protected:
 		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 			return ret;
 			
-		const float64_t2 chordDir = glm::normalize(getSectionLastTangent(prevSection));
-		float64_t2x2 rotate = float64_t2x2({ chordDir.x, -chordDir.y }, { chordDir.y, chordDir.x });
+		const float64_t2 chordDir = glm::normalize(getSectionLastPoint(prevSection) - getSectionFirstPoint(prevSection));
+		float64_t2x2 rotate = float64_t2x2({ chordDir.x, chordDir.y }, { -chordDir.y, chordDir.x });
 
 		// Used for Sweep and Prune Algorithm
 		struct SectionObject
@@ -904,9 +927,9 @@ protected:
 					}
 					else if (section.type == ObjectType::QUAD_BEZIER)
 					{
-						float64_t2 P0 = mul(rotate, m_quadBeziers[section.index + i].p[0]);
-						float64_t2 P1 = mul(rotate, m_quadBeziers[section.index + i].p[1]);
-						float64_t2 P2 = mul(rotate, m_quadBeziers[section.index + i].p[2]);
+						float64_t2 P0 = mul(rotate, m_quadBeziers[section.index + i].shape.P0);
+						float64_t2 P1 = mul(rotate, m_quadBeziers[section.index + i].shape.P1);
+						float64_t2 P2 = mul(rotate, m_quadBeziers[section.index + i].shape.P2);
 						const auto quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(P0, P1, P2);
 						const auto tExtremum = -quadratic.B.x / (2.0 * quadratic.A.x);
 
@@ -1064,20 +1087,20 @@ private:
 		void addBezierNormals(const QuadraticBezierInfo& quadBezierInfo, float phaseShift)
 		{
 			// TODO: we already calculate quadratic form of each bezier (except of the last one), maybe store this info in an array and use it later to calculate normals?
-			const float64_t2 bezierDerivativeValueAtP0 = 2.0 * (quadBezierInfo.p[1] - quadBezierInfo.p[0]);
+			const float64_t2 bezierDerivativeValueAtP0 = 2.0 * (quadBezierInfo.shape.P1 - quadBezierInfo.shape.P0);
 			const float32_t2 tangentAtP0 = glm::normalize(bezierDerivativeValueAtP0);
 			//const float_t2 A = P0 - 2.0 * P1 + P2;
-			const float64_t2 bezierDerivativeValueAtP2 = 2.0 * (quadBezierInfo.p[0] - 2.0 * quadBezierInfo.p[1] + quadBezierInfo.p[2]) + 2.0 * (quadBezierInfo.p[1] - quadBezierInfo.p[0]);
+			const float64_t2 bezierDerivativeValueAtP2 = 2.0 * (quadBezierInfo.shape.P0 - 2.0 * quadBezierInfo.shape.P1 + quadBezierInfo.shape.P2) + 2.0 * (quadBezierInfo.shape.P1 - quadBezierInfo.shape.P0);
 			const float32_t2 tangentAtP2 = glm::normalize(bezierDerivativeValueAtP2);
 
 			PolylineConnectorNormalHelperInfo connectorNormalInfoAtP0{};
-			connectorNormalInfoAtP0.worldSpaceCircleCenter = quadBezierInfo.p[0];
+			connectorNormalInfoAtP0.worldSpaceCircleCenter = quadBezierInfo.shape.P0;
 			connectorNormalInfoAtP0.normal = float32_t2(-tangentAtP0.y, tangentAtP0.x);
 			connectorNormalInfoAtP0.phaseShift = phaseShift;
 			connectorNormalInfoAtP0.type = ObjectType::QUAD_BEZIER;
 
 			PolylineConnectorNormalHelperInfo connectorNormalInfoAtP2{};
-			connectorNormalInfoAtP2.worldSpaceCircleCenter = quadBezierInfo.p[2];
+			connectorNormalInfoAtP2.worldSpaceCircleCenter = quadBezierInfo.shape.P2;
 			connectorNormalInfoAtP2.normal = float32_t2(-tangentAtP2.y, tangentAtP2.x);
 			connectorNormalInfoAtP2.phaseShift = phaseShift;
 			connectorNormalInfoAtP2.type = ObjectType::QUAD_BEZIER;

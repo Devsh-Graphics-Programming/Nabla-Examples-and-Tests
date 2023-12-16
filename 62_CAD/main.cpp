@@ -2386,7 +2386,7 @@ public:
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+1.0 + 2.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
 			// CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-1.0 + -0.0 * abs(cos(m_timeElapsed * 0.0009)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
@@ -2475,10 +2475,6 @@ public:
 					// special case 2 (folded line)
 					lineY -= 10.0;
 					curveIdx++;
-
-					/*quadratics[curveIdx].p[0] = float64_t2(-100, lineY);
-					quadratics[curveIdx].p[1] = float64_t2(200, lineY);
-					quadratics[curveIdx].p[2] = float64_t2(100, lineY);*/
 
 					quadratics[curveIdx].P0 = float64_t2(-100, lineY);
 					quadratics[curveIdx].P1 = float64_t2(100, lineY);
