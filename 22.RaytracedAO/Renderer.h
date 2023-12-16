@@ -39,11 +39,15 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 			std::string tonemapperArgs = "";
 		};
 
-		Renderer(nbl::video::IVideoDriver* _driver, nbl::asset::IAssetManager* _assetManager, nbl::scene::ISceneManager* _smgr, bool useDenoiser = true);
+		Renderer(nbl::video::IVideoDriver* _driver, nbl::asset::IAssetManager* _assetManager, nbl::scene::ISceneManager* _smgr, bool deferDenoise, bool useDenoiser = true);
 
 		void initSceneResources(nbl::asset::SAssetBundle& meshes, nbl::io::path&& _sampleSequenceCachePath="");
 
 		void deinitSceneResources();
+
+		void deinitRenderer();
+
+		void finalizeDeferredDenoise();
 		
 		void initScreenSizedResources(
 			const uint32_t width, const uint32_t height,
@@ -58,7 +62,7 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		void resetSampleAndFrameCounters();
 
-		void takeAndSaveScreenShot(const std::filesystem::path& screenshotFilePath, bool denoise = false, const DenoiserArgs& denoiserArgs = {});
+		void takeAndSaveScreenShot(const std::filesystem::path& screenshotFilePath, bool denoise, const DenoiserArgs& denoiserArgs = {});
 		
 		void denoiseCubemapFaces(
 			std::filesystem::path filePaths[6],
@@ -148,6 +152,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		// "constants"
 		bool m_useDenoiser;
+		const bool m_deferDenoise;
+		static constexpr char* DEFER_DENOISE_HOOK_FILE_NAME = "defer_denoise_hook.bat";
 
 		// managers
 		nbl::video::IVideoDriver* m_driver;
@@ -157,6 +163,8 @@ class Renderer : public nbl::core::IReferenceCounted, public nbl::core::Interfac
 
 		nbl::core::smart_refctd_ptr<nbl::ext::RadeonRays::Manager> m_rrManager;
 
+		//
+		std::fstream m_deferDenoiseFile;
 
 		// persistent (intialized in constructor
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_rayCountBuffer,m_littleDownloadBuffer;

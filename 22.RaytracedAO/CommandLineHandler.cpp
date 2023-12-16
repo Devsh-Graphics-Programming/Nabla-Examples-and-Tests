@@ -95,7 +95,14 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 		else
 		{
 			const auto offset = firstHyphen + 1;
-			const auto endOfFetchedVariableName = rawFetchedCmdArgument.find_first_of("=");
+			bool hasArguments = true;
+			auto endOfFetchedVariableName = rawFetchedCmdArgument.find_first_of("=");
+			if (endOfFetchedVariableName == std::string::npos)
+			{
+				hasArguments = false;
+				endOfFetchedVariableName = std::distance(rawFetchedCmdArgument.begin(), rawFetchedCmdArgument.end());
+			}
+
 			const auto count = endOfFetchedVariableName - offset;
 			const auto cmdFetchedVariable = rawFetchedCmdArgument.substr(offset, count);
 			std::string variable = cmdFetchedVariable;
@@ -115,7 +122,7 @@ CommandLineHandler::CommandLineHandler(const std::vector<std::string>& argv)
 				break;
 			}
 			
-			if(endOfFetchedVariableName != std::string::npos)
+			if(hasArguments)
 			{
 				auto value = rawFetchedCmdArgument.substr(endOfFetchedVariableName + 1);
 
