@@ -1861,7 +1861,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 				viewDirReconFactorsT.rows[1] = T.rows[1] * +2.f;
 				viewDirReconFactorsT.rows[2] = T.rows[0]-T.rows[1]-T.rows[2]-T.rows[3];
 			}
-		}
+			}
 		
 		// cull batches
 		m_driver->bindComputePipeline(m_cullPipeline.get());
