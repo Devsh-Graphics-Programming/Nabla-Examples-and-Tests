@@ -281,16 +281,21 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return retval;
 		}
 
-		// virtual to allow aliasing and total flexibility
-		virtual video::IGPUQueue* getComputeQueue() const
+		virtual video::IGPUQueue* getQueue(video::IPhysicalDevice::E_QUEUE_FLAGS flags) const
 		{
 			// In the default implementation of everything I asked only for one queue from first compute family
 			const auto familyProperties = m_device->getPhysicalDevice()->getQueueFamilyProperties();
-			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(video::IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
-				return m_device->getQueue(i,0);
+			for (auto i = 0u; i < familyProperties.size(); i++)
+				if (familyProperties[i].queueFlags.hasFlags(video::IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
+					return m_device->getQueue(i, 0);
 
 			return nullptr;
+		}
+
+		// virtual to allow aliasing and total flexibility
+		virtual video::IGPUQueue* getComputeQueue() const
+		{
+			return getQueue(video::IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT);
 		}
 
 
