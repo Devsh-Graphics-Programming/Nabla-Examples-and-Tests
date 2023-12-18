@@ -136,10 +136,13 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 			m_pipeline = m_device->createComputePipeline(nullptr,m_device->createPipelineLayout(&pcRange,&pcRange+1),std::move(shader));
 
 			const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
-			// When you bind SSBOs at offsets you need to bind with a certain alignment, also the ranges of non-coherent mapped memory
-			// you flush or invalidate need to be aligned too. We'll align anyway if we're coherent.
-			// So we ask our streaming buffers during allocation to give us properly aligned offsets.
-			m_alignment = core::max(deviceLimits.minSSBOAlignment,deviceLimits.nonCoherentAtomSize);
+			// The ranges of non-coherent mapped memory you flush or invalidate need to be aligned. You'll often see a value of 64 reported by devices
+			// which just happens to coincide with a CPU cache line size. So we ask our streaming buffers during allocation to give us properly aligned offsets.
+			// Sidenote: For SSBOs, UBOs, BufferViews, Vertex Buffer Bindings, Acceleration Structure BDAs, Shader Binding Tables, Descriptor Buffers, etc.
+			// there is also a requirement to bind buffers at offsets which have a certain alignment. Memory binding to Buffers and Images also has those.
+			// We'll align to max of coherent atom size even if the memory is coherent,
+			// and we also need to take into account BDA shader loads need to be aligned to the type being loaded.
+			m_alignment = core::max(deviceLimits.nonCoherentAtomSize,alignof(float));
 
 			// We'll allow subsequent iterations to overlap each other on the GPU, the only limiting factors are
 			// the amount of memory in the streaming buffers and the number of commandpools we can use simultaenously.
@@ -240,7 +243,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 			// We can also actually latch our Command Pool reset and its return to the pool of free pools!
 			m_poolCache->releaseSet(m_device.get(),smart_refctd_ptr(fence),poolIx);
 
-			// As promised, we can defer a streaming buffer allocation until a fence is signalled
+			// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
 			// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
 			m_upStreamingBuffer->multi_deallocate(AllocationCount,&inputOffset,&inputSize,smart_refctd_ptr(fence));
 
@@ -264,7 +267,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 					auto median = data+elementCount/2;
 					std::nth_element(data,median,data+elementCount);
 
-					m_logger->log("Iteration %d Median of Minimum Distances is %f",ILogger::ELL_INFO,savedIterNum,*median);
+					m_logger->log("Iteration %d Median of Minimum Distances is %f",ILogger::ELL_PERFORMANCE,savedIterNum,*median);
 				},
 				// Its also necessary to hold onto the commandbuffer, even though we take care to not reset the parent pool, because if it
 				// hits its destructor, our automated reference counting will drop all references to objects used in the recorded commands.
@@ -277,8 +280,9 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 
 		bool onAppTerminated() override
 		{
-			// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute
-			while (m_upStreamingBuffer->cull_frees()) {}
+			// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
+			// (the destructors of the Command Pool Cache and Streaming buffers will still wait for all lambda events to drain)
+			while (m_downStreamingBuffer->cull_frees()) {}
 
 			return device_base_t::onAppTerminated();
 		}

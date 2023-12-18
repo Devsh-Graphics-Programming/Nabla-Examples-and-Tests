@@ -1,6 +1,6 @@
+
 #include "CommonAPI.h"
 
-#if 1
 nbl::video::IPhysicalDevice* CommonAPI::CDefaultPhysicalDeviceSelector::selectPhysicalDevice(const nbl::core::set<nbl::video::IPhysicalDevice*>& suitablePhysicalDevices)
 {
 
@@ -325,4 +325,3 @@ bool CommonAPI::createSwapchain(
 
 	return true;
 }
-#endif

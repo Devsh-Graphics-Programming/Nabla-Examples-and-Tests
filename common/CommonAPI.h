@@ -4,13 +4,22 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-#include "MonoSystemMonoLoggerApplication.hpp"
+// TODO: get these all included by the appropriate namespace headers!
+#include "nbl/system/IApplicationFramework.h"
 
 #include "nbl/ui/CGraphicalApplicationAndroid.h"
 #include "nbl/ui/CWindowManagerAndroid.h"
 #include "nbl/ui/IGraphicalApplicationFramework.h"
 
 // TODO: see TODO below
+#if defined(_NBL_PLATFORM_WINDOWS_)
+#include <nbl/system/CColoredStdoutLoggerWin32.h>
+#elif defined(_NBL_PLATFORM_ANDROID_)
+#include <nbl/system/CStdoutLoggerAndroid.h>
+#endif
+#include "nbl/system/CSystemAndroid.h"
+#include "nbl/system/CSystemLinux.h"
+#include "nbl/system/CSystemWin32.h"
 // TODO: make these include themselves via `nabla.h`
 
 #include "nbl/video/utilities/SPhysicalDeviceFilter.h"
@@ -199,7 +208,7 @@ public:
 		Channels<nbl::ui::IKeyboardEventChannel> m_keyboard;
 	};
 
-	class CommonAPIEventCallback : public nbl::ui::IWindow::IEventCallback
+	class CommonAPIEventCallback : public virtual nbl::ui::IWindow::IEventCallback
 	{
 	public:
 		CommonAPIEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false) {}
@@ -292,8 +301,23 @@ public:
 	private:
 		nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
 		nbl::system::logger_opt_smart_ptr m_logger = nullptr;
-		bool m_gotWindowClosedMsg;
+		bool m_gotWindowClosedMsg = false;
 	};
+
+	static nbl::core::smart_refctd_ptr<nbl::system::ISystem> createSystem()
+	{
+		using namespace nbl;
+		using namespace system;
+#ifdef _NBL_PLATFORM_WINDOWS_
+		return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemWin32>();
+#elif defined(_NBL_PLATFORM_ANDROID_)
+#if 0
+		return nbl::core::make_smart_refctd_ptr<nbl::system::CSystemAndroid>(std::move(caller));
+#endif
+#endif
+		return nullptr;
+
+	}
 
 	class IPhysicalDeviceSelector
 	{
@@ -384,6 +408,7 @@ public:
 			EQT_COUNT
 		};
 
+		static constexpr uint32_t MaxQueuesInFamily = 32;
 		static constexpr uint32_t MaxFramesInFlight = 10u;
 		static constexpr uint32_t MaxQueuesCount = EQT_COUNT;
 		static constexpr uint32_t MaxSwapChainImageCount = 4;
@@ -406,30 +431,6 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
 	};
 
-	template<typename AppClassName>
-	static void main(int argc, char** argv)
-	{
-#ifndef _NBL_PLATFORM_ANDROID_
-		nbl::system::path CWD = nbl::system::path(argv[0]).parent_path().generic_string() + "/";
-		nbl::system::path sharedInputCWD = CWD / "../../media/";
-		nbl::system::path sharedOutputCWD = CWD / "../../tmp/";;
-		nbl::system::path localInputCWD = CWD / "../assets";
-		nbl::system::path localOutputCWD = CWD;
-		// TODO: make NonGraphicalApplicationBase(IApplicationFramework inherit from nbl::core::IReferenceCounted?)
-		auto app = nbl::core::make_smart_refctd_ptr<AppClassName>(localInputCWD, localOutputCWD, sharedInputCWD, sharedOutputCWD);
-
-		//for (size_t i = 0; i < argc; ++i)
-		//	app->argv.push_back(std::string(argv[i]));
-
-		app->onAppInitialized();
-		while (app->keepRunning())
-		{
-			app->workLoopBody();
-		}
-		app->onAppTerminated();
-#endif
-	}
-
 #ifdef _NBL_PLATFORM_ANDROID_
 	static void recreateSurface(nbl::ui::CGraphicalApplicationAndroid* framework)
 	{
@@ -449,7 +450,7 @@ public:
 		bool headlessCompute = params.isHeadlessCompute();
 
 #ifdef _NBL_PLATFORM_WINDOWS_
-		result.system = nbl::system::IApplicationFramework::createSystem();
+		result.system = createSystem();
 #endif
 
 #ifdef _NBL_PLATFORM_WINDOWS_
@@ -490,8 +491,19 @@ public:
 				windowsCreationParams.callback = params.windowCb;
 
 				params.window = result.windowManager->createWindow(std::move(windowsCreationParams));
+
+				if (params.window->getWidth() != params.windowWidth || params.window->getHeight() != params.windowHeight)
+				{
+					std::stringstream ss;
+					ss << "Requested window size ";
+					ss << '(' << params.windowWidth << 'x' << params.windowHeight << ')';
+					ss << " could not be applied, actual size: ";
+					ss << '(' << params.window->getWidth() << 'x' << params.window->getHeight() << ")";
+
+					result.logger->log(ss.str(), system::ILogger::ELL_INFO);
+				}
 			}
-			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>((CommonAPIEventCallback*)params.window->getEventCallback());
+			params.windowCb = nbl::core::smart_refctd_ptr<CommonAPIEventCallback>(dynamic_cast<CommonAPIEventCallback*>(params.window->getEventCallback()));
 		}
 
 		if constexpr (gpuInit)
@@ -1073,10 +1085,12 @@ protected:
 		auto queuesInfo = extractPhysicalDeviceQueueInfos(selectedPhysicalDevice, result.surface, headlessCompute);
 
 		// Fill QueueCreationParams
-		std::array<float, nbl::video::ILogicalDevice::SQueueCreationParams::MaxQueuesInFamily> queuePriorities;
-		std::fill(queuePriorities.data(), queuePriorities.data() + nbl::video::ILogicalDevice::SQueueCreationParams::MaxQueuesInFamily, IGPUQueue::DEFAULT_QUEUE_PRIORITY);
+		constexpr uint32_t MaxQueuesInFamily = video::ILogicalDevice::SQueueCreationParams::MaxQueuesInFamily;
+		std::array<float, MaxQueuesInFamily> queuePriorities;
+		queuePriorities.fill(IGPUQueue::DEFAULT_QUEUE_PRIORITY);
 
-		std::array<nbl::video::ILogicalDevice::SQueueCreationParams, nbl::video::ILogicalDevice::SCreationParams::MaxQueueFamilies> qcp;
+		constexpr uint32_t MaxQueueFamilyCount = nbl::video::ILogicalDevice::SCreationParams::MaxQueueFamilies;
+		std::array<nbl::video::ILogicalDevice::SQueueCreationParams, MaxQueueFamilyCount> qcp;
 
 		uint32_t actualQueueParamsCount = 0u;
 
@@ -1334,7 +1348,7 @@ protected:
 };
 
 #ifndef _NBL_PLATFORM_ANDROID_
-class GraphicalApplication : public CommonAPI::CommonAPIEventCallback, public nbl::system::IApplicationFramework, public nbl::ui::IGraphicalApplicationFramework
+class GraphicalApplication : public virtual CommonAPI::CommonAPIEventCallback, public nbl::system::IApplicationFramework, public virtual nbl::ui::IGraphicalApplicationFramework
 {
 protected:
 	~GraphicalApplication() {}
@@ -1640,7 +1654,7 @@ const nbl::system::path& _sharedOutputCWD) : NonGraphicalApplicationBase(app, en
 #define NBL_COMMON_API_MAIN(android_app_class) NBL_ANDROID_MAIN_FUNC(android_app_class, CommonAPI::CommonAPIEventCallback)
 #else
 using ApplicationBase = GraphicalApplication;
-class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework
+class NonGraphicalApplicationBase : public nbl::system::IApplicationFramework, public nbl::core::IReferenceCounted
 {
 public:
 	using Base = nbl::system::IApplicationFramework;
@@ -1655,9 +1669,6 @@ const nbl::system::path& _sharedOutputCWD) : ApplicationBase(_localInputCWD, _lo
 const nbl::system::path& _localOutputCWD,\
 const nbl::system::path& _sharedInputCWD,\
 const nbl::system::path& _sharedOutputCWD) : NonGraphicalApplicationBase(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-#define NBL_COMMON_API_MAIN(app_class) int main(int argc, char** argv){\
-CommonAPI::main<app_class>(argc, argv);\
-}
 #endif
 //***** Application framework macros ******
 

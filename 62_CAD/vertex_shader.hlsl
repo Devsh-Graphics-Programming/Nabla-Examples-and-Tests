@@ -3,6 +3,8 @@
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
+#include <nbl/builtin/hlsl/limits.hlsl>
+#include <nbl/builtin/hlsl/algorithm.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -18,26 +20,6 @@ float2 BezierTangent(float2 p0, float2 p1, float2 p2, float t)
 float2 QuadraticBezier(float2 p0, float2 p1, float2 p2, float t)
 {
     return nbl::hlsl::shapes::QuadraticBezier<float>::construct(p0, p1, p2).evaluate(t);
-}
-
-// Caller should make sure the lines are not parallel, i.e. cross2D(direction1, direction2) != 0, otherwise a division-by-zero will cause NaN values
-// TODO[Przemek] Remove this function and move the one implemented in curves.cpp to builtin/hlsl/shapes/utils.hlsl 
-float2 LineLineIntersection(float2 p1, float2 p2, float2 v1, float2 v2)
-{
-    // Here we're doing part of a matrix calculation because we're interested in only the intersection point not both t values
-    /*
-        float det = v1.y * v2.x - v1.x * v2.y;
-        float2x2 inv = float2x2(v2.y, -v2.x, v1.y, -v1.x) / det;
-        float2 t = mul(inv, p1 - p2);
-        return p2 + mul(v2, t.y);
-    */
-    float denominator = v1.y * v2.x - v1.x * v2.y;
-    float numerator = dot(float2(v2.y, -v2.x), p1 - p2); 
-
-    float t = numerator / denominator;
-    float2 intersectionPoint = p1 + t * v1;
-
-    return intersectionPoint;
 }
 
 ClipProjectionData getClipProjectionData(in MainObject mainObj)
@@ -65,6 +47,10 @@ float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d)
     double2 ndc = transformPointNdc(transformation, point2d);
     return (float2)((ndc + 1.0) * 0.5 * globals.resolution);
 }
+float4 transformFromSreenSpaceToNdc(float2 pos)
+{
+    return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+}
 
 PSInput main(uint vertexID : SV_VertexID)
 {
@@ -73,8 +59,8 @@ PSInput main(uint vertexID : SV_VertexID)
 
     DrawObject drawObj = drawObjects[objectID];
 
-    ObjectType objType = (ObjectType)(((uint32_t)drawObj.type_subsectionIdx) & 0x0000FFFF);
-    uint32_t subsectionIdx = (((uint32_t)drawObj.type_subsectionIdx) >> 16);
+    ObjectType objType = (ObjectType)(drawObj.type_subsectionIdx & 0x0000FFFF);
+    uint32_t subsectionIdx = drawObj.type_subsectionIdx >> 16;
     PSInput outV;
 
     // Default Initialize PS Input
@@ -95,31 +81,6 @@ PSInput main(uint vertexID : SV_VertexID)
     const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
     const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
 
-    /*
-     * TODO:[Przemek]: handle generating vertices another object type POLYLINE_CONNECTOR which is our miters eventually and is and sdf of intersection of 2 or more half-planes
-     * the connector from cpu will have a phase shift as well, if it's in a non draw section you can discard it in the vertex shader.
-     * so you'll be doing similar upper_bound computation stuff to figure out if you're in a draw or non draw section here as well.
-     * we'll move this later to compute so you don't have to worry about it per-vertex, that's for later
-     * else if (objType == ObjectType::POLYLINE_CONNECTOR)
-     * {
-     *      if(currentStyle.isRoadStyle)
-     *      {
-     *          if (isInDrawSection)
-     *          {
-     *              do the math needed to generate miter vertices USING: antiAliasedLineWidth, PolylineConnector data in it's struct
-     *          }
-     *          else
-     *          {
-     *              discard
-     *          }
-     *      }
-     *      else
-     *      {
-     *          shouldn't happen but discard, we can add bevel joins and stuff later on
-     *      }
-     * }
-    */
-
     if (objType == ObjectType::LINE)
     {
         outV.setColor(lineStyle.color);
@@ -127,22 +88,12 @@ PSInput main(uint vertexID : SV_VertexID)
 
         const double3x3 transformation = clipProjectionData.projectionToNDC;
 
-
-        /*
-            TODO[Przemek]: As you can see here we placed line points (double2) in a contigous piece of memory to drawline
-            but now each line point should have a "currentPhaseShift" which is `float phaseShift` up to that point.
-            so we should make a struct in common.hlsl and construct it here like we do for beziers.
-            struct LinePointInfo
-            {
-                float64_t2 p; // 16*3=48bytes
-                float32_t phaseShit;
-                float32_t _reserved_pad;
-            }
-            and here we load two LinePointInfos from geometryAddress and use the first one's phaseshift
-        */
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+
+        const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
+        outV.setCurrentPhaseShift(phaseShift);
 
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
@@ -171,9 +122,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setLineStart(transformedPoints[0u]);
         outV.setLineEnd(transformedPoints[1u]);
 
-        // convert back to ndc
-        outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0; // back to NDC for SV_Position
-        outV.position.w = 1u;
+        outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
@@ -185,6 +134,9 @@ PSInput main(uint vertexID : SV_VertexID)
         points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
         points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
 
+        const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
+        outV.setCurrentPhaseShift(phaseShift);
+
         // transform these points into screen space and pass to fragment
         float2 transformedPoints[3u];
         for (uint i = 0u; i < 3u; ++i)
@@ -195,7 +147,7 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
         nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
         nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData = nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(quadratic);
-        
+
         outV.setQuadratic(quadratic);
         outV.setQuadraticPrecomputedArcLenData(preCompData);
 
@@ -279,12 +231,12 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 leftTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
             float2 leftNormal = normalize(float2(-leftTangent.y, leftTangent.x)) * flip;
             float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * screenSpaceLineWidth / 2.0f;
-            float2 exterior0 = LineLineIntersection(middleExteriorPoint, leftExteriorPoint, midTangent, leftTangent);;
+            float2 exterior0 = nbl::hlsl::shapes::util::LineLineIntersection(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
             
             float2 rightTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT));
             float2 rightNormal = normalize(float2(-rightTangent.y, rightTangent.x)) * flip;
             float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) - rightNormal * screenSpaceLineWidth / 2.0f;
-            float2 exterior1 = LineLineIntersection(middleExteriorPoint, rightExteriorPoint, midTangent, rightTangent);
+            float2 exterior1 = nbl::hlsl::shapes::util::LineLineIntersection(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
 
             // Interiors
             {
@@ -305,7 +257,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 endPointExterior = transformedPoints[0u] - endPointTangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(LineLineIntersection(leftExteriorPoint, endPointExterior, leftTangent, endPointNormal), 0.0, 1.0f);
+                    outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[0u] + endPointNormal * screenSpaceLineWidth / 2.0f - endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)
@@ -331,7 +283,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 endPointExterior = transformedPoints[2u] + endPointTangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(LineLineIntersection(rightExteriorPoint, endPointExterior, rightTangent, endPointNormal), 0.0, 1.0f);
+                    outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[2u] + endPointNormal * screenSpaceLineWidth / 2.0f + endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)
@@ -418,10 +370,82 @@ PSInput main(uint vertexID : SV_VertexID)
         //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
         //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
+    else if (objType == ObjectType::POLYLINE_CONNECTOR)
+    {
+        const float FLOAT_INF = nbl::hlsl::numeric_limits<float>::infinity;
+        const float4 INVALID_VERTEX = float4(FLOAT_INF, FLOAT_INF, FLOAT_INF, FLOAT_INF);
+
+        if (lineStyle.isRoadStyleFlag)
+        {
+            outV.setColor(lineStyle.color);
+            const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
+            outV.setLineThickness(sdfLineThickness);
+                
+            const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+            const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
+            const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
+
+            const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
+            outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
+
+            // Find other miter vertices
+            const float sinHalfAngleBetweenNormals = sqrt(1.0f - (cosHalfAngleBetweenNormals * cosHalfAngleBetweenNormals));
+            const float32_t2x2 rotationMatrix = float32_t2x2(cosHalfAngleBetweenNormals, -sinHalfAngleBetweenNormals, sinHalfAngleBetweenNormals, cosHalfAngleBetweenNormals);
+
+            // Pass the precomputed trapezoid values for the sdf
+            {
+                float vLen = length(v);
+                float2 intersectionDirection = v / vLen;
+
+                float longBase = sinHalfAngleBetweenNormals;
+                float shortBase = max((vLen - globals.miterLimit) * cosHalfAngleBetweenNormals / sinHalfAngleBetweenNormals, 0.0);
+                // height of the trapezoid / triangle
+                float hLen = min(globals.miterLimit, vLen);
+
+                outV.setPolylineConnectorTrapezoidStart(-1.0 * intersectionDirection * sdfLineThickness);
+                outV.setPolylineConnectorTrapezoidEnd(intersectionDirection * hLen * sdfLineThickness);
+                outV.setPolylineConnectorTrapezoidLongBase(sinHalfAngleBetweenNormals * ((1.0 + vLen) / (vLen - cosHalfAngleBetweenNormals)) * sdfLineThickness);
+                outV.setPolylineConnectorTrapezoidShortBase(shortBase * sdfLineThickness);
+            }
+
+            if (vertexIdx == 0u)
+            {
+                const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineWidth;
+                const float2 screenSpaceV1 = circleCenterScreenSpace + V1;
+                outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
+            }
+            else if (vertexIdx == 1u)
+            {
+                outV.position = float4(circleCenterScreenSpace, 0.0f, 1.0f);
+            }
+            else if (vertexIdx == 2u)
+            {
+                // find intersection point vertex
+                float2 intersectionPoint = v * antiAliasedLineWidth;
+                intersectionPoint += circleCenterScreenSpace;
+                outV.position = float4(intersectionPoint, 0.0f, 1.0f);
+            }
+            else if (vertexIdx == 3u)
+            {
+                const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineWidth;
+                const float2 screenSpaceV2 = circleCenterScreenSpace + V2;
+                outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
+            }
+
+            outV.position = transformFromSreenSpaceToNdc(outV.position.xy);
+        }
+        else
+        {
+            outV.position = INVALID_VERTEX;
+        }
+    }
     
     
-// Make the cage fullscreen for testing:
+// Make the cage fullscreen for testing: 
 #if 0
+    // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
+    if(objType != ObjectType::POLYLINE_CONNECTOR)
+    {
         if (vertexIdx == 0u)
             outV.position = float4(-1, -1, 0, 1);
         else if (vertexIdx == 1u)
@@ -430,6 +454,7 @@ PSInput main(uint vertexID : SV_VertexID)
             outV.position = float4(+1, -1, 0, 1);
         else if (vertexIdx == 3u)
             outV.position = float4(+1, +1, 0, 1);
+    }
 #endif
 
     outV.clip = float4(outV.position.x - clipProjectionData.minClipNDC.x, outV.position.y - clipProjectionData.minClipNDC.y, clipProjectionData.maxClipNDC.x - outV.position.x, clipProjectionData.maxClipNDC.y - outV.position.y);

@@ -10,6 +10,7 @@ using namespace nbl::hlsl;
 
 #include "common.hlsl"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
+#include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
 
 namespace curves
@@ -24,7 +25,7 @@ namespace curves
         virtual float64_t2 computeTangent(float64_t t) const = 0;
 
         //! compute differential arc length at t
-        virtual float64_t differentialArcLen(float64_t t) const = 0;
+        virtual float64_t differentialArcLen(float64_t t) const;
 
         struct ArcLenIntegrand
         {
@@ -105,9 +106,6 @@ namespace curves
 
         //! compute second order differential at t
         float64_t2 computeSecondOrderDifferential(float64_t t) const override;
-
-        //! compute differential arc length at t
-        float64_t differentialArcLen(float64_t t) const override;
 
         float64_t computeInflectionPoint(float64_t errorThreshold) const override;
     };
@@ -218,6 +216,20 @@ namespace curves
         float64_t derivative(float64_t x) const override;
     };
 
+    // Centered at (0,0), aligned with x axis
+    struct AxisAlignedEllipse final : public ParametricCurve
+    {
+        float64_t a, b;
+        float64_t start, end;
+        AxisAlignedEllipse(float64_t a, float64_t b, float64_t start, float64_t end)
+            : a(a), b(b), start(start), end(end)
+        {}
+
+        float64_t2 computePosition(float64_t t) const override;
+
+        float64_t2 computeTangent(float64_t t) const override;
+    };
+
     // Centered at (0, 0), P1 and P2 on x axis and P1.x = -P2.x
     struct ExplicitMixedCircle final : public ExplicitCurve
     {
@@ -264,9 +276,9 @@ namespace curves
         {
             if (eccentricity > 1.0 || eccentricity <= 0.0)
                 return false;
-            if (angleBounds.y < angleBounds.x)
+            if (angleBounds.y == angleBounds.x)
                 return false;
-            if ((angleBounds.y - angleBounds.x) > 2 * nbl::core::PI<double>())
+            if (abs(angleBounds.y - angleBounds.x) > 2.0 * nbl::core::PI<double>())
                 return false;
             return true;
         }
@@ -277,19 +289,16 @@ namespace curves
         nbl::hlsl::shapes::Quadratic<float64_t> quadratic;
         float64_t offset;
 
-        OffsettedBezier(const QuadraticBezierInfo& quadBezier, float64_t offset)
+        OffsettedBezier(const shapes::QuadraticBezier<double>& quadBezier, float64_t offset)
             : offset(offset)
         {
-            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.p[0], quadBezier.p[1], quadBezier.p[2]);
+            quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(quadBezier.P0, quadBezier.P1, quadBezier.P2);
         }
 
         float64_t2 computePosition(float64_t t) const override;
 
         //! compute unnormalized tangent vector at t
         float64_t2 computeTangent(float64_t t) const override;
-
-        //! compute differential arc length at t
-        float64_t differentialArcLen(float64_t t) const override;
 
         //! if offset is more than minimum radius of curvature then we get an unwanted gouging/cusp
         float64_t2 findCusps() const;
@@ -298,8 +307,7 @@ namespace curves
     class Subdivision final
     {
     public:
-        // TODO[Przemek]: anywhere that uses QuadraticBezierInfo in curves.h/cpp should be changed to output nbl::hlsl::shapes::QuadraticBezier instead 
-        typedef std::function<void(QuadraticBezierInfo&&)> AddBezierFunc;
+        typedef std::function<void(shapes::QuadraticBezier<double>&&)> AddBezierFunc;
 
         //! this subdivision algorithm works/converges for any x-monotonic curve (only 1 y for each x) over the [min, max] range and will continue until hits the `maxDepth` or `targetMaxError` threshold
         //! this function will call the AddBezierFunc when the bezier is finalized, whether to render it directly, write it to file, add it to a vector, etc.. is up to the user.

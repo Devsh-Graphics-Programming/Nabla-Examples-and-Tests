@@ -394,13 +394,13 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
     auto drawDebugBezier = [&](QuadraticBezier bezier, float32_t4 color)
     {
         CPolyline outputPolyline;
-        std::vector<QuadraticBezierInfo> beziers;
-        QuadraticBezierInfo bezierInfo;
-        bezierInfo.p[0] = bezier.P0;
-        bezierInfo.p[1] = bezier.P1;
-        bezierInfo.p[2] = bezier.P2;
-        beziers.push_back(bezierInfo);
-        outputPolyline.addQuadBeziers(core::SRange<QuadraticBezierInfo>(beziers.data(), beziers.data() + beziers.size()));
+        std::vector<shapes::QuadraticBezier<double>> beziers;
+		shapes::QuadraticBezier<double> tmpBezier;
+		tmpBezier.P0 = bezier.P0;
+		tmpBezier.P1 = bezier.P1;
+		tmpBezier.P2 = bezier.P2;
+        beziers.push_back(tmpBezier);
+        outputPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
 
         CPULineStyle cpuLineStyle;
         cpuLineStyle.screenSpaceLineWidth = 4.0f;
@@ -465,21 +465,21 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                     {
 						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx++)
 						{
-							auto begin = polyline.getLinePointAt(itemIdx);
-							auto end = polyline.getLinePointAt(itemIdx + 1);
+							auto begin = polyline.getLinePointAt(itemIdx).p;
+							auto end = polyline.getLinePointAt(itemIdx + 1).p;
 							addBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end));
 #ifdef DEBUG_HATCH_VISUALLY
                             //if (debugOutput)
                             //    drawDebugBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end), float32_t4(0.0, 0.0, 1.0, 1.0));
 #endif
-						}
 					}
+				}
                 else if (section.type == ObjectType::QUAD_BEZIER)
                 {
                     for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
                     {
                         auto bezierInfo = polyline.getQuadBezierInfoAt(itemIdx);
-                        auto unsplitBezier = QuadraticBezier::construct(bezierInfo.p[0], bezierInfo.p[1], bezierInfo.p[2]);
+                        auto unsplitBezier = bezierInfo.shape;
                         
                         // Beziers must be monotonically increasing along major
                         // First step: Make sure the bezier is monotonic, split it if not
