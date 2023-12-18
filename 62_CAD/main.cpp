@@ -25,7 +25,7 @@ enum class ExampleMode
 	CASE_5  // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 typedef uint32_t uint;
 
@@ -2019,17 +2019,31 @@ public:
 			if (hatchDebugStep > 0)
 			{
 #include "bike_hatch.h"
-				for (uint32_t i = 0; i < polylines.size(); i++)
-				{
-					CPULineStyle lineStyle = {};
-					lineStyle.screenSpaceLineWidth = 1.0;
-					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
-					intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-				}
+				//for (uint32_t i = 0; i < polylines.size(); i++)
+				//{
+				//	CPULineStyle lineStyle = {};
+				//	lineStyle.screenSpaceLineWidth = 1.0;
+				//	lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
+				//	intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				//}
 				printf("hatchDebugStep = %d\n", hatchDebugStep);
+				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.3, 0.56, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
+				std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
+				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
+
+				auto percentile = [&](float percentile)
+					{
+						return hatch.intersectionAmounts[uint32_t(round(percentile * float(hatch.intersectionAmounts.size() - 1)))];
+					};
+				printf(std::format(
+					"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
+					percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
+				).c_str());
+				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
+
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;
@@ -2041,7 +2055,6 @@ public:
 					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
 					polylines.push_back(polyline);
 				};
-
 				{
 					CPolyline polyline;
 					std::vector<nbl::hlsl::shapes::QuadraticBezier<float64_t>> beziers;
@@ -2116,9 +2129,8 @@ public:
 				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
 				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
-
-			if (hatchDebugStep > 0)
-			{
+			 if (hatchDebugStep > 0)
+			 {
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
 					std::vector<float64_t2> points = {
@@ -2132,34 +2144,29 @@ public:
 					CPolyline polyline;
 					std::vector<shapes::QuadraticBezier<double>> beziers;
 
-					beziers.push_back({ float64_t2(-100, -100), float64_t2(-20, 40), float64_t2(0, -40), });
-					line(float64_t2(-100, -100), float64_t2(0.0, -40));
-					beziers.push_back({ float64_t2(-10, -50), float64_t2(10, -10), float64_t2(30, -50), });
-					line(float64_t2(-10, -50), float64_t2(30, -50));
-					beziers.push_back({ float64_t2(-20, 20), float64_t2(30, -70), float64_t2(80, 20), });
-					line(float64_t2(-20, 20), float64_t2(80, 20));
+					// new test case with messed up intersection
+					beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
+					beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
 
-					line(float64_t2(-30, -100), float64_t2(-30, -50));
-					line(float64_t2(100, -100), float64_t2(100, -50));
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
+					line(float64_t2(30, 90), float64_t2(20, 90));
+
+					beziers.push_back({ float64_t2(26, 20), float64_t2(37.25, 29.15), float64_t2(34.9, 42.75), });
+					beziers.push_back({ float64_t2(26, 20), float64_t2(33.8, 26.35), float64_t2(15.72, 40.84), });
+					line(float64_t2(34.9, 42.75), float64_t2(15.72, 40.84));
+
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
+					line(float64_t2(35, 0), float64_t2(10, 0));
 
 					polyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
-
-					polylines.push_back(polyline);
 				}
-
-				for (auto polyline = polylines.begin(); polyline != polylines.end(); polyline++)
-				{
-					CPULineStyle style2 = {};
-					style2.screenSpaceLineWidth = 1.0f;
-					style2.worldSpaceLineWidth = 0.0f;
-					style2.color = float32_t4(0.0, 0.0, 0.0, 1.0);
-					debug(*polyline, style2);
-				}
-
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.6, 0.6, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
-
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;

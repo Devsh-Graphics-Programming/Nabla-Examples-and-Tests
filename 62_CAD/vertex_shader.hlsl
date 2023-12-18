@@ -327,6 +327,14 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 maxCorner = ((((undilatedMaxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
         const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin * (1.0 - maxCorner) + curveBox.aabbMax * maxCorner);  // lerp has no overload for double
         outV.position = float4(coord, 0.f, 1.f);
+        
+        // If the height of the AABB are smaller than a pixel could be (even after it is dilated for antialiasing),
+        // discard it
+        // (Writing NaN on VS will discard it)
+        if (ndcAabbExtents.y < 1.0 / ((globals.antiAliasingFactor + 1.0) * float(globals.resolution.y))) 
+        {
+            outV.position = 0.0 / 0.0;
+        }
 
         const uint major = (uint)SelectedMajorAxis;
         const uint minor = 1-major;

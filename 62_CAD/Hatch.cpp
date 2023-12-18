@@ -168,66 +168,63 @@ std::array<complex<T>, 4> solveQuarticRootsLaguerre(std::array<T, 5> p)
 // Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
 std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
 {
-	auto laguerreRoots = solveQuarticRootsLaguerre<double>({ e, d, c, b, a });
-	std::array<double, 4> roots = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
-	uint32_t realRootCount = 0;
+	//auto laguerreRoots = solveQuarticRootsLaguerre<double>({ e, d, c, b, a });
+	//std::array<double, 4> roots = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
+	//uint32_t realRootCount = 0;
 
-	for (uint32_t i = 0; i < laguerreRoots.size(); i++)
-	{
-		if (laguerreRoots[i].imag() == 0.0)
-		{
-			bool duplicatedRoot = false;
-			
-			for (uint32_t realRoot = 0; realRoot < realRootCount; realRoot++)
-				if (roots[realRoot] == laguerreRoots[i].real())
-					duplicatedRoot = true;
+	//for (uint32_t i = 0; i < laguerreRoots.size(); i++)
+	//{
+	//	if (laguerreRoots[i].imag() == 0.0)
+	//	{
+	//		bool duplicatedRoot = false;
+	//		
+	//		for (uint32_t realRoot = 0; realRoot < realRootCount; realRoot++)
+	//			if (roots[realRoot] == laguerreRoots[i].real())
+	//				duplicatedRoot = true;
 
-			if (duplicatedRoot)
-				continue;
+	//		if (duplicatedRoot)
+	//			continue;
 
-			roots[realRootCount++] = laguerreRoots[i].real();
-		}
-	}
+	//		roots[realRootCount++] = laguerreRoots[i].real();
+	//	}
+	//}
+	//
+	//return roots;
 
 	// Analytical implementation:
 	// 
-	//constexpr double QUARTIC_THRESHHOLD = 1e-10;
-	//
-	//std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
-	//
-	//const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
-	//const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
-	//if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
-	//{
-	//	auto res = equations::Quartic<double>::construct(a, b, c, d, e).computeRoots();
-	//	memcpy(&t[0], &res.x, sizeof(double) * 4);
-	//}
-	//else if (abs(b) > quadCoeffMag * QUARTIC_THRESHHOLD)
-	//{
-	//	auto res = equations::Cubic<double>::construct(b, c, d, e).computeRoots();
-	//	memcpy(&t[0], &res.x, sizeof(double) * 3);
-	//}
-	//else
-	//{
-	//	auto res = equations::Quadratic<double>::construct(c, d, e).computeRoots();
-	//	memcpy(&t[0], &res.x, sizeof(double) * 2);
-	//}
-	//
-	//// If either is NaN or both are equal
-	//// Same as: 
-	//// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
-	//if (!(t[0] != t[1]))
-	//	t[0] = t[0] != t_start ? t_start : t_end;
-	//
-	//printf(std::format("Laguerre roots: {}+{}i {}+{}i {}+{}i {}+{}i Analytical roots: {} {} {} {}\n",
-	//	laguerreRoots[0].real(), laguerreRoots[0].imag(),
-	//	laguerreRoots[1].real(), laguerreRoots[1].imag(),
-	//	laguerreRoots[2].real(), laguerreRoots[2].imag(),
-	//	laguerreRoots[3].real(), laguerreRoots[3].imag(),
-	//	t[0], t[1], t[2], t[2]
-	//	).c_str());
-
-	return roots;
+	using nbl::hlsl::math::equations::Quartic;
+	using nbl::hlsl::math::equations::Cubic;
+	using nbl::hlsl::math::equations::Quadratic;
+	constexpr double QUARTIC_THRESHHOLD = 1e-10;
+	
+	std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
+	
+	const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
+	const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
+	if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
+	{
+		auto res = Quartic<double>::construct(a, b, c, d, e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 4);
+	}
+	else if (abs(b) > quadCoeffMag * QUARTIC_THRESHHOLD)
+	{
+		auto res = Cubic<double>::construct(b, c, d, e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 3);
+	}
+	else
+	{
+		auto res = Quadratic<double>::construct(c, d, e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 2);
+	}
+	
+	// If either is NaN or both are equal
+	// Same as: 
+	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
+	if (!(t[0] != t[1]))
+		t[0] = t[0] != t_start ? t_start : t_end;
+	
+	return t;
 }
 
 Hatch::QuadraticBezier Hatch::splitCurveRange(const QuadraticBezier& bezier, double minT, double maxT)
@@ -375,6 +372,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 
 Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
 {
+	intersectionAmounts = std::vector<uint32_t>();
 	// this threshsold is used to decide when to consider minor position to be 
 	// the same and check tangents because intersection algorithms has rounding 
 	// errors
@@ -454,7 +452,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 							float32_t4(244,81,30, 255) / float32_t4(255.0),
 							float32_t4(211,47,47, 255) / float32_t4(255.0)
 						};
-						drawDebugBezier(bezier, colors[bezierIdx % 5]);
+						//drawDebugBezier(bezier, colors[bezierIdx % 5]);
 					}
 #endif
 					beziers.push_back(outputBezier);
@@ -548,19 +546,19 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 #ifdef DEBUG_HATCH_VISUALLY
 		if (debugOutput && step == debugStep)
 		{
-			printf(std::format("comparison: lhs = ({}, {}), ({}, {}), ({}, {}) rhs = ({}, {}), ({}, {}), ({}, {})",
-				lhs.originalBezier->P0.x, lhs.originalBezier->P0.y, 
-				lhs.originalBezier->P1.x, lhs.originalBezier->P1.y, 
-				lhs.originalBezier->P2.x, lhs.originalBezier->P2.y, 
+			//printf(std::format("comparison: lhs = ({}, {}), ({}, {}), ({}, {}) rhs = ({}, {}), ({}, {}), ({}, {})",
+			//	lhs.originalBezier->P0.x, lhs.originalBezier->P0.y, 
+			//	lhs.originalBezier->P1.x, lhs.originalBezier->P1.y, 
+			//	lhs.originalBezier->P2.x, lhs.originalBezier->P2.y, 
 
-				rhs.originalBezier->P0.x, rhs.originalBezier->P0.y, 
-				rhs.originalBezier->P1.x, rhs.originalBezier->P1.y, 
-				rhs.originalBezier->P2.x, rhs.originalBezier->P2.y
-				).c_str());
-			drawDebugLine(float64_t2(_lhs, -1000.0), float64_t2(_lhs, 1000.0), float64_t4(0.1, 0.1, 1.0, 1.0));
-			drawDebugLine(float64_t2(_rhs, -1000.0), float64_t2(_rhs, 1000.0), float64_t4(0.1, 1.0, 1.0, 1.0));
-			printf(std::format("(comparing minor) _lhs: {} (len: {}) _rhs: {} (len: {}) minLen: {} diff: {} ",
-				_lhs, lenLhs, _rhs, lenRhs, minLen, abs(_lhs - _rhs)).c_str());
+			//	rhs.originalBezier->P0.x, rhs.originalBezier->P0.y, 
+			//	rhs.originalBezier->P1.x, rhs.originalBezier->P1.y, 
+			//	rhs.originalBezier->P2.x, rhs.originalBezier->P2.y
+			//	).c_str());
+			//drawDebugLine(float64_t2(_lhs, -1000.0), float64_t2(_lhs, 1000.0), float64_t4(0.1, 0.1, 1.0, 1.0));
+			//drawDebugLine(float64_t2(_rhs, -1000.0), float64_t2(_rhs, 1000.0), float64_t4(0.1, 1.0, 1.0, 1.0));
+			//printf(std::format("(comparing minor) _lhs: {} (len: {}) _rhs: {} (len: {}) minLen: {} diff: {} ",
+			//	_lhs, lenLhs, _rhs, lenRhs, minLen, abs(_lhs - _rhs)).c_str());
 		}
 #endif
 
@@ -578,7 +576,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 #ifdef DEBUG_HATCH_VISUALLY
-			if (debugOutput && step == debugStep)
+			if (false) //(debugOutput && step == debugStep)
 			{
 				printf(std::format("(comparing tangent) lTan: {}, {} rTan: {}, {} _lhs: {} _rhs: {} abs(_lhs - _rhs): {} abs(_lhs - 0.0): {} ",
 					lTan.x, lTan.y, rTan.x, rTan.y, _lhs, _rhs, 
@@ -608,7 +606,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					if (lTanSign != rTanSign)
 					{
 #ifdef DEBUG_HATCH_VISUALLY
-						if (debugOutput && step == debugStep)
+						if (false) //(debugOutput && step == debugStep)
 						{
 							printf(std::format("(comparing sign) lTanSign: {} rTanSign: {} ",
 								lTanSign ? "positive" : "negative", rTanSign ? "positive" : "negative").c_str());
@@ -656,6 +654,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
     {
 		if (entry.isStraightLineConstantMajor())
 			return;
+		intersectionAmounts.push_back(activeCandidates.size());
         // Look for intersections among active candidates
         // this is a little O(n^2) but only in the `n=candidates.size()`
         for (const auto& segment : activeCandidates)
@@ -760,8 +759,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             //std::cout << "End event at " << newMajor << "\n";
         }
         // spawn quads for the previous iterations if we advanced
-        //std::cout << "New major: " << newMajor << " Last major: " << lastMajor << "\n";
-        if (newMajor > lastMajor)
+		printf(std::format("New major: {} Last major: {}\n", newMajor, lastMajor).c_str());
+        if (newMajor > lastMajor) 
         {
 #ifdef DEBUG_HATCH_VISUALLY
 			if (debugOutput && isCurrentDebugStep)
@@ -772,6 +771,27 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			//std::cout << "Candidates size: " << candidatesSize << "\n";
             // because n4ce works on loops, this must be true
             //assert((candidatesSize % 2u)==0u);
+#ifdef DEBUG_HATCH_VISUALLY
+			if (candidatesSize % 2u == 1u)
+			{
+				for (uint32_t i = 0u; i < candidatesSize; i++)
+				{
+					const Segment& item = activeCandidates[i];
+					auto curveMinEnd = intersectOrtho(*item.originalBezier, newMajor, major);
+					auto splitCurveMin = splitCurveRange(*item.originalBezier, item.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+
+					drawDebugBezier(splitCurveMin, (i == candidatesSize - 1) ? float32_t4(0.0, 0.0, 1.0, 1.0) : float32_t4(1.0, 0.0, 0.0, 1.0));
+					if (i == candidatesSize - 1)
+					{
+						printf(std::format("problematic guy: ({}, {}), ({}, {}), ({}, {})",
+							splitCurveMin.P0.x, splitCurveMin.P0.y,
+							splitCurveMin.P1.x, splitCurveMin.P1.y,
+							splitCurveMin.P2.x, splitCurveMin.P2.y
+						).c_str());
+					}
+				}
+			}
+#endif
             for (auto i=0u; i< (candidatesSize / 2) * 2;)
             {
                 const Segment& left = activeCandidates[i++];
@@ -798,6 +818,17 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				{
 					drawDebugBezier(splitCurveMin, float64_t4(1.0, 0.0, 0.0, 1.0));
 					drawDebugBezier(splitCurveMax, float64_t4(0.0, 1.0, 0.0, 1.0));
+
+					printf(std::format("AABB min: {}, {} max: {}, {} curve min: ({}, {}), ({}, {}), ({}, {}) curve max ({}, {}), ({}, {}), ({}, {})\n",
+						curveBox.aabbMin.x, curveBox.aabbMin.y, curveBox.aabbMax.x, curveBox.aabbMax.y,
+
+						splitCurveMin.P0.x, splitCurveMin.P0.y,
+						splitCurveMin.P1.x, splitCurveMin.P1.y,
+						splitCurveMin.P2.x, splitCurveMin.P2.y,
+						splitCurveMax.P0.x, splitCurveMax.P0.y,
+						splitCurveMax.P1.x, splitCurveMax.P1.y,
+						splitCurveMax.P2.x, splitCurveMax.P2.y
+					).c_str());
 				}
 #endif
 
@@ -1001,9 +1032,9 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 	auto t = -a * rcp;
 	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return true;
 	out = { splitCurveTakeLower(bezier, t), splitCurveTakeUpper(bezier, t) };
-	std::array<Hatch::QuadraticBezier, 2> tmp;
-	splitIntoMajorMonotonicSegments(out[0], tmp);
-	splitIntoMajorMonotonicSegments(out[1], tmp);
+	// std::array<Hatch::QuadraticBezier, 2> tmp;
+	// splitIntoMajorMonotonicSegments(out[0], tmp);
+	// splitIntoMajorMonotonicSegments(out[1], tmp);
 	return false;
 }
 

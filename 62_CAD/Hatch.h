@@ -78,6 +78,7 @@ public:
 	const CurveHatchBox& getHatchBox(uint32_t idx) const { return hatchBoxes[idx]; }
 	uint32_t getHatchBoxCount() const { return hatchBoxes.size(); }
 
+	std::vector<uint32_t> intersectionAmounts;
 private:
 	std::vector<CurveHatchBox> hatchBoxes;
 };
