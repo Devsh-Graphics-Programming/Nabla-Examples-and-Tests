@@ -21,12 +21,6 @@ vec3 unpack_barycentrics(in uint data)
 	return vec3(firstTwo.x,firstTwo.y,1.f-firstTwo.x-firstTwo.y);
 }
 
-vec2 viewToUV(vec3 view) {
-	float sinth = sqrt(1.0-view.y*view.y);
-	vec2 uv = vec2(acos(view.y) / nbl_glsl_PI, (atan(view.z / sinth, view.x / sinth) + nbl_glsl_PI) / (2.0*nbl_glsl_PI)) ;
-	return uv;
-}
-
 void main()
 {
 	clear_raycount();
@@ -82,8 +76,7 @@ void main()
 			// does this buy us any precision? (answer run CI!)
 			//normalizedV = normalize(pc.cummon.viewDirReconFactors[3]-origin);
 
-			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material, viewToUV(normalizedN), mat2(1.0));
-
+			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material, normalizedV);
 			// little optimization for non-twosided materials
 			if (material.genchoice_count!=0u)
 			{			

@@ -16,9 +16,11 @@ float plot(float cand, float pct, float bold){
           smoothstep( pct, pct+0.005*bold, cand);
 }
 
+// vertical cut of IES (i.e. cut by plane x = 0)
 float f(vec2 uv) {
-    float angle = (atan(-uv.y/abs(uv.x)) + M_PI/2.0)/(M_PI);
-    return texture(tex0,vec2(angle,0.5)).x;
+    float vangle = (abs(atan(uv.x,uv.y)))/(M_PI);
+    float hangle = uv.x <= 0.0 ? 0.0 : 1.0;
+    return texture(tex0,vec2(hangle,vangle)).x;
 }
 
 void main()
