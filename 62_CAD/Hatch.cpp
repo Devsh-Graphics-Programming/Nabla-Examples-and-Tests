@@ -771,7 +771,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
 			//std::cout << "Candidates size: " << candidatesSize << "\n";
             // because n4ce works on loops, this must be true
-            // assert((candidatesSize % 2u)==0u);
+            _NBL_DEBUG_BREAK_IF((candidatesSize % 2u)!=0u); // input polyline/polygon does not meet requirements to construct and XOR hatch
 #ifdef DEBUG_HATCH_VISUALLY
 			if (candidatesSize % 2u == 1u)
 			{
@@ -1029,6 +1029,9 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 	auto major = (uint)SelectedMajorAxis;
 	auto a = quadratic.A[major];
 	auto b = quadratic.B[major];
+
+	// ?!TODO: If P0[major] == P1[major] with some ??? threshold then t==0.0 and we don't split
+	// ?!TODO: If P2[major] == P1[major] with some ??? threshold then t==1.0 and we don't split
 
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto t = -b / (2.0 * a);

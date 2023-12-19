@@ -2019,13 +2019,14 @@ public:
 			if (hatchDebugStep > 0)
 			{
 #include "bike_hatch.h"
-				//for (uint32_t i = 0; i < polylines.size(); i++)
-				//{
-				//	CPULineStyle lineStyle = {};
-				//	lineStyle.screenSpaceLineWidth = 1.0;
-				//	lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
-				//	intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-				//}
+				for (uint32_t i = 0; i < polylines.size(); i++)
+				{
+					CPULineStyle lineStyle = {};
+					lineStyle.screenSpaceLineWidth = 1.0;
+					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
+					assert(polylines[i].checkSectionsContunuity());
+					intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				}
 				printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
