@@ -207,26 +207,16 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool addToPreviousLineSectionIfAvailable = false)
+	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool forceConnectToLastSection = true)
 	{
 		if (linePoints.size() <= 1u)
 			return;
 
-		const bool previousSectionIsLine = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::LINE;
-		const bool alwaysAddNewSection = !addToPreviousLineSectionIfAvailable;
-		const bool addNewSection = alwaysAddNewSection || !previousSectionIsLine;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::LINE;
-			newSection.index = static_cast<uint32_t>(m_linePoints.size());
-			newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(linePoints.size());
-		}
+		SectionInfo newSection = {};
+		newSection.type = ObjectType::LINE;
+		newSection.index = static_cast<uint32_t>(m_linePoints.size());
+		newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
+		m_sections.push_back(newSection);
 
 		const uint32_t oldLinePointSize = m_linePoints.size();
 		const uint32_t newLinePointSize = oldLinePointSize + linePoints.size();
@@ -234,6 +224,12 @@ public:
 		for (uint32_t i = 0u; i < linePoints.size(); i++)
 		{
 			m_linePoints[oldLinePointSize + i].p = linePoints[i];
+		}
+
+		if (forceConnectToLastSection && m_sections.size() >= 2u)
+		{
+			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
+			m_linePoints[oldLinePointSize].p = prevPoint; // or we can average?
 		}
 	}
 
@@ -243,23 +239,16 @@ public:
 	}
 
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool addToPreviousSectionIfAvailable = false)
+	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = true)
 	{
-		const bool previousSectionIsBezier = m_sections.size() > 0u && m_sections[m_sections.size() - 1u].type == ObjectType::QUAD_BEZIER;
-		const bool alwaysAddNewSection = !addToPreviousSectionIfAvailable;
-		bool addNewSection = alwaysAddNewSection || !previousSectionIsBezier;
-		if (addNewSection)
-		{
-			SectionInfo newSection = {};
-			newSection.type = ObjectType::QUAD_BEZIER;
-			newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
-			newSection.count = static_cast<uint32_t>(quadBeziers.size());
-			m_sections.push_back(newSection);
-		}
-		else
-		{
-			m_sections[m_sections.size() - 1u].count += static_cast<uint32_t>(quadBeziers.size());
-		}
+		if (quadBeziers.empty())
+			return;
+
+		SectionInfo newSection = {};
+		newSection.type = ObjectType::QUAD_BEZIER;
+		newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
+		newSection.count = static_cast<uint32_t>(quadBeziers.size());
+		m_sections.push_back(newSection);
 
 
 		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
@@ -270,6 +259,12 @@ public:
 		{
 			const uint32_t currBezierIdx = oldQuadBezierSize + i;
 			m_quadBeziers[currBezierIdx].shape = quadBeziers[i];
+		}
+
+		if (forceConnectToLastSection && m_sections.size() >= 2u)
+		{
+			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
+			m_quadBeziers[oldQuadBezierSize].shape.P0 = prevPoint; // or we can average?
 		}
 	}
 

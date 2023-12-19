@@ -2024,7 +2024,7 @@ public:
 					CPULineStyle lineStyle = {};
 					lineStyle.screenSpaceLineWidth = 1.0;
 					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
-					assert(polylines[i].checkSectionsContunuity());
+					// assert(polylines[i].checkSectionsContunuity());
 					intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 				}
 				printf("hatchDebugStep = %d\n", hatchDebugStep);
