@@ -434,11 +434,11 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				auto addBezier = [&](QuadraticBezier bezier)
 				{
 					auto outputBezier = bezier;
-					if (outputBezier.evaluate(0.0)[major] > outputBezier.evaluate(1.0)[major])
+					if (outputBezier.P0[major] > outputBezier.P2[major])
 					{
 						outputBezier.P2 = bezier.P0;
 						outputBezier.P0 = bezier.P2;
-						assert(outputBezier.evaluate(0.0)[major] <= outputBezier.evaluate(1.0)[major]);
+						assert(outputBezier.P0[major] <= outputBezier.P2[major]);
 					}
 
 #ifdef DEBUG_HATCH_VISUALLY
@@ -568,11 +568,12 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		{
 			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
+			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
 			auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
 			auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
 
-			float64_t2 lTan = 2.0 * lhsQuadratic.A * lhs.t_start + float64_t2(lhsQuadratic.B.x, max(lhsQuadratic.B.y, 0.0));
-			float64_t2 rTan = 2.0 * rhsQuadratic.A * rhs.t_start + float64_t2(rhsQuadratic.B.x, max(rhsQuadratic.B.y, 0.0));
+			float64_t2 lTan = tangent(*lhs.originalBezier, lhs.t_start);
+			float64_t2 rTan = tangent(*rhs.originalBezier, rhs.t_start);
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 #ifdef DEBUG_HATCH_VISUALLY
@@ -770,7 +771,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
 			//std::cout << "Candidates size: " << candidatesSize << "\n";
             // because n4ce works on loops, this must be true
-            //assert((candidatesSize % 2u)==0u);
+            // assert((candidatesSize % 2u)==0u);
 #ifdef DEBUG_HATCH_VISUALLY
 			if (candidatesSize % 2u == 1u)
 			{
@@ -1022,15 +1023,16 @@ Hatch::QuadraticBezier Hatch::splitCurveTakeUpper(const QuadraticBezier& bezier,
 
 bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<Hatch::QuadraticBezier, 2>& out)
 {
+	auto quadratic = QuadraticEquation::constructFromBezier(bezier);
+
 	// Getting derivatives for our quadratic bezier
 	auto major = (uint)SelectedMajorAxis;
-	auto a = 2.0 * (bezier.P1[major] - bezier.P0[major]);
-	auto b = 2.0 * (bezier.P2[major] - bezier.P1[major]);
+	auto a = quadratic.A[major];
+	auto b = quadratic.B[major];
 
 	// Finding roots for the quadratic bezier derivatives (a straight line)
-	auto rcp = 1.0 / (b - a);
-	auto t = -a * rcp;
-	if (isinf(rcp) || t <= 0.0 || t >= 1.0) return true;
+	auto t = -b / (2.0 * a);
+	if (t <= 0.0 || t >= 1.0) return true;
 	out = { splitCurveTakeLower(bezier, t), splitCurveTakeUpper(bezier, t) };
 	// std::array<Hatch::QuadraticBezier, 2> tmp;
 	// splitIntoMajorMonotonicSegments(out[0], tmp);
