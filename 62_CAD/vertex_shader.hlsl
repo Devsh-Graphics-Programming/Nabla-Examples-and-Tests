@@ -328,6 +328,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin * (1.0 - maxCorner) + curveBox.aabbMax * maxCorner);  // lerp has no overload for double
         outV.position = float4(coord, 0.f, 1.f);
         
+        // TODO(Erfan): Remove these and do this in precomputation stage to prune small objects and curve boxes
         // If the height of the AABB are smaller than a pixel could be (even after it is dilated for antialiasing),
         // discard it
         // (Writing NaN on VS will discard it)
