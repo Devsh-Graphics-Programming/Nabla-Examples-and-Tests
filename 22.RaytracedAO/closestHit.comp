@@ -72,7 +72,7 @@ void main()
 			// positions
 			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
 
-			const bool frontfacing = bool((batchInstanceData.determinantSignBit^floatBitsToUint(dot(normalizedV,geomNormal)))&0x80000000u);
+			const bool frontfacing = bool((batchInstanceData.determinantSignBit^floatBitsToUint(dot(normalizedV,normalizedG)))&0x80000000u);
 							
 			// get material
 			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
