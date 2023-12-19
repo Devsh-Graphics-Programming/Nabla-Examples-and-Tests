@@ -207,7 +207,7 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool forceConnectToLastSection = true)
+	void addLinePoints(const core::SRange<float64_t2>& linePoints, bool forceConnectToLastSection = false)
 	{
 		if (linePoints.size() <= 1u)
 			return;
@@ -229,7 +229,7 @@ public:
 		if (forceConnectToLastSection && m_sections.size() >= 2u)
 		{
 			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
-			m_linePoints[oldLinePointSize].p = prevPoint; // or we can average?
+			m_linePoints[oldLinePointSize].p = prevPoint;
 		}
 	}
 
@@ -239,7 +239,7 @@ public:
 	}
 
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = true)
+	void addQuadBeziers(const core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = false)
 	{
 		if (quadBeziers.empty())
 			return;
