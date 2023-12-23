@@ -127,6 +127,12 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family capable of compute
 			assert(m_computeQueue.famIx!=QueueAllocator::InvalidIndex);
 
+			// First thing to make sure we have is a compute queue (so nothing else fails allocation) which should be able to do image transfers of any granularity (transfer only queue families can have problems with that)
+			queue_req_t graphicsQueueRequirement = { .requiredFlags = queue_flags_t::EQF_GRAPHICS_BIT,.disallowedFlags = queue_flags_t::EQF_NONE,.queueCount = 1 };
+			m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement, { queue_flags_t::EQF_NONE });
+			assert(m_graphicsQueue.famIx != QueueAllocator::InvalidIndex);
+			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family capable of compute
+
 			// We'll try to allocate the transfer queues from families that support the least extra bits (most importantly not graphics and not compute)
 			{
 				constexpr queue_req_t TransferQueueRequirement = {.requiredFlags=queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1};
@@ -153,12 +159,14 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT});
 				// assign queue index within family now
 				m_computeQueue.qIx = familyQueueCounts[m_computeQueue.famIx]++;
+				m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
 				// now alias the queue
 				m_transferUpQueue = m_computeQueue;
 			}
 			else // otherwise assign queue indices
 			{
 				m_computeQueue.qIx = familyQueueCounts[m_computeQueue.famIx]++;
+				m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
 				m_transferUpQueue.qIx = familyQueueCounts[m_transferUpQueue.famIx]++;
 			}
 			// since we assign first, the compute queue should have the first index within the family
