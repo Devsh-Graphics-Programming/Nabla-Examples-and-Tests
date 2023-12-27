@@ -37,11 +37,12 @@ public:
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		// Remember to call the base class initialization!
-		if (!device_base_t::onAppInitialized(std::move(system)))
+		if (!device_base_t::onAppInitialized(core::smart_refctd_ptr(system)))
 			return false;
-		if (!asset_base_t::onAppInitialized(std::move(system)))
+		if (!asset_base_t::onAppInitialized(core::smart_refctd_ptr(system)))
 			return false;
 
+		// Requesting queue with graphics and transfer capabilities. Transfer capablility will be needed for image to buffer copy operation.
 		IGPUQueue* const queue = getQueue(IPhysicalDevice::E_QUEUE_FLAGS::EQF_GRAPHICS_BIT | IPhysicalDevice::E_QUEUE_FLAGS::EQF_TRANSFER_BIT);
 
 		constexpr VkExtent2D bigImgExtent = { 512u, 512u };
@@ -58,10 +59,6 @@ public:
 		const size_t smallImgByteSize = smallImg->getImageDataSizeInBytes();
 
 		// Create a buffer large enough to back the output 256^2 image, blited image will be saved to this buffer.
-
-		// A `nbl::video::DeviceMemoryAllocator` is an interface to implement anything that can dish out free memory range to bind to back a `nbl::video::IGPUBuffer` or a `nbl::video::IGPUImage`
-		// The Logical Device itself implements the interface and behaves as the most simple allocator, it will create a new `nbl::video::IDeviceMemoryAllocation` every single time.
-		// We will cover allocators and suballocation in a later example.
 		nbl::video::IDeviceMemoryAllocator::SMemoryOffset outputBufferAllocation = {};
 		smart_refctd_ptr<IGPUBuffer> outputImageBuffer = nullptr;
 		{
@@ -80,18 +77,10 @@ public:
 			// you can simply constrain the memory requirements by AND-ing the type bits of the host visible memory types
 			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-			// There are actually two `allocate` overloads, one which allocates memory if you already know the type you want.
-			// And this one which is a utility which tries to allocate from every type that matches your requirements in some order of preference.
-			// The other of preference (iteration over compatible types) can be controlled by the method's template parameter,
-			// the default is from lowest index to highest, but skipping over incompatible types.
 			outputBufferAllocation = m_device->allocate(reqs, outputImageBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
 			if (!outputBufferAllocation.isValid())
 				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
-			// Note that we performed a Dedicated Allocation above, so there's no need to bind the memory anymore (since the allocator knows the dedication, it can already bind).
-			// This is a carryover from having an OpenGL backend, where you couldn't have a memory allocation separate from the resource, so all allocations had to be "dedicated".
-			// In Vulkan dedicated allocations are the most performant and still make sense as long as you won't blow the 4096 allocation limit on windows.
-			// You should always use dedicated allocations for images used for swapchains, framebuffer attachments (esp transient), as well as objects used in CUDA/DirectX interop.
 			assert(outputImageBuffer->getBoundMemory() == outputBufferAllocation.memory.get());
 		}
 
@@ -150,10 +139,21 @@ public:
 		imgLayoutTransitionBarrier.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
 		imgLayoutTransitionBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
 
-		IGPUCommandBuffer::SImageMemoryBarrier imgClearBarrier = constructDefaultInitializedImageBarrier();
-		imgClearBarrier.oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
-		imgClearBarrier.barrier.srcAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
+		auto generateNextBarrier = [](
+			const IGPUCommandBuffer::SImageMemoryBarrier& prevoiusBarrier,
+			IImage::E_LAYOUT newLayout,
+			asset::E_ACCESS_FLAGS dstAccessMast) -> IGPUCommandBuffer::SImageMemoryBarrier
+			{
+				IGPUCommandBuffer::SImageMemoryBarrier ret = prevoiusBarrier;
+				ret.oldLayout = prevoiusBarrier.newLayout;
+				ret.newLayout = newLayout;
+				ret.barrier.srcAccessMask = prevoiusBarrier.barrier.dstAccessMask;
+				ret.barrier.dstAccessMask = dstAccessMast;
 
+				return ret;
+			};
+
+		// Using `float32` union member since format of used images is E_FORMAT::EF_R8G8B8A8_SRGB.
 		constexpr SClearColorValue red = { .float32{1.0f, 0.0f, 0.0f, 1.0f} };
 		constexpr SClearColorValue blue = { .float32{0.0f, 0.0f, 1.0f, 1.0f} };
 
@@ -164,82 +164,49 @@ public:
 
 		// In order to use images, we need to change their layout from asset::IImage::EL_UNDEFINED.
 		// Here it is done with use of barriers.
-		IGPUCommandBuffer::SImageMemoryBarrier bigImgLayoutTransitionBarrier = imgLayoutTransitionBarrier;
-		bigImgLayoutTransitionBarrier.image = bigImg;
-
-		IGPUCommandBuffer::SImageMemoryBarrier smallImgLayoutTransitionBarrier = imgLayoutTransitionBarrier;
-		smallImgLayoutTransitionBarrier.image = smallImg;
+		std::array<IGPUCommandBuffer::SImageMemoryBarrier, 2u> imgLayoutTransitionBarriers = {
+			imgLayoutTransitionBarrier,
+			imgLayoutTransitionBarrier
+		};
+		imgLayoutTransitionBarriers[0].image = bigImg;
+		imgLayoutTransitionBarriers[1].image = smallImg;
 
 		// Transit layouts of both images.
 		cmdbuf->pipelineBarrier(
 			E_PIPELINE_STAGE_FLAGS::EPSF_HOST_BIT | E_PIPELINE_STAGE_FLAGS::EPSF_ALL_COMMANDS_BIT,
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u,
-			&bigImgLayoutTransitionBarrier
-		);
-
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_HOST_BIT | E_PIPELINE_STAGE_FLAGS::EPSF_ALL_COMMANDS_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u,
-			&smallImgLayoutTransitionBarrier
+			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 2u,
+			imgLayoutTransitionBarriers.data()
 		);
 
 		// Clear the image to a given colour.
-
 		auto subResourceRange = constructDefaultInitializedSubresourceRange();
 		cmdbuf->clearColorImage(bigImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, &red, 1u, &subResourceRange);
 		cmdbuf->clearColorImage(smallImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, &blue, 1u, &subResourceRange);
 
-		IGPUCommandBuffer::SImageMemoryBarrier bigImgClearBarrier = imgClearBarrier;
-		bigImgClearBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
-		bigImgClearBarrier.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
-		bigImgClearBarrier.image = bigImg;
-
-		IGPUCommandBuffer::SImageMemoryBarrier smallImgClearBarrier = imgClearBarrier;
-		smallImgClearBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT;
-		smallImgClearBarrier.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
-		smallImgClearBarrier.image = smallImg;
+		std::array<IGPUCommandBuffer::SImageMemoryBarrier, 2u> imgClearBarriers = {
+			generateNextBarrier(imgLayoutTransitionBarriers[0], IImage::EL_TRANSFER_DST_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT),
+			generateNextBarrier(imgLayoutTransitionBarriers[1], IImage::EL_TRANSFER_SRC_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT)
+		};
 
 		cmdbuf->pipelineBarrier(
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &bigImgClearBarrier
-		);
-
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &smallImgClearBarrier
+			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 2u, imgClearBarriers.data()
 		);
 
 		// Now blit the smallImg into the center of the bigImg.
 		cmdbuf->blitImage(smallImg.get(), IImage::E_LAYOUT::EL_TRANSFER_SRC_OPTIMAL, bigImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, 1u, &firstImgBlit, ISampler::E_TEXTURE_FILTER::ETF_NEAREST);
 
-		IGPUCommandBuffer::SImageMemoryBarrier bigImgBlitBarrier = constructDefaultInitializedImageBarrier();
-		bigImgBlitBarrier.barrier.srcAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
-		bigImgBlitBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT;
-		bigImgBlitBarrier.oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
-		bigImgBlitBarrier.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
-		bigImgBlitBarrier.image = bigImg;
-
-		IGPUCommandBuffer::SImageMemoryBarrier smallImgBlitBarrier = constructDefaultInitializedImageBarrier();
-		smallImgBlitBarrier.barrier.srcAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT;
-		smallImgBlitBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
-		smallImgBlitBarrier.oldLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
-		smallImgBlitBarrier.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
-		smallImgBlitBarrier.image = smallImg;
+		std::array<IGPUCommandBuffer::SImageMemoryBarrier, 2u> imgBlitBarriers = {
+			generateNextBarrier(imgClearBarriers[0], IImage::EL_TRANSFER_SRC_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT),
+			generateNextBarrier(imgClearBarriers[1], IImage::EL_TRANSFER_DST_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT)
+		};
 
 		cmdbuf->pipelineBarrier(
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &bigImgBlitBarrier
-		);
-
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &smallImgBlitBarrier
+			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 2u, imgBlitBarriers.data()
 		);
 
 		// Blit whole bigImage into the smallImage, force downsampling with linear filtering.
@@ -288,12 +255,16 @@ public:
 		{
 			params.image = ICPUImage::create(ouputImageCreationParams);
 			{
-				auto cpuView = core::make_smart_refctd_ptr<CDummyCPUBuffer>(smallImgByteSize, imageBufferMemPtr, core::adopt_memory_t());
+				// CDummyCPUBuffer is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
+				// or taking over the memory ownership. CDummyCPUBuffer cannot free its memory.
+				auto cpuOutputImageBuffer = core::make_smart_refctd_ptr<CDummyCPUBuffer>(smallImgByteSize, imageBufferMemPtr, core::adopt_memory_t());
 				ICPUImage::SBufferCopy region = {};
 				region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 				region.imageSubresource.layerCount = 1;
 				region.imageExtent = ouputImageCreationParams.extent;
-				params.image->setBufferAndRegions(std::move(cpuView),core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1,region));
+
+				// 
+				params.image->setBufferAndRegions(std::move(cpuOutputImageBuffer),core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1,region));
 			}
 			// Only DDS and KTX support exporting layered views.
 			params.viewType = ICPUImageView::ET_2D;
@@ -305,6 +276,8 @@ public:
 		asset::IAssetWriter::SAssetWriteParams writeParams(cpuImageView.get());
 		m_assetMgr->writeAsset("blit.png", writeParams);
 
+		// Even if you forgot to unmap, it would unmap itself when `outputBufferAllocation.memory` 
+		// gets dropped by its last reference and its destructor runs.
 		m_device->unmapMemory(outputBufferAllocation.memory.get());
 
 		return true;
@@ -320,7 +293,7 @@ protected:
 	core::vector<queue_req_t> getQueueRequirements() const override
 	{
 		using flags_t = IPhysicalDevice::E_QUEUE_FLAGS;
-		return {{.requiredFlags=flags_t::EQF_GRAPHICS_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}}};
+		return {{.requiredFlags=flags_t::EQF_GRAPHICS_BIT|flags_t::EQF_TRANSFER_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}}};
 	}
 
 private:
@@ -349,13 +322,6 @@ private:
 
 	IGPUCommandBuffer::SImageMemoryBarrier constructDefaultInitializedImageBarrier() const
 	{
-		IImage::SSubresourceRange imgSubresourceRange{};
-		imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-		imgSubresourceRange.baseMipLevel = 0u;
-		imgSubresourceRange.levelCount = 1u;
-		imgSubresourceRange.baseArrayLayer = 0u;
-		imgSubresourceRange.layerCount = 1u;
-
 		IGPUCommandBuffer::SImageMemoryBarrier res;
 		res.barrier.srcAccessMask = E_ACCESS_FLAGS::EAF_NONE;
 		res.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_NONE;
