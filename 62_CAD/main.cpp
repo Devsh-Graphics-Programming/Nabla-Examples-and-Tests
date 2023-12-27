@@ -33,23 +33,6 @@ typedef uint32_t uint;
 
 using namespace nbl::hlsl;
 
-bool operator==(const LineStyle& lhs, const LineStyle& rhs)
-{
-	const bool areParametersEqual =
-		lhs.color == rhs.color &&
-		lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
-		lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
-		lhs.stipplePatternSize == rhs.stipplePatternSize &&
-		lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen;
-
-	if (!areParametersEqual)
-		return false;
-
-	const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize) : true;
-
-	return isStipplePatternArrayEqual;
-}
-
 using namespace nbl;
 using namespace ui;
 

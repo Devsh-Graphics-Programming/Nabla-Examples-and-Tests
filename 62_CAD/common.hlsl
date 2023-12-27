@@ -153,6 +153,25 @@ struct LineStyle
     }
 };
 
+#ifdef __cplusplus
+bool operator==(const LineStyle& lhs, const LineStyle& rhs)
+{
+    const bool areParametersEqual =
+        lhs.color == rhs.color &&
+        lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+        lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
+        lhs.stipplePatternSize == rhs.stipplePatternSize &&
+        lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen;
+
+    if (!areParametersEqual)
+        return false;
+
+    const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize) : true;
+
+    return isStipplePatternArrayEqual;
+}
+#endif
+
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
