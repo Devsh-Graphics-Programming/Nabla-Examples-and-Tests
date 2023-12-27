@@ -38,9 +38,9 @@ double2 transformPointNdc(float64_t3x3 transformation, double2 point2d)
 {
     return mul(transformation, float64_t3(point2d, 1)).xy;
 }
-double2 transformVectorNdc(float64_t3x3 transformation, double2 vector3d)
+double2 transformVectorNdc(float64_t3x3 transformation, double2 vector2d)
 {
-    return mul(transformation, float64_t3(vector3d, 0)).xy;
+    return mul(transformation, float64_t3(vector2d, 0)).xy;
 }
 float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d) 
 {
@@ -65,7 +65,6 @@ PSInput main(uint vertexID : SV_VertexID)
 
     // Default Initialize PS Input
     outV.position.z = 0.0;
-    outV.data0 = float4(0, 0, 0, 0);
     outV.data1 = uint4(0, 0, 0, 0);
     outV.data2 = float4(0, 0, 0, 0);
     outV.data3 = float4(0, 0, 0, 0);
@@ -83,7 +82,6 @@ PSInput main(uint vertexID : SV_VertexID)
 
     if (objType == ObjectType::LINE)
     {
-        outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
         const double3x3 transformation = clipProjectionData.projectionToNDC;
@@ -126,7 +124,6 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::QUAD_BEZIER)
     {
-        outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
         double2 points[3u];
@@ -297,7 +294,6 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::CURVE_BOX)
     {
-        outV.setColor(lineStyle.color);
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
 
         CurveBox curveBox;
@@ -309,10 +305,30 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<uint32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * (3 + i), 4u);
         }
 
-        const float2 ndcAabbExtents = float2(
-            length((float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin)),
-            length((float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin))
-        );
+        // TODO: better name?
+        const float2 ndcBoxAxisX = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
+        const float2 ndcBoxAxisY = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
+
+        const float2 ndcAabbExtents = float2(length(ndcBoxAxisX), length(ndcBoxAxisY));
+        const float2 screenSpaceAabbExtents = float2(length(ndcBoxAxisX * float2(globals.resolution)), length(ndcBoxAxisY * float2(globals.resolution)));
+
+        // we could use something like  this to compute screen space change over minor/major change and avoid ddx(minor), ddy(major) in frag shader (the code below doesn't account for rotation)
+        outV.setCurveBoxScreenSpaceSize(screenSpaceAabbExtents);
+
+        // TODO(Erfan): FIX: make the subpixel curve boxes be 1 pixel in compute shader stage (TODO: also account for rotation?)
+        // but idk after large zooms the whole complete hatch should disappear, but I don't want parts of the hatch to disappear before others makes the box discontinous in large zooms
+        //ndcAabbExtents.x = max(ndcAabbExtents.x, 1.0 / float(globals.resolution.x));
+        //ndcAabbExtents.y = max(ndcAabbExtents.y, 1.0 / float(globals.resolution.y));
+        // If the height of the AABB are smaller than a pixel could be (even after it is dilated for antialiasing),
+        // discard it
+        // (Writing NaN on VS will discard it)e
+        if (ndcAabbExtents.y * globals.resolution.y < 0.5)
+        {
+            // outV.position = 0.0 / 0.0;
+            outV.clip = float4(-1.0, -1.0, -1.0, -1.0);
+            return outV;
+        }
+
         // Max corner stores the quad's UVs:
         // (0,1)|--|(1,1)
         //      |  |
@@ -324,19 +340,10 @@ PSInput main(uint vertexID : SV_VertexID)
         // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
         const float2 dilatedAabbExtents = ndcAabbExtents + 2.0 * ((globals.antiAliasingFactor + 1.0) / float2(globals.resolution));
         // Dilate the UVs
-        const float2 maxCorner = ((((undilatedMaxCorner - 0.5) * 2.0 * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
+        const float2 maxCorner = ((((undilatedMaxCorner * 2.0 - 1.0) * dilatedAabbExtents) / ndcAabbExtents) + 1.0) * 0.5;
         const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin * (1.0 - maxCorner) + curveBox.aabbMax * maxCorner);  // lerp has no overload for double
         outV.position = float4(coord, 0.f, 1.f);
-        
-        // TODO(Erfan): Remove these and do this in precomputation stage to prune small objects and curve boxes
-        // If the height of the AABB are smaller than a pixel could be (even after it is dilated for antialiasing),
-        // discard it
-        // (Writing NaN on VS will discard it)
-        if (ndcAabbExtents.y < 1.0 / ((globals.antiAliasingFactor + 1.0) * float(globals.resolution.y))) 
-        {
-            outV.position = 0.0 / 0.0;
-        }
-
+ 
         const uint major = (uint)SelectedMajorAxis;
         const uint minor = 1-major;
 
@@ -386,7 +393,6 @@ PSInput main(uint vertexID : SV_VertexID)
 
         if (lineStyle.isRoadStyleFlag)
         {
-            outV.setColor(lineStyle.color);
             const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
             outV.setLineThickness(sdfLineThickness);
                 

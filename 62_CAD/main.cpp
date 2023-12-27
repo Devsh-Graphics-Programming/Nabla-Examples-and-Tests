@@ -13,7 +13,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -115,19 +115,19 @@ public:
 
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_W)
 			{
-				m_origin.y += 2;
+				m_origin.y += m_bounds.y / 100.0;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_A)
 			{
-				m_origin.x -= 2;
+				m_origin.x -= m_bounds.x / 100.0;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_S)
 			{
-				m_origin.y -= 2;
+				m_origin.y -= m_bounds.y / 100.0;
 			}
 			if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_D)
 			{
-				m_origin.x += 2;
+				m_origin.x += m_bounds.x / 100.0;
 			}
 		}
 	}
@@ -2022,26 +2022,26 @@ public:
 				for (uint32_t i = 0; i < polylines.size(); i++)
 				{
 					CPULineStyle lineStyle = {};
-					lineStyle.screenSpaceLineWidth = 1.0;
-					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 1.0);
+					lineStyle.screenSpaceLineWidth = 5.0;
+					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 0.2);
 					// assert(polylines[i].checkSectionsContunuity());
-					intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+					//intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 				}
-				printf("hatchDebugStep = %d\n", hatchDebugStep);
+				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
 				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
-				std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
+				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
 				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
 
 				auto percentile = [&](float percentile)
 					{
 						return hatch.intersectionAmounts[uint32_t(round(percentile * float(hatch.intersectionAmounts.size() - 1)))];
 					};
-				printf(std::format(
-					"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
-					percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
-				).c_str());
+				//printf(std::format(
+				//	"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
+				//	percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
+				//).c_str());
 				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 
@@ -2118,20 +2118,12 @@ public:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				for (auto polyline = polylines.begin(); polyline != polylines.end(); polyline++)
-				{
-					CPULineStyle style2 = {};
-					style2.screenSpaceLineWidth = 1.0f;
-					style2.worldSpaceLineWidth = 0.0f;
-					style2.color = float32_t4(0.0, 0.0, 0.0, 1.0);
-					debug(*polyline, style2);
-				}
-
 				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
 				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
-			 if (hatchDebugStep > 0)
-			 {
+
+			if (hatchDebugStep > 0)
+			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
 					std::vector<float64_t2> points = {
@@ -2168,6 +2160,7 @@ public:
 					polyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
 				}
 			}
+
 			if (hatchDebugStep > 0)
 			{
 				std::vector <CPolyline> polylines;

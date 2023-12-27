@@ -5,7 +5,7 @@
 #include <tgmath.h>
 #include <boost/math/tools/polynomial.hpp>
 
-#define DEBUG_HATCH_VISUALLY
+// #define DEBUG_HATCH_VISUALLY
 
 using std::complex;
 using boost::math::tools::polynomial;
@@ -760,7 +760,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
             //std::cout << "End event at " << newMajor << "\n";
         }
         // spawn quads for the previous iterations if we advanced
-		printf(std::format("New major: {} Last major: {}\n", newMajor, lastMajor).c_str());
+		// printf(std::format("New major: {} Last major: {}\n", newMajor, lastMajor).c_str());
         if (newMajor > lastMajor) 
         {
 #ifdef DEBUG_HATCH_VISUALLY

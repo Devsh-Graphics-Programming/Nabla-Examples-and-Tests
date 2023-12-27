@@ -252,31 +252,25 @@ struct PSInput
 {
     float4 position : SV_Position;
     float4 clip : SV_ClipDistance;
-    [[vk::location(0)]] float4 data0 : COLOR;
-    [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
-    [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
-    [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
-    [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
+    [[vk::location(0)]] nointerpolation uint4 data1 : COLOR1;
+    [[vk::location(1)]] nointerpolation float4 data2 : COLOR2;
+    [[vk::location(2)]] nointerpolation float4 data3 : COLOR3;
+    [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
-
-        // ArcLenCalculator<float>
+    // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
-    // data0
-    void setColor(in float4 color) { data0 = color; }
-    float4 getColor() { return data0; }
-    
     // data1 (w component reserved for later)
-    float getLineThickness() { return asfloat(data1.x); }
-    ObjectType getObjType() { return (ObjectType) data1.y; }
-    uint getMainObjectIdx() { return data1.z; }
+    ObjectType getObjType() { return (ObjectType) data1.x; }
+    uint getMainObjectIdx() { return data1.y; }
+    float getLineThickness() { return asfloat(data1.z); }
     
-    void setLineThickness(float lineThickness) { data1.x = asuint(lineThickness); }
-    void setObjType(ObjectType objType) { data1.y = (uint) objType; }
-    void setMainObjectIdx(uint mainObjIdx) { data1.z = mainObjIdx; }
+    void setObjType(ObjectType objType) { data1.x = (uint) objType; }
+    void setMainObjectIdx(uint mainObjIdx) { data1.y = mainObjIdx; }
+    void setLineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
     
     // data2
     float2 getLineStart() { return data2.xy; }
@@ -332,37 +326,14 @@ struct PSInput
         data3.w = bezier.c;
     }
 
-    // interp_data5, interp_data6    
-
     // Curve box value along minor & major axis
     float getMinorBBoxUv() { return interp_data5.x; };
     void setMinorBBoxUv(float minorBBoxUv) { interp_data5.x = minorBBoxUv; }
     float getMajorBBoxUv() { return interp_data5.y; };
     void setMajorBBoxUv(float majorBBoxUv) { interp_data5.y = majorBBoxUv; }
 
-    // A, B, C quadratic coefficients from the min & max curves,
-    // swizzled to the major cordinate and with the major UV coordinate subtracted
-    // These can be used to solve the quadratic equation
-    //
-    // a, b, c = curveMin.a,b,c()[major] - uv[major]
-
-    //PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
-    //    return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
-    //}
-    //PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
-    //    return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
-    //}
-
-    //void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-    //    data3.z = rootFinder.negB;
-    //    interp_data5.z = rootFinder.C2;
-    //    interp_data5.w = rootFinder.det;
-    //}
-    //void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-    //    data3.w = rootFinder.negB;
-    //    interp_data6.x = rootFinder.C2;
-    //    interp_data6.y = rootFinder.det;
-    //}
+    float2 getCurveBoxScreenSpaceSize() { return asfloat(data1.zw); }
+    void setCurveBoxScreenSpaceSize(float2 aabbSize) { data1.zw = asuint(aabbSize); }
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()
