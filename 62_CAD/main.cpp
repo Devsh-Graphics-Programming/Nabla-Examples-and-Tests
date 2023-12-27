@@ -13,7 +13,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -284,7 +284,7 @@ public:
 	
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	video::IGPUQueue::SSubmitInfo drawPolyline(
-		const CPolyline& polyline,
+		const CPolylineBase& polyline,
 		const CPULineStyle& cpuLineStyle,
 		const uint32_t clipProjectionIdx,
 		video::IGPUQueue* submissionQueue,
@@ -310,7 +310,7 @@ public:
 		video::IGPUQueue* submissionQueue,
 		video::IGPUFence* submissionFence,
 		video::IGPUQueue::SSubmitInfo intendedNextSubmit,
-		const CPolyline& polyline,
+		const CPolylineBase& polyline,
 		const uint32_t polylineMainObjIdx)
 	{
 		if (polylineMainObjIdx == InvalidMainObjectIdx)
@@ -683,7 +683,7 @@ protected:
 		return 0u;
 	};
 
-	void addPolylineObjects_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
+	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		if (section.type == ObjectType::LINE)
 			addLines_Internal(polyline, section, currentObjectInSection, mainObjIdx);
@@ -695,7 +695,7 @@ protected:
 
 	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a core::Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
 	// And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
-	void addPolylineConnectors_Internal(const CPolyline& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx)
+	void addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx)
 	{
 		const auto maxGeometryBufferConnectors = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(PolylineConnector);
 
@@ -740,7 +740,7 @@ protected:
 
 	// TODO[Przemek]: this function will change a little as you'll be copying LinePointInfos instead of double2's
 	// Make sure to test with small memory to trigger submitInBetween function when you run out of memory to see if your changes here didn't mess things up, ask Lucas for help if you're not sure on how to do this
-	void addLines_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
+	void addLines_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		assert(section.count >= 1u);
 		assert(section.type == ObjectType::LINE);
@@ -785,7 +785,7 @@ protected:
 		currentObjectInSection += objectsToUpload;
 	}
 
-	void addQuadBeziers_Internal(const CPolyline& polyline, const CPolyline::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
+	void addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 	{
 		constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
 		constexpr uint32_t IndicesPerQuadBezier = 6u * CagesPerQuadBezier;
@@ -1710,7 +1710,7 @@ public:
 		projectionToNDC = m_Camera.constructViewProjection();
 		
 		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0; // +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
@@ -2061,24 +2061,24 @@ public:
 					std::vector<nbl::hlsl::shapes::QuadraticBezier<float64_t>> beziers;
 
 					// new test case with messed up intersection
-					beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
-					beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
+					//beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
+					//beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
 
-					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
-					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
-					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+					//beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					//beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					//line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
 
-					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
-					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
-					line(float64_t2(30, 90), float64_t2(20, 90));
+					//beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
+					//beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
+					//line(float64_t2(30, 90), float64_t2(20, 90));
 
 					beziers.push_back({ float64_t2(26, 20), float64_t2(37.25, 29.15), float64_t2(34.9, 42.75), });
 					beziers.push_back({ float64_t2(26, 20), float64_t2(33.8, 26.35), float64_t2(15.72, 40.84), });
 					line(float64_t2(34.9, 42.75), float64_t2(15.72, 40.84));
 
-					beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
-					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
-					line(float64_t2(35, 0), float64_t2(10, 0));
+					//beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
+					//beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
+					//line(float64_t2(35, 0), float64_t2(10, 0));
 
 					polyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<float64_t>>(beziers.data(), beziers.data() + beziers.size()));
 

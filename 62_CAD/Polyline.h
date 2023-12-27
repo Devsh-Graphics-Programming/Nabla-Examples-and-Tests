@@ -156,12 +156,9 @@ static_assert(sizeof(Globals) == 128u);
 static_assert(sizeof(LineStyle) == 96u);
 static_assert(sizeof(ClipProjectionData) == 88u);
 
-// It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
-// This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
-class CPolyline
+class CPolylineBase
 {
 public:
-
 	// each section consists of multiple connected lines or multiple connected ellipses
 	struct SectionInfo
 	{
@@ -170,26 +167,56 @@ public:
 		uint32_t	count;
 	};
 
-	size_t getSectionsCount() const { return m_sections.size(); }
+	virtual size_t getSectionsCount() const = 0;
+	virtual const SectionInfo& getSectionInfoAt(const uint32_t idx) const = 0;
+	virtual const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const = 0;
+	virtual const LinePointInfo& getLinePointAt(const uint32_t idx) const = 0;
+	virtual core::SRange<const PolylineConnector> getConnectors() const = 0;
+	virtual bool checkSectionsContinuity() const = 0;
+};
 
-	const SectionInfo& getSectionInfoAt(const uint32_t idx) const
+// It is not optimized because how you feed a Polyline to our cad renderer is your choice. this is just for convenience
+// This is a Nabla Polyline used to feed to our CAD renderer. You can convert your Polyline to this class. or just use it directly.
+class CPolyline : public CPolylineBase
+{
+public:
+	size_t getSectionsCount() const override { return m_sections.size(); }
+
+	const SectionInfo& getSectionInfoAt(const uint32_t idx) const override
 	{
 		return m_sections[idx];
 	}
 
-	const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const
+	const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const override
 	{
 		return m_quadBeziers[idx];
 	}
 
-	const LinePointInfo& getLinePointAt(const uint32_t idx) const
+	const LinePointInfo& getLinePointAt(const uint32_t idx) const override
 	{
 		return m_linePoints[idx];
 	}
 
-	const std::vector<PolylineConnector>& getConnectors() const
+	core::SRange<const PolylineConnector> getConnectors() const override
 	{
-		return m_polylineConnector;
+		return core::SRange<const PolylineConnector> { m_polylineConnector.begin()._Ptr, m_polylineConnector.end()._Ptr };
+	}
+
+	bool checkSectionsContinuity() const override
+	{
+		// Check for continuity
+		for (uint32_t i = 1; i < m_sections.size(); ++i)
+		{
+			constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
+			const float64_t2 firstPoint = getSectionFirstPoint(m_sections[i]);
+			const float64_t2 prevLastPoint = getSectionLastPoint(m_sections[i - 1u]);
+			if (glm::distance(firstPoint, prevLastPoint) > POINT_EQUALITY_THRESHOLD)
+			{
+				// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
+				return false;
+			}
+		}
+		return true;
 	}
 
 	void clearEverything()
@@ -271,7 +298,7 @@ public:
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-		_NBL_DEBUG_BREAK_IF(!checkSectionsContunuity());
+		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
 		float phaseShiftTotal = lineStyle.phaseShift;
@@ -437,7 +464,7 @@ public:
 	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const 
 	{
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-		_NBL_DEBUG_BREAK_IF(!checkSectionsContunuity());
+		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 
 		CPolyline parallelPolyline = {};
 		parallelPolyline.setClosed(m_closedPolygon);
@@ -647,23 +674,6 @@ public:
 	void setClosed(bool closed)
 	{
 		m_closedPolygon = closed;
-	}
-
-	bool checkSectionsContunuity() const
-	{
-		// Check for continuity
-		for (uint32_t i = 1; i < m_sections.size(); ++i)
-		{
-			constexpr float64_t POINT_EQUALITY_THRESHOLD = 1e-12;
-			const float64_t2 firstPoint = getSectionFirstPoint(m_sections[i]);
-			const float64_t2 prevLastPoint = getSectionLastPoint(m_sections[i-1u]);
-			if (glm::distance(firstPoint, prevLastPoint) > POINT_EQUALITY_THRESHOLD)
-			{
-				// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-				return false;
-			}
-		}
-		return true;
 	}
 
 protected:
