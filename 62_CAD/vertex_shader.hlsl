@@ -319,12 +319,8 @@ PSInput main(uint vertexID : SV_VertexID)
         // but idk after large zooms the whole complete hatch should disappear, but I don't want parts of the hatch to disappear before others makes the box discontinous in large zooms
         //ndcAabbExtents.x = max(ndcAabbExtents.x, 1.0 / float(globals.resolution.x));
         //ndcAabbExtents.y = max(ndcAabbExtents.y, 1.0 / float(globals.resolution.y));
-        // If the height of the AABB are smaller than a pixel could be (even after it is dilated for antialiasing),
-        // discard it
-        // (Writing NaN on VS will discard it)e
         if (ndcAabbExtents.y * globals.resolution.y < 0.5)
         {
-            // outV.position = 0.0 / 0.0;
             outV.clip = float4(-1.0, -1.0, -1.0, -1.0);
             return outV;
         }
