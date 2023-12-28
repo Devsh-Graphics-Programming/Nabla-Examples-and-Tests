@@ -147,9 +147,6 @@ struct CircularArc final : public ParametricCurve
 
     float64_t2 computeSecondOrderDifferential(float64_t t) const override;
 
-    //! compute differential arc length at t
-    float64_t differentialArcLen(float64_t t) const override;
-
 private:
     static float64_t getSign(float64_t x);
 };
@@ -171,9 +168,6 @@ struct MixedParametricCurves final : public ParametricCurve
 
     //! compute second order differential at t
     float64_t2 computeSecondOrderDifferential(float64_t t) const override;
-
-    //! compute differential arc length at t
-    float64_t differentialArcLen(float64_t t) const override;
 
     float64_t computeInflectionPoint(float64_t errorThreshold) const override;
 
