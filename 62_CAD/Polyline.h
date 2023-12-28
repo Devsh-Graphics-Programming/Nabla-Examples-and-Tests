@@ -7,9 +7,6 @@
 #include <nbl/builtin/hlsl/shapes/util.hlsl>
 #include "curves.h"
 
-using namespace nbl;
-using namespace ui;
-
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
 struct CPULineStyle
 {
@@ -260,13 +257,24 @@ public:
 		}
 	}
 
-	void addEllipticalArcs(const nbl::core::SRange<curves::EllipticalArcInfo>& ellipses)
+	void addEllipticalArcs(const nbl::core::SRange<curves::EllipticalArcInfo>& ellipses, double errorThreshold)
 	{
-		// TODO[Erfan] Approximate with quadratic beziers
+		nbl::core::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziersArray;
+		for (const auto& ellipticalInfo : ellipses)
+		{
+			curves::Subdivision::AddBezierFunc addBeziers = [&](nbl::hlsl::shapes::QuadraticBezier<double>&& quadBezier)
+				{
+					beziersArray.push_back(quadBezier);
+				};
+
+			curves::Subdivision::adaptive(ellipticalInfo, errorThreshold, addBeziers);
+			addQuadBeziers({ beziersArray.data(), beziersArray.data() + beziersArray.size() });
+			beziersArray.clear();
+		}
 	}
 
 	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	void addQuadBeziers(const nbl::core::SRange<shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = false)
+	void addQuadBeziers(const nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = false)
 	{
 		if (quadBeziers.empty())
 			return;
@@ -356,8 +364,8 @@ public:
 					}
 
 					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
-					shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(prevQuadBezierInfo.shape);
-					shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(prevQuadBezierInfo.shape);
+					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
 					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
 
 					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
@@ -581,9 +589,9 @@ public:
 					}
 				}
 			};
-		auto connectBezierSection = [&](std::vector<shapes::QuadraticBezier<double>>&& beziers)
+		auto connectBezierSection = [&](std::vector<nbl::hlsl::shapes::QuadraticBezier<double>>&& beziers)
 			{
-				parallelPolyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
+				parallelPolyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
 				// If there is a previous section, connect to that
 				if (newSections.size() > 1u)
 				{
@@ -646,8 +654,8 @@ public:
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
-				std::vector<shapes::QuadraticBezier<double>> newBeziers;
-				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+				std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> newBeziers;
+				curves::Subdivision::AddBezierFunc addToBezier = [&](nbl::hlsl::shapes::QuadraticBezier<double>&& info) -> void
 					{
 						newBeziers.push_back(info);
 					};
@@ -798,7 +806,7 @@ protected:
 			const float64_t2 A1 = m_linePoints[nextSection.index + nextObjIdx].p;
 			const float64_t2 V1 = m_linePoints[nextSection.index + nextObjIdx + 1u].p - A1;
 
-			const float64_t2 intersection = shapes::util::LineLineIntersection(A0, V0, A1, V1);
+			const float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(A0, V0, A1, V1);
 			const float64_t t0 = nbl::hlsl::dot(V0, intersection - A0) / nbl::hlsl::dot(V0, V0);
 			const float64_t t1 = nbl::hlsl::dot(V1, intersection - A1) / nbl::hlsl::dot(V1, V1);
 			if (t0 >= 0.0 && t0 <= 1.0 && t1 >= 0.0 && t1 <= 1.0)
@@ -822,7 +830,7 @@ protected:
 		bezier.P0 = mul(rotate, bezier.P0 - lineStart);
 		bezier.P1 = mul(rotate, bezier.P1 - lineStart);
 		bezier.P2 = mul(rotate, bezier.P2 - lineStart);
-		shapes::Quadratic<double> quadratic = shapes::Quadratic<double>::constructFromBezier(bezier);
+		nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(bezier);
 		outBezierTs = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(quadratic.A.y, quadratic.B.y, quadratic.C.y).computeRoots();
 	}
 
@@ -927,8 +935,8 @@ protected:
 					{
 						float64_t2 P0 = mul(rotate, m_linePoints[section.index + i].p);
 						float64_t2 P1 = mul(rotate, m_linePoints[section.index + i + 1u].p);
-						obj.start = min(P0.x, P1.x);
-						obj.end = max(P0.x, P1.x);
+						obj.start = nbl::core::min(P0.x, P1.x);
+						obj.end = nbl::core::max(P0.x, P1.x);
 					}
 					else if (section.type == ObjectType::QUAD_BEZIER)
 					{
@@ -938,14 +946,14 @@ protected:
 						const auto quadratic = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(P0, P1, P2);
 						const auto tExtremum = -quadratic.B.x / (2.0 * quadratic.A.x);
 
-						obj.start = min(P0.x, P2.x);
-						obj.end = max(P0.x, P2.x);
+						obj.start = nbl::core::min(P0.x, P2.x);
+						obj.end = nbl::core::max(P0.x, P2.x);
 							
 						if (tExtremum >= 0.0 && tExtremum <= 1.0)
 						{
 							float64_t xExtremum = quadratic.evaluate(tExtremum).x;
-							obj.start = min(obj.start, xExtremum);
-							obj.end = max(obj.end, xExtremum);
+							obj.start = nbl::core::min(obj.start, xExtremum);
+							obj.end = nbl::core::max(obj.end, xExtremum);
 						}
 					}
 					objs.push_back(obj);

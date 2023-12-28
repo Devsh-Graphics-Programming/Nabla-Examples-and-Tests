@@ -154,7 +154,7 @@ struct LineStyle
 };
 
 #ifdef __cplusplus
-bool operator==(const LineStyle& lhs, const LineStyle& rhs)
+inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
     const bool areParametersEqual =
         lhs.color == rhs.color &&

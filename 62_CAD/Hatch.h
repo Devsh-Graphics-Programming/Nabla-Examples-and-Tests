@@ -1,3 +1,5 @@
+#pragma once
+
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
@@ -9,15 +11,9 @@
 #include "curves.h"
 #include "Polyline.h"
 
-typedef uint32_t uint;
-
-#include "common.hlsl"
-
 #include <nbl/builtin/hlsl/math/equations/cubic.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quartic.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
-
-using namespace nbl;
 
 class Hatch
 {
@@ -68,7 +64,7 @@ public:
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor() const;
 	};
-	Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */);
+	Hatch(nbl::core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */);
 	// (temporary)
 	Hatch(std::vector<CurveHatchBox>&& in_hatchBoxes) :
 		hatchBoxes(std::move(in_hatchBoxes))

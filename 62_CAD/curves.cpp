@@ -4,7 +4,7 @@
 #include <nbl/builtin/hlsl/shapes/util.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 
-using namespace nbl::hlsl::math;
+using namespace nbl::hlsl;
 
 namespace curves
 {
@@ -122,7 +122,7 @@ float64_t CubicCurve::computeInflectionPoint(float64_t errorThreshold) const
     const float64_t b = 6.0 * (2.0 * X[1] * Y[0] - 2.0 * X[0] * Y[1] + X[2] * Y[0] - X[0] * Y[2]);
     const float64_t c = 2.0 * (X[2] * Y[1] - X[1] * Y[2]);
 
-    equations::Quadratic<float64_t> quadratic = equations::Quadratic<float64_t>::construct(a, b, c);
+    math::equations::Quadratic<float64_t> quadratic = math::equations::Quadratic<float64_t>::construct(a, b, c);
     const float64_t2 roots = quadratic.computeRoots();
     if (roots[0] <= 1.0 && roots[0] >= 0.0)
         return roots[0];
@@ -402,7 +402,7 @@ inline float64_t2 OffsettedBezier::findCusps() const
     const float64_t a = 4.0 * (quadratic.A.x * quadratic.A.x + quadratic.A.y * quadratic.A.y);
     const float64_t b = 4.0 * (quadratic.A.x * quadratic.B.x + quadratic.A.y * quadratic.B.y);
     const float64_t c = quadratic.B.x * quadratic.B.x + quadratic.B.y * quadratic.B.y - lhs;
-    nbl::hlsl::math::equations::Quadratic<float64_t> findCuspsQuadratic = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(a, b, c);
+    math::equations::Quadratic<float64_t> findCuspsQuadratic = math::equations::Quadratic<float64_t>::construct(a, b, c);
     return findCuspsQuadratic.computeRoots();
 }
 

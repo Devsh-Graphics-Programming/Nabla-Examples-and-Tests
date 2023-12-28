@@ -7,6 +7,7 @@
 
 // #define DEBUG_HATCH_VISUALLY
 
+using namespace nbl;
 using std::complex;
 using boost::math::tools::polynomial;
 
@@ -242,7 +243,7 @@ Hatch::QuadraticBezier Hatch::Segment::getSplitCurve() const
 
 bool Hatch::Segment::isStraightLineConstantMajor() const
 {
-	auto major = (uint)SelectedMajorAxis;
+	auto major = (uint32_t)SelectedMajorAxis;
 	const double p0 = originalBezier->P0[major], 
 		p1 = originalBezier->P1[major], 
 		p2 = originalBezier->P2[major];
@@ -1026,7 +1027,7 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 	auto quadratic = QuadraticEquation::constructFromBezier(bezier);
 
 	// Getting derivatives for our quadratic bezier
-	auto major = (uint)SelectedMajorAxis;
+	auto major = (uint32_t)SelectedMajorAxis;
 	auto a = quadratic.A[major];
 	auto b = quadratic.B[major];
 
@@ -1046,7 +1047,7 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 // https://pomax.github.io/bezierinfo/#boundingbox
 std::pair<float64_t2, float64_t2> Hatch::getBezierBoundingBoxMinor(const QuadraticBezier& bezier)
 {
-	auto minor = (uint)SelectedMinorAxis;
+	auto minor = (uint32_t)SelectedMinorAxis;
 	double A = bezier.P0[minor] - 2.0 * bezier.P1[minor] + bezier.P2[minor];
 	double B = 2.0 * (bezier.P1[minor] - bezier.P0[minor]);
 
