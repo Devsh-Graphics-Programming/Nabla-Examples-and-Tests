@@ -305,8 +305,10 @@ public:
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
 	{
+		if (!lineStyle.isVisible())
+			return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
+		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
 		float phaseShiftTotal = lineStyle.phaseShift;
