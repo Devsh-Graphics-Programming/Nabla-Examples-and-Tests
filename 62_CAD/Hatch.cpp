@@ -432,7 +432,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
         {
             for (uint32_t secIdx = 0; secIdx < polyline.getSectionsCount(); secIdx ++)
             {
-				auto addBezier = [&](QuadraticBezier bezier)
+				auto addMonotonicBezier = [&](QuadraticBezier bezier)
 				{
 					auto outputBezier = bezier;
 					if (outputBezier.P0[major] > outputBezier.P2[major])
@@ -441,6 +441,9 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						outputBezier.P0 = bezier.P2;
 						assert(outputBezier.P0[major] <= outputBezier.P2[major]);
 					}
+					// fix in case of small precision issues when splitting into major monotonic segments
+					if (outputBezier.P1.y < outputBezier.P0.y)
+						outputBezier.P1.y = outputBezier.P0.y;
 
 #ifdef DEBUG_HATCH_VISUALLY
 					if (debugOutput)
@@ -466,7 +469,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						{
 							auto begin = polyline.getLinePointAt(itemIdx).p;
 							auto end = polyline.getLinePointAt(itemIdx + 1).p;
-							addBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end));
+							addMonotonicBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end));
 #ifdef DEBUG_HATCH_VISUALLY
                             //if (debugOutput)
                             //    drawDebugBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end), float32_t4(0.0, 0.0, 1.0, 1.0));
@@ -488,7 +491,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                         if (isMonotonic)
                         {
                             // Already was monotonic
-                            addBezier(unsplitBezier);
+                            addMonotonicBezier(unsplitBezier);
 #ifdef DEBUG_HATCH_VISUALLY
                             //if (debugOutput)
                                 //drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 1.0));
@@ -496,8 +499,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
                         }
                         else
                         {
-                            addBezier(monotonicSegments.data()[0]);
-                            addBezier(monotonicSegments.data()[1]);
+                            addMonotonicBezier(monotonicSegments.data()[0]);
+                            addMonotonicBezier(monotonicSegments.data()[1]);
 #ifdef DEBUG_HATCH_VISUALLY
 							//if (debugOutput)
 							//{ drawDebugBezier(monotonicSegments.data()[0], float32_t4(1.0, 0.0, 0.0, 1.0)); drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 1.0, 0.0, 1.0)); }
@@ -1031,16 +1034,10 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 	auto a = quadratic.A[major];
 	auto b = quadratic.B[major];
 
-	// ?!TODO: If P0[major] == P1[major] with some ??? threshold then t==0.0 and we don't split
-	// ?!TODO: If P2[major] == P1[major] with some ??? threshold then t==1.0 and we don't split
-
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto t = -b / (2.0 * a);
 	if (t <= 0.0 || t >= 1.0) return true;
 	out = { splitCurveTakeLower(bezier, t), splitCurveTakeUpper(bezier, t) };
-	// std::array<Hatch::QuadraticBezier, 2> tmp;
-	// splitIntoMajorMonotonicSegments(out[0], tmp);
-	// splitIntoMajorMonotonicSegments(out[1], tmp);
 	return false;
 }
 
