@@ -444,11 +444,6 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
         return;
     }
 
-    // For consistency sometimes we need to flip the direction when we subdivide from min to max to make sure beziers always starts at point corresonding angleBounds.x and ends at angleBounds.y even if angleBounds.x > angleBounds.y (CW rotation instead CCW)
-    bool needsFlipForConsistency = ellipse.angleBounds.x > ellipse.angleBounds.y;
-    float64_t minAngle = min(ellipse.angleBounds.x, ellipse.angleBounds.y);
-    float64_t maxAngle = max(ellipse.angleBounds.x, ellipse.angleBounds.y);
-
     float64_t lenghtMajor = length(ellipse.majorAxis);
     float64_t lenghtMinor = lenghtMajor * ellipse.eccentricity;
     float64_t2 normalizedMajor = ellipse.majorAxis / lenghtMajor;
@@ -469,63 +464,10 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
             addBezierFunc(std::move(quadBezier));
         };
 
-    // Make the start and end angle in canonical form (so that start is in [0, 2Pi))
-    const double Pi = nbl::core::PI<double>();
-    const double TwoPi = 2.0 * Pi;
-    const double ThreePi = 3.0 * Pi;
-
-    // Use builtin?
-    auto fract = [](double num) -> double
-        {
-            double uselessIntPart = 0;
-            return std::modf(num, &uselessIntPart);
-        };
-
-    const float64_t sweepAngle = maxAngle - minAngle;
-    const float64_t startAngle = (minAngle >= 0)
-        ? fract(minAngle / TwoPi) * TwoPi
-        : (1.0 - fract((-minAngle) / TwoPi)) * TwoPi;
-    const float64_t endAngle = startAngle + sweepAngle;
-
-    auto subdivideAxisAlignedEllipse = [&](const float64_t start, const float64_t end)
-        {
-            if (start != end)
-            {
-                assert(start < end);
-                AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor, start, end);
-                if (needsFlipForConsistency)
-                {
-                    aaEllipse.end = start;
-                    aaEllipse.start = end;
-                }
-                adaptive(aaEllipse, 0.0, 1.0, targetMaxError, addTransformedBezier, maxDepth);
-            }
-        };
-
-    if (startAngle <= Pi)
+    if (ellipse.angleBounds.x != ellipse.angleBounds.y)
     {
-        // start to min(Pi, end)
-        subdivideAxisAlignedEllipse(startAngle, nbl::core::min(Pi, endAngle));
-
-        // Pi to min(2Pi, end)
-        if (endAngle > Pi)
-            subdivideAxisAlignedEllipse(Pi, nbl::core::min(TwoPi, endAngle));
-        // 2Pi to end
-        if (endAngle > TwoPi)
-            subdivideAxisAlignedEllipse(TwoPi, endAngle);
-    }
-    else
-    {
-        // start to min(2Pi, end)
-        subdivideAxisAlignedEllipse(startAngle, nbl::core::min(TwoPi, endAngle));
-
-        // Pi to min(3Pi, end)
-        if (endAngle > TwoPi)
-            subdivideAxisAlignedEllipse(TwoPi, nbl::core::min(ThreePi, endAngle));
-
-        // 3Pi to end
-        if (endAngle > ThreePi)
-            subdivideAxisAlignedEllipse(ThreePi, endAngle);
+        AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor, ellipse.angleBounds.x, ellipse.angleBounds.y);
+        adaptive(aaEllipse, 0.0, 1.0, targetMaxError, addTransformedBezier, maxDepth);
     }
 }
 
