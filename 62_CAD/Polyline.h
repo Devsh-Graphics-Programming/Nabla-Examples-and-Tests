@@ -308,7 +308,7 @@ public:
 		if (!lineStyle.isVisible())
 			return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
+		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
 		float phaseShiftTotal = lineStyle.phaseShift;
@@ -331,16 +331,16 @@ public:
 					}
 
 					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
-					const float64_t2 line = linePoint.p - prevLinePoint.p;
-					const double lineLen = glm::length(line);
+					const float64_t2 lineVector = linePoint.p - prevLinePoint.p;
+					const double lineLen = glm::length(lineVector);
 
 					if (lineStyle.isRoadStyleFlag)
 					{
-						connectorBuilder.addLineNormal(line, lineLen, prevLinePoint.p, phaseShiftTotal);
+						connectorBuilder.addLineNormal(lineVector, lineLen, prevLinePoint.p, phaseShiftTotal);
 					}
 
 					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					linePoint.phaseShift = glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint);
+					linePoint.phaseShift = static_cast<float32_t>(glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint));
 					phaseShiftTotal = linePoint.phaseShift;
 				}
 			}
@@ -371,7 +371,7 @@ public:
 					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
 
 					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					phaseShiftTotal = glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift);
+					phaseShiftTotal = static_cast<float32_t>(glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift));
 
 					if (i < quadBezierCnt)
 					{
@@ -445,7 +445,7 @@ public:
 			const uint32_t firstBezierIdx = section.index;
 			return m_quadBeziers[firstBezierIdx].shape.P1 - m_quadBeziers[firstBezierIdx].shape.P0;
 		}
-		else 
+		else
 		{
 			assert(false);
 			return float64_t2{};
@@ -471,7 +471,7 @@ public:
 		}
 	}
 
-	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const 
+	CPolyline generateParallelPolyline(float64_t offset, const float64_t maxError = 1e-5) const
 	{
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
 		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
@@ -693,7 +693,7 @@ protected:
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 
 	// Next 3 are protected member functions to modify current lines and bezier sections used in polyline offsetting:
-	
+
 	void insertLinePointsToSection(uint32_t sectionIdx, uint32_t insertionPoint, const nbl::core::SRange<float64_t2>& linePoints)
 	{
 		SectionInfo& section = m_sections[sectionIdx];
@@ -760,7 +760,7 @@ protected:
 		{
 			if (idx >= section.count) // if idx==section.count it means it wants to delete the whole line section, so we remove all the line points including the last one in the section
 				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + section.count + 1u);
-			else 
+			else
 				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + idx);
 		}
 		else if (section.type == ObjectType::QUAD_BEZIER)
@@ -841,7 +841,7 @@ protected:
 		std::array<SectionIntersectResult, 2> res = {};
 		res[0].invalidate();
 		res[1].invalidate();
-		
+
 		if ((prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::LINE) || (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::QUAD_BEZIER))
 		{
 			const uint32_t lineIdx = (prevSection.type == ObjectType::LINE) ? prevSection.index + prevObjIdx : nextSection.index + nextObjIdx;
@@ -911,7 +911,7 @@ protected:
 		// tmp for testing
 		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 			return ret;
-			
+
 		const float64_t2 chordDir = glm::normalize(getSectionLastPoint(prevSection) - getSectionFirstPoint(prevSection));
 		float64_t2x2 rotate = float64_t2x2({ chordDir.x, chordDir.y }, { -chordDir.y, chordDir.x });
 
@@ -950,7 +950,7 @@ protected:
 
 						obj.start = nbl::core::min(P0.x, P2.x);
 						obj.end = nbl::core::max(P0.x, P2.x);
-							
+
 						if (tExtremum >= 0.0 && tExtremum <= 1.0)
 						{
 							float64_t xExtremum = quadratic.evaluate(tExtremum).x;
@@ -978,7 +978,7 @@ protected:
 		std::sort(objs.begin(), objs.end(), [&](const SectionObject& a, const SectionObject& b) { return a.end > b.end; });
 		for (SectionObject& obj : objs)
 			ends.push(obj.end);
-		
+
 		const float64_t maxValue = objs.front().end;
 
 		int32_t currentIntersectionObjectRemoveCount = -1; // we use this value to select only one from many intersections that removes the most objects from both sections.
@@ -993,7 +993,7 @@ protected:
 
 						int32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
 						assert(objectsToRemove >= 0);
-					
+
 						if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::LINE)
 						{
 							SectionIntersectResult localIntersectionResult = intersectLineSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
@@ -1027,7 +1027,7 @@ protected:
 				}
 				activeCandidates.push_back(entry);
 			};
-		
+
 		float64_t currentValue = starts.top().start;
 		while (currentValue < maxValue)
 		{
@@ -1088,11 +1088,11 @@ private:
 	class PolylineConnectorBuilder
 	{
 	public:
-		void addLineNormal(const float64_t2& line, float lineLen, const float64_t2& worldSpaceCircleCenter, float phaseShift)
+		void addLineNormal(const float64_t2& line, float64_t lineLen, const float64_t2& worldSpaceCircleCenter, float phaseShift)
 		{
 			PolylineConnectorNormalHelperInfo connectorNormalInfo;
 			connectorNormalInfo.worldSpaceCircleCenter = worldSpaceCircleCenter;
-			connectorNormalInfo.normal = float32_t2(-line.y, line.x) / static_cast<float>(lineLen);
+			connectorNormalInfo.normal = float64_t2(-line.y, line.x) / lineLen;
 			connectorNormalInfo.phaseShift = phaseShift;
 			connectorNormalInfo.type = ObjectType::LINE;
 
@@ -1196,7 +1196,7 @@ private:
 		}
 
 		void constructMiterIfVisible(
-			const CPULineStyle& lineStyle, 
+			const CPULineStyle& lineStyle,
 			const PolylineConnectorNormalHelperInfo& prevLine,
 			const PolylineConnectorNormalHelperInfo& nextLine,
 			bool isMiterClosingPolyline,
@@ -1206,7 +1206,7 @@ private:
 			const float32_t2 nextLineNormal = nextLine.normal;
 
 			const float crossProductZ = nbl::hlsl::cross2D(nextLineNormal, prevLineNormal);
-			constexpr float CROSS_PRODUCT_LINEARITY_EPSILON = 1e-6;
+			constexpr float CROSS_PRODUCT_LINEARITY_EPSILON = 1.0e-6f;
 			const bool isMiterVisible = std::abs(crossProductZ) >= CROSS_PRODUCT_LINEARITY_EPSILON;
 			bool isMiterInDrawSection = checkIfInDrawSection(lineStyle, nextLine.phaseShift);
 			if (isMiterClosingPolyline)
