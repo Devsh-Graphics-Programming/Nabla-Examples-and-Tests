@@ -233,12 +233,12 @@ Hatch::QuadraticBezier Hatch::splitCurveRange(const QuadraticBezier& bezier, dou
 	assert(maxT > minT);
 	assert(0.0 <= minT && minT <= 1.0);
 	assert(0.0 <= maxT && maxT <= 1.0);
-    return splitCurveTakeUpper(splitCurveTakeLower(bezier, maxT), minT / maxT);
+	return splitCurveTakeUpper(splitCurveTakeLower(bezier, maxT), minT / maxT);
 }
 
 Hatch::QuadraticBezier Hatch::Segment::getSplitCurve() const
 {
-    return splitCurveRange(*originalBezier, t_start, t_end);
+	return splitCurveRange(*originalBezier, t_start, t_end);
 }
 
 bool Hatch::Segment::isStraightLineConstantMajor() const
@@ -381,57 +381,57 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 	constexpr float64_t TangentComparisonThreshhold = 1e-7;
 
 	std::vector<QuadraticBezier> beziers; // Referenced into by the segments
-    std::stack<Segment> starts; // Next segments sorted by start points
-    std::stack<double> ends; // Next end points
+	std::stack<Segment> starts; // Next segments sorted by start points
+	std::stack<double> ends; // Next end points
 	std::priority_queue<double, std::vector<double>, std::greater<double> > intersections; // Next intersection points as major coordinate
-    double maxMajor;
+	double maxMajor;
 
-    int major = (int)majorAxis;
-    int minor = 1-major; // Minor = Opposite of major (X)
+	int major = (int)majorAxis;
+	int minor = 1-major; // Minor = Opposite of major (X)
 
 #ifdef DEBUG_HATCH_VISUALLY
-    auto drawDebugBezier = [&](QuadraticBezier bezier, float32_t4 color)
-    {
-        CPolyline outputPolyline;
-        std::vector<shapes::QuadraticBezier<double>> beziers;
+	auto drawDebugBezier = [&](QuadraticBezier bezier, float32_t4 color)
+	{
+		CPolyline outputPolyline;
+		std::vector<shapes::QuadraticBezier<double>> beziers;
 		shapes::QuadraticBezier<double> tmpBezier;
 		tmpBezier.P0 = bezier.P0;
 		tmpBezier.P1 = bezier.P1;
 		tmpBezier.P2 = bezier.P2;
-        beziers.push_back(tmpBezier);
-        outputPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+		beziers.push_back(tmpBezier);
+		outputPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
 
-        CPULineStyle cpuLineStyle;
-        cpuLineStyle.screenSpaceLineWidth = 4.0f;
-        cpuLineStyle.worldSpaceLineWidth = 0.0f;
-        cpuLineStyle.color = color;
+		CPULineStyle cpuLineStyle;
+		cpuLineStyle.screenSpaceLineWidth = 4.0f;
+		cpuLineStyle.worldSpaceLineWidth = 0.0f;
+		cpuLineStyle.color = color;
 
-        debugOutput(outputPolyline, cpuLineStyle);
-    };
+		debugOutput(outputPolyline, cpuLineStyle);
+	};
 
-    auto drawDebugLine = [&](float64_t2 start, float64_t2 end, float32_t4 color)
-    {
-        CPolyline outputPolyline;
-        std::vector<float64_t2> points;
-        points.push_back(start);
-        points.push_back(end);
-        outputPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
-        
-        CPULineStyle cpuLineStyle;
-        cpuLineStyle.screenSpaceLineWidth = 2.0f;
-        cpuLineStyle.worldSpaceLineWidth = 0.0f;
-        cpuLineStyle.color = color;
-        
-        debugOutput(outputPolyline, cpuLineStyle);
-    };
+	auto drawDebugLine = [&](float64_t2 start, float64_t2 end, float32_t4 color)
+	{
+		CPolyline outputPolyline;
+		std::vector<float64_t2> points;
+		points.push_back(start);
+		points.push_back(end);
+		outputPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+		
+		CPULineStyle cpuLineStyle;
+		cpuLineStyle.screenSpaceLineWidth = 2.0f;
+		cpuLineStyle.worldSpaceLineWidth = 0.0f;
+		cpuLineStyle.color = color;
+		
+		debugOutput(outputPolyline, cpuLineStyle);
+	};
 #endif
 
-    {
-        std::vector<Segment> segments;
-        for (CPolyline& polyline : lines)
-        {
-            for (uint32_t secIdx = 0; secIdx < polyline.getSectionsCount(); secIdx ++)
-            {
+	{
+		std::vector<Segment> segments;
+		for (CPolyline& polyline : lines)
+		{
+			for (uint32_t secIdx = 0; secIdx < polyline.getSectionsCount(); secIdx ++)
+			{
 				auto addMonotonicBezier = [&](QuadraticBezier bezier)
 				{
 					auto outputBezier = bezier;
@@ -462,80 +462,80 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 					beziers.push_back(outputBezier);
 				};
 
-                auto section = polyline.getSectionInfoAt(secIdx);
-                if (section.type == ObjectType::LINE)
-                    {
+				auto section = polyline.getSectionInfoAt(secIdx);
+				if (section.type == ObjectType::LINE)
+					{
 						for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx++)
 						{
 							auto begin = polyline.getLinePointAt(itemIdx).p;
 							auto end = polyline.getLinePointAt(itemIdx + 1).p;
 							addMonotonicBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end));
 #ifdef DEBUG_HATCH_VISUALLY
-                            //if (debugOutput)
-                            //    drawDebugBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end), float32_t4(0.0, 0.0, 1.0, 1.0));
+							//if (debugOutput)
+							//    drawDebugBezier(QuadraticBezier::construct(begin, (begin + end) * 0.5, end), float32_t4(0.0, 0.0, 1.0, 1.0));
 #endif
 					}
 				}
-                else if (section.type == ObjectType::QUAD_BEZIER)
-                {
-                    for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
-                    {
-                        auto bezierInfo = polyline.getQuadBezierInfoAt(itemIdx);
-                        auto unsplitBezier = bezierInfo.shape;
-                        
-                        // Beziers must be monotonically increasing along major
-                        // First step: Make sure the bezier is monotonic, split it if not
-                        std::array<QuadraticBezier, 2> monotonicSegments;
-                        auto isMonotonic = splitIntoMajorMonotonicSegments(unsplitBezier, monotonicSegments);
+				else if (section.type == ObjectType::QUAD_BEZIER)
+				{
+					for (uint32_t itemIdx = section.index; itemIdx < section.index + section.count; itemIdx ++)
+					{
+						auto bezierInfo = polyline.getQuadBezierInfoAt(itemIdx);
+						auto unsplitBezier = bezierInfo.shape;
+						
+						// Beziers must be monotonically increasing along major
+						// First step: Make sure the bezier is monotonic, split it if not
+						std::array<QuadraticBezier, 2> monotonicSegments;
+						auto isMonotonic = splitIntoMajorMonotonicSegments(unsplitBezier, monotonicSegments);
 
-                        if (isMonotonic)
-                        {
-                            // Already was monotonic
-                            addMonotonicBezier(unsplitBezier);
+						if (isMonotonic)
+						{
+							// Already was monotonic
+							addMonotonicBezier(unsplitBezier);
 #ifdef DEBUG_HATCH_VISUALLY
-                            //if (debugOutput)
-                                //drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 1.0));
+							//if (debugOutput)
+								//drawDebugBezier(unsplitBezier, float32_t4(0.8, 0.8, 0.8, 1.0));
 #endif
-                        }
-                        else
-                        {
-                            addMonotonicBezier(monotonicSegments.data()[0]);
-                            addMonotonicBezier(monotonicSegments.data()[1]);
+						}
+						else
+						{
+							addMonotonicBezier(monotonicSegments.data()[0]);
+							addMonotonicBezier(monotonicSegments.data()[1]);
 #ifdef DEBUG_HATCH_VISUALLY
 							//if (debugOutput)
 							//{ drawDebugBezier(monotonicSegments.data()[0], float32_t4(1.0, 0.0, 0.0, 1.0)); drawDebugBezier(monotonicSegments.data()[1], float32_t4(0.0, 1.0, 0.0, 1.0)); }
 #endif
-                        }
-                    }
-                }
-            }
-        }
-        for (uint32_t bezierIdx = 0; bezierIdx < beziers.size(); bezierIdx++)
-        {
-            auto hatchBezier = &beziers[bezierIdx];
-            Segment segment;
-            segment.originalBezier = hatchBezier;
-            segment.t_start = 0.0;
-            segment.t_end = 1.0;
-            segments.push_back(segment);
-        }
+						}
+					}
+				}
+			}
+		}
+		for (uint32_t bezierIdx = 0; bezierIdx < beziers.size(); bezierIdx++)
+		{
+			auto hatchBezier = &beziers[bezierIdx];
+			Segment segment;
+			segment.originalBezier = hatchBezier;
+			segment.t_start = 0.0;
+			segment.t_end = 1.0;
+			segments.push_back(segment);
+		}
 
-        std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P0[major] > b.originalBezier->P0[major]; });
+		std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P0[major] > b.originalBezier->P0[major]; });
 		for (Segment& segment : segments)
 			starts.push(segment);
 
-        std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P2[major] > b.originalBezier->P2[major]; });
-        for (Segment& segment : segments)
+		std::sort(segments.begin(), segments.end(), [&](const Segment& a, const Segment& b) { return a.originalBezier->P2[major] > b.originalBezier->P2[major]; });
+		for (Segment& segment : segments)
 			ends.push(segment.originalBezier->P2[major]);
-        maxMajor = segments.front().originalBezier->P2[major];
-    }
+		maxMajor = segments.front().originalBezier->P2[major];
+	}
 
 #ifdef DEBUG_HATCH_VISUALLY
 	int32_t step = 0;
 #endif
 
-    // Sweep line algorithm
-    std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
+	// Sweep line algorithm
+	std::vector<Segment> activeCandidates; // Set of active candidates for neighbor search in sweep line
 
 	// if we weren't spawning quads, we could just have unsorted `vector<Bezier*>`
 	auto candidateComparator = [&](const Segment& lhs, const Segment& rhs)
@@ -655,17 +655,17 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 #endif
 		return _lhs < _rhs;
 	};
-    auto addToCandidateSet = [&](const Segment& entry)
-    {
+	auto addToCandidateSet = [&](const Segment& entry)
+	{
 		if (entry.isStraightLineConstantMajor())
 			return;
 		intersectionAmounts.push_back(activeCandidates.size());
-        // Look for intersections among active candidates
-        // this is a little O(n^2) but only in the `n=candidates.size()`
-        for (const auto& segment : activeCandidates)
-        {
-            // find intersections entry vs segment
-            auto intersectionPoints = entry.intersect(segment);
+		// Look for intersections among active candidates
+		// this is a little O(n^2) but only in the `n=candidates.size()`
+		for (const auto& segment : activeCandidates)
+		{
+			// find intersections entry vs segment
+			auto intersectionPoints = entry.intersect(segment);
 #ifdef DEBUG_HATCH_VISUALLY
 			if (debugOutput && step == debugStep)
 			{
@@ -687,19 +687,19 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			}
 #endif
 
-            for (uint32_t i = 0; i < intersectionPoints.size(); i++)
-            {
-                if (nbl::core::isnan(intersectionPoints[i]))
-                    continue;
-                intersections.push(segment.originalBezier->evaluate(intersectionPoints[i])[major]);
-            }
-        }
+			for (uint32_t i = 0; i < intersectionPoints.size(); i++)
+			{
+				if (nbl::core::isnan(intersectionPoints[i]))
+					continue;
+				intersections.push(segment.originalBezier->evaluate(intersectionPoints[i])[major]);
+			}
+		}
 		activeCandidates.push_back(entry);
-    };
+	};
 
 
-    double lastMajor = starts.top().originalBezier->evaluate(starts.top().t_start)[major];
-    while (lastMajor!=maxMajor)
+	double lastMajor = starts.top().originalBezier->evaluate(starts.top().t_start)[major];
+	while (lastMajor!=maxMajor)
 	{
 #ifdef DEBUG_HATCH_VISUALLY
 		if (debugOutput && step > debugStep)
@@ -707,16 +707,16 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		bool isCurrentDebugStep = step == debugStep;
 #endif
 		
-        double newMajor;
+		double newMajor;
 		bool addStartSegmentToCandidates = false;
 
-        const double maxMajorEnds = ends.top();
+		const double maxMajorEnds = ends.top();
 
 		const Segment nextStartEvent = starts.empty() ? Segment() : starts.top();
 		const double minMajorStart = nextStartEvent.originalBezier ? nextStartEvent.originalBezier->evaluate(nextStartEvent.t_start)[major] : 0.0;
 
-        // We check which event, within start, end and intersection events have the smallest
-        // major coordinate at this point
+		// We check which event, within start, end and intersection events have the smallest
+		// major coordinate at this point
 
 		auto intersectionVisit = [&]()
 		{
@@ -729,53 +729,53 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			return newMajor;
 		};
 
-        // next start event is before next end event
-        if (nextStartEvent.originalBezier && minMajorStart < maxMajorEnds)
-        {
-            // next start event is before next intersection event
-            // (start event)
-            if (intersections.empty() || minMajorStart < intersections.top()) // priority queue top() is O(1)
-            {
-                starts.pop();
-                newMajor = minMajorStart;
+		// next start event is before next end event
+		if (nextStartEvent.originalBezier && minMajorStart < maxMajorEnds)
+		{
+			// next start event is before next intersection event
+			// (start event)
+			if (intersections.empty() || minMajorStart < intersections.top()) // priority queue top() is O(1)
+			{
+				starts.pop();
+				newMajor = minMajorStart;
 				addStartSegmentToCandidates = true;
 #ifdef DEBUG_HATCH_VISUALLY
 				if (debugOutput && isCurrentDebugStep)
-                    drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.0, 0.8, 0.0, 1.0));
+					drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.0, 0.8, 0.0, 1.0));
 #endif
-                //std::cout << "Start event at " << newMajor << "\n";
-            }
-            // (intersection event)
-            else newMajor = intersectionVisit();
-        }
-        // next intersection event is before next end event
-        // (intersection event)
-        else if (!intersections.empty() && intersections.top() < maxMajorEnds)
-            newMajor = intersectionVisit();
-        // (end event)
-        else
-        {
-            newMajor = maxMajorEnds;
-            ends.pop();
+				//std::cout << "Start event at " << newMajor << "\n";
+			}
+			// (intersection event)
+			else newMajor = intersectionVisit();
+		}
+		// next intersection event is before next end event
+		// (intersection event)
+		else if (!intersections.empty() && intersections.top() < maxMajorEnds)
+			newMajor = intersectionVisit();
+		// (end event)
+		else
+		{
+			newMajor = maxMajorEnds;
+			ends.pop();
 #ifdef DEBUG_HATCH_VISUALLY
-            if (debugOutput && isCurrentDebugStep)
-                drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.0, 0.0, 0.8, 1.0));
+			if (debugOutput && isCurrentDebugStep)
+				drawDebugLine(float64_t2(-1000.0, newMajor), float64_t2(1000.0, newMajor), float32_t4(0.0, 0.0, 0.8, 1.0));
 #endif
-            //std::cout << "End event at " << newMajor << "\n";
-        }
-        // spawn quads for the previous iterations if we advanced
+			//std::cout << "End event at " << newMajor << "\n";
+		}
+		// spawn quads for the previous iterations if we advanced
 		// printf(std::format("New major: {} Last major: {}\n", newMajor, lastMajor).c_str());
-        if (newMajor > lastMajor) 
-        {
+		if (newMajor > lastMajor) 
+		{
 #ifdef DEBUG_HATCH_VISUALLY
 			if (debugOutput && isCurrentDebugStep)
 				drawDebugLine(float64_t2(-1000.0, lastMajor), float64_t2(1000.0, lastMajor), float32_t4(0.1, 0.1, 0.0, 0.5));
 #endif
-            // trim
-            const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
+			// trim
+			const auto candidatesSize = std::distance(activeCandidates.begin(),activeCandidates.end());
 			//std::cout << "Candidates size: " << candidatesSize << "\n";
-            // because n4ce works on loops, this must be true
-            _NBL_DEBUG_BREAK_IF((candidatesSize % 2u)!=0u); // input polyline/polygon does not meet requirements to construct and XOR hatch
+			// because n4ce works on loops, this must be true
+			_NBL_DEBUG_BREAK_IF((candidatesSize % 2u)!=0u); // input polyline/polygon does not meet requirements to construct and XOR hatch
 #ifdef DEBUG_HATCH_VISUALLY
 			if (candidatesSize % 2u == 1u)
 			{
@@ -797,26 +797,26 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				}
 			}
 #endif
-            for (auto i=0u; i< (candidatesSize / 2) * 2;)
-            {
-                const Segment& left = activeCandidates[i++];
-                const Segment& right = activeCandidates[i++];
+			for (auto i=0u; i< (candidatesSize / 2) * 2;)
+			{
+				const Segment& left = activeCandidates[i++];
+				const Segment& right = activeCandidates[i++];
 
-                CurveHatchBox curveBox;
+				CurveHatchBox curveBox;
 
 				// Due to precision, if the curve is right at the end, intersectOrtho may return nan
 				auto curveMinEnd = intersectOrtho(*left.originalBezier, newMajor, major);
 				auto curveMaxEnd = intersectOrtho(*right.originalBezier, newMajor, major);
 
-                auto splitCurveMin = splitCurveRange(*left.originalBezier, left.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+				auto splitCurveMin = splitCurveRange(*left.originalBezier, left.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
 				auto splitCurveMax = splitCurveRange(*right.originalBezier, right.t_start, isnan(curveMaxEnd) ? 1.0 : curveMaxEnd);
 				assert(splitCurveMin.evaluate(0.0)[major] <= splitCurveMin.evaluate(1.0)[major]);
 				assert(splitCurveMax.evaluate(0.0)[major] <= splitCurveMax.evaluate(1.0)[major]);
 
-                auto curveMinAabb = getBezierBoundingBoxMinor(splitCurveMin);
+				auto curveMinAabb = getBezierBoundingBoxMinor(splitCurveMin);
 				auto curveMaxAabb = getBezierBoundingBoxMinor(splitCurveMax);
-                curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), lastMajor);
-                curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), newMajor);
+				curveBox.aabbMin = float64_t2(std::min(curveMinAabb.first.x, curveMaxAabb.first.x), lastMajor);
+				curveBox.aabbMax = float64_t2(std::max(curveMinAabb.second.x, curveMaxAabb.second.x), newMajor);
 
 #ifdef DEBUG_HATCH_VISUALLY
 				if (isCurrentDebugStep)
@@ -837,9 +837,9 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				}
 #endif
 
-                // Transform curves into AABB UV space and turn them into quadratic coefficients
-                // so we wont need to convert here
-				auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, uint32_t2* output) {
+				// Transform curves into AABB UV space and turn them into quadratic coefficients
+				// so we wont need to convert here
+				auto transformCurves = [](Hatch::QuadraticBezier bezier, float64_t2 aabbMin, float64_t2 aabbMax, float32_t2* output) {
 					auto rcpAabbExtents = float64_t2(1.0, 1.0) / (aabbMax - aabbMin);
 					auto transformedBezier = QuadraticBezier::construct(
 						(bezier.P0 - aabbMin) * rcpAabbExtents,
@@ -850,62 +850,43 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
 					if (isLineSegment(transformedBezier))
 						quadratic.A = float64_t2(0.0);
-
-					// TODO: Use common.hlsl packCurveBoxUnorm & packCurveBoxSnorm after fixing nbl::hlsl::numeric_limits<uint32_t> on c++
-					auto convertToUnorm = [](float64_t2 value) {
-						return static_cast<uint32_t2>(value * float64_t2(static_cast<double>(std::numeric_limits<uint32_t>::max())));
-					};
-					auto convertToSnorm = [](float64_t2 value) {
-						auto tmp = static_cast<int32_t2>(value * float64_t2(static_cast<double>(std::numeric_limits<int32_t>::max())));
-						uint32_t2 out;
-						std::memcpy(&out, &tmp, sizeof(tmp));
-						return out;
-					};
 					
-					// Values P0, P1 & P2 are in [0,1]
-					//
-					// A = P0 - 2 * P1 + P2; Range: [-8, 8]
-					// B = 2 * (P1 - P0); Range: [-8, 8]
-					// C = P0; Range: [0, 1]
-					//
-					// Convert A, B to [-1, 1], encode as Snorm
-					// Convert C to [0, 1], encode as Unorm
-					output[0] = convertToSnorm(quadratic.A / 8.0);
-					output[1] = convertToSnorm(quadratic.B / 8.0);
-					output[2] = convertToUnorm(quadratic.C);
-                };
-                transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
-                transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);
+					output[0] = (quadratic.A);
+					output[1] = (quadratic.B);
+					output[2] = (quadratic.C);
+				};
+				transformCurves(splitCurveMin, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMin[0]);
+				transformCurves(splitCurveMax, curveBox.aabbMin, curveBox.aabbMax, &curveBox.curveMax[0]);
 
-                hatchBoxes.push_back(curveBox);
-            }
+				hatchBoxes.push_back(curveBox);
+			}
 
-            // advance and trim all of the beziers in the candidate set
-            auto oit = activeCandidates.begin();
-            for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
-            {
-                const double evalAtMajor = iit->originalBezier->evaluate(iit->t_end)[major];
+			// advance and trim all of the beziers in the candidate set
+			auto oit = activeCandidates.begin();
+			for (auto iit = activeCandidates.begin(); iit != activeCandidates.end(); iit++)
+			{
+				const double evalAtMajor = iit->originalBezier->evaluate(iit->t_end)[major];
 
 				auto origBez = iit->originalBezier;
-                // if we scrolled past the end of the segment, remove it
-                // (basically, we memcpy everything after something is different
-                // and we skip on the memcpy for any items that are also different)
-                // (this is supposedly a pattern with input/output operators)
-                if (newMajor < evalAtMajor)
-                {
-                    const double new_t_start = intersectOrtho(*iit->originalBezier, newMajor, major);
+				// if we scrolled past the end of the segment, remove it
+				// (basically, we memcpy everything after something is different
+				// and we skip on the memcpy for any items that are also different)
+				// (this is supposedly a pattern with input/output operators)
+				if (newMajor < evalAtMajor)
+				{
+					const double new_t_start = intersectOrtho(*iit->originalBezier, newMajor, major);
 
-                    // little optimization (don't memcpy anything before something was removed)
-                    if (oit != iit)
-                        *oit = *iit;
-                    oit->t_start = new_t_start;
-                    oit++;
-                }
-            }
-            // trim
-            const auto newSize = std::distance(activeCandidates.begin(), oit);
-            activeCandidates.resize(newSize);
-        }
+					// little optimization (don't memcpy anything before something was removed)
+					if (oit != iit)
+						*oit = *iit;
+					oit->t_start = new_t_start;
+					oit++;
+				}
+			}
+			// trim
+			const auto newSize = std::distance(activeCandidates.begin(), oit);
+			activeCandidates.resize(newSize);
+		}
 		// If we had a start event, we need to add the candidate
 		if (addStartSegmentToCandidates)
 		{
@@ -923,7 +904,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 #ifdef DEBUG_HATCH_VISUALLY
 		step++;
 #endif
-    }
+	}
 #ifdef DEBUG_HATCH_VISUALLY
 	debugStep = debugStep - step;
 #endif

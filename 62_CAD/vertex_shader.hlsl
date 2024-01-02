@@ -301,8 +301,8 @@ PSInput main(uint vertexID : SV_VertexID)
         curveBox.aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<uint32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * i, 4u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<uint32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(uint32_t2) * (3 + i), 4u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
         // TODO: better name?
@@ -334,7 +334,7 @@ PSInput main(uint vertexID : SV_VertexID)
         // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
         // sometimes it falls outside the pixel center and creates a hole in major axis)
         // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
-        const float2 dilatationFactor = 1.0 + 2.0 * (globals.antiAliasingFactor + 1.0) / screenSpaceAabbExtents;
+        const float2 dilatationFactor = 1.0;
         // Dilate the UVs
         const float2 maxCorner = (( (undilatedMaxCorner * 2.0 - 1.0) * dilatationFactor) + 1.0) * 0.5;
         const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin * (1.0 - maxCorner) + curveBox.aabbMax * maxCorner);  // lerp has no overload for double
@@ -346,9 +346,9 @@ PSInput main(uint vertexID : SV_VertexID)
         // A, B & C get converted from unorm to [0, 1]
         // A & B get converted from [0,1] to [-2, 2]
         nbl::hlsl::shapes::Quadratic<float> curveMin = nbl::hlsl::shapes::Quadratic<float>::construct(
-            unpackCurveBoxSnorm(asint(curveBox.curveMin[0])) * 8.0f, unpackCurveBoxSnorm(asint(curveBox.curveMin[1])) * 8.0f, unpackCurveBoxUnorm(curveBox.curveMin[2]));
+            curveBox.curveMin[0], curveBox.curveMin[1], curveBox.curveMin[2]);
         nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
-            unpackCurveBoxSnorm(asint(curveBox.curveMax[0])) * 8.0f, unpackCurveBoxSnorm(asint(curveBox.curveMax[1])) * 8.0f, unpackCurveBoxUnorm(curveBox.curveMax[2]));
+            curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
         outV.setMinorBBoxUv(maxCorner[minor]);
         outV.setMajorBBoxUv(maxCorner[major]);

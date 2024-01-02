@@ -107,7 +107,7 @@ struct CPULineStyle
 		phaseShift = phaseShift * reciprocalStipplePatternLen;
 		if (stipplePatternTransformed[0] == 0.0)
 		{
-			phaseShift -= 1e-3; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
+			phaseShift -= 1.0e-3f; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
 		}
 	}
 

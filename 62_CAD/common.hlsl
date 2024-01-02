@@ -62,13 +62,14 @@ struct PolylineConnector
     float32_t _reserved_pad;
 };
 
-struct CurveBox 
+// NOTE: Don't attempt to pack curveMin/Max to uints because of limited range of values, we need the logarithmic precision of floats (more precision near 0)
+struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
     float64_t2 aabbMin; // 16
     float64_t2 aabbMax; // 32
-    uint32_t2 curveMin[3]; // 56
-    uint32_t2 curveMax[3]; // 80
+    float32_t2 curveMin[3]; // 56
+    float32_t2 curveMax[3]; // 80
 };
 
 #ifndef __HLSL_VERSION
@@ -76,8 +77,8 @@ static_assert(offsetof(CurveBox, aabbMin) == 0u);
 static_assert(offsetof(CurveBox, aabbMax) == 16u);
 static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
 static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
+static_assert(sizeof(CurveBox) == 80u);
 #endif
-
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex

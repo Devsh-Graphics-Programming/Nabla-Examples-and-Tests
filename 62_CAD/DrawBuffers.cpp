@@ -582,15 +582,10 @@ void DrawBuffersFiller::addHatch_Internal(const Hatch& hatch, uint32_t& currentO
 		const Hatch::CurveHatchBox& hatchBox = hatch.getHatchBox(i + currentObjectInSection);
 
 		uint64_t hatchBoxAddress;
-		{
-			CurveBox curveBox;
-			curveBox.aabbMin = hatchBox.aabbMin;
-			curveBox.aabbMax = hatchBox.aabbMax;
-			memcpy(&curveBox.curveMin[0], &hatchBox.curveMin[0], sizeof(uint32_t2) * 3);
-			memcpy(&curveBox.curveMax[0], &hatchBox.curveMax[0], sizeof(uint32_t2) * 3);
-
+		{			
+			static_assert(sizeof(CurveBox) == sizeof(Hatch::CurveHatchBox));
 			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			memcpy(dst, &curveBox, sizeof(CurveBox));
+			memcpy(dst, &hatchBox, sizeof(CurveBox));
 			hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
 			currentGeometryBufferSize += sizeof(CurveBox);
 		}

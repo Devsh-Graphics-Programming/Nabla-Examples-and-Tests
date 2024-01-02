@@ -21,10 +21,10 @@ public:
 	// this struct will be filled in cpu and sent to gpu for processing as a single DrawObj
 	struct CurveHatchBox
 	{
-		float64_t2 aabbMin, aabbMax;
-		// A & B stored as Snorm/2, C stored as Unorm
-		uint32_t2 curveMin[3];
-		uint32_t2 curveMax[3];
+		float64_t2 aabbMin;
+		float64_t2 aabbMax;
+		float32_t2 curveMin[3];
+		float32_t2 curveMax[3];
 	};
 
 	using bezier_float_t = double;
