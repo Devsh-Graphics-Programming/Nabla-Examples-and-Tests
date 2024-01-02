@@ -315,16 +315,6 @@ PSInput main(uint vertexID : SV_VertexID)
         // we could use something like  this to compute screen space change over minor/major change and avoid ddx(minor), ddy(major) in frag shader (the code below doesn't account for rotation)
         outV.setCurveBoxScreenSpaceSize(screenSpaceAabbExtents);
 
-        // TODO(Erfan): FIX: make the subpixel curve boxes be 1 pixel in compute shader stage (TODO: also account for rotation?)
-        // but idk after large zooms the whole complete hatch should disappear, but I don't want parts of the hatch to disappear before others makes the box discontinous in large zooms
-        //ndcAabbExtents.x = max(ndcAabbExtents.x, 1.0 / float(globals.resolution.x));
-        //ndcAabbExtents.y = max(ndcAabbExtents.y, 1.0 / float(globals.resolution.y));
-        if (ndcAabbExtents.y * globals.resolution.y < 0.5)
-        {
-            // outV.clip = float4(-1.0, -1.0, -1.0, -1.0);
-            // return outV;
-        }
-
         // Max corner stores the quad's UVs:
         // (0,1)|--|(1,1)
         //      |  |
@@ -334,10 +324,10 @@ PSInput main(uint vertexID : SV_VertexID)
         // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
         // sometimes it falls outside the pixel center and creates a hole in major axis)
         // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
-        const float2 dilatationFactor = 1.0;
+        const float2 dilatationFactor = 1.0 + 2.0 * (globals.antiAliasingFactor + 1.0) / screenSpaceAabbExtents;
         // Dilate the UVs
         const float2 maxCorner = (( (undilatedMaxCorner * 2.0 - 1.0) * dilatationFactor) + 1.0) * 0.5;
-        const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin * (1.0 - maxCorner) + curveBox.aabbMax * maxCorner);  // lerp has no overload for double
+        const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin + (curveBox.aabbMax - curveBox.aabbMin) * maxCorner);  // lerp has no overload for double
         outV.position = float4(coord, 0.f, 1.f);
  
         const uint major = (uint)SelectedMajorAxis;
