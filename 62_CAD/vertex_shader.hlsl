@@ -306,28 +306,37 @@ PSInput main(uint vertexID : SV_VertexID)
         }
 
         // TODO: better name?
-        const float2 ndcBoxAxisX = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
-        const float2 ndcBoxAxisY = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
+        // TODO: can we use floats instead of doubles for every dilation and ndc things except the main box values
+        const double2 ndcBoxAxisX = transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
+        const double2 ndcBoxAxisY = transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
 
-        const float2 ndcAabbExtents = float2(length(ndcBoxAxisX), length(ndcBoxAxisY));
-        const float2 screenSpaceAabbExtents = float2(length(ndcBoxAxisX * float2(globals.resolution)) / 2.0f, length(ndcBoxAxisY * float2(globals.resolution)) / 2.0f);
+        const double2 screenSpaceAabbExtents = double2(length(ndcBoxAxisX * double2(globals.resolution)) / 2.0, length(ndcBoxAxisY * double2(globals.resolution)) / 2.0);
 
         // we could use something like  this to compute screen space change over minor/major change and avoid ddx(minor), ddy(major) in frag shader (the code below doesn't account for rotation)
-        outV.setCurveBoxScreenSpaceSize(screenSpaceAabbExtents);
-
-        // Max corner stores the quad's UVs:
-        // (0,1)|--|(1,1)
-        //      |  |
-        // (0,0)|--|(1,0)
-        const float2 undilatedMaxCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
-        // Anti-alising factor + 1px due to aliasing with the bbox (conservatively rasterizing the bbox, otherwise
-        // sometimes it falls outside the pixel center and creates a hole in major axis)
-        // The AA factor is doubled, so it's dilated in both directions (left/top and right/bottom sides)
-        const float2 dilatationFactor = 1.0 + 2.0 * (globals.antiAliasingFactor + 1.0) / screenSpaceAabbExtents;
+        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
+        const double2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents;
+        const double2 dilatationFactor = 1.0 + 2.0 * dilateRate;
+        // undilatedMaxCornerNDC stores the quad's UVs:
+        // (-1,-1)|--|(1,-1)
+        //        |  |
+        // (-1,1) |--|(1,1)
+        const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        const float2 undilatedCornerNDC = float2(undilatedCorner * 2.0 - 1.0);
         // Dilate the UVs
-        const float2 maxCorner = (( (undilatedMaxCorner * 2.0 - 1.0) * dilatationFactor) + 1.0) * 0.5;
-        const float2 coord = (float2) transformPointNdc(clipProjectionData.projectionToNDC, curveBox.aabbMin + (curveBox.aabbMax - curveBox.aabbMin) * maxCorner);  // lerp has no overload for double
+        const float2 maxCorner = float2((undilatedCornerNDC * dilatationFactor + 1.0) * 0.5);
+        
+        // vx/vy are vectors in direction of the box's axes and their length is equal to X pixels (X = globals.antiAliasingFactor + 1.0)
+        // and we use them for dilation of X pixels in ndc space by adding them to the currentCorner in NDC space 
+        const double2 vx = ndcBoxAxisX * dilateRate.x;
+        const double2 vy = ndcBoxAxisY * dilateRate.y;
+        const double2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y; // (0, 0) should do -vx-vy and (1, 1) should do +vx+vy
+
+        // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
+        const double2 currentCorner = curveBox.aabbMin * (1.0 - undilatedCorner) + curveBox.aabbMax * undilatedCorner;
+        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + offsetVec);
+
         outV.position = float4(coord, 0.f, 1.f);
  
         const uint major = (uint)SelectedMajorAxis;
