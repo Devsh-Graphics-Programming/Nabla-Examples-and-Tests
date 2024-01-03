@@ -270,13 +270,13 @@ float64_t ExplicitEllipse::derivative(float64_t x) const
 
 float64_t2 AxisAlignedEllipse::computePosition(float64_t t) const
 {
-    const float64_t theta = start * (1.0 - t) + end * t;
+    const float64_t theta = start + (end - start) * t;
     return float64_t2(a * cos(theta), b * sin(theta));
 }
 
 float64_t2 AxisAlignedEllipse::computeTangent(float64_t t) const
 {
-    const float64_t theta = start * (1.0 - t) + end * t;
+    const float64_t theta = start + (end - start) * t;
     const float64_t dThetaDt = end - start;
     return float64_t2(-a * dThetaDt * sin(theta), b * dThetaDt * cos(theta));
 }
@@ -395,7 +395,7 @@ float64_t2 OffsettedBezier::computeTangent(float64_t t) const
     return ddt + (ddt * g) / glm::length(ddt);
 }
 
-inline float64_t2 OffsettedBezier::findCusps() const
+float64_t2 OffsettedBezier::findCusps() const
 {
     // we're basically solving for t in "offset = radiusOfCurvature(t)"
     const float64_t lhs = pow(offset * 2.0 * abs(quadratic.B.x * quadratic.A.y - quadratic.B.y * quadratic.A.x), 2.0 / 3.0);
@@ -530,13 +530,20 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
         {
             if (glm::distance(P0, P2) < targetMaxError)
             {
-                shouldSubdivide = false;
+                const float64_t2 posAtSplit = curve.computePosition(split);
+                // If it came down to a bezier small that causes P0 P2 and the position at split smaller than targetMaxError then we stop
+                if (glm::distance(posAtSplit, P0) < targetMaxError)
+                    shouldSubdivide = false;
+                // But sometimes when P0 and P2 are close together a split will fix them, like a full circle and needs further subdivision
+                else
+                    shouldSubdivide = true;
             }
             else
             {
                 const float64_t2 curvePositionAtSplit = curve.computePosition(split);
                 float64_t bezierYAtSplit = bezier.calcYatX(curvePositionAtSplit.x);
-                //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit));
+                //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit)); 
+                // TODO: maybe a better error comaprison is find the normal at split and intersect with the bezier
                 if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
                     shouldSubdivide = true;
             }
@@ -550,7 +557,9 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
     }
     else
     {
-        addBezierFunc(std::move(bezier));
+        const bool degenerate = (bezier.P0 == bezier.P2);
+        if (!degenerate)
+            addBezierFunc(std::move(bezier));
     }
 }
 
