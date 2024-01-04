@@ -266,7 +266,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// This will most certainly be overriden
-		using queue_family_range_t = core::SRange<const video::IPhysicalDevice::SQueueFamilyProperties>;
+		using queue_family_range_t = std::span<const video::IPhysicalDevice::SQueueFamilyProperties>;
 		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const queue_family_range_t& familyProperties)
 		{
 			using namespace video;
@@ -282,12 +282,12 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// virtual to allow aliasing and total flexibility
-		virtual video::IGPUQueue* getComputeQueue() const
+		virtual video::IQueue* getComputeQueue() const
 		{
 			// In the default implementation of everything I asked only for one queue from first compute family
 			const auto familyProperties = m_device->getPhysicalDevice()->getQueueFamilyProperties();
 			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(video::IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
+			if (familyProperties[i].queueFlags.hasFlags(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT))
 				return m_device->getQueue(i,0);
 
 			return nullptr;

@@ -9,14 +9,13 @@
 #include "nbl/video/CCUDASharedMemory.h"
 #include "nbl/video/CCUDASharedSemaphore.h"
 
-#include "../common/CommonAPI.h"
+#include "../common./MonoSystemMonoLoggerApplication.hpp"
 
-/**
-This example just shows a screen which clears to red,
-nothing fancy, just to show that Irrlicht links fine
-**/
 using namespace nbl;
-
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace video;
 
 /*
 The start of the main function starts like in most other example. We ask the
@@ -44,38 +43,124 @@ constexpr uint32_t blockDim[3] = { 1024,1,1 };
 size_t numElements = gridDim[0] * blockDim[0];
 size_t size = sizeof(float) * numElements;
 
-struct CUDA2VK
+#ifndef _NBL_COMPILE_WITH_CUDA_
+static_assert(false);
+#endif
+
+class CUDA2VKApp : public examples::MonoSystemMonoLoggerApplication
 {
-	core::smart_refctd_ptr<video::CCUDAHandler> cudaHandler;
-	core::smart_refctd_ptr<video::CCUDADevice> cudaDevice;
-	video::IUtilities* util;
-	video::ILogicalDevice* logicalDevice;
-	nbl::video::IGPUQueue** queues;
+	using base_t = examples::MonoSystemMonoLoggerApplication;
+public:
+	// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
+	using base_t::base_t;
 
-	std::array<core::smart_refctd_ptr<asset::ICPUBuffer>, 2> cpubuffers;
-	std::array<core::smart_refctd_ptr<video::CCUDASharedMemory>, 3> mem = {};
-	core::smart_refctd_ptr<video::CCUDASharedSemaphore> cusema;
+	smart_refctd_ptr<CCUDAHandler> cudaHandler;
+	smart_refctd_ptr<CCUDADevice> cudaDevice;
+	// IUtilities* util;
+	smart_refctd_ptr<ILogicalDevice> logicalDevice;
+	IQueue* queue;
 
-	core::smart_refctd_ptr<video::IGPUBuffer> importedbuf, stagingbuf, stagingbuf2;
-	core::smart_refctd_ptr<video::IGPUImage> importedimg;
-	core::smart_refctd_ptr<video::IGPUSemaphore> sema;
-	core::smart_refctd_ptr<video::IGPUCommandPool> commandPool;
-	core::smart_refctd_ptr<video::IGPUCommandBuffer> cmd;
-	core::smart_refctd_ptr<video::IGPUFence> fence;
+	std::array<smart_refctd_ptr<ICPUBuffer>, 2> cpubuffers;
+	std::array<smart_refctd_ptr<CCUDASharedMemory>, 3> mem = {};
+	smart_refctd_ptr<CCUDASharedSemaphore> cusema;
 
-	CUDA2VK(
-		core::smart_refctd_ptr<video::CCUDAHandler> _cudaHandler,
-		core::smart_refctd_ptr<video::CCUDADevice> _cudaDevice,
-		video::IUtilities* _util,
-		video::ILogicalDevice* _logicalDevice,
-		video::IGPUQueue** _queues)
-		: cudaHandler(std::move(_cudaHandler))
-		, cudaDevice(std::move(_cudaDevice))
-		, util(_util)
-		, logicalDevice(_logicalDevice)
-		, queues(_queues)
+	smart_refctd_ptr<IGPUBuffer> importedbuf, stagingbuf, stagingbuf2;
+	smart_refctd_ptr<IGPUImage> importedimg;
+	smart_refctd_ptr<ISemaphore> sema;
+	smart_refctd_ptr<IGPUCommandPool> commandPool;
+	smart_refctd_ptr<IGPUCommandBuffer> cmd;
+
+
+	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		// Remember to call the base class initialization!
+		if (!base_t::onAppInitialized(std::move(system)))
+			return false;
+		// `system` could have been null (see the comments in `MonoSystemMonoLoggerApplication::onAppInitialized` as for why)
+		// use `MonoSystemMonoLoggerApplication::m_system` throughout the example instead!
+
+		// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
+		smart_refctd_ptr<CVulkanConnection> api;
+		{
+			// You generally want to default initialize any parameter structs
+			IAPIConnection::SFeatures apiFeaturesToEnable = {};
+			// generally you want to make your life easier during development
+			apiFeaturesToEnable.validations = true;
+			apiFeaturesToEnable.synchronizationValidation = true;
+			// want to make sure we have this so we can name resources for vieweing in RenderDoc captures
+			apiFeaturesToEnable.debugUtils = true;
+			// create our Vulkan instance
+			if (!(api = CVulkanConnection::create(smart_refctd_ptr(m_system), 0, _NBL_APP_NAME_, smart_refctd_ptr(base_t::m_logger), apiFeaturesToEnable)))
+				return logFail("Failed to crate an IAPIConnection!");
+		}
+
+		// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
+		// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
+		IPhysicalDevice* physDev = nullptr;
+		ILogicalDevice::SCreationParams params = {};
+		// we will only deal with a single queue in this example
+		params.queueParamsCount = 1;
+		params.queueParams[0].count = 1;
+		params.featuresToEnable;
+		for (auto physDevIt = api->getPhysicalDevices().begin(); physDevIt != api->getPhysicalDevices().end(); physDevIt++)
+		{
+			const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
+			// this is the only "complicated" part, we want to create a queue that supports compute pipelines
+			for (auto i = 0; i < familyProps.size(); i++)
+				if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+				{
+					physDev = *physDevIt;
+					params.queueParams[0].familyIndex = i;
+					break;
+				}
+		}
+		if (!physDev)
+			return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
+
+		{
+			auto& limits = physDev->getLimits();
+			if (!limits.externalMemoryWin32 || !limits.externalFenceWin32 || !limits.externalSemaphoreWin32)
+				return logFail("Physical device does not support the required extensions");
+			
+			cudaHandler = CCUDAHandler::create(system.get(), smart_refctd_ptr<ILogger>(m_logger));
+			assert(cudaHandler);
+			cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(api), physDev);
+		}
+
+		// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
+		logicalDevice = physDev->createLogicalDevice(std::move(params));
+		if (!logicalDevice)
+			return logFail("Failed to create a Logical Device!");
+		
+		queue = logicalDevice->getQueue(params.queueParams[0].familyIndex, 0);
+		
 		createResources();
+
+		smart_refctd_ptr<ICPUBuffer> ptx;
+		{
+			ISystem::future_t<smart_refctd_ptr<IFile>> fut;
+			m_system->createFile(fut, "../vectorAdd_kernel.cu", IFileBase::ECF_READ);
+			auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(fut.copy().get(), cudaDevice->geDefaultCompileOptions());
+			ASSERT_SUCCESS_NV(res);
+			ptx = std::move(ptx_);
+		}
+		CUmodule   module;
+		CUfunction kernel;
+		CUstream   stream;
+
+		auto& cu = cudaHandler->getCUDAFunctionTable();
+
+		ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr));
+		ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
+		ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
+
+		launchKernel(kernel, stream);
+
+		ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
+		ASSERT_SUCCESS(cu.pcuModuleUnload(module));
+		ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
+
+		return true;
 	}
 
 	void createResources()
@@ -83,51 +168,52 @@ struct CUDA2VK
 		auto& cu = cudaHandler->getCUDAFunctionTable();
 
 		for (auto& buf : cpubuffers)
-			buf = core::make_smart_refctd_ptr<asset::ICPUBuffer>(size);
+			buf = make_smart_refctd_ptr<ICPUBuffer>(size);
 
 		for (auto j = 0; j < 2; j++)
 			for (auto i = 0; i < numElements; i++)
 				reinterpret_cast<float*>(cpubuffers[j]->getPointer())[i] = rand() / float(RAND_MAX);
 
-		sema = logicalDevice->createSemaphore({ .externalHandleTypes = video::IGPUSemaphore::EHT_OPAQUE_WIN32 });
-		ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cusema, sema.get()));
+
 
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[0], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[1], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[2], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		
+		sema = logicalDevice->createSemaphore({ .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
+		ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cusema, sema.get()));
 		{
-			auto devmemory = mem[2]->exportAsMemory(logicalDevice);
+			auto devmemory = mem[2]->exportAsMemory(logicalDevice.get());
 			assert(devmemory);
-			video::IGPUBuffer::SCreationParams params = {};
+			IGPUBuffer::SCreationParams params = {};
 			params.size = devmemory->getAllocationSize();
 			params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
-			params.externalHandleTypes = video::CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
+			params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
 			importedbuf = logicalDevice->createBuffer(std::move(params));
 			assert(importedbuf);
-			bool re = logicalDevice->bindBufferMemory(video::ILogicalDevice::SBindBufferMemoryInfo{.buffer = importedbuf.get(), .memory = devmemory.get() });
+			ILogicalDevice::SBindBufferMemoryInfo bindInfo = { .buffer = importedbuf.get(), .binding = {.memory = devmemory.get() } };
+			bool re = logicalDevice->bindBufferMemory(1, &bindInfo);
 			assert(re);
 		}
 
 		{
 			
-			video::IGPUImage::SCreationParams params = {};
-			params.type = video::IGPUImage::ET_2D;
-			params.samples = video::IGPUImage::ESCF_1_BIT;
-			params.format = asset::EF_R32_SFLOAT;
+			IGPUImage::SCreationParams params = {};
+			params.type = IGPUImage::ET_2D;
+			params.samples = IGPUImage::ESCF_1_BIT;
+			params.format = EF_R32_SFLOAT;
 			params.extent = { gridDim[0], blockDim[0], 1 };
 			params.mipLevels = 1;
 			params.arrayLayers = 1;
-			params.usage = video::IGPUImage::EUF_STORAGE_BIT | video::IGPUImage::EUF_TRANSFER_SRC_BIT;
-			params.externalHandleTypes = video::CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
-			params.tiling = video::IGPUImage::ET_LINEAR;
-			importedimg = mem[2]->exportAsImage(logicalDevice, std::move(params));
+			params.usage = IGPUImage::EUF_STORAGE_BIT | IGPUImage::EUF_TRANSFER_SRC_BIT;
+			params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
+			params.tiling = IGPUImage::TILING::LINEAR;
+			importedimg = mem[2]->exportAsImage(logicalDevice.get(), std::move(params));
 			assert(importedimg);
 		}
 		
-		fence = logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
-		commandPool = logicalDevice->createCommandPool(queues[CommonAPI::InitOutput::EQT_COMPUTE]->getFamilyIndex(), {});
-		bool re = logicalDevice->createCommandBuffers(commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, &cmd);
+		commandPool = logicalDevice->createCommandPool(queue->getFamilyIndex(), {});
+		bool re = commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmd, smart_refctd_ptr(m_logger));
 		assert(re);
 
 		auto createStaging = [logicalDevice=logicalDevice]()
@@ -136,11 +222,11 @@ struct CUDA2VK
 			auto req = buf->getMemoryReqs();
 			req.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
 			auto allocation = logicalDevice->allocate(req, buf.get());
-			assert(allocation.memory && allocation.offset != video::ILogicalDevice::InvalidMemoryOffset);
-			assert(buf->getBoundMemory()->isMappable());
-			logicalDevice->mapMemory(video::IDeviceMemoryAllocation::MappedMemoryRange(buf->getBoundMemory(), buf->getBoundMemoryOffset(), req.size), video::IDeviceMemoryAllocation::EMCAF_READ);
-			assert(buf->getBoundMemory()->getMappedPointer());
-			memset(buf->getBoundMemory()->getMappedPointer(), 0, req.size);
+			assert(allocation.isValid() && buf->getBoundMemory().memory->isMappable());
+			
+			bool re = allocation.memory->map(IDeviceMemoryAllocation::MemoryRange(0, req.size), IDeviceMemoryAllocation::EMCAF_READ);
+			assert(re && allocation.memory->getMappedPointer());
+			memset(allocation.memory->getMappedPointer(), 0, req.size);
 			return buf;
 		};
 
@@ -150,8 +236,6 @@ struct CUDA2VK
 
 	void launchKernel(CUfunction kernel, CUstream stream)
 	{
-		auto queue = queues[CommonAPI::InitOutput::EQT_COMPUTE];
-
 		auto& cu = cudaHandler->getCUDAFunctionTable();
 		// Launch kernel
 		{
@@ -164,50 +248,60 @@ struct CUDA2VK
 			ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[0], cpubuffers[0]->getPointer(), size, stream));
 			ASSERT_SUCCESS(cu.pcuMemcpyHtoDAsync_v2(ptrs[1], cpubuffers[1]->getPointer(), size, stream));
 			ASSERT_SUCCESS(cu.pcuLaunchKernel(kernel, gridDim[0], gridDim[1], gridDim[2], blockDim[0], blockDim[1], blockDim[2], 0, stream, parameters, nullptr));
-			CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = {};
+			CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 1 } } };
 			auto semaphore = cusema->getInternalObject();
 			ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream)); // Signal the imported semaphore
+
+			std::string abc = "123";
 		}
 		
 		// After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
 		{
-			video::IGPUSemaphore* waitSemaphores[] = { sema.get() };
-			asset::E_PIPELINE_STAGE_FLAGS waitStages[] = { asset::EPSF_ALL_COMMANDS_BIT };
-			video::IGPUCommandBuffer* cmdBuffers[] = { cmd.get() };
-
-			video::IGPUCommandBuffer::SBufferMemoryBarrier bufBarrier = {
-				.barrier = { .dstAccessMask = asset::E_ACCESS_FLAGS::EAF_ALL_ACCESSES_BIT_DEVSH },
-				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR,
-				.dstQueueFamilyIndex = queue->getFamilyIndex(),
-				.buffer = importedbuf,
-				.offset = 0,
-				.size = size,
+			IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
+				.barrier = {
+					.dep = {
+						// .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+						// .srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+						.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
+					},
+					.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+					.otherQueueFamilyIndex = queue->getFamilyIndex(),
+				},
+				.range = { .buffer = importedbuf, },
 			};
 
 			bool re = true;
-			re &= cmd->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-			/*Acquire?*/
-			re &= cmd->pipelineBarrier(asset::EPSF_ALL_COMMANDS_BIT, asset::EPSF_ALL_COMMANDS_BIT, asset::EDF_NONE, 0u, nullptr, 1u, &bufBarrier, 0u, nullptr); 	// Ownership transfer?
-			asset::SBufferCopy region = { .size = size };
+			re &= cmd->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			re &= cmd->pipelineBarrier(EDF_NONE, { .bufBarrierCount = 1, .bufBarriers = &bufBarrier}); 
+
+			IGPUCommandBuffer::SBufferCopy region = { .size = size };
 			re &= cmd->copyBuffer(importedbuf.get(), stagingbuf.get(), 1, &region);
 
-			video::IGPUCommandBuffer::SImageMemoryBarrier imgBarrier = {
-				.barrier = { .dstAccessMask = asset::E_ACCESS_FLAGS::EAF_ALL_ACCESSES_BIT_DEVSH },
-				.oldLayout = asset::IImage::EL_PREINITIALIZED,
-				.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL,
-				.srcQueueFamilyIndex = VK_QUEUE_FAMILY_EXTERNAL_KHR,
-				.dstQueueFamilyIndex = queue->getFamilyIndex(),
-				.image = importedimg,
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarrier = {
+				.barrier = { 
+					.dep = { 
+						// .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+						// .srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, 
+						.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
+					},
+					.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+					.otherQueueFamilyIndex = queue->getFamilyIndex(),
+				},
+				.image = importedimg.get(),
 				.subresourceRange = {
-					.aspectMask = asset::IImage::EAF_COLOR_BIT,
+					.aspectMask = IImage::EAF_COLOR_BIT,
 					.levelCount = 1u,
 					.layerCount = 1u,
-				}
+				},
+				.oldLayout = IImage::LAYOUT::PREINITIALIZED,
+				.newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL,
 			};
 
-			re &= cmd->pipelineBarrier(asset::EPSF_ALL_COMMANDS_BIT, asset::EPSF_ALL_COMMANDS_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &imgBarrier); 
+			re &= cmd->pipelineBarrier(EDF_NONE, {.imgBarrierCount = 1, .imgBarriers = &imgBarrier });
 
-			asset::IImage::SBufferCopy imgRegion = {
+			IImage::SBufferCopy imgRegion = {
 				.imageSubresource = {
 					.aspectMask = imgBarrier.subresourceRange.aspectMask,
 					.layerCount = imgBarrier.subresourceRange.layerCount,
@@ -217,16 +311,14 @@ struct CUDA2VK
 
 			re &= cmd->copyImageToBuffer(importedimg.get(), imgBarrier.newLayout, stagingbuf2.get(), 1, &imgRegion);
 			re &= cmd->end();
-
-			video::IGPUQueue::SSubmitInfo submitInfo = {
-				.waitSemaphoreCount = 1,
-				.pWaitSemaphores = waitSemaphores,
-				.pWaitDstStageMask = waitStages,
-				.commandBufferCount = 1,
-				.commandBuffers = cmdBuffers
+		
+			IQueue::SSubmitInfo submitInfo = {
+				.waitSemaphores = std::array{IQueue::SSubmitInfo::SSemaphoreInfo{ .semaphore = sema.get(), .value = 0, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, }},
+				.commandBuffers = std::array{IQueue::SSubmitInfo::SCommandBufferInfo{cmd.get()}},
 			};
 
-			re &= queue->submit(1, &submitInfo, fence.get());
+			auto submitRe = queue->submit(std::array{submitInfo});;
+			re &= IQueue::RESULT::SUCCESS == submitRe;
 			assert(re);
 		}
         
@@ -237,15 +329,15 @@ struct CUDA2VK
 	{
 		// Make sure we are also done with the readback
 		{
-			video::IGPUFence* fences[] = { fence.get() };
-			auto status = logicalDevice->waitForFences(1, fences, true, -1);
-			assert(video::IGPUFence::ES_SUCCESS == status);
+			//IGPUFence* fences[] = { fence.get() };
+			//auto status = logicalDevice->waitForFences(1, fences, true, -1);
+			//assert(IGPUFence::ES_SUCCESS == status);
 		}
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
 		float* B = reinterpret_cast<float*>(cpubuffers[1]->getPointer());
-		float* CBuf = reinterpret_cast<float*>(stagingbuf->getBoundMemory()->getMappedPointer());
-		float* CImg = reinterpret_cast<float*>(stagingbuf2->getBoundMemory()->getMappedPointer());
+		float* CBuf = reinterpret_cast<float*>(stagingbuf->getBoundMemory().memory->getMappedPointer());
+		float* CImg = reinterpret_cast<float*>(stagingbuf2->getBoundMemory().memory->getMappedPointer());
 
 		 assert(!memcmp(CBuf, CImg, size));
 
@@ -257,55 +349,63 @@ struct CUDA2VK
 		
 		std::cout << "Success\n";
 	}
+
+	// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
+	bool keepRunning() override { return false; }
+
+	// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
+	void workLoopBody() override {}
 };
+//
+//int main(int argc, char** argv)
+//{
+//	auto initOutput = CommonAPI::InitWithDefaultExt(CommonAPI::InitParams{
+//		.appName = { "63.CUDAInterop" },
+//		.apiType = EAT_VULKAN, 
+//		.swapchainImageUsage = IImage::EUF_NONE,
+//	});
+//
+//	auto& system = initOutput.system;
+//	auto& apiConnection = initOutput.apiConnection;
+//	auto& physicalDevice = initOutput.physicalDevice;
+//	auto& logicalDevice = initOutput.logicalDevice;
+//	auto& utilities = initOutput.utilities;
+//	auto& queues = initOutput.queues;
+//	auto& logger = initOutput.logger;
+//
+//	assert(physicalDevice->getLimits().externalMemory);
+//	auto cudaHandler = CCUDAHandler::create(system.get(), smart_refctd_ptr<ILogger>(logger));
+//	assert(cudaHandler);
+//	auto cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(apiConnection), physicalDevice);
+//	auto& cu = cudaHandler->getCUDAFunctionTable();	
+//
+//	smart_refctd_ptr<ICPUBuffer> ptx;
+//	CUmodule   module;
+//	CUfunction kernel;
+//	CUstream   stream;
+//
+//	{
+//		ISystem::future_t<smart_refctd_ptr<IFile>> fut;
+//		system->createFile(fut, "../vectorAdd_kernel.cu", IFileBase::ECF_READ);
+//	/*	auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(fut.copy().get(), cudaDevice->geDefaultCompileOptions());
+//		ASSERT_SUCCESS_NV(res);
+//		ptx = std::move(ptx_);*/
+//	}
+//
+//	//ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr));
+//	//ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
+//	//ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
+//
+//	//{
+//	//	auto cuda2vk = CUDA2VK(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data());
+//	//	cuda2vk.launchKernel(kernel, stream);
+//	//	ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
+//	//}
+//
+//	//ASSERT_SUCCESS(cu.pcuModuleUnload(module));
+//	//ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
+//
+//	return 0;
+//}
 
-int main(int argc, char** argv)
-{
-	auto initOutput = CommonAPI::InitWithDefaultExt(CommonAPI::InitParams{
-		.appName = { "63.CUDAInterop" },
-		.apiType = video::EAT_VULKAN, 
-		.swapchainImageUsage = nbl::asset::IImage::EUF_NONE,
-	});
-
-	auto& system = initOutput.system;
-	auto& apiConnection = initOutput.apiConnection;
-	auto& physicalDevice = initOutput.physicalDevice;
-	auto& logicalDevice = initOutput.logicalDevice;
-	auto& utilities = initOutput.utilities;
-	auto& queues = initOutput.queues;
-	auto& logger = initOutput.logger;
-
-	assert(physicalDevice->getLimits().externalMemory);
-	auto cudaHandler = video::CCUDAHandler::create(system.get(), core::smart_refctd_ptr<system::ILogger>(logger));
-	assert(cudaHandler);
-	auto cudaDevice = cudaHandler->createDevice(core::smart_refctd_ptr_dynamic_cast<video::CVulkanConnection>(apiConnection), physicalDevice);
-	auto& cu = cudaHandler->getCUDAFunctionTable();	
-
-	core::smart_refctd_ptr<asset::ICPUBuffer> ptx;
-	CUmodule   module;
-	CUfunction kernel;
-	CUstream   stream;
-
-	{
-		system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> fut;
-		system->createFile(fut, "../vectorAdd_kernel.cu", system::IFileBase::ECF_READ);
-		auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(fut.copy().get(), cudaDevice->geDefaultCompileOptions());
-		ASSERT_SUCCESS_NV(res);
-		ptx = std::move(ptx_);
-	}
-
-	ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr));
-	ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
-	ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
-
-	{
-		auto cuda2vk = CUDA2VK(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data());
-		cuda2vk.launchKernel(kernel, stream);
-		ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
-	}
-
-	ASSERT_SUCCESS(cu.pcuModuleUnload(module));
-	ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
-
-	return 0;
-}
+NBL_MAIN_FUNC(CUDA2VKApp)
