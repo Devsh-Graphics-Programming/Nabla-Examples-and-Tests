@@ -251,8 +251,6 @@ public:
 			CUDA_EXTERNAL_SEMAPHORE_SIGNAL_PARAMS signalParams = { .params = {.fence = {.value = 1 } } };
 			auto semaphore = cusema->getInternalObject();
 			ASSERT_SUCCESS(cu.pcuSignalExternalSemaphoresAsync(&semaphore, &signalParams, 1, stream)); // Signal the imported semaphore
-
-			std::string abc = "123";
 		}
 		
 		// After the cuda kernel has signalled our exported vk semaphore, we will download the results through the buffer imported from CUDA
@@ -311,13 +309,16 @@ public:
 
 			re &= cmd->copyImageToBuffer(importedimg.get(), imgBarrier.newLayout, stagingbuf2.get(), 1, &imgRegion);
 			re &= cmd->end();
-		
-			IQueue::SSubmitInfo submitInfo = {
-				.waitSemaphores = std::array{IQueue::SSubmitInfo::SSemaphoreInfo{ .semaphore = sema.get(), .value = 0, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, }},
-				.commandBuffers = std::array{IQueue::SSubmitInfo::SCommandBufferInfo{cmd.get()}},
-			};
-
-			auto submitRe = queue->submit(std::array{submitInfo});;
+			
+			auto waitSemaphores = std::array{IQueue::SSubmitInfo::SSemaphoreInfo{.semaphore = sema.get(), .value = 1, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, }};
+			auto signalSemaphores = std::array{IQueue::SSubmitInfo::SSemaphoreInfo{.semaphore = sema.get(), .value = 2, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, }};
+			auto commandBuffers = std::array{IQueue::SSubmitInfo::SCommandBufferInfo{cmd.get()}};
+			auto submitInfo = std::array{IQueue::SSubmitInfo {
+				.waitSemaphores = waitSemaphores,
+				.commandBuffers = commandBuffers,
+				.signalSemaphores = signalSemaphores,
+			}};
+			auto submitRe = queue->submit(submitInfo);
 			re &= IQueue::RESULT::SUCCESS == submitRe;
 			assert(re);
 		}
@@ -328,11 +329,8 @@ public:
 	void kernelCallback()
 	{
 		// Make sure we are also done with the readback
-		{
-			//IGPUFence* fences[] = { fence.get() };
-			//auto status = logicalDevice->waitForFences(1, fences, true, -1);
-			//assert(IGPUFence::ES_SUCCESS == status);
-		}
+		auto wait = std::array{ILogicalDevice::SSemaphoreWaitInfo{.semaphore = sema.get(), .value = 2}};
+		logicalDevice->waitForSemaphores(wait, true, -1);
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
 		float* B = reinterpret_cast<float*>(cpubuffers[1]->getPointer());
@@ -343,8 +341,8 @@ public:
 
 		for (auto i = 0; i < numElements; i++)
 		{
-			assert(abs(CBuf[i] - A[i] - B[i]) < 0.01f);
-			assert(abs(CImg[i] - A[i] - B[i]) < 0.01f);
+			bool re = (abs(CBuf[i] - A[i] - B[i]) < 0.01f) && (abs(CImg[i] - A[i] - B[i]) < 0.01f);
+			assert(re);
 		}
 		
 		std::cout << "Success\n";
