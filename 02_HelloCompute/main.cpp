@@ -216,7 +216,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
 						{.dstSet=ds.get(),.binding=0,.arrayElement=0,.count=1,.info=info}
 					};
-					device->updateDescriptorSets(1u,writes,0u,nullptr);
+					device->updateDescriptorSets(writes,{});
 				}
 			}
 
