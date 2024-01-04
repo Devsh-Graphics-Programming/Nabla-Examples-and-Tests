@@ -153,7 +153,8 @@ public:
 				return ret;
 			};
 
-		// Using `float32` union member since format of used images is E_FORMAT::EF_R8G8B8A8_SRGB.
+		// Using `float32` union member since format of used images is E_FORMAT::EF_R8G8B8A8_SRGB,
+		// which is a fixed-point format and those are encoded/decoded from/to float.
 		constexpr SClearColorValue red = { .float32{1.0f, 0.0f, 0.0f, 1.0f} };
 		constexpr SClearColorValue blue = { .float32{0.0f, 0.0f, 1.0f, 1.0f} };
 
@@ -175,7 +176,8 @@ public:
 		cmdbuf->pipelineBarrier(
 			E_PIPELINE_STAGE_FLAGS::EPSF_HOST_BIT | E_PIPELINE_STAGE_FLAGS::EPSF_ALL_COMMANDS_BIT,
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 2u,
+			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr,
+			imgLayoutTransitionBarriers.size(),
 			imgLayoutTransitionBarriers.data()
 		);
 
@@ -192,7 +194,9 @@ public:
 		cmdbuf->pipelineBarrier(
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 2u, imgClearBarriers.data()
+			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 
+			imgClearBarriers.size(),
+			imgClearBarriers.data()
 		);
 
 		// Now blit the smallImg into the center of the bigImg.
@@ -206,7 +210,9 @@ public:
 		cmdbuf->pipelineBarrier(
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
 			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 2u, imgBlitBarriers.data()
+			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 
+			imgClearBarriers.size(),
+			imgBlitBarriers.data()
 		);
 
 		// Blit whole bigImage into the smallImage, force downsampling with linear filtering.
@@ -253,6 +259,10 @@ public:
 		// the writers are always meant to be fed by ICPUImageViews.
 		ICPUImageView::SCreationParams params = {};
 		{
+
+			// ICPUImage isn't really a representation of a GPU Image in itself, more of a recipe for creating one from a series of ICPUBuffer to ICPUImage copies.
+			// This means that an ICPUImage has no internal storage or memory bound for its texels and rather references separate ICPUBuffer ranges to provide its contents,
+			// which also means it can be sparsely(with gaps) specified.
 			params.image = ICPUImage::create(ouputImageCreationParams);
 			{
 				// CDummyCPUBuffer is used for creating ICPUBuffer over an already existing memory, without any memcopy operations 
@@ -376,24 +386,16 @@ private:
 
 		auto img = m_device->createImage(std::move(imgParams));
 
-		const size_t imageByteSize = img->getImageDataSizeInBytes();
-		nbl::video::IGPUBuffer::SCreationParams params = {};
-		params.size = imageByteSize;
-		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-		smart_refctd_ptr<IGPUBuffer> imageBuffer = m_device->createBuffer(std::move(params));
-		if (!imageBuffer)
+		// Dedicated allocation for an image, no need to bind memory later.
+		auto allocation = m_device->allocate(img->getMemoryReqs(), img.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+		IDeviceMemoryAllocator::SAllocateInfo;
+		if (!allocation.isValid())
 		{
-			logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+			logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			return nullptr;
 		}
-		auto allocation = m_device->allocate(imageBuffer->getMemoryReqs(), imageBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
 
-		ILogicalDevice::SBindImageMemoryInfo bindMemInfo;
-		bindMemInfo.image = img.get();
-		bindMemInfo.memory = allocation.memory.get();
-		bindMemInfo.offset = 0ull;
-
-		m_device->bindImageMemory(1u, &bindMemInfo);
+		assert(img->getBoundMemory() == allocation.memory.get());
 
 		return img;
 	}
