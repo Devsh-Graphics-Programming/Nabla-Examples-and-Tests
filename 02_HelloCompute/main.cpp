@@ -57,7 +57,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
 				// this is the only "complicated" part, we want to create a queue that supports compute pipelines
 				for (auto i=0; i<familyProps.size(); i++)
-				if (familyProps[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
+				if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
 				{
 					physDev = *physDevIt;
 					params.queueParams[0].familyIndex  = i;
@@ -122,14 +122,9 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			}
 
 			// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
-			smart_refctd_ptr<nbl::video::IGPUShader> shader = device->createShader(std::move(cpuShader));
+			smart_refctd_ptr<nbl::video::IGPUShader> shader = device->createShader(cpuShader.get());
 			if (!shader)
 				return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
-
-			// we'll cover the specialization constant API in another example
-			const nbl::asset::ISpecializedShader::SInfo info(nullptr,nullptr,"main");
-			// theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one
-			smart_refctd_ptr<nbl::video::IGPUSpecializedShader> specShader = device->createSpecializedShader(shader.get(),info);
 
 			// the simplest example would have used push constants and BDA, but RenderDoc's debugging of that sucks, so I'll demonstrate "classical" binding of buffers with descriptors
 			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
@@ -142,17 +137,27 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 					.samplers=nullptr // irrelevant for a buffer
 				}
 			};
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = device->createDescriptorSetLayout(bindings,bindings+1);
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = device->createDescriptorSetLayout(bindings);
 			if (!dsLayout)
 				return logFail("Failed to create a Descriptor Layout!\n");
 
 			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
-			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout(nullptr,nullptr,smart_refctd_ptr(dsLayout));
+			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout({},smart_refctd_ptr(dsLayout));
 			if (!pplnLayout)
 				return logFail("Failed to create a Pipeline Layout!\n");
 
-			// we use strong typing on the pipelines, since there's no reason to polymorphically switch between different pipelines
-			smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline = device->createComputePipeline(nullptr,smart_refctd_ptr(pplnLayout),std::move(specShader));
+			// We use strong typing on the pipelines (Compute, Graphics, Mesh, RT), since there's no reason to polymorphically switch between different pipelines
+			smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+			{
+				IGPUComputePipeline::SCreationParams params = {};
+				params.layout = pplnLayout.get();
+				// Theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one (and glslang used to require it be called "main")
+				params.shader.entryPoint = "main";
+				params.shader.shader = shader.get();
+				// we'll cover the specialization constant API in another example
+				if (!device->createComputePipelines(nullptr,{&params,1},&pipeline))
+					return logFail("Failed to create pipelines (compile & link shaders)!\n");
+			}
 
 			// Our Descriptor Sets track (refcount) resources written into them, so you can pretty much drop and forget whatever you write into them.
 			// A later Descriptor Indexing example will test that this tracking is also correct for Update-After-Bind Descriptor Set bindings too.
@@ -161,7 +166,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			// A `nbl::video::DeviceMemoryAllocator` is an interface to implement anything that can dish out free memory range to bind to back a `nbl::video::IGPUBuffer` or a `nbl::video::IGPUImage`
 			// The Logical Device itself implements the interface and behaves as the most simple allocator, it will create a new `nbl::video::IDeviceMemoryAllocation` every single time.
 			// We will cover allocators and suballocation in a later example.
-			nbl::video::IDeviceMemoryAllocator::SMemoryOffset allocation = {};
+			nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
 			{
 				constexpr size_t BufferSize = sizeof(uint32_t)*WorkgroupSize*WorkgroupCount;
 
@@ -196,10 +201,10 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				// This is a carryover from having an OpenGL backend, where you couldn't have a memory allocation separate from the resource, so all allocations had to be "dedicated".
 				// In Vulkan dedicated allocations are the most performant and still make sense as long as you won't blow the 4096 allocation limit on windows.
 				// You should always use dedicated allocations for images used for swapchains, framebuffer attachments (esp transient), as well as objects used in CUDA/DirectX interop.
-				assert(outputBuff->getBoundMemory()==allocation.memory.get());
+				assert(outputBuff->getBoundMemory().memory==allocation.memory.get());
 
 				// This is a cool utility you can use instead of counting up how much of each descriptor type you need to N_i allocate descriptor sets with layout L_i from a single pool
-				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,&dsLayout.get(),&dsLayout.get()+1);
+				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,{&dsLayout.get(),1});
 
 				// note how the pool will go out of scope but thanks for backreferences in each object to its parent/dependency it will be kept alive for as long as all the Sets it allocated
 				ds = pool->createDescriptorSet(std::move(dsLayout));
@@ -209,7 +214,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 					info[0].desc = smart_refctd_ptr(outputBuff); // bad API, too late to change, should just take raw-pointers since not consumed
 					info[0].info.buffer = {.offset=0,.size=BufferSize};
 					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-						{.dstSet=ds.get(),.binding=0,.arrayElement=0,.count=1,.descriptorType=IDescriptor::E_TYPE::ET_STORAGE_BUFFER,.info=info}
+						{.dstSet=ds.get(),.binding=0,.arrayElement=0,.count=1,.info=info}
 					};
 					device->updateDescriptorSets(1u,writes,0u,nullptr);
 				}
@@ -217,20 +222,19 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 
 			// To be able to read the contents of the buffer we need to map its memory
 			// P.S. Nabla mandates Persistent Memory Mappings on all backends (but not coherent memory types)
-			const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(allocation.memory.get(),0ull,allocation.memory->getAllocationSize());
-			auto ptr = device->mapMemory(memoryRange,IDeviceMemoryAllocation::EMCAF_READ);
+			auto ptr = allocation.memory->map({0ull,allocation.memory->getAllocationSize()},IDeviceMemoryAllocation::EMCAF_READ);
 			if (!ptr)
 				return logFail("Failed to map the Device Memory!\n");
 
 			// Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
 			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(params.queueParams[0].familyIndex,IGPUCommandPool::ECF_TRANSIENT_BIT);
-				if (!device->createCommandBuffers(cmdpool.get(),IGPUCommandBuffer::EL_PRIMARY,1u,&cmdbuf))
+				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(params.queueParams[0].familyIndex,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,1u,&cmdbuf))
 					return logFail("Failed to create Command Buffers!\n");
 			}
 
-			cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
 			cmdbuf->beginDebugMarker("My Compute Dispatch",core::vectorSIMDf(0,1,0,1));
 			// you want to bind the pipeline first to avoid accidental unbind of descriptor sets due to compatibility matching
@@ -242,32 +246,45 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			// however waiting on a timeline semaphore (or fence) on the Host makes all Device writes visible.
 			cmdbuf->end();
 
-			// TODO: Redo with timeline semaphores
-			smart_refctd_ptr<IGPUFence> done = device->createFence(IGPUFence::ECF_UNSIGNALED);
+			// Only Timeline Semaphores are supported in Nabla, there's no fences or binary semaphores.
+			// Swapchains run on adaptors with empty submits that make them look like they work with Timeline Semaphores,
+			// which has important side-effects we'll cover in another example.
+			constexpr auto StartedValue = 0;
+			constexpr auto FinishedValue = 45;
+			static_assert(FinishedValue>StartedValue);
+			smart_refctd_ptr<ISemaphore> progress = device->createSemaphore(StartedValue);
 			{
 				// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
-				IGPUQueue* queue = device->getQueue(params.queueParams[0].familyIndex,0);
+				IQueue* queue = device->getQueue(params.queueParams[0].familyIndex,0);
 
 				// Default, we have no semaphores to wait on before we can start our workload
-				IGPUQueue::SSubmitInfo submitInfo = {};
+				IQueue::SSubmitInfo submitInfos[1] = {};
 				// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
 				// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
-				submitInfo.commandBufferCount = 1;
-				submitInfo.commandBuffers = &cmdbuf.get();
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = {{.cmdbuf = cmdbuf.get()}};
+				submitInfos[0].commandBuffers = cmdbufs;
+				// But we do need to signal completion by incrementing the Timeline Semaphore counter as soon as the compute shader is done
+				const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {{.semaphore = progress.get(),.value=FinishedValue,.stageMask=asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
+				submitInfos[0].signalSemaphores = signals;
 
 				// We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
 				// This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
 				queue->startCapture();
-				queue->submit(1u,&submitInfo,done.get());
+				queue->submit(submitInfos);
 				queue->endCapture();
 			}
 			// As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
-			device->blockForFences(1,&done.get());
+			const ILogicalDevice::SSemaphoreWaitInfo waitInfos[] = {{
+				.semaphore = progress.get(),
+				.value = FinishedValue
+			}};
+			device->blockForSemaphores(waitInfos);
 
 			// You don't need to do this, but putting it here to demonstrate that its safe to drop a commandbuffer after GPU is done (try moving it above and see if you BSOD or just get a validation error). 
 			cmdbuf = nullptr;
 
 			// if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
+			const ILogicalDevice::MappedMemoryRange memoryRange(allocation.memory.get(),0ull,allocation.memory->getAllocationSize());
 			if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
 				device->invalidateMappedMemoryRanges(1,&memoryRange);
 
@@ -276,7 +293,8 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			for (auto i=0; i<WorkgroupSize*WorkgroupCount; i++)
 			if (buffData[i]!=i)
 				return logFail("DWORD at position %d doesn't match!\n",i);
-			device->unmapMemory(allocation.memory.get());
+			// This allocation would unmap itself in the dtor anyway, but lets showcase the API usage
+			allocation.memory->unmap();
 
 			return true;
 		}
