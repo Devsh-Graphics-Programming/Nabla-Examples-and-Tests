@@ -27,7 +27,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 		{
 			if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
 				return m_device->getThreadSafeQueue(m_graphicsQueue.famIx,m_graphicsQueue.qIx);
-			assert(isHeadlessCompute());
+			assert(!isComputeOnly());
 			return nullptr;
 		}
 
@@ -57,14 +57,14 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 		}
 
 		// overridable for future graphics queue using examples
-		virtual bool isHeadlessCompute() const {return true;}
+		virtual bool isComputeOnly() const {return true;}
 
 		using queue_flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
 		// So because of lovely Intel GPUs that only have one queue, we can't really request anything different
 		virtual core::vector<queue_req_t> getQueueRequirements() const override
 		{
 			queue_req_t singleQueueReq = {.requiredFlags=queue_flags_t::EQF_COMPUTE_BIT|queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
-			if (!isHeadlessCompute())
+			if (!isComputeOnly())
 				singleQueueReq.requiredFlags |= queue_flags_t::EQF_GRAPHICS_BIT;
 			return {singleQueueReq};
 		}
@@ -86,7 +86,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				// the unwantedFlags are listed in order of severity, most unwanted first
 				uint8_t allocateFamily(const queue_req_t& originalReq, std::initializer_list<queue_flags_t> unwantedFlags)
 				{
-					for (size_t flagCount=unwantedFlags.size(); flagCount; flagCount--)
+					for (auto flagCount=static_cast<int32_t>(unwantedFlags.size()); flagCount>=0; flagCount--)
 					{
 						queue_req_t req = originalReq;
 						for (auto it=unwantedFlags.begin(); it!=(unwantedFlags.begin()+flagCount); it++)
@@ -122,74 +122,111 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			QueueAllocator queueAllocator(familyProperties);
 
 			// This is a sort-of allocator of queue indices for distinct queues
-			core::map<uint8_t, uint8_t> familyQueueCounts;
+			core::map<uint8_t,uint8_t> familyQueueCounts;
 
-			if (!isHeadlessCompute())
+			// If we can't allocate any queue then we can alias to this
+			uint8_t fallbackUsers = 0;
+			const SQueueIndex fallbackQueue = {
+				queueAllocator.allocateFamily({
+						.requiredFlags = (isComputeOnly() ? queue_flags_t::EQF_GRAPHICS_BIT:queue_flags_t::EQF_NONE)|queue_flags_t::EQF_COMPUTE_BIT|queue_flags_t::EQF_TRANSFER_BIT,
+						.disallowedFlags = queue_flags_t::EQF_NONE,
+						.queueCount = 1,
+						.maxImageTransferGranularity = {1,1,1}
+					},
+					{}
+				),
+				0
+			};
+			// Since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family capable of Compute and Graphics (if not headless).
+			assert(fallbackQueue.famIx!=QueueAllocator::InvalidIndex);
+			// It's okay that the Fallback Queue is taking up space in the allocator, we need a Compute Queue with {1,1,1} granularity anyway
+			familyQueueCounts[fallbackQueue.famIx]++;
+
+			// Make sure we have a Compute Queue as we'll always need that
+			queue_req_t computeQueueRequirement = {
+				.requiredFlags = queue_flags_t::EQF_COMPUTE_BIT,
+				.disallowedFlags = queue_flags_t::EQF_NONE,
+				.queueCount = 1
+			};
+			// If we won't have a Graphics Queue, then we need our Compute Queue to be able to do transfers of any granularity
+			if (isComputeOnly())
+				computeQueueRequirement.maxImageTransferGranularity = {1,1,1};
+			// Ideally we want the Compute Queue to be without Graphics and Transfer Capability
+			// However we'll take a Graphics & Compute queue if there's room in those families for one extra aside from the Fallback.
+			m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+			// If no async Compute Queue exists, we'll alias it to the fallback queue
+			if (m_computeQueue.famIx!=QueueAllocator::InvalidIndex)
+				m_computeQueue.qIx = familyQueueCounts[m_computeQueue.famIx]++;
+			else
 			{
-				// TODO: Handle swapchain compatibility.
-				queue_req_t graphicsQueueRequirement = { .requiredFlags = queue_flags_t::EQF_GRAPHICS_BIT,.disallowedFlags = queue_flags_t::EQF_NONE,.queueCount = 1 };
-				// Place queue_flags_t::EQF_NONE in front in case there are no graphics queues without the unwanted flags.
-				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement, { queue_flags_t::EQF_NONE, queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT, queue_flags_t::EQF_COMPUTE_BIT, queue_flags_t::EQF_PROTECTED_BIT });
-				assert(m_graphicsQueue.famIx != QueueAllocator::InvalidIndex);
-				m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
+				// Going through this branch means no more queues can be allocated, even on the same family as Fallback. We have to alias.
+				m_logger->log("Not enough queue counts in families, had to alias the Compute Queue to Fallback!", system::ILogger::ELL_PERFORMANCE);
+				m_computeQueue = fallbackQueue;
+				fallbackUsers++;
 			}
-
-			// Make sure we have a compute queue (so nothing else fails allocation) which should be able to do image transfers of any granularity (transfer only queue families can have problems with that)
-			queue_req_t computeQueueRequirement = { .requiredFlags = queue_flags_t::EQF_COMPUTE_BIT,.disallowedFlags = queue_flags_t::EQF_NONE,.queueCount = 1,.maxImageTransferGranularity = {1,1,1} };
-			m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement, { queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT });
-
-			if (m_computeQueue.famIx == QueueAllocator::InvalidIndex)
-			{
-				// Since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family capable of compute.
-				// Going through this branch means we've selected that family for the graphics queue and no more queues can be allocated for this family. We have to alias.
-				m_logger->log("Not enough queue counts in families, had to alias the Compute Queue to Graphics!", system::ILogger::ELL_PERFORMANCE);
-				m_computeQueue = m_graphicsQueue;
-			}
-
-			// We'll try to allocate the transfer queues from families that support the least extra bits (most importantly not graphics and not compute)
+			
+			// Next we'll try to allocate the transfer queues from families don't support Graphics or Compute capabilities at all to ensure they're the DMA queues and not clogging up the main CP
 			{
 				constexpr queue_req_t TransferQueueRequirement = {.requiredFlags=queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1};
-				// We'll first try to look for queue family which has a transfer capability but no Graphics or Compute capability, to ensure we're running on some neat DMA engines and not clogging up the main CP
-				m_transferUpQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+				// However if we can't get Queue Families without Graphics or Compute then we'll take whatever space is left so we can at least Async
+				m_transferUpQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_PROTECTED_BIT});
 				// In my opinion the Asynchronicity of the Upload queue is more important, so we assigned that first.
 				// We don't need to do anything special to ensure the down transfer queue allocates on the same family as the up transfer queue
-				m_transferDownQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+				m_transferDownQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_PROTECTED_BIT});
 			}
-			// If our allocator worked properly, then whatever we've managed to allocate is allocated on a family that supports it and preferably with as few extra caps as it could.
-			// Then whatever allocations we've failed could not have been allocated as separate queues and nothing will change that (like backing down on the unwanted bits).
 
-			// Failed to allocate up-transfer queue, then alias it to the compute queue
-			if (m_transferUpQueue.famIx==QueueAllocator::InvalidIndex)
-			{
-				m_logger->log("Not enough queue counts in families, had to alias the Transfer-Up Queue to Compute!",system::ILogger::ELL_PERFORMANCE);
-				// but first deallocate the original compute queue
-				queueAllocator.freeQueues(m_computeQueue.famIx,1);
-				// and allocate again with requirement that compute queue must also support transfer (this might force a change of family)
-				computeQueueRequirement.requiredFlags |= queue_flags_t::EQF_TRANSFER_BIT;
-				m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT});
-				// assign queue index within family now
-				m_computeQueue.qIx = familyQueueCounts[m_computeQueue.famIx]++;
-				// now alias the queue
-				m_transferUpQueue = m_computeQueue;
-			}
-			else // otherwise assign queue indices
-			{
-				m_computeQueue.qIx = familyQueueCounts[m_computeQueue.famIx]++;
+			// If failed to allocate up-transfer queue, then alias it to the fallback or compute queue
+			if (m_transferUpQueue.famIx!=QueueAllocator::InvalidIndex)
 				m_transferUpQueue.qIx = familyQueueCounts[m_transferUpQueue.famIx]++;
+			else
+			{
+				m_logger->log("Not enough queue counts in families, have to alias the Transfer-Up Queue!",system::ILogger::ELL_PERFORMANCE);
+				// If we have a compute queue the we'll use it for Async, so best to use that for transfer, if it has a transfer capability
+				if (m_physicalDevice->getQueueFamilyProperties()[m_computeQueue.famIx].queueFlags.hasFlags(queue_flags_t::EQF_TRANSFER_BIT))
+				{
+					m_logger->log("Aliasing Transfer-Up Queue to Compute!",system::ILogger::ELL_PERFORMANCE);
+					m_transferUpQueue = m_computeQueue;
+				}
+				else // go to fallback
+				{
+					m_transferUpQueue = fallbackQueue;
+					fallbackUsers++;
+				}
 			}
-			// since we assign first, the compute queue should have the first index within the family
-			assert(m_computeQueue.qIx==0);
 
 			// Failed to allocate down-transfer queue, then alias it to the up-transfer
-			if (m_transferDownQueue.famIx==QueueAllocator::InvalidIndex)
+			if (m_transferDownQueue.famIx!=QueueAllocator::InvalidIndex)
+				m_transferDownQueue.qIx = familyQueueCounts[m_transferDownQueue.famIx]++;
+			else
 			{
 				m_logger->log("Not enough queue counts in families, had to alias the Transfer-Up Queue to Transfer-Down!",system::ILogger::ELL_PERFORMANCE);
 				m_transferDownQueue.famIx = m_transferUpQueue.famIx;
 			}
-			else
-				m_transferDownQueue.qIx = familyQueueCounts[m_transferDownQueue.famIx]++;
 
-			// now after assigning all queues to families and indices, collate the creation parameters
+			// Try to allocate a different queue than fallback for graphics and as little extra as possible
+			if (!isComputeOnly())
+			{
+				// TODO: Handle surface compatibility.
+				queue_req_t graphicsQueueRequirement = {.requiredFlags=queue_flags_t::EQF_GRAPHICS_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
+				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement,{queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+				if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
+					m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
+				else
+				{
+					m_graphicsQueue = fallbackQueue;
+					fallbackUsers++;
+				}
+			}
+
+			// If the fallback queue has no users we can get rid of it
+			if (fallbackUsers==0)
+			{
+				auto found = familyQueueCounts.find(fallbackQueue.famIx);
+				if ((--found->second)==0)
+					familyQueueCounts.erase(found);
+			}
+
+			// Now after assigning all queues to families and indices, collate the creation parameters
 			core::vector<video::ILogicalDevice::SQueueCreationParams> retval(familyQueueCounts.size());
 			auto oit = retval.begin();
 			for (auto it=familyQueueCounts.begin(); it!=familyQueueCounts.end(); it++,oit++)
