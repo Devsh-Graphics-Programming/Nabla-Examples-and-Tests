@@ -121,11 +121,30 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 		{
 			QueueAllocator queueAllocator(familyProperties);
 
-			// First thing to make sure we have is a compute queue (so nothing else fails allocation) which should be able to do image transfers of any granularity (transfer only queue families can have problems with that)
-			queue_req_t computeQueueRequirement = {.requiredFlags=queue_flags_t::EQF_COMPUTE_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
-			m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT});
-			// since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family capable of compute
-			assert(m_computeQueue.famIx!=QueueAllocator::InvalidIndex);
+			// This is a sort-of allocator of queue indices for distinct queues
+			core::map<uint8_t, uint8_t> familyQueueCounts;
+
+			if (!isHeadlessCompute())
+			{
+				// TODO: Handle swapchain compatibility.
+				queue_req_t graphicsQueueRequirement = { .requiredFlags = queue_flags_t::EQF_GRAPHICS_BIT,.disallowedFlags = queue_flags_t::EQF_NONE,.queueCount = 1 };
+				// Place queue_flags_t::EQF_NONE in front in case there are no graphics queues without the unwanted flags.
+				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement, { queue_flags_t::EQF_NONE, queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT, queue_flags_t::EQF_COMPUTE_BIT, queue_flags_t::EQF_PROTECTED_BIT });
+				assert(m_graphicsQueue.famIx != QueueAllocator::InvalidIndex);
+				m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
+			}
+
+			// Make sure we have a compute queue (so nothing else fails allocation) which should be able to do image transfers of any granularity (transfer only queue families can have problems with that)
+			queue_req_t computeQueueRequirement = { .requiredFlags = queue_flags_t::EQF_COMPUTE_BIT,.disallowedFlags = queue_flags_t::EQF_NONE,.queueCount = 1,.maxImageTransferGranularity = {1,1,1} };
+			m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement, { queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_PROTECTED_BIT });
+
+			if (m_computeQueue.famIx == QueueAllocator::InvalidIndex)
+			{
+				// Since we requested a device that has a compute capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family capable of compute.
+				// Going through this branch means we've selected that family for the graphics queue and no more queues can be allocated for this family. We have to alias.
+				m_logger->log("Not enough queue counts in families, had to alias the Compute Queue to Graphics!", system::ILogger::ELL_PERFORMANCE);
+				m_computeQueue = m_graphicsQueue;
+			}
 
 			// We'll try to allocate the transfer queues from families that support the least extra bits (most importantly not graphics and not compute)
 			{
@@ -138,9 +157,6 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			}
 			// If our allocator worked properly, then whatever we've managed to allocate is allocated on a family that supports it and preferably with as few extra caps as it could.
 			// Then whatever allocations we've failed could not have been allocated as separate queues and nothing will change that (like backing down on the unwanted bits).
-
-			// This is a sort-of allocator of queue indices for distinct queues
-			core::map<uint8_t,uint8_t> familyQueueCounts;
 
 			// Failed to allocate up-transfer queue, then alias it to the compute queue
 			if (m_transferUpQueue.famIx==QueueAllocator::InvalidIndex)
