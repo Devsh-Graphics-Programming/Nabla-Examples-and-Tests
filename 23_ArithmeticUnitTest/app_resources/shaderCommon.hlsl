@@ -6,13 +6,8 @@
 
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 
-// annoying things necessary to do until DXC implements proposal 0011
-static uint32_t __gl_LocalInvocationIndex;
-uint32_t nbl::hlsl::glsl::gl_LocalInvocationIndex() {return __gl_LocalInvocationIndex;} // need this becacuse of the circular way `gl_SubgroupID` is currently defined
+// https://github.com/microsoft/DirectXShaderCompiler/issues/6144
 uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
-static uint32_t3 __gl_WorkGroupID;
-uint32_t3 nbl::hlsl::glsl::gl_WorkGroupID() {return __gl_WorkGroupID;}
-
 
 // unfortunately DXC chokes on descriptors as static members
 // https://github.com/microsoft/DirectXShaderCompiler/issues/5940

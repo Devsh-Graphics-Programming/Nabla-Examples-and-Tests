@@ -70,11 +70,8 @@ bool canStore()
 }
 
 [numthreads(WORKGROUP_SIZE,1,1)]
-void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 wgId : SV_GroupID)
+void main()
 {
-	__gl_LocalInvocationIndex = invIdx;
-	__gl_WorkGroupID = wgId;
-
 	const type_t sourceVal = test();
 	if (globalIndex()==0u)
 		output[ballot<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
