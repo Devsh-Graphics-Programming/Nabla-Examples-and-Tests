@@ -2,13 +2,12 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#define _NBL_STATIC_LIB_
-#include <nabla.h>
-
-#include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
-#include "nbl/asset/utils/CDerivativeMapCreator.h"
-
 #include "../common/MonoDeviceApplication.hpp"
+
+// TODO: these should come from <nabla.h> and nbl/asset/asset.h find out why they don't
+#include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
+//#include "nbl/asset/utils/CDerivativeMapCreator.h"
+
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 using namespace nbl;
@@ -17,6 +16,7 @@ using namespace nbl::core;
 using namespace nbl::video;
 
 
+// TODO: move inside some class
 static inline asset::IImageView<asset::ICPUImage>::E_TYPE getImageViewTypeFromImageType_CPU(const asset::IImage::E_TYPE type)
 {
 	switch (type)
@@ -33,6 +33,7 @@ static inline asset::IImageView<asset::ICPUImage>::E_TYPE getImageViewTypeFromIm
 	}
 }
 
+// TODO: move inside some class
 static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(const video::IGPUImage::E_TYPE type)
 {
 	switch (type)
@@ -49,6 +50,7 @@ static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(con
 	}
 }
 
+// TODO: inherit from BasicMultiQueue app
 class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 {
 	using base_t = nbl::examples::MonoDeviceApplication;
@@ -444,6 +446,7 @@ class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 				if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
 					m_parentApp->m_logger->log("CPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outImageCPU.get()));
 
+				// TODO: this is silly and just slows us down
 				memcpy(cpuOutput.data(), outImageCPU->getBuffer()->getPointer(), cpuOutput.size());
 
 				_NBL_ALIGNED_FREE(blitFilterState.scratchMemory);
@@ -697,7 +700,8 @@ class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 				m_parentApp->queue->endCapture();
 				m_parentApp->m_logger->log("GPU end..");
 
-				if (outImageGPU->getCreationParameters().type == asset::IImage::ET_2D)
+				if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
+				if (outImageGPU->getCreationParameters().type == asset::IImage::ET_2D) // TODO: why alpha coverage only for 2D ?
 				{
 					if (layerCount > 1)
 					{
@@ -714,8 +718,7 @@ class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 							asset::EAF_NONE,
 							asset::IImage::EL_GENERAL);
 
-						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-							m_parentApp->m_logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
+						m_parentApp->m_logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
 					}
 				}
 
@@ -762,6 +765,8 @@ class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 
 					memcpy(gpuOutput.data(), mappedGPUData, gpuOutput.size());
 					m_parentApp->m_device->unmapMemory(downloadBuffer->getBoundMemory());
+
+					// TODO: also save the gpu image to disk!
 				}
 			}
 
@@ -796,14 +801,16 @@ class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 
 							for (uint32_t ch = 0u; ch < outChannelCount; ++ch)
 							{
-#if 0
+								// TODO: change to logs
+#if 1
 								if (std::isnan(cpuDecodedPixel[ch]) || std::isinf(cpuDecodedPixel[ch]))
 									__debugbreak();
 
 								if (std::isnan(gpuDecodedPixel[ch]) || std::isinf(gpuDecodedPixel[ch]))
 									__debugbreak();
 
-								if (std::abs(cpuDecodedPixel[ch] - gpuDecodedPixel[ch]) > 1e-3f)
+								const auto diff = std::abs(cpuDecodedPixel[ch]-gpuDecodedPixel[ch]) / core::max(core::max(core::abs(cpuDecodedPixel[ch]),core::abs(gpuDecodedPixel[ch])),exp2(-16.f));
+								if (diff>0.01f)
 									__debugbreak();
 #endif
 
@@ -819,7 +826,7 @@ class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 			const double RMSE = core::sqrt(sqErr / totalPixelCount);
 			m_parentApp->m_logger->log("RMSE: %f", system::ILogger::ELL_INFO, RMSE);
 
-			constexpr double MaxAllowedRMSE = 0.7; // arbitrary
+			constexpr double MaxAllowedRMSE = 0.0046; // arbitrary
 
 			return (RMSE <= MaxAllowedRMSE) && !std::isnan(RMSE);
 		}
@@ -1626,5 +1633,3 @@ private:
 };
 
 NBL_MAIN_FUNC(BlitFilterTestApp)
-
-extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
