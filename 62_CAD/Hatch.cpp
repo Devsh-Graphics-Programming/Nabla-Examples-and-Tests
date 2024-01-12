@@ -3,11 +3,14 @@
 
 #include <complex.h>
 #include <tgmath.h>
-#include <boost/math/tools/polynomial.hpp>
+#include <nbl/builtin/hlsl/shapes/util.hlsl>
 
 // #define DEBUG_HATCH_VISUALLY
 
 using namespace nbl;
+
+#ifdef DEPRECATED_ROOT_FINDER
+#include <boost/math/tools/polynomial.hpp>
 using std::complex;
 using boost::math::tools::polynomial;
 
@@ -166,34 +169,36 @@ std::array<complex<T>, 4> solveQuarticRootsLaguerre(std::array<T, 5> p)
 	return roots;
 }
 
+std::array<double, 4> Hatch::solveQuarticRootsLaguerre(double a, double b, double c, double d, double e, double t_start, double t_end)
+{
+	auto laguerreRoots = solveQuarticRootsLaguerre<double>({ e, d, c, b, a });
+	std::array<double, 4> roots = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
+	uint32_t realRootCount = 0;
+
+	for (uint32_t i = 0; i < laguerreRoots.size(); i++)
+	{
+		if (laguerreRoots[i].imag() == 0.0)
+		{
+			bool duplicatedRoot = false;
+			
+			for (uint32_t realRoot = 0; realRoot < realRootCount; realRoot++)
+				if (roots[realRoot] == laguerreRoots[i].real())
+					duplicatedRoot = true;
+
+			if (duplicatedRoot)
+				continue;
+
+			roots[realRootCount++] = laguerreRoots[i].real();
+		}
+	}
+	
+	return roots;
+}
+#endif
+
 // Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
 std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
 {
-	//auto laguerreRoots = solveQuarticRootsLaguerre<double>({ e, d, c, b, a });
-	//std::array<double, 4> roots = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
-	//uint32_t realRootCount = 0;
-
-	//for (uint32_t i = 0; i < laguerreRoots.size(); i++)
-	//{
-	//	if (laguerreRoots[i].imag() == 0.0)
-	//	{
-	//		bool duplicatedRoot = false;
-	//		
-	//		for (uint32_t realRoot = 0; realRoot < realRootCount; realRoot++)
-	//			if (roots[realRoot] == laguerreRoots[i].real())
-	//				duplicatedRoot = true;
-
-	//		if (duplicatedRoot)
-	//			continue;
-
-	//		roots[realRootCount++] = laguerreRoots[i].real();
-	//	}
-	//}
-	//
-	//return roots;
-
-	// Analytical implementation:
-	// 
 	using nbl::hlsl::math::equations::Quartic;
 	using nbl::hlsl::math::equations::Cubic;
 	using nbl::hlsl::math::equations::Quadratic;
@@ -228,17 +233,14 @@ std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, dou
 	return t;
 }
 
-Hatch::QuadraticBezier Hatch::splitCurveRange(const QuadraticBezier& bezier, double minT, double maxT)
+Hatch::QuadraticBezier Hatch::splitCurveRange(QuadraticBezier bezier, double minT, double maxT)
 {
 	assert(maxT > minT);
 	assert(0.0 <= minT && minT <= 1.0);
 	assert(0.0 <= maxT && maxT <= 1.0);
-	return splitCurveTakeUpper(splitCurveTakeLower(bezier, maxT), minT / maxT);
-}
-
-Hatch::QuadraticBezier Hatch::Segment::getSplitCurve() const
-{
-	return splitCurveRange(*originalBezier, t_start, t_end);
+	bezier.splitFromStart(maxT);
+	bezier.splitToEnd(minT / maxT);
+	return bezier;
 }
 
 bool Hatch::Segment::isStraightLineConstantMajor() const
@@ -249,25 +251,6 @@ bool Hatch::Segment::isStraightLineConstantMajor() const
 		p2 = originalBezier->P2[major];
 	//assert(p0 <= p1 && p1 <= p2); (PRECISION ISSUES ARISE ONCE MORE)
 	return abs(p1 - p0) <= exp2(-24) && abs(p2 - p0) <= exp(-24);
-}
-
-// copied from curves.cpp
-//TODO: move this to cpp-compat hlsl builtins
-static float64_t2 LineLineIntersection(const float64_t2& p1, const float64_t2& v1, const float64_t2& p2, const float64_t2& v2)
-{
-	float64_t denominator = v1.y * v2.x - v1.x * v2.y;
-	float64_t2 diff = p1 - p2;
-	float64_t numerator = dot(float64_t2(v2.y, -v2.x), float64_t2(diff.x, diff.y));
-
-	if (abs(denominator) < 1e-15 && abs(numerator) < 1e-15)
-	{
-		// are parallel and the same
-		return (p1 + p2) / 2.0;
-	}
-
-	float64_t t = numerator / denominator;
-	float64_t2 intersectionPoint = p1 + t * v1;
-	return intersectionPoint;
 }
 
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
@@ -285,7 +268,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	{
 		// Line/line intersection
 		//TODO: use cpp-compat hlsl builtin
-		auto intersectionPoint = LineLineIntersection(
+		auto intersectionPoint =  nbl::hlsl::shapes::util::LineLineIntersection(
 			originalBezier->P0, originalBezier->P2 - originalBezier->P0,
 			other.originalBezier->P0, other.originalBezier->P2 - other.originalBezier->P0
 		);
@@ -346,7 +329,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		bool sideP1 = (p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x) >= 0.0;
 
 		auto otherBezier = *other.originalBezier;
-		const std::array<double, 4> intersections = linePossibleIntersections(*originalBezier, otherBezier);
+		const std::array<double, 4> intersections = bezierBezierIntersections(*originalBezier, otherBezier);
 
 		for (uint32_t i = 0; i < intersections.size(); i++)
 		{
@@ -354,7 +337,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 			if (other.t_start >= t || t >= other.t_end)
 				continue;
 
-			auto intersection = other.originalBezier->evaluate(t);
+			auto intersection = otherBezier.evaluate(t);
 			bool sideIntersection = (p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x) >= 0.0;
 
 			// If both P1 and the intersection point are on the same side of the P0 -> P2 line
@@ -363,8 +346,21 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 			if (sideP1 != sideIntersection)
 				continue;
 
-			result[resultIdx] = t;
-			resultIdx++;
+			const bool duplicateT = (resultIdx > 0 && t == result[0]) || (resultIdx > 1 && t == result[1]);
+			if (!duplicateT)
+			{
+				if (resultIdx < 2)
+				{
+					QuadraticBezier b0 = otherBezier;
+					QuadraticBezier b1 = *originalBezier;
+					result[resultIdx] = t;
+					resultIdx++;
+				}
+				else
+				{
+					_NBL_DEBUG_BREAK_IF(true); // more intersections that expected
+				}
+			}
 		}
 	}
 
@@ -576,8 +572,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
 			auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
 
-			float64_t2 lTan = tangent(*lhs.originalBezier, lhs.t_start);
-			float64_t2 rTan = tangent(*rhs.originalBezier, rhs.t_start);
+			float64_t2 lTan = lhs.originalBezier->derivative(lhs.t_start);
+			float64_t2 rTan = rhs.originalBezier->derivative(rhs.t_start);
 			_lhs = lTan[minor] * rTan[major];
 			_rhs = rTan[minor] * lTan[major];
 #ifdef DEBUG_HATCH_VISUALLY
@@ -669,9 +665,6 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 #ifdef DEBUG_HATCH_VISUALLY
 			if (debugOutput && step == debugStep)
 			{
-				//drawDebugBezier(entry.getSplitCurve(), float64_t4(1.0, 0.0, 0.0, 1.0));
-				//drawDebugBezier(segment.getSplitCurve(), float64_t4(0.0, 1.0, 0.0, 1.0));
-
 				for (uint32_t i = 0; i < intersectionPoints.size(); i++)
 				{
 					if (nbl::core::isnan(intersectionPoints[i]))
@@ -912,17 +905,19 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 
 
 // returns two possible values of t in the second curve where the curves intersect
-std::array<double, 4> Hatch::linePossibleIntersections(const QuadraticBezier& bezier, const QuadraticBezier& second)
+std::array<double, 4> Hatch::bezierBezierIntersections(const QuadraticBezier& bezier, const QuadraticBezier& second)
 {
 	// Algorithm based on Computer Aided Geometric Design: 
 	// https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub#page99
 	// Chapter 17.6 describes the implicitization of a curve, which transforms it into the following format:
-	// Ax^2 + Bxy + Cy^2 + Dx + Ey + F = 0
+	// ax^2 + bxy + cy^2 + dx + ey + f = 0 
+	// the coefficients a-f above are k0-k5 below 
 	// 
 	// We then substitute x and y for the other curve's quadratic formulas.
-	// This gives us a quartic equation:
-	// At^4 + Bt^3 + Ct^2 + Dt + E = 0
-	//
+	// This gives us a quartic equation of the form:
+	// at^4 + bt^3 + ct^2 + dt + e = 0
+	// the coefficients a-e above are a-e below 
+	// 
 	// The roots for t then become our intersections points between both curves.
 	//
 	// A Desmos page including math for this as well as some of the graphs it generates is available here:
@@ -932,12 +927,12 @@ std::array<double, 4> Hatch::linePossibleIntersections(const QuadraticBezier& be
 		p0y = bezier.P0.y, p1y = bezier.P1.y, p2y = bezier.P2.y;
 
 	// Getting the values for the implicitization of the curve
-	double t0 = (4 * p0y * p1y) - (4 * p0y * p2y) - (4 * (p1y * p1y)) + (4 * p1y * p2y) - ((p0y * p0y)) + (2 * p0y * p2y) - ((p2y * p2y));
-	double t1 = -(4 * p0x * p1y) + (4 * p0x * p2y) - (4 * p1x * p0y) + (8 * p1x * p1y) - (4 * p1x * p2y) + (4 * p2x * p0y) - (4 * p2x * p1y) + (2 * p0x * p0y) - (2 * p0x * p2y) - (2 * p2x * p0y) + (2 * p2x * p2y);
-	double t2 = (4 * p0x * p1x) - (4 * p0x * p2x) - (4 * (p1x * p1x)) + (4 * p1x * p2x) - ((p0x * p0x)) + (2 * p0x * p2x) - ((p2x * p2x));
-	double t3 = (4 * p0x * (p1y * p1y)) - (4 * p0x * p1y * p2y) - (4 * p1x * p0y * p1y) + (8 * p1x * p0y * p2y) - (4 * p1x * p1y * p2y) - (4 * p2x * p0y * p1y) + (4 * p2x * (p1y * p1y)) - (2 * p0x * p0y * p2y) + (2 * p0x * (p2y * p2y)) + (2 * p2x * (p0y * p0y)) - (2 * p2x * p0y * p2y);
-	double t4 = -(4 * p0x * p1x * p1y) - (4 * p0x * p1x * p2y) + (8 * p0x * p2x * p1y) + (4 * (p1x * p1x) * p0y) + (4 * (p1x * p1x) * p2y) - (4 * p1x * p2x * p0y) - (4 * p1x * p2x * p1y) + (2 * (p0x * p0x) * p2y) - (2 * p0x * p2x * p0y) - (2 * p0x * p2x * p2y) + (2 * (p2x * p2x) * p0y);
-	double t5 = (4 * p0x * p1x * p1y * p2y) - (4 * (p1x * p1x) * p0y * p2y) + (4 * p1x * p2x * p0y * p1y) - ((p0x * p0x) * (p2y * p2y)) + (2 * p0x * p2x * p0y * p2y) - ((p2x * p2x) * (p0y * p0y)) - (4 * p0x * p2x * (p1y * p1y));
+	double k0 = (4 * p0y * p1y) - (4 * p0y * p2y) - (4 * (p1y * p1y)) + (4 * p1y * p2y) - ((p0y * p0y)) + (2 * p0y * p2y) - ((p2y * p2y));
+	double k1 = -(4 * p0x * p1y) + (4 * p0x * p2y) - (4 * p1x * p0y) + (8 * p1x * p1y) - (4 * p1x * p2y) + (4 * p2x * p0y) - (4 * p2x * p1y) + (2 * p0x * p0y) - (2 * p0x * p2y) - (2 * p2x * p0y) + (2 * p2x * p2y);
+	double k2 = (4 * p0x * p1x) - (4 * p0x * p2x) - (4 * (p1x * p1x)) + (4 * p1x * p2x) - ((p0x * p0x)) + (2 * p0x * p2x) - ((p2x * p2x));
+	double k3 = (4 * p0x * (p1y * p1y)) - (4 * p0x * p1y * p2y) - (4 * p1x * p0y * p1y) + (8 * p1x * p0y * p2y) - (4 * p1x * p1y * p2y) - (4 * p2x * p0y * p1y) + (4 * p2x * (p1y * p1y)) - (2 * p0x * p0y * p2y) + (2 * p0x * (p2y * p2y)) + (2 * p2x * (p0y * p0y)) - (2 * p2x * p0y * p2y);
+	double k4 = -(4 * p0x * p1x * p1y) - (4 * p0x * p1x * p2y) + (8 * p0x * p2x * p1y) + (4 * (p1x * p1x) * p0y) + (4 * (p1x * p1x) * p2y) - (4 * p1x * p2x * p0y) - (4 * p1x * p2x * p1y) + (2 * (p0x * p0x) * p2y) - (2 * p0x * p2x * p0y) - (2 * p0x * p2x * p2y) + (2 * (p2x * p2x) * p0y);
+	double k5 = (4 * p0x * p1x * p1y * p2y) - (4 * (p1x * p1x) * p0y * p2y) + (4 * p1x * p2x * p0y * p1y) - ((p0x * p0x) * (p2y * p2y)) + (2 * p0x * p2x * p0y * p2y) - ((p2x * p2x) * (p0y * p0y)) - (4 * p0x * p2x * (p1y * p1y));
 
 	// "Slam" the other curve onto it
 
@@ -945,11 +940,11 @@ std::array<double, 4> Hatch::linePossibleIntersections(const QuadraticBezier& be
 	float64_t2 A = quadratic.A, B = quadratic.B, C = quadratic.C;
 
 	// Getting the quartic params
-	double a = ((A.x * A.x) * t0) + (A.x * A.y * t1) + (A.y * t2);
-	double b = (2 * A.x * B.x * t0) + (A.x * B.y * t1) + (B.x * A.y * t1) + (2 * A.y * B.y * t2);
-	double c = (2 * A.x * C.x * t0) + (A.x * C.y * t1) + (A.x * t3) + ((B.x * B.x) * t0) + (B.x * B.y * t1) + (C.x * A.y * t1) + (2 * A.y * C.y * t2) + (A.y * t4) + ((B.y * B.y) * t2);
-	double d = (2 * B.x * C.x * t0) + (B.x * C.y * t1) + (B.x * t3) + (C.x * B.y * t1) + (2 * B.y * C.y * t2) + (B.y * t4);
-	double e = ((C.x * C.x) * t0) + (C.x * C.y * t1) + (C.x * t3) + ((C.y * C.y) * t2) + (C.y * t4) + (t5);
+	double a = ((A.x * A.x) * k0) + (A.x * A.y * k1) + (A.y * A.y * k2);
+	double b = (2 * A.x * B.x * k0) + (A.x * B.y * k1) + (B.x * A.y * k1) + (2 * A.y * B.y * k2);
+	double c = (2 * A.x * C.x * k0) + (A.x * C.y * k1) + (A.x * k3) + ((B.x * B.x) * k0) + (B.x * B.y * k1) + (C.x * A.y * k1) + (2 * A.y * C.y * k2) + (A.y * k4) + ((B.y * B.y) * k2);
+	double d = (2 * B.x * C.x * k0) + (B.x * C.y * k1) + (B.x * k3) + (C.x * B.y * k1) + (2 * B.y * C.y * k2) + (B.y * k4);
+	double e = ((C.x * C.x) * k0) + (C.x * C.y * k1) + (C.x * k3) + ((C.y * C.y) * k2) + (C.y * k4) + (k5);
 
 	return Hatch::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
 }
@@ -975,37 +970,6 @@ double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant,
 	return core::nan<double>();
 }
 
-// https://pomax.github.io/bezierinfo/#pointvectors
-float64_t2 Hatch::tangent(const QuadraticBezier& bezier, double t)
-{
-	auto derivativeOrder1First = 2.0 * (bezier.P1 - bezier.P0);
-	auto derivativeOrder1Second = 2.0 * (bezier.P2 - bezier.P1);
-	auto tangent = (1.0 - t) * derivativeOrder1First + t * derivativeOrder1Second;
-	return glm::normalize(tangent);
-}
-
-Hatch::QuadraticBezier Hatch::splitCurveTakeLower(const QuadraticBezier& bezier, double t)
-{
-	QuadraticBezier outputCurve;
-	outputCurve.P0 = bezier.P0;
-	outputCurve.P1 = (1 - t) * bezier.P0 + t * bezier.P1;
-	outputCurve.P2 = (1 - t) * ((1 - t) * bezier.P0 + t * bezier.P1) + t * ((1 - t) * bezier.P1 + t * bezier.P2);
-	//assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
-
-	return outputCurve;
-}
-
-Hatch::QuadraticBezier Hatch::splitCurveTakeUpper(const QuadraticBezier& bezier, double t)
-{
-	QuadraticBezier outputCurve;
-	outputCurve.P0 = (1 - t) * ((1 - t) * bezier.P0 + t * bezier.P1) + t * ((1 - t) * bezier.P1 + t * bezier.P2);
-	outputCurve.P1 = (1 - t) * bezier.P1 + t * bezier.P2;
-	outputCurve.P2 = bezier.P2;
-	//assert(outputCurve.evaluate(0.0)[(int)SelectedMajorAxis] <= outputCurve.evaluate(1.0)[(int)SelectedMajorAxis]);
-
-	return outputCurve;
-}
-
 bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<Hatch::QuadraticBezier, 2>& out)
 {
 	auto quadratic = QuadraticEquation::constructFromBezier(bezier);
@@ -1018,7 +982,9 @@ bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::
 	// Finding roots for the quadratic bezier derivatives (a straight line)
 	auto t = -b / (2.0 * a);
 	if (t <= 0.0 || t >= 1.0) return true;
-	out = { splitCurveTakeLower(bezier, t), splitCurveTakeUpper(bezier, t) };
+	QuadraticBezier lower = bezier; lower.splitFromStart(t);
+	QuadraticBezier upper = bezier; upper.splitToEnd(t);
+	out = {lower, upper};
 	return false;
 }
 

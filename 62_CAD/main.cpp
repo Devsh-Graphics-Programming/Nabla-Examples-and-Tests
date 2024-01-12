@@ -14,7 +14,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -23,7 +23,7 @@ enum class ExampleMode
 	CASE_2, // hatches
 	CASE_3, // CURVES AND LINES
 	CASE_4, // STIPPLE PATTERN
-	CASE_5  // POLYLINES
+	CASE_5, // POLYLINES
 };
 
 constexpr ExampleMode mode = ExampleMode::CASE_2;
@@ -895,9 +895,9 @@ public:
 			area.offset = { 0,0 };
 			area.extent = { window->getWidth(), window->getHeight() };
 			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 0.3f;
-			clear[0].color.float32[1] = 0.3f;
-			clear[0].color.float32[2] = 0.3f;
+			clear[0].color.float32[0] = 0.f;
+			clear[0].color.float32[1] = 0.f;
+			clear[0].color.float32[2] = 0.f;
 			clear[0].color.float32[3] = 0.f;
 			clear[1].depthStencil.depth = 1.f;
 
@@ -1195,24 +1195,24 @@ public:
 					std::vector<nbl::hlsl::shapes::QuadraticBezier<float64_t>> beziers;
 
 					// new test case with messed up intersection
-					//beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
-					//beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
+					beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
+					beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
 
-					//beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
-					//beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
-					//line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
 
-					//beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
-					//beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
-					//line(float64_t2(30, 90), float64_t2(20, 90));
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
+					line(float64_t2(30, 90), float64_t2(20, 90));
 
 					beziers.push_back({ float64_t2(26, 20), float64_t2(37.25, 29.15), float64_t2(34.9, 42.75), });
 					beziers.push_back({ float64_t2(26, 20), float64_t2(33.8, 26.35), float64_t2(15.72, 40.84), });
 					line(float64_t2(34.9, 42.75), float64_t2(15.72, 40.84));
 
-					//beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
-					//beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
-					//line(float64_t2(35, 0), float64_t2(10, 0));
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
+					line(float64_t2(35, 0), float64_t2(10, 0));
 
 					polyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<float64_t>>(beziers.data(), beziers.data() + beziers.size()));
 

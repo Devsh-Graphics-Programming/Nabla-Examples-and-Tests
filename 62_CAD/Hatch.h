@@ -33,9 +33,8 @@ public:
 
 	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
 
-	static std::array<double, 4> linePossibleIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
+	static std::array<double, 4> bezierBezierIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
 	static double intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int major);
-	static float64_t2 tangent(const QuadraticBezier& bezier, double t);
 
 	// Splits the bezier into segments such that it is now monotonic in the major axis. 
 	static bool splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<QuadraticBezier, 2>& segments);
@@ -43,11 +42,7 @@ public:
 	// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
 	static std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor(const QuadraticBezier& bezier);
 
-	// Functions for splitting a curve based on t, where 
-	// TakeLower gives you the [0, t] range and TakeUpper gives you the [t, 1] range
-	static QuadraticBezier splitCurveTakeLower(const QuadraticBezier& bezier, double t);
-	static QuadraticBezier splitCurveTakeUpper(const QuadraticBezier& bezier, double t);
-	static QuadraticBezier splitCurveRange(const QuadraticBezier& bezier, double left, double right);
+	static QuadraticBezier splitCurveRange(QuadraticBezier bezier, double left, double right);
 
 	static bool isLineSegment(const QuadraticBezier& bezier);
 
@@ -59,7 +54,6 @@ public:
 		double t_start;
 		double t_end; // beziers get broken down
 
-		QuadraticBezier getSplitCurve() const;
 		std::array<double, 2> intersect(const Segment& other) const;
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor() const;
