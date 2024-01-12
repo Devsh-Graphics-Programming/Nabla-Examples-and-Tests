@@ -8,7 +8,7 @@
 #include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
 #include "nbl/asset/utils/CDerivativeMapCreator.h"
 
-#include "../common/CommonAPI.h"
+#include "../common/MonoDeviceApplication.hpp"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 using namespace nbl;
@@ -49,8 +49,10 @@ static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(con
 	}
 }
 
-class BlitFilterTestApp : public ApplicationBase
+class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
 {
+	using base_t = nbl::examples::MonoDeviceApplication;
+
 	constexpr static uint32_t SC_IMG_COUNT = 3u;
 
 	class ITest
@@ -80,14 +82,14 @@ class BlitFilterTestApp : public ApplicationBase
 			auto imageViewToWrite = asset::ICPUImageView::create(std::move(viewParams));
 			if (!imageViewToWrite)
 			{
-				m_parentApp->logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("Failed to create image view for the output image to write it to disk.", system::ILogger::ELL_ERROR);
 				return;
 			}
 
 			asset::IAssetWriter::SAssetWriteParams writeParams(imageViewToWrite.get());
 			if (!m_parentApp->assetManager->writeAsset(path, writeParams))
 			{
-				m_parentApp->logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("Failed to write the output image.", system::ILogger::ELL_ERROR);
 				return;
 			}
 		}
@@ -124,7 +126,7 @@ class BlitFilterTestApp : public ApplicationBase
 			auto outImage = m_parentApp->createCPUImage(m_outImageDim, m_inImage->getCreationParameters().type, m_outImageFormat);
 			if (!outImage)
 			{
-				m_parentApp->logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("Failed to create CPU image for output.", system::ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -150,13 +152,13 @@ class BlitFilterTestApp : public ApplicationBase
 
 			if (!blit_utils_t::computeScaledKernelPhasedLUT(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
 			{
-				m_parentApp->logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("Failed to compute the LUT for blitting", system::ILogger::ELL_ERROR);
 				return false;
 			}
 
 			if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
 			{
-				m_parentApp->logger->log("Failed to blit", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("Failed to blit", system::ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -232,7 +234,7 @@ class BlitFilterTestApp : public ApplicationBase
 				flattenInImage = ICPUImage::create(std::move(imageParams));
 				if (!flattenInImage)
 				{
-					m_parentApp->logger->log("Failed to create the flatten input image.", system::ILogger::ELL_ERROR);
+					m_parentApp->m_logger->log("Failed to create the flatten input image.", system::ILogger::ELL_ERROR);
 					return false;
 				}
 
@@ -257,7 +259,7 @@ class BlitFilterTestApp : public ApplicationBase
 
 			if (!asset::CFlattenRegionsImageFilter::execute(&filterState))
 			{
-				m_parentApp->logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("CFlattenRegionsImageFilter failed.", system::ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -432,15 +434,15 @@ class BlitFilterTestApp : public ApplicationBase
 				blitFilterState.scratchMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(blitFilterState.scratchMemoryByteSize, 32));
 
 				if (!BlitFilter::blit_utils_t::computeScaledKernelPhasedLUT(blitFilterState.scratchMemory + BlitFilter::getScratchOffset(&blitFilterState, BlitFilter::ESU_SCALED_KERNEL_PHASED_LUT), blitFilterState.inExtentLayerCount, blitFilterState.outExtentLayerCount, blitFilterState.inImage->getCreationParameters().type, m_convolutionKernels))
-					m_parentApp->logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
+					m_parentApp->m_logger->log("Failed to compute the LUT for blitting\n", system::ILogger::ELL_ERROR);
 
-				m_parentApp->logger->log("CPU begin..");
+				m_parentApp->m_logger->log("CPU begin..");
 				if (!BlitFilter::execute(core::execution::par_unseq, &blitFilterState))
-					m_parentApp->logger->log("Failed to blit\n", system::ILogger::ELL_ERROR);
-				m_parentApp->logger->log("CPU end..");
+					m_parentApp->m_logger->log("Failed to blit\n", system::ILogger::ELL_ERROR);
+				m_parentApp->m_logger->log("CPU end..");
 
 				if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-					m_parentApp->logger->log("CPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outImageCPU.get()));
+					m_parentApp->m_logger->log("CPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outImageCPU.get()));
 
 				memcpy(cpuOutput.data(), outImageCPU->getBuffer()->getPointer(), cpuOutput.size());
 
@@ -457,9 +459,9 @@ class BlitFilterTestApp : public ApplicationBase
 				auto transitionImageLayout = [this](core::smart_refctd_ptr<video::IGPUImage>&& image, const asset::IImage::E_LAYOUT finalLayout)
 				{
 					core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
-					m_parentApp->logicalDevice->createCommandBuffers(m_parentApp->commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+					m_parentApp->m_device->createCommandBuffers(m_parentApp->commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
 
-					auto fence = m_parentApp->logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
+					auto fence = m_parentApp->m_device->createFence(video::IGPUFence::ECF_UNSIGNALED);
 
 					video::IGPUCommandBuffer::SImageMemoryBarrier barrier = {};
 					barrier.oldLayout = asset::IImage::EL_UNDEFINED;
@@ -478,8 +480,8 @@ class BlitFilterTestApp : public ApplicationBase
 					video::IGPUQueue::SSubmitInfo submitInfo = {};
 					submitInfo.commandBufferCount = 1u;
 					submitInfo.commandBuffers = &cmdbuf.get();
-					m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]->submit(1u, &submitInfo, fence.get());
-					m_parentApp->logicalDevice->blockForFences(1u, &fence.get());
+					m_parentApp->queue->submit(1u, &submitInfo, fence.get());
+					m_parentApp->m_device->blockForFences(1u, &fence.get());
 				};
 
 				core::smart_refctd_ptr<video::IGPUImage> inImageGPU = nullptr;
@@ -489,7 +491,7 @@ class BlitFilterTestApp : public ApplicationBase
 					m_parentApp->cpu2gpuParams.waitForCreationToComplete();
 					if (!gpuArray || gpuArray->size() < 1ull || (!(*gpuArray)[0]))
 					{
-						m_parentApp->logger->log("Cannot convert the inpute CPU image to GPU image", system::ILogger::ELL_ERROR);
+						m_parentApp->m_logger->log("Cannot convert the inpute CPU image to GPU image", system::ILogger::ELL_ERROR);
 						return false;
 					}
 
@@ -514,16 +516,16 @@ class BlitFilterTestApp : public ApplicationBase
 					creationParams.tiling = video::IGPUImage::ET_OPTIMAL;
 					creationParams.usage = static_cast<video::IGPUImage::E_USAGE_FLAGS>(video::IGPUImage::EUF_STORAGE_BIT | video::IGPUImage::EUF_TRANSFER_SRC_BIT | video::IGPUImage::EUF_SAMPLED_BIT);
 
-					outImageGPU = m_parentApp->logicalDevice->createImage(std::move(creationParams));
+					outImageGPU = m_parentApp->m_device->createImage(std::move(creationParams));
 					auto memReqs = outImageGPU->getMemoryReqs();
-					memReqs.memoryTypeBits &= m_parentApp->logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					m_parentApp->logicalDevice->allocate(memReqs, outImageGPU.get());
+					memReqs.memoryTypeBits &= m_parentApp->m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+					m_parentApp->m_device->allocate(memReqs, outImageGPU.get());
 
 					transitionImageLayout(core::smart_refctd_ptr(outImageGPU), asset::IImage::EL_GENERAL);
 				}
 
 				// Create resources needed to do the blit
-				auto blitFilter = video::CComputeBlit::create(core::smart_refctd_ptr(m_parentApp->logicalDevice));
+				auto blitFilter = video::CComputeBlit::create(core::smart_refctd_ptr(m_parentApp->m_device));
 
 				const asset::E_FORMAT outImageViewFormat = blitFilter->getOutImageViewFormat(outImageFormat);
 
@@ -545,8 +547,8 @@ class BlitFilterTestApp : public ApplicationBase
 					outCreationParams.image = outImageGPU;
 					outCreationParams.format = outImageViewFormat;
 
-					inImageView = m_parentApp->logicalDevice->createImageView(std::move(creationParams));
-					outImageView = m_parentApp->logicalDevice->createImageView(std::move(outCreationParams));
+					inImageView = m_parentApp->m_device->createImageView(std::move(creationParams));
+					outImageView = m_parentApp->m_device->createImageView(std::move(outCreationParams));
 				}
 
 				core::smart_refctd_ptr<video::IGPUImageView> normalizationInImageView = outImageView;
@@ -562,10 +564,10 @@ class BlitFilterTestApp : public ApplicationBase
 						creationParams = outImageGPU->getCreationParameters();
 						creationParams.format = normalizationInFormat;
 						creationParams.usage = static_cast<video::IGPUImage::E_USAGE_FLAGS>(video::IGPUImage::EUF_STORAGE_BIT | video::IGPUImage::EUF_SAMPLED_BIT);
-						normalizationInImage = m_parentApp->logicalDevice->createImage(std::move(creationParams));
+						normalizationInImage = m_parentApp->m_device->createImage(std::move(creationParams));
 						auto memReqs = normalizationInImage->getMemoryReqs();
-						memReqs.memoryTypeBits &= m_parentApp->logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-						m_parentApp->logicalDevice->allocate(memReqs, normalizationInImage.get());
+						memReqs.memoryTypeBits &= m_parentApp->m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+						m_parentApp->m_device->allocate(memReqs, normalizationInImage.get());
 						transitionImageLayout(core::smart_refctd_ptr(normalizationInImage), asset::IImage::EL_GENERAL); // First we do the blit which requires storage image so starting layout is GENERAL
 
 						video::IGPUImageView::SCreationParams viewCreationParams = {};
@@ -578,7 +580,7 @@ class BlitFilterTestApp : public ApplicationBase
 						viewCreationParams.subresourceRange.baseArrayLayer = 0;
 						viewCreationParams.subresourceRange.layerCount = layersToBlit;
 
-						normalizationInImageView = m_parentApp->logicalDevice->createImageView(std::move(viewCreationParams));
+						normalizationInImageView = m_parentApp->m_device->createImageView(std::move(viewCreationParams));
 					}
 				}
 
@@ -595,10 +597,10 @@ class BlitFilterTestApp : public ApplicationBase
 						creationParams.size = scratchSize;
 						creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT);
 
-						coverageAdjustmentScratchBuffer = m_parentApp->logicalDevice->createBuffer(std::move(creationParams));
+						coverageAdjustmentScratchBuffer = m_parentApp->m_device->createBuffer(std::move(creationParams));
 						auto memReqs = coverageAdjustmentScratchBuffer->getMemoryReqs();
-						memReqs.memoryTypeBits &= m_parentApp->physicalDevice->getDeviceLocalMemoryTypeBits();
-						m_parentApp->logicalDevice->allocate(memReqs, coverageAdjustmentScratchBuffer.get());
+						memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDeviceLocalMemoryTypeBits();
+						m_parentApp->m_device->allocate(memReqs, coverageAdjustmentScratchBuffer.get());
 
 						asset::SBufferRange<video::IGPUBuffer> bufferRange = {};
 						bufferRange.offset = 0ull;
@@ -606,7 +608,7 @@ class BlitFilterTestApp : public ApplicationBase
 						bufferRange.buffer = coverageAdjustmentScratchBuffer;
 
 						core::vector<uint32_t> fillValues(scratchSize / sizeof(uint32_t), 0u);
-						m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, fillValues.data(), m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]);
+						m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, fillValues.data(), m_parentApp->queue);
 					}
 				}
 
@@ -618,24 +620,24 @@ class BlitFilterTestApp : public ApplicationBase
 					uint8_t* lutMemory = reinterpret_cast<uint8_t*>(_NBL_ALIGNED_MALLOC(lutSize, 32));
 					if (!blit_utils_t::computeScaledKernelPhasedLUT(lutMemory, inExtent, m_outImageDim, inImageType, m_convolutionKernels))
 					{
-						m_parentApp->logger->log("Failed to compute scaled kernel phased LUT for the GPU case!", system::ILogger::ELL_ERROR);
+						m_parentApp->m_logger->log("Failed to compute scaled kernel phased LUT for the GPU case!", system::ILogger::ELL_ERROR);
 						return false;
 					}
 
 					video::IGPUBuffer::SCreationParams creationParams = {};
 					creationParams.usage = static_cast<video::IGPUBuffer::E_USAGE_FLAGS>(video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | video::IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT);
 					creationParams.size = lutSize;
-					auto scaledKernelPhasedLUT = m_parentApp->logicalDevice->createBuffer(std::move(creationParams));
+					auto scaledKernelPhasedLUT = m_parentApp->m_device->createBuffer(std::move(creationParams));
 					auto memReqs = scaledKernelPhasedLUT->getMemoryReqs();
-					memReqs.memoryTypeBits &= m_parentApp->physicalDevice->getDeviceLocalMemoryTypeBits();
-					m_parentApp->logicalDevice->allocate(memReqs, scaledKernelPhasedLUT.get());
+					memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDeviceLocalMemoryTypeBits();
+					m_parentApp->m_device->allocate(memReqs, scaledKernelPhasedLUT.get());
 
 					// fill it up with data
 					asset::SBufferRange<video::IGPUBuffer> bufferRange = {};
 					bufferRange.offset = 0ull;
 					bufferRange.size = lutSize;
 					bufferRange.buffer = scaledKernelPhasedLUT;
-					m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, lutMemory, m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]);
+					m_parentApp->utilities->updateBufferRangeViaStagingBufferAutoSubmit(bufferRange, lutMemory, m_parentApp->queue);
 
 					asset::E_FORMAT bufferViewFormat;
 					if constexpr (std::is_same_v<blit_utils_t::lut_value_type, uint16_t>)
@@ -645,7 +647,7 @@ class BlitFilterTestApp : public ApplicationBase
 					else
 						assert(false);
 
-					scaledKernelPhasedLUTView = m_parentApp->logicalDevice->createBufferView(scaledKernelPhasedLUT.get(), bufferViewFormat, 0ull, scaledKernelPhasedLUT->getSize());
+					scaledKernelPhasedLUTView = m_parentApp->m_device->createBufferView(scaledKernelPhasedLUT.get(), bufferViewFormat, 0ull, scaledKernelPhasedLUT->getSize());
 
 					_NBL_ALIGNED_FREE(lutMemory);
 				}
@@ -656,7 +658,7 @@ class BlitFilterTestApp : public ApplicationBase
 
 				video::IGPUDescriptorSetLayout* blitDSLayouts_raw[] = { blitDSLayout.get(), kernelWeightsDSLayout.get() };
 				uint32_t dsCounts[] = { 2, 1 };
-				auto descriptorPool = m_parentApp->logicalDevice->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, blitDSLayouts_raw, blitDSLayouts_raw + 2ull, dsCounts);
+				auto descriptorPool = m_parentApp->m_device->createDescriptorPoolForDSLayouts(video::IDescriptorPool::ECF_NONE, blitDSLayouts_raw, blitDSLayouts_raw + 2ull, dsCounts);
 
 				core::smart_refctd_ptr<video::IGPUComputePipeline> blitPipeline = nullptr;
 				core::smart_refctd_ptr<video::IGPUDescriptorSet> blitDS = nullptr;
@@ -681,10 +683,10 @@ class BlitFilterTestApp : public ApplicationBase
 
 				blitFilter->updateDescriptorSet(blitDS.get(), blitWeightsDS.get(), inImageView, normalizationInImageView, coverageAdjustmentScratchBuffer, scaledKernelPhasedLUTView);
 
-				m_parentApp->logger->log("GPU begin..");
-				m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]->startCapture();
+				m_parentApp->m_logger->log("GPU begin..");
+				m_parentApp->queue->startCapture();
 				blitFilter->blit<BlitUtilities>(
-					m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE], m_alphaSemantic,
+					m_parentApp->queue, m_alphaSemantic,
 					blitDS.get(), alphaTestPipeline.get(),
 					blitDS.get(), blitWeightsDS.get(), blitPipeline.get(),
 					normalizationDS.get(), normalizationPipeline.get(),
@@ -692,28 +694,28 @@ class BlitFilterTestApp : public ApplicationBase
 					layersToBlit,
 					coverageAdjustmentScratchBuffer, m_referenceAlpha,
 					m_alphaBinCount, BlitWorkgroupSize);
-				m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]->endCapture();
-				m_parentApp->logger->log("GPU end..");
+				m_parentApp->queue->endCapture();
+				m_parentApp->m_logger->log("GPU end..");
 
 				if (outImageGPU->getCreationParameters().type == asset::IImage::ET_2D)
 				{
 					if (layerCount > 1)
 					{
 						// This can be removed once ext::ScreenShot::createScreenShot works for multiple layers.
-						m_parentApp->logger->log("Layer count (%d) is greater than 1 for a 2D image, not calculating GPU alpha coverage..", system::ILogger::ELL_WARNING, layerCount);
+						m_parentApp->m_logger->log("Layer count (%d) is greater than 1 for a 2D image, not calculating GPU alpha coverage..", system::ILogger::ELL_WARNING, layerCount);
 					}
 					else
 					{
 						auto outCPUImageView = ext::ScreenShot::createScreenShot(
-							m_parentApp->logicalDevice.get(),
-							m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE],
+							m_parentApp->m_device.get(),
+							m_parentApp->queue,
 							nullptr,
 							outImageView.get(),
 							asset::EAF_NONE,
 							asset::IImage::EL_GENERAL);
 
 						if (m_alphaSemantic == IBlitUtilities::EAS_REFERENCE_OR_COVERAGE)
-							m_parentApp->logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
+							m_parentApp->m_logger->log("GPU alpha coverage: %f", system::ILogger::ELL_DEBUG, computeAlphaCoverage(m_referenceAlpha, outCPUImageView->getCreationParameters().image.get()));
 					}
 				}
 
@@ -724,15 +726,15 @@ class BlitFilterTestApp : public ApplicationBase
 					video::IGPUBuffer::SCreationParams creationParams = {};
 					creationParams.usage = video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
 					creationParams.size = downloadSize;
-					core::smart_refctd_ptr<video::IGPUBuffer> downloadBuffer = m_parentApp->logicalDevice->createBuffer(std::move(creationParams));
+					core::smart_refctd_ptr<video::IGPUBuffer> downloadBuffer = m_parentApp->m_device->createBuffer(std::move(creationParams));
 
 					auto memReqs = downloadBuffer->getMemoryReqs();
-					memReqs.memoryTypeBits &= m_parentApp->physicalDevice->getDownStreamingMemoryTypeBits();
-					m_parentApp->logicalDevice->allocate(memReqs, downloadBuffer.get());
+					memReqs.memoryTypeBits &= m_parentApp->m_physicalDevice->getDownStreamingMemoryTypeBits();
+					m_parentApp->m_device->allocate(memReqs, downloadBuffer.get());
 
 					core::smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf = nullptr;
-					m_parentApp->logicalDevice->createCommandBuffers(m_parentApp->commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
-					auto fence = m_parentApp->logicalDevice->createFence(video::IGPUFence::ECF_UNSIGNALED);
+					m_parentApp->m_device->createCommandBuffers(m_parentApp->commandPool.get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf);
+					auto fence = m_parentApp->m_device->createFence(video::IGPUFence::ECF_UNSIGNALED);
 
 					cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 
@@ -749,17 +751,17 @@ class BlitFilterTestApp : public ApplicationBase
 					video::IGPUQueue::SSubmitInfo submitInfo = {};
 					submitInfo.commandBufferCount = 1u;
 					submitInfo.commandBuffers = &cmdbuf.get();
-					m_parentApp->queues[CommonAPI::InitOutput::EQT_COMPUTE]->submit(1u, &submitInfo, fence.get());
+					m_parentApp->queue->submit(1u, &submitInfo, fence.get());
 
-					m_parentApp->logicalDevice->blockForFences(1u, &fence.get());
+					m_parentApp->m_device->blockForFences(1u, &fence.get());
 
 					video::IDeviceMemoryAllocation::MappedMemoryRange memoryRange = {};
 					memoryRange.memory = downloadBuffer->getBoundMemory();
 					memoryRange.length = downloadSize;
-					uint8_t* mappedGPUData = reinterpret_cast<uint8_t*>(m_parentApp->logicalDevice->mapMemory(memoryRange));
+					uint8_t* mappedGPUData = reinterpret_cast<uint8_t*>(m_parentApp->m_device->mapMemory(memoryRange));
 
 					memcpy(gpuOutput.data(), mappedGPUData, gpuOutput.size());
-					m_parentApp->logicalDevice->unmapMemory(downloadBuffer->getBoundMemory());
+					m_parentApp->m_device->unmapMemory(downloadBuffer->getBoundMemory());
 				}
 			}
 
@@ -815,7 +817,7 @@ class BlitFilterTestApp : public ApplicationBase
 			// compute alpha coverage
 			const uint64_t totalPixelCount = static_cast<uint64_t>(m_outImageDim[2]) * m_outImageDim[1] * m_outImageDim[0] * layerCount;
 			const double RMSE = core::sqrt(sqErr / totalPixelCount);
-			m_parentApp->logger->log("RMSE: %f", system::ILogger::ELL_INFO, RMSE);
+			m_parentApp->m_logger->log("RMSE: %f", system::ILogger::ELL_INFO, RMSE);
 
 			constexpr double MaxAllowedRMSE = 0.7; // arbitrary
 
@@ -867,7 +869,7 @@ class BlitFilterTestApp : public ApplicationBase
 
 				if (!region_block_filter_t::execute(&filterState))
 				{
-					m_parentApp->logger->log("CRegionBlockFunctorFilter failed for mip level %u", system::ILogger::ELL_ERROR, i);
+					m_parentApp->m_logger->log("CRegionBlockFunctorFilter failed for mip level %u", system::ILogger::ELL_ERROR, i);
 					return false;
 				}
 			}
@@ -882,26 +884,35 @@ class BlitFilterTestApp : public ApplicationBase
 	};
 
 public:
-	void onAppInitialized_impl() override
-	{
-		CommonAPI::InitParams initParams;
-		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { "BlitFilterTest" };
-		initParams.swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS(0);
-		auto initOutput = CommonAPI::Init(std::move(initParams));
+	using base_t::base_t;
+	BlitFilterTestApp() = default;
 
-		system = std::move(initOutput.system);
-		apiConnection = std::move(initOutput.apiConnection);
-		surface = std::move(initOutput.surface);
-		physicalDevice = std::move(initOutput.physicalDevice);
-		logicalDevice = std::move(initOutput.logicalDevice);
-		utilities = std::move(initOutput.utilities);
-		queues = std::move(initOutput.queues);
-		commandPools = std::move(initOutput.commandPools);
-		assetManager = std::move(initOutput.assetManager);
-		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-		logger = std::move(initOutput.logger);
-		inputSystem = std::move(initOutput.inputSystem);
+	virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
+	{
+		if (!base_t::onAppInitialized(std::move(system)))
+			return false;
+
+		queue = getComputeQueue();
+		commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
+		assetManager = make_smart_refctd_ptr<asset::IAssetManager>(smart_refctd_ptr(m_system));
+		utilities = make_smart_refctd_ptr<video::IUtilities>(smart_refctd_ptr(m_device));
+
+		core::smart_refctd_ptr<IGPUCommandBuffer> transferCmdBuffer;
+		core::smart_refctd_ptr<IGPUCommandBuffer> computeCmdBuffer;
+
+		m_device->createCommandBuffers(commandPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &transferCmdBuffer);
+		m_device->createCommandBuffers(commandPool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &computeCmdBuffer);
+
+		cpu2gpuParams.assetManager = assetManager.get();
+		cpu2gpuParams.device = m_device.get();
+		cpu2gpuParams.finalQueueFamIx = queue->getFamilyIndex();
+		cpu2gpuParams.pipelineCache = nullptr;
+		cpu2gpuParams.utilities = utilities.get();
+		cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_TRANSFER].queue = queue;
+		cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_COMPUTE].queue = queue;
+		cpu2gpuParams.perQueue[IGPUObjectFromAssetConverter::EQU_TRANSFER].cmdbuf = transferCmdBuffer;
+		cpu2gpuParams.perQueue[IGPUObjectFromAssetConverter::EQU_COMPUTE].cmdbuf = computeCmdBuffer;
+
 
 		constexpr bool TestCPUBlitFilter = true;
 		constexpr bool TestFlattenFilter = true;
@@ -918,7 +929,7 @@ public:
 
 			if (imageContents.empty())
 			{
-				logger->log("Failed to load image at path %s", system::ILogger::ELL_ERROR, path);
+				m_logger->log("Failed to load image at path %s", system::ILogger::ELL_ERROR, path);
 				return nullptr;
 			}
 
@@ -948,9 +959,9 @@ public:
 				if (tests[i])
 				{
 					if (!tests[i]->run())
-						logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
+						m_logger->log("Test #%u failed.", system::ILogger::ELL_ERROR, i);
 					else
-						logger->log("Test #%u passed.", system::ILogger::ELL_INFO, i);
+						m_logger->log("Test #%u passed.", system::ILogger::ELL_INFO, i);
 				}
 			}
 		};
@@ -959,7 +970,7 @@ public:
 		{
 			using namespace asset;
 
-			logger->log("CBlitImageFilter", system::ILogger::ELL_INFO);
+			m_logger->log("CBlitImageFilter", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 2;
 			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1035,7 +1046,7 @@ public:
 					_NBL_TODO();				
 			};
 
-			logger->log("CFlattenRegionsImageFilter", system::ILogger::ELL_INFO);
+			m_logger->log("CFlattenRegionsImageFilter", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 4;
 			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1123,7 +1134,7 @@ public:
 
 		if (TestSwizzleAndConvertFilter)
 		{
-			logger->log("CSwizzleAndConvertImageFilter", system::ILogger::ELL_INFO);
+			m_logger->log("CSwizzleAndConvertImageFilter", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 6;
 			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1255,7 +1266,7 @@ public:
 		{
 			using namespace asset;
 
-			logger->log("CComputeBlit", system::ILogger::ELL_INFO);
+			m_logger->log("CComputeBlit", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 6;
 			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1481,7 +1492,7 @@ public:
 
 		if (TestRegionBlockFunctorFilter)
 		{
-			logger->log("CRegionBlockFunctorFilter", system::ILogger::ELL_INFO);
+			m_logger->log("CRegionBlockFunctorFilter", system::ILogger::ELL_INFO);
 
 			constexpr uint32_t TestCount = 1;
 			std::unique_ptr<ITest> tests[TestCount] = { nullptr };
@@ -1497,9 +1508,10 @@ public:
 		}
 	}
 
-	void onAppTerminated_impl() override
+	bool onAppTerminated() override
 	{
-		logicalDevice->waitIdle();
+		m_device->waitIdle();
+		return base_t::onAppTerminated();
 	}
 
 	void workLoopBody() override
@@ -1509,6 +1521,17 @@ public:
 	bool keepRunning() override
 	{
 		return false;
+	}
+
+	core::vector<queue_req_t> getQueueRequirements() const override
+	{
+		core::vector<queue_req_t> retval;
+
+		using flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
+		// IGPUObjectFromAssetConverter requires the queue to support graphics as well.
+		retval.push_back({ .requiredFlags = flags_t::EQF_COMPUTE_BIT | flags_t::EQF_TRANSFER_BIT | flags_t::EQF_GRAPHICS_BIT,.disallowedFlags = flags_t::EQF_NONE,.queueCount = 1,.maxImageTransferGranularity = {1,1,1} });
+
+		return retval;
 	}
 
 private:
@@ -1543,7 +1566,7 @@ private:
 		core::smart_refctd_ptr<ICPUImage> image = ICPUImage::create(std::move(imageParams));
 		if (!image)
 		{
-			logger->log("Failed to create a CPU image", system::ILogger::ELL_ERROR);
+			m_logger->log("Failed to create a CPU image", system::ILogger::ELL_ERROR);
 			return nullptr;
 		}
 
@@ -1585,78 +1608,23 @@ private:
 		return image;
 	}
 
-	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
-	core::smart_refctd_ptr<nbl::ui::IWindow> window;
-	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
-	core::smart_refctd_ptr<nbl::video::ISurface> surface;
-	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
-	video::IPhysicalDevice* physicalDevice;
-	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
-	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-	core::smart_refctd_ptr<video::IGPURenderpass> renderpass = nullptr;
-	std::array<nbl::core::smart_refctd_ptr<video::IGPUFramebuffer>, CommonAPI::InitOutput::MaxSwapChainImageCount> fbos;
-	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<nbl::system::ISystem> system;
-	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
+	video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+	{
+		auto retval = base_t::getRequiredDeviceFeatures();
+
+		retval.vulkanMemoryModelDeviceScope = true;
+
+		return retval;
+	}
+
+	core::smart_refctd_ptr<asset::IAssetManager> assetManager;
+	video::IGPUQueue* queue;
+	core::smart_refctd_ptr<video::IGPUCommandPool> commandPool;
+	core::smart_refctd_ptr<video::IUtilities> utilities;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<nbl::system::ILogger> logger;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
-
-public:
-	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
-	{
-		window = std::move(wnd);
-	}
-	void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& s) override
-	{
-		system = std::move(s);
-	}
-	nbl::ui::IWindow* getWindow() override
-	{
-		return window.get();
-	}
-	video::IAPIConnection* getAPIConnection() override
-	{
-		return apiConnection.get();
-	}
-	video::ILogicalDevice* getLogicalDevice()  override
-	{
-		return logicalDevice.get();
-	}
-	video::IGPURenderpass* getRenderpass() override
-	{
-		return renderpass.get();
-	}
-	void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
-	{
-		surface = std::move(s);
-	}
-	void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
-	{
-		for (int i = 0; i < f.size(); i++)
-		{
-			fbos[i] = core::smart_refctd_ptr(f[i]);
-		}
-	}
-	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
-	{
-		swapchain = std::move(s);
-	}
-	uint32_t getSwapchainImageCount() override
-	{
-		return SC_IMG_COUNT;
-	}
-	virtual nbl::asset::E_FORMAT getDepthFormat() override
-	{
-		return nbl::asset::EF_D32_SFLOAT;
-	}
-
-	APP_CONSTRUCTOR(BlitFilterTestApp);
 };
 
-NBL_COMMON_API_MAIN(BlitFilterTestApp)
+NBL_MAIN_FUNC(BlitFilterTestApp)
 
 extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
