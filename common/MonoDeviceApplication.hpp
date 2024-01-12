@@ -91,12 +91,10 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			deviceFilter.requiredImageFormatUsagesOptimalTiling = getRequiredOptimalTilingImageUsages();
 
 			const auto memoryReqs = getMemoryRequirements();
-			deviceFilter.memoryRequirements = memoryReqs.data();
-			deviceFilter.memoryRequirementsCount = memoryReqs.size();
+			deviceFilter.memoryRequirements = memoryReqs;
 
 			const auto queueReqs = getQueueRequirements();
-			deviceFilter.queueRequirements = queueReqs.data();
-			deviceFilter.queueRequirementsCount = queueReqs.size();
+			deviceFilter.queueRequirements = queueReqs;
 			
 			return deviceFilter(physicalDevices);
 		}
