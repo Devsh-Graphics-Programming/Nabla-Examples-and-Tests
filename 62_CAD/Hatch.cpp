@@ -196,16 +196,6 @@ std::array<double, 4> Hatch::solveQuarticRootsLaguerre(double a, double b, doubl
 }
 #endif
 
-Hatch::QuadraticBezier Hatch::splitCurveRange(QuadraticBezier bezier, double minT, double maxT)
-{
-	assert(maxT > minT);
-	assert(0.0 <= minT && minT <= 1.0);
-	assert(0.0 <= maxT && maxT <= 1.0);
-	bezier.splitFromStart(maxT);
-	bezier.splitToEnd(minT / maxT);
-	return bezier;
-}
-
 bool Hatch::Segment::isStraightLineConstantMajor() const
 {
 	auto major = (uint32_t)SelectedMajorAxis;
@@ -286,13 +276,15 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	}
 	else
 	{
-		const auto& thisBezier = *originalBezier;
-		const auto& otherBezier = *other.originalBezier;
+		auto thisBezier = *originalBezier;
+		thisBezier.splitFromMinToMax(t_start, t_end); // to get correct P0, P1, P2 for intersection testing
+
 		const auto p0 = thisBezier.P0;
 		const auto p1 = thisBezier.P1;
 		const auto p2 = thisBezier.P2;
-		const bool sideP1 = (p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x) >= 0.0;
-
+		const bool sideP1 = nbl::hlsl::cross2D(p2 - p0, p1 - p0) >= 0.0;
+		
+		const auto& otherBezier = *other.originalBezier;
 		const std::array<double, 4> intersections = bezierBezierIntersections(otherBezier, thisBezier);
 
 		for (uint32_t i = 0; i < intersections.size(); i++)
@@ -302,11 +294,10 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 				continue;
 
 			auto intersection = otherBezier.evaluate(t);
-
-			// If both P1 and the intersection point are on the same side of the P0 -> P2 line of thisBezier
-			// for the current line, we consider this as a valid intersection
-			// (Otherwise, continue)
-			const bool sideIntersection = (p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x) >= 0.0;
+			
+			// Optimization istead of doing SDF to find other T and check against bounds:
+			// If both P1 and the intersection point are on the same side of the P0 -> P2 line of thisBezier, it's a a valid intersection
+			const bool sideIntersection = nbl::hlsl::cross2D(p2 - p0, intersection - p0) >= 0.0;
 			if (sideP1 != sideIntersection)
 				continue;
 
@@ -738,7 +729,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				{
 					const Segment& item = activeCandidates[i];
 					auto curveMinEnd = intersectOrtho(*item.originalBezier, newMajor, major);
-					auto splitCurveMin = splitCurveRange(*item.originalBezier, item.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+					auto splitCurveMin = *item.originalBezier;
+					splitCurveMin.splitCurveFromMinToMax(item.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
 
 					drawDebugBezier(splitCurveMin, (i == candidatesSize - 1) ? float32_t4(0.0, 0.0, 1.0, 1.0) : float32_t4(1.0, 0.0, 0.0, 1.0));
 					if (i == candidatesSize - 1)
@@ -763,8 +755,11 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 				auto curveMinEnd = intersectOrtho(*left.originalBezier, newMajor, major);
 				auto curveMaxEnd = intersectOrtho(*right.originalBezier, newMajor, major);
 
-				auto splitCurveMin = splitCurveRange(*left.originalBezier, left.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
-				auto splitCurveMax = splitCurveRange(*right.originalBezier, right.t_start, isnan(curveMaxEnd) ? 1.0 : curveMaxEnd);
+				auto splitCurveMin = *left.originalBezier;
+				splitCurveMin.splitFromMinToMax(left.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+				auto splitCurveMax = *right.originalBezier;  
+				splitCurveMax.splitFromMinToMax(right.t_start, isnan(curveMaxEnd) ? 1.0 : curveMaxEnd);
+
 				assert(splitCurveMin.evaluate(0.0)[major] <= splitCurveMin.evaluate(1.0)[major]);
 				assert(splitCurveMax.evaluate(0.0)[major] <= splitCurveMax.evaluate(1.0)[major]);
 
@@ -897,11 +892,8 @@ std::array<double, 4> Hatch::bezierBezierIntersections(const QuadraticBezier& lh
 		memcpy(&t[0], &res.x, sizeof(double) * 2);
 	}
 	
-	// If either is NaN or both are equal
-	// Same as: 
-	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
 	// TODO: why did we do this?
-	//if (!(t[0] != t[1]))
+	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
 	//	t[0] = (t[0] != 0.0) ? 0.0 : 1.0;
 	
 	return t;

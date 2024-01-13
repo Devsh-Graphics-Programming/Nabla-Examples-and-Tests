@@ -32,6 +32,7 @@ public:
 	using QuadraticCurve = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
 
 	static std::array<double, 4> bezierBezierIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
+
 	static double intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int major);
 
 	// Splits the bezier into segments such that it is now monotonic in the major axis. 
@@ -39,9 +40,7 @@ public:
 
 	// Assumes the curve is monotonic in major axis, only considers the t = 0, t = 1 and minor axis extremities
 	static std::pair<float64_t2, float64_t2> getBezierBoundingBoxMinor(const QuadraticBezier& bezier);
-
-	static QuadraticBezier splitCurveRange(QuadraticBezier bezier, double left, double right);
-
+	
 	static bool isLineSegment(const QuadraticBezier& bezier);
 
 	class Segment
