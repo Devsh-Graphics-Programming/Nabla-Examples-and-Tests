@@ -329,7 +329,7 @@ public:
 	void kernelCallback()
 	{
 		// Make sure we are also done with the readback
-		auto wait = std::array{ILogicalDevice::SSemaphoreWaitInfo{.semaphore = sema.get(), .value = 2}};
+		auto wait = std::array{ISemaphore::SWaitInfo{.semaphore = sema.get(), .value = 2}};
 		logicalDevice->waitForSemaphores(wait, true, -1);
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
