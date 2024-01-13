@@ -268,7 +268,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	{
 		// Line/line intersection
 		//TODO: use cpp-compat hlsl builtin
-		auto intersectionPoint =  nbl::hlsl::shapes::util::LineLineIntersection(
+		auto intersectionPoint =  nbl::hlsl::shapes::util::LineLineIntersection<float64_t>(
 			originalBezier->P0, originalBezier->P2 - originalBezier->P0,
 			other.originalBezier->P0, other.originalBezier->P2 - other.originalBezier->P0
 		);
@@ -569,8 +569,8 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 			// this is how you want to order the derivatives dmin/dmaj=-INF dmin/dmaj = 0 dmin/dmaj=INF
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
 			// also leverage the guarantee that `dmaj>=0` to ger numerically stable compare
-			auto lhsQuadratic = QuadraticEquation::constructFromBezier(*lhs.originalBezier);
-			auto rhsQuadratic = QuadraticEquation::constructFromBezier(*rhs.originalBezier);
+			auto lhsQuadratic = QuadraticCurve::constructFromBezier(*lhs.originalBezier);
+			auto rhsQuadratic = QuadraticCurve::constructFromBezier(*rhs.originalBezier);
 
 			float64_t2 lTan = lhs.originalBezier->derivative(lhs.t_start);
 			float64_t2 rTan = rhs.originalBezier->derivative(rhs.t_start);
@@ -839,7 +839,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 						(bezier.P1 - aabbMin) * rcpAabbExtents,
 						(bezier.P2 - aabbMin) * rcpAabbExtents
 					);
-					auto quadratic = QuadraticEquation::constructFromBezier(transformedBezier);
+					auto quadratic = QuadraticCurve::constructFromBezier(transformedBezier);
 
 					if (isLineSegment(transformedBezier))
 						quadratic.A = float64_t2(0.0);
@@ -936,7 +936,7 @@ std::array<double, 4> Hatch::bezierBezierIntersections(const QuadraticBezier& be
 
 	// "Slam" the other curve onto it
 
-	auto quadratic = QuadraticEquation::constructFromBezier(second);
+	auto quadratic = QuadraticCurve::constructFromBezier(second);
 	float64_t2 A = quadratic.A, B = quadratic.B, C = quadratic.C;
 
 	// Getting the quartic params
@@ -972,7 +972,7 @@ double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant,
 
 bool Hatch::splitIntoMajorMonotonicSegments(const QuadraticBezier& bezier, std::array<Hatch::QuadraticBezier, 2>& out)
 {
-	auto quadratic = QuadraticEquation::constructFromBezier(bezier);
+	auto quadratic = QuadraticCurve::constructFromBezier(bezier);
 
 	// Getting derivatives for our quadratic bezier
 	auto major = (uint32_t)SelectedMajorAxis;
@@ -1019,7 +1019,7 @@ std::pair<float64_t2, float64_t2> Hatch::getBezierBoundingBoxMinor(const Quadrat
 
 bool Hatch::isLineSegment(const QuadraticBezier& bezier)
 {
-	auto quadratic = QuadraticEquation::constructFromBezier(bezier);
+	auto quadratic = QuadraticCurve::constructFromBezier(bezier);
 	float64_t lenSqA = dot(quadratic.A, quadratic.A);
 	return lenSqA < exp(-23.0f) * dot(quadratic.B, quadratic.B);
 }

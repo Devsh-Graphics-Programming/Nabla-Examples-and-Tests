@@ -29,7 +29,7 @@ public:
 
 	using bezier_float_t = double;
 	using QuadraticBezier = nbl::hlsl::shapes::QuadraticBezier<bezier_float_t>;
-	using QuadraticEquation = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
+	using QuadraticCurve = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
 
 	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
 
