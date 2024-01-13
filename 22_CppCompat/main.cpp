@@ -29,7 +29,7 @@ using namespace glm;
 
 #include <nbl/builtin/hlsl/limits.hlsl>
 
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "../common/MonoDeviceApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
@@ -42,55 +42,6 @@ using namespace ui;
 using namespace nbl::hlsl;
 
 void cpu_tests();
-
-constexpr uint32_t COLOR_MATRIX_CNT = 14u;
-const std::array<float32_t3x3, COLOR_MATRIX_CNT> hlslColorMatrices = {
-    colorspace::scRGBtoXYZ, colorspace::Display_P3toXYZ, colorspace::DCI_P3toXYZ,
-    colorspace::BT2020toXYZ, colorspace::AdobeRGBtoXYZ, colorspace::ACES2065_1toXYZ,
-    colorspace::ACEScctoXYZ, colorspace::decode::XYZtoscRGB, colorspace::decode::XYZtoDisplay_P3,
-    colorspace::decode::XYZtoDCI_P3, colorspace::decode::XYZtoBT2020, colorspace::decode::XYZtoAdobeRGB,
-    colorspace::decode::XYZtoACES2065_1, colorspace::decode::XYZtoACEScc
-};
-const std::array<glm::mat3, COLOR_MATRIX_CNT> glslColorMatrices = {
-    nbl_glsl_scRGBtoXYZ, nbl_glsl_Display_P3toXYZ, nbl_glsl_DCI_P3toXYZ,
-    nbl_glsl_BT2020toXYZ, nbl_glsl_AdobeRGBtoXYZ, nbl_glsl_ACES2065_1toXYZ,
-    nbl_glsl_ACEScctoXYZ, nbl_glsl_XYZtoscRGB, nbl_glsl_XYZtoDisplay_P3,
-    nbl_glsl_XYZtoDCI_P3, nbl_glsl_XYZtoBT2020, nbl_glsl_XYZtoAdobeRGB,
-    nbl_glsl_XYZtoACES2065_1, nbl_glsl_XYZtoACEScc
-};
-//
-//void testColorMatrices()
-//{
-//    constexpr std::array<float32_t3, 3> unitVectors = {
-//        float32_t3(1.0f, 0.0f, 0.0f),
-//        float32_t3(0.0f, 1.0f, 0.0f),
-//        float32_t3(0.0f, 0.0f, 1.0f)
-//    };
-//
-//    for (uint32_t matrixIdx = 0u; matrixIdx < COLOR_MATRIX_CNT; matrixIdx++)
-//    {
-//        const auto& hlslMatrix = hlslColorMatrices[matrixIdx];
-//        const auto& glslMatrix = glslColorMatrices[matrixIdx];
-//
-//        for (uint32_t i = 0u; i < 3u; i++)
-//        {
-//            // TODO: remove when tests are done
-//            std::cout << (glslMatrix[i] == mul(hlslMatrix, unitVectors[i])) << ',';
-//            std::cout << (mul(hlslMatrix, unitVectors[i]) == glslMatrix * unitVectors[i]) << ',';
-//
-//            assert(glslMatrix[i] == mul(hlslMatrix, unitVectors[i]));
-//            assert(mul(hlslMatrix, unitVectors[i]) == glslMatrix * unitVectors[i]);
-//        }
-//
-//        std::cout << std::endl;
-//    }
-//}
-// 
-//bool areVectorsEqual(const float32_t3& lhs, const float32_t3& rhs)
-//{
-//    const float32_t3 epsilonVec = float32_t3(std::exp2(-10));
-//    return glm::all(glm::abs(lhs - rhs) < epsilonVec);
-//}
 
 struct S
 {
@@ -109,113 +60,45 @@ struct T
     float32_t4      h;
 };
 
-// numeric limits API
-// is_specialized
-// is_signed
-// is_integer
-// is_exact
-// has_infinity
-// has_quiet_NaN
-// has_signaling_NaN
-// has_denorm
-// has_denorm_loss
-// round_style
-// is_iec559
-// is_bounded
-// is_modulo
-// digits
-// digits10
-// max_digits10
-// radix
-// min_exponent
-// min_exponent10
-// max_exponent
-// max_exponent10
-// traps
-// tinyness_before
-
-class CompatibilityTest : public nbl::examples::MonoAssetManagerAndBuiltinResourceApplication
+class CompatibilityTest final : public nbl::examples::MonoDeviceApplication, public nbl::examples::MonoAssetManagerAndBuiltinResourceApplication
 {
-    using base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+    using device_base_t = examples::MonoDeviceApplication;
+    using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 public:
-    using base_t::base_t;
+    CompatibilityTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+        system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+
+    video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+    {
+        auto features = device_base_t::getRequiredDeviceFeatures();
+        features.runtimeDescriptorArray = true;
+        return features;
+    }
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        if (!base_t::onAppInitialized(std::move(system)))
+        // Remember to call the base class initialization!
+        if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
-
-        smart_refctd_ptr<nbl::video::CVulkanConnection> api;
-        {
-            // You generally want to default initialize any parameter structs
-            nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
-            // generally you want to make your life easier during development
-            apiFeaturesToEnable.validations = true;
-            apiFeaturesToEnable.synchronizationValidation = true;
-            // want to make sure we have this so we can name resources for vieweing in RenderDoc captures
-            apiFeaturesToEnable.debugUtils = true;
-            // create our Vulkan instance
-            if (!(api=CVulkanConnection::create(smart_refctd_ptr(m_system),0,_NBL_APP_NAME_,smart_refctd_ptr(base_t::m_logger),apiFeaturesToEnable)))
-                return logFail("Failed to crate an IAPIConnection!");
-        }
-        
-        // We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
-        // Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
-        nbl::video::IPhysicalDevice* physDev = nullptr;
-        ILogicalDevice::SCreationParams params = {};
-        params.featuresToEnable.runtimeDescriptorArray = true;
-        params.featuresToEnable.shaderFloat64 = true;
-        params.featuresToEnable.bufferDeviceAddress = true;
-        // we will only deal with a single queue in this example
-        params.queueParamsCount = 1;
-        params.queueParams[0].count = 1;
-        for (auto physDevIt=api->getPhysicalDevices().begin(); physDevIt!=api->getPhysicalDevices().end(); physDevIt++)
-        {
-            const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
-            // this is the only "complicated" part, we want to create a queue that supports compute pipelines
-            for (auto i=0; i<familyProps.size(); i++)
-            if (familyProps[i].queueFlags.hasFlags(IPhysicalDevice::E_QUEUE_FLAGS::EQF_COMPUTE_BIT))
-            {
-                physDev = *physDevIt;
-                params.queueParams[0].familyIndex  = i;
-                break;
-            }
-        }
-
-        if (!physDev)
-            return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
-
-        {
-            // logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
-            smart_refctd_ptr<ILogicalDevice> device = physDev->createLogicalDevice(std::move(params));
-            if (!device)
-                return logFail("Failed to create a Logical Device!");
-            m_logicalDevice = std::move(device);
-        }
-
-        //auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-        //m_assetManager = std::move(initOutput.assetManager);
-        //m_cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
+        if (!asset_base_t::onAppInitialized(std::move(system)))
+            return false;
     
-        m_queue = m_logicalDevice->getQueue(0, 0);
-        m_commandPool = m_logicalDevice->createCommandPool(m_queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
-        m_logicalDevice->createCommandBuffers(
+        m_queue = m_device->getQueue(0, 0);
+        m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
+        m_device->createCommandBuffers(
             m_commandPool.get(),
             video::IGPUCommandBuffer::EL_PRIMARY,
             1,
             &m_cmdbuf);
 
-        nbl::video::IGPUObjectFromAssetConverter::SParams cvtParams = {};
-        cvtParams.device = m_logicalDevice.get();
-        cvtParams.assetManager = m_assetMgr.get();
-        cvtParams.perQueue[0].queue = m_queue;
+
         video::IGPUObjectFromAssetConverter CPU2GPU;
         core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
             lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset("../app_resources/test.hlsl", lp);
+            auto assetBundle = m_assetMgr->getAsset("../app_resources/test.comp.hlsl", lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
@@ -223,13 +106,16 @@ public:
             // It would be super weird if loading a shader from a file produced more than 1 asset
             assert(assets.size() == 1);
             smart_refctd_ptr<ICPUSpecializedShader> source = IAsset::castDown<ICPUSpecializedShader>(assets[0]);
-            source->getStage();
-            //specializedShader = source;
+            auto stage = source->getStage();
+            assert(stage = IShader::ESS_COMPUTE);
+
+            nbl::video::IGPUObjectFromAssetConverter::SParams cvtParams = {};
+            cvtParams.device = m_device.get();
+            cvtParams.assetManager = m_assetMgr.get();
             video::IGPUObjectFromAssetConverter CPU2GPU;
             specializedShader = CPU2GPU.getGPUObjectsFromAssets(&source, &source + 1, cvtParams)->front();
+            assert(specializedShader);
         }
-        assert(specializedShader);
-
 
 		const uint32_t bindingCount = 4u;
 		video::IGPUDescriptorSetLayout::SBinding bindings[bindingCount] = {};
@@ -246,17 +132,17 @@ public:
             bindings[i].count = 1;
             bindings[i].binding = i;
         }
-		m_descriptorSetLayout = m_logicalDevice->createDescriptorSetLayout(bindings, bindings + bindingCount);
+		m_descriptorSetLayout = m_device->createDescriptorSetLayout(bindings, bindings + bindingCount);
 		asset::SPushConstantRange pcRange = {};
 		pcRange.stageFlags = asset::IShader::ESS_COMPUTE;
 		pcRange.offset = 0u;
 		pcRange.size = 2 * sizeof(uint32_t);
-		auto pipelineLayout = m_logicalDevice->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(m_descriptorSetLayout));
-        m_pipeline = m_logicalDevice->createComputePipeline(nullptr, std::move(pipelineLayout), core::smart_refctd_ptr(specializedShader));
+		auto pipelineLayout = m_device->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(m_descriptorSetLayout));
+        m_pipeline = m_device->createComputePipeline(nullptr, std::move(pipelineLayout), core::smart_refctd_ptr(specializedShader));
 
         for (int i = 0; i < 2; ++i)
         {
-            m_images[i] = m_logicalDevice->createImage(nbl::video::IGPUImage::SCreationParams {
+            m_images[i] = m_device->createImage(nbl::video::IGPUImage::SCreationParams {
                 {
                     .type = nbl::video::IGPUImage::E_TYPE::ET_2D,
                     .samples = nbl::video::IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
@@ -271,17 +157,17 @@ public:
             });
 
             auto reqs = m_images[i]->getMemoryReqs();
-            reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-            m_logicalDevice->allocate(reqs, m_images[i].get());
+            reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+            m_device->allocate(reqs, m_images[i].get());
 
-            m_imageViews[i] = m_logicalDevice->createImageView(nbl::video::IGPUImageView::SCreationParams {
+            m_imageViews[i] = m_device->createImageView(nbl::video::IGPUImageView::SCreationParams {
                 .image = m_images[i],
                     .viewType = nbl::video::IGPUImageView::E_TYPE::ET_2D,
                     .format = nbl::asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
                     // .subresourceRange = { nbl::video::IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT, 0, 1, 0, 1 },
             });
 
-            m_buffers[i] = m_logicalDevice->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
+            m_buffers[i] = m_device->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
                 {.size = reqs.size, .usage = 
                     nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | 
                     nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT,
@@ -289,16 +175,16 @@ public:
             });
 
             reqs = m_buffers[i]->getMemoryReqs();
-            reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
-            m_logicalDevice->allocate(reqs, m_buffers[i].get());
+            reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+            m_device->allocate(reqs, m_buffers[i].get());
 
-            m_readbackBuffers[i] = m_logicalDevice->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
+            m_readbackBuffers[i] = m_device->createBuffer(nbl::video::IGPUBuffer::SCreationParams {
                 {.size = reqs.size, .usage = nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::video::IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT }
             });
 
             reqs = m_readbackBuffers[i]->getMemoryReqs();
-            reqs.memoryTypeBits &= m_logicalDevice->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
-            m_logicalDevice->allocate(reqs, m_readbackBuffers[i].get());
+            reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
+            m_device->allocate(reqs, m_readbackBuffers[i].get());
         }
 
         core::smart_refctd_ptr<video::IDescriptorPool> descriptorPool = nullptr;
@@ -307,7 +193,7 @@ public:
             createInfo.maxSets = 1;
             createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = 2;
             createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 2;
-            descriptorPool = m_logicalDevice->createDescriptorPool(std::move(createInfo));
+            descriptorPool = m_device->createDescriptorPool(std::move(createInfo));
         }
 
         m_descriptorSet = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(m_descriptorSetLayout));
@@ -336,13 +222,13 @@ public:
             }
         }
 
-        m_logicalDevice->updateDescriptorSets(bindingCount, writeDescriptorSets, 0u, nullptr);
+        m_device->updateDescriptorSets(bindingCount, writeDescriptorSets, 0u, nullptr);
         return true;
     }
 
     void onAppTerminated_impl() override
     {
-        m_logicalDevice->waitIdle();
+        m_device->waitIdle();
     }
 
     void workLoopBody() override
@@ -350,11 +236,11 @@ public:
         cpu_tests();
 
         if (m_fence)
-            m_logicalDevice->blockForFences(1u, &m_fence.get());
+            m_device->blockForFences(1u, &m_fence.get());
         else
-            m_fence = m_logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
+            m_fence = m_device->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
 
-        m_logicalDevice->resetFences(1u, &m_fence.get());
+        m_device->resetFences(1u, &m_fence.get());
 
         m_cmdbuf->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
         m_cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
@@ -434,7 +320,7 @@ public:
             m_queue->submit(1, &info, m_fence.get());
         }
 
-        m_logicalDevice->blockForFences(1u, &m_fence.get());
+        m_device->blockForFences(1u, &m_fence.get());
         
         using res = std::array<std::array<std::array<float, 4>, 1080>, 1920>;
         res* ptrs[4] = {};
@@ -445,7 +331,7 @@ public:
         {
             auto mem = (i < 2 ? m_buffers[i] : m_readbackBuffers[i-2])->getBoundMemory();
             assert(mem->isMappable());
-            m_logicalDevice->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()));
+            m_device->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()));
             ptrs[i] = (res*)mem->getMappedPointer();
         }
         res& buf = *ptrs[1];
@@ -466,16 +352,6 @@ public:
             << "\n";
         std::cout.flags(f);
 
-        //bool re = true;
-        //for (int i = 0; i < 1920; ++i)
-        //for (int j = 0; j < 1080; ++j)
-        //for (int k = 0; k < 4; ++k)
-        //if (buf[i][j][k] != -1.f /* || img[i][j][k] != -1.f*/) // TODO FIXME: there's some issue with ptrs[3][i][j]==0,0,0,0
-        //{
-        //    re = false;
-        //    break;
-        //}
-
         if(buf[0][0][0] != -1.f)
         {
             std::cout << "Shader tests failed\n";
@@ -491,7 +367,6 @@ public:
 
 
 private:
-    core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_logicalDevice;
     core::smart_refctd_ptr<video::IGPUComputePipeline> m_pipeline = nullptr;
     core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> m_descriptorSetLayout;
     core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet;

@@ -2,8 +2,6 @@
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
-#pragma wave shader_stage(compute)
-
 #define STATIC_ASSERT(...) { nbl::hlsl::conditional<__VA_ARGS__, int, void>::type a = 0; }
 
 #define IS_SAME(L,R) nbl::hlsl::is_same<L,R>::value
@@ -40,8 +38,6 @@
 
 #include <nbl/builtin/hlsl/member_test_macros.hlsl>
 #include <nbl/builtin/hlsl/device_capabilities_traits.hlsl>
-
-#include "lib.hlsl"
 
 struct PushConstants
 {
