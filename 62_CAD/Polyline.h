@@ -577,8 +577,8 @@ public:
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
-									// TODO clip prev section last bezier from 0 to t0
-									// TODO clip next section first bezier from t1 to 1.0
+									parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
+									parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
 
 								}
 							}
@@ -823,18 +823,6 @@ protected:
 		return res;
 	}
 
-	// TODO: move this function to a better place, shared functionality with hatches
-	static void BezierLineIntersection(nbl::hlsl::shapes::QuadraticBezier<float64_t> bezier, const float64_t2 lineStart, const float64_t2 lineVector, float64_t2& outBezierTs)
-	{
-		float64_t2 lineDir = glm::normalize(lineVector);
-		float64_t2x2 rotate = float64_t2x2({ lineDir.x, lineDir.y }, { -lineDir.y, lineDir.x });
-		bezier.P0 = mul(rotate, bezier.P0 - lineStart);
-		bezier.P1 = mul(rotate, bezier.P1 - lineStart);
-		bezier.P2 = mul(rotate, bezier.P2 - lineStart);
-		nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(bezier);
-		outBezierTs = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(quadratic.A.y, quadratic.B.y, quadratic.C.y).computeRoots();
-	}
-
 	std::array<SectionIntersectResult, 2> intersectLineBezierSectionObjects(const SectionInfo& prevSection, uint32_t prevObjIdx, const SectionInfo& nextSection, uint32_t nextObjIdx) const
 	{
 		std::array<SectionIntersectResult, 2> res = {};
@@ -850,9 +838,7 @@ protected:
 
 			const auto& bezier = m_quadBeziers[bezierIdx].shape;
 
-			float64_t2 bezierTs;
-			BezierLineIntersection(bezier, A, V, bezierTs);
-
+			float64_t2 bezierTs = nbl::hlsl::shapes::getBezierLineIntersectionEquation<float64_t>(bezier, A, V).computeRoots();
 			uint8_t resIdx = 0u;
 			for (uint32_t i = 0u; i < 2u; ++i)
 			{
@@ -894,7 +880,32 @@ protected:
 
 		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 		{
-			// TODO: Bez Bez
+			const auto& prevBezier = m_quadBeziers[prevSection.index + prevObjIdx].shape;
+			const auto& nextBezier = m_quadBeziers[nextSection.index + nextObjIdx].shape;
+			float64_t4 bezierTs = nbl::hlsl::shapes::getBezierBezierIntersectionEquation<float64_t>(prevBezier, nextBezier).computeRoots();
+			uint8_t resIdx = 0u;
+			for (uint32_t i = 0u; i < 4u; ++i)
+			{
+				const float64_t prevBezierT = bezierTs[i];
+				if (prevBezierT > 0.0 && prevBezierT < 1.0)
+				{
+					const float64_t2 intersection = prevBezier.evaluate(prevBezierT);
+					
+					// Optimization before doing SDF to find other T:
+					// (for next bezier) If both P1 and the intersection point are on the same side of the P0 -> P2 line, it's a a valid intersection
+					const bool sideP1 = nbl::hlsl::cross2D(nextBezier.P2 - nextBezier.P0, nextBezier.P1 - nextBezier.P0) >= 0.0;
+					const bool sideIntersection = nbl::hlsl::cross2D(nextBezier.P2 - nextBezier.P0, intersection - nextBezier.P0) >= 0.0;
+					if (sideP1 == sideIntersection)
+					{
+						auto& localRes = res[resIdx++];
+						localRes.intersection = intersection;
+						localRes.prevObjIndex = prevObjIdx;
+						localRes.nextObjIndex = nextObjIdx;
+						localRes.prevT = prevBezierT;
+						localRes.nextT = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(nextBezier).getClosestT(intersection); // basically doing sdf to find other T :D
+					}
+				}
+			}
 		}
 
 		return res;
@@ -906,10 +917,6 @@ protected:
 		ret.invalidate();
 
 		if (prevSection.count == 0 || nextSection.count == 0)
-			return ret;
-
-		// tmp for testing
-		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 			return ret;
 
 		const float64_t2 chordDir = glm::normalize(getSectionLastPoint(prevSection) - getSectionFirstPoint(prevSection));
@@ -994,42 +1001,44 @@ protected:
 						int32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
 						assert(objectsToRemove >= 0);
 
+						constexpr uint32_t MaxIntersectionResults = 4u;
+						SectionIntersectResult intersectionResults[MaxIntersectionResults];
+						uint32_t intersectionResultCount = 0u;
+
 						if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::LINE)
 						{
 							SectionIntersectResult localIntersectionResult = intersectLineSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
-							if (localIntersectionResult.valid())
-							{
-								// TODO: Better Criterial to select between multiple intersections of the same objects
-								if (objectsToRemove > currentIntersectionObjectRemoveCount)
-								{
-									ret = localIntersectionResult;
-									currentIntersectionObjectRemoveCount = objectsToRemove;
-								}
-							}
+							intersectionResults[0u] = localIntersectionResult;
+							intersectionResultCount = 1u;
 						}
 						else if ((prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::LINE) || (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::QUAD_BEZIER))
 						{
 							std::array<SectionIntersectResult, 2> localIntersectionResults = intersectLineBezierSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
-							for (const auto& localIntersectionResult : localIntersectionResults)
-							{
-								if (localIntersectionResult.valid())
-								{
-									// TODO: Better Criterial to select between multiple intersections of the same objects
-									if (objectsToRemove > currentIntersectionObjectRemoveCount)
-									{
-										ret = localIntersectionResult;
-										currentIntersectionObjectRemoveCount = objectsToRemove;
-									}
-								}
-							}
+							intersectionResults[0] = localIntersectionResults[0];
+							intersectionResults[1] = localIntersectionResults[1];
+							intersectionResultCount = 2u;
 						}
 						else if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 						{
-							// TODO: Bez Bez
+							std::array<SectionIntersectResult, 4> localIntersectionResults = intersectBezierBezierSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
+							intersectionResults[0] = localIntersectionResults[0];
+							intersectionResults[1] = localIntersectionResults[1];
+							intersectionResults[2] = localIntersectionResults[2];
+							intersectionResults[3] = localIntersectionResults[3];
+							intersectionResultCount = 4u;
 						}
-						else
+						
+						for (uint32_t i = 0u; i < intersectionResultCount; ++i)
 						{
-							assert(false);
+							if (intersectionResults[i].valid())
+							{
+								// TODO: Better Criterial to select between multiple intersections of the same objects
+								if (objectsToRemove > currentIntersectionObjectRemoveCount)
+								{
+									ret = intersectionResults[i];
+									currentIntersectionObjectRemoveCount = objectsToRemove;
+								}
+							}
 						}
 					}
 				}
