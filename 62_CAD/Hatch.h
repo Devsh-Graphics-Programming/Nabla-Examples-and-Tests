@@ -31,8 +31,6 @@ public:
 	using QuadraticBezier = nbl::hlsl::shapes::QuadraticBezier<bezier_float_t>;
 	using QuadraticCurve = nbl::hlsl::shapes::Quadratic<bezier_float_t>;
 
-	static std::array<double, 4> solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end);
-
 	static std::array<double, 4> bezierBezierIntersections(const QuadraticBezier& bezier, const QuadraticBezier& other);
 	static double intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int major);
 

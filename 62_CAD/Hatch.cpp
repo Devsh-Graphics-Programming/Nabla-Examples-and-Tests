@@ -196,43 +196,6 @@ std::array<double, 4> Hatch::solveQuarticRootsLaguerre(double a, double b, doubl
 }
 #endif
 
-// Intended to mitigate issues with NaNs and precision by falling back to using simpler functions when the higher roots are small enough
-std::array<double, 4> Hatch::solveQuarticRoots(double a, double b, double c, double d, double e, double t_start, double t_end)
-{
-	using nbl::hlsl::math::equations::Quartic;
-	using nbl::hlsl::math::equations::Cubic;
-	using nbl::hlsl::math::equations::Quadratic;
-	constexpr double QUARTIC_THRESHHOLD = 1e-10;
-	
-	std::array<double, 4> t = { -1.0, -1.0, -1.0, -1.0 }; // only two candidates in range, ever
-	
-	const double quadCoeffMag = std::max(std::abs(d), std::abs(e));
-	const double cubCoeffMag = std::max(std::abs(c), quadCoeffMag);
-	if (std::abs(a) > std::max(std::abs(b), cubCoeffMag) * QUARTIC_THRESHHOLD)
-	{
-		auto res = Quartic<double>::construct(a, b, c, d, e).computeRoots();
-		memcpy(&t[0], &res.x, sizeof(double) * 4);
-	}
-	else if (abs(b) > quadCoeffMag * QUARTIC_THRESHHOLD)
-	{
-		auto res = Cubic<double>::construct(b, c, d, e).computeRoots();
-		memcpy(&t[0], &res.x, sizeof(double) * 3);
-	}
-	else
-	{
-		auto res = Quadratic<double>::construct(c, d, e).computeRoots();
-		memcpy(&t[0], &res.x, sizeof(double) * 2);
-	}
-	
-	// If either is NaN or both are equal
-	// Same as: 
-	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
-	if (!(t[0] != t[1]))
-		t[0] = t[0] != t_start ? t_start : t_end;
-	
-	return t;
-}
-
 Hatch::QuadraticBezier Hatch::splitCurveRange(QuadraticBezier bezier, double minT, double maxT)
 {
 	assert(maxT > minT);
@@ -323,26 +286,27 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	}
 	else
 	{
-		auto p0 = originalBezier->P0;
-		auto p1 = originalBezier->P1;
-		auto p2 = originalBezier->P2;
-		bool sideP1 = (p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x) >= 0.0;
+		const auto& thisBezier = *originalBezier;
+		const auto& otherBezier = *other.originalBezier;
+		const auto p0 = thisBezier.P0;
+		const auto p1 = thisBezier.P1;
+		const auto p2 = thisBezier.P2;
+		const bool sideP1 = (p2.x - p0.x) * (p1.y - p0.y) - (p2.y - p0.y) * (p1.x - p0.x) >= 0.0;
 
-		auto otherBezier = *other.originalBezier;
-		const std::array<double, 4> intersections = bezierBezierIntersections(*originalBezier, otherBezier);
+		const std::array<double, 4> intersections = bezierBezierIntersections(otherBezier, thisBezier);
 
 		for (uint32_t i = 0; i < intersections.size(); i++)
 		{
 			auto t = intersections[i];
-			if (other.t_start >= t || t >= other.t_end)
+			if (isnan(t) || other.t_start >= t || t >= other.t_end)
 				continue;
 
 			auto intersection = otherBezier.evaluate(t);
-			bool sideIntersection = (p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x) >= 0.0;
 
-			// If both P1 and the intersection point are on the same side of the P0 -> P2 line
+			// If both P1 and the intersection point are on the same side of the P0 -> P2 line of thisBezier
 			// for the current line, we consider this as a valid intersection
 			// (Otherwise, continue)
+			const bool sideIntersection = (p2.x - p0.x) * (intersection.y - p0.y) - (p2.y - p0.y) * (intersection.x - p0.x) >= 0.0;
 			if (sideP1 != sideIntersection)
 				continue;
 
@@ -351,8 +315,6 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 			{
 				if (resultIdx < 2)
 				{
-					QuadraticBezier b0 = otherBezier;
-					QuadraticBezier b1 = *originalBezier;
 					result[resultIdx] = t;
 					resultIdx++;
 				}
@@ -903,50 +865,46 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 #endif
 }
 
-
-// returns two possible values of t in the second curve where the curves intersect
-std::array<double, 4> Hatch::bezierBezierIntersections(const QuadraticBezier& bezier, const QuadraticBezier& second)
+// returns two possible values of t in the lhs curve where the curves intersect
+std::array<double, 4> Hatch::bezierBezierIntersections(const QuadraticBezier& lhs, const QuadraticBezier& rhs)
 {
-	// Algorithm based on Computer Aided Geometric Design: 
-	// https://scholarsarchive.byu.edu/cgi/viewcontent.cgi?article=1000&context=facpub#page99
-	// Chapter 17.6 describes the implicitization of a curve, which transforms it into the following format:
-	// ax^2 + bxy + cy^2 + dx + ey + f = 0 
-	// the coefficients a-f above are k0-k5 below 
-	// 
-	// We then substitute x and y for the other curve's quadratic formulas.
-	// This gives us a quartic equation of the form:
-	// at^4 + bt^3 + ct^2 + dt + e = 0
-	// the coefficients a-e above are a-e below 
-	// 
-	// The roots for t then become our intersections points between both curves.
-	//
-	// A Desmos page including math for this as well as some of the graphs it generates is available here:
-	// https://www.desmos.com/calculator/mjwqvnvyb8?lang=pt-BR
+	const auto quarticEquation = nbl::hlsl::shapes::getBezierBezierIntersectionEquation<float64_t>(lhs, rhs);
+	
+	using nbl::hlsl::math::equations::Quartic;
+	using nbl::hlsl::math::equations::Cubic;
+	using nbl::hlsl::math::equations::Quadratic;
+	constexpr double QUARTIC_THRESHHOLD = 1e-10;
+	
+	std::array<double, 4> t = { core::nan<double>(), core::nan<double>(), core::nan<double>(), core::nan<double>() }; // only two candidates in range, ever
+	
+	const double quadCoeffMag = std::max(std::abs(quarticEquation.d), std::abs(quarticEquation.e));
+	const double cubCoeffMag = std::max(std::abs(quarticEquation.c), quadCoeffMag);
+	const double quartCoeffMag = std::max(std::abs(quarticEquation.b), cubCoeffMag);
 
-	double p0x = bezier.P0.x, p1x = bezier.P1.x, p2x = bezier.P2.x,
-		p0y = bezier.P0.y, p1y = bezier.P1.y, p2y = bezier.P2.y;
-
-	// Getting the values for the implicitization of the curve
-	double k0 = (4 * p0y * p1y) - (4 * p0y * p2y) - (4 * (p1y * p1y)) + (4 * p1y * p2y) - ((p0y * p0y)) + (2 * p0y * p2y) - ((p2y * p2y));
-	double k1 = -(4 * p0x * p1y) + (4 * p0x * p2y) - (4 * p1x * p0y) + (8 * p1x * p1y) - (4 * p1x * p2y) + (4 * p2x * p0y) - (4 * p2x * p1y) + (2 * p0x * p0y) - (2 * p0x * p2y) - (2 * p2x * p0y) + (2 * p2x * p2y);
-	double k2 = (4 * p0x * p1x) - (4 * p0x * p2x) - (4 * (p1x * p1x)) + (4 * p1x * p2x) - ((p0x * p0x)) + (2 * p0x * p2x) - ((p2x * p2x));
-	double k3 = (4 * p0x * (p1y * p1y)) - (4 * p0x * p1y * p2y) - (4 * p1x * p0y * p1y) + (8 * p1x * p0y * p2y) - (4 * p1x * p1y * p2y) - (4 * p2x * p0y * p1y) + (4 * p2x * (p1y * p1y)) - (2 * p0x * p0y * p2y) + (2 * p0x * (p2y * p2y)) + (2 * p2x * (p0y * p0y)) - (2 * p2x * p0y * p2y);
-	double k4 = -(4 * p0x * p1x * p1y) - (4 * p0x * p1x * p2y) + (8 * p0x * p2x * p1y) + (4 * (p1x * p1x) * p0y) + (4 * (p1x * p1x) * p2y) - (4 * p1x * p2x * p0y) - (4 * p1x * p2x * p1y) + (2 * (p0x * p0x) * p2y) - (2 * p0x * p2x * p0y) - (2 * p0x * p2x * p2y) + (2 * (p2x * p2x) * p0y);
-	double k5 = (4 * p0x * p1x * p1y * p2y) - (4 * (p1x * p1x) * p0y * p2y) + (4 * p1x * p2x * p0y * p1y) - ((p0x * p0x) * (p2y * p2y)) + (2 * p0x * p2x * p0y * p2y) - ((p2x * p2x) * (p0y * p0y)) - (4 * p0x * p2x * (p1y * p1y));
-
-	// "Slam" the other curve onto it
-
-	auto quadratic = QuadraticCurve::constructFromBezier(second);
-	float64_t2 A = quadratic.A, B = quadratic.B, C = quadratic.C;
-
-	// Getting the quartic params
-	double a = ((A.x * A.x) * k0) + (A.x * A.y * k1) + (A.y * A.y * k2);
-	double b = (2 * A.x * B.x * k0) + (A.x * B.y * k1) + (B.x * A.y * k1) + (2 * A.y * B.y * k2);
-	double c = (2 * A.x * C.x * k0) + (A.x * C.y * k1) + (A.x * k3) + ((B.x * B.x) * k0) + (B.x * B.y * k1) + (C.x * A.y * k1) + (2 * A.y * C.y * k2) + (A.y * k4) + ((B.y * B.y) * k2);
-	double d = (2 * B.x * C.x * k0) + (B.x * C.y * k1) + (B.x * k3) + (C.x * B.y * k1) + (2 * B.y * C.y * k2) + (B.y * k4);
-	double e = ((C.x * C.x) * k0) + (C.x * C.y * k1) + (C.x * k3) + ((C.y * C.y) * k2) + (C.y * k4) + (k5);
-
-	return Hatch::solveQuarticRoots(a, b, c, d, e, 0.0, 1.0);
+	if (std::abs(quarticEquation.a) > quartCoeffMag * QUARTIC_THRESHHOLD)
+	{
+		auto res = quarticEquation.computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 4);
+	}
+	else if (abs(quarticEquation.b) > quadCoeffMag * QUARTIC_THRESHHOLD)
+	{
+		auto res = Cubic<double>::construct(quarticEquation.b, quarticEquation.c, quarticEquation.d, quarticEquation.e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 3);
+	}
+	else
+	{
+		auto res = Quadratic<double>::construct(quarticEquation.c, quarticEquation.d, quarticEquation.e).computeRoots();
+		memcpy(&t[0], &res.x, sizeof(double) * 2);
+	}
+	
+	// If either is NaN or both are equal
+	// Same as: 
+	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
+	// TODO: why did we do this?
+	//if (!(t[0] != t[1]))
+	//	t[0] = (t[0] != 0.0) ? 0.0 : 1.0;
+	
+	return t;
 }
 
 double Hatch::intersectOrtho(const QuadraticBezier& bezier, double lineConstant, int component)

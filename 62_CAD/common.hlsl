@@ -237,8 +237,8 @@ uint bitfieldExtract(uint value, int offset, int bits)
 template<typename float_t>
 struct PrecomputedRootFinder 
 {
-    using float2_t = vector<float_t, 2>;
-    using float3_t = vector<float_t, 3>;
+    using float_t2 = vector<float_t, 2>;
+    using float_t3 = vector<float_t, 3>;
     
     float_t C2;
     float_t negB;

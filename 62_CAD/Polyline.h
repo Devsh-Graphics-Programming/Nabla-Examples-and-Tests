@@ -273,7 +273,6 @@ public:
 		}
 	}
 
-	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
 	void addQuadBeziers(const nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = false)
 	{
 		if (quadBeziers.empty())
@@ -501,7 +500,7 @@ public:
 					{
 						float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
 						float64_t2 nextSectionStartPos = parallelPolyline.getSectionFirstPoint(nextSection);
-						float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
+						float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection<float64_t>(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
 
 						if (nextSection.type == ObjectType::LINE)
 						{
@@ -808,7 +807,7 @@ protected:
 			const float64_t2 A1 = m_linePoints[nextSection.index + nextObjIdx].p;
 			const float64_t2 V1 = m_linePoints[nextSection.index + nextObjIdx + 1u].p - A1;
 
-			const float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(A0, V0, A1, V1);
+			const float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection<float64_t>(A0, V0, A1, V1);
 			const float64_t t0 = nbl::hlsl::dot(V0, intersection - A0) / nbl::hlsl::dot(V0, V0);
 			const float64_t t1 = nbl::hlsl::dot(V1, intersection - A1) / nbl::hlsl::dot(V1, V1);
 			if (t0 >= 0.0 && t0 <= 1.0 && t1 >= 0.0 && t1 <= 1.0)
@@ -895,6 +894,7 @@ protected:
 
 		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 		{
+			// TODO: Bez Bez
 		}
 
 		return res;
@@ -1022,6 +1022,14 @@ protected:
 									}
 								}
 							}
+						}
+						else if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
+						{
+							// TODO: Bez Bez
+						}
+						else
+						{
+							assert(false);
 						}
 					}
 				}
