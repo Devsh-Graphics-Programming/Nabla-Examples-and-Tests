@@ -91,12 +91,10 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			deviceFilter.requiredImageFormatUsagesOptimalTiling = getRequiredOptimalTilingImageUsages();
 
 			const auto memoryReqs = getMemoryRequirements();
-			deviceFilter.memoryRequirements = memoryReqs.data();
-			deviceFilter.memoryRequirementsCount = memoryReqs.size();
+			deviceFilter.memoryRequirements = memoryReqs;
 
 			const auto queueReqs = getQueueRequirements();
-			deviceFilter.queueRequirements = queueReqs.data();
-			deviceFilter.queueRequirementsCount = queueReqs.size();
+			deviceFilter.queueRequirements = queueReqs;
 			
 			return deviceFilter(physicalDevices);
 		}
@@ -106,26 +104,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		{
 			video::SPhysicalDeviceLimits retval = {};
 
-			// TODO: remove most on vulkan_1_3 branch as most will be required
 			retval.subgroupOpsShaderStages = asset::IShader::ESS_COMPUTE;
-			retval.shaderSubgroupBasic = true;
-			retval.shaderSubgroupVote = true;
-			retval.shaderSubgroupBallot = true;
-			retval.shaderSubgroupShuffle = true;
-			retval.shaderSubgroupShuffleRelative = true;
-			retval.shaderInt64 = true;
-			retval.shaderInt16 = true;
-			retval.samplerAnisotropy = true;
-			retval.storageBuffer16BitAccess = true;
-			retval.uniformAndStorageBuffer16BitAccess = true;
-			retval.storageBuffer8BitAccess = true;
-			retval.uniformAndStorageBuffer8BitAccess = true;
-			retval.shaderInt8 = true;
-			retval.workgroupSizeFromSpecConstant = true;
-			retval.externalFence = true;
-			retval.externalMemory = true;
-			retval.externalSemaphore = true;
-			retval.spirvVersion = asset::IShaderCompiler::E_SPIRV_VERSION::ESV_1_5; // TODO: erm why is 1.6 not supported by my driver?
 
 			return retval;
 		}
@@ -134,21 +113,6 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		virtual video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const
 		{
 			video::SPhysicalDeviceFeatures retval = {};
-
-			// TODO: remove most on vulkan_1_3 branch as most will be required
-			retval.fullDrawIndexUint32 = true;
-			retval.multiDrawIndirect = true;
-			retval.drawIndirectFirstInstance = true;
-			retval.shaderStorageImageExtendedFormats = true;
-			retval.shaderStorageImageWriteWithoutFormat = true;
-			retval.scalarBlockLayout = true;
-			retval.uniformBufferStandardLayout = true;
-			retval.shaderSubgroupExtendedTypes = true;
-			retval.separateDepthStencilLayouts = true;
-			retval.bufferDeviceAddress = true;
-			retval.vulkanMemoryModel = true;
-			retval.subgroupBroadcastDynamicId = true;
-			retval.subgroupSizeControl = true;
 
 			return retval;
 		}
@@ -217,9 +181,9 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		{
 			core::vector<queue_req_t> retval;
 			
-			using flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
+			using flags_t = video::IQueue::FAMILY_FLAGS;
 			// The Graphics Queue should be able to do Compute and image transfers of any granularity (transfer only queue families can have problems with that)
-			retval.push_back({.requiredFlags=flags_t::EQF_COMPUTE_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
+			retval.push_back({.requiredFlags=flags_t::COMPUTE_BIT,.disallowedFlags=flags_t::NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}});
 
 			return retval;
 		}
@@ -231,9 +195,9 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		{
 			video::SPhysicalDeviceFeatures retval = {};
 
-			retval.shaderFloat64 = true;
+			/*retval.shaderFloat64 = true;
 			retval.shaderDrawParameters = true;
-			retval.drawIndirectCount = true;
+			retval.drawIndirectCount = true;*/
 
 			return retval;
 		}
@@ -281,16 +245,21 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return retval;
 		}
 
-		// virtual to allow aliasing and total flexibility
-		virtual video::IQueue* getComputeQueue() const
+
+		virtual video::IQueue* getQueue(video::IQueue::FAMILY_FLAGS flags) const
 		{
 			// In the default implementation of everything I asked only for one queue from first compute family
 			const auto familyProperties = m_device->getPhysicalDevice()->getQueueFamilyProperties();
-			for (auto i=0u; i<familyProperties.size(); i++)
-			if (familyProperties[i].queueFlags.hasFlags(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT))
-				return m_device->getQueue(i,0);
-
+			for (auto i = 0u; i < familyProperties.size(); i++)
+				if (familyProperties[i].queueFlags.hasFlags(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+					return m_device->getQueue(i, 0);
 			return nullptr;
+		}
+
+		// virtual to allow aliasing and total flexibility
+		virtual video::IQueue* getComputeQueue() const
+		{
+			return getQueue(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT);
 		}
 
 
