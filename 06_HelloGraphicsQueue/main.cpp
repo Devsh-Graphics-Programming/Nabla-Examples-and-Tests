@@ -43,7 +43,7 @@ public:
 			return false;
 
 		// Requesting queue with graphics and transfer capabilities. Transfer capablility will be needed for image to buffer copy operation.
-		IGPUQueue* const queue = getQueue(IPhysicalDevice::E_QUEUE_FLAGS::EQF_GRAPHICS_BIT | IPhysicalDevice::E_QUEUE_FLAGS::EQF_TRANSFER_BIT);
+		IQueue* const queue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT|IQueue::FAMILY_FLAGS::TRANSFER_BIT);
 
 		constexpr VkExtent2D bigImgExtent = { 512u, 512u };
 		constexpr VkExtent2D smallImgExtent = { 256u, 256u };
