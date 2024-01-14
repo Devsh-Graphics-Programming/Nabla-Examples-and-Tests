@@ -157,7 +157,7 @@ public:
 		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
 		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
-		sema = m_device->createSemaphore(0);
+		sema = m_device->createSemaphore(timelineValue);
 		resultsBuffer = make_smart_refctd_ptr<ICPUBuffer>(outputBuffers[0]->getSize());
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -169,10 +169,9 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		// TODO: redo the test with all subgroup sizes
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		for (auto subgroupSize =/*see TODO*/MaxSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
 			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
 			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize += subgroupSize)
@@ -278,45 +277,42 @@ private:
 				(("subgroup::") + arith_name).c_str(), workgroupSize
 			);
 		}
-		auto pipeline = createPipeline(std::move(overridenUnspecialized));
+		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
 		const uint32_t workgroupCount = elementCount / itemsPerWG;
-		cmdbuf->begin(IGPUCommandBuffer::EU_NONE);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
-// TODO: start
-			IGPUCommandBuffer::SBufferMemoryBarrier memoryBarrier[OutputBufferCount];
-			// in theory we don't need the HOST BITS cause we block on a semaphore but might as well add them
-			for (auto i = 0u; i < OutputBufferCount; i++)
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
+			for (auto i=0u; i<OutputBufferCount; i++)
 			{
-				memoryBarrier[i].barrier.srcAccessMask = EAF_SHADER_WRITE_BIT;
-				memoryBarrier[i].barrier.dstAccessMask = EAF_SHADER_WRITE_BIT | EAF_HOST_READ_BIT;
-				memoryBarrier[i].srcQueueFamilyIndex = cmdbuf->getQueueFamilyIndex();
-				memoryBarrier[i].dstQueueFamilyIndex = cmdbuf->getQueueFamilyIndex();
-				memoryBarrier[i].buffer = outputBuffers[i];
-				memoryBarrier[i].offset = 0u;
-				memoryBarrier[i].size = outputBuffers[i]->getSize();
+				memoryBarrier[i] = {
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+							// in theory we don't need the HOST BITS cause we block on a semaphore but might as well add them
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT|PIPELINE_STAGE_FLAGS::HOST_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS|ACCESS_FLAGS::HOST_READ_BIT
+						}
+					},
+					.range = {0ull,outputBuffers[i]->getSize(),outputBuffers[i]}
+				};
 			}
-			cmdbuf->pipelineBarrier(
-				EPSF_COMPUTE_SHADER_BIT, EPSF_COMPUTE_SHADER_BIT | EPSF_HOST_BIT, EDF_NONE,
-				0u, nullptr, OutputBufferCount, memoryBarrier, 0u, nullptr
-			);
-			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers=memoryBarrier});
-				EPSF_COMPUTE_SHADER_BIT, EPSF_COMPUTE_SHADER_BIT | EPSF_HOST_BIT, EDF_NONE,
-				0u, nullptr, OutputBufferCount, memoryBarrier, 0u, nullptr
-			);
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo info = {.memBarriers={},.bufBarriers=memoryBarrier};
+			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,info);
 		}
 		cmdbuf->end();
 
-		IGPUQueue::SSubmitInfo submit = {};
-		submit.commandBufferCount = 1u;
-		submit.commandBuffers = &cmdbuf.get();
-		computeQueue->submit(1u, &submit, fence.get());
-		m_device->blockForFences(1u, &fence.get());
-		m_device->resetFences(1u, &fence.get());
+		const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = {{.semaphore=sema.get(),.value=++timelineValue}};
+		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{.cmdbuf=cmdbuf.get()}};
+		const IQueue::SSubmitInfo submits[1] = {{.commandBuffers=cmdbufs,.signalSemaphores=signal}};
+		computeQueue->submit(submits);
+		const ISemaphore::SWaitInfo wait[1] = {{.semaphore=sema.get(),.value=timelineValue}};
+		m_device->blockForSemaphores(wait);
 
 		// check results
 		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount);
@@ -339,8 +335,8 @@ private:
 		bool success = true;
 
 		// download data
-		SBufferRange<IGPUBuffer> bufferRange = { 0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex] };
-		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(bufferRange, resultsBuffer->getPointer(), transferDownQueue);
+		const SBufferRange<IGPUBuffer> bufferRange = {0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex]};
+		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit({.queue=transferDownQueue},bufferRange,resultsBuffer->getPointer());
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
@@ -410,6 +406,7 @@ private:
 	smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 
 	smart_refctd_ptr<ISemaphore> sema;
+	uint64_t timelineValue = 0;
 	smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
