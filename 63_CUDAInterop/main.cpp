@@ -9,7 +9,7 @@
 #include "nbl/video/CCUDASharedMemory.h"
 #include "nbl/video/CCUDASharedSemaphore.h"
 
-#include "../common./MonoSystemMonoLoggerApplication.hpp"
+#include "../common/MonoDeviceApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -47,17 +47,16 @@ size_t size = sizeof(float) * numElements;
 static_assert(false);
 #endif
 
-class CUDA2VKApp : public examples::MonoSystemMonoLoggerApplication
+class CUDA2VKApp : public examples::MonoDeviceApplication
 {
-	using base_t = examples::MonoSystemMonoLoggerApplication;
+	using base_t = examples::MonoDeviceApplication;
 public:
 	// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
 	using base_t::base_t;
 
 	smart_refctd_ptr<CCUDAHandler> cudaHandler;
 	smart_refctd_ptr<CCUDADevice> cudaDevice;
-	// IUtilities* util;
-	smart_refctd_ptr<ILogicalDevice> logicalDevice;
+
 	IQueue* queue;
 
 	std::array<smart_refctd_ptr<ICPUBuffer>, 2> cpubuffers;
@@ -76,63 +75,19 @@ public:
 		// Remember to call the base class initialization!
 		if (!base_t::onAppInitialized(std::move(system)))
 			return false;
-		// `system` could have been null (see the comments in `MonoSystemMonoLoggerApplication::onAppInitialized` as for why)
-		// use `MonoSystemMonoLoggerApplication::m_system` throughout the example instead!
-
-		// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
-		smart_refctd_ptr<CVulkanConnection> api;
-		{
-			// You generally want to default initialize any parameter structs
-			IAPIConnection::SFeatures apiFeaturesToEnable = {};
-			// generally you want to make your life easier during development
-			apiFeaturesToEnable.validations = true;
-			apiFeaturesToEnable.synchronizationValidation = true;
-			// want to make sure we have this so we can name resources for vieweing in RenderDoc captures
-			apiFeaturesToEnable.debugUtils = true;
-			// create our Vulkan instance
-			if (!(api = CVulkanConnection::create(smart_refctd_ptr(m_system), 0, _NBL_APP_NAME_, smart_refctd_ptr(base_t::m_logger), apiFeaturesToEnable)))
-				return logFail("Failed to crate an IAPIConnection!");
-		}
-
-		// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
-		// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
-		IPhysicalDevice* physDev = nullptr;
-		ILogicalDevice::SCreationParams params = {};
-		// we will only deal with a single queue in this example
-		params.queueParamsCount = 1;
-		params.queueParams[0].count = 1;
-		params.featuresToEnable;
-		for (auto physDevIt = api->getPhysicalDevices().begin(); physDevIt != api->getPhysicalDevices().end(); physDevIt++)
-		{
-			const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
-			// this is the only "complicated" part, we want to create a queue that supports compute pipelines
-			for (auto i = 0; i < familyProps.size(); i++)
-				if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
-				{
-					physDev = *physDevIt;
-					params.queueParams[0].familyIndex = i;
-					break;
-				}
-		}
-		if (!physDev)
-			return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
 
 		{
-			auto& limits = physDev->getLimits();
+			auto& limits = m_physicalDevice->getLimits();
 			if (!limits.externalMemoryWin32 || !limits.externalFenceWin32 || !limits.externalSemaphoreWin32)
 				return logFail("Physical device does not support the required extensions");
 			
 			cudaHandler = CCUDAHandler::create(system.get(), smart_refctd_ptr<ILogger>(m_logger));
 			assert(cudaHandler);
-			cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(api), physDev);
+			cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(m_api), m_physicalDevice);
 		}
 
-		// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
-		logicalDevice = physDev->createLogicalDevice(std::move(params));
-		if (!logicalDevice)
-			return logFail("Failed to create a Logical Device!");
 		
-		queue = logicalDevice->getQueue(params.queueParams[0].familyIndex, 0);
+		queue = base_t::getComputeQueue();
 		
 		createResources();
 
@@ -180,19 +135,19 @@ public:
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[1], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[2], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		
-		sema = logicalDevice->createSemaphore({ .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
+		sema = m_device->createSemaphore({ .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
 		ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cusema, sema.get()));
 		{
-			auto devmemory = mem[2]->exportAsMemory(logicalDevice.get());
+			auto devmemory = mem[2]->exportAsMemory(m_device.get());
 			assert(devmemory);
 			IGPUBuffer::SCreationParams params = {};
 			params.size = devmemory->getAllocationSize();
 			params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
 			params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
-			importedbuf = logicalDevice->createBuffer(std::move(params));
+			importedbuf = m_device->createBuffer(std::move(params));
 			assert(importedbuf);
 			ILogicalDevice::SBindBufferMemoryInfo bindInfo = { .buffer = importedbuf.get(), .binding = {.memory = devmemory.get() } };
-			bool re = logicalDevice->bindBufferMemory(1, &bindInfo);
+			bool re = m_device->bindBufferMemory(1, &bindInfo);
 			assert(re);
 		}
 
@@ -208,15 +163,15 @@ public:
 			params.usage = IGPUImage::EUF_STORAGE_BIT | IGPUImage::EUF_TRANSFER_SRC_BIT;
 			params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
 			params.tiling = IGPUImage::TILING::LINEAR;
-			importedimg = mem[2]->exportAsImage(logicalDevice.get(), std::move(params));
+			importedimg = mem[2]->exportAsImage(m_device.get(), std::move(params));
 			assert(importedimg);
 		}
 		
-		commandPool = logicalDevice->createCommandPool(queue->getFamilyIndex(), {});
+		commandPool = m_device->createCommandPool(queue->getFamilyIndex(), {});
 		bool re = commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmd, smart_refctd_ptr(m_logger));
 		assert(re);
 
-		auto createStaging = [logicalDevice=logicalDevice]()
+		auto createStaging = [logicalDevice= m_device]()
 		{
 			auto buf = logicalDevice->createBuffer({ {.size = size, .usage = asset::IBuffer::EUF_TRANSFER_DST_BIT} });
 			auto req = buf->getMemoryReqs();
@@ -330,7 +285,7 @@ public:
 	{
 		// Make sure we are also done with the readback
 		auto wait = std::array{ISemaphore::SWaitInfo{.semaphore = sema.get(), .value = 2}};
-		logicalDevice->waitForSemaphores(wait, true, -1);
+		m_device->waitForSemaphores(wait, true, -1);
 
 		float* A = reinterpret_cast<float*>(cpubuffers[0]->getPointer());
 		float* B = reinterpret_cast<float*>(cpubuffers[1]->getPointer());
