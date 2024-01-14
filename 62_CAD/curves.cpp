@@ -4,7 +4,7 @@
 #include <nbl/builtin/hlsl/shapes/util.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 
-using namespace nbl::hlsl::math;
+using namespace nbl::hlsl;
 
 namespace curves
 {
@@ -122,7 +122,7 @@ float64_t CubicCurve::computeInflectionPoint(float64_t errorThreshold) const
     const float64_t b = 6.0 * (2.0 * X[1] * Y[0] - 2.0 * X[0] * Y[1] + X[2] * Y[0] - X[0] * Y[2]);
     const float64_t c = 2.0 * (X[2] * Y[1] - X[1] * Y[2]);
 
-    equations::Quadratic<float64_t> quadratic = equations::Quadratic<float64_t>::construct(a, b, c);
+    math::equations::Quadratic<float64_t> quadratic = math::equations::Quadratic<float64_t>::construct(a, b, c);
     const float64_t2 roots = quadratic.computeRoots();
     if (roots[0] <= 1.0 && roots[0] >= 0.0)
         return roots[0];
@@ -270,13 +270,13 @@ float64_t ExplicitEllipse::derivative(float64_t x) const
 
 float64_t2 AxisAlignedEllipse::computePosition(float64_t t) const
 {
-    const float64_t theta = start * (1.0 - t) + end * t;
+    const float64_t theta = start + (end - start) * t;
     return float64_t2(a * cos(theta), b * sin(theta));
 }
 
 float64_t2 AxisAlignedEllipse::computeTangent(float64_t t) const
 {
-    const float64_t theta = start * (1.0 - t) + end * t;
+    const float64_t theta = start + (end - start) * t;
     const float64_t dThetaDt = end - start;
     return float64_t2(-a * dThetaDt * sin(theta), b * dThetaDt * cos(theta));
 }
@@ -289,7 +289,7 @@ ExplicitMixedCircle::ExplicitCircle ExplicitMixedCircle::ExplicitCircle::fromThr
     const float64_t2 Mid1 = (P1 + P2) / 2.0;
     const float64_t2 Normal1 = float64_t2(P2.y - P1.y, P1.x - P2.x);
 
-    const float64_t2 origin = shapes::util::LineLineIntersection(Mid0, Normal0, Mid1, Normal1);
+    const float64_t2 origin = shapes::util::LineLineIntersection<float64_t>(Mid0, Normal0, Mid1, Normal1);
     const float64_t radius = glm::length(P0 - origin);
     return ExplicitCircle(origin, radius);
 
@@ -395,14 +395,14 @@ float64_t2 OffsettedBezier::computeTangent(float64_t t) const
     return ddt + (ddt * g) / glm::length(ddt);
 }
 
-inline float64_t2 OffsettedBezier::findCusps() const
+float64_t2 OffsettedBezier::findCusps() const
 {
     // we're basically solving for t in "offset = radiusOfCurvature(t)"
     const float64_t lhs = pow(offset * 2.0 * abs(quadratic.B.x * quadratic.A.y - quadratic.B.y * quadratic.A.x), 2.0 / 3.0);
     const float64_t a = 4.0 * (quadratic.A.x * quadratic.A.x + quadratic.A.y * quadratic.A.y);
     const float64_t b = 4.0 * (quadratic.A.x * quadratic.B.x + quadratic.A.y * quadratic.B.y);
     const float64_t c = quadratic.B.x * quadratic.B.x + quadratic.B.y * quadratic.B.y - lhs;
-    nbl::hlsl::math::equations::Quadratic<float64_t> findCuspsQuadratic = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(a, b, c);
+    math::equations::Quadratic<float64_t> findCuspsQuadratic = math::equations::Quadratic<float64_t>::construct(a, b, c);
     return findCuspsQuadratic.computeRoots();
 }
 
@@ -444,11 +444,6 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
         return;
     }
 
-    // For consistency sometimes we need to flip the direction when we subdivide from min to max to make sure beziers always starts at point corresonding angleBounds.x and ends at angleBounds.y even if angleBounds.x > angleBounds.y (CW rotation instead CCW)
-    bool needsFlipForConsistency = ellipse.angleBounds.x > ellipse.angleBounds.y;
-    float64_t minAngle = min(ellipse.angleBounds.x, ellipse.angleBounds.y);
-    float64_t maxAngle = max(ellipse.angleBounds.x, ellipse.angleBounds.y);
-
     float64_t lenghtMajor = length(ellipse.majorAxis);
     float64_t lenghtMinor = lenghtMajor * ellipse.eccentricity;
     float64_t2 normalizedMajor = ellipse.majorAxis / lenghtMajor;
@@ -469,63 +464,10 @@ void Subdivision::adaptive(const EllipticalArcInfo& ellipse, float64_t targetMax
             addBezierFunc(std::move(quadBezier));
         };
 
-    // Make the start and end angle in canonical form (so that start is in [0, 2Pi))
-    const double Pi = nbl::core::PI<double>();
-    const double TwoPi = 2.0 * Pi;
-    const double ThreePi = 3.0 * Pi;
-
-    // Use builtin?
-    auto fract = [](double num) -> double
-        {
-            double uselessIntPart = 0;
-            return std::modf(num, &uselessIntPart);
-        };
-
-    const float64_t sweepAngle = maxAngle - minAngle;
-    const float64_t startAngle = (minAngle >= 0)
-        ? fract(minAngle / TwoPi) * TwoPi
-        : (1.0 - fract((-minAngle) / TwoPi)) * TwoPi;
-    const float64_t endAngle = startAngle + sweepAngle;
-
-    auto subdivideAxisAlignedEllipse = [&](const float64_t start, const float64_t end)
-        {
-            if (start != end)
-            {
-                assert(start < end);
-                AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor, start, end);
-                if (needsFlipForConsistency)
-                {
-                    aaEllipse.end = start;
-                    aaEllipse.start = end;
-                }
-                adaptive(aaEllipse, 0.0, 1.0, targetMaxError, addTransformedBezier, maxDepth);
-            }
-        };
-
-    if (startAngle <= Pi)
+    if (ellipse.angleBounds.x != ellipse.angleBounds.y)
     {
-        // start to min(Pi, end)
-        subdivideAxisAlignedEllipse(startAngle, nbl::core::min(Pi, endAngle));
-
-        // Pi to min(2Pi, end)
-        if (endAngle > Pi)
-            subdivideAxisAlignedEllipse(Pi, nbl::core::min(TwoPi, endAngle));
-        // 2Pi to end
-        if (endAngle > TwoPi)
-            subdivideAxisAlignedEllipse(TwoPi, endAngle);
-    }
-    else
-    {
-        // start to min(2Pi, end)
-        subdivideAxisAlignedEllipse(startAngle, nbl::core::min(TwoPi, endAngle));
-
-        // Pi to min(3Pi, end)
-        if (endAngle > TwoPi)
-            subdivideAxisAlignedEllipse(TwoPi, nbl::core::min(ThreePi, endAngle));
-
-        // 3Pi to end
-        if (endAngle > ThreePi)
-            subdivideAxisAlignedEllipse(ThreePi, endAngle);
+        AxisAlignedEllipse aaEllipse(lenghtMajor, lenghtMinor, ellipse.angleBounds.x, ellipse.angleBounds.y);
+        adaptive(aaEllipse, 0.0, 1.0, targetMaxError, addTransformedBezier, maxDepth);
     }
 }
 
@@ -588,13 +530,20 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
         {
             if (glm::distance(P0, P2) < targetMaxError)
             {
-                shouldSubdivide = false;
+                const float64_t2 posAtSplit = curve.computePosition(split);
+                // If it came down to a bezier small that causes P0 P2 and the position at split smaller than targetMaxError then we stop
+                if (glm::distance(posAtSplit, P0) < targetMaxError)
+                    shouldSubdivide = false;
+                // But sometimes when P0 and P2 are close together a split will fix them, like a full circle and needs further subdivision
+                else
+                    shouldSubdivide = true;
             }
             else
             {
                 const float64_t2 curvePositionAtSplit = curve.computePosition(split);
                 float64_t bezierYAtSplit = bezier.calcYatX(curvePositionAtSplit.x);
-                //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit));
+                //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit)); 
+                // TODO: maybe a better error comaprison is find the normal at split and intersect with the bezier
                 if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
                     shouldSubdivide = true;
             }
@@ -608,7 +557,9 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
     }
     else
     {
-        addBezierFunc(std::move(bezier));
+        const bool degenerate = (bezier.P0 == bezier.P2);
+        if (!degenerate)
+            addBezierFunc(std::move(bezier));
     }
 }
 

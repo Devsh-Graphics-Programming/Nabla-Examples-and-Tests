@@ -62,13 +62,14 @@ struct PolylineConnector
     float32_t _reserved_pad;
 };
 
-struct CurveBox 
+// NOTE: Don't attempt to pack curveMin/Max to uints because of limited range of values, we need the logarithmic precision of floats (more precision near 0)
+struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
     float64_t2 aabbMin; // 16
     float64_t2 aabbMax; // 32
-    uint32_t2 curveMin[3]; // 56
-    uint32_t2 curveMax[3]; // 80
+    float32_t2 curveMin[3]; // 56
+    float32_t2 curveMax[3]; // 80
 };
 
 #ifndef __HLSL_VERSION
@@ -76,8 +77,8 @@ static_assert(offsetof(CurveBox, aabbMin) == 0u);
 static_assert(offsetof(CurveBox, aabbMax) == 16u);
 static_assert(offsetof(CurveBox, curveMin[0]) == 32u);
 static_assert(offsetof(CurveBox, curveMax[0]) == 56u);
+static_assert(sizeof(CurveBox) == 80u);
 #endif
-
 // TODO: Compute this in a compute shader from the world counterparts
 //      because this struct includes NDC coordinates, the values will change based camera zoom and move
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
@@ -153,6 +154,25 @@ struct LineStyle
     }
 };
 
+#ifdef __cplusplus
+inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
+{
+    const bool areParametersEqual =
+        lhs.color == rhs.color &&
+        lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+        lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
+        lhs.stipplePatternSize == rhs.stipplePatternSize &&
+        lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen;
+
+    if (!areParametersEqual)
+        return false;
+
+    const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize) : true;
+
+    return isStipplePatternArrayEqual;
+}
+#endif
+
 NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alpha in a texture
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
@@ -217,8 +237,8 @@ uint bitfieldExtract(uint value, int offset, int bits)
 template<typename float_t>
 struct PrecomputedRootFinder 
 {
-    using float2_t = vector<float_t, 2>;
-    using float3_t = vector<float_t, 3>;
+    using float_t2 = vector<float_t, 2>;
+    using float_t3 = vector<float_t, 3>;
     
     float_t C2;
     float_t negB;
@@ -252,31 +272,25 @@ struct PSInput
 {
     float4 position : SV_Position;
     float4 clip : SV_ClipDistance;
-    [[vk::location(0)]] float4 data0 : COLOR;
-    [[vk::location(1)]] nointerpolation uint4 data1 : COLOR1;
-    [[vk::location(2)]] nointerpolation float4 data2 : COLOR2;
-    [[vk::location(3)]] nointerpolation float4 data3 : COLOR3;
-    [[vk::location(4)]] nointerpolation float4 data4 : COLOR4;
+    [[vk::location(0)]] nointerpolation uint4 data1 : COLOR1;
+    [[vk::location(1)]] nointerpolation float4 data2 : COLOR2;
+    [[vk::location(2)]] nointerpolation float4 data3 : COLOR3;
+    [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
-
-        // ArcLenCalculator<float>
+    // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
-    // data0
-    void setColor(in float4 color) { data0 = color; }
-    float4 getColor() { return data0; }
-    
     // data1 (w component reserved for later)
-    float getLineThickness() { return asfloat(data1.x); }
-    ObjectType getObjType() { return (ObjectType) data1.y; }
-    uint getMainObjectIdx() { return data1.z; }
+    ObjectType getObjType() { return (ObjectType) data1.x; }
+    uint getMainObjectIdx() { return data1.y; }
+    float getLineThickness() { return asfloat(data1.z); }
     
-    void setLineThickness(float lineThickness) { data1.x = asuint(lineThickness); }
-    void setObjType(ObjectType objType) { data1.y = (uint) objType; }
-    void setMainObjectIdx(uint mainObjIdx) { data1.z = mainObjIdx; }
+    void setObjType(ObjectType objType) { data1.x = (uint) objType; }
+    void setMainObjectIdx(uint mainObjIdx) { data1.y = mainObjIdx; }
+    void setLineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
     
     // data2
     float2 getLineStart() { return data2.xy; }
@@ -332,37 +346,14 @@ struct PSInput
         data3.w = bezier.c;
     }
 
-    // interp_data5, interp_data6    
-
     // Curve box value along minor & major axis
     float getMinorBBoxUv() { return interp_data5.x; };
     void setMinorBBoxUv(float minorBBoxUv) { interp_data5.x = minorBBoxUv; }
     float getMajorBBoxUv() { return interp_data5.y; };
     void setMajorBBoxUv(float majorBBoxUv) { interp_data5.y = majorBBoxUv; }
 
-    // A, B, C quadratic coefficients from the min & max curves,
-    // swizzled to the major cordinate and with the major UV coordinate subtracted
-    // These can be used to solve the quadratic equation
-    //
-    // a, b, c = curveMin.a,b,c()[major] - uv[major]
-
-    //PrecomputedRootFinder<float> getMinCurvePrecomputedRootFinders() { 
-    //    return PrecomputedRootFinder<float>::construct(data3.z, interp_data5.z, interp_data5.w);
-    //}
-    //PrecomputedRootFinder<float> getMaxCurvePrecomputedRootFinders() { 
-    //    return PrecomputedRootFinder<float>::construct(data3.w, interp_data6.x, interp_data6.y);
-    //}
-
-    //void setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-    //    data3.z = rootFinder.negB;
-    //    interp_data5.z = rootFinder.C2;
-    //    interp_data5.w = rootFinder.det;
-    //}
-    //void setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float> rootFinder) {
-    //    data3.w = rootFinder.negB;
-    //    interp_data6.x = rootFinder.C2;
-    //    interp_data6.y = rootFinder.det;
-    //}
+    float2 getCurveBoxScreenSpaceSize() { return asfloat(data1.zw); }
+    void setCurveBoxScreenSpaceSize(float2 aabbSize) { data1.zw = asuint(aabbSize); }
 
     // data2 + data3.xy
     nbl::hlsl::shapes::Quadratic<float> getQuadratic()

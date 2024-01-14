@@ -6,9 +6,13 @@ endif()
 
 set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/curves.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/curves.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/Polyline.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/DrawBuffers.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/DrawBuffers.h"
 )
-nbl_create_executable_project("${EXAMPLE_SOURCES}" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+set(EXAMPLE_INCLUDES
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/boost/superproject/libs/math/include")
+nbl_create_executable_project("${EXAMPLE_SOURCES}" "" "${EXAMPLE_INCLUDES}" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")

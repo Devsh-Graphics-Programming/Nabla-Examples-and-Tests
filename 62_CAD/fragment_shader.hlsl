@@ -146,7 +146,8 @@ struct ClippedSignedDistance
     {
         typename CurveType::Candidates candidates = curve.getClosestCandidates(pos);
 
-        const float_t InvalidT = 3.402823466e+38F; // TODO: use numeric limits
+        const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::max;
+        // TODO: Fix and test, we're not working with squared distance anymore
         const float_t MAX_DISTANCE_SQUARED = (thickness + 1.0f) * (thickness + 1.0f); // TODO: ' + 1' is too much?
 
         bool clipped = false;
@@ -244,6 +245,15 @@ float sdTrapezoid(float2 p, float r1, float r2, float he)
     return s * sqrt(min(dot(ca,ca), dot(cb,cb)));
 }
 
+// line segment sdf which returns the distance vector specialized for usage in hatch box line boundaries
+float2 sdLineDstVec(float2 P, float2 A, float2 B)
+{
+    const float2 PA = P - A;
+    const float2 BA = B - A;
+    float h = clamp(dot(PA, BA) / dot(BA, BA), 0.0, 1.0);
+    return PA - BA * h;
+}
+
 float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb)
 {
     float h = length(b - a) / 2.0;
@@ -267,7 +277,7 @@ float4 main(PSInput input) : SV_TARGET
 	
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
-    uint32_t currentMainObjectIdx = input.getMainObjectIdx();
+    const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
 
     if (objType == ObjectType::LINE)
     {
@@ -329,40 +339,103 @@ float4 main(PSInput input) : SV_TARGET
         nbl::hlsl::math::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
         nbl::hlsl::math::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
 
-        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv,0.001,0.999));
-        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv,0.001,0.999));
+        //  TODO(Optimization): Can we ignore this majorBBoxUv clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
+        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv, 0.0, 1.0));
+        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv, 0.0, 1.0));
 
         const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
         const float minEv = curveMinMinor.evaluate(minT);
-        
+
         const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
         const float maxEv = curveMaxMinor.evaluate(maxT);
-        
-        const float minorDirectionOverScreenSpaceChange = length(float2(ddx(minorBBoxUv),ddy(minorBBoxUv))); // we decided to do this instead of fwidth for dMinor/dScreen
-        const float majorDirectionOverScreenSpaceChange = length(float2(ddx(majorBBoxUv),ddy(majorBBoxUv))); // we decided to do this instead of fwidth
 
-        float2 tangentMinCurve = float2(
-            curveMinMinor.a * minT + curveMinMinor.b,
-            curveMinMajor.a * minT + curveMinMajor.b);
-        tangentMinCurve = normalize(tangentMinCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
+        const bool insideMajor = majorBBoxUv >= 0.0 && majorBBoxUv <= 1.0;
+        const bool insideMinor = minorBBoxUv >= minEv && minorBBoxUv <= maxEv;
 
-        float2 tangentMaxCurve = float2(
-            curveMaxMinor.a * maxT + curveMaxMinor.b,
-            curveMaxMajor.a * maxT + curveMaxMajor.b);
-        tangentMaxCurve = normalize(tangentMaxCurve / float2(minorDirectionOverScreenSpaceChange, majorDirectionOverScreenSpaceChange));
+        if (insideMinor && insideMajor)
+        {
+            localAlpha = 1.0;
+        }
+        else
+        {
+            // Find the true SDF of a hatch box boundary which is bounded by two curves, It requires knowing the distance from the current UV to the closest point on bounding curves and the limiting lines (in major direction)
+            // We also keep track of distance vector (minor, major) to convert to screenspace distance for anti-aliasing with screenspace aaFactor
+            const float InvalidT = nbl::hlsl::numeric_limits<float32_t>::max;
+            const float MAX_DISTANCE_SQUARED = nbl::hlsl::numeric_limits<float32_t>::max;
 
-        float curveMinorDistance = min(
-            tangentMinCurve.y * (minorBBoxUv - minEv),
-            tangentMaxCurve.y * 1.0 * (maxEv - minorBBoxUv));
+            const float2 boxScreenSpaceSize = input.getCurveBoxScreenSpaceSize();
 
-        const float aabbMajorDistance = min(majorBBoxUv, 1.0 - majorBBoxUv);
 
-        const float antiAliasingFactorMinor = globals.antiAliasingFactor * fwidth(minorBBoxUv);
-        const float antiAliasingFactorMajor = globals.antiAliasingFactor * fwidth(majorBBoxUv);
+            float closestDistanceSquared = MAX_DISTANCE_SQUARED;
+            const float2 pos = float2(minorBBoxUv, majorBBoxUv) * boxScreenSpaceSize;
 
-        localAlpha = 1.0;
-        localAlpha *= smoothstep(-antiAliasingFactorMajor, 0.0, aabbMajorDistance);
-        localAlpha *= smoothstep(-antiAliasingFactorMinor, antiAliasingFactorMinor, curveMinorDistance);
+            if (minorBBoxUv < minEv)
+            {
+                // DO SDF of Min Curve
+                nbl::hlsl::shapes::Quadratic<float> minCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
+                    float2(curveMinMinor.a, curveMinMajor.a) * boxScreenSpaceSize,
+                    float2(curveMinMinor.b, curveMinMajor.b) * boxScreenSpaceSize,
+                    float2(curveMinMinor.c, curveMinMajor.c) * boxScreenSpaceSize);
+
+                nbl::hlsl::shapes::Quadratic<float>::Candidates candidates = minCurve.getClosestCandidates(pos);
+                [[unroll(nbl::hlsl::shapes::Quadratic<float>::MaxCandidates)]]
+                for (uint32_t i = 0; i < nbl::hlsl::shapes::Quadratic<float>::MaxCandidates; i++)
+                {
+                    candidates[i] = clamp(candidates[i], 0.0, 1.0);
+                    const float2 distVector = minCurve.evaluate(candidates[i]) - pos;
+                    const float candidateDistanceSquared = dot(distVector, distVector);
+                    if (candidateDistanceSquared < closestDistanceSquared)
+                        closestDistanceSquared = candidateDistanceSquared;
+                }
+            }
+            else if (minorBBoxUv > maxEv)
+            {
+                // Do SDF of Max Curve
+                nbl::hlsl::shapes::Quadratic<float> maxCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
+                    float2(curveMaxMinor.a, curveMaxMajor.a) * boxScreenSpaceSize,
+                    float2(curveMaxMinor.b, curveMaxMajor.b) * boxScreenSpaceSize,
+                    float2(curveMaxMinor.c, curveMaxMajor.c) * boxScreenSpaceSize);
+                nbl::hlsl::shapes::Quadratic<float>::Candidates candidates = maxCurve.getClosestCandidates(pos);
+                [[unroll(nbl::hlsl::shapes::Quadratic<float>::MaxCandidates)]]
+                for (uint32_t i = 0; i < nbl::hlsl::shapes::Quadratic<float>::MaxCandidates; i++)
+                {
+                    candidates[i] = clamp(candidates[i], 0.0, 1.0);
+                    const float2 distVector = maxCurve.evaluate(candidates[i]) - pos;
+                    const float candidateDistanceSquared = dot(distVector, distVector);
+                    if (candidateDistanceSquared < closestDistanceSquared)
+                        closestDistanceSquared = candidateDistanceSquared;
+                }
+            }
+
+            if (!insideMajor)
+            {
+                const bool minLessThanMax = minEv < maxEv;
+                float2 majorDistVector = float2(MAX_DISTANCE_SQUARED, MAX_DISTANCE_SQUARED);
+                if (majorBBoxUv > 1.0)
+                {
+                    const float2 minCurveEnd = float2(minEv, 1.0) * boxScreenSpaceSize;
+                    if (minLessThanMax)
+                        majorDistVector = sdLineDstVec(pos, minCurveEnd, float2(maxEv, 1.0) * boxScreenSpaceSize);
+                    else
+                        majorDistVector = pos - minCurveEnd;
+                }
+                else
+                {
+                    const float2 minCurveStart = float2(minEv, 0.0) * boxScreenSpaceSize;
+                    if (minLessThanMax)
+                        majorDistVector = sdLineDstVec(pos, minCurveStart, float2(maxEv, 0.0) * boxScreenSpaceSize);
+                    else
+                        majorDistVector = pos - minCurveStart;
+                }
+
+                const float majorDistSq = dot(majorDistVector, majorDistVector);
+                if (majorDistSq < closestDistanceSquared)
+                    closestDistanceSquared = majorDistSq;
+            }
+
+            const float dist = sqrt(closestDistanceSquared);
+            localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
+        }
     }
     else if (objType == ObjectType::POLYLINE_CONNECTOR)
     {
@@ -408,7 +481,7 @@ float4 main(PSInput input) : SV_TARGET
     col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha) / 255.f;
 #else
-    col = input.getColor();
+    col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
     col.w *= localAlpha;
 #endif
     return float4(col);
