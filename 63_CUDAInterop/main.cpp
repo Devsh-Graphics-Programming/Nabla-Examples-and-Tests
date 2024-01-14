@@ -115,6 +115,7 @@ public:
 		ASSERT_SUCCESS(cu.pcuModuleUnload(module));
 		ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
 
+		m_device->waitIdle();
 		return true;
 	}
 
@@ -160,10 +161,10 @@ public:
 			params.extent = { gridDim[0], blockDim[0], 1 };
 			params.mipLevels = 1;
 			params.arrayLayers = 1;
-			params.usage = IGPUImage::EUF_STORAGE_BIT | IGPUImage::EUF_TRANSFER_SRC_BIT;
+			params.usage = IGPUImage::EUF_TRANSFER_SRC_BIT;
 			params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
 			params.tiling = IGPUImage::TILING::LINEAR;
-			importedimg = mem[2]->exportAsImage(m_device.get(), std::move(params));
+			importedimg = mem[2]->createAndBindImage(m_device.get(), std::move(params));
 			assert(importedimg);
 		}
 		
@@ -213,8 +214,6 @@ public:
 			IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> bufBarrier = {
 				.barrier = {
 					.dep = {
-						// .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-						// .srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
 						.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
 						.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
 					},
@@ -226,7 +225,7 @@ public:
 
 			bool re = true;
 			re &= cmd->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			re &= cmd->pipelineBarrier(EDF_NONE, { .bufBarrierCount = 1, .bufBarriers = &bufBarrier}); 
+			re &= cmd->pipelineBarrier(EDF_NONE, { .bufBarriers = std::span{&bufBarrier,&bufBarrier + 1} });
 
 			IGPUCommandBuffer::SBufferCopy region = { .size = size };
 			re &= cmd->copyBuffer(importedbuf.get(), stagingbuf.get(), 1, &region);
@@ -234,8 +233,6 @@ public:
 			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarrier = {
 				.barrier = { 
 					.dep = { 
-						// .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-						// .srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
 						.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS, 
 						.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS,
 					},
@@ -248,11 +245,11 @@ public:
 					.levelCount = 1u,
 					.layerCount = 1u,
 				},
-				.oldLayout = IImage::LAYOUT::PREINITIALIZED,
+				.oldLayout = IImage::LAYOUT::UNDEFINED,
 				.newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL,
 			};
 
-			re &= cmd->pipelineBarrier(EDF_NONE, {.imgBarrierCount = 1, .imgBarriers = &imgBarrier });
+			re &= cmd->pipelineBarrier(EDF_NONE, { .imgBarriers = {&imgBarrier,&imgBarrier + 1} });
 
 			IImage::SBufferCopy imgRegion = {
 				.imageSubresource = {
@@ -292,7 +289,7 @@ public:
 		float* CBuf = reinterpret_cast<float*>(stagingbuf->getBoundMemory().memory->getMappedPointer());
 		float* CImg = reinterpret_cast<float*>(stagingbuf2->getBoundMemory().memory->getMappedPointer());
 
-		 assert(!memcmp(CBuf, CImg, size));
+		assert(!memcmp(CBuf, CImg, size));
 
 		for (auto i = 0; i < numElements; i++)
 		{
@@ -309,56 +306,5 @@ public:
 	// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
 	void workLoopBody() override {}
 };
-//
-//int main(int argc, char** argv)
-//{
-//	auto initOutput = CommonAPI::InitWithDefaultExt(CommonAPI::InitParams{
-//		.appName = { "63.CUDAInterop" },
-//		.apiType = EAT_VULKAN, 
-//		.swapchainImageUsage = IImage::EUF_NONE,
-//	});
-//
-//	auto& system = initOutput.system;
-//	auto& apiConnection = initOutput.apiConnection;
-//	auto& physicalDevice = initOutput.physicalDevice;
-//	auto& logicalDevice = initOutput.logicalDevice;
-//	auto& utilities = initOutput.utilities;
-//	auto& queues = initOutput.queues;
-//	auto& logger = initOutput.logger;
-//
-//	assert(physicalDevice->getLimits().externalMemory);
-//	auto cudaHandler = CCUDAHandler::create(system.get(), smart_refctd_ptr<ILogger>(logger));
-//	assert(cudaHandler);
-//	auto cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(apiConnection), physicalDevice);
-//	auto& cu = cudaHandler->getCUDAFunctionTable();	
-//
-//	smart_refctd_ptr<ICPUBuffer> ptx;
-//	CUmodule   module;
-//	CUfunction kernel;
-//	CUstream   stream;
-//
-//	{
-//		ISystem::future_t<smart_refctd_ptr<IFile>> fut;
-//		system->createFile(fut, "../vectorAdd_kernel.cu", IFileBase::ECF_READ);
-//	/*	auto [ptx_, res] = cudaHandler->compileDirectlyToPTX(fut.copy().get(), cudaDevice->geDefaultCompileOptions());
-//		ASSERT_SUCCESS_NV(res);
-//		ptx = std::move(ptx_);*/
-//	}
-//
-//	//ASSERT_SUCCESS(cu.pcuModuleLoadDataEx(&module, ptx->getPointer(), 0u, nullptr, nullptr));
-//	//ASSERT_SUCCESS(cu.pcuModuleGetFunction(&kernel, module, "vectorAdd"));
-//	//ASSERT_SUCCESS(cu.pcuStreamCreate(&stream, CU_STREAM_NON_BLOCKING));
-//
-//	//{
-//	//	auto cuda2vk = CUDA2VK(cudaHandler, cudaDevice, utilities.get(), logicalDevice.get(), queues.data());
-//	//	cuda2vk.launchKernel(kernel, stream);
-//	//	ASSERT_SUCCESS(cu.pcuStreamSynchronize(stream));
-//	//}
-//
-//	//ASSERT_SUCCESS(cu.pcuModuleUnload(module));
-//	//ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
-//
-//	return 0;
-//}
 
 NBL_MAIN_FUNC(CUDA2VKApp)
