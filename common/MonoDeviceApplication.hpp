@@ -124,19 +124,19 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			using format_usage_t = usages_t::SUsage;
 			using image_t = nbl::asset::IImage;
 
-			constexpr static inline format_usage_t sampling = format_usage_t(image_t::EUF_SAMPLED_BIT);
-			constexpr static inline format_usage_t transferUpAndDown = format_usage_t(image_t::EUF_TRANSFER_DST_BIT|image_t::EUF_TRANSFER_SRC_BIT);
-			constexpr static inline format_usage_t shaderStorage = format_usage_t(image_t::EUF_STORAGE_BIT);
-			constexpr static inline format_usage_t shaderStorageAtomic = shaderStorage|[]()->auto {format_usage_t tmp; tmp.storageImageAtomic = true; return tmp;}();
-			constexpr static inline format_usage_t attachment = []()->auto {format_usage_t tmp; tmp.attachment = true; return tmp; }();
-			constexpr static inline format_usage_t attachmentBlend = []()->auto {format_usage_t tmp; tmp.attachmentBlend = true; return tmp; }();
-			constexpr static inline format_usage_t blitSrc = []()->auto {format_usage_t tmp; tmp.blitSrc = true; return tmp; }();
-			constexpr static inline format_usage_t blitDst = []()->auto {format_usage_t tmp; tmp.blitDst = true; return tmp; }();
+			const static inline format_usage_t sampling = format_usage_t(image_t::EUF_SAMPLED_BIT);
+			const static inline format_usage_t transferUpAndDown = format_usage_t(image_t::EUF_TRANSFER_DST_BIT|image_t::EUF_TRANSFER_SRC_BIT);
+			const static inline format_usage_t shaderStorage = format_usage_t(image_t::EUF_STORAGE_BIT);
+			const static inline format_usage_t shaderStorageAtomic = shaderStorage|[]()->auto {format_usage_t tmp; tmp.storageImageAtomic = true; return tmp;}();
+			const static inline format_usage_t attachment = []()->auto {format_usage_t tmp; tmp.attachment = true; return tmp; }();
+			const static inline format_usage_t attachmentBlend = []()->auto {format_usage_t tmp; tmp.attachmentBlend = true; return tmp; }();
+			const static inline format_usage_t blitSrc = []()->auto {format_usage_t tmp; tmp.blitSrc = true; return tmp; }();
+			const static inline format_usage_t blitDst = []()->auto {format_usage_t tmp; tmp.blitDst = true; return tmp; }();
 			// TODO: redo when we incorporate blits into the asset converter (just sampling then)
-			constexpr static inline format_usage_t mipmapGeneration = sampling|blitSrc|blitDst;
-			constexpr static inline format_usage_t opaqueRendering = sampling|transferUpAndDown|attachment|mipmapGeneration;
-			constexpr static inline format_usage_t genericRendering = opaqueRendering|attachmentBlend|mipmapGeneration;
-			constexpr static inline format_usage_t renderingAndStorage = genericRendering|shaderStorage;
+			const static inline format_usage_t mipmapGeneration = sampling|blitSrc|blitDst;
+			const static inline format_usage_t opaqueRendering = sampling|transferUpAndDown|attachment|mipmapGeneration;
+			const static inline format_usage_t genericRendering = opaqueRendering|attachmentBlend|mipmapGeneration;
+			const static inline format_usage_t renderingAndStorage = genericRendering|shaderStorage;
 		};
 
 		// virtual function so you can override as needed for some example father down the line

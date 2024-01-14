@@ -43,7 +43,7 @@ public:
 			return false;
 
 		// Requesting queue with graphics and transfer capabilities. Transfer capablility will be needed for image to buffer copy operation.
-		IGPUQueue* const queue = getQueue(IPhysicalDevice::E_QUEUE_FLAGS::EQF_GRAPHICS_BIT | IPhysicalDevice::E_QUEUE_FLAGS::EQF_TRANSFER_BIT);
+		IQueue* const queue = getQueue(IQueue::FAMILY_FLAGS::GRAPHICS_BIT|IQueue::FAMILY_FLAGS::TRANSFER_BIT);
 
 		constexpr VkExtent2D bigImgExtent = { 512u, 512u };
 		constexpr VkExtent2D smallImgExtent = { 256u, 256u };
@@ -59,7 +59,7 @@ public:
 		const size_t smallImgByteSize = smallImg->getImageDataSizeInBytes();
 
 		// Create a buffer large enough to back the output 256^2 image, blited image will be saved to this buffer.
-		nbl::video::IDeviceMemoryAllocator::SMemoryOffset outputBufferAllocation = {};
+		nbl::video::IDeviceMemoryAllocator::SAllocation outputBufferAllocation = {};
 		smart_refctd_ptr<IGPUBuffer> outputImageBuffer = nullptr;
 		{
 			IGPUBuffer::SCreationParams gpuBufCreationParams;
@@ -80,8 +80,6 @@ public:
 			outputBufferAllocation = m_device->allocate(reqs, outputImageBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
 			if (!outputBufferAllocation.isValid())
 				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
-
-			assert(outputImageBuffer->getBoundMemory() == outputBufferAllocation.memory.get());
 		}
 
 		const IImage::SSubresourceLayers subresourceLayers = constructDefaultInitializedSubresourceLayers();
@@ -92,7 +90,7 @@ public:
 		bufferCopy.bufferOffset = 0u;
 		bufferCopy.imageExtent = { smallImgExtent.width, smallImgExtent.height, 1u };
 		bufferCopy.imageSubresource = subresourceLayers;
-
+#if 0 // TODO: port
 		SImageBlit firstImgBlit{};
 		{
 			asset::VkOffset3D dstOffset0;
@@ -289,7 +287,7 @@ public:
 		// Even if you forgot to unmap, it would unmap itself when `outputBufferAllocation.memory` 
 		// gets dropped by its last reference and its destructor runs.
 		m_device->unmapMemory(outputBufferAllocation.memory.get());
-
+#endif
 		return true;
 	}
 
@@ -302,8 +300,8 @@ public:
 protected:
 	core::vector<queue_req_t> getQueueRequirements() const override
 	{
-		using flags_t = IPhysicalDevice::E_QUEUE_FLAGS;
-		return {{.requiredFlags=flags_t::EQF_GRAPHICS_BIT|flags_t::EQF_TRANSFER_BIT,.disallowedFlags=flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}}};
+		using flags_t = IQueue::FAMILY_FLAGS;
+		return {{.requiredFlags=flags_t::GRAPHICS_BIT|flags_t::TRANSFER_BIT,.disallowedFlags=flags_t::NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}}};
 	}
 
 private:
@@ -329,7 +327,7 @@ private:
 
 		return res;
 	}
-
+#if 0 // TODO: port
 	IGPUCommandBuffer::SImageMemoryBarrier constructDefaultInitializedImageBarrier() const
 	{
 		IGPUCommandBuffer::SImageMemoryBarrier res;
@@ -344,27 +342,7 @@ private:
 
 		return res;
 	}
-
-	IGPUImage::SCreationParams constructImageCreationParams(const VkExtent2D& extent) const
-	{
-		IGPUImage::SCreationParams res{};
-		res.type = IImage::E_TYPE::ET_2D;
-		res.extent.height = 512u;
-		res.extent.width = 512u;
-		res.extent.depth = 1u;
-		res.format = asset::E_FORMAT::EF_R8G8B8A8_SRGB;
-		res.mipLevels = 1u;
-		res.flags = IImage::ECF_NONE;
-		res.arrayLayers = 1u;
-		res.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-		res.tiling = video::IGPUImage::ET_OPTIMAL;
-		res.usage = asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
-		res.queueFamilyIndexCount = 0u;
-		res.queueFamilyIndices = nullptr;
-		res.initialLayout = asset::IImage::EL_UNDEFINED;
-
-		return res;
-	}
+#endif
 
 	core::smart_refctd_ptr<IGPUImage> createImage(const VkExtent2D& extent)
 	{
@@ -378,11 +356,11 @@ private:
 		imgParams.flags = IImage::ECF_NONE;
 		imgParams.arrayLayers = 1u;
 		imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-		imgParams.tiling = video::IGPUImage::ET_OPTIMAL;
+		imgParams.tiling = video::IGPUImage::TILING::OPTIMAL;
 		imgParams.usage = asset::IImage::EUF_TRANSFER_SRC_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
 		imgParams.queueFamilyIndexCount = 0u;
 		imgParams.queueFamilyIndices = nullptr;
-		imgParams.initialLayout = asset::IImage::EL_UNDEFINED;
+		imgParams.preinitialized = false;
 
 		auto img = m_device->createImage(std::move(imgParams));
 
@@ -394,8 +372,6 @@ private:
 			logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			return nullptr;
 		}
-
-		assert(img->getBoundMemory() == allocation.memory.get());
 
 		return img;
 	}
