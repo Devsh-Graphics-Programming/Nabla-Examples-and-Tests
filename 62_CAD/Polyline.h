@@ -306,8 +306,6 @@ public:
 	{
 		if (!lineStyle.isVisible())
 			return;
-		if (!lineStyle.isRoadStyleFlag)
-			return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
 		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
