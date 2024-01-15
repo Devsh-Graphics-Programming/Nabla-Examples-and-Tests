@@ -22,9 +22,8 @@ struct CPULineStyle
 	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
 	float phaseShift;
 	bool isRoadStyleFlag;
-
-	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
-		//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
+	
+	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternCPURepresentation)
 	{
 		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
 
@@ -34,18 +33,18 @@ struct CPULineStyle
 			return;
 		}
 
-		nbl::core::vector<float> stipplePatternTransformed;
+		nbl::core::vector<double> stipplePatternTransformed;
 
 		// just to make sure we have a consistent definition of what's positive and what's negative
-		auto isValuePositive = [](float x)
-		{
-			return (x >= 0);
-		};
+		auto isValuePositive = [](double x)
+			{
+				return (x >= 0);
+			};
 
 		// merge redundant values
 		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
 		{
-			float redundantConsecutiveValuesSum = 0.0f;
+			double redundantConsecutiveValuesSum = 0.0f;
 			const bool firstValueSign = isValuePositive(*it);
 			do
 			{
@@ -63,12 +62,12 @@ struct CPULineStyle
 		}
 
 		// merge first and last value if their sign matches
-		phaseShift = 0.0f;
+		double currentPhaseShift = 0.0f;
 		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
 		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 		if (firstComponentPositive == lastComponentPositive)
 		{
-			phaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+			currentPhaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
 			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
 			stipplePatternTransformed.pop_back();
 		}
@@ -83,32 +82,33 @@ struct CPULineStyle
 		if (!firstComponentPositive)
 		{
 			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
-			phaseShift += std::abs(stipplePatternTransformed[0]);
+			currentPhaseShift += std::abs(stipplePatternTransformed[0]);
 		}
 
 		// calculate normalized prefix sum
 		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
-		const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
+		const uint32_t PREFIX_SUM_SZ = static_cast<uint32_t>(stipplePatternTransformed.size()) - 1;
 
-		float prefixSum[PREFIX_SUM_MAX_SZ];
+		double prefixSum[PREFIX_SUM_MAX_SZ];
 		prefixSum[0] = stipplePatternTransformed[0];
 
 		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
 			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
 
-		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+		const double rcpLen = 1.0 / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
 
-		for (int i = 0; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] *= reciprocalStipplePatternLen;
+		for (uint32_t i = 0; i < PREFIX_SUM_SZ; i++)
+			prefixSum[i] *= rcpLen;
 
+		reciprocalStipplePatternLen = static_cast<float>(rcpLen);
 		stipplePatternSize = PREFIX_SUM_SZ;
-		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
-
-		phaseShift = phaseShift * reciprocalStipplePatternLen;
+		for (uint32_t i = 0u; i < PREFIX_SUM_SZ; ++i)
+			stipplePattern[i] = static_cast<float>(prefixSum[i]);
+			
+		currentPhaseShift = currentPhaseShift * rcpLen;
 		if (stipplePatternTransformed[0] == 0.0)
-		{
-			phaseShift -= 1.0e-3f; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
-		}
+			currentPhaseShift -= 1.0e-3f; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
+		phaseShift = static_cast<float>(currentPhaseShift);
 	}
 
 	LineStyle getAsGPUData() const
@@ -306,8 +306,10 @@ public:
 	{
 		if (!lineStyle.isVisible())
 			return;
+		if (!lineStyle.isRoadStyleFlag)
+			return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
+		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
 		float phaseShiftTotal = lineStyle.phaseShift;

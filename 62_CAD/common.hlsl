@@ -99,20 +99,20 @@ struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
     double screenToWorldRatio; // 96
-    float worldToScreenRatio; // 100
+    double worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
     float miterLimit; // 116
-    float32_t3 _padding; // 128
+    float32_t2 _padding; // 128
 };
 
 #ifndef __HLSL_VERSION
 static_assert(offsetof(Globals, defaultClipProjection) == 0u);
 static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
 static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
-static_assert(offsetof(Globals, resolution) == 100u);
-static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
-static_assert(offsetof(Globals, miterLimit) == 112u);
+static_assert(offsetof(Globals, resolution) == 104u);
+static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
+static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
 struct LineStyle

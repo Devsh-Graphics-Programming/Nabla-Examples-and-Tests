@@ -26,7 +26,7 @@ enum class ExampleMode
 	CASE_5, // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 using namespace nbl::hlsl;
 
@@ -850,8 +850,8 @@ public:
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = (float) screenToWorld;
-		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
+		globalData.screenToWorldRatio = screenToWorld;
+		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
 		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
 		assert(updateSuccess);
@@ -1611,10 +1611,11 @@ public:
 			constexpr uint32_t CURVE_CNT = 16u;
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
-			CPULineStyle cpuLineStyle;
+			CPULineStyle cpuLineStyle = {};
 			cpuLineStyle.screenSpaceLineWidth = 7.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
-			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
+			cpuLineStyle.color = float32_t4(0.7f, 0.3f, 0.7f, 0.8f);
+			cpuLineStyle.isRoadStyleFlag = false;
 
 			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
 			std::vector<CPolyline> polylines(CURVE_CNT);
@@ -1694,7 +1695,7 @@ public:
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
-				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
+				std::array<core::vector<double>, CURVE_CNT> stipplePatterns;
 
 				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
@@ -1734,7 +1735,7 @@ public:
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
+					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<double>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
 					cpuLineStyles[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
 					polylines[i].addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(&quadratics[i], &quadratics[i] + 1u));
 
@@ -1770,8 +1771,8 @@ public:
 			style.isRoadStyleFlag = true;
 
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.00002) + 1.0f) * 10.0f;
-			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
 			{
@@ -1836,8 +1837,8 @@ public:
 
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
 			{
@@ -1908,8 +1909,8 @@ public:
 
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
 			{
@@ -1939,8 +1940,8 @@ public:
 
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
 			CPolyline polyline2;
@@ -1980,9 +1981,9 @@ public:
 			style.isRoadStyleFlag = true;
 
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
-			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			std::array<double, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			//std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 
 			CPolyline polyline;
 			{
