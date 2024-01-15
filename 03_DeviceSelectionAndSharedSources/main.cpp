@@ -2,7 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "../common/MonoDeviceApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
@@ -12,6 +11,8 @@ using namespace core;
 using namespace system;
 using namespace asset;
 using namespace video;
+
+// TODO[Przemek]: update comments
 
 //#define USE_INTROSPECTOR
 
@@ -470,6 +471,49 @@ public:
 			pool->createDescriptorSets(MaxDescriptorSets, &dsLayouts->get(), ds);
 		}
 #else
+
+		auto introspector = std::make_unique<CSPIRVIntrospector>();
+		
+		smart_refctd_ptr<const CSPIRVIntrospector::CIntrospectionData> introspection;
+		{
+		
+			// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
+			auto* compilerSet = m_assetMgr->getCompilerSet();
+		
+			// This time we use a more "generic" option struct which works with all compilers
+			nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+			// The Shader Asset Loaders deduce the stage from the file extension,
+			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
+			// But it can still be overriden from within the source with a `#pragma shader_stage`
+			options.stage = source->getStage();
+			options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
+			options.spirvOptimizer = nullptr;
+			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+			// The nice thing is that when you load a shader from file, it has a correctly set `filePathHint`
+			// so it plays nicely with the preprocessor, and finds `#include`s without intervention.
+			options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+			options.preprocessorOptions.logger = m_logger.get();
+			options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+		
+			auto spirvUnspecialized = compilerSet->compileToSPIRV(source.get(), options);
+			const CSPIRVIntrospector::SIntrospectionParams inspctParams = { .entryPoint = "main",.cpuShader = spirvUnspecialized };
+		
+			introspection = introspector->introspect(inspctParams);
+			if (!introspection)
+				return logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
+		
+			// now we need to swap out the HLSL for SPIR-V
+			source = make_smart_refctd_ptr<ICPUShader>(std::move(spirvUnspecialized));
+
+		}
+		// Just a check that out specialization info will match
+		if (!introspection->canSpecializationlesslyCreateDescSetFrom())
+			return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
+		
+		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
+		//smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(source.get());
+
 		smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
 
 		nbl::video::IGPUDescriptorSetLayout::SBinding bindingsDS1[1] = {
@@ -493,7 +537,7 @@ public:
 					.samplers = nullptr // irrelevant for a buffer
 				},
 		};
-
+		
 		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout1 = m_device->createDescriptorSetLayout(bindingsDS1);
 		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout3 = m_device->createDescriptorSetLayout(bindingsDS3);
 		if (!dsLayout1 || !dsLayout3)
@@ -517,10 +561,13 @@ public:
 				return logFail("Failed to create pipelines (compile & link shaders)!\n");
 		}
 
-		const std::array<IGPUDescriptorSetLayout*, 2> dscLayoutPtrs = { dsLayout1.get(), dsLayout3.get() };
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>, 2> ds;
+		// Nabla hardcodes the maximum descriptor set count to 4
+		constexpr uint32_t MaxDescriptorSets = 4;
+		const std::array<IGPUDescriptorSetLayout*, MaxDescriptorSets> dscLayoutPtrs = { nullptr, dsLayout1.get(), nullptr, dsLayout3.get() };
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>, MaxDescriptorSets> ds;
 		auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
 		pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), ds.data());
+		
 #endif
 		// Need to know input and output sizes by ourselves obviously
 		constexpr size_t WorkgroupCount = 4096;
@@ -587,6 +634,27 @@ public:
 			}
 		}
 
+#ifndef USE_INTROSPECTOR
+		{
+			IGPUDescriptorSet::SDescriptorInfo inputBuffersInfo[2];
+			inputBuffersInfo[0].desc = smart_refctd_ptr(inputBuff[0].first);
+			inputBuffersInfo[0].info.buffer = { .offset = 0,.size = inputBuff[0].first->getSize() };
+			inputBuffersInfo[1].desc = smart_refctd_ptr(inputBuff[1].first);
+			inputBuffersInfo[1].info.buffer = { .offset = 0,.size = inputBuff[1].first->getSize() };
+
+			IGPUDescriptorSet::SDescriptorInfo outputBufferInfo;
+			outputBufferInfo.desc = smart_refctd_ptr(outputBuff.first);
+			outputBufferInfo.info.buffer = { .offset = 0,.size = outputBuff.first->getSize() };
+
+			IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
+				{.dstSet = ds[1].get(),.binding = 2,.arrayElement = 0,.count = 2,.info = inputBuffersInfo},
+				{.dstSet = ds[3].get(),.binding = 6,.arrayElement = 0,.count = 1,.info = &outputBufferInfo}
+			};
+
+			m_device->updateDescriptorSets(std::span(writes, 2), {});
+		}
+#endif
+
 		// create, record, submit and await commandbuffers
 		constexpr auto StartedValue = 0;
 		constexpr auto FinishedValue = 45;
@@ -613,6 +681,8 @@ public:
 			IQueue::SSubmitInfo submitInfo = {};
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
 			submitInfo.commandBuffers = cmdbufs;
+			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+			submitInfo.signalSemaphores = signals;
 
 			// To keep the sample renderdoc-able
 			queue->startCapture();
