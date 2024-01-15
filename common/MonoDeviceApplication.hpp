@@ -250,7 +250,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			// In the default implementation of everything I asked only for one queue from first compute family
 			const auto familyProperties = m_device->getPhysicalDevice()->getQueueFamilyProperties();
 			for (auto i = 0u; i < familyProperties.size(); i++)
-				if (familyProperties[i].queueFlags.hasFlags(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+				if (familyProperties[i].queueFlags.hasFlags(flags))
 					return m_device->getQueue(i, 0);
 
 			return nullptr;
