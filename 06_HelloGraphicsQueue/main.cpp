@@ -6,6 +6,7 @@
 #include "../common/MonoDeviceApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
+#include "nbl/video/IGPUCommandBuffer.h"
 
 using namespace nbl;
 using namespace core;
@@ -90,8 +91,8 @@ public:
 		bufferCopy.bufferOffset = 0u;
 		bufferCopy.imageExtent = { smallImgExtent.width, smallImgExtent.height, 1u };
 		bufferCopy.imageSubresource = subresourceLayers;
-#if 0 // TODO: port
-		SImageBlit firstImgBlit{};
+
+		IGPUCommandBuffer::SImageBlit firstImgBlit{};
 		{
 			asset::VkOffset3D dstOffset0;
 			dstOffset0.x = bigImgExtent.width / 2u - smallImgExtent.width / 2u;
@@ -111,7 +112,7 @@ public:
 			firstImgBlit.dstOffsets[1] = dstOffset1;
 		}
 
-		SImageBlit secondImgBlit{};
+		IGPUCommandBuffer::SImageBlit secondImgBlit{};
 		{
 			secondImgBlit.srcSubresource = subresourceLayers;
 			secondImgBlit.srcOffsets[0] = { 0u, 0u, 0u };
@@ -123,127 +124,133 @@ public:
 
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		{
-			core::bitflag<IGPUCommandPool::E_CREATE_FLAGS> flags = static_cast<IGPUCommandPool::E_CREATE_FLAGS>(IGPUCommandPool::E_CREATE_FLAGS::ECF_TRANSIENT_BIT);
+			core::bitflag<IGPUCommandPool::CREATE_FLAGS> flags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queue->getFamilyIndex(), flags);
-			if (!m_device->createCommandBuffers(cmdpool.get(), IGPUCommandBuffer::EL_PRIMARY, 1, &cmdbuf))
+			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmdbuf))
 				return false;
 		}
 
-		IGPUQueue::SSubmitInfo submitInfo{};
-		submitInfo.commandBufferCount = 1;
-		submitInfo.commandBuffers = &cmdbuf.get();
+		constexpr auto StartedValue = 0;
+		constexpr auto FinishedValue = 45;
+		static_assert(FinishedValue > StartedValue);
+		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
+		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+
+		IQueue::SSubmitInfo submitInfos[1];
+		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfos[1] = {cmdbuf.get()};
+		submitInfos[0].commandBuffers = cmdbufInfos;
+		submitInfos[0].signalSemaphores = signals;
+		
 
 		IGPUCommandBuffer::SImageMemoryBarrier imgLayoutTransitionBarrier = constructDefaultInitializedImageBarrier();
-		imgLayoutTransitionBarrier.newLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
-		imgLayoutTransitionBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
+		imgLayoutTransitionBarrier.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+		imgLayoutTransitionBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
 
 		auto generateNextBarrier = [](
-			const IGPUCommandBuffer::SImageMemoryBarrier& prevoiusBarrier,
-			IImage::E_LAYOUT newLayout,
-			asset::E_ACCESS_FLAGS dstAccessMast) -> IGPUCommandBuffer::SImageMemoryBarrier
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>& prevoiusBarrier,
+			IImage::LAYOUT newLayout,
+			asset::ACCESS_FLAGS dstAccessMask) -> IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>
 			{
 				IGPUCommandBuffer::SImageMemoryBarrier ret = prevoiusBarrier;
 				ret.oldLayout = prevoiusBarrier.newLayout;
 				ret.newLayout = newLayout;
-				ret.barrier.srcAccessMask = prevoiusBarrier.barrier.dstAccessMask;
-				ret.barrier.dstAccessMask = dstAccessMast;
+				ret.barrier.dep.srcAccessMask = prevoiusBarrier.barrier.dep.dstAccessMask;
+				ret.barrier.dep.dstAccessMask = dstAccessMask;
 
 				return ret;
 			};
 
 		// Using `float32` union member since format of used images is E_FORMAT::EF_R8G8B8A8_SRGB,
 		// which is a fixed-point format and those are encoded/decoded from/to float.
-		constexpr SClearColorValue red = { .float32{1.0f, 0.0f, 0.0f, 1.0f} };
-		constexpr SClearColorValue blue = { .float32{0.0f, 0.0f, 1.0f, 1.0f} };
-
-		smart_refctd_ptr<IGPUFence> done = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
+		constexpr IGPUCommandBuffer::SClearColorValue red = { .float32{1.0f, 0.0f, 0.0f, 1.0f} };
+		constexpr IGPUCommandBuffer::SClearColorValue blue = { .float32{0.0f, 0.0f, 1.0f, 1.0f} };
 
 		// Start recording.
-		cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 		// In order to use images, we need to change their layout from asset::IImage::EL_UNDEFINED.
 		// Here it is done with use of barriers.
-		std::array<IGPUCommandBuffer::SImageMemoryBarrier, 2u> imgLayoutTransitionBarriers = {
+		std::array<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>, 2u> imgLayoutTransitionBarriers = {
 			imgLayoutTransitionBarrier,
 			imgLayoutTransitionBarrier
 		};
-		imgLayoutTransitionBarriers[0].image = bigImg;
-		imgLayoutTransitionBarriers[1].image = smallImg;
+		imgLayoutTransitionBarriers[0].image = bigImg.get();
+		imgLayoutTransitionBarriers[1].image = smallImg.get();
+
+		imgLayoutTransitionBarriers[0].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::HOST_BIT | PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		imgLayoutTransitionBarriers[0].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		imgLayoutTransitionBarriers[1].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::HOST_BIT | PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		imgLayoutTransitionBarriers[1].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
 
 		// Transit layouts of both images.
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_HOST_BIT | E_PIPELINE_STAGE_FLAGS::EPSF_ALL_COMMANDS_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr,
-			imgLayoutTransitionBarriers.size(),
-			imgLayoutTransitionBarriers.data()
-		);
+		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.imgBarriers = imgLayoutTransitionBarriers });
 
 		// Clear the image to a given colour.
 		auto subResourceRange = constructDefaultInitializedSubresourceRange();
-		cmdbuf->clearColorImage(bigImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, &red, 1u, &subResourceRange);
-		cmdbuf->clearColorImage(smallImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, &blue, 1u, &subResourceRange);
+		cmdbuf->clearColorImage(bigImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, &red, 1u, &subResourceRange);
+		cmdbuf->clearColorImage(smallImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, &blue, 1u, &subResourceRange);
 
-		std::array<IGPUCommandBuffer::SImageMemoryBarrier, 2u> imgClearBarriers = {
-			generateNextBarrier(imgLayoutTransitionBarriers[0], IImage::EL_TRANSFER_DST_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT),
-			generateNextBarrier(imgLayoutTransitionBarriers[1], IImage::EL_TRANSFER_SRC_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT)
+		std::array<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>, 2u> imgClearBarriers = {
+			generateNextBarrier(imgLayoutTransitionBarriers[0], IImage::LAYOUT::TRANSFER_DST_OPTIMAL, ACCESS_FLAGS::MEMORY_WRITE_BITS),
+			generateNextBarrier(imgLayoutTransitionBarriers[1], IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, ACCESS_FLAGS::MEMORY_READ_BITS)
 		};
 
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 
-			imgClearBarriers.size(),
-			imgClearBarriers.data()
-		);
+		imgClearBarriers[0].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		imgClearBarriers[0].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		imgClearBarriers[1].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		imgClearBarriers[1].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imgClearBarriersDepInfo = { .imgBarriers = imgClearBarriers };
+		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, imgClearBarriersDepInfo);
 
 		// Now blit the smallImg into the center of the bigImg.
-		cmdbuf->blitImage(smallImg.get(), IImage::E_LAYOUT::EL_TRANSFER_SRC_OPTIMAL, bigImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, 1u, &firstImgBlit, ISampler::E_TEXTURE_FILTER::ETF_NEAREST);
+		cmdbuf->blitImage(smallImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, bigImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 1u, &firstImgBlit, ISampler::E_TEXTURE_FILTER::ETF_NEAREST);
 
-		std::array<IGPUCommandBuffer::SImageMemoryBarrier, 2u> imgBlitBarriers = {
-			generateNextBarrier(imgClearBarriers[0], IImage::EL_TRANSFER_SRC_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT),
-			generateNextBarrier(imgClearBarriers[1], IImage::EL_TRANSFER_DST_OPTIMAL, E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT)
+		std::array<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>, 2u> imgBlitBarriers = {
+			generateNextBarrier(imgClearBarriers[0], IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, ACCESS_FLAGS::MEMORY_READ_BITS),
+			generateNextBarrier(imgClearBarriers[1], IImage::LAYOUT::TRANSFER_DST_OPTIMAL, ACCESS_FLAGS::MEMORY_WRITE_BITS)
 		};
 
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 
-			imgClearBarriers.size(),
-			imgBlitBarriers.data()
-		);
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imgBlitBarriersDepInfo = { .imgBarriers = imgBlitBarriers };
+		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, imgBlitBarriersDepInfo);
 
 		// Blit whole bigImage into the smallImage, force downsampling with linear filtering.
-		cmdbuf->blitImage(bigImg.get(), IImage::E_LAYOUT::EL_TRANSFER_SRC_OPTIMAL, smallImg.get(), IImage::E_LAYOUT::EL_TRANSFER_DST_OPTIMAL, 1u, &secondImgBlit, ISampler::E_TEXTURE_FILTER::ETF_LINEAR);
+		cmdbuf->blitImage(bigImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, smallImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 1u, &secondImgBlit, ISampler::E_TEXTURE_FILTER::ETF_LINEAR);
 
-		IGPUCommandBuffer::SImageMemoryBarrier smallImgSecondBlitBarrier = constructDefaultInitializedImageBarrier();
-		smallImgSecondBlitBarrier.barrier.srcAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_WRITE_BIT;
-		smallImgSecondBlitBarrier.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_MEMORY_READ_BIT;
-		smallImgSecondBlitBarrier.oldLayout = asset::IImage::EL_TRANSFER_DST_OPTIMAL;
-		smallImgSecondBlitBarrier.newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
-		smallImgSecondBlitBarrier.image = smallImg;
+		IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> smallImgSecondBlitBarrier[1] = { constructDefaultInitializedImageBarrier() };
+		smallImgSecondBlitBarrier[0].barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		smallImgSecondBlitBarrier[0].barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+		smallImgSecondBlitBarrier[0].oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+		smallImgSecondBlitBarrier[0].newLayout = asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
+		smallImgSecondBlitBarrier[0].image = smallImg.get();
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo smallImgSecondBlitBarrierDepInfo;
+		smallImgSecondBlitBarrierDepInfo.imgBarriers = smallImgSecondBlitBarrier;
 
-		cmdbuf->pipelineBarrier(
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_PIPELINE_STAGE_FLAGS::EPSF_TRANSFER_BIT,
-			E_DEPENDENCY_FLAGS::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &smallImgSecondBlitBarrier
-		);
+		smallImgSecondBlitBarrier[0].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		smallImgSecondBlitBarrier[0].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+
+		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, smallImgSecondBlitBarrierDepInfo);
 
 		// Copy the resulting image to a buffer.
-		cmdbuf->copyImageToBuffer(smallImg.get(), IImage::E_LAYOUT::EL_TRANSFER_SRC_OPTIMAL, outputImageBuffer.get(), 1u, &bufferCopy);
+		cmdbuf->copyImageToBuffer(smallImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, outputImageBuffer.get(), 1u, &bufferCopy);
 
 		cmdbuf->end();
 
 		queue->startCapture();
-		queue->submit(1u, &submitInfo, done.get());
+		queue->submit(submitInfos);
 		queue->endCapture();
-		m_device->blockForFences(1u, &done.get());
+		
+		const ISemaphore::SWaitInfo waitInfos[1] = { {
+				.semaphore = progress.get(),
+				.value = FinishedValue
+		} };
+		m_device->blockForSemaphores(waitInfos);
 
 		// Read the buffer back, create an ICPUImage with an adopted buffer over its contents.
 
 		// Map memory, so contents of `outputImageBuffer` will be host visible.
-		const IDeviceMemoryAllocation::MappedMemoryRange memoryRange(outputBufferAllocation.memory.get(), 0ull, outputBufferAllocation.memory->getAllocationSize());
-		auto imageBufferMemPtr = m_device->mapMemory(memoryRange, IDeviceMemoryAllocation::EMCAF_READ);
+		const ILogicalDevice::MappedMemoryRange memoryRange(outputBufferAllocation.memory.get(), 0ull, outputBufferAllocation.memory->getAllocationSize());
+		auto imageBufferMemPtr = outputBufferAllocation.memory->map({ 0ull,outputBufferAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
 		if (!imageBufferMemPtr)
 			return logFail("Failed to map the Device Memory!\n");
 
@@ -286,8 +293,8 @@ public:
 
 		// Even if you forgot to unmap, it would unmap itself when `outputBufferAllocation.memory` 
 		// gets dropped by its last reference and its destructor runs.
-		m_device->unmapMemory(outputBufferAllocation.memory.get());
-#endif
+		outputBufferAllocation.memory->unmap();
+
 		return true;
 	}
 
@@ -327,22 +334,20 @@ private:
 
 		return res;
 	}
-#if 0 // TODO: port
-	IGPUCommandBuffer::SImageMemoryBarrier constructDefaultInitializedImageBarrier() const
+
+	IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> constructDefaultInitializedImageBarrier() const
 	{
-		IGPUCommandBuffer::SImageMemoryBarrier res;
-		res.barrier.srcAccessMask = E_ACCESS_FLAGS::EAF_NONE;
-		res.barrier.dstAccessMask = E_ACCESS_FLAGS::EAF_NONE;
-		res.oldLayout = asset::IImage::EL_UNDEFINED;
-		res.newLayout = asset::IImage::EL_UNDEFINED;
-		res.srcQueueFamilyIndex = 0u;
-		res.dstQueueFamilyIndex = 0u;
+		IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> res;
+		res.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+		res.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+		res.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
+		res.newLayout = asset::IImage::LAYOUT::UNDEFINED;
 		res.image = nullptr;
 		res.subresourceRange = constructDefaultInitializedSubresourceRange();
 
 		return res;
 	}
-#endif
+
 
 	core::smart_refctd_ptr<IGPUImage> createImage(const VkExtent2D& extent)
 	{
