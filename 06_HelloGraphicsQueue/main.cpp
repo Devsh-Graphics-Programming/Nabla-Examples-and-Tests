@@ -137,8 +137,8 @@ public:
 		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
 
 		IQueue::SSubmitInfo submitInfos[1];
-		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf.get() };
-		submitInfos[0].commandBuffers = {{cmdbufInfo}};
+		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfos[1] = {cmdbuf.get()};
+		submitInfos[0].commandBuffers = cmdbufInfos;
 		submitInfos[0].signalSemaphores = signals;
 		
 
@@ -200,7 +200,7 @@ public:
 		imgClearBarriers[1].barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
 		imgClearBarriers[1].barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
 
-		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imgClearBarriersDepInfo = { .imgBarriers = std::array(imgClearBarriers) };
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imgClearBarriersDepInfo = { .imgBarriers = imgClearBarriers };
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, imgClearBarriersDepInfo);
 
 		// Now blit the smallImg into the center of the bigImg.
@@ -211,7 +211,7 @@ public:
 			generateNextBarrier(imgClearBarriers[1], IImage::LAYOUT::TRANSFER_DST_OPTIMAL, ACCESS_FLAGS::MEMORY_WRITE_BITS)
 		};
 
-		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imgBlitBarriersDepInfo = { .imgBarriers = std::array(imgBlitBarriers) };
+		IGPUCommandBuffer::SPipelineBarrierDependencyInfo imgBlitBarriersDepInfo = { .imgBarriers = imgBlitBarriers };
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, imgBlitBarriersDepInfo);
 
 		// Blit whole bigImage into the smallImage, force downsampling with linear filtering.
