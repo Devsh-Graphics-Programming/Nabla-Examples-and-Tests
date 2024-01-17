@@ -42,16 +42,9 @@ int main()
         asset::IAssetLoader::SAssetLoadParams lparams;
         auto assetLoaded = device->getAssetManager()->getAsset("../test.ies", lparams);
         auto assetCand = *assetLoaded.getContents().begin();
-        auto cpuImage = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(std::move(assetCand));
+        auto cpuImageView = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(std::move(assetCand));
 
-        asset::IAssetLoader::SAssetLoadParams loadingParams;
-        auto image_raw = static_cast<asset::ICPUImage*>(cpuImage.get());
-
-        auto gpuImage = driver->getGPUObjectsFromAssets(&image_raw, &image_raw + 1)->front();
-        auto& gpuParams = gpuImage->getCreationParameters();
-
-        asset::IImageView<IGPUImage>::SCreationParams gpuImageViewParams = { static_cast<IGPUImageView::E_CREATE_FLAGS>(0), gpuImage, asset::IImageView<IGPUImage>::ET_2D, gpuParams.format, {}, {static_cast<asset::IImage::E_ASPECT_FLAGS>(0u), 0, gpuParams.mipLevels, 0, gpuParams.arrayLayers} };
-        auto gpuImageView = driver->createGPUImageView(std::move(gpuImageViewParams));
+        auto gpuImageView = driver->getGPUObjectsFromAssets(&cpuImageView, &cpuImageView + 1)->front();
 
 
         size_t ds0SamplerBinding = 0, ds1UboBinding = 0;

@@ -3,6 +3,8 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include <nbl/builtin/glsl/ies/functions.glsl>
+
 layout (location = 0) in vec3 Pos;
 
 layout (location = 0) out vec4 outColor;
@@ -18,9 +20,10 @@ float plot(float cand, float pct, float bold){
 
 // vertical cut of IES (i.e. cut by plane x = 0)
 float f(vec2 uv) {
-    float vangle = (abs(atan(uv.x,uv.y)))/(M_PI);
-    float hangle = uv.x <= 0.0 ? 0.0 : 1.0;
-    return texture(tex0,vec2(hangle,vangle)).x;
+    return texture(tex0,nbl_glsl_IES_convert_dir_to_uv(normalize(vec3(uv.x, 0.001, uv.y)))).x;
+    // float vangle = (abs(atan(uv.x,uv.y)))/(M_PI);
+    // float hangle = uv.x <= 0.0 ? 0.0 : 1.0;
+    // return texture(tex0,vec2(hangle,vangle)).x;
 }
 
 void main()
