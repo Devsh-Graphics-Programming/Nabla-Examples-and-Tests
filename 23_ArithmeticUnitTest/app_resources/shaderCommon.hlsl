@@ -4,13 +4,10 @@
 #include "nbl/builtin/hlsl/subgroup/basic.hlsl"
 #include "nbl/builtin/hlsl/subgroup/arithmetic_portability.hlsl"
 
-// annoying things necessary to do until DXC implements proposal 0011
-static uint32_t __gl_LocalInvocationIndex;
-uint32_t nbl::hlsl::glsl::gl_LocalInvocationIndex() {return __gl_LocalInvocationIndex;} // need this becacuse of the circular way `gl_SubgroupID` is currently defined
-uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
-static uint32_t3 __gl_WorkGroupID;
-uint32_t3 nbl::hlsl::glsl::gl_WorkGroupID() {return __gl_WorkGroupID;}
+#include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 
+// https://github.com/microsoft/DirectXShaderCompiler/issues/6144
+uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() {return uint32_t3(WORKGROUP_SIZE,1,1);}
 
 // unfortunately DXC chokes on descriptors as static members
 // https://github.com/microsoft/DirectXShaderCompiler/issues/5940
@@ -35,7 +32,7 @@ static void subtest(NBL_CONST_REF_ARG(type_t) sourceVal)
 	if (globalIndex()==0u)
 		output[binop<type_t>::BindingIndex].template Store<uint32_t>(0,nbl::hlsl::glsl::gl_SubgroupSize());
 		
-	operation_t<typename binop<type_t>::base_t> func;
+	operation_t<typename binop<type_t>::base_t,nbl::hlsl::jit::device_capabilities> func;
 	if (canStore())
 		output[binop<type_t>::BindingIndex].template Store<type_t>(sizeof(uint32_t)+sizeof(type_t)*globalIndex(),func(sourceVal));
 }

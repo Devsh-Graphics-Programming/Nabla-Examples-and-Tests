@@ -115,8 +115,8 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 			// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
 			// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
 			// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
-			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<24;
-			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<24;
+			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<23;
+			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<23;
 
 			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
 			if (!m_utils)

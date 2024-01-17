@@ -36,7 +36,7 @@ if(NBL_BUILD_EXAMPLES)
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
 	add_subdirectory(21_LRUCacheUnitTest EXCLUDE_FROM_ALL)
-
+    add_subdirectory(22_CppCompat EXCLUDE_FROM_ALL)
 	# Long not refactored Examples!
 	if (NBL_BUILD_MITSUBA_LOADER)
 		add_subdirectory(22_RaytracedAO EXCLUDE_FROM_ALL)
@@ -44,6 +44,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 	# add_subdirectory(23_Autoexposure EXCLUDE_FROM_ALL)
 	# add_subdirectory(25_Blur EXCLUDE_FROM_ALL)
+	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
 	add_subdirectory(38_EXRSplit EXCLUDE_FROM_ALL)
@@ -61,10 +62,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
 	add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
-	add_subdirectory(61_FilterTest EXCLUDE_FROM_ALL)
 	#add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
-	#add_subdirectory(64_CppCompat)
 endif()

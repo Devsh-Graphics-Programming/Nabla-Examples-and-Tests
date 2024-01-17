@@ -2,9 +2,7 @@
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
 
-#pragma shader_stage(compute)
-
-#define STATIC_ASSERT(C) { nbl::hlsl::conditional<C, int, void>::type a = 0; }
+#define STATIC_ASSERT(...) { nbl::hlsl::conditional<__VA_ARGS__, int, void>::type a = 0; }
 
 #define IS_SAME(L,R) nbl::hlsl::is_same<L,R>::value
 #define SHADER_CRASHING_ASSERT(expr) \
@@ -37,6 +35,9 @@
 #include <nbl/builtin/hlsl/bit.hlsl>
 
 #include <nbl/builtin/hlsl/limits.hlsl>
+
+#include <nbl/builtin/hlsl/member_test_macros.hlsl>
+#include <nbl/builtin/hlsl/device_capabilities_traits.hlsl>
 
 struct PushConstants
 {
@@ -87,7 +88,36 @@ void fill(uint3 invocationID, float4 val)
     outImage[invocationID.xy] = val;
     outBuffer[invocationID.x * invocationID.y] = val;
 }
+struct S
+{
+    int x;
+    int a(int) { return 1; }
+};
 
+struct device_capabilities0
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderFloat64 = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderDrawParameters = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool subgroupArithmetic = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
+};
+
+struct device_capabilities1
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderFloat64 = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
+};
+
+struct device_capabilities2
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool subgroupArithmetic = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t extraRandomField = 42;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t extraRandomField2 = 53;
+};
 
 [numthreads(8, 8, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
@@ -262,6 +292,36 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     }
 
     fill(invocationID, 10);
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S,int>::value;   STATIC_ASSERT(nbl::hlsl::e_member_presence::is_present == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S,float, float>::value; STATIC_ASSERT(V == 0); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S>::value;       STATIC_ASSERT(V == 0); }
 
+
+    fill(invocationID, 11);
+
+    {
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::shaderFloat64 == device_capabilities0::shaderFloat64);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::shaderDrawParameters == device_capabilities0::shaderDrawParameters);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::subgroupArithmetic == device_capabilities0::subgroupArithmetic);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::fragmentShaderPixelInterlock == device_capabilities0::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::maxOptimallyResidentWorkgroupInvocations == device_capabilities0::maxOptimallyResidentWorkgroupInvocations);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::shaderFloat64 == device_capabilities1::shaderFloat64);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::shaderDrawParameters == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::subgroupArithmetic == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::fragmentShaderPixelInterlock == device_capabilities1::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::maxOptimallyResidentWorkgroupInvocations == device_capabilities1::maxOptimallyResidentWorkgroupInvocations);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::shaderFloat64 == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::shaderDrawParameters == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::subgroupArithmetic == device_capabilities2::subgroupArithmetic);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::fragmentShaderPixelInterlock == device_capabilities2::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::maxOptimallyResidentWorkgroupInvocations == device_capabilities2::maxOptimallyResidentWorkgroupInvocations);
+
+    }
+
+    fill(invocationID, 12);
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,int>::value;      STATIC_ASSERT(nbl::hlsl::e_member_presence::is_present == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,float>::value;    STATIC_ASSERT(0 == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,void>::value;     STATIC_ASSERT(0 == V); }
+    
     fill(invocationID, -1);
 }

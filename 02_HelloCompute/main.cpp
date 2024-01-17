@@ -274,7 +274,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				queue->endCapture();
 			}
 			// As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
-			const ILogicalDevice::SSemaphoreWaitInfo waitInfos[] = {{
+			const ISemaphore::SWaitInfo waitInfos[] = {{
 				.semaphore = progress.get(),
 				.value = FinishedValue
 			}};
