@@ -77,10 +77,6 @@ public:
 			return false;
 
 		{
-			auto& limits = m_physicalDevice->getLimits();
-			if (!limits.externalMemoryWin32 || !limits.externalFenceWin32 || !limits.externalSemaphoreWin32)
-				return logFail("Physical device does not support the required extensions");
-			
 			cudaHandler = CCUDAHandler::create(system.get(), smart_refctd_ptr<ILogger>(m_logger));
 			assert(cudaHandler);
 			cudaDevice = cudaHandler->createDevice(smart_refctd_ptr_dynamic_cast<CVulkanConnection>(m_api), m_physicalDevice);
@@ -136,7 +132,7 @@ public:
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[1], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		ASSERT_SUCCESS(cudaDevice->createSharedMemory(&mem[2], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
 		
-		sema = m_device->createSemaphore({ .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
+		sema = m_device->createSemaphore(0, { .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
 		ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cusema, sema.get()));
 		{
 			auto devmemory = mem[2]->exportAsMemory(m_device.get());
@@ -154,7 +150,7 @@ public:
 
 		{
 			
-			IGPUImage::SCreationParams params = {};
+			IImage::SCreationParams params = {};
 			params.type = IGPUImage::ET_2D;
 			params.samples = IGPUImage::ESCF_1_BIT;
 			params.format = EF_R32_SFLOAT;
@@ -162,8 +158,6 @@ public:
 			params.mipLevels = 1;
 			params.arrayLayers = 1;
 			params.usage = IGPUImage::EUF_TRANSFER_SRC_BIT;
-			params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
-			params.tiling = IGPUImage::TILING::LINEAR;
 			importedimg = mem[2]->createAndBindImage(m_device.get(), std::move(params));
 			assert(importedimg);
 		}
