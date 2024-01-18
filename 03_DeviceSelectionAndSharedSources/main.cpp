@@ -32,7 +32,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
-			if (!device_base_t::onAppInitialized(std::move(system)))
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
