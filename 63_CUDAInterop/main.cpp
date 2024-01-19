@@ -75,7 +75,7 @@ public:
     // CUDA resources that we input to the kernel 'vectorAdd_kernel.cu'
     // Kernel writes to cudaMemories[2] which we later use to export and read on nabla side
     std::array<smart_refctd_ptr<CCUDASharedMemory>, 3> cudaMemories = {};
-    // A semaphore created in CUDA which will be imported into Nabla to help sync between the CUDA kernel and and Nabla device to host transfer
+    // A semaphore created in CUDA which will alias a Nabla semaphore to help sync between the CUDA kernel and Nabla device to host transfer
     smart_refctd_ptr<CCUDASharedSemaphore> cudaSemaphore;
 
     // our Buffer that is bound to cudaMemories[2]
@@ -86,8 +86,8 @@ public:
     // host visible buffers that we use to copy from the resources above after CUDA kernel is done writing
     smart_refctd_ptr<IGPUBuffer> stagingBufs[2];
 
-    // Nabla semaphore that aliases the cudaSemaphore above
-    smart_refctd_ptr<ISemaphore> importedSemaphore;
+    // Nabla semaphore for sync
+    smart_refctd_ptr<ISemaphore> semaphore;
 
     smart_refctd_ptr<IGPUCommandPool> commandPool;
     smart_refctd_ptr<IGPUCommandBuffer> cmd[2];
@@ -161,6 +161,9 @@ public:
         ASSERT_SUCCESS(cu.pcuStreamDestroy_v2(stream));
 
         m_device->waitIdle();
+        
+        testInterop();
+
         return true;
     }
 
@@ -181,8 +184,8 @@ public:
         ASSERT_SUCCESS(cudaDevice->createSharedMemory(&cudaMemories[1], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
         ASSERT_SUCCESS(cudaDevice->createSharedMemory(&cudaMemories[2], { .size = size, .alignment = sizeof(float), .location = CU_MEM_LOCATION_TYPE_DEVICE }));
         
-        importedSemaphore = m_device->createSemaphore(0, { .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
-        ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cudaSemaphore, importedSemaphore.get()));
+        semaphore = m_device->createSemaphore(0, { .externalHandleTypes = ISemaphore::EHT_OPAQUE_WIN32 });
+        ASSERT_SUCCESS(cudaDevice->importGPUSemaphore(&cudaSemaphore, semaphore.get()));
         {
             // export the CUmem we have just created into a refctd IDeviceMemoryAllocation
             auto devmemory = cudaMemories[2]->exportAsMemory(m_device.get());
@@ -196,7 +199,8 @@ public:
             params.usage = asset::IBuffer::EUF_STORAGE_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
             params.externalHandleTypes = CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE;
             importedBuf = m_device->createBuffer(std::move(params));
-            if (!importedBuf) logFail("Failed to create an external buffer");
+            if (!importedBuf) 
+                logFail("Failed to create an external buffer");
 
             // bind that imported IDeviceMemoryAllocation to the external buffer we've just created
             ILogicalDevice::SBindBufferMemoryInfo bindInfo = { .buffer = importedBuf.get(), .binding = {.memory = devmemory.get() } };
@@ -223,23 +227,35 @@ public:
         commandPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         bool re = commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 2, cmd, smart_refctd_ptr(m_logger));
 
-        auto createStaging = [this,logicalDevice= m_device]()
-        {
-            auto buf = logicalDevice->createBuffer({ {.size = size, .usage = asset::IBuffer::EUF_TRANSFER_DST_BIT} });
-            auto req = buf->getMemoryReqs();
-            req.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
-            auto allocation = logicalDevice->allocate(req, buf.get());
-            
-            void* mapping = allocation.memory->map(IDeviceMemoryAllocation::MemoryRange(0, req.size), IDeviceMemoryAllocation::EMCAF_READ);
-            if (!mapping) 
-                logFail("Failed to map an staging buffer");
-            memset(mapping, 0, req.size);
-            return buf;
-        };
-
         stagingBufs[0] = createStaging();
         stagingBufs[1] = createStaging();
     }
+
+    smart_refctd_ptr<IGPUBuffer> createExternalBuffer(IDeviceMemoryAllocation* mem)
+    {
+        IGPUBuffer::SCreationParams params = {};
+        params.size = mem->getAllocationSize();
+        params.usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT;
+        params.externalHandleTypes = mem->getCreationParams().externalHandleType;
+        auto buf = m_device->createBuffer(std::move(params));
+        ILogicalDevice::SBindBufferMemoryInfo bindInfo = { .buffer = buf.get(), .binding = {.memory = mem } };
+        m_device->bindBufferMemory(1, &bindInfo);
+        return buf;
+    }
+
+    smart_refctd_ptr<IGPUBuffer> createStaging(size_t sz = size)
+    {
+        auto buf = m_device->createBuffer({ {.size = sz, .usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT} });
+        auto req = buf->getMemoryReqs();
+        req.memoryTypeBits &= m_device->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
+        auto allocation = m_device->allocate(req, buf.get());
+
+        void* mapping = allocation.memory->map(IDeviceMemoryAllocation::MemoryRange(0, req.size), IDeviceMemoryAllocation::EMCAF_READ);
+        if (!mapping)
+            logFail("Failed to map an staging buffer");
+        memset(mapping, 0, req.size);
+        return buf;
+    };
 
     void launchKernel(CUfunction kernel, CUstream stream)
     {
@@ -272,7 +288,7 @@ public:
             re &= cmd[0]->pipelineBarrier(EDF_NONE, { .bufBarriers = std::span{&bufBarrier,&bufBarrier + 1}, .imgBarriers = {&imgBarrier,&imgBarrier + 1} });
             re &= cmd[0]->end();
 
-            IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = { .semaphore = importedSemaphore.get(), .value = 1 };
+            IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = { .semaphore = semaphore.get(), .value = 1 };
             IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[0].get()};
             IQueue::SSubmitInfo submitInfo = { .commandBuffers = {&cmdInfo, &cmdInfo + 1}, .signalSemaphores = {&signalInfo,&signalInfo + 1} };
             auto submitRe = queue->submit({ &submitInfo,&submitInfo + 1 });
@@ -355,8 +371,8 @@ public:
             re &= cmd[1]->copyImageToBuffer(importedImg.get(), imgBarrier.newLayout, stagingBufs[1].get(), 1, &imgRegion);
             re &= cmd[1]->end();
             
-            IQueue::SSubmitInfo::SSemaphoreInfo waitInfo= { .semaphore = importedSemaphore.get(), .value = 2 };
-            IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = { .semaphore = importedSemaphore.get(), .value = 3 };
+            IQueue::SSubmitInfo::SSemaphoreInfo waitInfo= { .semaphore = semaphore.get(), .value = 2 };
+            IQueue::SSubmitInfo::SSemaphoreInfo signalInfo = { .semaphore = semaphore.get(), .value = 3 };
             IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[1].get() };
             IQueue::SSubmitInfo submitInfo = { 
                 .waitSemaphores = {&waitInfo,&waitInfo + 1},
@@ -375,7 +391,7 @@ public:
     void kernelCallback()
     {
         // Make sure we are also done with the readback
-        auto wait = std::array{ISemaphore::SWaitInfo{.semaphore = importedSemaphore.get(), .value = 3}};
+        auto wait = std::array{ISemaphore::SWaitInfo{.semaphore = semaphore.get(), .value = 3}};
         m_device->waitForSemaphores(wait, true, -1);
 
         float* A = reinterpret_cast<float*>(cpuBufs[0]->getPointer());
@@ -396,6 +412,121 @@ public:
         
         std::cout << "Success\n";
     }
+
+
+    void testInterop()
+    {
+        {
+            IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = {
+                .size = size,
+                .memoryTypeBits = m_physicalDevice->getDeviceLocalMemoryTypeBits(),
+                .alignmentLog2 = 10,
+            };
+
+            for (size_t i = 0; i < (1 << 8); ++i)
+            {
+                auto memory = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE).memory;
+                assert(memory);
+                auto tmpBuf = createExternalBuffer(memory.get());
+            }
+        }
+
+        smart_refctd_ptr<IDeviceMemoryAllocation> escaped;
+        {
+            IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = {
+                .size = size,
+                .memoryTypeBits = m_physicalDevice->getDeviceLocalMemoryTypeBits(),
+                .alignmentLog2 = 10,
+            };
+
+            auto memory = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE).memory;
+
+            auto tmpBuf = createExternalBuffer(memory.get());
+            auto staging = createStaging();
+
+            auto ptr = (uint32_t*)staging->getBoundMemory().memory->getMappedPointer();
+            for (uint32_t i = 0; i < size / 4; ++i)
+                ptr[i] = i;
+
+            smart_refctd_ptr<IGPUCommandBuffer> cmd;
+            commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmd);
+            cmd->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            IGPUCommandBuffer::SBufferCopy region = { .size = size };
+            assert(cmd->copyBuffer(staging.get(), tmpBuf.get(), 1, &region));
+            cmd->end();
+            IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd.get() };
+            IQueue::SSubmitInfo submitInfo = { .commandBuffers = {&cmdInfo, &cmdInfo + 1} };
+            queue->submit({ &submitInfo,&submitInfo + 1 });
+            m_device->waitIdle();
+            escaped = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE, memory->getCreationParams().externalHandle).memory;
+        }
+
+        //{
+        //    constexpr size_t M = 32;
+        //    auto staging = createStaging(size * M);
+
+        //    auto ptr = (uint32_t*)staging->getBoundMemory().memory->getMappedPointer();
+        //    for (uint32_t i = 0; i < (M * size) / 4; ++i)
+        //        ptr[i] = rand();
+
+        //    std::vector<smart_refctd_ptr<IGPUCommandBuffer>> cmd(1 << 10);
+        //    commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1 << 10, cmd.data());
+
+        //    for (size_t i = 0; i < 1 << 10; ++i)
+        //    {
+        //        IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = {
+        //            .size = size * M,
+        //            .memoryTypeBits = m_physicalDevice->getDeviceLocalMemoryTypeBits(),
+        //            .alignmentLog2 = 10,
+        //        };
+        //    RE:
+        //        auto memory = m_device->allocate(reqs, 0, IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE, CCUDADevice::EXTERNAL_MEMORY_HANDLE_TYPE).memory;
+
+        //        if (!memory)
+        //        {
+        //            m_device->waitIdle();
+        //            for (size_t j = 0; j < i; ++j)
+        //                cmd[j] = 0;
+        //            goto END;
+        //        }
+        //        assert(memory);
+        //        auto tmpBuf = createExternalBuffer(memory.get());
+
+        //        cmd[i]->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+        //        IGPUCommandBuffer::SBufferCopy region = { .size = size * M };
+        //        assert(cmd[i]->copyBuffer(staging.get(), tmpBuf.get(), 1, &region));
+        //        cmd[i]->end();
+        //        IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd[i].get() };
+        //        IQueue::SSubmitInfo submitInfo = { .commandBuffers = {&cmdInfo, &cmdInfo + 1} };
+        //        assert(IQueue::RESULT::SUCCESS == queue->submit({ &submitInfo,&submitInfo + 1 }));
+        //    }
+        //END:
+        //    m_device->waitIdle();
+        //}
+
+        {
+            auto tmpBuf = createExternalBuffer(escaped.get());
+            auto staging = createStaging();
+
+            smart_refctd_ptr<IGPUCommandBuffer> cmd;
+            commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1, &cmd);
+            cmd->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            IGPUCommandBuffer::SBufferCopy region = { .size = size };
+            assert(cmd->copyBuffer(tmpBuf.get(), staging.get(), 1, &region));
+            cmd->end();
+            IQueue::SSubmitInfo::SCommandBufferInfo cmdInfo = { cmd.get() };
+            IQueue::SSubmitInfo submitInfo = { .commandBuffers = {&cmdInfo, &cmdInfo + 1} };
+            auto qre = queue->submit({ &submitInfo,&submitInfo + 1 });
+            assert(IQueue::RESULT::SUCCESS == qre);
+            m_device->waitIdle();
+
+            auto& ptr = *(std::array<uint32_t, size>*)staging->getBoundMemory().memory->getMappedPointer();
+            for (uint32_t i = 0; i < size / 4; ++i)
+                assert(ptr[i] == i);
+        }
+
+    }
+
 
     // Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
     bool keepRunning() override { return false; }
