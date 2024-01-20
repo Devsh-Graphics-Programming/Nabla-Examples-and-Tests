@@ -245,6 +245,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return retval;
 		}
 
+
 		virtual video::IQueue* getQueue(video::IQueue::FAMILY_FLAGS flags) const
 		{
 			// In the default implementation of everything I asked only for one queue from first compute family
@@ -252,7 +253,6 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			for (auto i = 0u; i < familyProperties.size(); i++)
 				if (familyProperties[i].queueFlags.hasFlags(flags))
 					return m_device->getQueue(i, 0);
-
 			return nullptr;
 		}
 
