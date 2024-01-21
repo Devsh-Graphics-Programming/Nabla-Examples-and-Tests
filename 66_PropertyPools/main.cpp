@@ -62,6 +62,8 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 		uint64_t m_upStreamingBufferAddress;
 		uint64_t m_downStreamingBufferAddress;
 
+		smart_refctd_ptr<CPropertyPoolHandler> m_propertyPoolHandler;
+
 		// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 		uint32_t m_alignment;
 		
@@ -86,12 +88,15 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
+			m_propertyPoolHandler = core::make_smart_refctd_ptr<CPropertyPoolHandler>(core::smart_refctd_ptr(m_device));
+
 			// this time we load a shader directly from a file
 			smart_refctd_ptr<IGPUSpecializedShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
 				lp.workingDirectory = ""; // virtual root
+
 				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
