@@ -473,7 +473,6 @@ public:
 #else
 
 		auto introspector = std::make_unique<CSPIRVIntrospector>();
-		
 		smart_refctd_ptr<const CSPIRVIntrospector::CIntrospectionData> introspection;
 		{
 		
@@ -497,20 +496,20 @@ public:
 			options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
 		
 			auto spirvUnspecialized = compilerSet->compileToSPIRV(source.get(), options);
-			const CSPIRVIntrospector::SIntrospectionParams inspctParams = { .entryPoint = "main",.cpuShader = spirvUnspecialized };
+			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspctParams = { .entryPoint = "main", .shader = spirvUnspecialized };
 		
-			introspection = introspector->introspect(inspctParams);
-			if (!introspection)
-				return logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
+			// TODO [Przemek]: fix 'insertToCache' and test it
+			introspection = introspector->introspect(inspctParams, false);
+			//if (!introspection)
+			//	return logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
 		
 			// now we need to swap out the HLSL for SPIR-V
-			source = make_smart_refctd_ptr<ICPUShader>(std::move(spirvUnspecialized));
-
+			source = std::move(spirvUnspecialized);
 		}
 		// Just a check that out specialization info will match
-		if (!introspection->canSpecializationlesslyCreateDescSetFrom())
-			return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
-		
+		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
+			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
+
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
 		//smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(source.get());
 
@@ -659,10 +658,10 @@ public:
 		constexpr auto StartedValue = 0;
 		constexpr auto FinishedValue = 45;
 		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 		{
 			IQueue* const queue = getComputeQueue();
 
-			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 			{
 				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
@@ -691,7 +690,7 @@ public:
 		}
 
 		// As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
-		const ILogicalDevice::SSemaphoreWaitInfo waitInfos[] = { {
+		const ISemaphore::SWaitInfo waitInfos[] = { {
 			.semaphore = progress.get(),
 			.value = FinishedValue
 		} };
@@ -714,6 +713,5 @@ public:
 	bool keepRunning() override { return false; }
 
 };
-
 
 NBL_MAIN_FUNC(DeviceSelectionAndSharedSourcesApp)
