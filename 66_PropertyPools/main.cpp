@@ -63,6 +63,11 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 		uint64_t m_downStreamingBufferAddress;
 
 		smart_refctd_ptr<CPropertyPoolHandler> m_propertyPoolHandler;
+		smart_refctd_ptr<IGPUBuffer> m_scratchBuffer;
+		smart_refctd_ptr<IGPUBuffer> m_addressBuffer;
+		smart_refctd_ptr<IGPUBuffer> m_transferSrcBuffer;
+		smart_refctd_ptr<IGPUBuffer> m_transferDstBuffer;
+		std::vector<uint16_t> m_data;
 
 		// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 		uint32_t m_alignment;
@@ -73,6 +78,9 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 
 		// We'll run the iterations in reverse, easier to write "keep running"
 		uint32_t m_iteration = 200;
+
+		static constexpr uint64_t TransfersAmount = 1024;
+		static constexpr uint64_t MaxValuesPerTransfer = 512;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -89,6 +97,27 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 				return false;
 
 			m_propertyPoolHandler = core::make_smart_refctd_ptr<CPropertyPoolHandler>(core::smart_refctd_ptr(m_device));
+
+			auto createBuffer = [&](uint64_t size)
+			{
+					video::IGPUBuffer::SCreationParams creationParams;
+					creationParams.size = size;
+					creationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+
+					auto buffer = m_device->createBuffer(std::move(creationParams));
+					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
+					m_device->allocate(reqs, buffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+
+					return buffer;
+			};
+
+			m_scratchBuffer = createBuffer(sizeof(nbl::hlsl::property_pools::TransferRequest) * TransfersAmount);
+			m_addressBuffer = createBuffer(sizeof(uint32_t) * TransfersAmount * MaxValuesPerTransfer);
+			m_transferSrcBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer);
+			m_transferDstBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer);
+
+			for (uint16_t i = 0; i < uint16_t((uint32_t(1) << 16) - 1); i++)
+				m_data.push_back(i);
 
 			// this time we load a shader directly from a file
 			smart_refctd_ptr<IGPUSpecializedShader> shader;
@@ -167,42 +196,6 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 			m_iteration--;
 			IGPUQueue* const queue = getComputeQueue();
 
-			// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
-			auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({m_iteration^0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_)});
-
-			// we dynamically choose the number of elements for each iteration
-			const auto elementCount = rng()%MaxPossibleElementCount;
-			const uint32_t inputSize = sizeof(input_t)*elementCount;
-
-			// The allocators can do multiple allocations at once for efficiency
-			const uint32_t AllocationCount = 1;
-			// It comes with a certain drawback that you need to remember to initialize your "yet unallocated" offsets to the Invalid value
-			// this is to allow a set of allocations to fail, and you to re-try after doing something to free up space without repacking args.
-			auto inputOffset = m_upStreamingBuffer->invalid_value;
-
-			// We always just wait till an allocation becomes possible (during allocation previous "latched" frees get their latch conditions polled)
-			// Freeing of Streaming Buffer Allocations can and should be deferred until an associated polled event signals done (more on that later).
-			std::chrono::steady_clock::time_point waitTill(std::chrono::years(45));
-			// note that the API takes a time-point not a duration, because there are multiple waits and preemptions possible, so the durations wouldn't add up properly
-			m_upStreamingBuffer->multi_allocate(waitTill,AllocationCount,&inputOffset,&inputSize,&m_alignment);
-
-			// Generate our data in-place on the allocated staging buffer
-			{
-				auto* const inputPtr = reinterpret_cast<input_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer())+inputOffset);
-				for (auto j=0; j<elementCount; j++)
-				{
-					const nbl::hlsl::float32_t3 generated(rng(),rng(),rng());
-					// make sure our bitpatterns are in [0,1]^2 as a float
-					inputPtr[j] = generated/float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
-				}
-				// Always remember to flush!
-				if (m_upStreamingBuffer->needsManualFlushOrInvalidate())
-				{
-					const IDeviceMemoryAllocation::MappedMemoryRange range(m_upStreamingBuffer->getBuffer()->getBoundMemory(),inputOffset,inputSize);
-					m_device->flushMappedMemoryRanges(1,&range);
-				}
-			}
-
 			// Obtain our command pool once one gets recycled
 			uint32_t poolIx;
 			do
@@ -210,26 +203,28 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 				poolIx = m_poolCache->acquirePool();
 			} while (poolIx==ICommandPoolCache::invalid_index);
 
-			// finally allocate our output range
-			const uint32_t outputSize = sizeof(output_t)*elementCount;
-			auto outputOffset = m_downStreamingBuffer->invalid_value;
-			m_downStreamingBuffer->multi_allocate(waitTill,AllocationCount,&outputOffset,&outputSize,&m_alignment);
-
 			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 			{
 				m_device->createCommandBuffers(m_poolCache->getPool(poolIx),IGPUCommandBuffer::EL_PRIMARY,1,&cmdbuf);
 				// lets record, its still a one time submit because we have to re-record with different push constants each time
 				cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
 				cmdbuf->bindComputePipeline(m_pipeline.get());
-				// This is the new fun part, pushing constants
-				const PushConstantData pc = {
-					.inputAddress=m_upStreamingBufferAddress+inputOffset,
-					.outputAddress=m_downStreamingBufferAddress+outputOffset,
-					.dataElementCount=elementCount
-				};
-				cmdbuf->pushConstants(m_pipeline->getLayout(),IShader::ESS_COMPUTE,0u,sizeof(pc),&pc);
-				// Good old trick to get rounded up divisions, in case you're not familiar
-				cmdbuf->dispatch((elementCount-1)/WorkgroupSize+1,1,1);
+
+				// COMMAND RECORDING
+				cmdbuf->updateBuffer(m_transferSrcBuffer.get(), 0, sizeof(uint16_t) * m_data.size(), &m_data[0]);
+				CPropertyPoolHandler::TransferRequest transferRequest;
+				transferRequest.memblock = asset::SBufferRange<video::IGPUBuffer> { 0, sizeof(uint16_t) * m_data.size(), core::smart_refctd_ptr<video::IGPUBuffer>(m_transferSrcBuffer) };
+				transferRequest.elementSize = m_data.size();
+				transferRequest.elementCount = 1;
+				transferRequest.buffer = asset::SBufferBinding<video::IGPUBuffer> { 0, core::smart_refctd_ptr<video::IGPUBuffer>(m_transferDstBuffer) };
+
+				m_propertyPoolHandler->transferProperties(cmdbuf.get(), nullptr,
+					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_scratchBuffer)}, 
+					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_addressBuffer)}, 
+					&transferRequest, &transferRequest + 1,
+					m_logger.get(), 0, MaxValuesPerTransfer
+					);
+
 				cmdbuf->end();
 			}
 
@@ -247,40 +242,6 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 				
 			// We can also actually latch our Command Pool reset and its return to the pool of free pools!
 			m_poolCache->releaseSet(m_device.get(),smart_refctd_ptr(fence),poolIx);
-
-			// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
-			// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
-			m_upStreamingBuffer->multi_deallocate(AllocationCount,&inputOffset,&inputSize,smart_refctd_ptr(fence));
-
-			// Because C++17 and C++20 can't make their mind up about what to do with `this` in event of a [=] capture, lets triple ensure the m_iteration is captured by value.
-			const auto savedIterNum = m_iteration;
-				
-			// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
-			// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
-			// Its nice because it will also remember to invalidate our memory mapping if its not coherent.
-			auto latchedConsumer = make_smart_refctd_ptr<IUtilities::CDownstreamingDataConsumer>(
-				IDeviceMemoryAllocation::MemoryRange(outputOffset,outputSize),
-				// Note the use of capture by-value [=] and not by-reference [&] because this lambda will be called asynchronously whenever the event signals
-				[=](const size_t dstOffset, const void* bufSrc, const size_t size)->void
-				{
-					// The unused variable is used for letting the consumer know the subsection of the output we've managed to download
-					// But here we're sure we can get the whole thing in one go because we allocated the whole range ourselves.
-					assert(dstOffset==0 && size==outputSize);
-
-					// I can const cast, we know the mapping is just a pointer
-					output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
-					auto median = data+elementCount/2;
-					std::nth_element(data,median,data+elementCount);
-
-					m_logger->log("Iteration %d Median of Minimum Distances is %f",ILogger::ELL_PERFORMANCE,savedIterNum,*median);
-				},
-				// Its also necessary to hold onto the commandbuffer, even though we take care to not reset the parent pool, because if it
-				// hits its destructor, our automated reference counting will drop all references to objects used in the recorded commands.
-				// It could also be latched in the upstreaming deallocate, because its the same fence.
-				std::move(cmdbuf),m_downStreamingBuffer
-			);
-			// We put a function we want to execute 
-			m_downStreamingBuffer->multi_deallocate(AllocationCount,&outputOffset,&outputSize,std::move(fence),&latchedConsumer.get());
 		}
 
 		bool onAppTerminated() override
