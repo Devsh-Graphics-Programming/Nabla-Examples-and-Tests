@@ -3,13 +3,147 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 
-// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
+#include "nbl/video/surface/CSurfaceVulkan.h"
+
+#include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+
+namespace nbl::examples
+{
 
 using namespace nbl;
 using namespace core;
 using namespace system;
+using namespace ui;
+using namespace asset;
+using namespace video;
+
+// Virtual Inheritance because apps might end up doing diamond inheritance
+class WindowedApplication : public virtual BasicMultiQueueApplication
+{
+		using base_t = BasicMultiQueueApplication;
+
+	public:
+		using base_t::base_t;
+
+		virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
+		{
+			auto retval = base_t::getAPIFeaturesToEnable();
+			// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
+			retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
+			return retval;
+		}
+
+		// New function, we neeed to know about surfaces to create ahead of time
+		virtual core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const = 0;
+
+		virtual core::set<video::IPhysicalDevice*> filterDevices(const core::SRange<video::IPhysicalDevice* const>& physicalDevices) const
+		{
+			const auto firstFilter = base_t::filterDevices(physicalDevices);
+
+			video::SPhysicalDeviceFilter deviceFilter = {};
+			
+			const auto surfaces = getSurfaces();
+			deviceFilter.requiredSurfaceCompatibilities = surfaces.data();
+			deviceFilter.requiredSurfaceCompatibilitiesCount = surfaces.size();
+
+			return deviceFilter(physicalDevices);
+		}
+		
+		virtual bool onAppInitialized(smart_refctd_ptr<ISystem>&& system)
+		{
+			// Remember to call the base class initialization!
+			if (!base_t::onAppInitialized(std::move(system)))
+				return false;
+
+		#ifdef _NBL_PLATFORM_WINDOWS_
+			m_winMgr = nbl::ui::IWindowManagerWin32::create();
+		#else
+			#error "Unimplemented!"
+		#endif
+		}
+
+		core::smart_refctd_ptr<ui::IWindowManager> m_winMgr;
+};
+
+
+// Before we get onto creating a window, we need to discuss how Nabla handles input, clipboards and cursor control
+class IWindowClosedCallback : public virtual nbl::ui::IWindow::IEventCallback
+{
+	public:
+		IWindowClosedCallback() : m_gotWindowClosedMsg(false) {}
+
+		// unless you create a separate callback per window, both will "trip" this condition
+		bool windowGotClosed() const {return m_gotWindowClosedMsg;}
+
+	private:
+		bool onWindowClosed_impl() override
+		{
+			m_gotWindowClosedMsg = true;
+			return true;
+		}
+
+		bool m_gotWindowClosedMsg;
+};
+
+// We inherit from an application that tries to find Graphics and Compute queues
+// because applications with presentable images often want to perform Graphics family operations
+// Virtual Inheritance because apps might end up doing diamond inheritance
+class SingleNonResizableWindowApplication : public virtual WindowedApplication
+{
+		using base_t = WindowedApplication;
+
+	protected:
+		virtual IWindow::SCreationParams getWindowCreationParams() const
+		{
+			IWindow::SCreationParams params = {};
+			params.callback = make_smart_refctd_ptr<IWindowClosedCallback>();
+			params.width = 640;
+			params.height = 480;
+			params.x = 32;
+			params.y = 32;
+			params.flags = IWindow::ECF_NONE;
+			params.windowCaption = "SingleNonResizableWindowApplication";
+			return params;
+		}
+
+		core::smart_refctd_ptr<ui::IWindow> m_window;
+		core::smart_refctd_ptr<video::ISurfaceVulkan> m_surface;
+
+	public:
+		using base_t::base_t;
+
+		virtual bool onAppInitialized(smart_refctd_ptr<nbl::system::ISystem>&& system) override
+		{
+			// Remember to call the base class initialization!
+			if (!base_t::onAppInitialized(std::move(system)))
+				return false;
+
+			m_window = m_winMgr->createWindow(getWindowCreationParams());
+			m_surface = video::CSurfaceVulkanWin32::create(core::smart_refctd_ptr(m_api),core::smart_refctd_ptr_static_cast<ui::IWindowWin32>(m_window));
+			return true;
+		}
+
+		virtual core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const
+		{
+			return {{m_surface.get()/*,EQF_NONE*/}};
+		}
+
+		virtual bool keepRunning() override
+		{
+			if (!m_window || reinterpret_cast<const IWindowClosedCallback*>(m_window->getEventCallback())->windowGotClosed())
+				return false;
+
+			return true;
+		}
+};
+}
+
+
+using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace ui;
 using namespace asset;
 using namespace video;
 
@@ -19,7 +153,7 @@ using namespace video;
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class PropertyPoolsApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::MonoDeviceApplication;
 		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
@@ -98,23 +232,29 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 
 			m_propertyPoolHandler = core::make_smart_refctd_ptr<CPropertyPoolHandler>(core::smart_refctd_ptr(m_device));
 
-			auto createBuffer = [&](uint64_t size)
+			auto createBuffer = [&](uint64_t size, core::bitflag<asset::IBuffer::E_USAGE_FLAGS> flags, const char* name, bool hostVisible)
 			{
 					video::IGPUBuffer::SCreationParams creationParams;
-					creationParams.size = size;
-					creationParams.usage = core::bitflag(asset::IBuffer::EUF_STORAGE_BUFFER_BIT) | asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+					creationParams.size = ((size + 3) / 4) * 4; // Align
+					creationParams.usage = flags
+						| asset::IBuffer::EUF_STORAGE_BUFFER_BIT
+						| asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT 
+						| asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
 
 					auto buffer = m_device->createBuffer(std::move(creationParams));
 					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
+					if (hostVisible) 
+						reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
 					m_device->allocate(reqs, buffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+					buffer->setObjectDebugName(name);
 
 					return buffer;
 			};
 
-			m_scratchBuffer = createBuffer(sizeof(nbl::hlsl::property_pools::TransferRequest) * TransfersAmount);
-			m_addressBuffer = createBuffer(sizeof(uint32_t) * TransfersAmount * MaxValuesPerTransfer);
-			m_transferSrcBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer);
-			m_transferDstBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer);
+			m_scratchBuffer = createBuffer(sizeof(nbl::hlsl::property_pools::TransferRequest) * TransfersAmount, core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT), "m_scratchBuffer", false);
+			m_addressBuffer = createBuffer(sizeof(uint32_t) * TransfersAmount * MaxValuesPerTransfer, core::bitflag(asset::IBuffer::EUF_NONE), "m_addressBuffer", false);
+			m_transferSrcBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer, core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT), "m_transferSrcBuffer", false);
+			m_transferDstBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer, core::bitflag(asset::IBuffer::EUF_NONE), "m_transferDstBuffer", true);
 
 			for (uint16_t i = 0; i < uint16_t((uint32_t(1) << 16) - 1); i++)
 				m_data.push_back(i);
@@ -211,7 +351,12 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 				cmdbuf->bindComputePipeline(m_pipeline.get());
 
 				// COMMAND RECORDING
-				cmdbuf->updateBuffer(m_transferSrcBuffer.get(), 0, sizeof(uint16_t) * m_data.size(), &m_data[0]);
+				uint32_t dataSize = (((sizeof(uint16_t) * m_data.size()) + 3) / 4) * 4;
+				uint32_t maxUpload = 65536;
+				for (uint32_t offset = 0; offset < dataSize; offset += maxUpload)
+				{
+					cmdbuf->updateBuffer(m_transferSrcBuffer.get(), offset, maxUpload, &m_data[offset / sizeof(uint16_t)]);
+				}
 				CPropertyPoolHandler::TransferRequest transferRequest;
 				transferRequest.memblock = asset::SBufferRange<video::IGPUBuffer> { 0, sizeof(uint16_t) * m_data.size(), core::smart_refctd_ptr<video::IGPUBuffer>(m_transferSrcBuffer) };
 				transferRequest.elementSize = m_data.size();
@@ -238,6 +383,22 @@ class PropertyPoolsApp final : public examples::MonoDeviceApplication, public ex
 				queue->startCapture();
 				queue->submit(1u,&submitInfo,fence.get());
 				queue->endCapture();
+			}
+
+			{
+				// Readback ds
+				auto mem = m_transferDstBuffer->getBoundMemory();
+				assert(mem->isMappable());
+				auto ptr = m_device->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()), video::IDeviceMemoryAllocation::EMCAF_READ);
+				auto uint16_t_ptr = static_cast<uint16_t*>(ptr);
+
+				for (uint32_t i = 0; i < 128; i++)
+				{
+					uint16_t value = uint16_t_ptr[i];
+					std::printf("%i, ", value);
+				}
+				std::printf("\n");
+				m_device->unmapMemory(mem);
 			}
 				
 			// We can also actually latch our Command Pool reset and its return to the pool of free pools!
