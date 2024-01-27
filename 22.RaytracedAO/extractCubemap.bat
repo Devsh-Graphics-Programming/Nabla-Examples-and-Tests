@@ -26,8 +26,8 @@ set /a x0 = 0
 set /a x1 = realSize
 set /a x2 = 2*realSize
 set /a x3 = 3*realSize
-set /a x4 = 4*realSize
-set /a x5 = 5*realSize
+set /a x4 = 5*realSize
+set /a x5 = 4*realSize
 
 set /a stripWidth = realSize*6
 magick convert -size %stripWidth%x%realSize% canvas:none ^
