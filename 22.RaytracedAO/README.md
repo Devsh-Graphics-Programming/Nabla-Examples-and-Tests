@@ -36,7 +36,7 @@ Description and usage:
 	If the ID is not passed, then it defaults to 0.
 
 -DEFER_DENOISE:
-	defer all denoise operations until application is terminated.
+	Defer all denoise operations until application is terminated.
 	
 Example Usages :
 	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml
