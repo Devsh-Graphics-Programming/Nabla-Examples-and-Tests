@@ -21,6 +21,7 @@
 Parameters:
 -SCENE=sceneMitsubaXMLPathOrZipAndXML
 -PROCESS_SENSORS ID
+-DEFER_DENOISE
 
 Description and usage: 
 
@@ -33,13 +34,16 @@ Description and usage:
 	It will control the behaviour of sensors in the app as detailed above.
 	If the option is not passed, then it defaults to RenderAllThenInteractive.
 	If the ID is not passed, then it defaults to 0.
+
+-DEFER_DENOISE:
+	Defer all denoise operations until application is terminated.
 	
 Example Usages :
 	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml
 	raytracedao.exe -SCENE=../../media/kitchen.zip scene.xml -PROCESS_SENSORS RenderAllThenInteractive
 	raytracedao.exe -SCENE="../../media/my good kitchen.zip" scene.xml -PROCESS_SENSORS RenderAllThenTerminate 0
 	raytracedao.exe -SCENE="../../media/my good kitchen.zip scene.xml" -PROCESS_SENSORS RenderSensorThenInteractive 1
-	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2
+	raytracedao.exe -SCENE="../../media/extraced folder/scene.xml" -PROCESS_SENSORS InteractiveAtSensor 2 -DEFER_DENOISE
 ```
 
 
