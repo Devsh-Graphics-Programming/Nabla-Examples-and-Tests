@@ -44,8 +44,7 @@ class WindowedApplication : public virtual BasicMultiQueueApplication
 			video::SPhysicalDeviceFilter deviceFilter = {};
 			
 			const auto surfaces = getSurfaces();
-			deviceFilter.requiredSurfaceCompatibilities = surfaces.data();
-			deviceFilter.requiredSurfaceCompatibilitiesCount = surfaces.size();
+			deviceFilter.requiredSurfaceCompatibilities = { surfaces.data(), surfaces.size() };
 
 			return deviceFilter(physicalDevices);
 		}
@@ -210,8 +209,10 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 		// Its a little more ergonomic to use if you don't have a 1:1 mapping between frames and pools.
 		smart_refctd_ptr<nbl::video::ICommandPoolCache> m_poolCache;
 
-		// We'll run the iterations in reverse, easier to write "keep running"
-		uint32_t m_iteration = 200;
+		// This example really lets the advantages of a timeline semaphore shine through!
+		smart_refctd_ptr<ISemaphore> m_timeline;
+		uint64_t m_iteration = 0;
+		constexpr static inline uint64_t MaxIterations = 200;
 
 		static constexpr uint64_t TransfersAmount = 1024;
 		static constexpr uint64_t MaxValuesPerTransfer = 512;
@@ -234,21 +235,21 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 
 			auto createBuffer = [&](uint64_t size, core::bitflag<asset::IBuffer::E_USAGE_FLAGS> flags, const char* name, bool hostVisible)
 			{
-					video::IGPUBuffer::SCreationParams creationParams;
-					creationParams.size = ((size + 3) / 4) * 4; // Align
-					creationParams.usage = flags
-						| asset::IBuffer::EUF_STORAGE_BUFFER_BIT
-						| asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT 
-						| asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+				video::IGPUBuffer::SCreationParams creationParams;
+				creationParams.size = ((size + 3) / 4) * 4; // Align
+				creationParams.usage = flags
+					| asset::IBuffer::EUF_STORAGE_BUFFER_BIT
+					| asset::IBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT 
+					| asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
 
-					auto buffer = m_device->createBuffer(std::move(creationParams));
-					nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
-					if (hostVisible) 
-						reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
-					m_device->allocate(reqs, buffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
-					buffer->setObjectDebugName(name);
+				auto buffer = m_device->createBuffer(std::move(creationParams));
+				nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
+				if (hostVisible) 
+					reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDownStreamingMemoryTypeBits();
+				m_device->allocate(reqs, buffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+				buffer->setObjectDebugName(name);
 
-					return buffer;
+				return buffer;
 			};
 
 			m_scratchBuffer = createBuffer(sizeof(nbl::hlsl::property_pools::TransferRequest) * TransfersAmount, core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT), "m_scratchBuffer", false);
@@ -260,30 +261,25 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				m_data.push_back(i);
 
 			// this time we load a shader directly from a file
-			smart_refctd_ptr<IGPUSpecializedShader> shader;
+			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
 				lp.workingDirectory = ""; // virtual root
-
 				auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl",lp);
 				const auto assets = assetBundle.getContents();
 				if (assets.empty())
 					return logFail("Could not load shader!");
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUSpecializedShader>(assets[0]);
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
 				// The down-cast should not fail!
 				assert(source);
 
-				IGPUObjectFromAssetConverter::SParams conversionParams = {};
-				conversionParams.device = m_device.get();
-				conversionParams.assetManager = m_assetMgr.get();
-				created_gpu_object_array<ICPUSpecializedShader> convertedGPUObjects = std::make_unique<IGPUObjectFromAssetConverter>()->getGPUObjectsFromAssets(&source,&source+1,conversionParams);
-				if (convertedGPUObjects->empty() || !convertedGPUObjects->front())
-					return logFail("Conversion of a CPU Specialized Shader to GPU failed!");
-
-				shader = convertedGPUObjects->front();
+				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+				shader = m_device->createShader(source.get());
+				if (!shader)
+					return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
 			}
 
 			// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
@@ -296,8 +292,8 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				return logFail("Failed to create Utilities!");
 			m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
 			m_downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
-			m_upStreamingBufferAddress = m_device->getBufferDeviceAddress(m_upStreamingBuffer->getBuffer());
-			m_downStreamingBufferAddress = m_device->getBufferDeviceAddress(m_downStreamingBuffer->getBuffer());
+			m_upStreamingBufferAddress = m_upStreamingBuffer->getBuffer()->getDeviceAddress();
+			m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
 
 			// People love Reflection but I prefer Shader Sources instead!
 			const nbl::asset::SPushConstantRange pcRange = {.stageFlags=IShader::ESS_COMPUTE,.offset=0,.size=sizeof(PushConstantData)};
@@ -307,7 +303,14 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 			// I even started writing this sample with the use of Dynamic SSBOs, however the length of the buffer range is not dynamic
 			// only the offset. This means that we'd have to write the "worst case" length into the descriptor set binding.
 			// Then this has a knock-on effect that we couldn't allocate closer to the end of the streaming buffer than the "worst case" size.
-			m_pipeline = m_device->createComputePipeline(nullptr,m_device->createPipelineLayout(&pcRange,&pcRange+1),std::move(shader));
+			{
+				auto layout = m_device->createPipelineLayout({&pcRange,1});
+				IGPUComputePipeline::SCreationParams params = {};
+				params.layout = layout.get();
+				params.shader.shader = shader.get();
+				if (!m_device->createComputePipelines(nullptr,{&params,1},&m_pipeline))
+					return logFail("Failed to create compute pipeline!\n");
+			}
 
 			const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
 			// The ranges of non-coherent mapped memory you flush or invalidate need to be aligned. You'll often see a value of 64 reported by devices
@@ -321,9 +324,12 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 			// We'll allow subsequent iterations to overlap each other on the GPU, the only limiting factors are
 			// the amount of memory in the streaming buffers and the number of commandpools we can use simultaenously.
 			constexpr auto MaxConcurrency = 64;
-			// Since this time we don't throw the Command Pools away and we'll reset them instead, we don't create the pools with the transient flag
-			m_poolCache = make_smart_refctd_ptr<ICommandPoolCache>(m_device.get(),getComputeQueue()->getFamilyIndex(), IGPUCommandPool::ECF_NONE, MaxConcurrency);
 
+			// Since this time we don't throw the Command Pools away and we'll reset them instead, we don't create the pools with the transient flag
+			m_poolCache = ICommandPoolCache::create(core::smart_refctd_ptr(m_device),getComputeQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE,MaxConcurrency);
+
+			// In contrast to fences, we just need one semaphore to rule all dispatches
+			m_timeline = m_device->createSemaphore(m_iteration);
 			return true;
 		}
 
@@ -334,7 +340,7 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 		void workLoopBody() override
 		{
 			m_iteration--;
-			IGPUQueue* const queue = getComputeQueue();
+			IQueue* const queue = getComputeQueue();
 
 			// Obtain our command pool once one gets recycled
 			uint32_t poolIx;
@@ -345,9 +351,9 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 
 			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 			{
-				m_device->createCommandBuffers(m_poolCache->getPool(poolIx),IGPUCommandBuffer::EL_PRIMARY,1,&cmdbuf);
+				m_poolCache->getPool(poolIx)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1},core::smart_refctd_ptr(m_logger));
 				// lets record, its still a one time submit because we have to re-record with different push constants each time
-				cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				cmdbuf->bindComputePipeline(m_pipeline.get());
 
 				// COMMAND RECORDING
@@ -355,7 +361,7 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				uint32_t maxUpload = 65536;
 				for (uint32_t offset = 0; offset < dataSize; offset += maxUpload)
 				{
-					cmdbuf->updateBuffer(m_transferSrcBuffer.get(), offset, maxUpload, &m_data[offset / sizeof(uint16_t)]);
+					cmdbuf->updateBuffer({ offset, maxUpload, core::smart_refctd_ptr<video::IGPUBuffer>(m_transferSrcBuffer) }, &m_data[offset / sizeof(uint16_t)]);
 				}
 				CPropertyPoolHandler::TransferRequest transferRequest;
 				transferRequest.memblock = asset::SBufferRange<video::IGPUBuffer> { 0, sizeof(uint16_t) * m_data.size(), core::smart_refctd_ptr<video::IGPUBuffer>(m_transferSrcBuffer) };
@@ -363,7 +369,7 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				transferRequest.elementCount = 1;
 				transferRequest.buffer = asset::SBufferBinding<video::IGPUBuffer> { 0, core::smart_refctd_ptr<video::IGPUBuffer>(m_transferDstBuffer) };
 
-				m_propertyPoolHandler->transferProperties(cmdbuf.get(), nullptr,
+				m_propertyPoolHandler->transferProperties(cmdbuf.get(),
 					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_scratchBuffer)}, 
 					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_addressBuffer)}, 
 					&transferRequest, &transferRequest + 1,
@@ -373,36 +379,49 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				cmdbuf->end();
 			}
 
-			// TODO: redo with a single timeline semaphore
-			auto fence = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
+
+			const auto savedIterNum = m_iteration++;
 			{
-				IGPUQueue::SSubmitInfo submitInfo = {};
-				submitInfo.commandBufferCount = 1;
-				submitInfo.commandBuffers = &cmdbuf.get();
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
+				{
+					.cmdbuf = cmdbuf.get()
+				};
+				const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
+				{
+					.semaphore = m_timeline.get(),
+					.value = m_iteration,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				};
+				// Generally speaking we don't need to wait on any semaphore because in this example every dispatch gets its own clean piece of memory to use
+				// from the point of view of the GPU. Implicit domain operations between Host and Device happen upon a submit and a semaphore/fence signal operation,
+				// this ensures we can touch the input and get accurate values from the output memory using the CPU before and after respectively, each submit becoming PENDING.
+				// If we actually cared about this submit seeing the memory accesses of a previous dispatch we could add a semaphore wait
+				const IQueue::SSubmitInfo submitInfo = {
+					.waitSemaphores = {},
+					.commandBuffers = {&cmdbufInfo,1},
+					.signalSemaphores = {&signalInfo,1}
+				};
 
 				queue->startCapture();
-				queue->submit(1u,&submitInfo,fence.get());
+				queue->submit({ &submitInfo,1 });
 				queue->endCapture();
 			}
 
 			{
-				// Readback ds
-				auto mem = m_transferDstBuffer->getBoundMemory();
-				assert(mem->isMappable());
-				auto ptr = m_device->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()), video::IDeviceMemoryAllocation::EMCAF_READ);
-				auto uint16_t_ptr = static_cast<uint16_t*>(ptr);
+				//// Readback ds
+				//auto mem = m_transferDstBuffer->getBoundMemory();
+				//assert(mem->isMappable());
+				//auto ptr = m_device->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()), video::IDeviceMemoryAllocation::EMCAF_READ);
+				//auto uint16_t_ptr = static_cast<uint16_t*>(ptr);
 
-				for (uint32_t i = 0; i < 128; i++)
-				{
-					uint16_t value = uint16_t_ptr[i];
-					std::printf("%i, ", value);
-				}
-				std::printf("\n");
-				m_device->unmapMemory(mem);
+				//for (uint32_t i = 0; i < 128; i++)
+				//{
+				//	uint16_t value = uint16_t_ptr[i];
+				//	std::printf("%i, ", value);
+				//}
+				//std::printf("\n");
+				//m_device->unmapMemory(mem);
 			}
-				
-			// We can also actually latch our Command Pool reset and its return to the pool of free pools!
-			m_poolCache->releaseSet(m_device.get(),smart_refctd_ptr(fence),poolIx);
 		}
 
 		bool onAppTerminated() override
