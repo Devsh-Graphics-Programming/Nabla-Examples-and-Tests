@@ -98,6 +98,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 			// And now I show you how to save 100 lines of code to create all objects between a Compute Pipeline and a Shader
 			smart_refctd_ptr<IGPUComputePipeline> pipeline;
 			{
+#if 0
 				// This is the main workhorse of our asset system, it automates the creation of matching IGPU objects for ICPU object while
 				// making sure that if two ICPU objects reference the same dependency, that structure carries over to their associated IGPU objects.
 				// We're working on a new improved Hash Tree based system which will catch identically defined ICPU objects even if their pointers differ.
@@ -126,6 +127,9 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				assert(source->getUnspecialized()->getContent()->getPointer() == nullptr);
 
 				pipeline = convertedGPUObjects->front();
+#else
+				static_assert(false,"TODO: Przemog you need to make a temporary workaround in this example to not use the Asset Converter to convert an ICPUComputePipeline to IGPUComputePipeline and just do it manually here from a ICPUShader");
+#endif
 			}
 
 			// Nabla hardcodes the maximum descriptor set count to 4

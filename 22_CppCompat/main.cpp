@@ -68,13 +68,6 @@ public:
     CompatibilityTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
-    video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
-    {
-        auto features = device_base_t::getRequiredDeviceFeatures();
-        features.runtimeDescriptorArray = true;
-        return features;
-    }
-
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
         // Remember to call the base class initialization!
@@ -153,7 +146,7 @@ public:
                     .usage = nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT 
                         | nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT
                         | nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT,
-                }, {}, nbl::video::IGPUImage::E_TILING::ET_LINEAR,
+                }, {}, nbl::video::IGPUImage::TILING::LINEAR,
             });
 
             auto reqs = m_images[i]->getMemoryReqs();
