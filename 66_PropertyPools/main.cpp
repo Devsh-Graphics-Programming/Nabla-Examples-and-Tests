@@ -334,12 +334,11 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 		}
 
 		// Ok this time we'll actually have a work loop (maybe just for the sake of future WASM so we don't timeout a Browser Tab with an unresponsive script)
-		bool keepRunning() override { return m_iteration; }
+		bool keepRunning() override { return m_iteration<MaxIterations; }
 
 		// Finally the first actual work-loop
 		void workLoopBody() override
 		{
-			m_iteration--;
 			IQueue* const queue = getComputeQueue();
 
 			// Obtain our command pool once one gets recycled
@@ -408,19 +407,20 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 			}
 
 			{
-				//// Readback ds
-				//auto mem = m_transferDstBuffer->getBoundMemory();
-				//assert(mem->isMappable());
-				//auto ptr = m_device->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()), video::IDeviceMemoryAllocation::EMCAF_READ);
-				//auto uint16_t_ptr = static_cast<uint16_t*>(ptr);
+				// Readback ds
+				auto mem = m_transferDstBuffer->getBoundMemory();
+				void* ptr = mem.memory->map({ mem.offset, mem.memory->getAllocationSize() });
 
-				//for (uint32_t i = 0; i < 128; i++)
-				//{
-				//	uint16_t value = uint16_t_ptr[i];
-				//	std::printf("%i, ", value);
-				//}
-				//std::printf("\n");
-				//m_device->unmapMemory(mem);
+				auto uint16_t_ptr = reinterpret_cast<uint16_t*>(ptr);
+
+				for (uint32_t i = 0; i < 128; i++)
+				{
+					uint16_t value = uint16_t_ptr[i];
+					std::printf("%i, ", value);
+				}
+				std::printf("\n");
+				bool success = mem.memory->unmap();
+				assert(success);
 			}
 		}
 
