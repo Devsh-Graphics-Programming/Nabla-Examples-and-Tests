@@ -252,7 +252,7 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				return buffer;
 			};
 
-			m_scratchBuffer = createBuffer(sizeof(nbl::hlsl::property_pools::TransferRequest) * TransfersAmount, core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT), "m_scratchBuffer", false);
+			m_scratchBuffer = createBuffer(sizeof(nbl::hlsl::property_pools::TransferRequest) * TransfersAmount, core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT), "m_scratchBuffer", true);
 			m_addressBuffer = createBuffer(sizeof(uint32_t) * TransfersAmount * MaxValuesPerTransfer, core::bitflag(asset::IBuffer::EUF_NONE), "m_addressBuffer", false);
 			m_transferSrcBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer, core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT), "m_transferSrcBuffer", false);
 			m_transferDstBuffer = createBuffer(sizeof(uint16_t) * TransfersAmount * MaxValuesPerTransfer, core::bitflag(asset::IBuffer::EUF_NONE), "m_transferDstBuffer", true);
@@ -408,17 +408,18 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 
 			{
 				// Readback ds
-				auto mem = m_transferDstBuffer->getBoundMemory();
+				auto mem = m_scratchBuffer->getBoundMemory();
 				void* ptr = mem.memory->map({ mem.offset, mem.memory->getAllocationSize() });
 
-				auto uint16_t_ptr = reinterpret_cast<uint16_t*>(ptr);
-
-				for (uint32_t i = 0; i < 128; i++)
+				for (uint32_t i = 0; i < sizeof(nbl::hlsl::property_pools::TransferRequest) * 10; i++)
 				{
-					uint16_t value = uint16_t_ptr[i];
+					uint16_t value = reinterpret_cast<uint16_t*>(ptr)[i];
 					std::printf("%i, ", value);
 				}
 				std::printf("\n");
+				std::printf("should be %I64i: %I64i\n", m_transferSrcBuffer->getDeviceAddress(), reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 3)[0]);
+				std::printf("should be %I64i: %I64i\n", m_transferDstBuffer->getDeviceAddress(), reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 4)[0]);
+				std::printf("should be 3: %i\n", reinterpret_cast<uint16_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 5)[0]);
 				bool success = mem.memory->unmap();
 				assert(success);
 			}
