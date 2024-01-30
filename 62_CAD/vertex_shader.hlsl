@@ -91,7 +91,9 @@ PSInput main(uint vertexID : SV_VertexID)
         points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
         const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
+        const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float), 8u);
         outV.setCurrentPhaseShift(phaseShift);
+        outV.setPatternStretch(patternStretch);
 
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
@@ -132,7 +134,9 @@ PSInput main(uint vertexID : SV_VertexID)
         points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
 
         const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
+        const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u + sizeof(float), 8u);
         outV.setCurrentPhaseShift(phaseShift);
+        outV.setPatternStretch(patternStretch);
 
         // transform these points into screen space and pass to fragment
         float2 transformedPoints[3u];

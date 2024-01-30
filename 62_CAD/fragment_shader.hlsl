@@ -33,7 +33,19 @@ struct DefaultClipper
     }
 };
 
-template<typename CurveType, typename StyleAccessor>
+// for usage in upper_bound function
+struct StyleAccessor
+{
+    LineStyle style;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return style.getStippleValue(ix);
+    }
+};
+
+template<typename CurveType>
 struct StyleClipper
 {
     using float_t = typename CurveType::scalar_t;
@@ -41,12 +53,13 @@ struct StyleClipper
     using float_t3 = typename CurveType::float_t3;
     NBL_CONSTEXPR_STATIC_INLINE float_t AccuracyThresholdT = 0.000001;
 
-    static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
+    static StyleClipper<CurveType> construct(
+        LineStyle style,
         CurveType curve,
         typename CurveType::ArcLengthCalculator arcLenCalc,
         float phaseShift)
     {
-        StyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc, phaseShift };
+        StyleClipper<CurveType> ret = { style, curve, arcLenCalc, phaseShift };
         return ret;
     }
 
@@ -55,8 +68,8 @@ struct StyleClipper
         // basicaly 0.0 and 1.0 but with a guardband to discard outside the range
         const float_t minT = 0.0 - 1.0;
         const float_t maxT = 1.0 + 1.0;
-
-        const LineStyle style = lineStyles[styleAccessor.styleIdx];
+        
+        StyleAccessor styleAccessor = { style };
         const float_t arcLen = arcLenCalc.calcArcLen(t);
         const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
         float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + phaseShift);
@@ -129,7 +142,7 @@ struct StyleClipper
         return ret;
     }
 
-    StyleAccessor styleAccessor;
+    LineStyle style;
     CurveType curve;
     typename CurveType::ArcLengthCalculator arcLenCalc;
     float phaseShift;
@@ -264,8 +277,8 @@ float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb
     return sdTrapezoid(p, ra, rb, h);
 }
 
-typedef StyleClipper<nbl::hlsl::shapes::Quadratic<float>, StyleAccessor> BezierStyleClipper;
-typedef StyleClipper<nbl::hlsl::shapes::Line<float>, StyleAccessor> LineStyleClipper;
+typedef StyleClipper< nbl::hlsl::shapes::Quadratic<float> > BezierStyleClipper;
+typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 
 float4 main(PSInput input) : SV_TARGET
 {
@@ -285,20 +298,24 @@ float4 main(PSInput input) : SV_TARGET
         const float2 end = input.getLineEnd();
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
+        const float stretch = input.getPatternStretch();
         const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
 
+        LineStyle style = lineStyles[styleIdx];
+        if (stretch != 1.0f)
+            style.stretch(stretch);
+
         float distance;
-        if (!lineStyles[styleIdx].hasStipples())
+        if (!style.hasStipples())
         {
             distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, isRoadStyle);
         }
         else
         {
-            StyleAccessor styleAccessor = { styleIdx };
-            LineStyleClipper clipper = LineStyleClipper::construct(styleAccessor, lineSegment, arcLenCalc, input.getCurrentPhaseShift());
+            LineStyleClipper clipper = LineStyleClipper::construct(style, lineSegment, arcLenCalc, input.getCurrentPhaseShift());
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, isRoadStyle, clipper);
         }
 
@@ -312,17 +329,21 @@ float4 main(PSInput input) : SV_TARGET
 
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
+        const float stretch = input.getPatternStretch();
         const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
         float distance;
+        
+        LineStyle style = lineStyles[styleIdx];
+        if (stretch != 1.0f)
+            style.stretch(stretch);
 
-        if (!lineStyles[styleIdx].hasStipples())
+        if (!style.hasStipples())
         {
             distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, isRoadStyle);
         }
         else
         {
-            StyleAccessor styleAccessor = { styleIdx };
-            BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc, input.getCurrentPhaseShift());
+            BezierStyleClipper clipper = BezierStyleClipper::construct(style, quadratic, arcLenCalc, input.getCurrentPhaseShift());
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, isRoadStyle, clipper);
         }
 

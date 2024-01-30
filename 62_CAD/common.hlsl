@@ -41,14 +41,14 @@ struct LinePointInfo
 {
     float64_t2 p;
     float32_t phaseShift;
-    float32_t _reserved_pad;
+    float32_t stretchValue;
 };
 
 struct QuadraticBezierInfo
 {
     nbl::hlsl::shapes::QuadraticBezier<float64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
     float32_t phaseShift;
-    float32_t _reserved_pad;
+    float32_t stretchValue;
 };
 #ifndef __HLSL_VERSION
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
@@ -152,6 +152,11 @@ struct LineStyle
     {
         return stipplePatternSize > 0 ? true : false;
     }
+
+    void stretch(float stretch)
+    {
+        reciprocalStipplePatternLen /= stretch;
+    }
 };
 
 #ifdef __cplusplus
@@ -166,8 +171,8 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 
     if (!areParametersEqual)
         return false;
-
-    const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize) : true;
+    
+    const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? (std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(uint32_t) * lhs.stipplePatternSize) == 0) : true;
 
     return isStipplePatternArrayEqual;
 }
@@ -287,10 +292,12 @@ struct PSInput
     ObjectType getObjType() { return (ObjectType) data1.x; }
     uint getMainObjectIdx() { return data1.y; }
     float getLineThickness() { return asfloat(data1.z); }
+    float getPatternStretch() { return asfloat(data1.w); }
     
     void setObjType(ObjectType objType) { data1.x = (uint) objType; }
     void setMainObjectIdx(uint mainObjIdx) { data1.y = mainObjIdx; }
     void setLineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
+    void setPatternStretch(float stretch) { data1.w = asuint(stretch); }
     
     // data2
     float2 getLineStart() { return data2.xy; }
@@ -415,17 +422,6 @@ struct PSInput
 [[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
 [[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
 
-// shared by both vertex and fragment shader
-struct StyleAccessor
-{
-    uint32_t styleIdx;
-    using value_type = float;
-
-    float operator[](const uint32_t ix)
-    {
-        return lineStyles[styleIdx].getStippleValue(ix);
-    }
-};
 #endif
 
 #endif
