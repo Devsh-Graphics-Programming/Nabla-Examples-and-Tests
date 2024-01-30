@@ -11,23 +11,45 @@
 struct CPULineStyle
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
+	static constexpr uint32_t InvalidShapeSegmentIndex = ~0u;
+	static constexpr double InvalidShapeOffset = nbl::hlsl::numeric_limits<double>::infinity;
+	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
 	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
 
 	float32_t4 color;
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
-	// gpu stipple pattern data form
-	int32_t stipplePatternSize = 0u;
-	float reciprocalStipplePatternLen;
-	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
-	float phaseShift;
-	bool isRoadStyleFlag;
 	
-	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternCPURepresentation)
-	{
-		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
+	/*
+		Stippling Values:
+	*/
+	int32_t stipplePatternSize = 0u;
+	float reciprocalStipplePatternLen = 0.0;
+	float stipplePattern[STIPPLE_PATTERN_MAX_SZ] = {};
+	float phaseShift = 0.0;
+	/*
+		Customization Flags:
+		isRoadStyleFlag -> generate mitering and use square edges in sdf
+		stretchToFit -> allows stretching of the pattern to fit inside the current line or curve segment, this flag also cause each line or curve section to start from the beginning of the pattern
+	*/
+	bool isRoadStyleFlag = false;
+	bool stretchToFit = false;
+	/*
+		special segment -> this is an index to stipple pattern to not stretch that value in the pattern when stretchToFit is true
+		a valid shape segments means we don't want to stretch the shape segment and we treat it differently
+		InvalidShapeSegmentIndex means we want to stretch the shape segment as well and we don't treat it differently -> simpler
+	*/
+	uint32_t shapeSegementIdx = InvalidShapeSegmentIndex;
 
-		if (stipplePatternCPURepresentation.size() == 0)
+	/*
+	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
+	* shapeOffset is the offset into the unnormalized pattern a shape is going to draw, it's specialized this way because sometimes we don't want to stretch the pattern value the shape resides in.
+	*/
+	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset)
+	{
+		assert(stipplePatternUnnormalizedRepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
+
+		if (stipplePatternUnnormalizedRepresentation.size() == 0)
 		{
 			stipplePatternSize = 0;
 			return;
@@ -42,7 +64,7 @@ struct CPULineStyle
 			};
 
 		// merge redundant values
-		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
+		for (auto it = stipplePatternUnnormalizedRepresentation.begin(); it != stipplePatternUnnormalizedRepresentation.end();)
 		{
 			double redundantConsecutiveValuesSum = 0.0f;
 			const bool firstValueSign = isValuePositive(*it);
@@ -50,7 +72,7 @@ struct CPULineStyle
 			{
 				redundantConsecutiveValuesSum += *it;
 				it++;
-			} while (it != stipplePatternCPURepresentation.end() && (firstValueSign == isValuePositive(*it)));
+			} while (it != stipplePatternUnnormalizedRepresentation.end() && (firstValueSign == isValuePositive(*it)));
 
 			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
 		}
@@ -107,8 +129,48 @@ struct CPULineStyle
 			
 		currentPhaseShift = currentPhaseShift * rcpLen;
 		if (stipplePatternTransformed[0] == 0.0)
-			currentPhaseShift -= 1.0e-3f; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
+			currentPhaseShift -= PatternEpsilon;
 		phaseShift = static_cast<float>(currentPhaseShift);
+
+		
+		if (shapeOffsetInPattern == InvalidShapeOffset)
+		{
+
+		}
+	}
+	
+	float calculateStretchValue(float64_t arcLen) const
+	{
+		float ret = 1.0f;
+		if (stretchToFit)
+		{
+			//	Work out how many segments will fit into the line and calculate the stretch factor
+			int nSegments = 1;
+			double dInteger;
+			double dFraction = ::modf(arcLen * reciprocalStipplePatternLen, &dInteger);
+			if (dInteger < 1.0)
+				nSegments = 1;
+			else
+			{
+				nSegments = (int)dInteger;
+				if (dFraction > 0.5)
+					nSegments++;
+			}
+
+			if (dFraction == 0.0)
+				ret = 1.0;
+			else if (shapeSegementIdx == CPULineStyle::InvalidShapeSegmentIndex)
+			{
+				// the + CPULineStyle::PhaseShiftEpsilon, stretches the value a little more  behaves as if arcLen is += 0.001 * patternLen.
+				// this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively
+				ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
+			}
+			else
+			{
+				// TODO:
+			}
+		}
+		return ret;
 	}
 
 	LineStyle getAsGPUData() const
@@ -310,7 +372,10 @@ public:
 		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
-		float phaseShiftTotal = lineStyle.phaseShift;
+		// When stretchToFit is true, the curve section and individual lines should start from the beginning of the pattern (phaseShift = lineStyle.phaseShift)
+		const bool patternStartAgain = lineStyle.stretchToFit;
+		float currentPhaseShift = lineStyle.phaseShift;
+
 		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
 		{
 			const auto& section = m_sections[sectionIdx];
@@ -318,77 +383,83 @@ public:
 			if (section.type == ObjectType::LINE)
 			{
 				// calculate phase shift at each point of each line in section
-				const uint32_t linePointCnt = section.count + 1u;
-				for (uint32_t i = 0u; i < linePointCnt; i++)
+				const uint32_t lineCount = section.count;
+				for (uint32_t i = 0u; i < lineCount; i++)
 				{
 					const uint32_t currIdx = section.index + i;
 					auto& linePoint = m_linePoints[currIdx];
-					if (i == 0u)
-					{
-						linePoint.phaseShift = phaseShiftTotal;
-						continue;
-					}
-
-					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
-					const float64_t2 lineVector = linePoint.p - prevLinePoint.p;
+					const auto& nextLinePoint = m_linePoints[currIdx + 1u];
+					const float64_t2 lineVector = nextLinePoint.p - linePoint.p;
 					const double lineLen = glm::length(lineVector);
+					const float stretchValue = lineStyle.calculateStretchValue(lineLen);
+					
+					if (patternStartAgain)
+						currentPhaseShift = lineStyle.phaseShift;
 
+					linePoint.phaseShift = currentPhaseShift;
+					linePoint.stretchValue = stretchValue;
+					
 					if (lineStyle.isRoadStyleFlag)
-					{
-						connectorBuilder.addLineNormal(lineVector, lineLen, prevLinePoint.p, phaseShiftTotal);
-					}
+						connectorBuilder.addLineNormal(lineVector, lineLen, linePoint.p, currentPhaseShift);
 
-					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					linePoint.phaseShift = static_cast<float32_t>(glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint));
-					phaseShiftTotal = linePoint.phaseShift;
+					if (!patternStartAgain)
+					{
+						// setting next phase shift based on current arc length
+						const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
+						currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShiftBetweenCurrAndPrevPoint));
+					}
 				}
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
-				// calculate phase shift at point P0 of each bezier
-				const uint32_t quadBezierCnt = section.count;
-				for (uint32_t i = 0u; i <= quadBezierCnt; i++)
+				const uint32_t quadBezierCount = section.count;
+				
+				if (patternStartAgain)
+					currentPhaseShift = lineStyle.phaseShift;
+
+				// when stretchToFit is true, we need to calculate the whole section arc length to figure out the stretch value needed for stippling phaseshift
+				float stretchValue = 1.0;
+				if (lineStyle.stretchToFit)
 				{
-
-					const uint32_t currIdx = section.index + i;
-					if (i == 0u)
+					float64_t sectionArcLen = 0.0;
+					for (uint32_t i = 0u; i < quadBezierCount; i++)
 					{
-						QuadraticBezierInfo& firstInSectionQuadBezierInfo = m_quadBeziers[currIdx];
-						firstInSectionQuadBezierInfo.phaseShift = phaseShiftTotal;
-
-						if (lineStyle.isRoadStyleFlag)
-						{
-							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
-						}
-
-						continue;
+						const QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[section.index + i];
+						nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
+						nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+						sectionArcLen += arcLenCalc.calcArcLen(1.0f);
 					}
+					stretchValue = lineStyle.calculateStretchValue(sectionArcLen);
+				}
 
-					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
-					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(prevQuadBezierInfo.shape);
+				const float64_t stretchedPatternLen = (1.0 / lineStyle.reciprocalStipplePatternLen) * stretchValue;
+				const float64_t stretchedRcpPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
+
+				// calculate phase shift at point P0 of each bezier
+				for (uint32_t i = 0u; i < quadBezierCount; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+
+					QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+					quadBezierInfo.phaseShift = currentPhaseShift;
+					quadBezierInfo.stretchValue = stretchValue;
+
+					if (lineStyle.isRoadStyleFlag)
+						connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], currentPhaseShift);
+					
+					// setting next phase shift based on current arc length
+					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
 					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
 					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
-
-					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					phaseShiftTotal = static_cast<float32_t>(glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift));
-
-					if (i < quadBezierCnt)
-					{
-						QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
-						quadBezierInfo.phaseShift = phaseShiftTotal;
-
-						if (lineStyle.isRoadStyleFlag)
-						{
-							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
-						}
-					}
+					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, stretchedPatternLen) * stretchedRcpPatternLen;
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + nextLineInSectionLocalPhaseShift));
 				}
 			}
 		}
 
 		if (lineStyle.isRoadStyleFlag)
 		{
-			connectorBuilder.setPhaseShiftAtEndOfPolyline(phaseShiftTotal);
+			connectorBuilder.setPhaseShiftAtEndOfPolyline(currentPhaseShift);
 			m_polylineConnector = connectorBuilder.buildConnectors(lineStyle, m_closedPolygon);
 		}
 	}
