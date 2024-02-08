@@ -310,6 +310,8 @@ public:
 		for (uint32_t i = 0u; i < linePoints.size(); i++)
 		{
 			m_linePoints[oldLinePointSize + i].p = linePoints[i];
+			m_linePoints[oldLinePointSize + i].phaseShift = 0.0;
+			m_linePoints[oldLinePointSize + i].stretchValue = 1.0;
 		}
 
 		if (forceConnectToLastSection && m_sections.size() >= 2u)
@@ -355,6 +357,8 @@ public:
 		{
 			const uint32_t currBezierIdx = oldQuadBezierSize + i;
 			m_quadBeziers[currBezierIdx].shape = quadBeziers[i];
+			m_quadBeziers[currBezierIdx].phaseShift = 0.0;
+			m_quadBeziers[currBezierIdx].stretchValue = 1.0;
 		}
 
 		if (forceConnectToLastSection && m_sections.size() >= 2u)
