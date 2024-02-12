@@ -26,7 +26,9 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
 	# showcase the set-up of a swapchain and picking of a matching device
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
-
+    
+    # global scan
+    add_subdirectory(14_ComputeScan EXCLUDE_FROM_ALL)
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
 	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
