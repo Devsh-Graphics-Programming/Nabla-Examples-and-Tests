@@ -4,6 +4,7 @@
 
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
+#include "nbl/video/alloc/SubAllocatedDescriptorSet.h"
 
 #include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
@@ -202,6 +203,8 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 		smart_refctd_ptr<IGPUBuffer> m_transferDstBuffer;
 		std::vector<uint16_t> m_data;
 
+		smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet<core::GeneralpurposeAddressAllocator<uint32_t>>> m_subAllocDescriptorSet;
+
 		// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 		uint32_t m_alignment;
 		
@@ -217,6 +220,10 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 		static constexpr uint64_t TransfersAmount = 1024;
 		static constexpr uint64_t MaxValuesPerTransfer = 512;
 
+		constexpr static inline uint32_t maxDescriptorSetAllocationAlignment = 64u*1024u; // if you need larger alignments then you're not right in the head
+		constexpr static inline uint32_t minDescriptorSetAllocationSize = 1u;
+
+
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
 		PropertyPoolsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -225,6 +232,8 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			using nbl::video::IGPUDescriptorSetLayout;
+
 			// Remember to call the base class initialization!
 			if (!device_base_t::onAppInitialized(std::move(system)))
 				return false;
@@ -330,6 +339,35 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 
 			// In contrast to fences, we just need one semaphore to rule all dispatches
 			m_timeline = m_device->createSemaphore(m_iteration);
+
+
+			// Descriptor set sub allocator
+
+			video::IGPUDescriptorSetLayout::SBinding bindings[1];
+			{
+				bindings[0].binding = 0;
+				bindings[0].count = 65535u;
+				bindings[0].createFlags = core::bitflag(IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT) 
+					| IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT 
+					| IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
+				bindings[0].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+				bindings[0].stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE;
+			}
+
+			std::span<video::IGPUDescriptorSetLayout::SBinding> bindingsSpan(bindings);
+
+			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
+			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet<core::GeneralpurposeAddressAllocator<uint32_t>>>(
+				bindings, maxDescriptorSetAllocationAlignment, minDescriptorSetAllocationSize
+			);
+
+			uint32_t allocation = -1;
+			uint32_t size = 10;
+			uint32_t alignment = 1;
+			subAllocatedDescriptorSet->multi_allocate(1, &allocation, &size, &alignment);
+			m_logger->log("Allocation: %d\n", system::ILogger::ELL_ERROR, allocation);
+			assert(allocation);
+
 			return true;
 		}
 
@@ -417,8 +455,8 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 					std::printf("%i, ", value);
 				}
 				std::printf("\n");
-				std::printf("should be %I64i: %I64i\n", m_transferSrcBuffer->getDeviceAddress(), reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 3)[0]);
-				std::printf("should be %I64i: %I64i\n", m_transferDstBuffer->getDeviceAddress(), reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 4)[0]);
+				std::printf("should be %I64i (alignment: %I64i): %I64i\n", m_transferSrcBuffer->getDeviceAddress(), m_transferSrcBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 3)[0]);
+				std::printf("should be %I64i (alignment: %I64i): %I64i\n", m_transferDstBuffer->getDeviceAddress(), m_transferDstBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 4)[0]);
 				std::printf("should be 3: %i\n", reinterpret_cast<uint16_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 5)[0]);
 				bool success = mem.memory->unmap();
 				assert(success);
