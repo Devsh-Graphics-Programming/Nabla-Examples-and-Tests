@@ -54,32 +54,32 @@ void main()
 			//
 			const nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData = InstData.data[batchInstanceGUID];
 			const uvec3 indices = get_triangle_indices(batchInstanceData,triangleID);
-			
-			// get material while waiting for indices
-			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
-			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material);
-			
+						
 			// load vertex data
 			const vec3 lastVxPos = load_positions(batchInstanceData,indices);
 
+			// get material while waiting for indices
+			const nbl_glsl_MC_oriented_material_t material = nbl_glsl_MC_material_data_t_getOriented(batchInstanceData.material,frontfacing);
+
+			// get initial scramble key while waiting for vertex positions
+			const nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,ivec2(outPixelLocation),0).rg;
+
+			//
+			normalizedN = load_normal_and_prefetch_textures(
+				batchInstanceData,indices,compactBary,material
+				#ifdef TEX_PREFETCH_STREAM
+				,dBarydScreen
+				#endif
+			);
+		
+			const vec3 origin = dPdBary*compactBary+lastVxPos;
+			// does this buy us any precision? (answer run CI!)
+			//normalizedV = normalize(pc.cummon.viewDirReconFactors[3]-origin);
+
+			contrib.color = contrib.albedo = nbl_glsl_MC_oriented_material_t_getEmissive(material, normalizedV);
 			// little optimization for non-twosided materials
 			if (material.genchoice_count!=0u)
 			{			
-				// get initial scramble key while waiting for vertex positions
-				const nbl_glsl_xoroshiro64star_state_t scramble_start_state = texelFetch(scramblebuf,ivec2(outPixelLocation),0).rg;
-
-				//
-				normalizedN = load_normal_and_prefetch_textures(
-					batchInstanceData,indices,compactBary,material
-					#ifdef TEX_PREFETCH_STREAM
-					,dBarydScreen
-					#endif
-				);
-			
-				const vec3 origin = dPdBary*compactBary+lastVxPos;
-// does this buy us any precision? (answer run CI!)
-//				normalizedV = normalize(pc.cummon.viewDirReconFactors[3]-origin);
-
 				// generate rays
 				const uint vertex_depth = 1u;
 				rayMask = generate_next_rays(

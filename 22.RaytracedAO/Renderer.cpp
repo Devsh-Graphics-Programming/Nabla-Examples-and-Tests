@@ -1911,7 +1911,7 @@ bool Renderer::render(nbl::ITimer* timer, const float kappa, const float Emin, c
 				viewDirReconFactorsT.rows[1] = viewRotProjInvT.rows[1]*(+2.f);
 				viewDirReconFactorsT.rows[2] = viewRotProjInvT.rows[0]-viewRotProjInvT.rows[1]-viewRotProjInvT.rows[2]-viewRotProjInvT.rows[3];
 			}
-		}
+			}
 		
 		// cull batches
 		m_driver->bindComputePipeline(m_cullPipeline.get());
