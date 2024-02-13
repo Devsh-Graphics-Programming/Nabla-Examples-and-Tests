@@ -346,7 +346,7 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 			video::IGPUDescriptorSetLayout::SBinding bindings[1];
 			{
 				bindings[0].binding = 0;
-				bindings[0].count = 65535u;
+				bindings[0].count = 65536u;
 				bindings[0].createFlags = core::bitflag(IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT) 
 					| IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT 
 					| IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
@@ -361,12 +361,46 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				bindings, maxDescriptorSetAllocationAlignment, minDescriptorSetAllocationSize
 			);
 
-			uint32_t allocation = -1;
-			uint32_t size = 10;
-			uint32_t alignment = 1;
-			subAllocatedDescriptorSet->multi_allocate(1, &allocation, &size, &alignment);
-			m_logger->log("Allocation: %d\n", system::ILogger::ELL_ERROR, allocation);
-			assert(allocation);
+			std::vector<uint32_t> allocation, size;
+			{
+				for (uint32_t i = 0; i < 512; i++)
+				{
+					allocation.push_back(core::GeneralpurposeAddressAllocator<uint32_t>::invalid_address);
+					size.push_back(4);
+				}
+				subAllocatedDescriptorSet->multi_allocate(allocation.size(), &allocation[0], &size[0]);
+				for (uint32_t i = 0; i < allocation.size(); i++)
+				{
+					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation[i]);
+					assert(allocation[i] != core::GeneralpurposeAddressAllocator<uint32_t>::invalid_address);
+				}
+			}
+			{
+				std::vector<uint32_t> addr, freeSize;
+				for (uint32_t i = 0; i < 512; i+=2)
+				{
+					addr.push_back(allocation[i]);
+					freeSize.push_back(4);
+				}
+				subAllocatedDescriptorSet->multi_deallocate(addr.size(), &addr[0], &freeSize[0]);
+			}
+
+			m_logger->log("Freed some allocations", system::ILogger::ELL_INFO);
+			allocation.clear();
+			size.clear();
+			{
+				for (uint32_t i = 0; i < 512; i++)
+				{
+					allocation.push_back(core::GeneralpurposeAddressAllocator<uint32_t>::invalid_address);
+					size.push_back(2);
+				}
+				subAllocatedDescriptorSet->multi_allocate(allocation.size(), &allocation[0], &size[0]);
+				for (uint32_t i = 0; i < allocation.size(); i++)
+				{
+					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation[i]);
+					assert(allocation[i] != core::GeneralpurposeAddressAllocator<uint32_t>::invalid_address);
+				}
+			}
 
 			return true;
 		}
