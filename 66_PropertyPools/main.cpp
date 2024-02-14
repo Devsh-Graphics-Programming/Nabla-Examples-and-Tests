@@ -436,9 +436,11 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				}
 				CPropertyPoolHandler::TransferRequest transferRequest;
 				transferRequest.memblock = asset::SBufferRange<video::IGPUBuffer> { 0, sizeof(uint16_t) * m_data.size(), core::smart_refctd_ptr<video::IGPUBuffer>(m_transferSrcBuffer) };
-				transferRequest.elementSize = m_data.size();
-				transferRequest.elementCount = 1;
+				transferRequest.elementSize = 1;
+				transferRequest.elementCount = m_data.size();
 				transferRequest.buffer = asset::SBufferBinding<video::IGPUBuffer> { 0, core::smart_refctd_ptr<video::IGPUBuffer>(m_transferDstBuffer) };
+				transferRequest.srcAddressesOffset = IPropertyPool::invalid;
+				transferRequest.dstAddressesOffset = IPropertyPool::invalid;
 
 				m_propertyPoolHandler->transferProperties(cmdbuf.get(),
 					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_scratchBuffer)}, 
@@ -447,7 +449,8 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 					m_logger.get(), 0, MaxValuesPerTransfer
 					);
 
-				cmdbuf->end();
+				auto result = cmdbuf->end();
+				assert(result);
 			}
 
 
@@ -474,13 +477,18 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 				};
 
 				queue->startCapture();
-				queue->submit({ &submitInfo,1 });
+				auto statusCode = queue->submit({ &submitInfo,1 });
 				queue->endCapture();
+				assert(statusCode == IQueue::RESULT::SUCCESS);
 			}
 
 			{
+				ISemaphore::SWaitInfo infos[1] = {{.semaphore=m_timeline.get(),.value=m_iteration}};
+				m_device->blockForSemaphores(infos);
 				// Readback ds
-				auto mem = m_scratchBuffer->getBoundMemory();
+				// TODO: This should readback the m_transferDstBuffer instead
+				// (we'll read back the destination buffer and check that copy went through as expected)
+				auto mem = m_transferDstBuffer->getBoundMemory(); // Scratch buffer has the transfer requests
 				void* ptr = mem.memory->map({ mem.offset, mem.memory->getAllocationSize() });
 
 				for (uint32_t i = 0; i < sizeof(nbl::hlsl::property_pools::TransferRequest) * 10; i++)
@@ -489,9 +497,15 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 					std::printf("%i, ", value);
 				}
 				std::printf("\n");
-				std::printf("should be %I64i (alignment: %I64i): %I64i\n", m_transferSrcBuffer->getDeviceAddress(), m_transferSrcBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 3)[0]);
-				std::printf("should be %I64i (alignment: %I64i): %I64i\n", m_transferDstBuffer->getDeviceAddress(), m_transferDstBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 4)[0]);
-				std::printf("should be 3: %i\n", reinterpret_cast<uint16_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 5)[0]);
+				//std::printf("srcAddr %I64i (alignment: %I64i): %I64i\n", m_transferSrcBuffer->getDeviceAddress(), m_transferSrcBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 3)[0]);
+				//std::printf("dstAddr %I64i (alignment: %I64i): %I64i\n", m_transferDstBuffer->getDeviceAddress(), m_transferDstBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 4)[0]);
+				//std::printf("srcIndexAddr %I64i\n", reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 5)[0]);
+				//std::printf("dstIndexAddr %I64i\n", reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 6)[0]);
+				//std::printf("elementCount %I64i\n", reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 7)[0]);
+				//std::printf("propertySize %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 8)[0]);
+				//std::printf("fill %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 9)[0]);
+				//std::printf("srcIndexSizeLog2 %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 10)[0]);
+				//std::printf("dstIndexSizeLog2 %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 11)[0]);
 				bool success = mem.memory->unmap();
 				assert(success);
 			}
