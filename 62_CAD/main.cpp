@@ -26,7 +26,7 @@ enum class ExampleMode
 	CASE_5, // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 using namespace nbl::hlsl;
 
@@ -1761,7 +1761,8 @@ public:
 //#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
-#define CASE_5_POLYLINE_5 // closed polygon
+//#define CASE_5_POLYLINE_5 // closed polygon
+#define CASE_5_POLYLINE_6 // stretching
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
@@ -2033,6 +2034,53 @@ public:
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+#elif defined(CASE_5_POLYLINE_6)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 3.0f;
+			style.worldSpaceLineWidth = 0.0f;
+			style.color = float32_t4(0.85f, 0.1f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = false;
+			style.stretchToFit = true;
+
+			std::array<double, 6u> stipplePattern = { 5.0f, -5.0f, 5.0f, -3.0, 0.0, -1.0 };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			// style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
+
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 50.0 });
+				linePoints.push_back({ abs(cos(m_timeElapsed * 0.0003)) * 100.0, 50.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+			
+			{
+				CPolyline polyline;
+
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCurve;
+				{
+					myCurve.majorAxis = { -50.0, 0.0 };
+					myCurve.center = { 0.0, 25.0 };
+					myCurve.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * abs(cos(m_timeElapsed * 0.0003))
+					};
+					myCurve.eccentricity = 1.0;
+				}
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				polyline.preprocessPolylineWithStyle(style);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
 #endif
 
 		}
