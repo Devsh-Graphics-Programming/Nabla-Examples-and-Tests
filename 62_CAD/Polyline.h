@@ -11,10 +11,9 @@
 struct CPULineStyle
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
-	static constexpr uint32_t InvalidShapeSegmentIndex = ~0u;
 	static constexpr double InvalidShapeOffset = nbl::hlsl::numeric_limits<double>::infinity;
 	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
-	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+	static const uint32_t StipplePatternMaxSize = LineStyle::StipplePatternMaxSize;
 
 	float32_t4 color;
 	float screenSpaceLineWidth;
@@ -25,7 +24,7 @@ struct CPULineStyle
 	*/
 	int32_t stipplePatternSize = 0u;
 	float reciprocalStipplePatternLen = 0.0;
-	float stipplePattern[STIPPLE_PATTERN_MAX_SZ] = {};
+	float stipplePattern[StipplePatternMaxSize] = {};
 	float phaseShift = 0.0;
 	/*
 		Customization Flags:
@@ -37,9 +36,9 @@ struct CPULineStyle
 	/*
 		special segment -> this is an index to stipple pattern to not stretch that value in the pattern when stretchToFit is true
 		a valid shape segments means we don't want to stretch the shape segment and we treat it differently
-		InvalidShapeSegmentIndex means we want to stretch the shape segment as well and we don't treat it differently -> simpler
+		InvalidRigidSegmentIndex means we want to stretch the shape segment as well and we don't treat it differently -> simpler
 	*/
-	uint32_t shapeSegementIdx = InvalidShapeSegmentIndex;
+	uint32_t rigidSegementIdx = InvalidRigidSegmentIndex;
 
 	/*
 	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
@@ -47,7 +46,7 @@ struct CPULineStyle
 	*/
 	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset)
 	{
-		assert(stipplePatternUnnormalizedRepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
+		assert(stipplePatternUnnormalizedRepresentation.size() <= StipplePatternMaxSize);
 
 		if (stipplePatternUnnormalizedRepresentation.size() == 0)
 		{
@@ -108,7 +107,7 @@ struct CPULineStyle
 		}
 
 		// calculate normalized prefix sum
-		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
+		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::StipplePatternMaxSize - 1u;
 		const uint32_t PREFIX_SUM_SZ = static_cast<uint32_t>(stipplePatternTransformed.size()) - 1;
 
 		double prefixSum[PREFIX_SUM_MAX_SZ];
@@ -159,18 +158,57 @@ struct CPULineStyle
 
 			if (dFraction == 0.0)
 				ret = 1.0;
-			else if (shapeSegementIdx == CPULineStyle::InvalidShapeSegmentIndex)
-			{
-				// the + CPULineStyle::PhaseShiftEpsilon, stretches the value a little more  behaves as if arcLen is += 0.001 * patternLen.
-				// this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively
-				ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
-			}
 			else
 			{
-				// TODO:
+				// the + CPULineStyle::PhaseShiftEpsilon, stretches the value a little more  behaves as if arcLen is += 0.001 * patternLen.
+				// this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+				ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
 			}
 		}
 		return ret;
+	}
+
+	// Phase Shift might change when stretching non-uniformly
+	float getStretchedPhaseShift(float32_t stretchValue) const
+	{
+		if (stretchToFit && rigidSegementIdx != InvalidRigidSegmentIndex)
+		{
+			// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
+			const float rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
+			const float rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
+			const float rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+
+			const float nonRigidSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
+
+			float newPhaseShift = min(phaseShift, rigidSegmentStart) * nonRigidSegmentStretchValue; // stretch parts before rigid segment
+			newPhaseShift += max(phaseShift - rigidSegmentEnd, 0.0f) * nonRigidSegmentStretchValue; // stretch parts after rigid segment
+			newPhaseShift += max(min(rigidSegmentLen, phaseShift - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
+			newPhaseShift /= stretchValue; // scale back to normalized phaseShift
+
+#if 1 // for testing:
+			{
+				float rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
+				float rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
+				float rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+				const float nonRigidSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
+				rigidSegmentStart *= nonRigidSegmentStretchValue;
+				rigidSegmentEnd = rigidSegmentStart + rigidSegmentLen;
+
+				float oldPhaseShift = min(newPhaseShift, rigidSegmentStart) / nonRigidSegmentStretchValue; // unstretch parts before rigid segment
+				oldPhaseShift += max(newPhaseShift - rigidSegmentEnd, 0.0f) / nonRigidSegmentStretchValue; // unstretch parts after rigid segment
+				oldPhaseShift += max(min(rigidSegmentLen, newPhaseShift - rigidSegmentStart), 0.0f); // unstretch parts inside rigid segment
+				oldPhaseShift *= stretchValue;
+
+				assert(oldPhaseShift == phaseShift);
+			}
+#endif
+
+			return newPhaseShift;
+		}
+		else
+		{
+			return phaseShift;
+		}
 	}
 
 	LineStyle getAsGPUData() const
@@ -188,7 +226,7 @@ struct CPULineStyle
 				(i == stipplePatternSize && stipplePattern[0] == 0.0) ||
 				(i + 2 <= stipplePatternSize && stipplePattern[i] == stipplePattern[i + 1]);
 
-			ret.stipplePattern[i] = static_cast<uint32_t>(stipplePattern[i] * (1u << 29u));
+			ret.setStippleValue(i, stipplePattern[i]);
 
 			if (leftIsDot)
 				ret.stipplePattern[i] |= 1u << 30u;
@@ -202,6 +240,7 @@ struct CPULineStyle
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
 		ret.isRoadStyleFlag = isRoadStyleFlag;
+		ret.rigidSegmentIdx = rigidSegementIdx;
 
 		return ret;
 	}
@@ -398,7 +437,7 @@ public:
 					const float stretchValue = lineStyle.calculateStretchValue(lineLen);
 					
 					if (patternStartAgain)
-						currentPhaseShift = lineStyle.phaseShift;
+						currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
 					linePoint.phaseShift = currentPhaseShift;
 					linePoint.stretchValue = stretchValue;
@@ -418,9 +457,6 @@ public:
 			{
 				const uint32_t quadBezierCount = section.count;
 				
-				if (patternStartAgain)
-					currentPhaseShift = lineStyle.phaseShift;
-
 				// when stretchToFit is true, we need to calculate the whole section arc length to figure out the stretch value needed for stippling phaseshift
 				float stretchValue = 1.0;
 				if (lineStyle.stretchToFit)
@@ -435,6 +471,9 @@ public:
 					}
 					stretchValue = lineStyle.calculateStretchValue(sectionArcLen);
 				}
+				
+				if (patternStartAgain)
+					currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
 				const float64_t stretchedPatternLen = (1.0 / lineStyle.reciprocalStipplePatternLen) * stretchValue;
 				const float64_t stretchedRcpPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;

@@ -115,9 +115,11 @@ static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
 static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
+NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
+
 struct LineStyle
 {
-    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+    const static uint32_t StipplePatternMaxSize = 14u;
 
     // common data
     float32_t4 color;
@@ -127,13 +129,19 @@ struct LineStyle
     // stipple pattern data
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
-    uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
-    uint32_t isRoadStyleFlag; // can pack more bools here in the future
+    uint32_t stipplePattern[StipplePatternMaxSize]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
+    uint32_t isRoadStyleFlag;
+    uint32_t rigidSegmentIdx; // TODO: can be more mem efficient with styles by packing this along other values, since stipple pattern size is bounded by StipplePatternMaxSize 
 
     float getStippleValue(const uint32_t ix)
     {
         const uint32_t floatValBis = 0xffffffff >> 2; // clear two msb bits reserved for something else
         return (stipplePattern[ix] & floatValBis) / float(1u << 29);
+    }
+
+    void setStippleValue(const uint32_t ix, const float val)
+    {
+        stipplePattern[ix] = (uint32_t)(val * (1u << 29u));
     }
 
     bool isLeftDot(const uint32_t ix)

@@ -385,7 +385,7 @@ uint32_t DrawBuffersFiller::addMainObject_Internal(const MainObject& mainObject)
 uint32_t DrawBuffersFiller::addLineStyle_Internal(const CPULineStyle& cpuLineStyle)
 {
 	LineStyle gpuLineStyle = cpuLineStyle.getAsGPUData();
-	_NBL_DEBUG_BREAK_IF(gpuLineStyle.stipplePatternSize > LineStyle::STIPPLE_PATTERN_MAX_SZ); // Oops, even after style normalization the style is too long to be in gpu mem :(
+	_NBL_DEBUG_BREAK_IF(gpuLineStyle.stipplePatternSize > LineStyle::StipplePatternMaxSize); // Oops, even after style normalization the style is too long to be in gpu mem :(
 	LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 	for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
 	{
