@@ -446,7 +446,7 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_scratchBuffer)}, 
 					asset::SBufferBinding<video::IGPUBuffer>{0, core::smart_refctd_ptr(m_addressBuffer)}, 
 					&transferRequest, &transferRequest + 1,
-					m_logger.get(), 0, MaxValuesPerTransfer
+					m_logger.get(), 0, m_data.size()
 					);
 
 				auto result = cmdbuf->end();
@@ -485,27 +485,21 @@ class PropertyPoolsApp final : public examples::SingleNonResizableWindowApplicat
 			{
 				ISemaphore::SWaitInfo infos[1] = {{.semaphore=m_timeline.get(),.value=m_iteration}};
 				m_device->blockForSemaphores(infos);
+
 				// Readback ds
-				// TODO: This should readback the m_transferDstBuffer instead
 				// (we'll read back the destination buffer and check that copy went through as expected)
 				auto mem = m_transferDstBuffer->getBoundMemory(); // Scratch buffer has the transfer requests
 				void* ptr = mem.memory->map({ mem.offset, mem.memory->getAllocationSize() });
 
-				for (uint32_t i = 0; i < sizeof(nbl::hlsl::property_pools::TransferRequest) * 10; i++)
+				for (uint32_t i = 0; i < 1024; /*m_data.size();*/ i++)
 				{
-					uint16_t value = reinterpret_cast<uint16_t*>(ptr)[i];
-					std::printf("%i, ", value);
+					uint16_t expected = reinterpret_cast<uint16_t*>(ptr)[i];
+					uint16_t actual = m_data[i];
+					std::printf("%i, ", expected);
+					//assert(expected == actual);
 				}
 				std::printf("\n");
-				//std::printf("srcAddr %I64i (alignment: %I64i): %I64i\n", m_transferSrcBuffer->getDeviceAddress(), m_transferSrcBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 3)[0]);
-				//std::printf("dstAddr %I64i (alignment: %I64i): %I64i\n", m_transferDstBuffer->getDeviceAddress(), m_transferDstBuffer->getDeviceAddress() & 7, reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 4)[0]);
-				//std::printf("srcIndexAddr %I64i\n", reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 5)[0]);
-				//std::printf("dstIndexAddr %I64i\n", reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 6)[0]);
-				//std::printf("elementCount %I64i\n", reinterpret_cast<uint64_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 7)[0]);
-				//std::printf("propertySize %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 8)[0]);
-				//std::printf("fill %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 9)[0]);
-				//std::printf("srcIndexSizeLog2 %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 10)[0]);
-				//std::printf("dstIndexSizeLog2 %i\n", reinterpret_cast<uint32_t*>(reinterpret_cast<uint8_t*>(ptr) + 40 * 11)[0]);
+				_NBL_DEBUG_BREAK_IF(true);
 				bool success = mem.memory->unmap();
 				assert(success);
 			}
