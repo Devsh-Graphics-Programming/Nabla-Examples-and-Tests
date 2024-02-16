@@ -16,7 +16,5 @@ struct PushConstantData
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
 
-#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
-
 // Yes we do have our own re-creation of C++'s STL in HLSL2021 !
 #include "nbl/builtin/hlsl/limits.hlsl"
