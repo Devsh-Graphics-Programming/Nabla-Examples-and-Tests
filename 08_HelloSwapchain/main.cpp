@@ -17,6 +17,10 @@ class WindowedApplication : public virtual BasicMultiQueueApplication
 	public:
 		using base_t::base_t;
 
+		// We inherit from an application that tries to find Graphics and Compute queues
+		// because applications with presentable images often want to perform Graphics family operations
+		virtual bool isComputeOnly() const {return false;}
+
 		virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
 		{
 			auto retval = base_t::getAPIFeaturesToEnable();
@@ -26,22 +30,23 @@ class WindowedApplication : public virtual BasicMultiQueueApplication
 		}
 
 		// New function, we neeed to know about surfaces to create ahead of time
-		virtual core::vector<const video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const = 0;
+		virtual core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const = 0;
 
-		virtual core::set<video::IPhysicalDevice*> filterDevices(const core::SRange<video::IPhysicalDevice* const>& physicalDevices) const
+		// We have a very simple heuristic, the device must be able to render to all windows!
+		// (want to make something more complex? you're on your own!)
+		virtual void filterDevices(core::set<video::IPhysicalDevice*>& physicalDevices) const
 		{
-			const auto firstFilter = base_t::filterDevices(physicalDevices);
+			base_t::filterDevices(physicalDevices);
 
 			video::SPhysicalDeviceFilter deviceFilter = {};
 			
-			const auto surfaces = getSurfaces();
-			deviceFilter.requiredSurfaceCompatibilities = surfaces.data();
-			deviceFilter.requiredSurfaceCompatibilitiesCount = surfaces.size();
+			auto surfaces = getSurfaces();
+			deviceFilter.requiredSurfaceCompatibilities = {surfaces};
 
 			return deviceFilter(physicalDevices);
 		}
 		
-		virtual bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
 			if (!base_t::onAppInitialized(std::move(system)))
@@ -52,6 +57,7 @@ class WindowedApplication : public virtual BasicMultiQueueApplication
 		#else
 			#error "Unimplemented!"
 		#endif
+			return true;
 		}
 
 		core::smart_refctd_ptr<ui::IWindowManager> m_winMgr;
@@ -87,7 +93,7 @@ class SingleNonResizableWindowApplication : public virtual WindowedApplication
 	public:
 		using base_t::base_t;
 
-		virtual bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
 			if (!base_t::onAppInitialized(std::move(system)))
@@ -98,7 +104,7 @@ class SingleNonResizableWindowApplication : public virtual WindowedApplication
 			return true;
 		}
 
-		virtual core::vector<const video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const
+		virtual core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const
 		{
 			return {{m_surface.get()/*,EQF_NONE*/}};
 		}
@@ -112,15 +118,15 @@ class SingleNonResizableWindowApplication : public virtual WindowedApplication
 		}
 
 	protected:
-		virtual IWindow::SCreationParams getWindowCreationParams() const
+		virtual ui::IWindow::SCreationParams getWindowCreationParams() const
 		{
-			IWindow::SCreationParams params = {};
-			params.callback = make_smart_refctd_ptr<IWindowClosedCallback>();
+			ui::IWindow::SCreationParams params = {};
+			params.callback = core::make_smart_refctd_ptr<IWindowClosedCallback>();
 			params.width = 640;
 			params.height = 480;
 			params.x = 32;
 			params.y = 32;
-			params.flags = IWindow::ECF_NONE;
+			params.flags = ui::IWindow::ECF_NONE;
 			params.windowCaption = "SingleNonResizableWindowApplication";
 			return params;
 		}
@@ -130,6 +136,7 @@ class SingleNonResizableWindowApplication : public virtual WindowedApplication
 };
 }
 
+#include "nbl/video/CVulkanSwapchain.h"
 
 using namespace nbl;
 using namespace core;

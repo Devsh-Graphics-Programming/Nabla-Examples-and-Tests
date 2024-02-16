@@ -40,7 +40,8 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			if (gpus.empty())
 				return logFail("Failed to find any Nabla Core Profile Vulkan devices!");
 
-			const core::set<video::IPhysicalDevice*> suitablePhysicalDevices = filterDevices(gpus);
+			core::set<video::IPhysicalDevice*> suitablePhysicalDevices(gpus.begin(),gpus.end());
+			filterDevices(suitablePhysicalDevices);
 			if (suitablePhysicalDevices.empty())
 				return logFail("No PhysicalDevice met the feature requirements of the application!");
 
@@ -78,7 +79,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		}
 
 		// a device filter helps you create a set of physical devices that satisfy your requirements in terms of features, limits etc.
-		virtual core::set<video::IPhysicalDevice*> filterDevices(const core::SRange<video::IPhysicalDevice* const>& physicalDevices) const
+		virtual void filterDevices(core::set<video::IPhysicalDevice*>& physicalDevices) const
 		{
 			video::SPhysicalDeviceFilter deviceFilter = {};
 
@@ -96,7 +97,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			const auto queueReqs = getQueueRequirements();
 			deviceFilter.queueRequirements = queueReqs;
 			
-			return deviceFilter(physicalDevices);
+			deviceFilter(physicalDevices);
 		}
 
 		// virtual function so you can override as needed for some example father down the line
