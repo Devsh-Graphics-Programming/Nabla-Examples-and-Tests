@@ -257,37 +257,10 @@ public:
 		uint32_t windowHeight = 600u;
 		uint32_t swapchainImageCount = 3u;
 
-		nbl::asset::IImage::E_USAGE_FLAGS swapchainImageUsage = nbl::asset::IImage::E_USAGE_FLAGS::EUF_NONE;
-
-		constexpr static inline std::array<nbl::asset::E_FORMAT, 4> defaultAcceptableSurfaceFormats = { nbl::asset::EF_R8G8B8A8_SRGB, nbl::asset::EF_R8G8B8A8_UNORM, nbl::asset::EF_B8G8R8A8_SRGB, nbl::asset::EF_B8G8R8A8_UNORM };
-		constexpr static inline std::array<nbl::asset::E_COLOR_PRIMARIES, 1> defaultAcceptableColorPrimaries = { nbl::asset::ECP_SRGB };
-		constexpr static inline std::array<nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION, 1> defaultAcceptableEotfs = { nbl::asset::EOTF_sRGB };
-		constexpr static inline std::array<nbl::video::ISurface::E_PRESENT_MODE, 1> defaultAcceptablePresentModes = { nbl::video::ISurface::EPM_FIFO_RELAXED };
-		constexpr static inline std::array<nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS, 2> defaultAcceptableSurfaceTransforms = { nbl::video::ISurface::EST_IDENTITY_BIT, nbl::video::ISurface::EST_HORIZONTAL_MIRROR_ROTATE_180_BIT };
-
-		const nbl::asset::E_FORMAT* acceptableSurfaceFormats = &defaultAcceptableSurfaceFormats[0];
-		uint32_t acceptableSurfaceFormatCount = defaultAcceptableSurfaceFormats.size();
-		const nbl::asset::E_COLOR_PRIMARIES* acceptableColorPrimaries = &defaultAcceptableColorPrimaries[0];
-		uint32_t acceptableColorPrimaryCount = defaultAcceptableColorPrimaries.size();
-		const nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION* acceptableEotfs = &defaultAcceptableEotfs[0];
-		uint32_t acceptableEotfCount = defaultAcceptableEotfs.size();
-		const nbl::video::ISurface::E_PRESENT_MODE* acceptablePresentModes = &defaultAcceptablePresentModes[0];
-		uint32_t acceptablePresentModeCount = defaultAcceptablePresentModes.size();
-		const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms = &defaultAcceptableSurfaceTransforms[0];
-		uint32_t acceptableSurfaceTransformCount = defaultAcceptableSurfaceTransforms.size();
-
-		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
-
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindow> window = nullptr;
 		nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager = nullptr;
 		nbl::core::smart_refctd_ptr<CommonAPIEventCallback> windowCb = nullptr;
-		nbl::core::bitflag<nbl::system::ILogger::E_LOG_LEVEL> logLevel =
-			nbl::core::bitflag(nbl::system::ILogger::ELL_DEBUG) | nbl::system::ILogger::ELL_PERFORMANCE | nbl::system::ILogger::ELL_WARNING | nbl::system::ILogger::ELL_ERROR | nbl::system::ILogger::ELL_INFO;
 
-		constexpr bool isHeadlessCompute()
-		{
-			return swapchainImageUsage == nbl::asset::IImage::EUF_NONE;
-		}
 	};
 
 	struct InitOutput
@@ -373,20 +346,6 @@ public:
 
 		return result;
 	}
-	
-	static nbl::video::ISwapchain::SCreationParams computeSwapchainCreationParams(
-		uint32_t& imageCount,
-		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
-		const nbl::core::smart_refctd_ptr<nbl::video::ISurface>& surface,
-		nbl::asset::IImage::E_USAGE_FLAGS imageUsage,
-		// Acceptable settings, ordered by preference.
-		const nbl::asset::E_FORMAT* acceptableSurfaceFormats, uint32_t acceptableSurfaceFormatCount,
-		const nbl::asset::E_COLOR_PRIMARIES* acceptableColorPrimaries, uint32_t acceptableColorPrimaryCount,
-		const nbl::asset::ELECTRO_OPTICAL_TRANSFER_FUNCTION* acceptableEotfs, uint32_t acceptableEotfCount,
-		const nbl::video::ISurface::E_PRESENT_MODE* acceptablePresentModes, uint32_t acceptablePresentModeCount,
-		const nbl::video::ISurface::E_SURFACE_TRANSFORM_FLAGS* acceptableSurfaceTransforms, uint32_t acceptableSurfaceTransformsCount
-	);
-
 
 	class IRetiredSwapchainResources: public nbl::video::ICleanup
 	{
@@ -398,50 +357,6 @@ public:
 	static void dropRetiredSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, const uint64_t completedFrameId);
 	static void retireSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, IRetiredSwapchainResources* retired);
 
-	static bool createSwapchain(
-		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>&& device,
-		nbl::video::ISwapchain::SCreationParams& params,
-		uint32_t width, uint32_t height,
-		// nullptr for initial creation, old swapchain for eventual resizes
-		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchain
-	);
-
-	template<class EventCallback = CommonAPIEventCallback, nbl::video::DeviceFeatureDependantClass... device_feature_dependant_t>
-	static InitOutput InitWithDefaultExt(InitParams&& params)
-	{
-#ifndef _NBL_PLATFORM_ANDROID_
-		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
-		apiFeaturesToEnable.swapchainMode = swapChainMode;
-		apiFeaturesToEnable.validations = true;
-		apiFeaturesToEnable.debugUtils = true;
-		params.apiFeaturesToEnable = apiFeaturesToEnable;
-		
-		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
-#endif
-
-		return CommonAPI::Init<true, EventCallback, device_feature_dependant_t...>(std::move(params));
-	}
-
-	template<class EventCallback = CommonAPIEventCallback, nbl::video::DeviceFeatureDependantClass... device_feature_dependant_t>
-	static InitOutput InitWithRaytracingExt(InitParams&& params)
-	{
-#ifndef _NBL_PLATFORM_ANDROID_
-		const auto swapChainMode = nbl::video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-		nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable;
-		apiFeaturesToEnable.swapchainMode = swapChainMode;
-		apiFeaturesToEnable.validations = true;
-		apiFeaturesToEnable.debugUtils = true;
-		params.apiFeaturesToEnable = apiFeaturesToEnable;
-
-		params.physicalDeviceFilter.requiredFeatures.swapchainMode = swapChainMode;
-		params.physicalDeviceFilter.requiredFeatures.rayQuery = true;
-		params.physicalDeviceFilter.requiredFeatures.accelerationStructure = true;
-#elif
-		return {};
-#endif
-		return CommonAPI::Init<true, EventCallback, device_feature_dependant_t...>(std::move(params));
-	}
 
 	static nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat);
 
@@ -479,23 +394,6 @@ public:
 			submit.pWaitDstStageMask = &dstWait;
 
 			queue->submit(1u,&submit,fence);
-		}
-	}
-
-	static void Present(nbl::video::ILogicalDevice* device,
-		nbl::video::ISwapchain* sc,
-		nbl::video::IGPUQueue* queue,
-		nbl::video::IGPUSemaphore* waitSemaphore, // usually the render finished semaphore
-		uint32_t imageNum)
-	{
-		using namespace nbl;
-		nbl::video::ISwapchain::SPresentInfo present;
-		{
-			present.imgIndex = imageNum;
-			present.waitSemaphoreCount = waitSemaphore ? 1u : 0u;
-			present.waitSemaphores = &waitSemaphore;
-
-			sc->present(queue, present);
 		}
 	}
 
