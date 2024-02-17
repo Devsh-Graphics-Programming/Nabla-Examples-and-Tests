@@ -175,7 +175,9 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
         lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
         lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
         lhs.stipplePatternSize == rhs.stipplePatternSize &&
-        lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen;
+        lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
+        lhs.isRoadStyleFlag == rhs.isRoadStyleFlag &&
+        lhs.rigidSegmentIdx == rhs.rigidSegmentIdx;
 
     if (!areParametersEqual)
         return false;
