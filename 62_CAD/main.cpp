@@ -14,7 +14,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -2040,22 +2040,67 @@ public:
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.85f, 0.1f, 0.1f, 0.5f);
 			style.isRoadStyleFlag = false;
-			style.stretchToFit = true;
-
-			std::array<double, 6u> stipplePattern = { 5.0f, -5.0f, 5.0f, -3.0, 0.0, -1.0 };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
-			// style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
 
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
-				linePoints.push_back({ -50.0, 50.0 });
-				linePoints.push_back({ abs(cos(m_timeElapsed * 0.0003)) * 100.0, 50.0 });
+				linePoints.push_back({ -50.0, 58.0 });
+				linePoints.push_back({ -35.0, 58.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
+			std::array<double, 2u> stipplePattern = { -5.0f, 5.0f };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			//style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
+			
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 54.0 });
+				linePoints.push_back({ -35.0, 54.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			style.stretchToFit = true;
+
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 52.0 });
+				linePoints.push_back({ -35.0, 52.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
+			style.rigidSegementIdx = 1u;
+			
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 50.0 });
+				linePoints.push_back({ -35.0, 50.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+			
+			style.rigidSegementIdx = 0u;
+			
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 48.0 });
+				linePoints.push_back({ -35.0, 48.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+
 			{
 				CPolyline polyline;
 
@@ -2066,7 +2111,7 @@ public:
 					myCurve.center = { 0.0, 25.0 };
 					myCurve.angleBounds = {
 						nbl::core::PI<double>() * 0.0,
-						nbl::core::PI<double>() * abs(cos(m_timeElapsed * 0.0003))
+						nbl::core::PI<double>() * abs(cos(m_timeElapsed * 0.0001))
 					};
 					myCurve.eccentricity = 1.0;
 				}
@@ -2076,7 +2121,7 @@ public:
 						quadBeziers.push_back(info);
 					};
 
-				curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
 				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
