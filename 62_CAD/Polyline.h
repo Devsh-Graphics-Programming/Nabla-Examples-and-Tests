@@ -12,7 +12,7 @@ struct CPULineStyle
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
 	static constexpr double InvalidShapeOffset = nbl::hlsl::numeric_limits<double>::infinity;
-	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
+	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think for phase shift in normalized stipple space this is a reasonable value? right?
 	static const uint32_t StipplePatternMaxSize = LineStyle::StipplePatternMaxSize;
 
 	float32_t4 color;
@@ -127,8 +127,12 @@ struct CPULineStyle
 			stipplePattern[i] = static_cast<float>(prefixSum[i]);
 			
 		currentPhaseShift = currentPhaseShift * rcpLen;
-		if (stipplePatternTransformed[0] == 0.0)
+
+		if (stipplePatternUnnormalizedRepresentation[0] == 0.0)
 			currentPhaseShift -= PatternEpsilon;
+		else if (stipplePatternUnnormalizedRepresentation[0] < 0.0)
+			currentPhaseShift += PatternEpsilon;
+
 		phaseShift = static_cast<float>(currentPhaseShift);
 
 		
@@ -140,7 +144,7 @@ struct CPULineStyle
 	
 	float calculateStretchValue(float64_t arcLen) const
 	{
-		float ret = 1.0f;
+		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
 		if (stretchToFit)
 		{
 			//	Work out how many segments will fit into the line and calculate the stretch factor
@@ -184,25 +188,6 @@ struct CPULineStyle
 			newPhaseShift += max(phaseShift - rigidSegmentEnd, 0.0f) * nonRigidSegmentStretchValue; // stretch parts after rigid segment
 			newPhaseShift += max(min(rigidSegmentLen, phaseShift - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
 			newPhaseShift /= stretchValue; // scale back to normalized phaseShift
-
-#if 1 // for testing:
-			{
-				float rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
-				float rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
-				float rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
-				const float nonRigidSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
-				rigidSegmentStart *= nonRigidSegmentStretchValue;
-				rigidSegmentEnd = rigidSegmentStart + rigidSegmentLen;
-
-				float oldPhaseShift = min(newPhaseShift, rigidSegmentStart) / nonRigidSegmentStretchValue; // unstretch parts before rigid segment
-				oldPhaseShift += max(newPhaseShift - rigidSegmentEnd, 0.0f) / nonRigidSegmentStretchValue; // unstretch parts after rigid segment
-				oldPhaseShift += max(min(rigidSegmentLen, newPhaseShift - rigidSegmentStart), 0.0f); // unstretch parts inside rigid segment
-				oldPhaseShift *= stretchValue;
-
-				assert(oldPhaseShift == phaseShift);
-			}
-#endif
-
 			return newPhaseShift;
 		}
 		else
