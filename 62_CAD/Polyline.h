@@ -40,6 +40,12 @@ struct CPULineStyle
 	*/
 	uint32_t rigidSegementIdx = InvalidRigidSegmentIndex;
 
+
+	// Cached and Precomputed Values used in preprocessing a polyline
+	float rigidSegmentStart = 0.0f;
+	float rigidSegmentEnd = 0.0f;
+	float rigidSegmentLen = 0.0f;
+
 	/*
 	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
 	* shapeOffset is the offset into the unnormalized pattern a shape is going to draw, it's specialized this way because sometimes we don't want to stretch the pattern value the shape resides in.
@@ -136,10 +142,15 @@ struct CPULineStyle
 		phaseShift = static_cast<float>(currentPhaseShift);
 
 		
-		if (shapeOffsetInPattern == InvalidShapeOffset)
+		if (shapeOffsetInPattern != InvalidShapeOffset)
 		{
-
+			rigidSegementIdx = 1u;
+			// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
+			rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
+			rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
+			rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
 		}
+		
 	}
 	
 	float calculateStretchValue(float64_t arcLen) const
@@ -147,26 +158,34 @@ struct CPULineStyle
 		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
 		if (stretchToFit)
 		{
-			//	Work out how many segments will fit into the line and calculate the stretch factor
-			int nSegments = 1;
-			double dInteger;
-			double dFraction = ::modf(arcLen * reciprocalStipplePatternLen, &dInteger);
-			if (dInteger < 1.0)
-				nSegments = 1;
-			else
+			if (rigidSegementIdx != InvalidRigidSegmentIndex && arcLen * reciprocalStipplePatternLen <= rigidSegmentLen)
 			{
-				nSegments = (int)dInteger;
-				if (dFraction > 0.5)
-					nSegments++;
+				// arcLen is less than or equal to rigidSegmentLen, then stretch value is invalidated to draw the polyline solid without any style
+				ret = InvalidStyleStretchValue;
 			}
-
-			if (dFraction == 0.0)
-				ret = 1.0;
 			else
 			{
-				// the + CPULineStyle::PhaseShiftEpsilon, stretches the value a little more  behaves as if arcLen is += 0.001 * patternLen.
-				// this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
-				ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
+				//	Work out how many segments will fit into the line and calculate the stretch factor
+				int nSegments = 1;
+				double dInteger;
+				double dFraction = ::modf(arcLen * reciprocalStipplePatternLen, &dInteger);
+				if (dInteger < 1.0)
+					nSegments = 1;
+				else
+				{
+					nSegments = (int)dInteger;
+					if (dFraction > 0.5)
+						nSegments++;
+				}
+
+				if (dFraction == 0.0)
+					ret = 1.0;
+				else
+				{
+					// the + CPULineStyle::PhaseShiftEpsilon, stretches the value a little more  behaves as if arcLen is += 0.001 * patternLen.
+					// this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+					ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
+				}
 			}
 		}
 		return ret;
@@ -177,13 +196,7 @@ struct CPULineStyle
 	{
 		if (stretchToFit && rigidSegementIdx != InvalidRigidSegmentIndex)
 		{
-			// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
-			const float rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
-			const float rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
-			const float rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
-
-			const float nonRigidSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
-
+			float nonRigidSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
 			float newPhaseShift = min(phaseShift, rigidSegmentStart) * nonRigidSegmentStretchValue; // stretch parts before rigid segment
 			newPhaseShift += max(phaseShift - rigidSegmentEnd, 0.0f) * nonRigidSegmentStretchValue; // stretch parts after rigid segment
 			newPhaseShift += max(min(rigidSegmentLen, phaseShift - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment

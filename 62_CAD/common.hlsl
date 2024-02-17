@@ -116,6 +116,7 @@ static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
 
 NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
+NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
 struct LineStyle
 {

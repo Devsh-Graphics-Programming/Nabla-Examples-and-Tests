@@ -363,7 +363,7 @@ float4 main(PSInput input) : SV_TARGET
         LineStyle style = lineStyles[styleIdx];
         
         float distance;
-        if (!style.hasStipples())
+        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
         {
             distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
         }
@@ -388,7 +388,7 @@ float4 main(PSInput input) : SV_TARGET
 
         LineStyle style = lineStyles[styleIdx];
         float distance;
-        if (!style.hasStipples())
+        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
         {
             distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
         }
