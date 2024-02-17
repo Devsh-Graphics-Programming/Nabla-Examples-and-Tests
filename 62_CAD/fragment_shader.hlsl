@@ -57,10 +57,49 @@ struct StyleClipper
         LineStyle style,
         CurveType curve,
         typename CurveType::ArcLengthCalculator arcLenCalc,
-        float phaseShift)
+        float phaseShift,
+        float stretch)
     {
-        StyleClipper<CurveType> ret = { style, curve, arcLenCalc, phaseShift };
+        StyleClipper<CurveType> ret = { style, curve, arcLenCalc, phaseShift, stretch, 0.0f, 0.0f, 0.0f, 0.0f };
+
+        // values for non-uniform stretching with a rigid segment
+        if (style.rigidSegmentIdx != InvalidRigidSegmentIndex && stretch != 1.0f)
+        {
+            // rigidSegment info in old non stretched pattern
+            ret.rigidSegmentStart = (style.rigidSegmentIdx >= 1u) ? style.getStippleValue(style.rigidSegmentIdx - 1u) : 0.0f;
+            ret.rigidSegmentEnd = (style.rigidSegmentIdx < style.stipplePatternSize) ? style.getStippleValue(style.rigidSegmentIdx) : 1.0f;
+            ret.rigidSegmentLen = ret.rigidSegmentEnd - ret.rigidSegmentStart;
+            // stretch value for non rigid segments
+            ret.nonRigidSegmentStretchValue = (stretch - ret.rigidSegmentLen) / (1.0f - ret.rigidSegmentLen);
+            // rigidSegment info to new stretched pattern
+            ret.rigidSegmentStart *= ret.nonRigidSegmentStretchValue / stretch; // get the new normalized rigid segment start
+            ret.rigidSegmentLen /= stretch; // get the new rigid segment normalized len
+            ret.rigidSegmentEnd = ret.rigidSegmentStart + ret.rigidSegmentLen; // get the new normalized rigid segment end 
+        }
+        else
+        {
+            ret.nonRigidSegmentStretchValue = stretch;
+        }
+        
         return ret;
+    }
+
+    // For non-uniform stretching with a rigid segment (the one segement that shouldn't stretch) the whole pattern changes
+    // instead of transforming each of the style.stipplePattern values (max 14 of them), we transform the normalized place in pattern
+    float getRealNormalizedPlaceInPattern(float normalizedPlaceInPattern)
+    {
+        if (style.rigidSegmentIdx != InvalidRigidSegmentIndex && stretch != 1.0f)
+        {
+            float ret = min(normalizedPlaceInPattern, rigidSegmentStart) / nonRigidSegmentStretchValue; // unstretch parts before rigid segment
+            ret += max(normalizedPlaceInPattern - rigidSegmentEnd, 0.0f) / nonRigidSegmentStretchValue; // unstretch parts after rigid segment
+            ret += max(min(rigidSegmentLen, normalizedPlaceInPattern - rigidSegmentStart), 0.0f); // unstretch parts inside rigid segment
+            ret *= stretch;
+            return ret;
+        }
+        else
+        {
+            return normalizedPlaceInPattern;
+        }
     }
 
     float_t2 operator()(float_t t)
@@ -68,17 +107,20 @@ struct StyleClipper
         // basicaly 0.0 and 1.0 but with a guardband to discard outside the range
         const float_t minT = 0.0 - 1.0;
         const float_t maxT = 1.0 + 1.0;
-        
+
         StyleAccessor styleAccessor = { style };
+        const float_t reciprocalStretchedStipplePatternLen = style.reciprocalStipplePatternLen / stretch;
+        const float_t patternLenInScreenSpace = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
+
         const float_t arcLen = arcLenCalc.calcArcLen(t);
         const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
-        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + phaseShift);
+        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * reciprocalStretchedStipplePatternLen + phaseShift);
+        normalizedPlaceInPattern = getRealNormalizedPlaceInPattern(normalizedPlaceInPattern);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
         const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::infinity; 
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
-        const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
         const bool notInDrawSection = patternIdx & 0x1;
         
@@ -87,6 +129,7 @@ struct StyleClipper
         float_t maxDrawT = 1.0;
         {
             float_t normalizedPlaceInPatternBegin = frac(phaseShift);
+            normalizedPlaceInPatternBegin = getRealNormalizedPlaceInPattern(normalizedPlaceInPatternBegin);
             uint32_t patternIdxBegin = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternBegin);
             const bool BeginInNonDrawSection = patternIdxBegin & 0x1;
 
@@ -94,14 +137,19 @@ struct StyleClipper
             {
                 float_t diffToRightDrawableSection = (patternIdxBegin == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdxBegin];
                 diffToRightDrawableSection -= normalizedPlaceInPatternBegin;
-                float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
+                float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLenInScreenSpace * ((patternIdxBegin != style.rigidSegmentIdx) ? nonRigidSegmentStretchValue : 1.0);
                 const float_t arcLenForT1 = 0.0 + scrSpcOffsetToArcLen1;
                 minDrawT = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, 0.0);
             }
+            
+            // Completely in non-draw section -> clip away:
+            if (minDrawT >= 1.0)
+                return ret;
 
             const float_t arcLenEnd = arcLenCalc.calcArcLen(1.0);
             const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(globals.worldToScreenRatio);
-            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * style.reciprocalStipplePatternLen + phaseShift);
+            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * reciprocalStretchedStipplePatternLen + phaseShift);
+            normalizedPlaceInPatternEnd = getRealNormalizedPlaceInPattern(normalizedPlaceInPatternEnd);
             uint32_t patternIdxEnd = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternEnd);
             const bool EndInNonDrawSection = patternIdxEnd & 0x1;
 
@@ -109,7 +157,7 @@ struct StyleClipper
             {
                 float_t diffToLeftDrawableSection = (patternIdxEnd == 0) ? 0.0 : styleAccessor[patternIdxEnd - 1];
                 diffToLeftDrawableSection -= normalizedPlaceInPatternEnd;
-                float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+                float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLenInScreenSpace * ((patternIdxEnd != style.rigidSegmentIdx) ? nonRigidSegmentStretchValue : 1.0);
                 const float_t arcLenForT0 = arcLenEnd + scrSpcOffsetToArcLen0;
                 maxDrawT = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, 1.0);
             }
@@ -117,16 +165,18 @@ struct StyleClipper
 
         if (notInDrawSection)
         {
+            float toScreenSpaceLen = patternLenInScreenSpace * ((patternIdx != style.rigidSegmentIdx) ? nonRigidSegmentStretchValue : 1.0);
+
             float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : styleAccessor[patternIdx - 1];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
-            float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+            float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * toScreenSpaceLen;
             const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
             float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
             t0 = clamp(t0, minDrawT, maxDrawT);
 
             float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdx];
             diffToRightDrawableSection -= normalizedPlaceInPattern;
-            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
+            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * toScreenSpaceLen;
             const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
             float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
             t1 = clamp(t1, minDrawT, maxDrawT);
@@ -146,6 +196,12 @@ struct StyleClipper
     CurveType curve;
     typename CurveType::ArcLengthCalculator arcLenCalc;
     float phaseShift;
+    float stretch;
+    // precomp value for non uniform stretching
+    float rigidSegmentStart;
+    float rigidSegmentEnd;
+    float rigidSegmentLen;
+    float nonRigidSegmentStretchValue;
 };
 
 template<typename CurveType, typename Clipper = DefaultClipper<typename CurveType::scalar_t> >
@@ -298,25 +354,23 @@ float4 main(PSInput input) : SV_TARGET
         const float2 end = input.getLineEnd();
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
+        const float phaseShift = input.getCurrentPhaseShift();
         const float stretch = input.getPatternStretch();
-        const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
 
         LineStyle style = lineStyles[styleIdx];
-        if (stretch != 1.0f)
-            style.stretch(stretch);
-
+        
         float distance;
         if (!style.hasStipples())
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, isRoadStyle);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
         }
         else
         {
-            LineStyleClipper clipper = LineStyleClipper::construct(style, lineSegment, arcLenCalc, input.getCurrentPhaseShift());
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, isRoadStyle, clipper);
+            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
         }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -329,22 +383,19 @@ float4 main(PSInput input) : SV_TARGET
 
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
+        const float phaseShift = input.getCurrentPhaseShift();
         const float stretch = input.getPatternStretch();
-        const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
-        float distance;
-        
-        LineStyle style = lineStyles[styleIdx];
-        if (stretch != 1.0f)
-            style.stretch(stretch);
 
+        LineStyle style = lineStyles[styleIdx];
+        float distance;
         if (!style.hasStipples())
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, isRoadStyle);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
         }
         else
         {
-            BezierStyleClipper clipper = BezierStyleClipper::construct(style, quadratic, arcLenCalc, input.getCurrentPhaseShift());
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, isRoadStyle, clipper);
+            BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
         }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
