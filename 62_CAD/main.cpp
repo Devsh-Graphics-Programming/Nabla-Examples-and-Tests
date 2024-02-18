@@ -2041,16 +2041,19 @@ public:
 			style.color = float32_t4(0.85f, 0.1f, 0.1f, 0.5f);
 			style.isRoadStyleFlag = false;
 
+			double linesLength = abs(cos(m_timeElapsed * 0.0002)) * 15.0;
+
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 58.0 });
-				linePoints.push_back({ -35.0, 58.0 });
+				linePoints.push_back({ -45.0, 58.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
+			// std::array<double, 4u> stipplePattern = { 0.0f, -5.0f, 5.0f, -2.5f };
 			std::array<double, 2u> stipplePattern = { -5.0f, 5.0f };
 			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
 			//style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
@@ -2059,7 +2062,7 @@ public:
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 54.0 });
-				linePoints.push_back({ -35.0, 54.0 });
+				linePoints.push_back({ -50.0 + linesLength, 54.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
@@ -2071,31 +2074,31 @@ public:
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 52.0 });
-				linePoints.push_back({ -35.0, 52.0 });
+				linePoints.push_back({ -50.0 + linesLength, 52.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 
-			style.rigidSegementIdx = 1u;
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5);
 			
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 50.0 });
-				linePoints.push_back({ -35.0, 50.0 });
+				linePoints.push_back({ -50.0 + linesLength, 50.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
-			style.rigidSegementIdx = 0u;
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 2.5);
 			
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 48.0 });
-				linePoints.push_back({ -35.0, 48.0 });
+				linePoints.push_back({ -50.0 + linesLength, 48.0 });
 				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
 				polyline.preprocessPolylineWithStyle(style);
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
