@@ -144,7 +144,7 @@ struct CPULineStyle
 		
 		if (shapeOffsetInPattern != InvalidShapeOffset)
 		{
-			rigidSegementIdx = 1u;
+			rigidSegementIdx = getPatternIdxFromNormalizedPosition(glm::fract(shapeOffsetInPattern * reciprocalStipplePatternLen + phaseShift));
 			// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
 			rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
 			rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
@@ -182,8 +182,12 @@ struct CPULineStyle
 					ret = 1.0;
 				else
 				{
-					// the + CPULineStyle::PhaseShiftEpsilon, stretches the value a little more  behaves as if arcLen is += 0.001 * patternLen.
-					// this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+					// here we calculate the stretch value so that the pattern ends when the line/curve ends.
+					// below `+ CPULineStyle::PhaseShiftEpsilon`, stretches the value a little more  behaves as if arcLen is += epsilon * patternLen.
+					// because we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+					// example: when we need to fit a pattern onto a curve, and the pattern ends at a non-draw section
+					//		the erros in the computations using phaseShift and stretch could incorrectly flag the last pixels of the curve to be in the pattern's next draw section but we needed it to end on a non draw section
+					//		when stretching a little more it will ensure the clipping does it's job so that we don't get dots at the end of the line.
 					ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
 				}
 			}
@@ -207,6 +211,14 @@ struct CPULineStyle
 		{
 			return phaseShift;
 		}
+	}
+
+	uint32_t getPatternIdxFromNormalizedPosition(float normalizedPlaceInPattern) const
+	{
+		float integralPart;
+		normalizedPlaceInPattern = std::modf(normalizedPlaceInPattern, &integralPart);
+		const float* patternPtr = std::upper_bound(stipplePattern, stipplePattern + stipplePatternSize, normalizedPlaceInPattern);
+		return std::distance(stipplePattern, patternPtr);
 	}
 
 	LineStyle getAsGPUData() const
@@ -446,8 +458,8 @@ public:
 					if (!patternStartAgain)
 					{
 						// setting next phase shift based on current arc length
-						const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-						currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShiftBetweenCurrAndPrevPoint));
+						const double changeInPhaseShift = glm::fract(lineLen * lineStyle.reciprocalStipplePatternLen);
+						currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
 					}
 				}
 			}
@@ -473,7 +485,6 @@ public:
 				if (patternStartAgain)
 					currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
-				const float64_t stretchedPatternLen = (1.0 / lineStyle.reciprocalStipplePatternLen) * stretchValue;
 				const float64_t stretchedRcpPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
 
 				// calculate phase shift at point P0 of each bezier
@@ -492,7 +503,7 @@ public:
 					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
 					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
 					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
-					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, stretchedPatternLen) * stretchedRcpPatternLen;
+					const double nextLineInSectionLocalPhaseShift = glm::fract(bezierLen * stretchedRcpPatternLen);
 					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + nextLineInSectionLocalPhaseShift));
 				}
 			}
@@ -1316,10 +1327,7 @@ private:
 
 		bool checkIfInDrawSection(const CPULineStyle& lineStyle, float normalizedPlaceInPattern)
 		{
-			float integralPart;
-			normalizedPlaceInPattern = std::modf(normalizedPlaceInPattern, &integralPart);
-			const float* patternPtr = std::upper_bound(lineStyle.stipplePattern, lineStyle.stipplePattern + lineStyle.stipplePatternSize, normalizedPlaceInPattern);
-			const uint32_t patternIdx = std::distance(lineStyle.stipplePattern, patternPtr);
+			const uint32_t patternIdx = lineStyle.getPatternIdxFromNormalizedPosition(normalizedPlaceInPattern);
 			// odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
 			return !(patternIdx & 0x1);
 		}
