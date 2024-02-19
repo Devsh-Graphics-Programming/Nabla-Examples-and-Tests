@@ -2,13 +2,7 @@
 
 #include "common_test1.hlsl"
 
-struct PSOutput
+float4 main(PSInput input) : COLOR
 {
-    float4 color : SV_TARGET;
-}
-
-PSOutput main(PSInput input)
-{
-    PSOutput color;
-    color = float4(1.0f,2.0f,3.0f,4.0f);
+    return float4(input.data1.x,input.data2.y,float(outputBuff.Load<uint32_t>(0)),0.0f);
 }

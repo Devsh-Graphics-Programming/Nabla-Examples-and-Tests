@@ -40,12 +40,16 @@ public:
 		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
 			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
 
+		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto introspector = std::make_unique<CSPIRVIntrospector>();
 		auto source = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
 
+		m_logger->log("------- vtx_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto introspector_test1 = std::make_unique<CSPIRVIntrospector>();
 		auto vtx_test1 = this->compileShaderAndTestIntrospection("app_resources/vtx_test1.hlsl", introspector_test1);
-		//auto test1_frag = this->compileShaderAndTestIntrospection("app_resources/frag_test1.hlsl", introspector);
+		
+		m_logger->log("------- frag_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+		auto test1_frag = this->compileShaderAndTestIntrospection("app_resources/frag_test1.hlsl", introspector_test1);
 
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
 		ICPUShader::SSpecInfo specInfo;
