@@ -347,16 +347,6 @@ public:
 		return result;
 	}
 
-	class IRetiredSwapchainResources: public nbl::video::ICleanup
-	{
-	public:
-		// nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> oldSwapchain = nullptr; // this gets dropped along with the images
-		uint64_t retiredFrameId = 0;
-	};
-
-	static void dropRetiredSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, const uint64_t completedFrameId);
-	static void retireSwapchainResources(nbl::core::deque<IRetiredSwapchainResources*>& qRetiredSwapchainResources, IRetiredSwapchainResources* retired);
-
 
 	static nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat);
 
@@ -1036,30 +1026,11 @@ protected:
 
 	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
 
-	uint32_t m_frameIx = 0;
-	nbl::core::deque<CommonAPI::IRetiredSwapchainResources*> m_qRetiredSwapchainResources;
-	uint32_t m_swapchainIteration = 0;
-	std::array<uint32_t, CommonAPI::InitOutput::MaxSwapChainImageCount> m_imageSwapchainIterations;
 	std::mutex m_swapchainPtrMutex;
 
 	// Returns retired resources
+	// NOTES FOR PORTING: These should now get latched when presenting!
 	virtual std::unique_ptr<CommonAPI::IRetiredSwapchainResources> onCreateResourcesWithSwapchain(const uint32_t imageIndex) { return nullptr; }
-
-	bool tryAcquireImage(nbl::video::ISwapchain* swapchain, nbl::video::IGPUSemaphore* waitSemaphore, uint32_t* imgnum)
-	{
-		if (swapchain->acquireNextImage(MAX_TIMEOUT, waitSemaphore, nullptr, imgnum) == nbl::video::ISwapchain::EAIR_SUCCESS)
-		{
-			if (m_swapchainIteration > m_imageSwapchainIterations[*imgnum])
-			{
-				auto retiredResources = onCreateResourcesWithSwapchain(*imgnum).release();
-				m_imageSwapchainIterations[*imgnum] = m_swapchainIteration;
-				if (retiredResources) CommonAPI::retireSwapchainResources(m_qRetiredSwapchainResources, retiredResources);
-			}
-
-			return true;
-		}
-		return false;
-	}
 
 	std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUImage>, 2> m_tripleBufferRenderTargets;
 
@@ -1134,10 +1105,7 @@ public:
 		const std::filesystem::path& _sharedInputCWD,
 		const std::filesystem::path& _sharedOutputCWD
 	) : nbl::system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD),
-		CommonAPI::CommonAPIEventCallback(nullptr, nullptr),
-		m_qRetiredSwapchainResources(),
-		m_imageSwapchainIterations{}
-	{}
+		CommonAPI::CommonAPIEventCallback(nullptr, nullptr)	{}
 
 	std::unique_lock<std::mutex> recreateSwapchain(
 		uint32_t w, uint32_t h, 
@@ -1152,24 +1120,11 @@ public:
 			w, h, 
 			swapchainRef);
 		assert(swapchainRef);
-		m_swapchainIteration++;
 
 		return guard;
 	}
 
-	void waitForFrame(
-		uint32_t framesInFlight,
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUFence>& fence)
-	{
-		auto logicalDevice = getLogicalDevice();
-		if (fence)
-		{
-			logicalDevice->blockForFences(1u, &fence.get());
-			if (m_frameIx >= framesInFlight) CommonAPI::dropRetiredSwapchainResources(m_qRetiredSwapchainResources, m_frameIx - framesInFlight);
-		}
-		else
-			fence = logicalDevice->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
-	}
+	//void waitForFrame() -> REDO
 
 	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> acquire(
 		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain>& swapchainRef,
