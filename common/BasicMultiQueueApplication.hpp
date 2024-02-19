@@ -117,7 +117,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				const queue_family_range_t& m_familyProperties;
 		};
 
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const queue_family_range_t& familyProperties) override
+		virtual std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> getQueueCreationParameters(const queue_family_range_t& familyProperties) override
 		{
 			QueueAllocator queueAllocator(familyProperties);
 
@@ -227,13 +227,9 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			}
 
 			// Now after assigning all queues to families and indices, collate the creation parameters
-			core::vector<video::ILogicalDevice::SQueueCreationParams> retval(familyQueueCounts.size());
-			auto oit = retval.begin();
-			for (auto it=familyQueueCounts.begin(); it!=familyQueueCounts.end(); it++,oit++)
-			{
-				oit->familyIndex = it->first;
-				oit->count = it->second;
-			}
+			std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> retval = {};
+			for (const auto& familyAndCount : familyQueueCounts)
+				retval[familyAndCount.first].count = familyAndCount.second;
 			return retval;
 		}
 

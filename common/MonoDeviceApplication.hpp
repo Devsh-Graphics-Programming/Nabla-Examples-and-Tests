@@ -50,13 +50,14 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 				m_physicalDevice = selectPhysicalDevice(suitablePhysicalDevices);
 
 				ILogicalDevice::SCreationParams params = {};
+				params.queueParams = getQueueCreationParameters(m_physicalDevice->getQueueFamilyProperties());
 
-				const auto queueParams = getQueueCreationParameters(m_physicalDevice->getQueueFamilyProperties());
-				if (queueParams.empty())
+				bool noQueues = true;
+				for (const auto& famParams : params.queueParams)
+				if (famParams.count)
+					noQueues = false;
+				if (noQueues)
 					return logFail("Failed to compute queue creation parameters for a Logical Device!");
-
-				params.queueParamsCount = queueParams.size();
-				std::copy_n(queueParams.begin(),params.queueParamsCount,params.queueParams.begin());
 				
 				params.featuresToEnable = getRequiredDeviceFeatures(); // .union(getPreferredDeviceFeatures().intersect(m_physicalDevice->getFeatures()))
 				
@@ -232,16 +233,15 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 
 		// This will most certainly be overriden
 		using queue_family_range_t = std::span<const video::IPhysicalDevice::SQueueFamilyProperties>;
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const queue_family_range_t& familyProperties)
+		virtual std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> getQueueCreationParameters(const queue_family_range_t& familyProperties)
 		{
 			using namespace video;
-			core::vector<ILogicalDevice::SQueueCreationParams> retval(1);
+			std::array<ILogicalDevice::SQueueCreationParams,ILogicalDevice::MaxQueueFamilies> retval = {};
 
-			retval[0].count = 1;
 			// since we requested a device that has such a capable queue family (unless `getQueueRequirements` got overriden) we're sure we'll get at least one family
 			for (auto i=0u; i<familyProperties.size(); i++)
 			if (familyProperties[i].queueFlags.hasFlags(getQueueRequirements().front().requiredFlags))
-				retval[0].familyIndex = i;
+				retval[i].count = 1;
 
 			return retval;
 		}
@@ -250,9 +250,9 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		{
 			// In the default implementation of everything I asked only for one queue from first compute family
 			const auto familyProperties = m_device->getPhysicalDevice()->getQueueFamilyProperties();
-			for (auto i = 0u; i < familyProperties.size(); i++)
-				if (familyProperties[i].queueFlags.hasFlags(flags))
-					return m_device->getQueue(i, 0);
+			for (auto i=0u; i<familyProperties.size(); i++)
+			if (familyProperties[i].queueFlags.hasFlags(flags))
+				return m_device->getQueue(i,0);
 
 			return nullptr;
 		}
