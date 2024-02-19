@@ -16,7 +16,6 @@ using namespace ui;
 using namespace asset;
 using namespace video;
 
-#include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
@@ -29,7 +28,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 		// Its a little more ergonomic to use if you don't have a 1:1 mapping between frames and pools.
 		smart_refctd_ptr<nbl::video::ICommandPoolCache> m_poolCache;
 
-		smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet<core::GeneralpurposeAddressAllocator<uint32_t>>> m_subAllocDescriptorSet;
+		smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet> m_subAllocDescriptorSet;
 
 		// This example really lets the advantages of a timeline semaphore shine through!
 		smart_refctd_ptr<ISemaphore> m_timeline;
@@ -82,7 +81,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 			std::span<video::IGPUDescriptorSetLayout::SBinding> bindingsSpan(bindings);
 
 			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
-			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet<core::GeneralpurposeAddressAllocator<uint32_t>>>(
+			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(
 				bindings, MaxDescriptorSetAllocationAlignment, MinDescriptorSetAllocationSize
 			);
 
@@ -93,7 +92,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 					allocation.push_back(core::GeneralpurposeAddressAllocator<uint32_t>::invalid_address);
 					size.push_back(4);
 				}
-				subAllocatedDescriptorSet->multi_allocate(allocation.size(), &allocation[0], &size[0]);
+				subAllocatedDescriptorSet->multi_allocate(0, allocation.size(), &allocation[0], &size[0]);
 				for (uint32_t i = 0; i < allocation.size(); i++)
 				{
 					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation[i]);
@@ -107,7 +106,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 					addr.push_back(allocation[i]);
 					freeSize.push_back(4);
 				}
-				subAllocatedDescriptorSet->multi_deallocate(addr.size(), &addr[0], &freeSize[0]);
+				subAllocatedDescriptorSet->multi_deallocate(0, addr.size(), &addr[0], &freeSize[0]);
 			}
 
 			m_logger->log("Freed some allocations", system::ILogger::ELL_INFO);
@@ -119,7 +118,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 					allocation.push_back(core::GeneralpurposeAddressAllocator<uint32_t>::invalid_address);
 					size.push_back(2);
 				}
-				subAllocatedDescriptorSet->multi_allocate(allocation.size(), &allocation[0], &size[0]);
+				subAllocatedDescriptorSet->multi_allocate(0, allocation.size(), &allocation[0], &size[0]);
 				for (uint32_t i = 0; i < allocation.size(); i++)
 				{
 					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation[i]);
