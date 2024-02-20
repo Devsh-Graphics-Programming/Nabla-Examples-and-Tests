@@ -259,11 +259,17 @@ class SimpleNonResizableSurface : public core::IReferenceCounted
 		// RETURNS: Negative on failure, otherwise its the acquired image's index.
 		inline int8_t acquireNextImage()
 		{
-			if (!m_swapchainResources || m_cb->windowGotClosed())
-			{
-				m_swapchainResources = {};
+			// Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
+			// which is outside of our control here as there is a nice chain of lifetimes of:
+			// `ExternalCmdBuf -via usage of-> Swapchain Image -memory provider-> Swapchain -created from-> Window/Surface`
+			// Only when the last user of the swapchain image drops it, will the window die.
+			if (m_cb->windowGotClosed())
+				m_swapchainResources.clear();
+
+			// bail before acquire!
+			if (!m_swapchainResources)
 				return -1;
-			}
+
 			const auto frameIx = m_swapchainResources.swapchain->getAcquireCount();
 
 			using namespace nbl::video;
@@ -278,21 +284,22 @@ class SimpleNonResizableSurface : public core::IReferenceCounted
 				case ISwapchain::ACQUIRE_IMAGE_RESULT::SUBOPTIMAL: [[fallthrough]];
 				case ISwapchain::ACQUIRE_IMAGE_RESULT::SUCCESS:
 					return imageIndex;
+				case ISwapchain::ACQUIRE_IMAGE_RESULT::TIMEOUT: [[fallthrough]];
+				case ISwapchain::ACQUIRE_IMAGE_RESULT::NOT_READY: // don't throw our swapchain away just because of a timeout XD
+					assert(false); // shouldn't happen thought cause we use uint64_t::max() as the timeout
+					break;
 				default:
+					m_swapchainResources.clear();
 					break;
 			}
-			m_swapchainResources = {};
 			return -1;
 		}
 
 		// Frame Resources are not optional!
 		inline bool present(const uint8_t imageIndex, const std::span<const video::IQueue::SSubmitInfo::SSemaphoreInfo> waitSemaphores, core::smart_refctd_ptr<core::IReferenceCounted>&& frameResources)
 		{
-			if (!m_swapchainResources || m_cb->windowGotClosed())
-			{
-				m_swapchainResources = {};
+			if (!m_swapchainResources)
 				return false;
-			}
 
 			using namespace nbl::video;
 			const ISwapchain::SPresentInfo info = {
@@ -308,7 +315,7 @@ class SimpleNonResizableSurface : public core::IReferenceCounted
 				default:
 					break;
 			}
-			m_swapchainResources = {};
+			m_swapchainResources.clear();
 			return false;
 		}
 
@@ -323,6 +330,33 @@ class SimpleNonResizableSurface : public core::IReferenceCounted
 		struct SwapchainResources
 		{
 			inline operator bool() const {return bool(swapchain);}
+
+			inline void clear()
+			{
+				if (!swapchain)
+					return;
+
+				// want to nullify things in an order that leads to fastest drops (if possible) and shallowest callstacks when refcounting
+				using namespace video;
+
+				// framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
+				std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
+				defaultRenderpass = nullptr;
+
+				// TODO: might just make the swapchain track the acquire signal semaphores and get rid of this circus
+				auto device = const_cast<ILogicalDevice*>(acquireSemaphore->getOriginDevice());
+				ISemaphore::SWaitInfo infos[] = { {.semaphore=acquireSemaphore.get(),.value=swapchain->getAcquireCount()} };
+				device->blockForSemaphores(infos);
+				// release our private refcount so that it gets destroyed before the swapchain destroys itself
+				acquireSemaphore = nullptr;
+
+				// We need to call this method manually to make sure resources latched on swapchain images are dropped and cycles broken, otherwise its
+				// EXTERMELY LIKELY (if you don't reset CommandBuffers) that you'll end up with a circular reference:
+				// `CommandBuffer -> SC Image[i] -> Swapchain -> FrameResource[i] -> CommandBuffer`
+				// and a memory leak of: Swapchain and its Images, CommandBuffer and its pool CommandPool, and any resource used by the CommandBuffer.
+				while (swapchain->acquiredImagesAwaitingPresent()) {}
+				swapchain = nullptr;
+			}
 
 			core::smart_refctd_ptr<video::ISwapchain> swapchain = {};
 			core::smart_refctd_ptr<video::ISemaphore> acquireSemaphore = {};
@@ -465,16 +499,20 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
 				return false;
 
-			return (m_currentAcquire=m_surface->acquireNextImage())>=0;
+			return m_surface && (m_currentAcquire=m_surface->acquireNextImage())>=0;
 		}
 
-		//
 		virtual bool onAppTerminated() override
 		{
+			// We actually need to wait on a semaphore to finish the example nicely, otherwise we risk destroying a semaphore currently in use for a frame that hasn't finished yet.
 			ISemaphore::SWaitInfo infos[1] = {
 				{.semaphore=m_semaphore.get(),.value=m_frameIx}
 			};
 			m_device->blockForSemaphores(infos);
+			m_semaphore = nullptr;
+
+			// These are optional, the example will still work fine, but all the destructors would kick in (refcounts would drop to 0) AFTER we would have exited this function.
+			std::fill_n(m_cmdBufs.data(),ISwapchain::MaxImages,nullptr);
 			m_surface = nullptr;
 
 			return base_t::onAppTerminated();
