@@ -206,7 +206,6 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			// Try to allocate a different queue than fallback for graphics and as little extra as possible
 			if (!isComputeOnly())
 			{
-				// TODO: Handle surface compatibility.
 				queue_req_t graphicsQueueRequirement = {.requiredFlags=queue_flags_t::GRAPHICS_BIT,.disallowedFlags=queue_flags_t::NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
 				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement,{queue_flags_t::TRANSFER_BIT,queue_flags_t::SPARSE_BINDING_BIT,queue_flags_t::COMPUTE_BIT,queue_flags_t::PROTECTED_BIT});
 				if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
@@ -224,6 +223,17 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				auto found = familyQueueCounts.find(fallbackQueue.famIx);
 				if ((--found->second)==0)
 					familyQueueCounts.erase(found);
+				else
+				{
+					if (m_computeQueue.famIx==fallbackQueue.famIx)
+						m_computeQueue.qIx--;
+					if (m_transferUpQueue.famIx==fallbackQueue.famIx)
+						m_transferUpQueue.qIx--;
+					if (m_transferDownQueue.famIx==fallbackQueue.famIx)
+						m_transferDownQueue.qIx--;
+					if (m_graphicsQueue.famIx==fallbackQueue.famIx)
+						m_graphicsQueue.qIx--;
+				}
 			}
 
 			// Now after assigning all queues to families and indices, collate the creation parameters
