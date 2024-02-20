@@ -348,16 +348,6 @@ public:
 	}
 
 
-	static nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device, nbl::asset::E_FORMAT colorAttachmentFormat, nbl::asset::E_FORMAT baseDepthFormat);
-
-	static nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> createFBOWithSwapchainImages(
-		size_t imageCount, uint32_t width, uint32_t height,
-		const nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice>& device,
-		nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain,
-		nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass,
-		nbl::asset::E_FORMAT baseDepthFormat = nbl::asset::EF_UNKNOWN
-	);
-
 	static constexpr nbl::asset::E_PIPELINE_STAGE_FLAGS DefaultSubmitWaitStage = nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT;
 	static void Submit(
 		nbl::video::ILogicalDevice* device,

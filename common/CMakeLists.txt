@@ -1,3 +1,4 @@
+# TODO: disable this CommonPCH thing!
 nbl_create_ext_library_project(CommonAPI "${CMAKE_CURRENT_SOURCE_DIR}/CommonAPI.h" "${CMAKE_CURRENT_SOURCE_DIR}/CommonAPI.cpp" "" "" "")
 set(NBL_EXECUTABLE_COMMON_API_TARGET "${LIB_NAME}" CACHE INTERNAL "")
 
