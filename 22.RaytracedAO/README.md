@@ -157,6 +157,35 @@ You can switch between those sensors using `PAGE UP/DOWN` Keys defined in more d
 Example above renders to 1024x1024 cubemap sides and uses 64 offset pixels for higher quality. 
 So the full width, height are 1152x1152 (64+1024+64=1152)
 
+### Tags added to \<emitter type="area"\>:
+
+#### \<emissionprofile type="measured"\> (IES emission profile)
+
+**\<emissionprofile\>** tag can be used to attach IES light profile to area emitter. 
+
+| Property Name | Description                                                                                                      | Type  | Default Value |
+|---------------|------------------------------------------------------------------------------------------------------------------|-------|---------------|
+|     normalizeEnergy     | Parameter to normalize the intensity of emission profile. <br> 1) If `normalizeEnergy` is zero, it will not perform any normalization. (no normalization) <br> 2) If `normalizeEnergy` is negative, it will normalize the intensity by dividing out the maximum intensity. (normalization by max) <br> 3) If `normalizeEnergy` is positive, it will first normalize the intensity by average energy and multiply `normalizeEnergy` to intensity. (normalization by energy) | float | 0.0 (no normalization) |
+|     filename      | The filename of the IES profile. | string | ""          |
+
+
+NOTE: **\<transform\>** tag of emitter node can be used to orient the emission direction of IES light.
+
+#### Example of Area Light with IES Profile
+
+```xml
+<emitter type="area" >
+	<transform name="toWorld" >
+		<lookat target="0.0, 0.0, -1.0" origin="0.0, 0.0, 0.0" up="0.00, 1.00, 0.00" />
+	</transform>
+	<rgb name="radiance" value="20.0"/>
+	<emissionprofile type="measured">
+		<float name="normalizeEnergy" value="42.5"/>
+		<string name="filename" value="emission_profile.ies"/>
+	</emissionprofile> 
+</emitter>
+```
+
 ## Mouse
 
 | Button              | Description                             |
