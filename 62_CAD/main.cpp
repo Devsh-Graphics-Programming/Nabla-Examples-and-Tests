@@ -2123,6 +2123,18 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
+			std::array<double, 3u> stipplePattern2 = { 2.5f, -5.0f, 2.5f };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern2.data(), stipplePattern2.data() + stipplePattern2.size()), 5.0, true);
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 46.0 });
+				linePoints.push_back({ -50.0 + linesLength, 46.0 });
+				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			}
+			
 			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, false);
 			{
 				CPolyline polyline;
