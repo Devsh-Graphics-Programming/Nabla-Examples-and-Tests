@@ -12,6 +12,7 @@ struct CPULineStyle
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
 	static constexpr double InvalidShapeOffset = nbl::hlsl::numeric_limits<double>::infinity;
+	static constexpr double InvalidNormalizedShapeOffset = nbl::hlsl::numeric_limits<float>::infinity;
 	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think for phase shift in normalized stipple space this is a reasonable value? right?
 	static const uint32_t StipplePatternMaxSize = LineStyle::StipplePatternMaxSize;
 
@@ -38,10 +39,11 @@ struct CPULineStyle
 		a valid shape segments means we don't want to stretch the shape segment and we treat it differently
 		InvalidRigidSegmentIndex means we want to stretch the shape segment as well and we don't treat it differently -> simpler
 	*/
-	uint32_t rigidSegementIdx = InvalidRigidSegmentIndex;
-
+	uint32_t rigidSegmentIdx = InvalidRigidSegmentIndex;
+	
 
 	// Cached and Precomputed Values used in preprocessing a polyline
+	float shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
 	float rigidSegmentStart = 0.0f;
 	float rigidSegmentEnd = 0.0f;
 	float rigidSegmentLen = 0.0f;
@@ -50,8 +52,12 @@ struct CPULineStyle
 	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
 	* shapeOffset is the offset into the unnormalized pattern a shape is going to draw, it's specialized this way because sometimes we don't want to stretch the pattern value the shape resides in.
 	*/
-	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset)
+	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset, bool rigidShapeSegment = false)
 	{
+		// Invalidate to possibly fill with correct values later
+		shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
+		rigidSegmentIdx = InvalidRigidSegmentIndex;
+
 		assert(stipplePatternUnnormalizedRepresentation.size() <= StipplePatternMaxSize);
 
 		if (stipplePatternUnnormalizedRepresentation.size() == 0)
@@ -144,11 +150,18 @@ struct CPULineStyle
 		
 		if (shapeOffsetInPattern != InvalidShapeOffset)
 		{
-			rigidSegementIdx = getPatternIdxFromNormalizedPosition(glm::fract(shapeOffsetInPattern * reciprocalStipplePatternLen + phaseShift));
-			// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
-			rigidSegmentStart = (rigidSegementIdx >= 1u) ? stipplePattern[rigidSegementIdx - 1u] : 0.0f;
-			rigidSegmentEnd = (rigidSegementIdx < stipplePatternSize) ? stipplePattern[rigidSegementIdx] : 1.0f;
-			rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+			shapeNormalizedPlaceInPattern = glm::fract(shapeOffsetInPattern * reciprocalStipplePatternLen + phaseShift);
+
+			if (rigidShapeSegment)
+			{
+				rigidSegmentIdx = getPatternIdxFromNormalizedPosition(shapeNormalizedPlaceInPattern);
+				// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
+				rigidSegmentStart = (rigidSegmentIdx >= 1u) ? stipplePattern[rigidSegmentIdx - 1u] : 0.0f;
+				rigidSegmentEnd = (rigidSegmentIdx < stipplePatternSize) ? stipplePattern[rigidSegmentIdx] : 1.0f;
+				rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+			}
+
+			stretchToFit = true; // stretchToFit should be true for styles with shapes/markers
 		}
 		
 	}
@@ -158,7 +171,7 @@ struct CPULineStyle
 		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
 		if (stretchToFit)
 		{
-			if (rigidSegementIdx != InvalidRigidSegmentIndex && arcLen * reciprocalStipplePatternLen <= rigidSegmentLen)
+			if (rigidShapeSegment() && arcLen * reciprocalStipplePatternLen <= rigidSegmentLen)
 			{
 				// arcLen is less than or equal to rigidSegmentLen, then stretch value is invalidated to draw the polyline solid without any style
 				ret = InvalidStyleStretchValue;
@@ -195,22 +208,32 @@ struct CPULineStyle
 		return ret;
 	}
 
-	// Phase Shift might change when stretching non-uniformly
-	float getStretchedPhaseShift(float32_t stretchValue) const
+	// normalized place in pattern might change when stretching non-uniformly
+	float getStretchedNormalizedPlaceInPattern(float32_t normalizedPlaceInPattern, float32_t stretchValue) const
 	{
-		if (stretchToFit && rigidSegementIdx != InvalidRigidSegmentIndex)
+		if (stretchToFit && rigidShapeSegment())
 		{
-			float nonRigidSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
-			float newPhaseShift = min(phaseShift, rigidSegmentStart) * nonRigidSegmentStretchValue; // stretch parts before rigid segment
-			newPhaseShift += max(phaseShift - rigidSegmentEnd, 0.0f) * nonRigidSegmentStretchValue; // stretch parts after rigid segment
-			newPhaseShift += max(min(rigidSegmentLen, phaseShift - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
-			newPhaseShift /= stretchValue; // scale back to normalized phaseShift
-			return newPhaseShift;
+			float nonShapeSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
+			float newPlaceInPattern = min(normalizedPlaceInPattern, rigidSegmentStart) * nonShapeSegmentStretchValue; // stretch parts before rigid segment
+			newPlaceInPattern += max(normalizedPlaceInPattern - rigidSegmentEnd, 0.0f) * nonShapeSegmentStretchValue; // stretch parts after rigid segment
+			newPlaceInPattern += max(min(rigidSegmentLen, normalizedPlaceInPattern - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
+			newPlaceInPattern /= stretchValue; // scale back to normalized phaseShift
+			return newPlaceInPattern;
 		}
 		else
 		{
-			return phaseShift;
+			return normalizedPlaceInPattern;
 		}
+	}
+
+	float getStretchedPhaseShift(float32_t stretchValue) const
+	{
+		return getStretchedNormalizedPlaceInPattern(phaseShift, stretchValue);
+	}
+	
+	float getStretchedShapeNormalizedPlaceInPattern(float32_t stretchValue) const
+	{
+		return getStretchedNormalizedPlaceInPattern(shapeNormalizedPlaceInPattern, stretchValue);
 	}
 
 	uint32_t getPatternIdxFromNormalizedPosition(float normalizedPlaceInPattern) const
@@ -250,10 +273,14 @@ struct CPULineStyle
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
 		ret.isRoadStyleFlag = isRoadStyleFlag;
-		ret.rigidSegmentIdx = rigidSegementIdx;
+		ret.rigidSegmentIdx = rigidSegmentIdx;
 
 		return ret;
 	}
+
+	inline bool rigidShapeSegment() const { return rigidSegmentIdx != InvalidRigidSegmentIndex; }
+
+	inline bool hasShape() const { return shapeNormalizedPlaceInPattern != InvalidNormalizedShapeOffset; }
 
 	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
 };
@@ -417,7 +444,9 @@ public:
 		}
 	}
 
-	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
+	typedef std::function<void(const float64_t2& /*position*/, const float64_t2& /*direction*/)> AddShapeFunc;
+
+	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, AddShapeFunc addShape = {})
 	{
 		if (!lineStyle.isVisible())
 			return;
@@ -425,6 +454,7 @@ public:
 		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
+		const bool shouldAddShapes = (lineStyle.hasShape() && addShape.operator bool());
 		// When stretchToFit is true, the curve section and individual lines should start from the beginning of the pattern (phaseShift = lineStyle.phaseShift)
 		const bool patternStartAgain = lineStyle.stretchToFit;
 		float currentPhaseShift = lineStyle.phaseShift;
@@ -443,9 +473,10 @@ public:
 					auto& linePoint = m_linePoints[currIdx];
 					const auto& nextLinePoint = m_linePoints[currIdx + 1u];
 					const float64_t2 lineVector = nextLinePoint.p - linePoint.p;
-					const double lineLen = glm::length(lineVector);
-					const float stretchValue = lineStyle.calculateStretchValue(lineLen);
-					
+					const float64_t lineLen = glm::length(lineVector);
+					const float32_t stretchValue = lineStyle.calculateStretchValue(lineLen);
+					const float rcpStretchedPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
+
 					if (patternStartAgain)
 						currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
@@ -455,10 +486,31 @@ public:
 					if (lineStyle.isRoadStyleFlag)
 						connectorBuilder.addLineNormal(lineVector, lineLen, linePoint.p, currentPhaseShift);
 
+					if (shouldAddShapes)
+					{
+						float shapeOffsetNormalized = lineStyle.getStretchedShapeNormalizedPlaceInPattern(stretchValue);
+						// next shape Offset from start of line/curve
+						float nextShapeOffset = shapeOffsetNormalized - currentPhaseShift;
+						if (nextShapeOffset < 0.0f)
+							nextShapeOffset += 1.0f;
+						
+						int32_t numberOfShapes = static_cast<int32_t>(std::floor(lineLen * rcpStretchedPatternLen - nextShapeOffset)) + 1; // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
+
+						float64_t stretchedPatternLen = 1.0 / (float64_t)rcpStretchedPatternLen;
+						float64_t currentWorldSpaceOffset = nextShapeOffset * stretchedPatternLen;
+						float64_t2 direction = lineVector / lineLen;
+						for (int32_t s = 0; s < numberOfShapes; ++s)
+						{
+							const float64_t2 position = linePoint.p + direction * currentWorldSpaceOffset;
+							addShape(position, direction);
+							currentWorldSpaceOffset += stretchedPatternLen;
+						}
+					}
+
 					if (!patternStartAgain)
 					{
 						// setting next phase shift based on current arc length
-						const double changeInPhaseShift = glm::fract(lineLen * lineStyle.reciprocalStipplePatternLen);
+						const double changeInPhaseShift = glm::fract(lineLen * rcpStretchedPatternLen);
 						currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
 					}
 				}
@@ -477,7 +529,7 @@ public:
 						const QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[section.index + i];
 						nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
 						nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
-						sectionArcLen += arcLenCalc.calcArcLen(1.0f);
+						sectionArcLen += arcLenCalc.calcArcLen(1.0);
 					}
 					stretchValue = lineStyle.calculateStretchValue(sectionArcLen);
 				}
@@ -485,7 +537,7 @@ public:
 				if (patternStartAgain)
 					currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
-				const float64_t stretchedRcpPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
+				const float rcpStretchedPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
 
 				// calculate phase shift at point P0 of each bezier
 				for (uint32_t i = 0u; i < quadBezierCount; i++)
@@ -502,9 +554,31 @@ public:
 					// setting next phase shift based on current arc length
 					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
 					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
-					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
-					const double nextLineInSectionLocalPhaseShift = glm::fract(bezierLen * stretchedRcpPatternLen);
-					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + nextLineInSectionLocalPhaseShift));
+					const double bezierLen = arcLenCalc.calcArcLen(1.0);
+					
+					if (shouldAddShapes)
+					{
+						float shapeOffsetNormalized = lineStyle.getStretchedShapeNormalizedPlaceInPattern(stretchValue);
+
+						// next shape Offset from start of line/curve
+						float nextShapeOffset = shapeOffsetNormalized - currentPhaseShift;
+						if (nextShapeOffset < 0.0f)
+							nextShapeOffset += 1.0f;
+						
+						int32_t numberOfShapes = static_cast<int32_t>(std::floor(bezierLen * rcpStretchedPatternLen - nextShapeOffset)) + 1; // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
+
+						float64_t stretchedPatternLen = 1.0 / (float64_t)rcpStretchedPatternLen;
+						float64_t currentWorldSpaceOffset = nextShapeOffset * stretchedPatternLen;
+						for (int32_t s = 0; s < numberOfShapes; ++s)
+						{
+							float64_t t = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, currentWorldSpaceOffset, 1e-5, 0.5);
+							addShape(quadratic.evaluate(t), quadratic.derivative(t));
+							currentWorldSpaceOffset += stretchedPatternLen;
+						}
+					}
+
+					const double changeInPhaseShift = glm::fract(bezierLen * rcpStretchedPatternLen);
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
 				}
 			}
 		}
