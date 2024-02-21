@@ -51,6 +51,10 @@ public:
 		m_logger->log("------- frag_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto test1_frag = this->compileShaderAndTestIntrospection("app_resources/frag_test1.hlsl", introspector_test1);
 
+		auto introspector_test2 = std::make_unique<CSPIRVIntrospector>();
+		m_logger->log("------- frag_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+		auto test2_comp = this->compileShaderAndTestIntrospection("app_resources/comp_test2_nestedStructs.hlsl", introspector_test2);
+
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
 		ICPUShader::SSpecInfo specInfo;
 		specInfo.entryPoint = "main";
