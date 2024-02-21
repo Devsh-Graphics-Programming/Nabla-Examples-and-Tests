@@ -263,6 +263,13 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 			return getQueue(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT);
 		}
 
+		// Just to run destructors in a nice order
+		virtual bool onAppTerminated() override
+		{
+			m_device = nullptr;
+			m_api = nullptr;
+			return base_t::onAppTerminated();
+		}
 
 		core::smart_refctd_ptr<video::CVulkanConnection> m_api;
 		core::smart_refctd_ptr<video::ILogicalDevice> m_device;

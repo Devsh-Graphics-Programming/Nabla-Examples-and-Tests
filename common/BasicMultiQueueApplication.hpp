@@ -56,6 +56,13 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			return true;
 		}
 
+		// Just to run destructors in a nice order
+		virtual bool onAppTerminated() override
+		{
+			m_utils = nullptr;
+			return base_t::onAppTerminated();
+		}
+
 		// overridable for future graphics queue using examples
 		virtual bool isComputeOnly() const {return true;}
 
