@@ -35,9 +35,6 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 		uint64_t m_iteration = 0;
 		constexpr static inline uint64_t MaxIterations = 200;
 
-		constexpr static inline uint32_t MaxDescriptorSetAllocationAlignment = 64u*1024u; // if you need larger alignments then you're not right in the head
-		constexpr static inline uint32_t MinDescriptorSetAllocationSize = 1u;
-
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
 		SubAllocatedDescriptorSetApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -72,7 +69,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 				for (uint32_t i = 0; i < 12; i++)
 				{
 					bindings[i].binding = i;
-					bindings[i].count = 16000;
+					bindings[i].count = 512;
 					bindings[i].createFlags = core::bitflag(IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT) 
 						| IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT 
 						| IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
@@ -87,10 +84,7 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 			auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
 			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
-			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(
-				descriptorSetLayout.get(), MaxDescriptorSetAllocationAlignment, MinDescriptorSetAllocationSize
-			);
-
+			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(descriptorSetLayout.get()); 
 			std::vector<uint32_t> allocation(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
 			{
 				subAllocatedDescriptorSet->multi_allocate(0, allocation.size(), &allocation[0]);
