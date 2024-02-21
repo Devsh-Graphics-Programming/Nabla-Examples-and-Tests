@@ -2,87 +2,14 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#include "../common/SimpleWindowedApplication.hpp"
+
+
 //
 #include "nbl/video/surface/CSurfaceVulkan.h"
-
-#include "../common/BasicMultiQueueApplication.hpp"
-
-namespace nbl::examples
-{
-// Virtual Inheritance because apps might end up doing diamond inheritance
-class SimpleWindowedApplication : public virtual BasicMultiQueueApplication
-{
-		using base_t = BasicMultiQueueApplication;
-
-	public:
-		using base_t::base_t;
-
-		// We inherit from an application that tries to find Graphics and Compute queues
-		// because applications with presentable images often want to perform Graphics family operations
-		virtual bool isComputeOnly() const {return false;}
-
-		virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
-		{
-			auto retval = base_t::getAPIFeaturesToEnable();
-			// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
-			retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-			return retval;
-		}
-
-		// New function, we neeed to know about surfaces to create ahead of time
-		virtual core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const = 0;
-
-		// We have a very simple heuristic, the device must be able to render to all windows!
-		// (want to make something more complex? you're on your own!)
-		virtual void filterDevices(core::set<video::IPhysicalDevice*>& physicalDevices) const
-		{
-			base_t::filterDevices(physicalDevices);
-
-			video::SPhysicalDeviceFilter deviceFilter = {};
-			
-			auto surfaces = getSurfaces();
-			deviceFilter.requiredSurfaceCompatibilities = {surfaces};
-
-			return deviceFilter(physicalDevices);
-		}
-
-		// virtual function so you can override as needed for some example father down the line
-		virtual video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
-		{
-			auto retval = base_t::getRequiredDeviceFeatures();
-			retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
-			return retval;
-		}
-		
-		virtual bool onAppInitialized(core::smart_refctd_ptr<system::ISystem>&& system) override
-		{
-			// want to have a usable system and logger first
-			if (!MonoSystemMonoLoggerApplication::onAppInitialized(std::move(system)))
-				return false;
-			
-		#ifdef _NBL_PLATFORM_WINDOWS_
-			m_winMgr = nbl::ui::IWindowManagerWin32::create();
-		#else
-			#error "Unimplemented!"
-		#endif
-			if (!m_winMgr)
-				return false;
-
-			// Remember to call the base class initialization!
-			if (!base_t::onAppInitialized(core::smart_refctd_ptr(m_system)))
-				return false;
-
-			return true;
-		}
-
-	protected:
-		core::smart_refctd_ptr<ui::IWindowManager> m_winMgr;
-};
-
-}
-
-
 #include "nbl/video/CVulkanSwapchain.h"
+
+// TODO: move to a common header
 namespace nbl::examples
 {
 
@@ -336,18 +263,14 @@ class SimpleNonResizableSurface : public core::IReferenceCounted
 				if (!swapchain)
 					return;
 
-				// want to nullify things in an order that leads to fastest drops (if possible) and shallowest callstacks when refcounting
+				// Want to nullify things in an order that leads to fastest drops (if possible) and shallowest callstacks when refcounting
 				using namespace video;
 
-				// framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
+				// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
 				std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
 				defaultRenderpass = nullptr;
 
-				// TODO: might just make the swapchain track the acquire signal semaphores and get rid of this circus
-				auto device = const_cast<ILogicalDevice*>(acquireSemaphore->getOriginDevice());
-				ISemaphore::SWaitInfo infos[] = { {.semaphore=acquireSemaphore.get(),.value=swapchain->getAcquireCount()} };
-				device->blockForSemaphores(infos);
-				// release our private refcount so that it gets destroyed before the swapchain destroys itself
+				// Release our private refcount so that it gets destroyed before the swapchain destroys itself, the order isn't really important.
 				acquireSemaphore = nullptr;
 
 				// We need to call this method manually to make sure resources latched on swapchain images are dropped and cycles broken, otherwise its
@@ -509,9 +432,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				{.semaphore=m_semaphore.get(),.value=m_frameIx}
 			};
 			m_device->blockForSemaphores(infos);
-			m_semaphore = nullptr;
 
 			// These are optional, the example will still work fine, but all the destructors would kick in (refcounts would drop to 0) AFTER we would have exited this function.
+			m_semaphore = nullptr;
 			std::fill_n(m_cmdBufs.data(),ISwapchain::MaxImages,nullptr);
 			m_surface = nullptr;
 
