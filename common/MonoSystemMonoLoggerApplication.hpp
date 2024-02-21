@@ -25,6 +25,8 @@ class MonoSystemMonoLoggerApplication : public virtual system::IApplicationFrame
 		virtual bool onAppTerminated() override
 		{
 			m_logger->log("Example Terminated Successfully!",system::ILogger::ELL_INFO);
+			m_logger = nullptr;
+			m_system = nullptr;
 			return true;
 		}
 
