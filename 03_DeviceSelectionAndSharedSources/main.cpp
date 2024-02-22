@@ -52,8 +52,16 @@ public:
 		auto test1_frag = this->compileShaderAndTestIntrospection("app_resources/frag_test1.hlsl", introspector_test1);
 
 		auto introspector_test2 = std::make_unique<CSPIRVIntrospector>();
-		m_logger->log("------- frag_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+		m_logger->log("------- frag_test2.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto test2_comp = this->compileShaderAndTestIntrospection("app_resources/comp_test2_nestedStructs.hlsl", introspector_test2);
+
+		auto introspector_test3 = std::make_unique<CSPIRVIntrospector>();
+		m_logger->log("------- comp_test3_ArraysAndMatrices.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+		auto test3_comp = this->compileShaderAndTestIntrospection("app_resources/comp_test3_ArraysAndMatrices.hlsl", introspector_test3);
+
+		auto introspector_test4 = std::make_unique<CSPIRVIntrospector>();
+		m_logger->log("------- frag_test4_SamplersTexBuffAndImgStorage.hlsl -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+		auto test4_comp = this->compileShaderAndTestIntrospection("app_resources/frag_test4_SamplersTexBuffAndImgStorage.hlsl", introspector_test4);
 
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
 		ICPUShader::SSpecInfo specInfo;
@@ -287,8 +295,8 @@ public:
 			nbl::asset::IShaderCompiler::SCompilerOptions options = {};
 			// The Shader Asset Loaders deduce the stage from the file extension,
 			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
-			// But it can still be overriden from within the source with a `#pragma shader_stage`
-			options.stage = source->getStage() == IShader::ESS_COMPUTE ? source->getStage() : IShader::ESS_VERTEX;
+			// But it can still be overriden from within the source with a `#pragma shader_stage` 
+			options.stage = source->getStage() == IShader::ESS_COMPUTE ? source->getStage() : IShader::ESS_VERTEX; // TODO: do smth with it
 			options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 			options.spirvOptimizer = nullptr;
@@ -310,11 +318,24 @@ public:
 				assert(0);
 			}
 
+			{
+				auto* srcContent = spirvUnspecialized->getContent();
+
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_physicalDevice->getSystem()->createFile(future, system::path("../app_resources/compiled.spv"), system::IFileBase::ECF_WRITE);
+				if (auto file = future.acquire(); file && bool(*file))
+				{
+					system::IFile::success_t succ;
+					(*file)->write(succ, srcContent->getPointer(), 0, srcContent->getSize());
+					succ.getBytesProcessed(true);
+				}
+			}
+
 			// now we need to swap out the HLSL for SPIR-V
 			source = std::move(spirvUnspecialized);
 		}
 
-	return source;
+		return source;
 	}
 };
 

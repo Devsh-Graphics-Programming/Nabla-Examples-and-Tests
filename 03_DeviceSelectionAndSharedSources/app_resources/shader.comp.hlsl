@@ -2,7 +2,7 @@
 
 [[vk::constant_id(3)]] const int TEST_INT_1 = 2;
 
-[[vk::binding(2,1)]] ByteAddressBuffer inputs[2 /*TEST_INT_1*/];
+[[vk::binding(2,1)]] ByteAddressBuffer inputs[2];
 [[vk::binding(6,3)]] RWByteAddressBuffer output;
 
 struct PushConstants
