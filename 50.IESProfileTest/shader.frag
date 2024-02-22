@@ -28,10 +28,12 @@ float f(vec2 uv) {
 
 void main()
 {
-   vec2 uv = Pos.xy;
-    float dist = sqrt(uv.x*uv.x+uv.y*uv.y);
-    vec3 col = plot(dist,0.46,0.75)*vec3(1.0);
-    float data = 0.45*f(uv);
-    col += plot(dist,data,1.25)*vec3(1.0,0.0,0.0);
+    vec2 uv = Pos.xy;
+    float dist = sqrt(uv.x*uv.x+uv.y*uv.y)*1.015625;
+    vec3 col = vec3(plot(dist,1.0,0.75));
+
+    float normalizedStrength = f(uv);
+    if (dist<normalizedStrength)
+        col += vec3(1.0,0.0,0.0);
     outColor = vec4(col,1.0);
 }
