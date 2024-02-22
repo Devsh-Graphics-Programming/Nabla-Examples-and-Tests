@@ -436,18 +436,33 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, and just keep on clearing the swapchain image to red and present
 		void workLoopBody() override
 		{
+			// To proceed, you need to acquire to know what swapchain image to use.
+			const int8_t acquiredImageIx = m_surface->acquireNextImage();
 			// We might fail to acquire an image, e.g. because of a zero-sized window (minimized on win32)
-			if ((m_currentAcquire=m_surface->acquireNextImage())<0)
+			if (acquiredImageIx <0)
 				return;
 
 			const auto nextFrameIx = m_surface->getAcquireCount();
 
-			// You explicitly should not use `m_cmdBufs[m_currentAcquire]` because after swapchain re-creation you might end up acquiring an image index colliding with old swapchain images not yet presented
+			// You explicitly should not use `m_cmdBufs[acquiredImageIx]` because after swapchain re-creation you might
+			// end up acquiring an image index colliding with old swapchain images not yet presented.
 			auto cmdbuf = m_cmdBufs[(nextFrameIx-1)%m_maxFramesInFlight].get();
 
-			// First you need to acquire to know what swapchain image to use, the acquire is done in `keepRunning()` which runs first
+			// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+			if (nextFrameIx>m_maxFramesInFlight)
 			{
-				auto framebuffer = m_surface->getSwapchainResources().defaultFramebuffers[m_currentAcquire].get();
+				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+					{ 
+						.semaphore = m_semaphore.get(),
+						.value = nextFrameIx-m_maxFramesInFlight
+					}
+				};
+				m_device->blockForSemaphores(cmdbufDonePending);
+			}
+
+			// Now re-record it
+			{
+				auto framebuffer = m_surface->getSwapchainResources().defaultFramebuffers[acquiredImageIx].get();
 
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 				const auto& framebufferParams = framebuffer->getCreationParameters();
@@ -466,32 +481,28 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
 				.cmdbuf = cmdbuf
 			}};
-			const IQueue::SSubmitInfo::SSemaphoreInfo renderingDone[1] = {{
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
 				.semaphore = m_semaphore.get(),
 				.value = nextFrameIx,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 			}};
-			const IQueue::SSubmitInfo::SSemaphoreInfo waitSemaphores[] = {
-				{ // acquired swapchain image so can start rendering into it and present it
+			// acquired swapchain image so can start rendering into it and present it
+			const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = {
+				{
 					.semaphore = m_surface->getAcquireSemaphore(),
 					.value = m_surface->getAcquireCount(),
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait till we output
-				},
-				{ // previous use of commandbuffer is finished (we created cmbufs without the simultaneous use flag)
-					.semaphore = m_semaphore.get(),
-					.value = nextFrameIx-m_maxFramesInFlight,
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS // wait till we start processing
 				}
 			};
 			const IQueue::SSubmitInfo submitInfos[1] = {
 				{
-					.waitSemaphores = {waitSemaphores,nextFrameIx>m_maxFramesInFlight ? 2ull:1ull},
+					.waitSemaphores = acquired,
 					.commandBuffers = cmdbufs,
-					.signalSemaphores = renderingDone
+					.signalSemaphores = rendered
 				}
 			};
 			getGraphicsQueue()->submit(submitInfos);
-			m_surface->present(static_cast<uint8_t>(m_currentAcquire),renderingDone,smart_refctd_ptr<IGPUCommandBuffer>(cmdbufs->cmdbuf));
+			m_surface->present(static_cast<uint8_t>(acquiredImageIx),rendered,smart_refctd_ptr<IGPUCommandBuffer>(cmdbufs->cmdbuf));
 		}
 
 		//
@@ -531,8 +542,6 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// Enough Command Buffers for all frames in flight!
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 		uint8_t m_maxFramesInFlight;
-		// Current acquired Image Index
-		int8_t m_currentAcquire;
 };
 
 // define an entry point as always!
