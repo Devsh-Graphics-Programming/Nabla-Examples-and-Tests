@@ -426,15 +426,15 @@ void main()
 #extension GL_EXT_shader_16bit_storage : require
 #define _NBL_GLSL_EXT_LUMA_METER_FIRST_PASS_DEFINED_
 #include "../ShaderCommon.glsl"
-layout(binding = 0, std430) restrict readonly buffer ImageInputBuffer
+layout(binding = 0, std430) restrict readonly buffer DenoisedImageInputBuffer
 {
-	f16vec3_packed inBuffer[];
+	f16vec3_packed inDenoisedBuffer[];
 };
 #define _NBL_GLSL_EXT_FFT_INPUT_DESCRIPTOR_DEFINED_
-layout(binding = 1, std430) restrict writeonly buffer SpectrumOutputBuffer
+layout(binding = 1, std430) restrict buffer NoisyImageInputBufferAndSpectrumOutputBuffer
 {
-	vec2 outSpectrum[];
-};
+	uint16_t data[];
+} aliasedBuffer[2];
 #define _NBL_GLSL_EXT_FFT_OUTPUT_DESCRIPTOR_DEFINED_
 
 
@@ -466,7 +466,12 @@ uint nbl_glsl_ext_FFT_Parameters_t_getDirection()
 void nbl_glsl_ext_FFT_setData(in uvec3 coordinate, in uint channel, in nbl_glsl_complex complex_value)
 {
 	const uint index = ((channel<<CommonPushConstants_getPassLog2FFTSize(0))+coordinate.x)*pc.data.imageHeight+coordinate.y;
-	outSpectrum[index] = complex_value;
+
+	const uvec2 asUint = floatBitsToUint(complex_value);
+	aliasedBuffer[1].data[index*4+0] = uint16_t(asUint.x&0xffffu);
+	aliasedBuffer[1].data[index*4+1] = uint16_t(asUint.x>>16);
+	aliasedBuffer[1].data[index*4+2] = uint16_t(asUint.y&0xffffu);
+	aliasedBuffer[1].data[index*4+3] = uint16_t(asUint.y>>16);
 }
 #define _NBL_GLSL_EXT_FFT_SET_DATA_DEFINED_
 
@@ -475,31 +480,7 @@ void nbl_glsl_ext_FFT_setData(in uvec3 coordinate, in uint channel, in nbl_glsl_
 #include "nbl/builtin/glsl/ext/FFT/default_compute_fft.comp"
 
 
-float scaledLogLuma;
-nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channel) 
-{
-	ivec3 oldCoord = coordinate;
-	nbl_glsl_ext_FFT_wrap_coord(coordinate);
-
-	const uint index = coordinate.y*pc.data.imageWidth+coordinate.x;
-
-	// rewrite this fetch at some point
-	nbl_glsl_complex retval; retval.y = 0.0;
-	switch (channel)
-	{
-		case 2u:
-			retval[0] = float(inBuffer[index].z);
-			break;
-		case 1u:
-			retval[0] = float(inBuffer[index].y);
-			break;
-		default:
-			scaledLogLuma += nbl_glsl_ext_LumaMeter_local_process(all(equal(coordinate,oldCoord)),vec3(inBuffer[index].x,inBuffer[index].y,inBuffer[index].z));
-			retval[0] = float(inBuffer[index].x);
-			break;
-	}
-	return retval;
-}
+vec3 preloadedPixels[(_NBL_GLSL_EXT_FFT_MAX_DIM_SIZE_-1u)/_NBL_GLSL_WORKGROUP_SIZE_+1u];
 
 void main()
 {
@@ -508,26 +489,37 @@ void main()
 	#endif
 	nbl_glsl_ext_LumaMeter_clearFirstPassOutput();
 
-
-	// Virtual Threads Calculation
 	const uint log2FFTSize = nbl_glsl_ext_FFT_Parameters_t_getLog2FFTSize();
 	const uint item_per_thread_count = 0x1u<<(log2FFTSize-_NBL_GLSL_WORKGROUP_SIZE_LOG2_);
+
+	// Load Values into local memory
+	float scaledLogLuma = 0.f;
+	for(uint t=0u; t<item_per_thread_count; t++)
+	{
+		const uint tid = (t<<_NBL_GLSL_WORKGROUP_SIZE_LOG2_)|gl_LocalInvocationIndex;
+		const uint trueDim = nbl_glsl_ext_FFT_Parameters_t_getDimensions()[nbl_glsl_ext_FFT_Parameters_t_getDirection()];
+		const ivec3 oldCoord = nbl_glsl_ext_FFT_getPaddedCoordinates(tid,log2FFTSize,trueDim);
+		ivec3 coordinate = oldCoord; nbl_glsl_ext_FFT_wrap_coord(coordinate);
+		//
+		const uint index = coordinate.y*pc.data.imageWidth+coordinate.x;
+		const vec3 denoised = vec3(inDenoisedBuffer[index].x,inDenoisedBuffer[index].y,inDenoisedBuffer[index].z);
+		vec3 noisy;
+		for (uint c=0; c<3; c++)
+			noisy[c] = unpackHalf2x16(uint(aliasedBuffer[0].data[index*3+c]))[0];
+		preloadedPixels[t] = mix(denoised,noisy,pc.data.denoiseBlendFactor);
+		//
+		const bool contributesToLuma = all(equal(coordinate,oldCoord));
+		scaledLogLuma += nbl_glsl_ext_LumaMeter_local_process(contributesToLuma,preloadedPixels[t]);
+	}
+	nbl_glsl_ext_LumaMeter_setFirstPassOutput(nbl_glsl_ext_LumaMeter_workgroup_process(scaledLogLuma));
+	// prevent overlap between different usages of shared memory
+	barrier();
+
+	// Virtual Threads Calculation
 	for(uint channel=0u; channel<3u; channel++)
 	{
-		scaledLogLuma = 0.f;
-		// Load Values into local memory
-		for(uint t=0u; t<item_per_thread_count; t++)
-		{
-			const uint tid = (t<<_NBL_GLSL_WORKGROUP_SIZE_LOG2_)|gl_LocalInvocationIndex;
-			const uint trueDim = nbl_glsl_ext_FFT_Parameters_t_getDimensions()[nbl_glsl_ext_FFT_Parameters_t_getDirection()];
-			nbl_glsl_ext_FFT_impl_values[t] = nbl_glsl_ext_FFT_getPaddedData(nbl_glsl_ext_FFT_getPaddedCoordinates(tid,log2FFTSize,trueDim),channel);
-		}
-		if (channel==0u)
-		{
-			nbl_glsl_ext_LumaMeter_setFirstPassOutput(nbl_glsl_ext_LumaMeter_workgroup_process(scaledLogLuma));
-			// prevent overlap between different usages of shared memory
-			barrier();
-		}
+		for (uint t=0u; t<item_per_thread_count; t++)
+			nbl_glsl_ext_FFT_impl_values[t] = nbl_glsl_complex(preloadedPixels[t][channel],0.f);
 		// do FFT
 		nbl_glsl_ext_FFT_preloaded(false,log2FFTSize);
 		// write out to main memory
@@ -551,8 +543,8 @@ shared uint _NBL_GLSL_SCRATCH_SHARED_DEFINED_[_NBL_GLSL_SCRATCH_SHARED_SIZE_DEFI
 #include "../ShaderCommon.glsl"
 layout(binding = 1, std430) restrict buffer SpectrumBuffer
 {
-	vec2 spectrum[];
-};
+	vec2 data[];
+} spectrumBuffer[2];
 #define _NBL_GLSL_EXT_FFT_INPUT_DESCRIPTOR_DEFINED_
 #define _NBL_GLSL_EXT_FFT_OUTPUT_DESCRIPTOR_DEFINED_
 
@@ -587,7 +579,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 void nbl_glsl_ext_FFT_setData(in uvec3 coordinate, in uint channel, in nbl_glsl_complex complex_value)
 {
 	const uint index = ((channel<<CommonPushConstants_getPassLog2FFTSize(0))+coordinate.x)*pc.data.imageHeight+coordinate.y;
-	spectrum[index] = complex_value;
+	spectrumBuffer[1].data[index] = complex_value;
 }
 #define _NBL_GLSL_EXT_FFT_SET_DATA_DEFINED_
 
@@ -653,7 +645,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 	if (!nbl_glsl_ext_FFT_wrap_coord(coordinate))
 		return nbl_glsl_complex(0.f,0.f);
 	const uint index = ((channel<<CommonPushConstants_getPassLog2FFTSize(0))+coordinate.x)*pc.data.imageHeight+coordinate.y;
-	return spectrum[index];
+	return spectrumBuffer[1].data[index];
 }
 		)==="));
 		auto interleaveAndLastFFTShader = driver->createGPUShader(core::make_smart_refctd_ptr<ICPUShader>(R"===(
@@ -675,8 +667,8 @@ layout(binding = 0, std430) restrict buffer ImageOutputBuffer
 #define _NBL_GLSL_EXT_FFT_OUTPUT_DESCRIPTOR_DEFINED_
 layout(binding = 1, std430) restrict readonly buffer SpectrumInputBuffer
 {
-	vec2 inSpectrum[];
-};
+	vec2 data[];
+} inSpectrumBuffer[2];
 #define _NBL_GLSL_EXT_FFT_INPUT_DESCRIPTOR_DEFINED_
 layout(binding = 3, std430) restrict readonly buffer IntensityBuffer
 {
@@ -787,7 +779,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 	if (!nbl_glsl_ext_FFT_wrap_coord(coordinate))
 		return nbl_glsl_complex(0.f,0.f);
 	const uint index = ((channel<<CommonPushConstants_getPassLog2FFTSize(0))+coordinate.x)*pc.data.imageHeight+coordinate.y;
-	return inSpectrum[index];
+	return inSpectrumBuffer[1].data[index];
 }
 		)==="));
 		struct SpecializationConstants
@@ -1171,8 +1163,10 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 			denoisers[i].stateOffset = denoiserStateBufferSize;
 			denoiserStateBufferSize += denoisers[i].stateSize = m_denoiserMemReqs.stateSizeInBytes;
 			scratchBufferSize = core::max(scratchBufferSize, denoisers[i].scratchSize = m_denoiserMemReqs.withOverlapScratchSizeInBytes);
-			tempBufferSize = core::max(tempBufferSize,forcedOptiXFormatPixelStride*(i+1)*maxResolution[0]*maxResolution[1]);
+			tempBufferSize = core::max(tempBufferSize,forcedOptiXFormatPixelStride*i*maxResolution[0]*maxResolution[1]);
 		}
+		// have to keep the FFT spectrum out of the noisy color storage
+		tempBufferSize += forcedOptiXFormatPixelStride*maxResolution[0]*maxResolution[1];
 		std::string message = "Total VRAM consumption for Denoiser algorithm: ";
 		os::Printer::log(message+std::to_string(denoiserStateBufferSize+scratchBufferSize+tempBufferSize), ELL_INFORMATION);
 
@@ -1206,6 +1200,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 		{
 			shaderConstants.imageWidth = param.width;
 			shaderConstants.imageHeight = param.height;
+			shaderConstants.denoiseBlendFactor = denoiserBlendFactorBundle[i].value();
 
 			assert(intensityBufferOffset%IntensityValuesSize==0u);
 			shaderConstants.intensityBufferDWORDOffset = intensityBufferOffset/IntensityValuesSize;
@@ -1462,13 +1457,14 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 						attachBufferImageRange(writes[0].info+EII_ALBEDO,albedoPixelBuffer.getObject(),inImageByteOffset[EII_ALBEDO],interleavedPixelBytesize);
 					if (denoiserInputCount>EII_NORMAL)
 						attachBufferImageRange(writes[0].info+EII_NORMAL,normalPixelBuffer.getObject(),inImageByteOffset[EII_NORMAL],interleavedPixelBytesize);
-					for (uint32_t j=0u; j<denoiserInputCount; j++)
+					// always need at least two input noisy buffers due to having to keep noisy colour around
+					for (uint32_t j=0u; j<core::max(denoiserInputCount,EII_ALBEDO+1); j++)
 					{
 						outImageByteOffset[j] = j*param.width*param.height*forcedOptiXFormatPixelStride;
 						attachBufferImageRange(writes[1].info+j,temporaryPixelBuffer.getObject(),outImageByteOffset[j],forcedOptiXFormatPixelStride);
-						if (j==0u)
-							infos[EII_COUNT].buffer.size = fftScratchSize;
 					}
+					// make sure noisy albedo gets reused for FFT, and the FFT scratch size is always larger
+					writes[1].info[EII_ALBEDO].buffer.size = fftScratchSize;
 					attachWholeBuffer(writes[2].info,histogramBuffer.get());
 					attachWholeBuffer(writes[3].info,intensityBuffer.getObject());
 					for (auto j=0u; j<colorChannelsFFT; j++)
@@ -1525,7 +1521,7 @@ nbl_glsl_complex nbl_glsl_ext_FFT_getPaddedData(ivec3 coordinate, in uint channe
 				
 				//invocation params
 				OptixDenoiserParams denoiserParams = {};
-				denoiserParams.blendFactor = denoiserBlendFactorBundle[i].value();
+				denoiserParams.blendFactor = 0.f; // OptiX bug makes whole denoise a single color if we set this to anything other than 0.f
 				denoiserParams.denoiseAlpha = 0u;
 				denoiserParams.hdrIntensity = intensityBuffer.asBuffer.pointer + intensityBufferOffset;
 
