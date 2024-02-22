@@ -73,7 +73,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 		// We need to defer the swapchain creation till the Physical Device is chosen and Queues are created together with the Logical Device
-		inline bool createSwapchain(video::IQueue* queue, const video::ISwapchain::SSharedCreationParams& sharedParams={}, const video::ISurface::SFormat& surfaceFormat={})
+		inline bool initSwapchain(video::IQueue* queue, const video::ISwapchain::SSharedCreationParams& sharedParams={}, const video::ISurface::SFormat& surfaceFormat={})
 		{
 			if (!queue)
 				return false;
@@ -102,6 +102,9 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				if (!params.deduceFormat(physDev))
 					return false;
 			}
+			m_status = STATUS::NOT_READY;
+
+			// TODO: handle surface starting in minimized state
 			if (m_surface->getAPIType()==EAT_VULKAN)
 				m_swapchainResources.swapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
 
@@ -111,6 +114,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				return false;
 			}
 			
+			m_status = STATUS::USABLE;
 			return true;
 		}
 
@@ -125,16 +129,15 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		inline video::ISwapchain* getSwapchain() {return m_swapchainResources.swapchain.get();}
 		inline const video::ISwapchain* getSwapchain() const {return m_swapchainResources.swapchain.get();}
 
-		// If window gets minimized or more rarely if it gets resized weirdly, the render area becomes 0 so its impossible to create framebuffers.
-		// However we still need to recreate swapchains so we can detect "out of date" and recreate into a render area > 0 
-		// Another way to do this would be to be hooked up via Window Resize callbacks and defer the swapchain re-creation until we resize to a valid extent.
-		inline bool nonZeroRenderArea() const
+		// If window gets minimized on some platforms or more rarely if it gets resized weirdly, the render area becomes 0 so its impossible to recreate a swapchain.
+		// So we need to defer the swapchain re-creation until we can resize to a valid extent.
+		enum class STATUS : int8_t
 		{
-			if (!getSwapchain())
-				return false;
-			const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
-			return sharedParams.width && sharedParams.height;
-		}
+			IRRECOVERABLE = -1,
+			USABLE,
+			NOT_READY=1
+		};
+		inline STATUS getStatus() const {return m_status;}
 
 		// Might return `nullptr` if `!nonZeroRenderArea()`
 		inline video::IGPURenderpass* getDefaultRenderpass() {return m_swapchainResources.defaultRenderpass.get();}
@@ -144,16 +147,17 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		// RETURNS: Negative on failure, otherwise its the acquired image's index.
 		inline int8_t acquireNextImage()
 		{
-			// Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
-			// which is outside of our control here as there is a nice chain of lifetimes of:
-			// `ExternalCmdBuf -via usage of-> Swapchain Image -memory provider-> Swapchain -created from-> Window/Surface`
-			// Only when the last user of the swapchain image drops it, will the window die.
-			if (m_cb->windowGotClosed())
-				m_swapchainResources.clear();
-
-			// bail before acquire!
-			if (!m_swapchainResources)
-				return -1;
+			switch (m_status)
+			{
+				case STATUS::NOT_READY:
+					if (recreateSwapchain())
+						break;
+					[[fallthrough]];
+				case STATUS::IRRECOVERABLE:
+					return -1;
+				default:
+					break;
+			}
 
 			using namespace nbl::video;
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfos[1] = {
@@ -176,17 +180,20 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				case ISwapchain::ACQUIRE_IMAGE_RESULT::NOT_READY: // don't throw our swapchain away just because of a timeout XD
 					assert(false); // shouldn't happen though cause we use uint64_t::max() as the timeout
 					break;
+				case ISwapchain::ACQUIRE_IMAGE_RESULT::OUT_OF_DATE:
+					// try again, will re-create swapchain
+					return acquireNextImage();
 				default:
-					m_swapchainResources.clear();
 					break;
 			}
+			becomeIrrecoverable();
 			return -1;
 		}
 
 		// Frame Resources are not optional!
 		inline bool present(const uint8_t imageIndex, const std::span<const video::IQueue::SSubmitInfo::SSemaphoreInfo> waitSemaphores, core::smart_refctd_ptr<core::IReferenceCounted>&& frameResources)
 		{
-			if (!m_swapchainResources)
+			if (m_status!=STATUS::USABLE)
 				return false;
 
 			using namespace nbl::video;
@@ -201,92 +208,119 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				case ISwapchain::PRESENT_RESULT::SUCCESS:
 					return true;
 				case ISwapchain::PRESENT_RESULT::OUT_OF_DATE:
-					// try to recreate swapchain resources
-					{
-						ISwapchain::SSharedCreationParams params = {
-							// want to at least ensure same usages, because if suddenly we use one usage renderer might give out
-							.imageUsage = m_swapchainResources.swapchain->getCreationParameters().sharedParams.imageUsage
-						};
-						// Question: should we re-query the supported queues, formats, present modes, etc. for a surface?
-						m_swapchainResources.swapchain = m_swapchainResources.swapchain->recreate();
-					}
-					if (createDefaultFramebuffers(m_queue))
-						return true;
+					m_status = STATUS::NOT_READY;
 					break;
 				default:
+					becomeIrrecoverable();
 					break;
 			}
-			m_swapchainResources.clear();
 			return false;
 		}
 
 	protected:
 		inline SimpleResizableSurface(core::smart_refctd_ptr<video::ISurface>&& _surface, ICallback* _cb)
 			: m_surface(std::move(_surface)), m_cb(_cb) {}
+		inline ~SimpleResizableSurface()
+		{
+			// just to avoid deadlocks due to circular refcounting
+			m_swapchainResources.clear();
+		}
+
+		inline void becomeIrrecoverable()
+		{
+			m_swapchainResources.clear();
+			m_status = STATUS::IRRECOVERABLE;
+		}
+
+		inline bool recreateSwapchain()
+		{
+			video::ISwapchain::SSharedCreationParams params = {
+				// want to at least ensure same usages, because if suddenly we use one usage renderer might give out
+				.imageUsage = m_swapchainResources.swapchain->getCreationParameters().sharedParams.imageUsage
+			};
+			// Question: should we re-query the supported queues, formats, present modes, etc. for a surface?
+			if (m_swapchainResources.swapchain->deduceRecreationParams(params))
+			{
+				// super special case, we can't re-create the swapchain 
+				if (params.width==0 || params.height==0)
+				{
+					// we need to keep the old-swapchain around, but can drop the rest
+					m_swapchainResources.invalidate();
+					m_status = STATUS::NOT_READY;
+					return false;
+				}
+				m_swapchainResources.swapchain = m_swapchainResources.swapchain->recreate(params);
+				if (createDefaultFramebuffers(m_queue))
+				{
+					m_status = STATUS::USABLE;
+					return true;
+				}
+			}
+			becomeIrrecoverable();
+			return false;
+		}
 
 		inline bool createDefaultFramebuffers(video::IQueue* queue)
 		{
 			if (!m_swapchainResources.swapchain)
 				return false;
 
+			using namespace video;
+
+			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
+
 			const auto& swapchainParams = m_swapchainResources.swapchain->getCreationParameters();
-			const auto& swapchainSharedParams = swapchainParams.sharedParams;
-			if (swapchainSharedParams.width && swapchainSharedParams.height)
+			const auto masterFormat = swapchainParams.surfaceFormat.format;
+			const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+				{{
+					.format = masterFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false,
+					.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+					.storeOp = IGPURenderpass::STORE_OP::STORE,
+					.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
+					.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
+				}},
+				IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+			};
+			IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+				{},
+				IGPURenderpass::SCreationParams::SubpassesEnd
+			};
+			assert(subpasses[1]==IGPURenderpass::SCreationParams::SubpassesEnd);
+			subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+
+			IGPURenderpass::SCreationParams params = {};
+			params.colorAttachments = colorAttachments;
+			params.subpasses = subpasses;
+			// no subpass dependencies
+			m_swapchainResources.defaultRenderpass = device->createRenderpass(params);
+			if (!m_swapchainResources.defaultRenderpass)
+				return false;
+
+			for (auto i=0u; i<m_swapchainResources.swapchain->getImageCount(); i++)
 			{
-				using namespace video;
-
-				auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
-
-				const auto masterFormat = swapchainParams.surfaceFormat.format;
-				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-					{{
-						.format = masterFormat,
-						.samples = IGPUImage::ESCF_1_BIT,
-						.mayAlias = false,
-						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-						.storeOp = IGPURenderpass::STORE_OP::STORE,
-						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
-					}},
-					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-				};
-				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-					{},
-					IGPURenderpass::SCreationParams::SubpassesEnd
-				};
-				assert(subpasses[1]==IGPURenderpass::SCreationParams::SubpassesEnd);
-				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-
-				IGPURenderpass::SCreationParams params = {};
-				params.colorAttachments = colorAttachments;
-				params.subpasses = subpasses;
-				// no subpass dependencies
-				m_swapchainResources.defaultRenderpass = device->createRenderpass(params);
-				if (!m_swapchainResources.defaultRenderpass)
+				auto imageView = device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+					.image = m_swapchainResources.swapchain->createImage(i),
+					.viewType = IGPUImageView::ET_2D,
+					.format = masterFormat
+				});
+				const auto& swapchainSharedParams = swapchainParams.sharedParams;
+				IGPUFramebuffer::SCreationParams params = {{
+					.renderpass = core::smart_refctd_ptr(m_swapchainResources.defaultRenderpass),
+					.depthStencilAttachments = nullptr,
+					.colorAttachments = &imageView.get(),
+					.width = swapchainSharedParams.width,
+					.height = swapchainSharedParams.height,
+					.layers = swapchainSharedParams.arrayLayers
+				}};
+				m_swapchainResources.defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
+				if (!m_swapchainResources.defaultFramebuffers[i])
 					return false;
-
-				for (auto i=0u; i<m_swapchainResources.swapchain->getImageCount(); i++)
-				{
-					auto imageView = device->createImageView({
-						.flags = IGPUImageView::ECF_NONE,
-						.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-						.image = m_swapchainResources.swapchain->createImage(i),
-						.viewType = IGPUImageView::ET_2D,
-						.format = masterFormat
-					});
-					IGPUFramebuffer::SCreationParams params = {{
-						.renderpass = core::smart_refctd_ptr(m_swapchainResources.defaultRenderpass),
-						.depthStencilAttachments = nullptr,
-						.colorAttachments = &imageView.get(),
-						.width = swapchainSharedParams.width,
-						.height = swapchainSharedParams.height,
-						.layers = swapchainSharedParams.arrayLayers
-					}};
-					m_swapchainResources.defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
-					if (!m_swapchainResources.defaultFramebuffers[i])
-						return false;
-				}
 			}
+
 			m_queue = queue;
 			return true;
 		}
@@ -298,9 +332,17 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		// You don't want to use `m_swapchainResources.swapchain->getAcquireCount()` because it resets when swapchain gets recreated
 		uint64_t m_acquireCount = 0;
 		// these can die spontaneously
-		struct SwapchainResources
+		struct SwapchainResources 
 		{
-			inline operator bool() const {return bool(swapchain);}
+			inline void invalidate()
+			{
+				if (!defaultRenderpass)
+					return;
+
+				// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
+				std::fill_n(defaultFramebuffers.data(),video::ISwapchain::MaxImages,nullptr);
+				defaultRenderpass = nullptr;
+			}
 
 			inline void clear()
 			{
@@ -308,11 +350,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 					return;
 
 				// Want to nullify things in an order that leads to fastest drops (if possible) and shallowest callstacks when refcounting
-				using namespace video;
-
-				// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
-				std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
-				defaultRenderpass = nullptr;
+				invalidate();
 
 				// We need to call this method manually to make sure resources latched on swapchain images are dropped and cycles broken, otherwise its
 				// EXTERMELY LIKELY (if you don't reset CommandBuffers) that you'll end up with a circular reference:
@@ -327,7 +365,12 @@ class SimpleResizableSurface : public core::IReferenceCounted
 			core::smart_refctd_ptr<video::IGPURenderpass> defaultRenderpass = {};
 			std::array<core::smart_refctd_ptr<video::IGPUFramebuffer>,video::ISwapchain::MaxImages> defaultFramebuffers = {};
 		} m_swapchainResources = {};
+		STATUS m_status;
 };
+// Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
+// which is outside of our control here as there is a nice chain of lifetimes of:
+// `ExternalCmdBuf -via usage of-> Swapchain Image -memory provider-> Swapchain -created from-> Window/Surface`
+// Only when the last user of the swapchain image drops it, will the window die.
 
 }
 
@@ -390,7 +433,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
- 			if (!m_surface || !m_surface->createSwapchain(m_surface->pickQueue(m_device.get())))
+ 			if (!m_surface || !m_surface->initSwapchain(m_surface->pickQueue(m_device.get())))
 				return logFail("Failed to Create a Swapchain!");
 
 			// Help the CI a bit by providing a timeout option
@@ -404,9 +447,41 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, and just keep on clearing the swapchain image to red and present
 		void workLoopBody() override
 		{
+			// We might fail to acquire an image, e.g. because of a zero-sized window (minimized on win32)
+			if ((m_currentAcquire=m_surface->acquireNextImage())<0)
+				return;
+
 			const auto nextFrameIx = m_surface->getAcquireCount();
 
-			// If there's an image to render to we'll signal this semaphore, else not at all because we won't perform rendering
+			// You explicitly should not use `m_cmdBufs[m_currentAcquire]` because after swapchain re-creation you might end up acquiring an image index colliding with old swapchain images not yet presented
+			auto cmdbuf = m_cmdBufs[(nextFrameIx-1)%m_maxFramesInFlight].get();
+
+			// First you need to acquire to know what swapchain image to use, the acquire is done in `keepRunning()` which runs first
+			{
+				auto framebuffer = m_surface->getDefaultFramebuffer(m_currentAcquire);
+
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+				const auto& framebufferParams = framebuffer->getCreationParameters();
+				const IGPUCommandBuffer::SClearColorValue clearValue = {.float32={1.f,0.f,0.f,1.f}};
+				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+					.framebuffer = framebuffer,
+					.colorClearValues = &clearValue,
+					.depthStencilClearValues = nullptr,
+					.renderArea = {.offset={0,0},.extent={framebufferParams.width,framebufferParams.height}}
+				};
+				cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				cmdbuf->endRenderPass();
+				cmdbuf->end();
+			}
+
+			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
+				.cmdbuf = cmdbuf
+			}};
+			const IQueue::SSubmitInfo::SSemaphoreInfo renderingDone[1] = {{
+				.semaphore = m_semaphore.get(),
+				.value = nextFrameIx,
+				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+			}};
 			const IQueue::SSubmitInfo::SSemaphoreInfo waitSemaphores[] = {
 				{ // acquired swapchain image so can start rendering into it and present it
 					.semaphore = m_surface->getAcquireSemaphore(),
@@ -419,51 +494,15 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS // wait till we start processing
 				}
 			};
-
-			const bool performRender = m_surface->nonZeroRenderArea();
-			if (performRender)
-			{
-				// You explicitly should not use `m_cmdBufs[m_currentAcquire]` because after swapchain re-creation you might end up acquiring an image index colliding with old swapchain images not yet presented
-				auto cmdbuf = m_cmdBufs[(nextFrameIx-1)%m_maxFramesInFlight].get();
-
-				// First you need to acquire to know what swapchain image to use, the acquire is done in `keepRunning()` which runs first
+			const IQueue::SSubmitInfo submitInfos[1] = {
 				{
-					auto framebuffer = m_surface->getDefaultFramebuffer(m_currentAcquire);
-
-					cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
-					const auto& framebufferParams = framebuffer->getCreationParameters();
-					const IGPUCommandBuffer::SClearColorValue clearValue = {.float32={1.f,0.f,0.f,1.f}};
-					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-						.framebuffer = framebuffer,
-						.colorClearValues = &clearValue,
-						.depthStencilClearValues = nullptr,
-						.renderArea = {.offset={0,0},.extent={framebufferParams.width,framebufferParams.height}}
-					};
-					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-					cmdbuf->endRenderPass();
-					cmdbuf->end();
+					.waitSemaphores = {waitSemaphores,nextFrameIx>m_maxFramesInFlight ? 2ull:1ull},
+					.commandBuffers = cmdbufs,
+					.signalSemaphores = renderingDone
 				}
-
-				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
-					.cmdbuf = cmdbuf
-				}};
-				const IQueue::SSubmitInfo::SSemaphoreInfo renderingDone[1] = {{
-					.semaphore = m_semaphore.get(),
-					.value = nextFrameIx,
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-				}};
-				const IQueue::SSubmitInfo submitInfos[1] = {
-					{
-						.waitSemaphores = {waitSemaphores,nextFrameIx>m_maxFramesInFlight ? 2ull:1ull},
-						.commandBuffers = cmdbufs,
-						.signalSemaphores = renderingDone
-					}
-				};
-				getGraphicsQueue()->submit(submitInfos);
-				m_surface->present(static_cast<uint8_t>(m_currentAcquire),renderingDone,smart_refctd_ptr<IGPUCommandBuffer>(cmdbufs->cmdbuf));
-			}
-			else
-				m_surface->present(static_cast<uint8_t>(m_currentAcquire),{waitSemaphores,1},nullptr);
+			};
+			getGraphicsQueue()->submit(submitInfos);
+			m_surface->present(static_cast<uint8_t>(m_currentAcquire),renderingDone,smart_refctd_ptr<IGPUCommandBuffer>(cmdbufs->cmdbuf));
 		}
 
 		//
@@ -472,7 +511,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
 				return false;
 
-			return m_surface && (m_currentAcquire=m_surface->acquireNextImage())>=0;
+			return m_surface && m_surface->getStatus()!=examples::SimpleResizableSurface::STATUS::IRRECOVERABLE;
 		}
 
 		virtual bool onAppTerminated() override
