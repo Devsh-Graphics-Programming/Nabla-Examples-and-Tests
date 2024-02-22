@@ -79,35 +79,31 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				return false;
 
 			using namespace nbl::video;
+			
+			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
+			if (!m_acquireSemaphore)
+			{
+				m_acquireSemaphore = device->createSemaphore(0u);
+				if (!m_acquireSemaphore)
+					return false;
+			}
+
 			ISwapchain::SCreationParams params = {
 				.surface = core::smart_refctd_ptr(m_surface),
 				.surfaceFormat = surfaceFormat,
 				.sharedParams = sharedParams
 				// we're not going to support concurrent sharing in this simple class
 			};
-			
-			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
-			const auto physDev = device->getPhysicalDevice();
-			if (!params.sharedParams.deduce(physDev,m_surface.get()))
-				return false;
-			const auto swapchainSharedParams = params.sharedParams;
-
-			if (!params.deduceFormat(physDev))
-				return false;
-			
-			if (m_swapchainResources.acquireSemaphore=device->createSemaphore(0u))
 			{
-				switch (m_surface->getAPIType())
-				{
-					case EAT_VULKAN:
-						m_swapchainResources.swapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
-						break;
-					default:
-						return false;
-				}
+				const auto physDev = device->getPhysicalDevice();
+				if (!params.sharedParams.deduce(physDev, m_surface.get()))
+					return false;
+				const auto swapchainSharedParams = params.sharedParams;
+				if (!params.deduceFormat(physDev))
+					return false;
 			}
-			else
-				return false;
+			if (m_surface->getAPIType()==EAT_VULKAN)
+				m_swapchainResources.swapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
 
 			if (!createDefaultFramebuffers(queue))
 			{
@@ -123,15 +119,26 @@ class SimpleResizableSurface : public core::IReferenceCounted
 
 		// An interesting solution to the "Frames In Flight", our tiny wrapper class will have its own Timeline Semaphore incrementing with each acquire, and thats it.
 		inline uint64_t getAcquireCount() {return m_acquireCount;}
-		inline video::ISemaphore* getAcquireSemaphore() {return m_swapchainResources.acquireSemaphore.get();}
+		inline video::ISemaphore* getAcquireSemaphore() {return m_acquireSemaphore.get();}
 
 		//
 		inline video::ISwapchain* getSwapchain() {return m_swapchainResources.swapchain.get();}
 		inline const video::ISwapchain* getSwapchain() const {return m_swapchainResources.swapchain.get();}
 
-		//
+		// If window gets minimized or more rarely if it gets resized weirdly, the render area becomes 0 so its impossible to create framebuffers.
+		// However we still need to recreate swapchains so we can detect "out of date" and recreate into a render area > 0 
+		// Another way to do this would be to be hooked up via Window Resize callbacks and defer the swapchain re-creation until we resize to a valid extent.
+		inline bool nonZeroRenderArea() const
+		{
+			if (!getSwapchain())
+				return false;
+			const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
+			return sharedParams.width && sharedParams.height;
+		}
+
+		// Might return `nullptr` if `!nonZeroRenderArea()`
 		inline video::IGPURenderpass* getDefaultRenderpass() {return m_swapchainResources.defaultRenderpass.get();}
-		//
+		// Will return `nullptr` if `getDefaultRenderpass()==nullptr`
 		inline video::IGPUFramebuffer* getDefaultFramebuffer(const uint8_t imageIndex) {return m_swapchainResources.defaultFramebuffers[imageIndex].get();}
 
 		// RETURNS: Negative on failure, otherwise its the acquired image's index.
@@ -151,7 +158,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 			using namespace nbl::video;
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfos[1] = {
 				{
-					.semaphore=m_swapchainResources.acquireSemaphore.get(),
+					.semaphore=m_acquireSemaphore.get(),
 					.value=m_acquireCount+1
 				}
 			};
@@ -222,60 +229,63 @@ class SimpleResizableSurface : public core::IReferenceCounted
 			if (!m_swapchainResources.swapchain)
 				return false;
 
-			using namespace video;
-
-			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
-
 			const auto& swapchainParams = m_swapchainResources.swapchain->getCreationParameters();
-			const auto masterFormat = swapchainParams.surfaceFormat.format;
-			const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-				{{
-					.format = masterFormat,
-					.samples = IGPUImage::ESCF_1_BIT,
-					.mayAlias = false,
-					.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-					.storeOp = IGPURenderpass::STORE_OP::STORE,
-					.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-					.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
-				}},
-				IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-			};
-			IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-				{},
-				IGPURenderpass::SCreationParams::SubpassesEnd
-			};
-			assert(subpasses[1]==IGPURenderpass::SCreationParams::SubpassesEnd);
-			subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-
-			IGPURenderpass::SCreationParams params = {};
-			params.colorAttachments = colorAttachments;
-			params.subpasses = subpasses;
-			// no subpass dependencies
-			m_swapchainResources.defaultRenderpass = device->createRenderpass(params);
-			if (!m_swapchainResources.defaultRenderpass)
-				return false;
-
 			const auto& swapchainSharedParams = swapchainParams.sharedParams;
-			for (auto i=0u; i<m_swapchainResources.swapchain->getImageCount(); i++)
+			if (swapchainSharedParams.width && swapchainSharedParams.height)
 			{
-				auto imageView = device->createImageView({
-					.flags = IGPUImageView::ECF_NONE,
-					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-					.image = m_swapchainResources.swapchain->createImage(i),
-					.viewType = IGPUImageView::ET_2D,
-					.format = masterFormat
-				});
-				IGPUFramebuffer::SCreationParams params = {{
-					.renderpass = core::smart_refctd_ptr(m_swapchainResources.defaultRenderpass),
-					.depthStencilAttachments = nullptr,
-					.colorAttachments = &imageView.get(),
-					.width = swapchainSharedParams.width,
-					.height = swapchainSharedParams.height,
-					.layers = swapchainSharedParams.arrayLayers
-				}};
-				m_swapchainResources.defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
-				if (!m_swapchainResources.defaultFramebuffers[i])
+				using namespace video;
+
+				auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
+
+				const auto masterFormat = swapchainParams.surfaceFormat.format;
+				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+					{{
+						.format = masterFormat,
+						.samples = IGPUImage::ESCF_1_BIT,
+						.mayAlias = false,
+						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+						.storeOp = IGPURenderpass::STORE_OP::STORE,
+						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
+						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
+					}},
+					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+				};
+				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+					{},
+					IGPURenderpass::SCreationParams::SubpassesEnd
+				};
+				assert(subpasses[1]==IGPURenderpass::SCreationParams::SubpassesEnd);
+				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+
+				IGPURenderpass::SCreationParams params = {};
+				params.colorAttachments = colorAttachments;
+				params.subpasses = subpasses;
+				// no subpass dependencies
+				m_swapchainResources.defaultRenderpass = device->createRenderpass(params);
+				if (!m_swapchainResources.defaultRenderpass)
 					return false;
+
+				for (auto i=0u; i<m_swapchainResources.swapchain->getImageCount(); i++)
+				{
+					auto imageView = device->createImageView({
+						.flags = IGPUImageView::ECF_NONE,
+						.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+						.image = m_swapchainResources.swapchain->createImage(i),
+						.viewType = IGPUImageView::ET_2D,
+						.format = masterFormat
+					});
+					IGPUFramebuffer::SCreationParams params = {{
+						.renderpass = core::smart_refctd_ptr(m_swapchainResources.defaultRenderpass),
+						.depthStencilAttachments = nullptr,
+						.colorAttachments = &imageView.get(),
+						.width = swapchainSharedParams.width,
+						.height = swapchainSharedParams.height,
+						.layers = swapchainSharedParams.arrayLayers
+					}};
+					m_swapchainResources.defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
+					if (!m_swapchainResources.defaultFramebuffers[i])
+						return false;
+				}
 			}
 			m_queue = queue;
 			return true;
@@ -284,6 +294,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		core::smart_refctd_ptr<video::ISurface> m_surface;
 		ICallback* m_cb;
 		video::IQueue* m_queue;
+		core::smart_refctd_ptr<video::ISemaphore> m_acquireSemaphore;
 		// You don't want to use `m_swapchainResources.swapchain->getAcquireCount()` because it resets when swapchain gets recreated
 		uint64_t m_acquireCount = 0;
 		// these can die spontaneously
@@ -303,9 +314,6 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
 				defaultRenderpass = nullptr;
 
-				// Release our private refcount so that it gets destroyed before the swapchain destroys itself, the order isn't really important.
-				acquireSemaphore = nullptr;
-
 				// We need to call this method manually to make sure resources latched on swapchain images are dropped and cycles broken, otherwise its
 				// EXTERMELY LIKELY (if you don't reset CommandBuffers) that you'll end up with a circular reference:
 				// `CommandBuffer -> SC Image[i] -> Swapchain -> FrameResource[i] -> CommandBuffer`
@@ -315,7 +323,6 @@ class SimpleResizableSurface : public core::IReferenceCounted
 			}
 
 			core::smart_refctd_ptr<video::ISwapchain> swapchain = {};
-			core::smart_refctd_ptr<video::ISemaphore> acquireSemaphore = {};
 			// If these get used, they should indirectly find their way into the `frameResources` argument of the `present` method.
 			core::smart_refctd_ptr<video::IGPURenderpass> defaultRenderpass = {};
 			std::array<core::smart_refctd_ptr<video::IGPUFramebuffer>,video::ISwapchain::MaxImages> defaultFramebuffers = {};
@@ -399,37 +406,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		{
 			const auto nextFrameIx = m_surface->getAcquireCount();
 
-			// You explicitly should not use `m_cmdBufs[m_currentAcquire]` because after swapchain re-creation you might end up acquiring an image index colliding with old swapchain images not yet presented
-			auto cmdbuf = m_cmdBufs[(nextFrameIx-1)%m_maxFramesInFlight].get();
-
-			// First you need to acquire to know what swapchain image to use, the acquire is done in `keepRunning()` which runs first
-			{
-				auto framebuffer = m_surface->getDefaultFramebuffer(m_currentAcquire);
-
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
-				const auto& framebufferParams = framebuffer->getCreationParameters();
-				const IGPUCommandBuffer::SClearColorValue clearValue = {.float32={1.f,0.f,0.f,1.f}};
-				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-					.framebuffer = framebuffer,
-					.colorClearValues = &clearValue,
-					.depthStencilClearValues = nullptr,
-					.renderArea = {.offset={0,0},.extent={framebufferParams.width,framebufferParams.height}}
-				};
-				cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				cmdbuf->endRenderPass();
-				cmdbuf->end();
-			}
-
-			const IQueue::SSubmitInfo::SSemaphoreInfo renderingDone[1] = {{
-				.semaphore = m_semaphore.get(),
-				.value = nextFrameIx,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-			}};
-			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
-				.cmdbuf = cmdbuf
-			}};
+			// If there's an image to render to we'll signal this semaphore, else not at all because we won't perform rendering
 			const IQueue::SSubmitInfo::SSemaphoreInfo waitSemaphores[] = {
-				{ // acquired swapchain image so can start rendering into it
+				{ // acquired swapchain image so can start rendering into it and present it
 					.semaphore = m_surface->getAcquireSemaphore(),
 					.value = m_surface->getAcquireCount(),
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait till we output
@@ -441,16 +420,50 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				}
 			};
 
-			const IQueue::SSubmitInfo submitInfos[1] = {
-				{
-					.waitSemaphores = {waitSemaphores,nextFrameIx>m_maxFramesInFlight ? 2ull:1ull},
-					.commandBuffers = cmdbufs,
-					.signalSemaphores = renderingDone
-				}
-			};
-			getGraphicsQueue()->submit(submitInfos);
+			const bool performRender = m_surface->nonZeroRenderArea();
+			if (performRender)
+			{
+				// You explicitly should not use `m_cmdBufs[m_currentAcquire]` because after swapchain re-creation you might end up acquiring an image index colliding with old swapchain images not yet presented
+				auto cmdbuf = m_cmdBufs[(nextFrameIx-1)%m_maxFramesInFlight].get();
 
-			m_surface->present(static_cast<uint8_t>(m_currentAcquire),renderingDone,smart_refctd_ptr<IGPUCommandBuffer>(cmdbufs->cmdbuf));
+				// First you need to acquire to know what swapchain image to use, the acquire is done in `keepRunning()` which runs first
+				{
+					auto framebuffer = m_surface->getDefaultFramebuffer(m_currentAcquire);
+
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+					const auto& framebufferParams = framebuffer->getCreationParameters();
+					const IGPUCommandBuffer::SClearColorValue clearValue = {.float32={1.f,0.f,0.f,1.f}};
+					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+						.framebuffer = framebuffer,
+						.colorClearValues = &clearValue,
+						.depthStencilClearValues = nullptr,
+						.renderArea = {.offset={0,0},.extent={framebufferParams.width,framebufferParams.height}}
+					};
+					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+					cmdbuf->endRenderPass();
+					cmdbuf->end();
+				}
+
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
+					.cmdbuf = cmdbuf
+				}};
+				const IQueue::SSubmitInfo::SSemaphoreInfo renderingDone[1] = {{
+					.semaphore = m_semaphore.get(),
+					.value = nextFrameIx,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+				}};
+				const IQueue::SSubmitInfo submitInfos[1] = {
+					{
+						.waitSemaphores = {waitSemaphores,nextFrameIx>m_maxFramesInFlight ? 2ull:1ull},
+						.commandBuffers = cmdbufs,
+						.signalSemaphores = renderingDone
+					}
+				};
+				getGraphicsQueue()->submit(submitInfos);
+				m_surface->present(static_cast<uint8_t>(m_currentAcquire),renderingDone,smart_refctd_ptr<IGPUCommandBuffer>(cmdbufs->cmdbuf));
+			}
+			else
+				m_surface->present(static_cast<uint8_t>(m_currentAcquire),{waitSemaphores,1},nullptr);
 		}
 
 		//
