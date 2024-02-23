@@ -73,13 +73,21 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 		// We need to defer the swapchain creation till the Physical Device is chosen and Queues are created together with the Logical Device
-		inline bool initSwapchain(video::IQueue* queue, const video::ISwapchain::SSharedCreationParams& sharedParams={}, const video::ISurface::SFormat& surfaceFormat={})
+		inline bool init(video::IQueue* queue, const video::ISwapchain::SSharedCreationParams& sharedParams={})
 		{
+			m_swapchainResources.status = ISwapchainResources::STATUS::IRRECOVERABLE;
 			if (!queue)
 				return false;
 
 			using namespace nbl::video;
-			
+			switch (m_surface->getAPIType())
+			{
+				case EAT_VULKAN:
+					break;
+				default:
+					return false;
+			}
+
 			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
 			if (!m_acquireSemaphore)
 			{
@@ -88,28 +96,11 @@ class SimpleResizableSurface : public core::IReferenceCounted
 					return false;
 			}
 
-			ISwapchain::SCreationParams params = {
-				.surface = core::smart_refctd_ptr(m_surface),
-				.surfaceFormat = surfaceFormat,
-				.sharedParams = sharedParams
-				// we're not going to support concurrent sharing in this simple class
-			};
-			{
-				const auto physDev = device->getPhysicalDevice();
-				if (!params.sharedParams.deduce(physDev, m_surface.get()))
-					return false;
-				const auto swapchainSharedParams = params.sharedParams;
-				if (!params.deduceFormat(physDev))
-					return false;
-			}
-
-			// TODO: handle surface starting in minimized state
-			if (m_surface->getAPIType()==EAT_VULKAN)
-				m_swapchainResources.swapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
-
-			if (!m_swapchainResources.createDefaultFramebuffers(device))
+			m_swapchainResources.sharedParams = sharedParams;
+			if (!m_swapchainResources.sharedParams.deduce(device->getPhysicalDevice(),m_surface.get()))
 				return false;
 
+			m_swapchainResources.status = ISwapchainResources::STATUS::NOT_READY;
 			m_queue = queue;			
 			return true;
 		}
@@ -151,7 +142,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 			switch (m_swapchainResources.status)
 			{
 				case status_t::NOT_READY:
-					if (m_swapchainResources.recreateSwapchain(const_cast<ILogicalDevice*>(m_queue->getOriginDevice())))
+					if (m_swapchainResources.recreateSwapchain(m_surface.get(),const_cast<ILogicalDevice*>(m_queue->getOriginDevice())))
 						break;
 					[[fallthrough]];
 				case status_t::IRRECOVERABLE:
@@ -265,12 +256,45 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				status = STATUS::IRRECOVERABLE;
 			}	
 
-			inline bool createDefaultFramebuffers(video::ILogicalDevice* device)
+			inline bool recreateSwapchain(video::ISurface* surface, video::ILogicalDevice* device)
 			{
-				if (!swapchain)
-					return false;
-
+				auto fail = [&]()->bool {becomeIrrecoverable(); return false;};
 				using namespace video;
+
+				// create new swapchain
+				{
+					// dont assign straight to `swapchain` because of complex refcounting and cycles
+					core::smart_refctd_ptr<ISwapchain> newSwapchain;
+					// Question: should we re-query the supported queues, formats, present modes, etc. just-in-time??
+					if (swapchain ? swapchain->deduceRecreationParams(sharedParams):sharedParams.deduce(device->getPhysicalDevice(),surface))
+					{
+						// super special case, we can't re-create the swapchain 
+						if (sharedParams.width==0 || sharedParams.height==0)
+						{
+							// we need to keep the old-swapchain around, but can drop the rest
+							invalidate();
+							return false;
+						}
+						// now we have to succeed in creation
+						if (swapchain)
+							newSwapchain = swapchain->recreate(sharedParams);
+						else
+						{
+							ISwapchain::SCreationParams params = {
+								.surface = core::smart_refctd_ptr<ISurface>(surface),
+								.surfaceFormat = {},
+								.sharedParams = sharedParams
+								// we're not going to support concurrent sharing in this simple class
+							};
+							if (params.deduceFormat(device->getPhysicalDevice()))
+								newSwapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
+						}
+					}
+
+					if (!newSwapchain)
+						return fail();
+					swapchain = std::move(newSwapchain);
+				}
 
 				const auto& swapchainParams = swapchain->getCreationParameters();
 				const auto masterFormat = swapchainParams.surfaceFormat.format;
@@ -299,7 +323,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				// no subpass dependencies
 				defaultRenderpass = device->createRenderpass(params);
 				if (!defaultRenderpass)
-					return false;
+					return fail();
 
 				for (auto i=0u; i<swapchain->getImageCount(); i++)
 				{
@@ -321,39 +345,14 @@ class SimpleResizableSurface : public core::IReferenceCounted
 					}};
 					defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
 					if (!defaultFramebuffers[i])
-						return false;
+						return fail();
 				}
 
 				status = STATUS::USABLE;
 				return true;
 			}
 
-			inline bool recreateSwapchain(video::ILogicalDevice* device)
-			{
-				video::ISwapchain::SSharedCreationParams params = {
-					// want to at least ensure same usages, because if suddenly we use one usage renderer might give out
-					.imageUsage = swapchain->getCreationParameters().sharedParams.imageUsage
-				};
-				// Question: should we re-query the supported queues, formats, present modes, etc. for a surface?
-				if (swapchain->deduceRecreationParams(params))
-				{
-					// super special case, we can't re-create the swapchain 
-					if (params.width==0 || params.height==0)
-					{
-						// we need to keep the old-swapchain around, but can drop the rest
-						invalidate();
-						return false;
-					}
-					swapchain = swapchain->recreate(params);
-					if (createDefaultFramebuffers(device))
-					{
-						status = STATUS::USABLE;
-						return true;
-					}
-				}
-				becomeIrrecoverable();
-				return false;
-			}
+			video::ISwapchain::SSharedCreationParams sharedParams;
 		} m_swapchainResources = {};
 };
 // Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
@@ -392,6 +391,8 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				params.flags = ui::IWindow::ECF_INPUT_FOCUS|ui::IWindow::ECF_RESIZABLE|ui::IWindow::ECF_CAN_MAXIMIZE|ui::IWindow::ECF_CAN_MINIMIZE;
 				params.windowCaption = "HelloSwapchainApp";
 				auto window = m_winMgr->createWindow(std::move(params));
+				// uncomment for some nasty testing of swapchain creation!
+				//m_winMgr->minimize(window.get());
 				const_cast<core::smart_refctd_ptr<examples::SimpleResizableSurface>&>(m_surface) = examples::SimpleResizableSurface::create(
 					video::CSurfaceVulkanWin32::create(core::smart_refctd_ptr(m_api),core::move_and_static_cast<ui::IWindowWin32>(window))
 				);
@@ -422,7 +423,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
- 			if (!m_surface || !m_surface->initSwapchain(m_surface->pickQueue(m_device.get())))
+ 			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get())))
 				return logFail("Failed to Create a Swapchain!");
 
 			// Help the CI a bit by providing a timeout option
