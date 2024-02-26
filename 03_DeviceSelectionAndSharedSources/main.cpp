@@ -315,7 +315,7 @@ public:
 			if (!introspection)
 			{
 				logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
-				assert(0);
+				return nullptr;
 			}
 
 			{
