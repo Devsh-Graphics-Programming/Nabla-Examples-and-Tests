@@ -10,7 +10,7 @@
 #include "nbl/video/CVulkanSwapchain.h"
 
 // TODO: move to a common header
-namespace nbl::examples
+namespace nbl::video
 {
 
 // Simple wrapper class intended for Single Threaded usage
@@ -18,7 +18,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 {
 	public:
 		// Simple callback to facilitate detection of window being closed
-		class ICallback : public nbl::ui::IWindow::IEventCallback
+		class ICallback : public ui::IWindow::IEventCallback
 		{
 			public:
 				inline ICallback() : m_gotWindowClosedMsg(false) {}
@@ -27,6 +27,20 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				inline bool windowGotClosed() const {return m_gotWindowClosedMsg;}
 
 			private:
+				inline bool onWindowResized_impl(uint32_t w, uint32_t h) override
+				{
+#if 0
+					std::unique_lock guard(m_swapchainPtrMutex);
+					// recreate the swapchain with a new size
+					if (m_swapchainResources.recreateSwapchain(m_surface.get(),const_cast<ILogicalDevice*>(m_queue->getOriginDevice())))
+						break;
+					// wait for last presented frame to finish rendering
+					block(m_lastPresentWait);
+					immediateImagePresent(m_queue,);
+#endif
+					return true;
+				}
+
 				inline bool onWindowClosed_impl() override
 				{
 					m_gotWindowClosedMsg = true;
@@ -37,7 +51,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		};
 
 		// Factory method so we can fail, requires a `_surface` created from a window and with a callback that inherits from `ICallback` declared just above
-		static inline core::smart_refctd_ptr<SimpleResizableSurface> create(core::smart_refctd_ptr<video::ISurface>&& _surface)
+		static inline core::smart_refctd_ptr<SimpleResizableSurface> create(core::smart_refctd_ptr<ISurface>&& _surface)
 		{
 			if (!_surface)
 				return nullptr;
@@ -54,32 +68,31 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 		//
-		inline const video::ISurface* getSurface() const {return m_surface.get();}
+		inline const ISurface* getSurface() const {return m_surface.get();}
 
 		// A small utility for the boilerplate
-		inline uint8_t pickQueueFamily(video::ILogicalDevice* device) const
+		inline uint8_t pickQueueFamily(ILogicalDevice* device) const
 		{
 			uint8_t qFam = 0u;
-			for (; qFam<video::ILogicalDevice::MaxQueueFamilies; qFam++)
+			for (; qFam<ILogicalDevice::MaxQueueFamilies; qFam++)
 			if (device->getQueueCount(qFam) && m_surface->isSupportedForPhysicalDevice(device->getPhysicalDevice(),qFam))
 				break;
 			return qFam;
 		}
 
 		// Just pick the first queue within the first compatible family
-		inline video::IQueue* pickQueue(video::ILogicalDevice* device) const
+		inline IQueue* pickQueue(ILogicalDevice* device) const
 		{
 			return device->getThreadSafeQueue(pickQueueFamily(device),0);
 		}
 
 		// We need to defer the swapchain creation till the Physical Device is chosen and Queues are created together with the Logical Device
-		inline bool init(video::IQueue* queue, const video::ISwapchain::SSharedCreationParams& sharedParams={})
+		inline bool init(IQueue* queue, const ISwapchain::SSharedCreationParams& sharedParams={})
 		{
 			m_swapchainResources.status = ISwapchainResources::STATUS::IRRECOVERABLE;
 			if (!queue)
 				return false;
 
-			using namespace nbl::video;
 			switch (m_surface->getAPIType())
 			{
 				case EAT_VULKAN:
@@ -106,11 +119,11 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 		//
-		inline video::IQueue* getAssignedQueue() {return m_queue;}
+		inline IQueue* getAssignedQueue() {return m_queue;}
 
 		// An interesting solution to the "Frames In Flight", our tiny wrapper class will have its own Timeline Semaphore incrementing with each acquire, and thats it.
 		inline uint64_t getAcquireCount() {return m_acquireCount;}
-		inline video::ISemaphore* getAcquireSemaphore() {return m_acquireSemaphore.get();}
+		inline ISemaphore* getAcquireSemaphore() {return m_acquireSemaphore.get();}
 
 		// A class to hold resources that can die/invalidate spontaneously
 		struct ISwapchainResources : core::InterfaceUnmovable
@@ -124,10 +137,10 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				NOT_READY = 1
 			};
 
-			core::smart_refctd_ptr<video::ISwapchain> swapchain = {};
+			core::smart_refctd_ptr<ISwapchain> swapchain = {};
 			// If these get used, they should indirectly find their way into the `frameResources` argument of the `present` method.
-			core::smart_refctd_ptr<video::IGPURenderpass> defaultRenderpass = {};
-			std::array<core::smart_refctd_ptr<video::IGPUFramebuffer>, video::ISwapchain::MaxImages> defaultFramebuffers = {};
+			core::smart_refctd_ptr<IGPURenderpass> defaultRenderpass = {};
+			std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> defaultFramebuffers = {};
 			// very important variable
 			STATUS status = STATUS::NOT_READY;
 		};
@@ -136,8 +149,6 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		// RETURNS: Negative on failure, otherwise its the acquired image's index.
 		inline int8_t acquireNextImage()
 		{
-			using namespace nbl::video;
-
 			using status_t = ISwapchainResources::STATUS;
 			switch (m_swapchainResources.status)
 			{
@@ -182,12 +193,11 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 		// Frame Resources are not optional!
-		inline bool present(const uint8_t imageIndex, const std::span<const video::IQueue::SSubmitInfo::SSemaphoreInfo> waitSemaphores, core::smart_refctd_ptr<core::IReferenceCounted>&& frameResources)
+		inline bool present(const uint8_t imageIndex, const std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> waitSemaphores, core::smart_refctd_ptr<core::IReferenceCounted>&& frameResources)
 		{
 			if (m_swapchainResources.status!=ISwapchainResources::STATUS::USABLE)
 				return false;
 
-			using namespace nbl::video;
 			const ISwapchain::SPresentInfo info = {
 				.queue = m_queue,
 				.imgIndex = imageIndex,
@@ -209,18 +219,17 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 	protected:
-		inline SimpleResizableSurface(core::smart_refctd_ptr<video::ISurface>&& _surface, ICallback* _cb)
-			: m_surface(std::move(_surface)), m_cb(_cb) {}
+		inline SimpleResizableSurface(core::smart_refctd_ptr<ISurface>&& _surface, ICallback* _cb) : m_surface(std::move(_surface)), m_cb(_cb) {}
 		inline ~SimpleResizableSurface()
 		{
 			// just to avoid deadlocks due to circular refcounting
 			m_swapchainResources.becomeIrrecoverable();
 		}
 
-		core::smart_refctd_ptr<video::ISurface> m_surface;
+		core::smart_refctd_ptr<ISurface> m_surface;
 		ICallback* m_cb;
-		video::IQueue* m_queue;
-		core::smart_refctd_ptr<video::ISemaphore> m_acquireSemaphore;
+		IQueue* m_queue;
+		core::smart_refctd_ptr<ISemaphore> m_acquireSemaphore;
 		// You don't want to use `m_swapchainResources.swapchain->getAcquireCount()` because it resets when swapchain gets recreated
 		uint64_t m_acquireCount = 0;
 		// these can die spontaneously and get recreated
@@ -232,7 +241,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 					return;
 
 				// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
-				std::fill_n(defaultFramebuffers.data(),video::ISwapchain::MaxImages,nullptr);
+				std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
 				defaultRenderpass = nullptr;
 
 				status = STATUS::NOT_READY;
@@ -256,7 +265,7 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				status = STATUS::IRRECOVERABLE;
 			}	
 
-			inline bool recreateSwapchain(video::ISurface* surface, video::ILogicalDevice* device)
+			inline bool recreateSwapchain(ISurface* surface, ILogicalDevice* device)
 			{
 				auto fail = [&]()->bool {becomeIrrecoverable(); return false;};
 				using namespace video;
@@ -352,9 +361,10 @@ class SimpleResizableSurface : public core::IReferenceCounted
 				return true;
 			}
 
-			video::ISwapchain::SSharedCreationParams sharedParams;
+			ISwapchain::SSharedCreationParams sharedParams;
 		} m_swapchainResources = {};
 };
+// TODO: move comment
 // Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
 // which is outside of our control here as there is a nice chain of lifetimes of:
 // `ExternalCmdBuf -via usage of-> Swapchain Image -memory provider-> Swapchain -created from-> Window/Surface`
@@ -383,7 +393,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (!m_surface)
 			{
 				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<examples::SimpleResizableSurface::ICallback>();
+				params.callback = core::make_smart_refctd_ptr<nbl::video::SimpleResizableSurface::ICallback>();
 				params.width = 640;
 				params.height = 480;
 				params.x = 32;
@@ -393,7 +403,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				auto window = m_winMgr->createWindow(std::move(params));
 				// uncomment for some nasty testing of swapchain creation!
 				//m_winMgr->minimize(window.get());
-				const_cast<core::smart_refctd_ptr<examples::SimpleResizableSurface>&>(m_surface) = examples::SimpleResizableSurface::create(
+				const_cast<core::smart_refctd_ptr<SimpleResizableSurface>&>(m_surface) = SimpleResizableSurface::create(
 					video::CSurfaceVulkanWin32::create(core::smart_refctd_ptr(m_api),core::move_and_static_cast<ui::IWindowWin32>(window))
 				);
 			}
@@ -485,14 +495,14 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
 				.semaphore = m_semaphore.get(),
 				.value = nextFrameIx,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait for renderpass/subpass to finish before handing over to Present
 			}};
 			// acquired swapchain image so can start rendering into it and present it
 			const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = {
 				{
 					.semaphore = m_surface->getAcquireSemaphore(),
 					.value = m_surface->getAcquireCount(),
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait till we output
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // presentation engine usage isn't a stage
 				}
 			};
 			const IQueue::SSubmitInfo submitInfos[1] = {
@@ -512,7 +522,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
 				return false;
 
-			return m_surface && m_surface->getSwapchainResources().status!=examples::SimpleResizableSurface::ISwapchainResources::STATUS::IRRECOVERABLE;
+			return m_surface && m_surface->getSwapchainResources().status!=SimpleResizableSurface::ISwapchainResources::STATUS::IRRECOVERABLE;
 		}
 
 		virtual bool onAppTerminated() override
@@ -536,7 +546,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;
 		// In this example we have just one Window & Swapchain
-		smart_refctd_ptr<examples::SimpleResizableSurface> m_surface;
+		smart_refctd_ptr<SimpleResizableSurface> m_surface;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		// At least two timelines must be used.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
