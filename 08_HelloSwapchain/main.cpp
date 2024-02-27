@@ -14,20 +14,14 @@ namespace nbl::video
 {
 
 // Simple wrapper class intended for Single Threaded usage
-class SimpleResizableSurface : public core::IReferenceCounted
+class SimpleResizableSurface : public ISimpleManagedSurface
 {
 	public:
 		// Simple callback to facilitate detection of window being closed
-		class ICallback : public ui::IWindow::IEventCallback
+		class ICallback : public ISimpleManagedSurface::ICallback
 		{
-			public:
-				inline ICallback() : m_gotWindowClosedMsg(false) {}
-
-				// unless you create a separate callback per window, both will "trip" this condition
-				inline bool windowGotClosed() const {return m_gotWindowClosedMsg;}
-
-			private:
-				inline bool onWindowResized_impl(uint32_t w, uint32_t h) override
+			protected:
+				inline virtual bool onWindowResized_impl(uint32_t w, uint32_t h) override
 				{
 #if 0
 					std::unique_lock guard(m_swapchainPtrMutex);
@@ -40,14 +34,6 @@ class SimpleResizableSurface : public core::IReferenceCounted
 #endif
 					return true;
 				}
-
-				inline bool onWindowClosed_impl() override
-				{
-					m_gotWindowClosedMsg = true;
-					return true;
-				}
-
-				bool m_gotWindowClosedMsg;
 		};
 
 		// Factory method so we can fail, requires a `_surface` created from a window and with a callback that inherits from `ICallback` declared just above
@@ -68,32 +54,102 @@ class SimpleResizableSurface : public core::IReferenceCounted
 		}
 
 		//
-		inline const ISurface* getSurface() const {return m_surface.get();}
-
-		// A small utility for the boilerplate
-		inline uint8_t pickQueueFamily(ILogicalDevice* device) const
+		class CSwapchainResources final : public ISimpleManagedSurface::ISwapchainResources
 		{
-			uint8_t qFam = 0u;
-			for (; qFam<ILogicalDevice::MaxQueueFamilies; qFam++)
-			if (device->getQueueCount(qFam) && m_surface->isSupportedForPhysicalDevice(device->getPhysicalDevice(),qFam))
-				break;
-			return qFam;
-		}
+			friend class SimpleResizableSurface;
+				inline void setStatus(const STATUS _status) {status=_status;}
 
-		// Just pick the first queue within the first compatible family
-		inline IQueue* pickQueue(ILogicalDevice* device) const
+			public:
+				// Last parameter is for when you want to recreate and immediately present with the contents of some `IGPUImage`
+				bool recreateSwapchain(ISurface* surface, ILogicalDevice* device, IGPUImage* initPresent=nullptr, IQueue* blitPresentQueue=nullptr);
+
+				// Because the surface can start minimized (extent={0,0}) we might not be able to create the swapchain right away, so store creation parameters until we can create it.
+				ISwapchain::SSharedCreationParams sharedParams = {};
+				// If these get used, they will indirectly find their way into the `frameResources` argument of the `present` method.
+				core::smart_refctd_ptr<IGPURenderpass> defaultRenderpass = {};
+				std::array<core::smart_refctd_ptr<IGPUFramebuffer>, ISwapchain::MaxImages> defaultFramebuffers = {};
+
+			protected:
+				inline void invalidate_impl() override
+				{
+					// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
+					std::fill_n(defaultFramebuffers.data(), ISwapchain::MaxImages, nullptr);
+					defaultRenderpass = nullptr;
+				}
+
+				inline bool onCreateSwapchain() override
+				{
+					auto fail = [&]()->bool{invalidate_impl();return false;};
+
+					auto device = const_cast<ILogicalDevice*>(swapchain->getOriginDevice());
+					const auto& swapchainParams = swapchain->getCreationParameters();
+					const auto masterFormat = swapchainParams.surfaceFormat.format;
+
+					// create renderpass
+					{
+						const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+							{{
+								.format = masterFormat,
+								.samples = IGPUImage::ESCF_1_BIT,
+								.mayAlias = false,
+								.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+								.storeOp = IGPURenderpass::STORE_OP::STORE,
+								.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
+								.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
+							}},
+							IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+						};
+						IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+							{},
+							IGPURenderpass::SCreationParams::SubpassesEnd
+						};
+						subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+
+						IGPURenderpass::SCreationParams params = {};
+						params.colorAttachments = colorAttachments;
+						params.subpasses = subpasses;
+						// no subpass dependencies
+						defaultRenderpass = device->createRenderpass(params);
+						if (!defaultRenderpass)
+							return fail();
+					}
+
+					// create framebuffers for the images
+					for (auto i=0u; i<swapchain->getImageCount(); i++)
+					{
+						auto imageView = device->createImageView({
+							.flags = IGPUImageView::ECF_NONE,
+							.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+							.image = swapchain->createImage(i),
+							.viewType = IGPUImageView::ET_2D,
+							.format = masterFormat
+						});
+						const auto& swapchainSharedParams = swapchainParams.sharedParams;
+						IGPUFramebuffer::SCreationParams params = {{
+							.renderpass = core::smart_refctd_ptr(defaultRenderpass),
+							.depthStencilAttachments = nullptr,
+							.colorAttachments = &imageView.get(),
+							.width = swapchainSharedParams.width,
+							.height = swapchainSharedParams.height,
+							.layers = swapchainSharedParams.arrayLayers
+						}};
+						defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
+						if (!defaultFramebuffers[i])
+							return fail();
+					}
+
+					return true;
+				}
+		};
+		inline const CSwapchainResources& getSwapchainResources() const {return m_swapchainResources;}
+
+	protected:
+		using ISimpleManagedSurface::ISimpleManagedSurface;
+
+		inline ISimpleManagedSurface::ISwapchainResources& getSwapchainResources() override {return m_swapchainResources;}
+		inline bool init_impl(IQueue* queue, const ISwapchain::SSharedCreationParams& sharedParams={}) override
 		{
-			return device->getThreadSafeQueue(pickQueueFamily(device),0);
-		}
-
-		// We need to defer the swapchain creation till the Physical Device is chosen and Queues are created together with the Logical Device
-		inline bool init(IQueue* queue, const ISwapchain::SSharedCreationParams& sharedParams={})
-		{
-			m_swapchainResources.status = ISwapchainResources::STATUS::IRRECOVERABLE;
-			if (!queue)
-				return false;
-
-			switch (m_surface->getAPIType())
+			switch (getSurface()->getAPIType()) // TODO: move to concrete class
 			{
 				case EAT_VULKAN:
 					break;
@@ -101,274 +157,124 @@ class SimpleResizableSurface : public core::IReferenceCounted
 					return false;
 			}
 
-			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
-			if (!m_acquireSemaphore)
-			{
-				m_acquireSemaphore = device->createSemaphore(0u);
-				if (!m_acquireSemaphore)
-					return false;
-			}
-
 			m_swapchainResources.sharedParams = sharedParams;
-			if (!m_swapchainResources.sharedParams.deduce(device->getPhysicalDevice(),m_surface.get()))
+			auto device = const_cast<ILogicalDevice*>(queue->getOriginDevice());
+			if (!m_swapchainResources.sharedParams.deduce(device->getPhysicalDevice(),getSurface()))
 				return false;
 
-			m_swapchainResources.status = ISwapchainResources::STATUS::NOT_READY;
-			m_queue = queue;			
+			m_swapchainResources.setStatus(ISwapchainResources::STATUS::NOT_READY);
 			return true;
 		}
 
-		//
-		inline IQueue* getAssignedQueue() {return m_queue;}
-
-		// An interesting solution to the "Frames In Flight", our tiny wrapper class will have its own Timeline Semaphore incrementing with each acquire, and thats it.
-		inline uint64_t getAcquireCount() {return m_acquireCount;}
-		inline ISemaphore* getAcquireSemaphore() {return m_acquireSemaphore.get();}
-
-		// A class to hold resources that can die/invalidate spontaneously
-		struct ISwapchainResources : core::InterfaceUnmovable
+		inline bool handleNotReady() override
 		{
-			// If window gets minimized on some platforms or more rarely if it gets resized weirdly, the render area becomes 0 so its impossible to recreate a swapchain.
-			// So we need to defer the swapchain re-creation until we can resize to a valid extent.
-			enum class STATUS : int8_t
-			{
-				IRRECOVERABLE = -1,
-				USABLE,
-				NOT_READY = 1
-			};
-
-			core::smart_refctd_ptr<ISwapchain> swapchain = {};
-			// If these get used, they should indirectly find their way into the `frameResources` argument of the `present` method.
-			core::smart_refctd_ptr<IGPURenderpass> defaultRenderpass = {};
-			std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> defaultFramebuffers = {};
-			// very important variable
-			STATUS status = STATUS::NOT_READY;
-		};
-		inline const ISwapchainResources& getSwapchainResources() const {return m_swapchainResources;}
-
-		// RETURNS: Negative on failure, otherwise its the acquired image's index.
-		inline int8_t acquireNextImage()
+			return m_swapchainResources.recreateSwapchain(getSurface(),const_cast<ILogicalDevice*>(getAssignedQueue()->getOriginDevice()));
+		}
+		inline int8_t handleOutOfDate() override
 		{
-			using status_t = ISwapchainResources::STATUS;
-			switch (m_swapchainResources.status)
-			{
-				case status_t::NOT_READY:
-					if (m_swapchainResources.recreateSwapchain(m_surface.get(),const_cast<ILogicalDevice*>(m_queue->getOriginDevice())))
-						break;
-					[[fallthrough]];
-				case status_t::IRRECOVERABLE:
-					return -1;
-				default:
-					break;
-			}
-
-			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfos[1] = {
-				{
-					.semaphore=m_acquireSemaphore.get(),
-					.value=m_acquireCount+1
-				}
-			};
-
-			uint32_t imageIndex;
-			// We don't support resizing (swapchain recreation) in this example, so a failure to acquire is a failure to keep running
-			switch (m_swapchainResources.swapchain->acquireNextImage({.queue=m_queue,.signalSemaphores=signalInfos},&imageIndex))
-			{
-				case ISwapchain::ACQUIRE_IMAGE_RESULT::SUBOPTIMAL: [[fallthrough]];
-				case ISwapchain::ACQUIRE_IMAGE_RESULT::SUCCESS:
-					// the semaphore will only get signalled upon a successful acquire
-					m_acquireCount++;
-					return imageIndex;
-				case ISwapchain::ACQUIRE_IMAGE_RESULT::TIMEOUT: [[fallthrough]];
-				case ISwapchain::ACQUIRE_IMAGE_RESULT::NOT_READY: // don't throw our swapchain away just because of a timeout XD
-					assert(false); // shouldn't happen though cause we use uint64_t::max() as the timeout
-					break;
-				case ISwapchain::ACQUIRE_IMAGE_RESULT::OUT_OF_DATE:
-					// try again, will re-create swapchain
-					return acquireNextImage();
-				default:
-					break;
-			}
-			m_swapchainResources.becomeIrrecoverable();
-			return -1;
+			// try again, will re-create swapchain
+			return acquireNextImage();
 		}
 
-		// Frame Resources are not optional!
-		inline bool present(const uint8_t imageIndex, const std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> waitSemaphores, core::smart_refctd_ptr<core::IReferenceCounted>&& frameResources)
-		{
-			if (m_swapchainResources.status!=ISwapchainResources::STATUS::USABLE)
-				return false;
-
-			const ISwapchain::SPresentInfo info = {
-				.queue = m_queue,
-				.imgIndex = imageIndex,
-				.waitSemaphores = waitSemaphores
-			};
-			switch (m_swapchainResources.swapchain->present(info,std::move(frameResources)))
-			{
-				case ISwapchain::PRESENT_RESULT::SUBOPTIMAL: [[fallthrough]];
-				case ISwapchain::PRESENT_RESULT::SUCCESS:
-					return true;
-				case ISwapchain::PRESENT_RESULT::OUT_OF_DATE:
-					m_swapchainResources.invalidate();
-					break;
-				default:
-					m_swapchainResources.becomeIrrecoverable();
-					break;
-			}
-			return false;
-		}
-
-	protected:
-		inline SimpleResizableSurface(core::smart_refctd_ptr<ISurface>&& _surface, ICallback* _cb) : m_surface(std::move(_surface)), m_cb(_cb) {}
-		inline ~SimpleResizableSurface()
-		{
-			// just to avoid deadlocks due to circular refcounting
-			m_swapchainResources.becomeIrrecoverable();
-		}
-
-		core::smart_refctd_ptr<ISurface> m_surface;
-		ICallback* m_cb;
-		IQueue* m_queue;
-		core::smart_refctd_ptr<ISemaphore> m_acquireSemaphore;
-		// You don't want to use `m_swapchainResources.swapchain->getAcquireCount()` because it resets when swapchain gets recreated
-		uint64_t m_acquireCount = 0;
-		// these can die spontaneously and get recreated
-		struct CSwapchainResources : ISwapchainResources
-		{
-			inline void invalidate()
-			{
-				if (status==STATUS::NOT_READY)
-					return;
-
-				// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
-				std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
-				defaultRenderpass = nullptr;
-
-				status = STATUS::NOT_READY;
-			}
-
-			inline void becomeIrrecoverable()
-			{
-				if (status==STATUS::IRRECOVERABLE)
-					return;
-
-				// Want to nullify things in an order that leads to fastest drops (if possible) and shallowest callstacks when refcounting
-				invalidate();
-
-				// We need to call this method manually to make sure resources latched on swapchain images are dropped and cycles broken, otherwise its
-				// EXTERMELY LIKELY (if you don't reset CommandBuffers) that you'll end up with a circular reference:
-				// `CommandBuffer -> SC Image[i] -> Swapchain -> FrameResource[i] -> CommandBuffer`
-				// and a memory leak of: Swapchain and its Images, CommandBuffer and its pool CommandPool, and any resource used by the CommandBuffer.
-				while (swapchain->acquiredImagesAwaitingPresent()) {}
-				swapchain = nullptr;
-
-				status = STATUS::IRRECOVERABLE;
-			}	
-
-			inline bool recreateSwapchain(ISurface* surface, ILogicalDevice* device)
-			{
-				auto fail = [&]()->bool {becomeIrrecoverable(); return false;};
-				using namespace video;
-
-				// create new swapchain
-				{
-					// dont assign straight to `swapchain` because of complex refcounting and cycles
-					core::smart_refctd_ptr<ISwapchain> newSwapchain;
-					// Question: should we re-query the supported queues, formats, present modes, etc. just-in-time??
-					if (swapchain ? swapchain->deduceRecreationParams(sharedParams):sharedParams.deduce(device->getPhysicalDevice(),surface))
-					{
-						// super special case, we can't re-create the swapchain 
-						if (sharedParams.width==0 || sharedParams.height==0)
-						{
-							// we need to keep the old-swapchain around, but can drop the rest
-							invalidate();
-							return false;
-						}
-						// now we have to succeed in creation
-						if (swapchain)
-							newSwapchain = swapchain->recreate(sharedParams);
-						else
-						{
-							ISwapchain::SCreationParams params = {
-								.surface = core::smart_refctd_ptr<ISurface>(surface),
-								.surfaceFormat = {},
-								.sharedParams = sharedParams
-								// we're not going to support concurrent sharing in this simple class
-							};
-							if (params.deduceFormat(device->getPhysicalDevice()))
-								newSwapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
-						}
-					}
-
-					if (!newSwapchain)
-						return fail();
-					swapchain = std::move(newSwapchain);
-				}
-
-				const auto& swapchainParams = swapchain->getCreationParameters();
-				const auto masterFormat = swapchainParams.surfaceFormat.format;
-				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-					{{
-						.format = masterFormat,
-						.samples = IGPUImage::ESCF_1_BIT,
-						.mayAlias = false,
-						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-						.storeOp = IGPURenderpass::STORE_OP::STORE,
-						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
-					}},
-					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-				};
-				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-					{},
-					IGPURenderpass::SCreationParams::SubpassesEnd
-				};
-				assert(subpasses[1]==IGPURenderpass::SCreationParams::SubpassesEnd);
-				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-
-				IGPURenderpass::SCreationParams params = {};
-				params.colorAttachments = colorAttachments;
-				params.subpasses = subpasses;
-				// no subpass dependencies
-				defaultRenderpass = device->createRenderpass(params);
-				if (!defaultRenderpass)
-					return fail();
-
-				for (auto i=0u; i<swapchain->getImageCount(); i++)
-				{
-					auto imageView = device->createImageView({
-						.flags = IGPUImageView::ECF_NONE,
-						.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-						.image = swapchain->createImage(i),
-						.viewType = IGPUImageView::ET_2D,
-						.format = masterFormat
-					});
-					const auto& swapchainSharedParams = swapchainParams.sharedParams;
-					IGPUFramebuffer::SCreationParams params = {{
-						.renderpass = core::smart_refctd_ptr(defaultRenderpass),
-						.depthStencilAttachments = nullptr,
-						.colorAttachments = &imageView.get(),
-						.width = swapchainSharedParams.width,
-						.height = swapchainSharedParams.height,
-						.layers = swapchainSharedParams.arrayLayers
-					}};
-					defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
-					if (!defaultFramebuffers[i])
-						return fail();
-				}
-
-				status = STATUS::USABLE;
-				return true;
-			}
-
-			ISwapchain::SSharedCreationParams sharedParams;
-		} m_swapchainResources = {};
+		CSwapchainResources m_swapchainResources = {};
 };
 // TODO: move comment
 // Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
 // which is outside of our control here as there is a nice chain of lifetimes of:
 // `ExternalCmdBuf -via usage of-> Swapchain Image -memory provider-> Swapchain -created from-> Window/Surface`
 // Only when the last user of the swapchain image drops it, will the window die.
+bool SimpleResizableSurface::CSwapchainResources::recreateSwapchain(ISurface* surface, ILogicalDevice* device, IGPUImage* initPresent, IQueue* blitPresentQueue)
+{
+	auto fail = [&]()->bool {becomeIrrecoverable(); return false;};
+
+	// create new swapchain
+	{
+		// dont assign straight to `swapchain` because of complex refcounting and cycles
+		core::smart_refctd_ptr<ISwapchain> newSwapchain;
+		// Question: should we re-query the supported queues, formats, present modes, etc. just-in-time??
+		if (swapchain ? swapchain->deduceRecreationParams(sharedParams):sharedParams.deduce(device->getPhysicalDevice(),surface))
+		{
+			// super special case, we can't re-create the swapchain 
+			if (sharedParams.width==0 || sharedParams.height==0)
+			{
+				// we need to keep the old-swapchain around, but can drop the rest
+				invalidate();
+				return false;
+			}
+			// now we have to succeed in creation
+			if (swapchain)
+				newSwapchain = swapchain->recreate(sharedParams);
+			else
+			{
+				ISwapchain::SCreationParams params = {
+					.surface = core::smart_refctd_ptr<ISurface>(surface),
+					.surfaceFormat = {},
+					.sharedParams = sharedParams
+					// we're not going to support concurrent sharing in this simple class
+				};
+				if (params.deduceFormat(device->getPhysicalDevice()))
+					newSwapchain = CVulkanSwapchain::create(core::smart_refctd_ptr<const ILogicalDevice>(device),std::move(params));
+			}
+		}
+
+		if (!newSwapchain)
+			return fail();
+		swapchain = std::move(newSwapchain);
+	}
+
+	if (initPresent)
+	{
+#if 0
+		if (!blitPresentQueue)
+			blitPresentQueue = pickQueue(BLIT|PRESENT);
+
+		auto semaphore = device->createSemaphore(0);
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {
+			{
+				.semaphore=semaphore.get(),
+				.value=1
+			}
+		};
+
+		uint32_t imageIndex;
+		switch (m_swapchainResources.swapchain->acquireNextImage({.queue=blitPresentQueue,.signalSemaphores=acquired},&imageIndex))
+		{
+			case ISwapchain::ACQUIRE_IMAGE_RESULT::SUBOPTIMAL: [[fallthrough]];
+			case ISwapchain::ACQUIRE_IMAGE_RESULT::SUCCESS:
+				break;
+			case ISwapchain::ACQUIRE_IMAGE_RESULT::TIMEOUT: [[fallthrough]];
+			case ISwapchain::ACQUIRE_IMAGE_RESULT::NOT_READY: // don't throw our swapchain away just because of a timeout XD
+				assert(false); // shouldn't happen though cause we use uint64_t::max() as the timeout
+				break;
+			case ISwapchain::ACQUIRE_IMAGE_RESULT::OUT_OF_DATE:
+				// try again, will re-create swapchain
+				invalidate();
+				return false;
+			default:
+				return fail();
+		}
+					
+		switch (m_swapchainResources.swapchain->present({.queue=blitPresentQueue,.imgIndex=imageIndex,.waitSemaphores=blitted},std::move(frameResources)))
+		{
+			case ISwapchain::PRESENT_RESULT::SUBOPTIMAL: [[fallthrough]];
+			case ISwapchain::PRESENT_RESULT::SUCCESS:
+				return true;
+			case ISwapchain::PRESENT_RESULT::OUT_OF_DATE:
+				m_swapchainResources.invalidate();
+				break;
+			default:
+				m_swapchainResources.becomeIrrecoverable();
+				break;
+		}
+#endif
+	}
+
+	onCreateSwapchain();
+
+	status = STATUS::USABLE;
+	return true;
+}
 
 }
 
@@ -473,7 +379,8 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 			// Now re-record it
 			{
-				auto framebuffer = m_surface->getSwapchainResources().defaultFramebuffers[acquiredImageIx].get();
+				const SimpleResizableSurface* surface = m_surface.get(); // to get around some missing const conversions of smart_refctd_ptr
+				auto framebuffer = surface->getSwapchainResources().defaultFramebuffers[acquiredImageIx].get();
 
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 				const auto& framebufferParams = framebuffer->getCreationParameters();
@@ -522,7 +429,8 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
 				return false;
 
-			return m_surface && m_surface->getSwapchainResources().status!=SimpleResizableSurface::ISwapchainResources::STATUS::IRRECOVERABLE;
+			const SimpleResizableSurface* surface = m_surface.get(); // to get around some missing const conversions of smart_refctd_ptr
+			return surface && surface->getSwapchainResources().getStatus()!=ISimpleManagedSurface::ISwapchainResources::STATUS::IRRECOVERABLE;
 		}
 
 		virtual bool onAppTerminated() override
