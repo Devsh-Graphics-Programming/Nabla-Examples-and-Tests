@@ -18,7 +18,7 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 	public:
 		using base_t::base_t;
 
-	protected:
+	public:
 		// need this one for skipping passing all args into ApplicationFramework
 		MonoDeviceApplication() = default;
 

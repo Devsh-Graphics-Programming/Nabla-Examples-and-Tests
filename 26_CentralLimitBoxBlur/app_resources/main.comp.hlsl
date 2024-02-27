@@ -15,9 +15,9 @@
 // TODO: figure the proper way to do templated BufferAccessors
 struct BufferAccessor
 {
+	uint32_t4 inputStride;
+	uint32_t4 outputStride;
 	uint32_t3 dimension;
-	uint32_t inputStride;
-	uint32_t outputStride;
 	//uint32_t channelCount;
 
 	nbl::hlsl::float32_t getPaddedData( const uint32_t3 coordinate, const uint32_t channel )
@@ -33,7 +33,7 @@ struct BufferAccessor
 		return data;
 	}
 
-	void setData( const uint32_t3 coordinate, const uint32_t channel, const float32_t val )
+	void setData( const uint32_t3 coordinate, const uint32_t channel, NBL_CONST_REF_ARG(float32_t) val )
 	{
 		if( all( coordinate < dimension ) )
 		{
@@ -43,7 +43,7 @@ struct BufferAccessor
 	}
 };
 
-BufferAccessor BufferAccessorCtor( uint32_t3 dimension, uint32_t inputStride, uint32_t outputStride )
+BufferAccessor BufferAccessorCtor( uint32_t4 inputStride, uint32_t4 outputStride, uint32_t3 dimension )
 {
 	BufferAccessor ba;
 	ba.dimension = dimension;
@@ -70,7 +70,7 @@ void main( uint3 invocationID : SV_DispatchThreadID )
 	}
 
 	BufferAccessor textureAccessor = BufferAccessorCtor( 
-		boxBlurParams.inputDimensions.xyz, boxBlurParams.inputStrides, boxBlurParams.outputStrides );
+		boxBlurParams.inputStrides, boxBlurParams.outputStrides, boxBlurParams.inputDimensions.xyz );
 
 	for( uint32_t ch = 0; ch < boxBlurParams.getChannelCount(); ++ch )
 	{
