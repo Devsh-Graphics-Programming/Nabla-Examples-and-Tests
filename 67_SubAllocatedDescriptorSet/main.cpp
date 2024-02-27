@@ -83,8 +83,19 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 
 			auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
+			video::IDescriptorPool::SCreateInfo poolParams = {};
+			{
+				poolParams.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = 512 * 6;
+				poolParams.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 512 * 6;
+				poolParams.maxSets = 1;
+				poolParams.flags = core::bitflag(video::IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT);
+			}
+
+			auto descriptorPool = m_device->createDescriptorPool(std::move(poolParams));
+			auto descriptorSet = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
+
 			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
-			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(descriptorSetLayout.get()); 
+			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(core::smart_refctd_ptr(descriptorSet)); 
 			std::vector<uint32_t> allocation(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
 			{
 				subAllocatedDescriptorSet->multi_allocate(0, allocation.size(), &allocation[0]);
