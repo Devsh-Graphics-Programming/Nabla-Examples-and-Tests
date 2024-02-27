@@ -68,6 +68,7 @@ public:
 		specInfo.entryPoint = "main";
 		specInfo.shader = source.get();
 
+		m_logger->log("------- shader.comp.hlsl PIPELINE CREATION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(specInfo);
 
 		smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
