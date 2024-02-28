@@ -56,18 +56,15 @@ class SimpleResizableSurface : public ISimpleManagedSurface
 		//
 		class CSwapchainResources final : public ISimpleManagedSurface::ISwapchainResources
 		{
-			friend class SimpleResizableSurface;
+				friend class SimpleResizableSurface;
 				inline void setStatus(const STATUS _status) {status=_status;}
 
 			public:
-				// Last parameter is for when you want to recreate and immediately present with the contents of some `IGPUImage`
-				bool recreateSwapchain(ISurface* surface, ILogicalDevice* device, IGPUImage* initPresent=nullptr, IQueue* blitPresentQueue=nullptr);
-
 				// Because the surface can start minimized (extent={0,0}) we might not be able to create the swapchain right away, so store creation parameters until we can create it.
 				ISwapchain::SSharedCreationParams sharedParams = {};
 				// If these get used, they will indirectly find their way into the `frameResources` argument of the `present` method.
 				core::smart_refctd_ptr<IGPURenderpass> defaultRenderpass = {};
-				std::array<core::smart_refctd_ptr<IGPUFramebuffer>, ISwapchain::MaxImages> defaultFramebuffers = {};
+				std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> defaultFramebuffers = {};
 
 			protected:
 				inline void invalidate_impl() override
@@ -77,7 +74,7 @@ class SimpleResizableSurface : public ISimpleManagedSurface
 					defaultRenderpass = nullptr;
 				}
 
-				inline bool onCreateSwapchain() override
+				inline bool onCreateSwapchain_impl() override
 				{
 					auto fail = [&]()->bool{invalidate_impl();return false;};
 
@@ -120,7 +117,7 @@ class SimpleResizableSurface : public ISimpleManagedSurface
 						auto imageView = device->createImageView({
 							.flags = IGPUImageView::ECF_NONE,
 							.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-							.image = swapchain->createImage(i),
+							.image = core::smart_refctd_ptr<IGPUImage>(getImage(i)),
 							.viewType = IGPUImageView::ET_2D,
 							.format = masterFormat
 						});
@@ -142,6 +139,9 @@ class SimpleResizableSurface : public ISimpleManagedSurface
 				}
 		};
 		inline const CSwapchainResources& getSwapchainResources() const {return m_swapchainResources;}
+		
+		// The `initContents` parameter is for when you want to recreate and immediately present with the contents of some `IGPUImage`
+		bool recreateSwapchain(IGPUImage* initContents=nullptr, IQueue* blitQueue=nullptr);
 
 	protected:
 		using ISimpleManagedSurface::ISimpleManagedSurface;
@@ -168,7 +168,7 @@ class SimpleResizableSurface : public ISimpleManagedSurface
 
 		inline bool handleNotReady() override
 		{
-			return m_swapchainResources.recreateSwapchain(getSurface(),const_cast<ILogicalDevice*>(getAssignedQueue()->getOriginDevice()));
+			return recreateSwapchain();
 		}
 		inline int8_t handleOutOfDate() override
 		{
@@ -176,21 +176,26 @@ class SimpleResizableSurface : public ISimpleManagedSurface
 			return acquireNextImage();
 		}
 
+		// Presentation releases an acquired image, so we need to be provided with an external image whose contents are essentially
+		// identical to the swapchain image, maybe except extent and format such that it can be blitted to the acquired swapchain image.
+//		core::smart_refctd_ptr<IGPUImage> m_lastImagePresented = nullptr;
+		//
 		CSwapchainResources m_swapchainResources = {};
 };
-// TODO: move comment
-// Window/Surface got closed, but won't actually disappear UNTIL the swapchain gets dropped,
-// which is outside of our control here as there is a nice chain of lifetimes of:
-// `ExternalCmdBuf -via usage of-> Swapchain Image -memory provider-> Swapchain -created from-> Window/Surface`
-// Only when the last user of the swapchain image drops it, will the window die.
-bool SimpleResizableSurface::CSwapchainResources::recreateSwapchain(ISurface* surface, ILogicalDevice* device, IGPUImage* initPresent, IQueue* blitPresentQueue)
+// TODO: factor out
+bool SimpleResizableSurface::recreateSwapchain(IGPUImage* initPresent, IQueue* blitPresentQueue)
 {
-	auto fail = [&]()->bool {becomeIrrecoverable(); return false;};
+	auto fail = [&]()->bool {m_swapchainResources.becomeIrrecoverable(); return false;};
 
 	// create new swapchain
 	{
+		auto device = const_cast<ILogicalDevice*>(getAssignedQueue()->getOriginDevice());
+
+		auto& sharedParams = m_swapchainResources.sharedParams;
+		auto& swapchain = m_swapchainResources.swapchain;
 		// dont assign straight to `swapchain` because of complex refcounting and cycles
 		core::smart_refctd_ptr<ISwapchain> newSwapchain;
+		auto* surface = getSurface();
 		// Question: should we re-query the supported queues, formats, present modes, etc. just-in-time??
 		if (swapchain ? swapchain->deduceRecreationParams(sharedParams):sharedParams.deduce(device->getPhysicalDevice(),surface))
 		{
@@ -198,7 +203,7 @@ bool SimpleResizableSurface::CSwapchainResources::recreateSwapchain(ISurface* su
 			if (sharedParams.width==0 || sharedParams.height==0)
 			{
 				// we need to keep the old-swapchain around, but can drop the rest
-				invalidate();
+				m_swapchainResources.invalidate();
 				return false;
 			}
 			// now we have to succeed in creation
@@ -225,18 +230,6 @@ bool SimpleResizableSurface::CSwapchainResources::recreateSwapchain(ISurface* su
 	if (initPresent)
 	{
 #if 0
-		if (!blitPresentQueue)
-			blitPresentQueue = pickQueue(BLIT|PRESENT);
-
-		auto semaphore = device->createSemaphore(0);
-
-		const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {
-			{
-				.semaphore=semaphore.get(),
-				.value=1
-			}
-		};
-
 		uint32_t imageIndex;
 		switch (m_swapchainResources.swapchain->acquireNextImage({.queue=blitPresentQueue,.signalSemaphores=acquired},&imageIndex))
 		{
@@ -270,9 +263,9 @@ bool SimpleResizableSurface::CSwapchainResources::recreateSwapchain(ISurface* su
 #endif
 	}
 
-	onCreateSwapchain();
+	m_swapchainResources.onCreateSwapchain();
 
-	status = STATUS::USABLE;
+	m_swapchainResources.setStatus(ISwapchainResources::STATUS::USABLE);
 	return true;
 }
 
