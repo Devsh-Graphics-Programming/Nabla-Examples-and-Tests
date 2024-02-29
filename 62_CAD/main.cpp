@@ -14,7 +14,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -26,7 +26,7 @@ enum class ExampleMode
 	CASE_5, // POLYLINES
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_3;
 
 using namespace nbl::hlsl;
 
@@ -1574,11 +1574,38 @@ public:
 				}
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			
+			CPolyline singleSectionPolyline;
+			singleSectionPolyline.setClosed(true);
+			std::vector<float64_t2> linePoints;
+
+			{
+				linePoints.push_back({ 0.0, 0.0 });
+				linePoints.push_back({ 0.1, 0.1 });
+				linePoints.push_back({ 0.3, 0.3 });
+				linePoints.push_back({ 0.6, 0.6 });
+				linePoints.push_back({ 0.9, 0.9 });
+				linePoints.push_back({ 1.4, 1.4 });
+				linePoints.push_back({ 3.0, 3.0 });
+				linePoints.push_back({ 7.0, 0.0 });
+				linePoints.push_back({ 3.0, -3.0 });
+				linePoints.push_back({ 2.0, -2.0 });
+				linePoints.push_back({ 1.0, -1.0 });
+				linePoints.push_back({ 0.0, 0.0 });
+				singleSectionPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+			}
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(singleSectionPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			CPolyline offsettedPolyline = singleSectionPolyline.generateParallelPolyline(+0.0 + 2.5 * abs(cos(m_timeElapsed * 0.0004)));
+			// CPolyline offsettedPolyline2 = singleSectionPolyline.generateParallelPolyline(+0.0 - 1.5 * abs(cos(m_timeElapsed * 0.0001)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			
+
 
 			CPolyline polyline;
 
@@ -2059,7 +2086,7 @@ public:
 			// std::array<double, 4u> stipplePattern = { 0.0f, -5.0f, 5.0f, -2.5f };
 			std::array<double, 2u> stipplePattern = { 5.0f, -5.0f };
 			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
-			auto addShapesFunction = [&](const float64_t2& position, const float64_t2& direction) {
+			auto addShapesFunction = [&](const float64_t2& position, const float64_t2& direction, float32_t stretch) {
 				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 				curves::EllipticalArcInfo myCurve;
 				{

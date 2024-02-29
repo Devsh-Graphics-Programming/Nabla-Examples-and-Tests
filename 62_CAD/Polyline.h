@@ -214,9 +214,9 @@ struct CPULineStyle
 		if (stretchToFit && rigidShapeSegment())
 		{
 			float nonShapeSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
-			float newPlaceInPattern = min(normalizedPlaceInPattern, rigidSegmentStart) * nonShapeSegmentStretchValue; // stretch parts before rigid segment
-			newPlaceInPattern += max(normalizedPlaceInPattern - rigidSegmentEnd, 0.0f) * nonShapeSegmentStretchValue; // stretch parts after rigid segment
-			newPlaceInPattern += max(min(rigidSegmentLen, normalizedPlaceInPattern - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
+			float newPlaceInPattern = nbl::core::min(normalizedPlaceInPattern, rigidSegmentStart) * nonShapeSegmentStretchValue; // stretch parts before rigid segment
+			newPlaceInPattern += nbl::core::max(normalizedPlaceInPattern - rigidSegmentEnd, 0.0f) * nonShapeSegmentStretchValue; // stretch parts after rigid segment
+			newPlaceInPattern += nbl::core::max(nbl::core::min(rigidSegmentLen, normalizedPlaceInPattern - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
 			newPlaceInPattern /= stretchValue; // scale back to normalized phaseShift
 			return newPlaceInPattern;
 		}
@@ -369,16 +369,10 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const nbl::core::SRange<float64_t2>& linePoints, bool forceConnectToLastSection = false)
+	void addLinePoints(const nbl::core::SRange<float64_t2>& linePoints)
 	{
 		if (linePoints.size() <= 1u)
 			return;
-
-		SectionInfo newSection = {};
-		newSection.type = ObjectType::LINE;
-		newSection.index = static_cast<uint32_t>(m_linePoints.size());
-		newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
-		m_sections.push_back(newSection);
 
 		const uint32_t oldLinePointSize = m_linePoints.size();
 		const uint32_t newLinePointSize = oldLinePointSize + linePoints.size();
@@ -390,11 +384,11 @@ public:
 			m_linePoints[oldLinePointSize + i].stretchValue = 1.0;
 		}
 
-		if (forceConnectToLastSection && m_sections.size() >= 2u)
-		{
-			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
-			m_linePoints[oldLinePointSize].p = prevPoint;
-		}
+		SectionInfo newSection = {};
+		newSection.type = ObjectType::LINE;
+		newSection.index = oldLinePointSize;
+		newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
+		m_sections.push_back(newSection);
 	}
 
 	void addEllipticalArcs(const nbl::core::SRange<curves::EllipticalArcInfo>& ellipses, double errorThreshold)
@@ -413,17 +407,10 @@ public:
 		}
 	}
 
-	void addQuadBeziers(const nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = false)
+	void addQuadBeziers(const nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>& quadBeziers)
 	{
 		if (quadBeziers.empty())
 			return;
-
-		SectionInfo newSection = {};
-		newSection.type = ObjectType::QUAD_BEZIER;
-		newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
-		newSection.count = static_cast<uint32_t>(quadBeziers.size());
-		m_sections.push_back(newSection);
-
 
 		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
 		const uint32_t oldQuadBezierSize = m_quadBeziers.size();
@@ -436,15 +423,35 @@ public:
 			m_quadBeziers[currBezierIdx].phaseShift = 0.0;
 			m_quadBeziers[currBezierIdx].stretchValue = 1.0;
 		}
-
-		if (forceConnectToLastSection && m_sections.size() >= 2u)
+				
+		const bool unifiedSection = (m_sections.size() > lastSectionsSize && m_sections.back().type == ObjectType::QUAD_BEZIER);
+		if (unifiedSection)
 		{
-			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
-			m_quadBeziers[oldQuadBezierSize].shape.P0 = prevPoint; // or we can average?
+			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 1u]);
+			m_quadBeziers[oldQuadBezierSize].shape.P0 = prevPoint; // or we can average
+			m_sections.back().count += static_cast<uint32_t>(quadBeziers.size());
+		}
+		else
+		{
+			SectionInfo newSection = {};
+			newSection.type = ObjectType::QUAD_BEZIER;
+			newSection.index = oldQuadBezierSize;
+			newSection.count = static_cast<uint32_t>(quadBeziers.size());
+			m_sections.push_back(newSection);
 		}
 	}
 
-	typedef std::function<void(const float64_t2& /*position*/, const float64_t2& /*direction*/)> AddShapeFunc;
+	// The next two functions make sure consecutive calls to `addQuadBeziers` between `beginUnifiedCurveSection` and `endUnifiedCurveSection` get into a single bezier section (to keep consistent with n4ce on polyline stretching on individual curve segments)
+	void beginUnifiedCurveSection()
+	{
+		lastSectionsSize = m_sections.size();
+	}
+	void endUnifiedCurveSection()
+	{
+		lastSectionsSize = std::numeric_limits<uint32_t>::max();
+	}
+
+	typedef std::function<void(const float64_t2& /*position*/, const float64_t2& /*direction*/, float32_t /*stretch*/)> AddShapeFunc;
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, AddShapeFunc addShape = {})
 	{
@@ -502,7 +509,7 @@ public:
 						for (int32_t s = 0; s < numberOfShapes; ++s)
 						{
 							const float64_t2 position = linePoint.p + direction * currentWorldSpaceOffset;
-							addShape(position, direction);
+							addShape(position, direction, stretchValue);
 							currentWorldSpaceOffset += stretchedPatternLen;
 						}
 					}
@@ -572,7 +579,7 @@ public:
 						for (int32_t s = 0; s < numberOfShapes; ++s)
 						{
 							float64_t t = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, currentWorldSpaceOffset, 1e-5, 0.5);
-							addShape(quadratic.evaluate(t), quadratic.derivative(t));
+							addShape(quadratic.evaluate(t), quadratic.derivative(t), stretchValue);
 							currentWorldSpaceOffset += stretchedPatternLen;
 						}
 					}
@@ -744,45 +751,78 @@ public:
 					}
 					else // Inward Needs Trim and Prune
 					{
-						const SectionIntersectResult sectionIntersectResult = parallelPolyline.intersectTwoSections(prevSection, nextSection);
+						SectionIntersectResult sectionIntersectResult = parallelPolyline.intersectTwoSections(prevSection, nextSection);
 
 						if (sectionIntersectResult.valid())
 						{
+							const bool sameSectionIntersection = (prevSectionIdx == nextSectionIdx);
+							if (sameSectionIntersection)
+								std::swap(sectionIntersectResult.prevObjIndex, sectionIntersectResult.nextObjIndex); // because `intersectionTwoSections` function prioritizes the largest distance intersection, it will get the indices swapped to get the largest indices distance
+									
 							assert(sectionIntersectResult.prevObjIndex < prevSection.count);
 							assert(sectionIntersectResult.nextObjIndex < nextSection.count);
+							
+							// we want to first delete from (idx to end) and then (begin to idx)
 							parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, sectionIntersectResult.prevObjIndex + 1u);
 							parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, sectionIntersectResult.nextObjIndex);
+							const bool removePrevSection = (prevSection.count == 0u);
+							const bool removeNextSection = (nextSection.count == 0u);
+
 							if (nextSection.type == ObjectType::LINE)
 							{
 								if (prevSection.type == ObjectType::LINE)
 								{
-									parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
-									parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
+									if (!removePrevSection)
+										parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
+									if (!removeNextSection)
+										parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
-									parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
-									parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
+									if (!removePrevSection)
+										parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
+									if (!removeNextSection)
+										parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
 								}
 							}
 							else if (nextSection.type == ObjectType::QUAD_BEZIER)
 							{
 								if (prevSection.type == ObjectType::LINE)
 								{
-									parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
-									parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
+									if (!removePrevSection)
+										parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
+									if (!removeNextSection)
+										parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
-									parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
-									parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
-
+									if (!removePrevSection)
+										parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
+									if (!removeNextSection)
+										parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
 								}
+							}
+							
+							// Remove Sections that got their whole objects removed
+							if (nextSectionIdx >= prevSectionIdx)
+							{
+								// we want to first delete the higher idx 
+								if (removeNextSection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + nextSectionIdx);
+								if (removePrevSection && !sameSectionIntersection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + prevSectionIdx);
+							}
+							else
+							{
+								if (removePrevSection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + prevSectionIdx);
+								if (removeNextSection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + nextSectionIdx);
 							}
 						}
 						else
 						{
-							// TODO:
+							// TODO: If Polyline is continuous, and the tangents are reported correctly this shouldn't happen
 						}
 					}
 				}
@@ -887,6 +927,7 @@ protected:
 	std::vector<SectionInfo> m_sections;
 	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+	uint32_t lastSectionsSize = std::numeric_limits<uint32_t>::max();
 
 	// Next 3 are protected member functions to modify current lines and bezier sections used in polyline offsetting:
 
@@ -918,6 +959,8 @@ protected:
 
 	void removeSectionObjectsFromIdxToEnd(uint32_t sectionIdx, uint32_t idx)
 	{
+		if (sectionIdx >= m_sections.size())
+			return;
 		SectionInfo& section = m_sections[sectionIdx];
 		if (idx >= section.count)
 			return;
@@ -933,10 +976,7 @@ protected:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			m_quadBeziers.erase(m_quadBeziers.begin() + section.index + idx, m_quadBeziers.begin() + section.index + section.count);
 
-		if (section.count > removedCount)
-			section.count -= removedCount;
-		else
-			m_sections.erase(m_sections.begin() + sectionIdx);
+		section.count -= removedCount;
 
 		// update next sections offsets
 		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
@@ -948,13 +988,15 @@ protected:
 
 	void removeSectionObjectsFromBeginToIdx(uint32_t sectionIdx, uint32_t idx)
 	{
+		if (sectionIdx >= m_sections.size())
+			return;
 		SectionInfo& section = m_sections[sectionIdx];
 		if (idx <= 0)
 			return;
-		const size_t removedCount = idx;
+		const size_t removedCount = nbl::core::min(idx, section.count);
 		if (section.type == ObjectType::LINE)
 		{
-			if (idx >= section.count) // if idx==section.count it means it wants to delete the whole line section, so we remove all the line points including the last one in the section
+			if (idx == section.count) // if idx==section.count it means it wants to delete the whole line section, so we remove all the line points including the last one in the section
 				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + section.count + 1u);
 			else
 				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + idx);
@@ -962,10 +1004,7 @@ protected:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			m_quadBeziers.erase(m_quadBeziers.begin() + section.index, m_quadBeziers.begin() + section.index + idx);
 
-		if (section.count > removedCount)
-			section.count -= removedCount;
-		else
-			m_sections.erase(m_sections.begin() + sectionIdx);
+		section.count -= removedCount;
 
 		// update next sections offsets
 		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
