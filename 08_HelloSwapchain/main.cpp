@@ -14,6 +14,15 @@ using namespace system;
 using namespace ui;
 using namespace video;
 
+// We don't do anything weird in this example like present from mips of different layers
+constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = {
+	.aspectMask = IGPUImage::EAF_COLOR_BIT,
+	.baseMipLevel = 0,
+	.levelCount = 1,
+	.baseArrayLayer = 0,
+	.layerCount = 1
+};
+
 //
 class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 {
@@ -22,90 +31,17 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 		// If we for example used a compute shader to tonemap and MSAA resolve, we'd request the COMPUTE_BIT here. 
 		constexpr static inline IQueue::FAMILY_FLAGS RequiredQueueFlags = IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
 
-		// If these get used, they will indirectly find their way into the `frameResources` argument of the `present` method.
-		core::smart_refctd_ptr<IGPURenderpass> defaultRenderpass = {};
-		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> defaultFramebuffers = {};
-
-	protected:
-		inline void invalidate_impl() override
-		{
-			// Framebuffers hold onto the renderpass they were created from, and swapchain images (swapchain itself indirectly)
-			std::fill_n(defaultFramebuffers.data(),ISwapchain::MaxImages,nullptr);
-			defaultRenderpass = nullptr;
-		}
-
-		inline bool onCreateSwapchain_impl(const uint8_t qFam) override
-		{
-			auto device = const_cast<ILogicalDevice*>(swapchain->getOriginDevice());
-			const auto& swapchainParams = swapchain->getCreationParameters();
-			const auto masterFormat = swapchainParams.surfaceFormat.format;
-
-			// create renderpass
-			{
-				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-					{{
-						.format = masterFormat,
-						.samples = IGPUImage::ESCF_1_BIT,
-						.mayAlias = false,
-						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-						.storeOp = IGPURenderpass::STORE_OP::STORE,
-						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC
-					}},
-					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-				};
-				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-					{},
-					IGPURenderpass::SCreationParams::SubpassesEnd
-				};
-				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-
-				IGPURenderpass::SCreationParams params = {};
-				params.colorAttachments = colorAttachments;
-				params.subpasses = subpasses;
-				// no subpass dependencies
-				defaultRenderpass = device->createRenderpass(params);
-				if (!defaultRenderpass)
-					return false;
-			}
-
-			// create framebuffers for the images
-			for (auto i=0u; i<swapchain->getImageCount(); i++)
-			{
-				auto imageView = device->createImageView({
-					.flags = IGPUImageView::ECF_NONE,
-					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-					.image = core::smart_refctd_ptr<IGPUImage>(getImage(i)),
-					.viewType = IGPUImageView::ET_2D,
-					.format = masterFormat
-				});
-				const auto& swapchainSharedParams = swapchainParams.sharedParams;
-				IGPUFramebuffer::SCreationParams params = {{
-					.renderpass = core::smart_refctd_ptr(defaultRenderpass),
-					.depthStencilAttachments = nullptr,
-					.colorAttachments = &imageView.get(),
-					.width = swapchainSharedParams.width,
-					.height = swapchainSharedParams.height,
-					.layers = swapchainSharedParams.arrayLayers
-				}};
-				defaultFramebuffers[i] = device->createFramebuffer(std::move(params));
-				if (!defaultFramebuffers[i])
-					return false;
-			}
-
-			return true;
-		}
-		
-		inline asset::PIPELINE_STAGE_FLAGS tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const IResizableSurface::image_barrier_t& source, const uint8_t imageindex) override
+	protected:		
+		inline asset::PIPELINE_STAGE_FLAGS tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const IResizableSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
 		{
 			bool success = true;
+			auto acquiredImage = getImage(imageIndex);
 
-			const auto blitSrcLayout = IGPUImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
 			const auto blitDstLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
 
-#if 0
-			// barrier before
+			// barrier before to transition the swapchain image layout
+			using image_barrier_t = decltype(depInfo.imgBarriers)::element_type;
 			const image_barrier_t preBarriers[2] = {
 				{
 					.barrier = {
@@ -124,48 +60,51 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 						.baseArrayLayer = 0,
 						.layerCount = 1
 					},
-					.oldLayout = IGPUImage::LAYOUT::UNDEFINED, // I do not care about previous contents
+					.oldLayout = IGPUImage::LAYOUT::UNDEFINED, // I do not care about previous contents of the swapchain
 					.newLayout = blitDstLayout
 				},
 				{
 					.barrier = {
 						.dep = {
-							.srcStageMask = contents.barrier.dep.srcStageMask,
-							.srcAccessMask = contents.barrier.dep.srcAccessMask,
+							// when acquiring ownership the source masks don't matter
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::NONE,
+							.srcAccessMask = asset::ACCESS_FLAGS::NONE,
 							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::BLIT_BIT,
 							.dstAccessMask = asset::ACCESS_FLAGS::TRANSFER_READ_BIT
 						},
 						.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
-						.otherQueueFamilyIndex = contents.barrier.otherQueueFamilyIndex
+						.otherQueueFamilyIndex = qFamToAcquireSrcFrom
 					},
-					.image = contents.image,
-					.subresourceRange = contents.subresourceRange,
-					.oldLayout = contents.oldLayout,
-					.newLayout = blitSrcLayout
+					.image = source.image,
+					.subresourceRange = TripleBufferUsedSubresourceRange
+					// no layout transition, already in the correct layout for the blit
 				}
 			};
-			depInfo.imgBarriers = preBarriers;
-			retval &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
+			// We only barrier the source image if we need to acquire ownership, otherwise thanks to Timeline Semaphores all sync is good
+			depInfo.imgBarriers = {preBarriers,qFamToAcquireSrcFrom!=IQueue::FamilyIgnored ? 2ull:1ull};
+			success &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 		
-			// TODO: Implement scaling modes other than plain STRETCH, and allow for using subrectangles of the initial contents
+			// TODO: Implement scaling modes other than a plain STRETCH, and allow for using subrectangles of the initial contents
 			{
-				const auto srcExtent = contents.image->getCreationParameters().extent;
+				const auto srcOffset = source.rect.offset;
+				const auto srcExtent = source.rect.extent;
 				const auto dstExtent = acquiredImage->getCreationParameters().extent;
 				const IGPUCommandBuffer::SImageBlit regions[1] = {{
-					.srcMinCoord = {0,0,0},
+					.srcMinCoord = {static_cast<uint32_t>(srcOffset.x),static_cast<uint32_t>(srcOffset.y),0},
 					.srcMaxCoord = {srcExtent.width,srcExtent.height,1},
 					.dstMinCoord = {0,0,0},
 					.dstMaxCoord = {dstExtent.width,dstExtent.height,1},
 					.layerCount = acquiredImage->getCreationParameters().arrayLayers,
-					.srcBaseLayer = 0, // TODO
+					.srcBaseLayer = 0,
 					.dstBaseLayer = 0,
-					.srcMipLevel = 0 // TODO
+					.srcMipLevel = 0
 				}};
-				retval &= cmdbuf->blitImage(contents.image,blitSrcLayout,acquiredImage,blitDstLayout,regions,IGPUSampler::ETF_LINEAR);
+				success &= cmdbuf->blitImage(source.image,IGPUImage::LAYOUT::TRANSFER_SRC_OPTIMAL,acquiredImage,blitDstLayout,regions,IGPUSampler::ETF_LINEAR);
 			}
 
-			// barrier after
-			const image_barrier_t postBarriers[2] = {
+			// Barrier after, note that I don't care about preserving the contents of the Triple Buffer when the Render queue starts writing to it again.
+			// Therefore no ownership release, and no layout transition.
+			const image_barrier_t postBarrier[1] = {
 				{
 					.barrier = {
 						// When transitioning the image to VK_IMAGE_LAYOUT_SHARED_PRESENT_KHR or VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, there is no need to delay subsequent processing,
@@ -175,38 +114,14 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 					},
 					.image = preBarriers[0].image,
 					.subresourceRange = preBarriers[0].subresourceRange,
-					.oldLayout = preBarriers[0].newLayout,
+					.oldLayout = blitDstLayout,
 					.newLayout = IGPUImage::LAYOUT::PRESENT_SRC
-				},
-				{
-					.barrier = {
-						.dep = preBarriers[1].barrier.dep.nextBarrier(contents.barrier.dep.dstStageMask,contents.barrier.dep.dstAccessMask),
-						.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
-						.otherQueueFamilyIndex = contents.barrier.otherQueueFamilyIndex
-					},
-					.image = preBarriers[1].image,
-					.subresourceRange = preBarriers[1].subresourceRange,
-					.oldLayout = preBarriers[1].newLayout,
-					.newLayout = contents.newLayout
 				}
 			};
-			depInfo.imgBarriers = postBarriers;
-			retval &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
-#endif
-			auto framebuffer = defaultFramebuffers[imageindex].get();
+			depInfo.imgBarriers = postBarrier;
+			success &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 
-			const auto& framebufferParams = framebuffer->getCreationParameters();
-			const IGPUCommandBuffer::SClearColorValue clearValue = {.float32={1.f,0.f,0.f,1.f}};
-			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-				.framebuffer = framebuffer,
-				.colorClearValues = &clearValue,
-				.depthStencilClearValues = nullptr,
-				.renderArea = {.offset={0,0},.extent={framebufferParams.width,framebufferParams.height}}
-			};
-			cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-			cmdbuf->endRenderPass();
-
-			return success ? asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT:asset::PIPELINE_STAGE_FLAGS::NONE;
+			return success ? asset::PIPELINE_STAGE_FLAGS::BLIT_BIT:asset::PIPELINE_STAGE_FLAGS::NONE;
 		}
 };
 
@@ -251,6 +166,41 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
 
+			// The nice thing about having a triple buffer is that you don't need to do acrobatics to account for the formats available to the surface.
+			// You can transcode to the swapchain's format while copying, and I actually recommend to do surface rotation, tonemapping and OETF application there.
+			const auto format = asset::EF_R8G8B8A8_SRGB;
+			// Could be more clever and use the copy Triple Buffer to Swapchain as an opportunity to do a MSAA resolve or something
+			const auto samples = IGPUImage::ESCF_1_BIT;
+
+			// Create the renderpass
+			{
+				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+					{{
+						.format = format,
+						.samples = samples,
+						.mayAlias = false,
+						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+						.storeOp = IGPURenderpass::STORE_OP::STORE,
+						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents when we grab the triple buffer img again
+						.finalLayout = IGPUImage::LAYOUT::TRANSFER_SRC_OPTIMAL // put it already in the correct layout for the blit operation
+					}},
+					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+				};
+				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+					{},
+					IGPURenderpass::SCreationParams::SubpassesEnd
+				};
+				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+
+				IGPURenderpass::SCreationParams params = {};
+				params.colorAttachments = colorAttachments;
+				params.subpasses = subpasses;
+				// no subpass dependencies
+				m_renderpass = m_device->createRenderpass(params);
+				if (!m_renderpass)
+					return logFail("Failed to Create a Renderpass!");
+			}
+
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
 			// TODO: improve the queue allocation/choice and allocate a dedicated presentation queue to improve responsiveness and race to present.
@@ -266,31 +216,51 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			const auto dpyInfo = m_winMgr->getPrimaryDisplayInfo();
 			for (auto i=0; i<m_maxFramesInFlight; i++)
 			{
-				IGPUImage::SCreationParams params = {};
-				params = asset::IImage::SCreationParams{
-					.type = IGPUImage::ET_2D,
-					// you could be more clever and use the copy Triple Buffer to Swapchain as an opportunity to do a MSAA resolve or something
-					.samples = IGPUImage::ESCF_1_BIT,
-					// nice thing about having a triple buffer is that you don't need to do acrobatics to account for the formats available to the surface
-					// you can transcode to the swapchain's format while copying, I actually recommend to do surface rotation, tonemapping and OETF application there.
-					.format = asset::EF_R8G8B8A8_SRGB,
-					.extent = {dpyInfo.resX,dpyInfo.resY,1},
-					.mipLevels = 1,
-					.arrayLayers = 1,
-					.flags = IGPUImage::ECF_NONE,
-					// in this example I'll be using a renderpass to clear the image, and then a blit to copy it to the swapchain
-					.usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT|IGPUImage::EUF_TRANSFER_SRC_BIT
-				};
-// TODO: concurrent sharing? No!
 				auto& image = m_tripleBuffers[i];
-				image = m_device->createImage(std::move(params));
-				if (!image)
-					return logFail("Failed to Create Triple Buffer Image!");
+				{
+					IGPUImage::SCreationParams params = {};
+					params = asset::IImage::SCreationParams{
+						.type = IGPUImage::ET_2D,
+						.samples = samples,
+						.format = format,
+						.extent = {dpyInfo.resX,dpyInfo.resY,1},
+						.mipLevels = 1,
+						.arrayLayers = 1,
+						.flags = IGPUImage::ECF_NONE,
+						// in this example I'll be using a renderpass to clear the image, and then a blit to copy it to the swapchain
+						.usage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT|IGPUImage::EUF_TRANSFER_SRC_BIT
+					};
+					image = m_device->createImage(std::move(params));
+					if (!image)
+						return logFail("Failed to Create Triple Buffer Image!");
 
-				// use dedicated allocations, we have plenty of memory
-				auto allocation = m_device->allocate(image->getMemoryReqs(),image.get());
-				if (!allocation.isValid())
-					return logFail("Failed to allocate Device Memory for Image %d",i);
+					// use dedicated allocations, we have plenty of allocations left, even on Win32
+					if (!m_device->allocate(image->getMemoryReqs(),image.get()).isValid())
+						return logFail("Failed to allocate Device Memory for Image %d",i);
+				}
+
+				// create framebuffers for the images
+				{
+					auto imageView = m_device->createImageView({
+						.flags = IGPUImageView::ECF_NONE,
+						.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+						.image = core::smart_refctd_ptr(image),
+						.viewType = IGPUImageView::ET_2D,
+						.format = format
+					});
+					const auto& imageParams = image->getCreationParameters();
+					IGPUFramebuffer::SCreationParams params = {{
+						.renderpass = core::smart_refctd_ptr(m_renderpass),
+						.depthStencilAttachments = nullptr,
+						.colorAttachments = &imageView.get(),
+						.width = imageParams.extent.width,
+						.height = imageParams.extent.height,
+						.layers = imageParams.arrayLayers
+					}};
+					m_framebuffers[i] = m_device->createFramebuffer(std::move(params));
+					if (!m_framebuffers[i])
+						return logFail("Failed to Create a Framebuffer for Image %d",i);
+				}
 			}
 
 			// This time we'll creaate all CommandBuffers from one CommandPool, to keep life simple. However the Pool must support individually resettable CommandBuffers
@@ -319,51 +289,94 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 						.value = m_realFrameIx+1-m_maxFramesInFlight
 					}
 				};
-				m_device->blockForSemaphores(cmdbufDonePending);
+				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
+					return;
 			}
+
+			// Predict size of next render, and bail if nothing to do
+			const auto currentSwapchainExtent = m_surface->getCurrentExtent();
+			if (currentSwapchainExtent.width*currentSwapchainExtent.height<=0)
+				return;
+			// The extent of the swapchain might change between now and `present` but the blit should adapt nicely
+			const VkRect2D currentRenderArea = {.offset={0,0},.extent=currentSwapchainExtent};
 			
 			// You explicitly should not use `getAcquireCount()` see the comment on `m_realFrameIx`
 			const auto resourceIx = m_realFrameIx%m_maxFramesInFlight;
 
-			// Now re-record it
+			// We will be using this command buffer to produce the frame
+			auto frame = m_tripleBuffers[resourceIx].get();
 			auto cmdbuf = m_cmdBufs[resourceIx].get();
+
+			// Now re-record it
+			bool willSubmit = true;
 			{
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
-#if 0
-				const auto& framebufferParams = framebuffer->getCreationParameters();
+				willSubmit &= cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+
 				const IGPUCommandBuffer::SClearColorValue clearValue = {.float32={1.f,0.f,0.f,1.f}};
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-					.framebuffer = framebuffer,
+					.framebuffer = m_framebuffers[resourceIx].get(),
 					.colorClearValues = &clearValue,
 					.depthStencilClearValues = nullptr,
-					.renderArea = {.offset={0,0},.extent={framebufferParams.width,framebufferParams.height}}
+					.renderArea = currentRenderArea
 				};
-				cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				cmdbuf->endRenderPass();
-#endif
-				cmdbuf->end();
+				willSubmit &= cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				willSubmit &= cmdbuf->endRenderPass();
+
+				// If the Rendering and Blit/Present Queues don't come from the same family we need to transfer ownership, because we need to preserve contents between them.
+				if (cmdbuf->getQueueFamilyIndex()!=m_surface->getAssignedQueue()->getFamilyIndex())
+				{
+					IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
+					const decltype(depInfo.imgBarriers)::element_type barrier[2] = {{
+						.barrier = {
+							.dep = {
+								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+								.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
+								// for a Queue Family Ownership Release the destination masks are irrelevant
+								.dstStageMask = asset::PIPELINE_STAGE_FLAGS::NONE,
+								.dstAccessMask = asset::ACCESS_FLAGS::NONE
+							}
+						},
+						.image = frame,
+						.subresourceRange = TripleBufferUsedSubresourceRange
+						// there will be no layout transition, already done by the Renderpass End
+					}};
+					willSubmit &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
+				}
+
+				willSubmit &= cmdbuf->end();
 			}
 			
+			// We will signal a semaphore in the rendering queue, and await it with the presentation/blit queue
 			const IQueue::SSubmitInfo::SSemaphoreInfo rendered = {
 				.semaphore = m_semaphore.get(),
-				.value = ++m_realFrameIx,
+				.value = m_realFrameIx+1,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait for renderpass/subpass to finish before handing over to blit
 			};
 
-			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
-				.cmdbuf = cmdbuf
-			}};
-			const IQueue::SSubmitInfo submitInfos[1] = {
-				{
-					.waitSemaphores = {}, // we already waited on the CPU to be able to reset the commandbuffer
-					.commandBuffers = cmdbufs,
-					.signalSemaphores = {&rendered,1}
-				}
-			};
-			getGraphicsQueue()->submit(submitInfos);
+			// and submit
+			if (willSubmit)
+			{
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
+					.cmdbuf = cmdbuf
+				}};
+				const IQueue::SSubmitInfo submitInfos[1] = {
+					{
+						.waitSemaphores = {}, // we already waited on the CPU to be able to reset the commandbuffer
+						.commandBuffers = cmdbufs,
+						.signalSemaphores = {&rendered,1}
+					}
+				};
+				willSubmit &= getGraphicsQueue()->submit(submitInfos)==IQueue::RESULT::SUCCESS;
+			}
+			
+			if (!willSubmit)
+				return;
+			m_realFrameIx++;
 
-			IResizableSurface::SPresentInfo presentInfo = {
-				.source = m_tripleBuffers[resourceIx].get(),
+			const IResizableSurface::SPresentInfo presentInfo = {
+				.source = {.image=frame,.rect=currentRenderArea},
+				// The Graphics Queue will be the the most recent owner just before it releases ownership
+				.mostRecentFamilyOwningSource = cmdbuf->getQueueFamilyIndex(),
 				.wait = rendered,
 				.frameResources = cmdbuf
 			};
@@ -408,10 +421,14 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		uint64_t m_realFrameIx : 59 = 0;
 		// Maximum frames which can be simultaneously rendered
 		uint64_t m_maxFramesInFlight : 5;
+		// We'll write to the Triple Buffer with a Renderpass
+		core::smart_refctd_ptr<IGPURenderpass> m_renderpass = {};
 		// Enough Command Buffers and other resources for all frames in flight!
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 		// Our own persistent images that don't get recreated with the swapchain
 		std::array<smart_refctd_ptr<IGPUImage>,ISwapchain::MaxImages> m_tripleBuffers;
+		// Resources derived from the images
+		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers = {};
 };
 
 // define an entry point as always!
