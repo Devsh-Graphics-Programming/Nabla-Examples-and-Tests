@@ -243,7 +243,8 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				{
 					auto imageView = m_device->createImageView({
 						.flags = IGPUImageView::ECF_NONE,
-						.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+						// give it a Transfer SRC usage flag so we can transition to the Tranfer SRC layout with End Renderpass
+						.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT|IGPUImage::EUF_TRANSFER_SRC_BIT,
 						.image = core::smart_refctd_ptr(image),
 						.viewType = IGPUImageView::ET_2D,
 						.format = format
