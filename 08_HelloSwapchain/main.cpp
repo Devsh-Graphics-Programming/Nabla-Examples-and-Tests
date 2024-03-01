@@ -347,41 +347,48 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				willSubmit &= cmdbuf->end();
 			}
 			
-			// We will signal a semaphore in the rendering queue, and await it with the presentation/blit queue
-			const IQueue::SSubmitInfo::SSemaphoreInfo rendered = {
-				.semaphore = m_semaphore.get(),
-				.value = m_realFrameIx+1,
-				.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait for renderpass/subpass to finish before handing over to blit
-			};
-
-			// and submit
+			// submit and present under a mutex ASAP
 			if (willSubmit)
 			{
+				// We will signal a semaphore in the rendering queue, and await it with the presentation/blit queue
+				const IQueue::SSubmitInfo::SSemaphoreInfo rendered = {
+					.semaphore = m_semaphore.get(),
+					.value = m_realFrameIx+1,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait for renderpass/subpass to finish before handing over to blit
+				};
 				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
 					.cmdbuf = cmdbuf
 				}};
+				// We need to wait on previous triple buffer blits/presents from our source image to complete
+				auto* pBlitWaitValue = m_blitWaitValues.data()+resourceIx;
+				auto swapchainLock = m_surface->pseudoAcquire(pBlitWaitValue);
+				const IQueue::SSubmitInfo::SSemaphoreInfo blitted = {
+					.semaphore = m_surface->getPresentSemaphore(),
+					.value = pBlitWaitValue->load(),
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::BLIT_BIT // same mask as returned from tripleBufferPresent
+				};
 				const IQueue::SSubmitInfo submitInfos[1] = {
 					{
-						.waitSemaphores = {}, // we already waited on the CPU to be able to reset the commandbuffer
+						.waitSemaphores = {&blitted,1},
 						.commandBuffers = cmdbufs,
 						.signalSemaphores = {&rendered,1}
 					}
 				};
-				willSubmit &= getGraphicsQueue()->submit(submitInfos)==IQueue::RESULT::SUCCESS;
-			}
-			
-			if (!willSubmit)
-				return;
-			m_realFrameIx++;
+				if (getGraphicsQueue()->submit(submitInfos)!=IQueue::RESULT::SUCCESS)
+					return;
+				m_realFrameIx++;
 
-			const IResizableSurface::SPresentInfo presentInfo = {
-				.source = {.image=frame,.rect=currentRenderArea},
-				// The Graphics Queue will be the the most recent owner just before it releases ownership
-				.mostRecentFamilyOwningSource = cmdbuf->getQueueFamilyIndex(),
-				.wait = rendered,
-				.frameResources = cmdbuf
-			};
-			m_surface->present(presentInfo);
+				// only present if there's successful content to show
+				const IResizableSurface::SPresentInfo presentInfo = {
+					.source = {.image=frame,.rect=currentRenderArea},
+					.wait = rendered,
+					.pPresentSemaphoreWaitValue = pBlitWaitValue,
+					// The Graphics Queue will be the the most recent owner just before it releases ownership
+					.mostRecentFamilyOwningSource = cmdbuf->getQueueFamilyIndex(),
+					.frameResources = cmdbuf
+				};
+				m_surface->present(std::move(swapchainLock),presentInfo);
+			}
 		}
 
 		//
@@ -397,7 +404,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		{
 			// We actually need to wait on a semaphore to finish the example nicely, otherwise we risk destroying a semaphore currently in use for a frame that hasn't finished yet.
 			ISemaphore::SWaitInfo infos[1] = {
-				{.semaphore=m_semaphore.get(),.value=m_realFrameIx}
+				{.semaphore=m_semaphore.get(),.value=m_realFrameIx},
 			};
 			m_device->blockForSemaphores(infos);
 
@@ -424,6 +431,8 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		uint64_t m_maxFramesInFlight : 5;
 		// We'll write to the Triple Buffer with a Renderpass
 		core::smart_refctd_ptr<IGPURenderpass> m_renderpass = {};
+		// These are atomic counters where the Surface lets us know what's the latest Blit timeline semaphore value which will be signalled on the resource
+		std::array<std::atomic_uint64_t,ISwapchain::MaxImages> m_blitWaitValues;
 		// Enough Command Buffers and other resources for all frames in flight!
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 		// Our own persistent images that don't get recreated with the swapchain
