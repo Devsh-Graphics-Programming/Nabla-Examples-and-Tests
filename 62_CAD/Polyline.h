@@ -52,7 +52,7 @@ struct CPULineStyle
 	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
 	* shapeOffset is the offset into the unnormalized pattern a shape is going to draw, it's specialized this way because sometimes we don't want to stretch the pattern value the shape resides in.
 	*/
-	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset, bool rigidShapeSegment = false)
+	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset, bool stretch = false, bool rigidShapeSegment = false)
 	{
 		// Invalidate to possibly fill with correct values later
 		shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
@@ -147,11 +147,10 @@ struct CPULineStyle
 
 		phaseShift = static_cast<float>(currentPhaseShift);
 
-		
+		stretchToFit = stretch;
 		if (shapeOffsetInPattern != InvalidShapeOffset)
 		{
-			shapeNormalizedPlaceInPattern = glm::fract(shapeOffsetInPattern * reciprocalStipplePatternLen + phaseShift);
-
+			setShapeOffset(shapeOffsetInPattern);
 			if (rigidShapeSegment)
 			{
 				rigidSegmentIdx = getPatternIdxFromNormalizedPosition(shapeNormalizedPlaceInPattern);
@@ -160,12 +159,14 @@ struct CPULineStyle
 				rigidSegmentEnd = (rigidSegmentIdx < stipplePatternSize) ? stipplePattern[rigidSegmentIdx] : 1.0f;
 				rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
 			}
-
-			stretchToFit = true; // stretchToFit should be true for styles with shapes/markers
 		}
-		
 	}
-	
+
+	void setShapeOffset(float64_t offsetInWorldSpace)
+	{
+		shapeNormalizedPlaceInPattern = glm::fract(offsetInWorldSpace * reciprocalStipplePatternLen + phaseShift);
+	}
+
 	float calculateStretchValue(float64_t arcLen) const
 	{
 		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)

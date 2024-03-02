@@ -2128,7 +2128,7 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, false);
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, false);
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
@@ -2139,7 +2139,7 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true);
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, true);
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
@@ -2151,7 +2151,7 @@ public:
 			}
 			
 			std::array<double, 3u> stipplePattern2 = { 2.5f, -5.0f, 2.5f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern2.data(), stipplePattern2.data() + stipplePattern2.size()), 5.0, true);
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern2.data(), stipplePattern2.data() + stipplePattern2.size()), 5.0, true, true);
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
@@ -2162,7 +2162,7 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, false);
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, false);
 			{
 				CPolyline polyline;
 
@@ -2189,7 +2189,7 @@ public:
 				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true);
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, true);
 			style.color = float32_t4(0.3f, 0.7f, 0.7f, 0.5f);
 			{
 				CPolyline polyline;
