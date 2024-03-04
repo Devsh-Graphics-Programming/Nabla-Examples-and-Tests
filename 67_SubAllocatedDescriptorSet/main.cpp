@@ -94,11 +94,57 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 			auto descriptorPool = m_device->createDescriptorPool(std::move(poolParams));
 			auto descriptorSet = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
 
-			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
-			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(core::smart_refctd_ptr(descriptorSet)); 
-			std::vector<uint32_t> allocation(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
+
+			auto createImageDescriptor = [&](uint32_t width, uint32_t height)
 			{
-				subAllocatedDescriptorSet->multi_allocate(0, allocation.size(), &allocation[0]);
+				auto image = m_device->createImage(nbl::video::IGPUImage::SCreationParams {
+					{
+						.type = nbl::video::IGPUImage::E_TYPE::ET_2D,
+						.samples = nbl::video::IGPUImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT,
+						.format = nbl::asset::E_FORMAT::EF_R8G8B8A8_UNORM,
+						.extent = { width, height, 1 },
+						.mipLevels = 1,
+						.arrayLayers = 1,
+						.usage = nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT 
+							| nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT
+							| nbl::video::IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT,
+					}, {}, nbl::video::IGPUImage::TILING::LINEAR,
+				});
+
+				auto reqs = image->getMemoryReqs();
+				reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+				m_device->allocate(reqs, image.get());
+
+				auto imageView = m_device->createImageView(nbl::video::IGPUImageView::SCreationParams {
+					.image = image,
+						.viewType = nbl::video::IGPUImageView::E_TYPE::ET_2D,
+						.format = nbl::asset::E_FORMAT::EF_R8G8B8A8_UNORM,
+						// .subresourceRange = { nbl::video::IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT, 0, 1, 0, 1 },
+				});
+				
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfo = {};
+                descriptorInfo.desc = imageView;
+                descriptorInfo.info.image.imageLayout = asset::IImage::LAYOUT::GENERAL;
+
+				return descriptorInfo;
+			};
+
+			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
+			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(core::smart_refctd_ptr(descriptorSet), core::smart_refctd_ptr(m_device)); 
+			std::vector<uint32_t> allocation(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
+			std::vector<video::IGPUDescriptorSet::SDescriptorInfo> descriptors;
+			std::vector<video::IGPUDescriptorSet::SWriteDescriptorSet> descriptorWrites(allocation.size(), video::IGPUDescriptorSet::SWriteDescriptorSet{});
+
+			for (uint32_t i = 0; i < allocation.size(); i++)
+			{
+				auto descriptorInfo = createImageDescriptor(80, 80);
+				descriptors.push_back(descriptorInfo);
+			}
+
+			{
+				auto allocNum = subAllocatedDescriptorSet->multi_allocate(0, allocation.size(), descriptors.data(), descriptorWrites.data(), allocation.data());
+				assert(allocNum == 0);
+				m_device->updateDescriptorSets(descriptorWrites, {});
 				for (uint32_t i = 0; i < allocation.size(); i++)
 				{
 					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation[i]);
@@ -116,7 +162,9 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 			m_logger->log("freed half the descriptors", system::ILogger::ELL_INFO);
 			std::vector<uint32_t> allocation2(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
 			{
-				subAllocatedDescriptorSet->multi_allocate(0, allocation2.size(), &allocation2[0]);
+				auto allocNum = subAllocatedDescriptorSet->multi_allocate(0, allocation2.size(), descriptors.data(), descriptorWrites.data(), &allocation2[0]);
+				assert(allocNum == 0);
+				m_device->updateDescriptorSets(descriptorWrites, {});
 				for (uint32_t i = 0; i < allocation2.size(); i++)
 				{
 					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation2[i]);
