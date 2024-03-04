@@ -43,7 +43,7 @@ if(NBL_BUILD_EXAMPLES)
 	endif()
 	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 	# add_subdirectory(23_Autoexposure EXCLUDE_FROM_ALL)
-	# add_subdirectory(25_Blur EXCLUDE_FROM_ALL)
+	add_subdirectory(26_CentralLimitBoxBlur EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
