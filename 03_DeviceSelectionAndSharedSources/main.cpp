@@ -43,6 +43,7 @@ public:
 		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto introspector = std::make_unique<CSPIRVIntrospector>();
 		auto source = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
+		auto source2 = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector); // to make sure caching works
 
 		m_logger->log("------- vtx_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto introspector_test1 = std::make_unique<CSPIRVIntrospector>();
@@ -312,7 +313,7 @@ public:
 			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspctParams = { .entryPoint = "main", .shader = spirvUnspecialized };
 
 			// TODO [Przemek]: fix 'insertToCache' and test it
-			introspection = introspector->introspect(inspctParams, false);
+			introspection = introspector->introspect(inspctParams);
 			if (!introspection)
 			{
 				logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
