@@ -4,8 +4,10 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
-#include "common.hlsl"
+#include "../common/MonoDeviceApplication.hpp"
+#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+
+#include "CArchive.h"
 
 using namespace nbl;
 using namespace core;
@@ -13,121 +15,62 @@ using namespace system;
 using namespace asset;
 using namespace video;
 
+#define _NBL_PLATFORM_WINDOWS_
 
-// this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platforms
-class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplication
+class BoxBlurDemo final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using base_t = examples::MonoSystemMonoLoggerApplication;
-public:
-	// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
-	using base_t::base_t;
+	using device_base_t = examples::MonoDeviceApplication;
+	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 
-	// we stuff all our work here because its a "single shot" app
+public:
+	BoxBlurDemo( const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD 
+	) : system::IApplicationFramework( _localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD ) {}
+	
 	bool onAppInitialized( smart_refctd_ptr<ISystem>&& system ) override
 	{
 		// Remember to call the base class initialization!
-		if( !base_t::onAppInitialized( std::move( system ) ) )
+		if( !device_base_t::onAppInitialized( std::move( system ) ) )
+		{
 			return false;
-		// `system` could have been null (see the comments in `MonoSystemMonoLoggerApplication::onAppInitialized` as for why)
-		// use `MonoSystemMonoLoggerApplication::m_system` throughout the example instead!
-
-		// You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
-		smart_refctd_ptr<nbl::video::CVulkanConnection> api;
-		{
-			// You generally want to default initialize any parameter structs
-			nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
-			// generally you want to make your life easier during development
-			apiFeaturesToEnable.validations = true;
-			apiFeaturesToEnable.synchronizationValidation = true;
-			// want to make sure we have this so we can name resources for vieweing in RenderDoc captures
-			apiFeaturesToEnable.debugUtils = true;
-			// create our Vulkan instance
-			if( !( api = CVulkanConnection::create( smart_refctd_ptr( m_system ), 0, _NBL_APP_NAME_, smart_refctd_ptr( base_t::m_logger ), apiFeaturesToEnable ) ) )
-				return logFail( "Failed to crate an IAPIConnection!" );
 		}
-
-		// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
-		// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
-		nbl::video::IPhysicalDevice* physDev = nullptr;
-		ILogicalDevice::SCreationParams params = {};
-		// we will only deal with a single queue in this example
-		params.queueParamsCount = 1;
-		params.queueParams[ 0 ].count = 1;
-		for( auto physDevIt = api->getPhysicalDevices().begin(); physDevIt != api->getPhysicalDevices().end(); physDevIt++ )
+		if( !asset_base_t::onAppInitialized( std::move( system ) ) )
 		{
-			const auto familyProps = ( *physDevIt )->getQueueFamilyProperties();
-			// this is the only "complicated" part, we want to create a queue that supports compute pipelines
-			for( auto i = 0; i < familyProps.size(); i++ )
-				if( familyProps[ i ].queueFlags.hasFlags( IQueue::FAMILY_FLAGS::COMPUTE_BIT ) )
-				{
-					physDev = *physDevIt;
-					params.queueParams[ 0 ].familyIndex = i;
-					break;
-				}
+			return false;
 		}
-		if( !physDev )
-			return logFail( "Failed to find any Physical Devices with Compute capable Queue Families!" );
-
-		// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
-		smart_refctd_ptr<ILogicalDevice> device = physDev->createLogicalDevice( std::move( params ) );
-		if( !device )
-			return logFail( "Failed to create a Logical Device!" );
 
 		constexpr uint32_t WorkgroupSize = 256;
 		constexpr uint32_t WorkgroupCount = 2048;
-		// A word about `nbl::asset::IAsset`s, whenever you see an `nbl::asset::ICPUSomething` you can be sure an `nbl::video::IGPUSomething exists, and they both inherit from `nbl::asset::ISomething`.
-		// The convention is that an `ICPU` object represents a potentially Mutable (and in the past, Serializable) recipe for creating an `IGPU` object, and later examples will show automated systems for doing that.
-		// The Assets always form a Directed Acyclic Graph and our type system enforces that property at compile time (i.e. an `IBuffer` cannot reference an `IImageView` even indirectly).
-		// Another reason for the 1:1 pairing of types is that one can use a CPU-to-GPU associative cache (asset manager has a default one) and use the pointers to the CPU objects as UUIDs.
-		// The ICPUShader is just a mutable container for source code (can be high level like HLSL needing compilation to SPIR-V or SPIR-V itself) held in an `nbl::asset::ICPUBuffer`.
-		// They can be created: from buffers of code, by compilation from some other source code, or loaded from files (next example will do that).
-		smart_refctd_ptr<nbl::asset::ICPUShader> cpuShader;
+
+
+		// load shader source from file
+		auto getShaderSource = [ & ]( const char* filePath ) -> auto
 		{
-			// Normally we'd use the ISystem and the IAssetManager to load shaders flexibly from (virtual) files for ease of development (syntax highlighting and Intellisense),
-			// but I want to show the full process of assembling a shader from raw source code at least once.
-			smart_refctd_ptr<nbl::asset::IShaderCompiler> compiler = make_smart_refctd_ptr<nbl::asset::CHLSLCompiler>( smart_refctd_ptr( m_system ) );
+			IAssetLoader::SAssetLoadParams lparams = {};
+			lparams.logger = m_logger.get();
+			lparams.workingDirectory = "";
+			auto bundle = m_assetMgr->getAsset( filePath, lparams );
+			if( bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER )
+			{
+				m_logger->log( "Shader %s not found!", ILogger::ELL_ERROR, filePath );
+				exit( -1 );
+			}
+			auto firstAssetInBundle = bundle.getContents()[ 0 ];
+			return smart_refctd_ptr_static_cast< ICPUShader >( firstAssetInBundle );
+		};
+		auto computeMain = getShaderSource( "app_resources/main.comp.hlsl" );
 
-			// A simple shader that writes out the Global Invocation Index to the position it corresponds to in the buffer
-			// Note the injection of a define from C++ to keep the workgroup size in sync.
-			// P.S. We don't have an entry point name compiler option because we expect that future compilers should support multiple entry points, so for now there must be a single entry point called "main".
-			constexpr const char* source = R"===(
-					#pragma wave shader_stage(compute)
-
-					[[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> buff;
-
-					[numthreads(WORKGROUP_SIZE,1,1)]
-					void main(uint32_t3 ID : SV_DispatchThreadID)
-					{
-						buff[ID.x] = ID.x;
-					}
-				)===";
-
-			// Yes we know workgroup sizes can come from specialization constants, however DXC has a problem with that https://github.com/microsoft/DirectXShaderCompiler/issues/3092
-			const string WorkgroupSizeAsStr = std::to_string( WorkgroupSize );
-			const IShaderCompiler::SPreprocessorOptions::SMacroDefinition WorkgroupSizeDefine = { "WORKGROUP_SIZE",WorkgroupSizeAsStr };
-
-			CHLSLCompiler::SOptions options = {};
-			// really we should set it to `ESS_COMPUTE` since we know, but we'll test the `#pragma` handling fur teh lulz
-			options.stage = asset::IShader::E_SHADER_STAGE::ESS_UNKNOWN;
-			// want as much debug as possible
-			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_LINE_BIT;
-			// this lets you source-level debug/step shaders in renderdoc
-			if( physDev->getLimits().shaderNonSemanticInfo )
-				options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_NON_SEMANTIC_BIT;
-			// if you don't set the logger and source identifier you'll have no meaningful errors
-			options.preprocessorOptions.sourceIdentifier = "embedded.comp.hlsl";
-			options.preprocessorOptions.logger = m_logger.get();
-			options.preprocessorOptions.extraDefines = { &WorkgroupSizeDefine,&WorkgroupSizeDefine + 1 };
-			if( !( cpuShader = compiler->compileToSPIRV( source, options ) ) )
-				return logFail( "Failed to compile following HLSL Shader:\n%s\n", source );
+		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
+			computeMain.get(), 
+			"#define WORKGROUP_SIZE %s\n#define PASSES_PER_AXIS %d\n#define AXIS_DIM %d\n",
+			std::to_string( WorkgroupSize ).c_str(), 3, 4
+		);
+		smart_refctd_ptr<IGPUShader> shader = m_device->createShader( overridenUnspecialized.get() );
+		if( !shader )
+		{
+			return logFail( "Creation of a GPU Shader to from CPU Shader source failed!" );
 		}
 
-		// Note how each ILogicalDevice method takes a smart-pointer r-value, so that the GPU objects refcount their dependencies
-		smart_refctd_ptr<nbl::video::IGPUShader> shader = device->createShader( cpuShader.get() );
-		if( !shader )
-			return logFail( "Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n" );
-
-		// the simplest example would have used push constants and BDA, but RenderDoc's debugging of that sucks, so I'll demonstrate "classical" binding of buffers with descriptors
+		/*// the simplest example would have used push constants and BDA, but RenderDoc's debugging of that sucks, so I'll demonstrate "classical" binding of buffers with descriptors
 		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[ 1 ] = {
 			{
 				.binding = 0,
@@ -297,7 +240,7 @@ public:
 		// This allocation would unmap itself in the dtor anyway, but lets showcase the API usage
 		allocation.memory->unmap();
 
-		return true;
+		return true;*/
 	}
 
 	// Platforms like WASM expect the main entry point to periodically return control, hence if you want a crossplatform app, you have to let the framework deal with your "game loop"
@@ -309,4 +252,4 @@ public:
 };
 
 
-NBL_MAIN_FUNC( HelloComputeApp )
+NBL_MAIN_FUNC( BoxBlurDemo )
