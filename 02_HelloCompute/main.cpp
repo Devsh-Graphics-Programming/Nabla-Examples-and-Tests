@@ -46,12 +46,10 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			}
 
 			// We won't go deep into performing physical device selection in this example, we'll take any device with a compute queue.
+			uint8_t queueFamily;
 			// Nabla has its own set of required baseline Vulkan features anyway, it won't report any device that doesn't meet them.
 			nbl::video::IPhysicalDevice* physDev = nullptr;
 			ILogicalDevice::SCreationParams params = {};
-			// we will only deal with a single queue in this example
-			params.queueParamsCount = 1;
-			params.queueParams[0].count = 1;
 			for (auto physDevIt=api->getPhysicalDevices().begin(); physDevIt!=api->getPhysicalDevices().end(); physDevIt++)
 			{
 				const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
@@ -60,7 +58,8 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 				if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
 				{
 					physDev = *physDevIt;
-					params.queueParams[0].familyIndex  = i;
+					queueFamily = i;
+					params.queueParams[queueFamily].count = 1;
 					break;
 				}
 			}
@@ -229,7 +228,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			// Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
 			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
 			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(params.queueParams[0].familyIndex,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(queueFamily,IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,1u,&cmdbuf))
 					return logFail("Failed to create Command Buffers!\n");
 			}
@@ -255,7 +254,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			smart_refctd_ptr<ISemaphore> progress = device->createSemaphore(StartedValue);
 			{
 				// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
-				IQueue* queue = device->getQueue(params.queueParams[0].familyIndex,0);
+				IQueue* queue = device->getQueue(queueFamily,0);
 
 				// Default, we have no semaphores to wait on before we can start our workload
 				IQueue::SSubmitInfo submitInfos[1] = {};

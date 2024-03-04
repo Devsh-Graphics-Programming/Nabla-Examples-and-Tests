@@ -56,6 +56,13 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			return true;
 		}
 
+		// Just to run destructors in a nice order
+		virtual bool onAppTerminated() override
+		{
+			m_utils = nullptr;
+			return base_t::onAppTerminated();
+		}
+
 		// overridable for future graphics queue using examples
 		virtual bool isComputeOnly() const {return true;}
 
@@ -117,7 +124,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				const queue_family_range_t& m_familyProperties;
 		};
 
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const queue_family_range_t& familyProperties) override
+		virtual std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> getQueueCreationParameters(const queue_family_range_t& familyProperties) override
 		{
 			QueueAllocator queueAllocator(familyProperties);
 
@@ -206,7 +213,6 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			// Try to allocate a different queue than fallback for graphics and as little extra as possible
 			if (!isComputeOnly())
 			{
-				// TODO: Handle surface compatibility.
 				queue_req_t graphicsQueueRequirement = {.requiredFlags=queue_flags_t::GRAPHICS_BIT,.disallowedFlags=queue_flags_t::NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
 				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement,{queue_flags_t::TRANSFER_BIT,queue_flags_t::SPARSE_BINDING_BIT,queue_flags_t::COMPUTE_BIT,queue_flags_t::PROTECTED_BIT});
 				if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
@@ -224,16 +230,23 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				auto found = familyQueueCounts.find(fallbackQueue.famIx);
 				if ((--found->second)==0)
 					familyQueueCounts.erase(found);
+				else
+				{
+					if (m_computeQueue.famIx==fallbackQueue.famIx)
+						m_computeQueue.qIx--;
+					if (m_transferUpQueue.famIx==fallbackQueue.famIx)
+						m_transferUpQueue.qIx--;
+					if (m_transferDownQueue.famIx==fallbackQueue.famIx)
+						m_transferDownQueue.qIx--;
+					if (m_graphicsQueue.famIx==fallbackQueue.famIx)
+						m_graphicsQueue.qIx--;
+				}
 			}
 
 			// Now after assigning all queues to families and indices, collate the creation parameters
-			core::vector<video::ILogicalDevice::SQueueCreationParams> retval(familyQueueCounts.size());
-			auto oit = retval.begin();
-			for (auto it=familyQueueCounts.begin(); it!=familyQueueCounts.end(); it++,oit++)
-			{
-				oit->familyIndex = it->first;
-				oit->count = it->second;
-			}
+			std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> retval = {};
+			for (const auto& familyAndCount : familyQueueCounts)
+				retval[familyAndCount.first].count = familyAndCount.second;
 			return retval;
 		}
 
