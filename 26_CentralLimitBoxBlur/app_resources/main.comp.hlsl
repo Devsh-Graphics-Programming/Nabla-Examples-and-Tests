@@ -23,11 +23,10 @@ void main( uint3 invocationID : SV_DispatchThreadID )
 		borderColor = boxBlurParams.getBorderColor();
 	}
 
-	BufferAccessor textureAccessor = BufferAccessorCtor( 
-		boxBlurParams.inputDimensions.xyz, boxBlurParams.inputStrides, boxBlurParams.outputStrides );
+	BufferAccessor textureAccessor = BufferAccessorCtor( boxBlurParams.chosenAxis );
 
 	for( uint32_t ch = 0; ch < boxBlurParams.getChannelCount(); ++ch )
 	{
-		BoxBlur( ch, direction, boxBlurParams.radius, wrapMode, borderColor, textureAccessor );
+		BoxBlur( ch, boxBlurParams.radius, wrapMode, borderColor, textureAccessor );
 	}
 }
