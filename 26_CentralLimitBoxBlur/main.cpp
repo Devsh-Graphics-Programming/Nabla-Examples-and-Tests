@@ -4,7 +4,7 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
+#include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include <nbl/builtin/hlsl/blur/common.hlsl>
@@ -19,9 +19,9 @@ using namespace video;
 
 #define _NBL_PLATFORM_WINDOWS_
 
-class BoxBlurDemo final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class BoxBlurDemo final : public examples::BasicMultiQueueApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::MonoDeviceApplication;
+	using base_t = examples::BasicMultiQueueApplication;
 	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 
 public:
@@ -36,7 +36,7 @@ public:
 	bool onAppInitialized( smart_refctd_ptr<ISystem>&& system ) override
 	{
 		// Remember to call the base class initialization!
-		if( !device_base_t::onAppInitialized( std::move( system ) ) )
+		if( !base_t::onAppInitialized( std::move( system ) ) )
 		{
 			return false;
 		}
@@ -140,27 +140,9 @@ public:
 		smart_refctd_ptr<nbl::video::IGPUImage> outputGpuImg;
 		smart_refctd_ptr<nbl::video::IGPUImageView> inputGpuImgView;
 		smart_refctd_ptr<nbl::video::IGPUImageView> outputGpuImgView;
-		createGPUImages( IGPUImage::EUF_SAMPLED_BIT | IGPUImage::EUF_STORAGE_BIT, "InputImg", std::move(inputGpuImg), std::move(inputGpuImgView));
+		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", std::move(inputGpuImg), std::move(inputGpuImgView));
 		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", std::move(outputGpuImg), std::move(outputGpuImgView));
 
-		nbl::video::IGPUCommandBuffer::SImageResolve regions[] = {
-			{
-				.srcSubresource = {.layerCount = 1 },
-				.srcOffset = {},
-				.dstSubresource = {.layerCount = 1 },
-				.dstOffset = {},
-				.extent = inputGpuImg->getCreationParameters().extent
-			}
-		};
-		nbl::video::IGPUCommandBuffer::SImageResolve regionsOut[] = {
-			{
-				.srcSubresource = {.layerCount = 1 },
-				.srcOffset = {},
-				.dstSubresource = {.layerCount = 1 },
-				.dstOffset = {},
-				.extent = outputGpuImg->getCreationParameters().extent
-			}
-		};
 
 		auto computeMain = checkedLoad.operator()< nbl::asset::ICPUShader >( "app_resources/main.comp.hlsl" );
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
@@ -227,7 +209,7 @@ public:
 			IGPUDescriptorSet::SDescriptorInfo info[ 2 ];
 			info[ 0 ].desc = inputGpuImgView;
 			info[ 0 ].info.image = { .sampler = sampler, .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
-			info[ 1 ].desc = inputGpuImgView;
+			info[ 1 ].desc = outputGpuImgView;
 			info[ 1 ].info.image = { .sampler = nullptr, .imageLayout = IImage::LAYOUT::GENERAL };
 
 			IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
@@ -237,31 +219,21 @@ public:
 			m_device->updateDescriptorSets( writes, {} );
 		}
 
-		uint32_t computeQueueIndex = getComputeQueue()->getFamilyIndex();
-		IQueue* queue = m_device->getQueue( computeQueueIndex, 0 );
-
-		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
-		smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(
-			computeQueueIndex, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT );
-		if( !cmdpool->createCommandBuffers( IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf ) )
+		// Transfer stage
 		{
-			return logFail( "Failed to create Command Buffers!\n" );
-		}
+			IQueue* queue = getTransferUpQueue();
 
-		constexpr size_t StartedValue = 0;
-		constexpr size_t FinishedValue = 45;
-		static_assert( FinishedValue > StartedValue );
-		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore( StartedValue );
-		
-		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
+			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(
+				queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT );
+			if( !cmdpool->createCommandBuffers( IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf ) )
+			{
+				return logFail( "Failed to create Command Buffers!\n" );
+			}
 
-		nbl::video::SIntendedSubmitInfo::SFrontHalf frontHalf = { .queue = queue, .commandBuffers = cmdbufs };
-		smart_refctd_ptr<nbl::video::IUtilities> assetStagingMngr = 
-			make_smart_refctd_ptr<IUtilities>( smart_refctd_ptr( m_device ), smart_refctd_ptr( m_logger ) );
+			
+			cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
 
-		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
-
-		{
 			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgLayouts[] = {
 				{
 					.image = inputGpuImg.get(),
@@ -271,20 +243,33 @@ public:
 				}
 			};
 			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } );
-		}
 
-		queue->startCapture();
-		bool uploaded = assetStagingMngr->updateImageViaStagingBufferAutoSubmit( 
-			frontHalf, textureToBlur->getBuffer(), inCpuTexInfo.format,
-			inputGpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, textureToBlur->getRegions()
-		);
-		queue->endCapture();
-		if( !uploaded )
+			queue->startCapture();
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
+			bool uploaded = m_utils->updateImageViaStagingBufferAutoSubmit(
+				{ .queue = queue, .commandBuffers = cmdbufs }, textureToBlur->getBuffer(), inCpuTexInfo.format,
+				inputGpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, textureToBlur->getRegions()
+			);
+			queue->endCapture();
+			if( !uploaded )
+			{
+				return logFail( "Failed to upload cpu tex!\n" );
+			}
+		}
+		
+		constexpr size_t StartedValue = 0;
+		constexpr size_t FinishedValue = 45;
+		static_assert( StartedValue < FinishedValue );
+		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore( StartedValue );
+		IQueue* queue = getComputeQueue();
+
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+		smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(
+			queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT );
+		if( !cmdpool->createCommandBuffers( IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf ) )
 		{
-			return logFail( "Failed to upload cpu tex!\n" );
+			return logFail( "Failed to create Command Buffers!\n" );
 		}
-
-		cmdbuf->reset( IGPUCommandBuffer::RESET_FLAGS::NONE );
 
 		struct packed_data_t
 		{
@@ -303,10 +288,31 @@ public:
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
 		cmdbuf->beginDebugMarker( "My Compute Dispatch", core::vectorSIMDf( 0, 1, 0, 1 ) );
-		cmdbuf->resolveImage( 
-			inputGpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-			inputGpuImg.get(), IImage::LAYOUT::GENERAL,
-			std::size( regions ), regions );
+		{
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgLayouts[] = {
+			{
+				.image = inputGpuImg.get(),
+				.subresourceRange = {.levelCount = 1, .layerCount = 1 },
+				.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL,
+			},
+			{
+				.image = outputGpuImg.get(),
+				.subresourceRange = {.levelCount = 1, .layerCount = 1 },
+				.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
+				.newLayout = IGPUImage::LAYOUT::GENERAL,
+			}
+			};
+			const nbl::asset::SMemoryBarrier barriers[] = {
+				{
+					.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::NONE,
+					.srcAccessMask = nbl::asset::ACCESS_FLAGS::MEMORY_WRITE_BITS,
+					.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.dstAccessMask = nbl::asset::ACCESS_FLAGS::SHADER_READ_BITS,
+				}
+			};
+			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .memBarriers = barriers, .imgBarriers = imgLayouts } );
+		}
 		cmdbuf->bindComputePipeline( pipeline.get() );
 		cmdbuf->bindDescriptorSets( nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get() );
 		cmdbuf->pushConstants( pplnLayout.get(), IShader::ESS_COMPUTE, 0, sizeof( BoxBlurParams ), &pushConstData );
@@ -332,8 +338,7 @@ public:
 			// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
 			// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
-			// But we do need to signal completion by incrementing the Timeline Semaphore counter as soon as the compute shader is done
-			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(), .value = FinishedValue, .stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS} };
 			// Default, we have no semaphores to wait on before we can start our workload
 			IQueue::SSubmitInfo submitInfos[] = { { .commandBuffers = cmdbufs, .signalSemaphores = signals } };
 
@@ -357,6 +362,11 @@ public:
 	// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
 	bool keepRunning() override { return false; }
 
+	// Just to run destructors in a nice order
+	bool onAppTerminated() override
+	{
+		return base_t::onAppTerminated();
+	}
 };
 
 
