@@ -47,9 +47,7 @@ public:
 
 		constexpr uint32_t WorkgroupSize = 256;
 		constexpr uint32_t AxisDimension = 3;
-		constexpr uint32_t PassesPerAxis = 4;
-
-		constexpr uint32_t WorkgroupCount = 2048;
+		constexpr uint32_t PassesPerAxis = 10;
 
 		IAssetLoader::SAssetLoadParams lparams = {};
 		lparams.logger = m_logger.get();
@@ -140,15 +138,15 @@ public:
 		smart_refctd_ptr<nbl::video::IGPUImage> outputGpuImg;
 		smart_refctd_ptr<nbl::video::IGPUImageView> inputGpuImgView;
 		smart_refctd_ptr<nbl::video::IGPUImageView> outputGpuImgView;
-		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", std::move(inputGpuImg), std::move(inputGpuImgView));
-		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", std::move(outputGpuImg), std::move(outputGpuImgView));
+		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", std::move( inputGpuImg ), std::move( inputGpuImgView ) );
+		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", std::move( outputGpuImg ), std::move( outputGpuImgView ) );
 
 
 		auto computeMain = checkedLoad.operator()< nbl::asset::ICPUShader >( "app_resources/main.comp.hlsl" );
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
 			computeMain.get(), 
 			"#define WORKGROUP_SIZE %s\n#define PASSES_PER_AXIS %d\n#define AXIS_DIM %d\n",
-			std::to_string( WorkgroupSize ).c_str(), AxisDimension, PassesPerAxis
+			std::to_string( WorkgroupSize ).c_str(), PassesPerAxis, AxisDimension
 		);
 		smart_refctd_ptr<IGPUShader> shader = m_device->createShader( overridenUnspecialized.get() );
 		if( !shader )
@@ -201,10 +199,9 @@ public:
 			}
 		}
 		smart_refctd_ptr<video::IGPUSampler> sampler = m_device->createSampler( { .TextureWrapU = ISampler::ETC_CLAMP_TO_EDGE } );
-		smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
 		smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts( 
 			IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 } );
-		ds = pool->createDescriptorSet( std::move( dsLayout ) );
+		smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds = pool->createDescriptorSet( std::move( dsLayout ) );
 		{
 			IGPUDescriptorSet::SDescriptorInfo info[ 2 ];
 			info[ 0 ].desc = inputGpuImgView;
@@ -284,7 +281,8 @@ public:
 		};
 
 		BoxBlurParams pushConstData = { .inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0} };
-		
+		auto gpuTexSize = inputGpuImg->getCreationParameters().extent;
+		const uint32_t WorkgroupCount = ( gpuTexSize.width * gpuTexSize.height ) / WorkgroupSize;
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
 		cmdbuf->beginDebugMarker( "My Compute Dispatch", core::vectorSIMDf( 0, 1, 0, 1 ) );
@@ -303,15 +301,7 @@ public:
 				.newLayout = IGPUImage::LAYOUT::GENERAL,
 			}
 			};
-			const nbl::asset::SMemoryBarrier barriers[] = {
-				{
-					.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::NONE,
-					.srcAccessMask = nbl::asset::ACCESS_FLAGS::MEMORY_WRITE_BITS,
-					.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.dstAccessMask = nbl::asset::ACCESS_FLAGS::SHADER_READ_BITS,
-				}
-			};
-			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .memBarriers = barriers, .imgBarriers = imgLayouts } );
+			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } );
 		}
 		cmdbuf->bindComputePipeline( pipeline.get() );
 		cmdbuf->bindDescriptorSets( nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get() );
