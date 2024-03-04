@@ -231,6 +231,11 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 				assert(statusCode == IQueue::RESULT::SUCCESS);
 			}
 		}
+
+		bool onAppTerminated() override
+		{
+			return device_base_t::onAppTerminated();
+		}
 };
 
 NBL_MAIN_FUNC(SubAllocatedDescriptorSetApp)
