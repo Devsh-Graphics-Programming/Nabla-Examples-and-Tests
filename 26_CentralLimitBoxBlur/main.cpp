@@ -89,6 +89,10 @@ public:
 		};
 
 		auto textureToBlur = checkedLoad.operator()< nbl::asset::ICPUImage >( "app_resources/tex.jpg" );
+		if( !textureToBlur )
+		{
+			return logFail( "Failed to load texture!\n" );
+		}
 		const auto& inCpuTexInfo = textureToBlur->getCreationParameters();
 		
 		auto createGPUImages = [ & ](
@@ -136,9 +140,27 @@ public:
 		smart_refctd_ptr<nbl::video::IGPUImage> outputGpuImg;
 		smart_refctd_ptr<nbl::video::IGPUImageView> inputGpuImgView;
 		smart_refctd_ptr<nbl::video::IGPUImageView> outputGpuImgView;
-		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", std::move(inputGpuImg), std::move(inputGpuImgView));
+		createGPUImages( IGPUImage::EUF_SAMPLED_BIT | IGPUImage::EUF_STORAGE_BIT, "InputImg", std::move(inputGpuImg), std::move(inputGpuImgView));
 		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", std::move(outputGpuImg), std::move(outputGpuImgView));
 
+		nbl::video::IGPUCommandBuffer::SImageResolve regions[] = {
+			{
+				.srcSubresource = {.layerCount = 1 },
+				.srcOffset = {},
+				.dstSubresource = {.layerCount = 1 },
+				.dstOffset = {},
+				.extent = inputGpuImg->getCreationParameters().extent
+			}
+		};
+		nbl::video::IGPUCommandBuffer::SImageResolve regionsOut[] = {
+			{
+				.srcSubresource = {.layerCount = 1 },
+				.srcOffset = {},
+				.dstSubresource = {.layerCount = 1 },
+				.dstOffset = {},
+				.extent = outputGpuImg->getCreationParameters().extent
+			}
+		};
 
 		auto computeMain = checkedLoad.operator()< nbl::asset::ICPUShader >( "app_resources/main.comp.hlsl" );
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
@@ -205,7 +227,7 @@ public:
 			IGPUDescriptorSet::SDescriptorInfo info[ 2 ];
 			info[ 0 ].desc = inputGpuImgView;
 			info[ 0 ].info.image = { .sampler = sampler, .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
-			info[ 1 ].desc = outputGpuImgView;
+			info[ 1 ].desc = inputGpuImgView;
 			info[ 1 ].info.image = { .sampler = nullptr, .imageLayout = IImage::LAYOUT::GENERAL };
 
 			IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
@@ -239,10 +261,22 @@ public:
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
 
+		{
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgLayouts[] = {
+				{
+					.image = inputGpuImg.get(),
+					.subresourceRange = {.levelCount = 1, .layerCount = 1 },
+					.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
+					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				}
+			};
+			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } );
+		}
+
 		queue->startCapture();
 		bool uploaded = assetStagingMngr->updateImageViaStagingBufferAutoSubmit( 
 			frontHalf, textureToBlur->getBuffer(), inCpuTexInfo.format,
-			inputGpuImg.get(), IImage::LAYOUT::UNDEFINED, textureToBlur->getRegions()
+			inputGpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, textureToBlur->getRegions()
 		);
 		queue->endCapture();
 		if( !uploaded )
@@ -252,37 +286,27 @@ public:
 
 		cmdbuf->reset( IGPUCommandBuffer::RESET_FLAGS::NONE );
 
-		BoxBlurParams pushConstData = {};
+		struct packed_data_t
+		{
+			uint32_t direction : 2;
+			uint32_t channelCount : 3 = 3; // TODO: don't hardcode
+			uint32_t wrapMode : 2 = WrapMode::WRAP_MODE_CLAMP_TO_EDGE;
+			uint32_t borderColor : 3 = BorderColor::BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+
+			explicit operator uint32_t() const {
+				return *reinterpret_cast< const uint32_t* >( this );
+			}
+		};
+
+		BoxBlurParams pushConstData = { .inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0} };
 		
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
 		cmdbuf->beginDebugMarker( "My Compute Dispatch", core::vectorSIMDf( 0, 1, 0, 1 ) );
-		nbl::video::IGPUCommandBuffer::SImageResolve regions[] = {
-			{
-				.srcSubresource = { .layerCount = 1 },
-				.srcOffset = {},
-				.dstSubresource = { .layerCount = 1 },
-				.dstOffset = {},
-				.extent = inputGpuImg->getCreationParameters().extent
-			}
-		};
 		cmdbuf->resolveImage( 
-			inputGpuImg.get(), IImage::LAYOUT::UNDEFINED,
+			inputGpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 			inputGpuImg.get(), IImage::LAYOUT::GENERAL,
 			std::size( regions ), regions );
-		nbl::video::IGPUCommandBuffer::SImageResolve regionsOut[] = {
-			{
-				.srcSubresource = {.layerCount = 1 },
-				.srcOffset = {},
-				.dstSubresource = {.layerCount = 1 },
-				.dstOffset = {},
-				.extent = outputGpuImg->getCreationParameters().extent
-			}
-		};
-		cmdbuf->resolveImage(
-			outputGpuImg.get(), IImage::LAYOUT::UNDEFINED,
-			outputGpuImg.get(), IImage::LAYOUT::GENERAL,
-			std::size( regionsOut ), regionsOut );
 		cmdbuf->bindComputePipeline( pipeline.get() );
 		cmdbuf->bindDescriptorSets( nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get() );
 		cmdbuf->pushConstants( pplnLayout.get(), IShader::ESS_COMPUTE, 0, sizeof( BoxBlurParams ), &pushConstData );
