@@ -1,45 +1,50 @@
 #include "nbl/builtin/hlsl/blur/common.hlsl"
 
-[[vk::binding( 0, 0 )]] Texture2D<nbl::hlsl::float32_t> input;
-[[vk::binding( 1, 0 )]] RWTexture2D<nbl::hlsl::float32_t> output;
+[[vk::binding( 0, 0 )]] Texture2D<nbl::hlsl::float32_t4> input;
+[[vk::binding( 1, 0 )]] RWTexture2D<nbl::hlsl::float32_t4> output;
 
 
 // TODO: figure the proper way to do templated BufferAccessors
 struct BufferAccessor
 {
-	uint32_t4 inputStride;
-	uint32_t4 outputStride;
-	uint32_t3 dimension;
-	//uint32_t channelCount;
-	// mod image width x div image width y 
-	nbl::hlsl::float32_t getPaddedData( const uint32_t3 coordinate, const uint32_t channel )
+	uint32_t2 chosenAxis;
+	
+	nbl::hlsl::float32_t get( const uint32_t linearIndex, const uint32_t channel )
 	{
-		float data = 0.f;
-		if( all( coordinate < dimension ) )
+		uint32_t3 texSize;
+		input.GetDimensions( 0, texSize.x, texSize.y, texSize.z );
+
+		uint32_t axisSize = dot( texSize.xy, chosenAxis );
+
+		uint32_t2 coordinate = { linearIndex % axisSize, linearIndex / axisSize };
+		float32_t data = 0.f;
+		if( all( coordinate < texSize.xy ) )
 		{
-			uint32_t stridedIdx = dot( uint32_t4( coordinate, channel ), inputStride );// NOT CORRECT
-			//uint32_t2 idx = stridedIdx % 
-			//data = input[ stridedIdx ];
+			float32_t4 pixel = input[ coordinate.xy ];
+			data = pixel[ channel ];
 		}
 
 		return data;
 	}
 
-	void setData( const uint32_t3 coordinate, const uint32_t channel, NBL_CONST_REF_ARG( float32_t ) val )
+	void set( const uint32_t linearIndex, const uint32_t channel, NBL_CONST_REF_ARG( float32_t ) val )
 	{
-		if( all( coordinate < dimension ) )
+		uint32_t2 texSize;
+		output.GetDimensions( texSize.x, texSize.y );
+
+		uint32_t axisSize = dot( texSize, chosenAxis );
+
+		uint32_t2 coordinate = { linearIndex % axisSize, linearIndex / axisSize };
+		if( all( coordinate < texSize ) )
 		{
-			uint32_t stridedIdx = dot( uint32_t4( coordinate, channel ), outputStride ); // NOT CORRECT
-			//output[ stridedIdx ] = val;
+			output[ coordinate.xy ][ channel ] = val;
 		}
 	}
 };
 
-BufferAccessor BufferAccessorCtor( uint32_t4 inputStride, uint32_t4 outputStride, uint32_t3 dimension )
+BufferAccessor BufferAccessorCtor( uint32_t2 chosenAxis )
 {
 	BufferAccessor ba;
-	ba.dimension = dimension;
-	ba.inputStride = inputStride;
-	ba.outputStride = outputStride;
+	ba.chosenAxis = chosenAxis;
 	return ba;
 }
