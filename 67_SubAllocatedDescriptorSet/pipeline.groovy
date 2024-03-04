@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CStreamingAndBufferDeviceAddressBuilder extends IBuilder
+class CSubAllocatedDescriptorSetBuilder extends IBuilder
 {
-	public CStreamingAndBufferDeviceAddressBuilder(Agent _agent, _info)
+	public CSubAllocatedDescriptorSetBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CStreamingAndBufferDeviceAddressBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CStreamingAndBufferDeviceAddressBuilder(_agent, _info)
+	return new CSubAllocatedDescriptorSetBuilder(_agent, _info)
 }
 
 return this
