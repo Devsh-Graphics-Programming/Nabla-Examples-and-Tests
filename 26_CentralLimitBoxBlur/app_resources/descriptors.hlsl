@@ -1,10 +1,9 @@
-#include "nbl/builtin/hlsl/blur/common.hlsl"
+#include "nbl/builtin/hlsl/central_limit_blur/common.hlsl"
 
 [[vk::binding( 0, 0 )]] Texture2D<nbl::hlsl::float32_t4> input;
 [[vk::binding( 1, 0 )]] RWTexture2D<nbl::hlsl::float32_t4> output;
 
 
-// TODO: figure the proper way to do templated BufferAccessors
 struct BufferAccessor
 {
 	uint32_t2 chosenAxis;
@@ -37,7 +36,9 @@ struct BufferAccessor
 		uint32_t2 coordinate = { linearIndex % axisSize, linearIndex / axisSize };
 		if( all( coordinate < texSize ) )
 		{
-			output[ coordinate.xy ][ channel ] = val;
+			float32_t4 col = float32_t4( 0.f, 0.f, 0.f, 0.f );
+			col[ channel ] = val;
+			output[ coordinate.xy ] = col;
 		}
 	}
 };

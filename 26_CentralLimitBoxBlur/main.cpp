@@ -180,7 +180,7 @@ public:
 		{
 			return logFail( "Failed to create a Descriptor Layout!\n" );
 		}
-		const asset::SPushConstantRange pushConst[] = { {.stageFlags = IShader::ESS_COMPUTE, .offset = 0, .size = sizeof( BoxBlurParams )} };
+		const asset::SPushConstantRange pushConst[] = { {.stageFlags = IShader::ESS_COMPUTE, .offset = 0, .size = sizeof( nbl::hlsl::central_limit_blur::BoxBlurParams )} };
 		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout( pushConst, smart_refctd_ptr(dsLayout));
 		if( !pplnLayout )
 		{
@@ -322,15 +322,15 @@ public:
 		{
 			uint32_t direction : 2;
 			uint32_t channelCount : 3 = 3; // TODO: don't hardcode
-			uint32_t wrapMode : 2 = WrapMode::WRAP_MODE_CLAMP_TO_EDGE;
-			uint32_t borderColor : 3 = BorderColor::BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+			uint32_t wrapMode : 2 = hlsl::central_limit_blur::WrapMode::WRAP_MODE_CLAMP_TO_EDGE;
+			uint32_t borderColor : 3 = hlsl::central_limit_blur::BorderColor::BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 
 			explicit operator uint32_t() const {
 				return *reinterpret_cast< const uint32_t* >( this );
 			}
 		};
 
-		BoxBlurParams pushConstData = {
+		hlsl::central_limit_blur::BoxBlurParams pushConstData = {
 			.inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0}, .radius = 4.f
 		};
 
@@ -382,7 +382,7 @@ public:
 
 		cmdbuf->bindComputePipeline( pipeline.get() );
 		cmdbuf->bindDescriptorSets( nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get() );
-		cmdbuf->pushConstants( pplnLayout.get(), IShader::ESS_COMPUTE, 0, sizeof( BoxBlurParams ), &pushConstData );
+		cmdbuf->pushConstants( pplnLayout.get(), IShader::ESS_COMPUTE, 0, sizeof( pushConstData ), &pushConstData );
 		cmdbuf->dispatch( WorkgroupCount, 1, 1 );
 
 		const nbl::asset::SMemoryBarrier barriers[] = {
