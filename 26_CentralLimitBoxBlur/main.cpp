@@ -7,7 +7,7 @@
 #include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-#include <nbl/builtin/hlsl/blur/central_limit_blur/common.hlsl>
+#include <nbl/builtin/hlsl/central_limit_blur/common.hlsl>
 
 #include "CArchive.h"
 
@@ -220,6 +220,7 @@ public:
 		pplnLayout->setObjectDebugName( "Box Blur PPLN Layout" );
 
 		// Transfer stage
+		const bool needsOwnershipTransfer = getTransferUpQueue()->getFamilyIndex()!=getComputeQueue()->getFamilyIndex();
 		auto transferSema = m_device->createSemaphore(0);
 		IQueue::SSubmitInfo::SSemaphoreInfo transferDone[] = {
 			{.semaphore = transferSema.get(),.value = 1,.stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT} };
@@ -241,7 +242,7 @@ public:
 				{
 					.barrier = {
 						.dep={
-					// there's no need for a source synchronization scope because the Submit implicit Host guarantees already sync us
+							// there's no need for a source synchronization because Host Ops become available and visible pre-submit
 							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, .srcAccessMask = ACCESS_FLAGS::NONE,
 							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 						},
@@ -275,10 +276,11 @@ public:
 					.barrier = {
 						.dep = {
 							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							// dst flags are ignored upon a RELEASE
+							// there's no need for a source synchronization scope because the Submit implicit
+							// Timeline Semaphore guarantees already sync us and make our writes available
 						},
 						.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
-						.otherQueueFamilyIndex = getComputeQueue()->getFamilyIndex()
+						.otherQueueFamilyIndex = needsOwnershipTransfer ? getComputeQueue()->getFamilyIndex():IQueue::FamilyIgnored
 					},
 					.image = inputGpuImg.get(),
 					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
@@ -339,36 +341,40 @@ public:
 		cmdbuf->beginDebugMarker( "Box Blur dispatches", core::vectorSIMDf( 0, 1, 0, 1 ) );
 		{
 			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgLayouts[] = {
-			{
-				.barrier = {
-					// src flags are ignored upon an ACQUIRE
-					.dep = { 
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, 
-					.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,	
-			        },
-					.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
-					.otherQueueFamilyIndex = getTransferUpQueue()->getFamilyIndex()
-                },
-				.image = inputGpuImg.get(),
-				.subresourceRange = { .aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-				.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL,
-			},
-			{
-				.barrier = {
-					.dep = {
-					//.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, .srcAccessMask = ACCESS_FLAGS::NONE,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, 
-					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+				{
+					.barrier = {
+						.dep = {
+						//.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, .srcAccessMask = ACCESS_FLAGS::NONE,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, 
+						.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+						},
 					},
+					.image = outputGpuImg.get(),
+					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
+					.newLayout = IGPUImage::LAYOUT::GENERAL,
 				},
-				.image = outputGpuImg.get(),
-				.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-				.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
-				.newLayout = IGPUImage::LAYOUT::GENERAL,
-			}
+				// this is only for Ownership Acquire, the transfer queue does the layout xform,
+				// so if `!needsOwnershipTransfer` we skip to prevent a double layout transition
+				{
+					.barrier = {
+						// src flags are ignored by Acquire
+						.dep = {
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,
+						},
+						.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+						.otherQueueFamilyIndex =  getTransferUpQueue()->getFamilyIndex()
+					},
+					.image = inputGpuImg.get(),
+					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+				}
 			};
-			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } ) )
+
+			const size_t barrierCount = needsOwnershipTransfer ? 2 : 1;
+			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = {imgLayouts, barrierCount} } ) )
 			{
 				return logFail( "Failed to issue barrier!\n" );
 			}
