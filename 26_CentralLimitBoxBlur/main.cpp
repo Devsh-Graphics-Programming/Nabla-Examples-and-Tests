@@ -7,7 +7,7 @@
 #include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-#include <nbl/builtin/hlsl/blur/common.hlsl>
+#include <nbl/builtin/hlsl/blur/central_limit_blur/common.hlsl>
 
 #include "CArchive.h"
 
@@ -36,7 +36,7 @@ public:
 	bool onAppInitialized( smart_refctd_ptr<ISystem>&& system ) override
 	{
 		// Remember to call the base class initialization!
-		if( !base_t::onAppInitialized( std::move( system ) ) )
+		if( !base_t::onAppInitialized( core::smart_refctd_ptr( system ) ) )
 		{
 			return false;
 		}
@@ -96,8 +96,8 @@ public:
 		auto createGPUImages = [ & ](
 			core::bitflag<IGPUImage::E_USAGE_FLAGS> usageFlags,
 			std::string_view name,
-			smart_refctd_ptr<nbl::video::IGPUImage>&& imgOut,
-			smart_refctd_ptr<nbl::video::IGPUImageView>&& imgViewOut
+			smart_refctd_ptr<nbl::video::IGPUImage>& imgOut,
+			smart_refctd_ptr<nbl::video::IGPUImageView>& imgViewOut
 		) {
 			video::IGPUImage::SCreationParams gpuImageCreateInfo;
 			gpuImageCreateInfo.flags = inCpuTexInfo.flags;
@@ -128,7 +128,7 @@ public:
 				.format = gpuImageCreateInfo.format
 			} );
 			gpuImage->setObjectDebugName( name.data() );
-			imgView->setObjectDebugName( ( std::string{ name } + "view" ).c_str() );
+			imgView->setObjectDebugName( ( std::string{ name } + "_view" ).c_str() );
 			imgOut = gpuImage;
 			imgViewOut = imgView;
 		};
@@ -138,9 +138,9 @@ public:
 		smart_refctd_ptr<nbl::video::IGPUImage> outputGpuImg;
 		smart_refctd_ptr<nbl::video::IGPUImageView> inputGpuImgView;
 		smart_refctd_ptr<nbl::video::IGPUImageView> outputGpuImgView;
-		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", std::move( inputGpuImg ), std::move( inputGpuImgView ) );
-		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", std::move( outputGpuImg ), std::move( outputGpuImgView ) );
-
+		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", inputGpuImg, inputGpuImgView );
+		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", outputGpuImg, outputGpuImgView );
+		assert(inputGpuImg&&outputGpuImg&&inputGpuImgView&&outputGpuImgView);
 
 		auto computeMain = checkedLoad.operator()< nbl::asset::ICPUShader >( "app_resources/main.comp.hlsl" );
 		smart_refctd_ptr<ICPUShader> overridenUnspecialized = CHLSLCompiler::createOverridenCopy(
@@ -155,7 +155,8 @@ public:
 		}
 
 
-		// TODO: move to shaderd cpp/hlsl descriptors file
+		// TODO: move to shaderd cpp/hlsl descriptors file 
+		// No because this is a C++ only struct, only move the binding and count there
 		NBL_CONSTEXPR_STATIC nbl::video::IGPUDescriptorSetLayout::SBinding bindings[] = {
 			{
 				.binding = 0,
@@ -192,15 +193,13 @@ public:
 			params.layout = pplnLayout.get();
 			params.shader.entryPoint = "main";
 			params.shader.shader = shader.get();
-			// we'll cover the specialization constant API in another example
 			if( !m_device->createComputePipelines( nullptr, { &params, 1 }, &pipeline ) )
 			{
 				return logFail( "Failed to create pipelines (compile & link shaders)!\n" );
 			}
 		}
-		smart_refctd_ptr<video::IGPUSampler> sampler = m_device->createSampler( { .TextureWrapU = ISampler::ETC_CLAMP_TO_EDGE } );
-		smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts( 
-			IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 } );
+		smart_refctd_ptr<video::IGPUSampler> sampler = m_device->createSampler( {} );
+		smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts( IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 } );
 		smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds = pool->createDescriptorSet( std::move( dsLayout ) );
 		{
 			IGPUDescriptorSet::SDescriptorInfo info[ 2 ];
@@ -213,10 +212,17 @@ public:
 				{ .dstSet = ds.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &info[ 0 ] },
 				{ .dstSet = ds.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &info[ 1 ] },
 			};
-			m_device->updateDescriptorSets( writes, {} );
+			const bool success = m_device->updateDescriptorSets( writes, {} );
+			assert( success );
 		}
 
+		ds->setObjectDebugName( "Box blur DS" );
+		pplnLayout->setObjectDebugName( "Box Blur PPLN Layout" );
+
 		// Transfer stage
+		auto transferSema = m_device->createSemaphore(0);
+		IQueue::SSubmitInfo::SSemaphoreInfo transferDone[] = {
+			{.semaphore = transferSema.get(),.value = 1,.stageMask = PIPELINE_STAGE_FLAGS::COPY_BIT} };
 		{
 			IQueue* queue = getTransferUpQueue();
 
@@ -233,25 +239,67 @@ public:
 
 			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgLayouts[] = {
 				{
+					.barrier = {
+						.dep={
+					// there's no need for a source synchronization scope because the Submit implicit Host guarantees already sync us
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, .srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, .dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+						},
+					},
 					.image = inputGpuImg.get(),
-					.subresourceRange = {.levelCount = 1, .layerCount = 1 },
+					.subresourceRange = { .aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
 					.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
 					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				}
 			};
-			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } );
+			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } ) )
+			{
+				return logFail( "Failed to issue barrier!\n" );
+			}
 
 			queue->startCapture();
 			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
-			bool uploaded = m_utils->updateImageViaStagingBufferAutoSubmit(
-				{ .queue = queue, .commandBuffers = cmdbufs }, textureToBlur->getBuffer(), inCpuTexInfo.format,
+			SIntendedSubmitInfo intendedSubmit = {
+				.frontHalf = {.queue = queue, .waitSemaphores = {/*wait for no - one*/}, .commandBuffers = cmdbufs }, .signalSemaphores = transferDone };
+			bool uploaded = m_utils->updateImageViaStagingBuffer(
+				intendedSubmit, textureToBlur->getBuffer(), inCpuTexInfo.format,
 				inputGpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, textureToBlur->getRegions()
 			);
-			queue->endCapture();
 			if( !uploaded )
 			{
 				return logFail( "Failed to upload cpu tex!\n" );
 			}
+
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> releaseOwnership[] = {
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, .srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							// dst flags are ignored upon a RELEASE
+						},
+						.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+						.otherQueueFamilyIndex = getComputeQueue()->getFamilyIndex()
+					},
+					.image = inputGpuImg.get(),
+					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				    .newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL,
+				}
+			};
+			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = releaseOwnership } ) )
+			{
+				return logFail( "Failed to issue barrier!\n" );
+			}
+
+			cmdbuf->end();
+			const IQueue::SSubmitInfo info = intendedSubmit;
+			queue->submit({&info,1});
+			queue->endCapture();
+
+			// WARNING : Depending on OVerflows, `transferDone->value!=1` so if you want to sync the compute submit against that,
+			// use `transferDone` directly as the wait semaphore!
+			const ISemaphore::SWaitInfo waitInfo = {transferDone->semaphore,transferDone->value};
+			m_device->blockForSemaphores( { &waitInfo,1 } );
 		}
 		
 		constexpr size_t StartedValue = 0;
@@ -280,29 +328,52 @@ public:
 			}
 		};
 
-		BoxBlurParams pushConstData = { .inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0} };
+		BoxBlurParams pushConstData = {
+			.inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0}, .radius = 4.f
+		};
+
 		auto gpuTexSize = inputGpuImg->getCreationParameters().extent;
 		const uint32_t WorkgroupCount = ( gpuTexSize.width * gpuTexSize.height ) / WorkgroupSize;
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
-		cmdbuf->beginDebugMarker( "My Compute Dispatch", core::vectorSIMDf( 0, 1, 0, 1 ) );
+		cmdbuf->beginDebugMarker( "Box Blur dispatches", core::vectorSIMDf( 0, 1, 0, 1 ) );
 		{
 			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgLayouts[] = {
 			{
+				.barrier = {
+					// src flags are ignored upon an ACQUIRE
+					.dep = { 
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, 
+					.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,	
+			        },
+					.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::ACQUIRE,
+					.otherQueueFamilyIndex = getTransferUpQueue()->getFamilyIndex()
+                },
 				.image = inputGpuImg.get(),
-				.subresourceRange = {.levelCount = 1, .layerCount = 1 },
+				.subresourceRange = { .aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
 				.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL,
 			},
 			{
+				.barrier = {
+					.dep = {
+					//.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, .srcAccessMask = ACCESS_FLAGS::NONE,
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT, 
+					.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
+					},
+				},
 				.image = outputGpuImg.get(),
-				.subresourceRange = {.levelCount = 1, .layerCount = 1 },
+				.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
 				.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
 				.newLayout = IGPUImage::LAYOUT::GENERAL,
 			}
 			};
-			cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } );
+			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } ) )
+			{
+				return logFail( "Failed to issue barrier!\n" );
+			}
 		}
+
 		cmdbuf->bindComputePipeline( pipeline.get() );
 		cmdbuf->bindDescriptorSets( nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get() );
 		cmdbuf->pushConstants( pplnLayout.get(), IShader::ESS_COMPUTE, 0, sizeof( BoxBlurParams ), &pushConstData );
@@ -311,37 +382,35 @@ public:
 		const nbl::asset::SMemoryBarrier barriers[] = {
 			{
 				.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-				.srcAccessMask= nbl::asset::ACCESS_FLAGS::SHADER_WRITE_BITS,
-				.dstStageMask= nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+				.srcAccessMask = nbl::asset::ACCESS_FLAGS::SHADER_WRITE_BITS,
+				.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
 				.dstAccessMask= nbl::asset::ACCESS_FLAGS::SHADER_READ_BITS,
 			}
 		};
-		cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .memBarriers = barriers } );
-
-		cmdbuf->dispatch( WorkgroupCount, 1, 1 );
+		// TODO: you don't need a pipeline barrier just before the end of the last command buffer to be submitted
+		// Timeline semaphore takes care of all the memory deps between a signal and a wait 
+		if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .memBarriers = barriers } ) )
+		{
+			return logFail( "Failed to issue barrier!\n" );
+		}
+		//cmdbuf->dispatch( WorkgroupCount, 1, 1 );
 		cmdbuf->endDebugMarker();
-		// Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
-		// however waiting on a timeline semaphore (or fence) on the Host makes all Device writes visible.
 		cmdbuf->end();
 		
 		{
-			// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
-			// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
-			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(), .value = FinishedValue, .stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS} };
-			// Default, we have no semaphores to wait on before we can start our workload
-			IQueue::SSubmitInfo submitInfos[] = { { .commandBuffers = cmdbufs, .signalSemaphores = signals } };
+			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { 
+				{.semaphore = progress.get(), .value = FinishedValue, .stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS} };
+			IQueue::SSubmitInfo submitInfos[] = { 
+				{ .waitSemaphores = transferDone, .commandBuffers = cmdbufs, .signalSemaphores = signals } };
 
-			// We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
 			// This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
 			queue->startCapture();
 			queue->submit( submitInfos );
 			queue->endCapture();
 		}
-		// As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
 		const ISemaphore::SWaitInfo waitInfos[] = { { .semaphore = progress.get(), .value = FinishedValue } };
 		m_device->blockForSemaphores( waitInfos );
-			
 
 		return true;
 	}
