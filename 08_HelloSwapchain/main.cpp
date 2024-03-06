@@ -31,11 +31,17 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 		// If we for example used a compute shader to tonemap and MSAA resolve, we'd request the COMPUTE_BIT here. 
 		constexpr static inline IQueue::FAMILY_FLAGS RequiredQueueFlags = IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
 
-	protected:		
-		inline asset::PIPELINE_STAGE_FLAGS tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const IResizableSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
+	protected:
+		// We can return `BLIT_BIT` here, because the Source Image will be already in the correct layout to be used for the present
+		inline core::bitflag<asset::PIPELINE_STAGE_FLAGS> getTripleBufferPresentStages() const override {return asset::PIPELINE_STAGE_FLAGS::BLIT_BIT;}
+
+		inline bool tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const IResizableSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
 		{
 			bool success = true;
 			auto acquiredImage = getImage(imageIndex);
+
+			// Ownership of the Source Blit Image, not the Swapchain Image
+			const bool needToAcquireSrcOwnership = qFamToAcquireSrcFrom != IQueue::FamilyIgnored;
 
 			const auto blitDstLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
@@ -66,8 +72,11 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 				{
 					.barrier = {
 						.dep = {
-							// when acquiring ownership the source masks don't matter
+							// when acquiring ownership the source access masks don't matter
 							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::NONE,
+							// Acquire must Happen-Before Semaphore wait, but neither has a true stage so NONE here
+							// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+							// If no ownership acquire needed then this dep info won't be used at all
 							.srcAccessMask = asset::ACCESS_FLAGS::NONE,
 							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::BLIT_BIT,
 							.dstAccessMask = asset::ACCESS_FLAGS::TRANSFER_READ_BIT
@@ -81,7 +90,7 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 				}
 			};
 			// We only barrier the source image if we need to acquire ownership, otherwise thanks to Timeline Semaphores all sync is good
-			depInfo.imgBarriers = {preBarriers,qFamToAcquireSrcFrom!=IQueue::FamilyIgnored ? 2ull:1ull};
+			depInfo.imgBarriers = {preBarriers,needToAcquireSrcOwnership ? 2ull:1ull};
 			success &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 		
 			// TODO: Implement scaling modes other than a plain STRETCH, and allow for using subrectangles of the initial contents
@@ -121,7 +130,7 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 			depInfo.imgBarriers = postBarrier;
 			success &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 
-			return success ? asset::PIPELINE_STAGE_FLAGS::BLIT_BIT:asset::PIPELINE_STAGE_FLAGS::NONE;
+			return success;
 		}
 };
 
@@ -191,11 +200,39 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 					IGPURenderpass::SCreationParams::SubpassesEnd
 				};
 				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+				// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+				IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+					// wipe-transition to ATTACHMENT_OPTIMAL
+					{
+						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.dstSubpass = 0,
+						.memoryBarrier = {
+							// we can have NONE as Sources because the semaphore wait is ALL_COMMANDS
+							// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						}
+						// leave view offsets and flags default
+					},
+					// ATTACHMENT_OPTIMAL to PRESENT_SRC
+					{
+						.srcSubpass = 0,
+						.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.memoryBarrier = {
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							// we can have NONE as the Destinations because the semaphore signal is ALL_COMMANDS
+							// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+						}
+						// leave view offsets and flags default
+					},
+					IGPURenderpass::SCreationParams::DependenciesEnd
+				};
 
 				IGPURenderpass::SCreationParams params = {};
 				params.colorAttachments = colorAttachments;
 				params.subpasses = subpasses;
-				// no subpass dependencies
+				params.dependencies = dependencies;
 				m_renderpass = m_device->createRenderpass(params);
 				if (!m_renderpass)
 					return logFail("Failed to Create a Renderpass!");
@@ -324,23 +361,29 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				willSubmit &= cmdbuf->endRenderPass();
 
 				// If the Rendering and Blit/Present Queues don't come from the same family we need to transfer ownership, because we need to preserve contents between them.
-				if (cmdbuf->getQueueFamilyIndex()!=m_surface->getAssignedQueue()->getFamilyIndex())
+				auto blitQueueFamily = m_surface->getAssignedQueue()->getFamilyIndex();
+				if (cmdbuf->getQueueFamilyIndex()!=blitQueueFamily)
 				{
-					IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
-					const decltype(depInfo.imgBarriers)::element_type barrier[2] = {{
+					const IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barrier[] = {{
 						.barrier = {
 							.dep = {
-								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-								.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-								// for a Queue Family Ownership Release the destination masks are irrelevant
+								// Normally I'd put `COLOR_ATTACHMENT` on the masks, but we want this to happen after Layout Transition :(
+								// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+								.srcAccessMask = asset::ACCESS_FLAGS::MEMORY_READ_BITS|asset::ACCESS_FLAGS::MEMORY_WRITE_BITS,
+								// For a Queue Family Ownership Release the destination access masks are irrelevant
+								// and source stage mask can be NONE as long as the semaphore signals ALL_COMMANDS_BIT
 								.dstStageMask = asset::PIPELINE_STAGE_FLAGS::NONE,
 								.dstAccessMask = asset::ACCESS_FLAGS::NONE
-							}
+							},
+							.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+							.otherQueueFamilyIndex = blitQueueFamily
 						},
 						.image = frame,
 						.subresourceRange = TripleBufferUsedSubresourceRange
 						// there will be no layout transition, already done by the Renderpass End
 					}};
+					const IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {.imgBarriers=barrier};
 					willSubmit &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 				}
 
@@ -354,7 +397,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered = {
 					.semaphore = m_semaphore.get(),
 					.value = m_realFrameIx+1,
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait for renderpass/subpass to finish before handing over to blit
+					// Normally I'd put `COLOR_ATTACHMENT` on the masks, but we want to signal after Layout Transitions and optional Ownership Release
+					// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 				};
 				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
 					.cmdbuf = cmdbuf
@@ -365,7 +410,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				const IQueue::SSubmitInfo::SSemaphoreInfo blitted = {
 					.semaphore = m_surface->getPresentSemaphore(),
 					.value = pBlitWaitValue->load(),
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::BLIT_BIT // same mask as returned from tripleBufferPresent
+					// Normally I'd put `BLIT` on the masks, but we want to wait before Implicit Layout Transitions and optional Implicit Ownership Acquire
+					// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 				};
 				const IQueue::SSubmitInfo submitInfos[1] = {
 					{
@@ -380,12 +427,16 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 				// only present if there's successful content to show
 				const IResizableSurface::SPresentInfo presentInfo = {
-					.source = {.image=frame,.rect=currentRenderArea},
-					.wait = rendered,
-					.pPresentSemaphoreWaitValue = pBlitWaitValue,
+					{
+						.source = {.image=frame,.rect=currentRenderArea},
+						.waitSemaphore = rendered.semaphore,
+						.waitValue = rendered.value,
+						.pPresentSemaphoreWaitValue = pBlitWaitValue,
+					},
 					// The Graphics Queue will be the the most recent owner just before it releases ownership
-					.mostRecentFamilyOwningSource = cmdbuf->getQueueFamilyIndex(),
-					.frameResources = cmdbuf
+					cmdbuf->getQueueFamilyIndex(),
+					// keep a hold of the 
+					cmdbuf
 				};
 				m_surface->present(std::move(swapchainLock),presentInfo);
 			}

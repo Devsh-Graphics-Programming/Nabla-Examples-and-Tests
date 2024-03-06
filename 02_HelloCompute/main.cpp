@@ -242,7 +242,7 @@ class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplicat
 			cmdbuf->dispatch(WorkgroupCount,1,1);
 			cmdbuf->endDebugMarker();
 			// Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
-			// however waiting on a timeline semaphore (or fence) on the Host makes all Device writes visible.
+			// however signalling a timeline semaphore with the COMPUTE stage mask and waiting for it on the Host makes all Device writes visible.
 			cmdbuf->end();
 
 			// Only Timeline Semaphores are supported in Nabla, there's no fences or binary semaphores.
