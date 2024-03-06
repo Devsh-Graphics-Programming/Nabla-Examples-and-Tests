@@ -14,7 +14,7 @@
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -23,10 +23,10 @@ enum class ExampleMode
 	CASE_2, // hatches
 	CASE_3, // CURVES AND LINES
 	CASE_4, // STIPPLE PATTERN
-	CASE_5, // POLYLINES
+	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 using namespace nbl::hlsl;
 
@@ -1477,9 +1477,9 @@ public:
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			CPULineStyle style2 = {};
-			style2.screenSpaceLineWidth = 5.0f;
+			style2.screenSpaceLineWidth = 2.0f;
 			style2.worldSpaceLineWidth = 0.0f;
-			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 0.5f);
+			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 1.0f);
 
 
 			CPolyline originalPolyline;
@@ -1574,64 +1574,11 @@ public:
 				}
 			}
 
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			
-			CPolyline singleSectionPolyline;
-			singleSectionPolyline.setClosed(true);
-			std::vector<float64_t2> linePoints;
-
-			{
-				linePoints.push_back({ 0.0, 0.0 });
-				linePoints.push_back({ 0.1, 0.1 });
-				linePoints.push_back({ 0.3, 0.3 });
-				linePoints.push_back({ 0.6, 0.6 });
-				linePoints.push_back({ 0.9, 0.9 });
-				linePoints.push_back({ 1.4, 1.4 });
-				linePoints.push_back({ 3.0, 3.0 });
-				linePoints.push_back({ 7.0, 0.0 });
-				linePoints.push_back({ 3.0, -3.0 });
-				linePoints.push_back({ 2.0, -2.0 });
-				linePoints.push_back({ 1.0, -1.0 });
-				linePoints.push_back({ 0.0, 0.0 });
-				singleSectionPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
-			}
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(singleSectionPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			CPolyline offsettedPolyline = singleSectionPolyline.generateParallelPolyline(+0.0 + 2.5 * abs(cos(m_timeElapsed * 0.0004)));
-			// CPolyline offsettedPolyline2 = singleSectionPolyline.generateParallelPolyline(+0.0 - 1.5 * abs(cos(m_timeElapsed * 0.0001)));
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			// intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			
-
-
-			CPolyline polyline;
-
-
-			curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
-			// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
-			// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-			// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-			//curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
-			//curves::EllipticalArcInfo myCurve;
-			{
-				//myCurve.majorAxis = {50.0, 50.0};
-				//myCurve.center = { 50.0, 50.0 };
-				//myCurve.angleBounds = { 
-				//	nbl::core::PI<double>() * 1.25,
-				//	nbl::core::PI<double>() * 1.25 + abs(cos(m_timeElapsed*0.001)) * nbl::core::PI<double>() * 2.0 };
-				//myCurve.eccentricity = 0.5;
-			}
-
-			// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
-			// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
-			// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
-			//static int ix = 0;
-			//const int pp = (ix / 30) % 10;
-			//double error = pow(10.0, -1.0 * double(pp + 1));
-
+			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
@@ -1789,7 +1736,8 @@ public:
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 //#define CASE_5_POLYLINE_5 // closed polygon
-#define CASE_5_POLYLINE_6 // stretching
+//#define CASE_5_POLYLINE_6 // stretching
+#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
@@ -2218,6 +2166,125 @@ public:
 			}
 
 			intendedNextSubmit = currentDrawBuffers.drawPolyline(shapesPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+#elif defined(CASE_5_POLYLINE_7)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 4.0f;
+			style.worldSpaceLineWidth = 0.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+
+			CPULineStyle style2 = {};
+			style2.screenSpaceLineWidth = 2.0f;
+			style2.worldSpaceLineWidth = 0.0f;
+			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 1.0f);
+
+
+			CPolyline originalPolyline;
+			{
+				// float64_t2 endPoint = { cos(m_timeElapsed * 0.0005), sin(m_timeElapsed * 0.0005) };
+				float64_t2 endPoint = { 0.0, 0.0 };
+				originalPolyline.setClosed(true);
+				std::vector<float64_t2> linePoints;
+
+				{
+					linePoints.push_back(endPoint);
+					linePoints.push_back({ 1.25, -0.625 });
+					linePoints.push_back({ 2.5, -1.25 });
+					linePoints.push_back({ 5.0, -2.5 });
+					linePoints.push_back({ 10.0, -5.0 });
+					linePoints.push_back({ 20.0, 0.0 });
+					linePoints.push_back({ 20.0, 5.0 });
+					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					shapes::QuadraticBezier<double>  quadratic1;
+					quadratic1.P0 = float64_t2(20.0, 5.0);
+					quadratic1.P1 = float64_t2(30.0, 20.0);
+					quadratic1.P2 = float64_t2(40.0, 5.0);
+					quadBeziers.push_back(quadratic1);
+					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				}
+
+				{
+					linePoints.clear();
+					linePoints.push_back({ 40.0, 5.0 });
+					linePoints.push_back({ 50.0, -10.0 });
+					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					curves::EllipticalArcInfo myCurve;
+					{
+						myCurve.majorAxis = { -20.0, 0.0 };
+						myCurve.center = { 30, -10.0 };
+						myCurve.angleBounds = {
+							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 0.0
+						};
+						myCurve.eccentricity = 1.0;
+					}
+
+					curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+						{
+							quadBeziers.push_back(info);
+						};
+
+					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					// ellipse arc ends on 10, -10
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					curves::EllipticalArcInfo myCurve;
+					{
+						myCurve.majorAxis = { -10.0, 5.0 };
+						myCurve.center = { 0, -5.0 };
+						myCurve.angleBounds = {
+							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 0.0
+							};
+						myCurve.eccentricity = 1.0;
+					}
+
+					curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+						{
+							quadBeziers.push_back(info);
+						};
+
+					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					// ellipse arc ends on -10, 0.0
+				}
+
+				{
+					linePoints.clear();
+					linePoints.push_back({ -10.0, 0.0 });
+					linePoints.push_back({ -5.0, -5.0 });
+					linePoints.push_back({ -3.0, -3.0 });
+					linePoints.push_back({ -1.0, -1.0 });
+					linePoints.push_back(endPoint);
+					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				}
+			}
+
+			// intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+			std::array<double, 2u> stipplePattern = { 2, -1 };
+			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			
+			style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
+			CPolyline offsetPolyline1, offsetPolyline2;
+			originalPolyline.stippleBreakDown(style, [&](const CPolyline& smallPoly)
+				{
+					smallPoly.makeWideWhole(offsetPolyline1, offsetPolyline2, 0.1f, 1e-3);
+					intendedNextSubmit = currentDrawBuffers.drawPolyline(smallPoly, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = currentDrawBuffers.drawPolyline(offsetPolyline1, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+					intendedNextSubmit = currentDrawBuffers.drawPolyline(offsetPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				});
+
 #endif
 
 		}

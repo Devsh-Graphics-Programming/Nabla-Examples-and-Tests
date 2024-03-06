@@ -161,6 +161,11 @@ struct CPULineStyle
 			}
 		}
 	}
+		
+	void scalePattern(float64_t scale)
+	{
+		reciprocalStipplePatternLen /= scale;
+	}
 
 	void setShapeOffset(float64_t offsetInWorldSpace)
 	{
@@ -454,7 +459,7 @@ public:
 
 	typedef std::function<void(const float64_t2& /*position*/, const float64_t2& /*direction*/, float32_t /*stretch*/)> AddShapeFunc;
 
-	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, AddShapeFunc addShape = {})
+	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, const AddShapeFunc& addShape = {})
 	{
 		if (!lineStyle.isVisible())
 			return;
@@ -502,7 +507,7 @@ public:
 						if (nextShapeOffset < 0.0f)
 							nextShapeOffset += 1.0f;
 						
-						int32_t numberOfShapes = static_cast<int32_t>(std::floor(lineLen * rcpStretchedPatternLen - nextShapeOffset)) + 1; // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
+						int32_t numberOfShapes = static_cast<int32_t>(std::ceil(lineLen * rcpStretchedPatternLen - nextShapeOffset)); // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
 
 						float64_t stretchedPatternLen = 1.0 / (float64_t)rcpStretchedPatternLen;
 						float64_t currentWorldSpaceOffset = nextShapeOffset * stretchedPatternLen;
@@ -573,7 +578,7 @@ public:
 						if (nextShapeOffset < 0.0f)
 							nextShapeOffset += 1.0f;
 						
-						int32_t numberOfShapes = static_cast<int32_t>(std::floor(bezierLen * rcpStretchedPatternLen - nextShapeOffset)) + 1; // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
+						int32_t numberOfShapes = static_cast<int32_t>(std::ceil(bezierLen * rcpStretchedPatternLen - nextShapeOffset)); // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
 
 						float64_t stretchedPatternLen = 1.0 / (float64_t)rcpStretchedPatternLen;
 						float64_t currentWorldSpaceOffset = nextShapeOffset * stretchedPatternLen;
@@ -916,6 +921,227 @@ public:
 		}
 
 		return parallelPolyline;
+	}
+	
+	// outputs two offsets to the polyline and connects the ends if not closed
+	void makeWideWhole(CPolyline& outOffset1, CPolyline& outOffset2, float64_t offset, const float64_t maxError = 1e-5) const
+	{
+		outOffset1 = generateParallelPolyline(offset, maxError);
+		outOffset2 = generateParallelPolyline(-1.0 * offset, maxError);
+
+		if (!m_closedPolygon)
+		{
+			nbl::hlsl::float64_t2 beginToBeginConnector[2u];
+			beginToBeginConnector[0u] = outOffset1.getSectionFirstPoint(outOffset1.getSectionInfoAt(0u));
+			beginToBeginConnector[1u] = outOffset2.getSectionFirstPoint(outOffset2.getSectionInfoAt(0u));
+			nbl::hlsl::float64_t2 endToEndConnector[2u];
+			endToEndConnector[0u] = outOffset1.getSectionLastPoint(outOffset1.getSectionInfoAt(outOffset1.getSectionsCount() - 1u));
+			endToEndConnector[1u] = outOffset2.getSectionLastPoint(outOffset2.getSectionInfoAt(outOffset2.getSectionsCount() - 1u));
+			outOffset2.addLinePoints({ beginToBeginConnector, beginToBeginConnector + 2 });
+			outOffset2.addLinePoints({ endToEndConnector, endToEndConnector + 2 });
+		}
+	}
+			
+	// Manual CPU Styling: breaks the current polyline into more polylines based the stipple pattern
+	// we could output a list/vector of polylines instead of using lambda but most of the time we need to work with the output and throw it away immediately.
+	typedef std::function<void(const CPolyline& /*current stipple*/)> OutputPolylineFunc; 
+	void stippleBreakDown(const CPULineStyle& lineStyle, const OutputPolylineFunc& addPolyline) const
+	{
+		if (!lineStyle.isVisible())
+			return;
+		
+		// currently only works for road styles with only 2 stipple values (1 draw, 1 gap)
+		assert(lineStyle.stipplePatternSize == 1);
+		
+		const float64_t patternLen = 1.0 / lineStyle.reciprocalStipplePatternLen;
+		const float32_t drawSectionNormalizedLen = lineStyle.stipplePattern[0];
+		const float32_t gapSectionNormalizedLen = 1.0 - lineStyle.stipplePattern[0];
+		const float32_t drawSectionLen = drawSectionNormalizedLen / lineStyle.reciprocalStipplePatternLen;
+		
+		CPolyline currentPolyline;
+		std::vector<float64_t2> linePoints;
+		std::vector<nbl::hlsl::shapes::QuadraticBezier<float64_t>> beziers;
+		auto flushCurrentPolyline = [&]()
+			{
+				if (linePoints.size() > 1u)
+				{
+					currentPolyline.addLinePoints({ linePoints.data(), linePoints.data() + linePoints.size() });
+					linePoints.clear();
+				}
+				if (beziers.size() > 0u)
+				{
+					currentPolyline.addQuadBeziers({ beziers.data(), beziers.data() + beziers.size() });
+					beziers.clear();
+				}
+				if (currentPolyline.getSectionsCount() > 0u)
+					addPolyline(currentPolyline);
+				currentPolyline.clearEverything();
+			};
+		auto pushBackToLinePoints = [&](const float64_t2& point)
+			{
+				if (linePoints.empty())
+				{
+					linePoints.push_back(point);
+				}
+				else if (linePoints.back() != point)
+				{
+					linePoints.push_back(point);
+				}
+			};
+
+		float currentPhaseShift = lineStyle.phaseShift;
+		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
+		{
+			const auto& section = m_sections[sectionIdx];
+
+			if (section.type == ObjectType::LINE)
+			{
+				// calculate phase shift at each point of each line in section
+				const uint32_t lineCount = section.count;
+				for (uint32_t i = 0u; i < lineCount; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+					const auto& currlinePoint = m_linePoints[currIdx];
+					const auto& nextLinePoint = m_linePoints[currIdx + 1u];
+					const float64_t2 lineVector = nextLinePoint.p - currlinePoint.p;
+					const float64_t lineLen = glm::length(lineVector);
+					const float64_t2 lineVectorNormalized = lineVector / lineLen;
+
+					float64_t currentTracedLen = 0.0;
+					const float32_t differenceToNextDrawSectionEnd = drawSectionNormalizedLen - currentPhaseShift;
+					const bool insideDrawSection = differenceToNextDrawSectionEnd > 0.0f;
+					if (insideDrawSection)
+					{
+						const float64_t nextDrawSectionEnd = differenceToNextDrawSectionEnd / lineStyle.reciprocalStipplePatternLen;
+						const bool finishesOnThisShape = nextDrawSectionEnd <= lineLen;
+						
+						pushBackToLinePoints(currlinePoint.p);
+						
+						if (finishesOnThisShape)
+						{
+							pushBackToLinePoints(currlinePoint.p + nextDrawSectionEnd * lineVectorNormalized);
+							flushCurrentPolyline();
+						}
+						else
+						{
+							pushBackToLinePoints(nextLinePoint.p);
+						}
+						currentTracedLen = nbl::core::min(nextDrawSectionEnd, lineLen);
+					}
+					
+					const float32_t currentTracedLenPlaceInPattern = glm::fract(currentPhaseShift + currentTracedLen * lineStyle.reciprocalStipplePatternLen);
+					const float32_t differenceToNextDrawSectionBegin = glm::fract(1.0 - currentTracedLenPlaceInPattern); // 0.0 gives 0.0, and 1.0 gives 0.0
+					const float64_t lenToNextDrawBegin = differenceToNextDrawSectionBegin / lineStyle.reciprocalStipplePatternLen;
+					currentTracedLen = nbl::core::min(currentTracedLen + lenToNextDrawBegin, lineLen);
+					const float64_t remainingLen = lineLen - currentTracedLen;
+					
+					if (remainingLen > 0.0)
+					{
+						float64_t remainingLenNormalized = remainingLen * lineStyle.reciprocalStipplePatternLen;
+						int32_t fullPatternsFitNumber = static_cast<int32_t>(std::ceil(remainingLenNormalized));
+						linePoints.reserve(linePoints.size() + fullPatternsFitNumber * 2u);
+						
+						for (int32_t s = 0; s < fullPatternsFitNumber; ++s)
+						{
+							const bool completelyInsideShape = (currentTracedLen + drawSectionLen) <= lineLen;
+							const float64_t nextDrawSectionEnd = (completelyInsideShape) ? (currentTracedLen + drawSectionLen) : lineLen;
+							
+							pushBackToLinePoints(currlinePoint.p + currentTracedLen * lineVectorNormalized);
+							pushBackToLinePoints(currlinePoint.p + nextDrawSectionEnd * lineVectorNormalized);
+
+							if (completelyInsideShape)
+								flushCurrentPolyline();
+
+							currentTracedLen = nbl::core::min(currentTracedLen + patternLen, lineLen);
+						}
+					}
+
+					const double changeInPhaseShift = glm::fract(lineLen * lineStyle.reciprocalStipplePatternLen);
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
+				}
+				
+				currentPolyline.addLinePoints({ linePoints.data(), linePoints.data() + linePoints.size() });
+				linePoints.clear();
+			}
+			else if (section.type == ObjectType::QUAD_BEZIER)
+			{
+				const uint32_t quadBezierCount = section.count;
+				
+				// calculate phase shift at point P0 of each bezier
+				for (uint32_t i = 0u; i < quadBezierCount; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+					const QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+					// setting next phase shift based on current arc length
+					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
+					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+					const double bezierLen = arcLenCalc.calcArcLen(1.0);
+
+					float64_t currentTracedLen = 0.0;
+					const float32_t differenceToNextDrawSectionEnd = drawSectionNormalizedLen - currentPhaseShift;
+					const bool insideDrawSection = differenceToNextDrawSectionEnd > 0.0f;
+					if (insideDrawSection)
+					{
+						const float64_t nextDrawSectionEnd = differenceToNextDrawSectionEnd / lineStyle.reciprocalStipplePatternLen;
+						const bool finishesOnThisShape = nextDrawSectionEnd <= bezierLen;
+						
+						auto newBezier = quadBezierInfo.shape;
+						if (finishesOnThisShape)
+						{
+							float64_t t = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, nextDrawSectionEnd, 1e-5, 0.5);
+							newBezier.splitFromStart(t);
+							beziers.push_back(std::move(newBezier));
+							flushCurrentPolyline();
+						}
+						else
+						{
+							// draw section covers entire bezier, no need for clipping
+							beziers.push_back(std::move(newBezier));
+						}
+
+						currentTracedLen = nbl::core::min(nextDrawSectionEnd, bezierLen);
+					}
+					
+					const float32_t currentTracedLenPlaceInPattern = glm::fract(currentPhaseShift + currentTracedLen * lineStyle.reciprocalStipplePatternLen);
+					const float32_t differenceToNextDrawSectionBegin = glm::fract(1.0 - currentTracedLenPlaceInPattern); // 0.0 gives 0.0, and 1.0 gives 0.0
+					const float64_t lenToNextDrawBegin = differenceToNextDrawSectionBegin / lineStyle.reciprocalStipplePatternLen;
+					currentTracedLen = nbl::core::min(currentTracedLen + lenToNextDrawBegin, bezierLen);
+					const float64_t remainingLen = bezierLen - currentTracedLen;
+
+					if (remainingLen > 0.0)
+					{
+						float64_t remainingLenNormalized = remainingLen * lineStyle.reciprocalStipplePatternLen;
+						int32_t fullPatternsFitNumber = static_cast<int32_t>(std::ceil(remainingLenNormalized));
+						beziers.reserve(beziers.size() + fullPatternsFitNumber);
+
+						for (int32_t s = 0; s < fullPatternsFitNumber; ++s)
+						{
+							const bool completelyInsideShape = (currentTracedLen + drawSectionLen) <= bezierLen;
+							const float64_t nextDrawSectionEnd = (completelyInsideShape) ? (currentTracedLen + drawSectionLen) : bezierLen;
+							float64_t tStart = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, currentTracedLen, 1e-5, 0.5);
+							float64_t tEnd = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, nextDrawSectionEnd, 1e-5, 0.5);
+
+							auto newBezier = quadBezierInfo.shape;
+							newBezier.splitFromMinToMax(tStart, tEnd);
+							beziers.push_back(std::move(newBezier));
+							
+							if (completelyInsideShape)
+								flushCurrentPolyline();
+
+							currentTracedLen = nbl::core::min(currentTracedLen + patternLen, bezierLen);
+						}
+					}
+					
+					const double changeInPhaseShift = glm::fract(bezierLen * lineStyle.reciprocalStipplePatternLen);
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
+				}
+				
+				currentPolyline.addQuadBeziers({ beziers.data(), beziers.data() + beziers.size() });
+				beziers.clear();
+			}
+		}
+
+		flushCurrentPolyline();
 	}
 
 	void setClosed(bool closed)
