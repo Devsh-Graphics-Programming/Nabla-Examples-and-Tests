@@ -153,7 +153,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				params.height = 480;
 				params.x = 32;
 				params.y = 32;
-				params.flags = ui::IWindow::ECF_INPUT_FOCUS|ui::IWindow::ECF_RESIZABLE|ui::IWindow::ECF_CAN_MAXIMIZE|ui::IWindow::ECF_CAN_MINIMIZE;
+				params.flags = IWindow::ECF_INPUT_FOCUS|IWindow::ECF_CAN_RESIZE|IWindow::ECF_CAN_MAXIMIZE|IWindow::ECF_CAN_MINIMIZE;
 				params.windowCaption = "HelloSwapchainApp";
 				auto window = m_winMgr->createWindow(std::move(params));
 				// uncomment for some nasty testing of swapchain creation!
