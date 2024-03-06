@@ -18,6 +18,14 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 	public:
 		using base_t::base_t;
 
+		// Just to run destructors in a nice order
+		virtual bool onAppTerminated() override
+		{
+			m_device = nullptr;
+			m_api = nullptr;
+			return base_t::onAppTerminated();
+		}
+
 	protected:
 		// need this one for skipping passing all args into ApplicationFramework
 		MonoDeviceApplication() = default;
@@ -261,14 +269,6 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		virtual video::IQueue* getComputeQueue() const
 		{
 			return getQueue(video::IQueue::FAMILY_FLAGS::COMPUTE_BIT);
-		}
-
-		// Just to run destructors in a nice order
-		virtual bool onAppTerminated() override
-		{
-			m_device = nullptr;
-			m_api = nullptr;
-			return base_t::onAppTerminated();
 		}
 
 		core::smart_refctd_ptr<video::CVulkanConnection> m_api;

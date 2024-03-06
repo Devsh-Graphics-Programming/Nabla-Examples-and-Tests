@@ -104,22 +104,30 @@ public:
 			dstOffset1.y = dstOffset0.y + smallImgExtent.height;
 			dstOffset1.z = 1u;
 
-			firstImgBlit.srcSubresource = subresourceLayers;
-			firstImgBlit.srcOffsets[0] = { 0u, 0u, 0u };
-			firstImgBlit.srcOffsets[1] = { smallImgExtent.width, smallImgExtent.height, 1u };
-			firstImgBlit.dstSubresource = subresourceLayers;
-			firstImgBlit.dstOffsets[0] = dstOffset0;
-			firstImgBlit.dstOffsets[1] = dstOffset1;
+			firstImgBlit.srcMinCoord = { 0u, 0u, 0u };
+			firstImgBlit.srcMaxCoord = { smallImgExtent.width, smallImgExtent.height, 1u };
+			firstImgBlit.dstMinCoord = dstOffset0;
+			firstImgBlit.dstMaxCoord = dstOffset1;
+			firstImgBlit.layerCount = subresourceLayers.layerCount;
+			firstImgBlit.srcBaseLayer = subresourceLayers.baseArrayLayer;
+			firstImgBlit.dstBaseLayer = subresourceLayers.baseArrayLayer;
+			firstImgBlit.srcMipLevel = subresourceLayers.mipLevel;
+			firstImgBlit.dstMipLevel = subresourceLayers.mipLevel;
+			firstImgBlit.aspectMask = subresourceLayers.aspectMask.value;
 		}
 
 		IGPUCommandBuffer::SImageBlit secondImgBlit{};
 		{
-			secondImgBlit.srcSubresource = subresourceLayers;
-			secondImgBlit.srcOffsets[0] = { 0u, 0u, 0u };
-			secondImgBlit.srcOffsets[1] = { bigImgExtent.width, bigImgExtent.height, 1u };
-			secondImgBlit.dstSubresource = subresourceLayers;
-			secondImgBlit.dstOffsets[0] = { 0u, 0u, 0u };
-			secondImgBlit.dstOffsets[1] = { smallImgExtent.width, smallImgExtent.height, 1u };
+			secondImgBlit.srcMinCoord = { 0u, 0u, 0u };
+			secondImgBlit.srcMaxCoord = { bigImgExtent.width, bigImgExtent.height, 1u };
+			secondImgBlit.dstMinCoord = { 0u, 0u, 0u };
+			secondImgBlit.dstMaxCoord = { smallImgExtent.width, smallImgExtent.height, 1u };
+			secondImgBlit.layerCount = subresourceLayers.layerCount;
+			secondImgBlit.srcBaseLayer = subresourceLayers.baseArrayLayer;
+			secondImgBlit.dstBaseLayer = subresourceLayers.baseArrayLayer;
+			secondImgBlit.srcMipLevel = subresourceLayers.mipLevel;
+			secondImgBlit.dstMipLevel = subresourceLayers.mipLevel;
+			secondImgBlit.aspectMask = subresourceLayers.aspectMask.value;
 		}
 
 		core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
@@ -134,7 +142,12 @@ public:
 		constexpr auto FinishedValue = 45;
 		static_assert(FinishedValue > StartedValue);
 		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
-		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {{
+			.semaphore = progress.get(),
+			.value = FinishedValue,
+			// wait for the Copy Image to Buffer to finish before we signal
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT
+		}};
 
 		IQueue::SSubmitInfo submitInfos[1];
 		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfos[1] = {cmdbuf.get()};
@@ -204,7 +217,7 @@ public:
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, imgClearBarriersDepInfo);
 
 		// Now blit the smallImg into the center of the bigImg.
-		cmdbuf->blitImage(smallImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, bigImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 1u, &firstImgBlit, ISampler::E_TEXTURE_FILTER::ETF_NEAREST);
+		cmdbuf->blitImage(smallImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, bigImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, {&firstImgBlit,1}, ISampler::E_TEXTURE_FILTER::ETF_NEAREST);
 
 		std::array<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>, 2u> imgBlitBarriers = {
 			generateNextBarrier(imgClearBarriers[0], IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, ACCESS_FLAGS::MEMORY_READ_BITS),
@@ -215,7 +228,7 @@ public:
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, imgBlitBarriersDepInfo);
 
 		// Blit whole bigImage into the smallImage, force downsampling with linear filtering.
-		cmdbuf->blitImage(bigImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, smallImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 1u, &secondImgBlit, ISampler::E_TEXTURE_FILTER::ETF_LINEAR);
+		cmdbuf->blitImage(bigImg.get(), IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, smallImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, {&secondImgBlit,1}, ISampler::E_TEXTURE_FILTER::ETF_LINEAR);
 
 		IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> smallImgSecondBlitBarrier[1] = { constructDefaultInitializedImageBarrier() };
 		smallImgSecondBlitBarrier[0].barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
@@ -240,6 +253,7 @@ public:
 		queue->submit(submitInfos);
 		queue->endCapture();
 		
+		// The signalling and waiting on the semaphore make all writes from the Semaphore Signal Stages visible and available to the Host
 		const ISemaphore::SWaitInfo waitInfos[1] = { {
 				.semaphore = progress.get(),
 				.value = FinishedValue
