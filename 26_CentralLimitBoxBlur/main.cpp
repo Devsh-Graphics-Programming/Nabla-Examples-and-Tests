@@ -46,8 +46,8 @@ public:
 		}
 
 		constexpr uint32_t WorkgroupSize = 256;
-		constexpr uint32_t AxisDimension = 3;
-		constexpr uint32_t PassesPerAxis = 10;
+		constexpr uint32_t AxisDimension = 2;
+		constexpr uint32_t PassesPerAxis = 4;
 
 		IAssetLoader::SAssetLoadParams lparams = {};
 		lparams.logger = m_logger.get();
@@ -318,6 +318,8 @@ public:
 			return logFail( "Failed to create Command Buffers!\n" );
 		}
 
+		auto gpuTexSize = inputGpuImg->getCreationParameters().extent;
+		const uint64_t itemsPerWg = inputGpuImg->getCreationParameters().extent.width / WorkgroupSize;
 		struct packed_data_t
 		{
 			uint32_t direction : 2;
@@ -333,9 +335,6 @@ public:
 		hlsl::central_limit_blur::BoxBlurParams pushConstData = {
 			.inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0}, .radius = 4.f
 		};
-
-		auto gpuTexSize = inputGpuImg->getCreationParameters().extent;
-		const uint32_t WorkgroupCount = ( gpuTexSize.width * gpuTexSize.height ) / WorkgroupSize;
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
 		cmdbuf->beginDebugMarker( "Box Blur dispatches", core::vectorSIMDf( 0, 1, 0, 1 ) );
@@ -379,11 +378,10 @@ public:
 				return logFail( "Failed to issue barrier!\n" );
 			}
 		}
-
 		cmdbuf->bindComputePipeline( pipeline.get() );
 		cmdbuf->bindDescriptorSets( nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get() );
 		cmdbuf->pushConstants( pplnLayout.get(), IShader::ESS_COMPUTE, 0, sizeof( pushConstData ), &pushConstData );
-		cmdbuf->dispatch( WorkgroupCount, 1, 1 );
+		cmdbuf->dispatch( 1, gpuTexSize.height, 1 );
 
 		const nbl::asset::SMemoryBarrier barriers[] = {
 			{
@@ -399,7 +397,7 @@ public:
 		{
 			return logFail( "Failed to issue barrier!\n" );
 		}
-		//cmdbuf->dispatch( WorkgroupCount, 1, 1 );
+		//cmdbuf->dispatch( gpuTexSize.width, 1, 1 );
 		cmdbuf->endDebugMarker();
 		cmdbuf->end();
 		

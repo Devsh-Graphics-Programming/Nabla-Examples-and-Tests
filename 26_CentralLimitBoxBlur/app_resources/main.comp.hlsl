@@ -9,24 +9,22 @@
 
 #include "nbl/builtin/hlsl/central_limit_blur/box_blur.hlsl"
 
+// https://github.com/microsoft/DirectXShaderCompiler/issues/6144
+nbl::hlsl::uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() { return uint32_t3( WORKGROUP_SIZE, 1, 1 ); }
+
 [[vk::push_constant]]
-nbl::hlsl::central_box_blur::BoxBlurParams boxBlurParams;
+nbl::hlsl::central_limit_blur::BoxBlurParams boxBlurParams;
 
 [numthreads( WORKGROUP_SIZE, 1, 1 )]
 void main( uint3 invocationID : SV_DispatchThreadID )
 {
 	uint32_t direction = boxBlurParams.getDirection();
 	uint32_t wrapMode = boxBlurParams.getWrapMode();
-	nbl::hlsl::float32_t4 borderColor = float32_t4(1.f, 0.f, 1.f, 1.f);
-	if( boxBlurParams.getWrapMode() == nbl::hlsl::central_box_blur::WRAP_MODE_CLAMP_TO_BORDER )
+	nbl::hlsl::float32_t4 borderColor = float32_t4( 1.f, 0.f, 1.f, 1.f );
+	if( boxBlurParams.getWrapMode() == nbl::hlsl::central_limit_blur::WRAP_MODE_CLAMP_TO_BORDER )
 	{
 		borderColor = boxBlurParams.getBorderColor();
 	}
-
-	BufferAccessor textureAccessor = BufferAccessorCtor( boxBlurParams.chosenAxis );
-
-	for( uint32_t ch = 0; ch < boxBlurParams.getChannelCount(); ++ch )
-	{
-		nbl::hlsl::central_box_blur::BoxBlur( ch, boxBlurParams.radius, wrapMode, borderColor, textureAccessor );
-	}
+	TextureProxy textureProxy;
+	nbl::hlsl::central_limit_blur::BoxBlur<4>( boxBlurParams.getChannelCount(), boxBlurParams.radius, wrapMode, borderColor, textureProxy );
 }
