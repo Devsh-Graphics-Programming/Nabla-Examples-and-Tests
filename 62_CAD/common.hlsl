@@ -317,10 +317,6 @@ struct PSInput
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
     
-    // data3 xy
-    float2 getBezierP2() { return data3.xy; }
-    void setBezierP2(float2 p2) { data3.xy = p2; }
-
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
     // curveMin = smaller x / left, curveMax = bigger x / right)
@@ -410,7 +406,17 @@ struct PSInput
     {
         return interp_data5.x;
     }
+    
+    // Use only for Lines and QuadBeziers, other objects use this slot of interp_data5.y
+    void setCurrentWorldToScreenRatio(float worldToScreen)
+    {
+        interp_data5.y = worldToScreen;
+    }
 
+    float getCurrentWorldToScreenRatio()
+    {
+        return interp_data5.y;
+    }
     // POLYLINE_CONNECTOR data
 
     void setPolylineConnectorTrapezoidStart(float2 trapezoidStart) { data2.xy = trapezoidStart; }

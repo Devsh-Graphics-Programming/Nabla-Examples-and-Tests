@@ -83,8 +83,7 @@ PSInput main(uint vertexID : SV_VertexID)
     if (objType == ObjectType::LINE)
     {
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-
-        const double3x3 transformation = clipProjectionData.projectionToNDC;
+        outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0]*globals.resolution.x)));
 
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
@@ -137,6 +136,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u + sizeof(float), 8u);
         outV.setCurrentPhaseShift(phaseShift);
         outV.setPatternStretch(patternStretch);
+        outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0]*globals.resolution.x)));
 
         // transform these points into screen space and pass to fragment
         float2 transformedPoints[3u];

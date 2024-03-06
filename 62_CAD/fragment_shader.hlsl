@@ -58,9 +58,10 @@ struct StyleClipper
         CurveType curve,
         typename CurveType::ArcLengthCalculator arcLenCalc,
         float phaseShift,
-        float stretch)
+        float stretch,
+        float worldToScreenRatio)
     {
-        StyleClipper<CurveType> ret = { style, curve, arcLenCalc, phaseShift, stretch, 0.0f, 0.0f, 0.0f, 0.0f };
+        StyleClipper<CurveType> ret = { style, curve, arcLenCalc, phaseShift, stretch, worldToScreenRatio, 0.0f, 0.0f, 0.0f, 0.0f };
 
         // values for non-uniform stretching with a rigid segment
         if (style.rigidSegmentIdx != InvalidRigidSegmentIndex && stretch != 1.0f)
@@ -110,10 +111,10 @@ struct StyleClipper
 
         StyleAccessor styleAccessor = { style };
         const float_t reciprocalStretchedStipplePatternLen = style.reciprocalStipplePatternLen / stretch;
-        const float_t patternLenInScreenSpace = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
+        const float_t patternLenInScreenSpace = 1.0 / (worldToScreenRatio * style.reciprocalStipplePatternLen);
 
         const float_t arcLen = arcLenCalc.calcArcLen(t);
-        const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
+        const float_t worldSpaceArcLen = arcLen * float_t(worldToScreenRatio);
         float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * reciprocalStretchedStipplePatternLen + phaseShift);
         normalizedPlaceInPattern = getRealNormalizedPlaceInPattern(normalizedPlaceInPattern);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
@@ -147,7 +148,7 @@ struct StyleClipper
                 return ret;
 
             const float_t arcLenEnd = arcLenCalc.calcArcLen(1.0);
-            const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(globals.worldToScreenRatio);
+            const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(worldToScreenRatio);
             float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * reciprocalStretchedStipplePatternLen + phaseShift);
             normalizedPlaceInPatternEnd = getRealNormalizedPlaceInPattern(normalizedPlaceInPatternEnd);
             uint32_t patternIdxEnd = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternEnd);
@@ -197,6 +198,7 @@ struct StyleClipper
     typename CurveType::ArcLengthCalculator arcLenCalc;
     float phaseShift;
     float stretch;
+    float worldToScreenRatio;
     // precomp value for non uniform stretching
     float rigidSegmentStart;
     float rigidSegmentEnd;
@@ -356,6 +358,7 @@ float4 main(PSInput input) : SV_TARGET
         const float thickness = input.getLineThickness();
         const float phaseShift = input.getCurrentPhaseShift();
         const float stretch = input.getPatternStretch();
+        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
@@ -369,7 +372,7 @@ float4 main(PSInput input) : SV_TARGET
         }
         else
         {
-            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch);
+            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
         }
 
@@ -385,6 +388,7 @@ float4 main(PSInput input) : SV_TARGET
         const float thickness = input.getLineThickness();
         const float phaseShift = input.getCurrentPhaseShift();
         const float stretch = input.getPatternStretch();
+        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
         LineStyle style = lineStyles[styleIdx];
         float distance;
@@ -394,7 +398,7 @@ float4 main(PSInput input) : SV_TARGET
         }
         else
         {
-            BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch);
+            BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
             distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
         }
 
