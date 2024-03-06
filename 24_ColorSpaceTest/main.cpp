@@ -1,20 +1,259 @@
-﻿// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
+#include "../common/SimpleWindowedApplication.hpp"
+#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
-#define _NBL_STATIC_LIB_
-#include <CommonAPI.h>
-#include "nbl/ext/ScreenShot/ScreenShot.h"
-#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+//
+#include "nbl/video/surface/CSurfaceVulkan.h"
+#include "nbl/video/CVulkanSwapchain.h"
 
-#include <iostream>
-#include <cstdio>
 
 using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
 
-#define SWITCH_IMAGES_PER_X_MILISECONDS 750
-constexpr std::string_view testingImagePathsFile = "../imagesTestList.txt";
 
+class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+{
+		using device_base_t = examples::SimpleWindowedApplication;
+		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using clock_t = std::chrono::steady_clock;
+
+		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+		constexpr static inline std::string_view DefaultImagePathsFile = "../imagesTestList.txt";
+
+	public:
+		// Yay thanks to multiple inheritance we cannot forward ctors anymore
+		inline ColorSpaceTestSampleApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+			IApplicationFramework(_localInputCWD,_localOutputCWD,_sharedInputCWD,_sharedOutputCWD) {}
+		
+		// Will get called mid-initialization, via `filterDevices` between when the API Connection is created and Physical Device is chosen
+		inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+		{
+			// So let's create our Window and Surface then!
+			if (!m_surface)
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<nbl::video::IResizableSurface::ICallback>();
+				params.width = 256;
+				params.height = 256;
+				params.x = 32;
+				params.y = 32;
+				// Only programmatic resize, not regular
+				params.flags = ui::IWindow::ECF_INPUT_FOCUS|ui::IWindow::ECF_RESIZABLE;
+				params.windowCaption = "ColorSpaceTestSampleApp";
+				auto window = m_winMgr->createWindow(std::move(params));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window));
+//				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
+			}
+			return {{m_surface.get()/*,EQF_NONE*/}};
+			//return {{m_surface->getSurface()/*,EQF_NONE*/}};
+		}
+		
+		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+		{
+			// Remember to call the base class initialization!
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+				return false;
+			if (!asset_base_t::onAppInitialized(std::move(system)))
+				return false;
+			
+			// get list of files to test
+			system::path m_loadCWD = DefaultImagePathsFile;
+			if (IApplicationFramework::argv.size()>=2)
+			{
+				m_testPathsFile = std::ifstream(argv[1]);
+				if (m_testPathsFile.is_open())
+					m_loadCWD = argv[1];
+				else
+					m_logger->log("Couldn't open test file given by argument 1 = %s, falling back to default!",ILogger::ELL_ERROR,argv[1].c_str());
+			}
+
+			if (!m_testPathsFile.is_open())
+				m_testPathsFile = std::ifstream(m_loadCWD);
+
+			if (!m_testPathsFile.is_open())
+				return logFail("Could not open the test paths file");
+			m_loadCWD = m_loadCWD.parent_path();
+
+
+			// create the descriptor set
+			{
+
+			}
+#if 0
+		auto createDescriptorPool = [&](const uint32_t textureCount)
+		{
+			constexpr uint32_t maxItemCount = 256u;
+			{
+				video::IDescriptorPool::SCreateInfo createInfo;
+				createInfo.maxSets = maxItemCount;
+				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
+				return logicalDevice->createDescriptorPool(std::move(createInfo));
+			}
+		};
+
+		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
+		auto immutableSampler = logicalDevice->createSampler(samplerParams);
+
+		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
+		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
+		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
+#endif
+			return true;
+		}
+
+		// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
+		inline void workLoopBody() override
+		{
+			// load the image view
+			system::path filename, extension;
+			smart_refctd_ptr<ICPUImageView> cpuImgView;
+			{
+				m_logger->log("Loading image from path %s",ILogger::ELL_INFO,m_nextPath.c_str());
+
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+				auto bundle = m_assetMgr->getAsset(m_nextPath,loadParams);
+				auto contents = bundle.getContents();
+				if (contents.empty())
+				{
+					m_logger->log("Failed to load image with path %s, skipping!",ILogger::ELL_ERROR,(m_loadCWD/m_nextPath).c_str());
+					return;
+				}
+
+				core::splitFilename(m_nextPath.c_str(),nullptr,&filename,&extension);
+
+				const auto& asset = contents[0];
+				switch (asset->getAssetType())
+				{
+					case IAsset::ET_IMAGE:
+					{
+						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+						const auto format = image->getCreationParameters().format;
+
+						ICPUImageView::SCreationParams viewParams = {
+							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+							.image = std::move(image),
+							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+							.format = format,
+							.subresourceRange = {
+								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = 1u,
+								.baseArrayLayer = 0u,
+								.layerCount = 1u
+							}
+						};
+
+						cpuImgView = ICPUImageView::create(std::move(viewParams));
+					} break;
+
+					case IAsset::ET_IMAGE_VIEW:
+						cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+						break;
+					default:
+						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
+						return;
+				}
+			}
+
+#if 0
+						auto& captionData = captionTexturesData.emplace_back();
+						captionData.name = filename.string();
+						captionData.extension = extension.string();
+						captionData.viewType = ;
+
+#endif
+			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
+			m_lastImageEnqueued = clock_t::now();
+
+			auto* window = m_surface->getWindow();
+			const auto newWindowResolution = cpuImgView->getCreationParameters().image->getCreationParameters().extent;
+//			if (newWindowResolution!=m_surface->getSwapchain()->)
+			{
+				// Resize the window
+				m_winMgr->setWindowSize(window,newWindowResolution.width,newWindowResolution.height);
+
+				// Recreate the swapchain
+			}
+
+			// Acquire
+
+			// Render to the Image
+
+			// Present
+			
+			// Set the Caption
+			std::string viewTypeStr;
+			switch (cpuImgView->getCreationParameters().viewType)
+			{
+				case IImageView<video::IGPUImage>::ET_2D:
+					viewTypeStr = "ET_2D";
+				case IImageView<video::IGPUImage>::ET_2D_ARRAY:
+					viewTypeStr = "ET_2D_ARRAY";
+					break;
+				case IImageView<video::IGPUImage>::ET_CUBE_MAP:
+					viewTypeStr = "ET_CUBE_MAP";
+					break;
+				default:
+					assert(false);
+					break;
+			};
+			window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
+
+			// Now do a write to disk in the meantime
+			{
+				const std::string assetPath = "imageAsset_" + filename.string() + extension.string();
+
+				auto tryToWrite = [&](IAsset* asset)->bool
+				{
+					IAssetWriter::SAssetWriteParams wparams(asset);
+					wparams.workingDirectory = localOutputCWD;
+					return m_assetMgr->writeAsset(assetPath,wparams);
+				};
+
+				// try write as an image, else try as image view
+				if (!tryToWrite(cpuImgView->getCreationParameters().image.get()))
+					if (!tryToWrite(cpuImgView.get()))
+						m_logger->log("Failed to write %s to disk!",ILogger::ELL_ERROR,assetPath.c_str());
+			}
+
+			// Block so we can reuse the resources without frames in flight (cmon we do like one swap every 900ms)
+		}
+
+		inline bool keepRunning() override
+		{
+			// Keep arunning as long as we have a surface to present to (usually this means, as long as the window is open)
+			if (!m_surface)// || m_surface->irrecoverable())
+				return false;
+
+			while (std::getline(m_testPathsFile,m_nextPath))
+			if (m_nextPath!="" && m_nextPath[0]!=';')
+				return true;
+			// no more inputs in the file
+			return false;
+		}
+
+		inline bool onAppTerminated() override
+		{
+			return device_base_t::onAppTerminated();
+		}
+
+	protected:
+		smart_refctd_ptr<ISurface> m_surface;
+		//
+		std::ifstream m_testPathsFile;
+		system::path m_loadCWD;
+		//
+		std::string m_nextPath;
+		clock_t::time_point m_lastImageEnqueued = {};
+};
+#if 0
 struct NBL_CAPTION_DATA_TO_DISPLAY
 {
 	std::string viewType;
@@ -24,23 +263,8 @@ struct NBL_CAPTION_DATA_TO_DISPLAY
 
 class ColorSpaceTestSampleApp : public ApplicationBase
 {
-	constexpr static uint32_t WIN_W = 512u;
-	constexpr static uint32_t WIN_H = 512u;
-	constexpr static uint32_t SC_IMG_COUNT = 3u;
-	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
-	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
-
-	core::smart_refctd_ptr<ui::IWindowManager> windowManager;
-	core::smart_refctd_ptr<ui::IWindow> window;
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	core::smart_refctd_ptr<video::IAPIConnection> apiConnection;
-	core::smart_refctd_ptr<video::ISurface> surface;
-	core::smart_refctd_ptr<video::IUtilities> utilities;
-	core::smart_refctd_ptr<video::ILogicalDevice> logicalDevice;
-	video::IPhysicalDevice* physicalDevice;
-	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
-	core::smart_refctd_ptr<video::ISwapchain> swapchain;
+
 	core::smart_refctd_ptr<video::IGPURenderpass> renderpass;
 	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
 	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
@@ -52,58 +276,9 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	video::IGPUObjectFromAssetConverter cpu2gpu;
 	video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
-	uint32_t lastWidth = WIN_W;
-	uint32_t lastHeight = WIN_H;
-
 public:
-	void setWindow(core::smart_refctd_ptr<ui::IWindow>&& wnd) override
-	{
-		window = std::move(wnd);
-	}
-	ui::IWindow* getWindow() override
-	{
-		return window.get();
-	}
-	void setSystem(core::smart_refctd_ptr<system::ISystem>&& system) override
-	{
-		system = std::move(system);
-	}
-
-	APP_CONSTRUCTOR(ColorSpaceTestSampleApp);
-
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT);
-
-		CommonAPI::InitParams initParams;
-		initParams.window = core::smart_refctd_ptr(window);
-		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { _NBL_APP_NAME_ };
-		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = WIN_W;
-		initParams.windowHeight = WIN_H;
-		initParams.swapchainImageCount = 3u;
-		initParams.swapchainImageUsage = swapchainImageUsage;
-		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-
-		system = std::move(initOutput.system);
-		window = std::move(initParams.window);
-		windowManager = std::move(initOutput.windowManager);
-		windowCb = std::move(initParams.windowCb);
-		apiConnection = std::move(initOutput.apiConnection);
-		surface = std::move(initOutput.surface);
-		physicalDevice = std::move(initOutput.physicalDevice);
-		logicalDevice = std::move(initOutput.logicalDevice);
-		utilities = std::move(initOutput.utilities);
-		queues = std::move(initOutput.queues);
-		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
-		commandPools = std::move(initOutput.commandPools);
-		assetManager = std::move(initOutput.assetManager);
-		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-		logger = std::move(initOutput.logger);
-		inputSystem = std::move(initOutput.inputSystem);
-		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
-
 		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
 		assert(swapchain);
 		fbos = CommonAPI::createFBOWithSwapchainImages(
@@ -179,103 +354,10 @@ public:
 		auto gpuPipelineFor2DArrays = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D_ARRAY);
 		auto gpuPipelineForCubemaps = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_CUBE_MAP);
 
+
+
+
 		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> cpuImageViews;
-		core::vector<NBL_CAPTION_DATA_TO_DISPLAY> captionTexturesData;
-		{
-			std::ifstream list(testingImagePathsFile.data());
-			if (list.is_open())
-			{
-				std::string line;
-				for (; std::getline(list, line); )
-				{
-					if (line != "" && line[0] != ';')
-					{
-						auto& pathToTexture = line;
-						auto& newCpuImageViewTexture = cpuImageViews.emplace_back();
-
-						constexpr auto cachingFlags = static_cast<asset::IAssetLoader::E_CACHING_FLAGS>(asset::IAssetLoader::ECF_DONT_CACHE_REFERENCES & asset::IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-						asset::IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags);
-						auto cpuTextureBundle = assetManager->getAsset(pathToTexture, loadParams);
-						auto cpuTextureContents = cpuTextureBundle.getContents();
-						{
-							bool status = !cpuTextureContents.empty();
-							assert(status);
-						}
-
-						if (cpuTextureContents.begin() == cpuTextureContents.end())
-							assert(false); // cannot perform test in this scenario
-						
-						// Since this is ColorSpaceTest
-						const asset::IImage::E_ASPECT_FLAGS aspectMask = asset::IImage::EAF_COLOR_BIT;
-						auto asset = *cpuTextureContents.begin();
-						switch (asset->getAssetType())
-						{
-						case asset::IAsset::ET_IMAGE:
-						{
-							asset::ICPUImageView::SCreationParams viewParams = {};
-							viewParams.flags = static_cast<decltype(viewParams.flags)>(0u);
-							viewParams.image = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(asset);
-							viewParams.format = viewParams.image->getCreationParameters().format;
-							viewParams.viewType = decltype(viewParams.viewType)::ET_2D;
-							viewParams.subresourceRange.aspectMask = aspectMask;
-							viewParams.subresourceRange.baseArrayLayer = 0u;
-							viewParams.subresourceRange.layerCount = 1u;
-							viewParams.subresourceRange.baseMipLevel = 0u;
-							viewParams.subresourceRange.levelCount = 1u;
-
-							newCpuImageViewTexture = asset::ICPUImageView::create(std::move(viewParams));
-						} break;
-
-						case asset::IAsset::ET_IMAGE_VIEW:
-						{
-							newCpuImageViewTexture = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(asset);
-						} break;
-
-						default:
-						{
-							assert(false); // in that case provided asset is wrong
-						}
-						}
-						
-						newCpuImageViewTexture->getCreationParameters().image->addImageUsageFlags(asset::IImage::EUF_SAMPLED_BIT);
-
-						std::filesystem::path filename, extension;
-						core::splitFilename(pathToTexture.c_str(), nullptr, &filename, &extension);
-
-						auto& captionData = captionTexturesData.emplace_back();
-						captionData.name = filename.string();
-						captionData.extension = extension.string();
-						captionData.viewType = [&]()
-						{
-							const auto& viewType = newCpuImageViewTexture->getCreationParameters().viewType;
-
-							if (viewType == asset::IImageView<video::IGPUImage>::ET_2D)
-								return std::string("ET_2D");
-							else if (viewType == asset::IImageView<video::IGPUImage>::ET_2D_ARRAY)
-								return std::string("ET_2D_ARRAY");
-							else if (viewType == asset::IImageView<video::IGPUImage>::ET_CUBE_MAP)
-								return std::string("ET_CUBE_MAP");
-							else
-								assert(false);
-						}();
-
-						const std::string finalFileNameWithExtension = captionData.name + captionData.extension;
-						std::cout << finalFileNameWithExtension << "\n";
-
-						auto tryToWrite = [&](asset::IAsset* asset)
-						{
-							asset::IAssetWriter::SAssetWriteParams wparams(asset);
-							std::string assetPath = "imageAsset_" + finalFileNameWithExtension;
-							return assetManager->writeAsset(assetPath, wparams);
-						};
-
-						if (!tryToWrite(newCpuImageViewTexture->getCreationParameters().image.get()))
-							if (!tryToWrite(newCpuImageViewTexture.get()))
-								assert(false); // could not write an asset
-					}
-				}
-			}
-		}
 		
 		// we clone because we need these cpuimages later for directly using upload utilitiy
 		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> clonedCpuImageViews(cpuImageViews.size());
@@ -457,14 +539,6 @@ public:
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
-			auto windowExtent = gpuImageView->getCreationParameters().image->getCreationParameters().extent;
-
-			bool didResize = false;
-			if (windowExtent.width != lastWidth || windowExtent.height != lastHeight)
-			{
-				didResize = windowManager->setWindowSize(window.get(), windowExtent.width, windowExtent.height);
-				assert(didResize);
-			}
 			// can't just use windowExtent as the actual window size may have been capped by windows
 			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
 
@@ -509,8 +583,6 @@ public:
 				gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
 			}
 
-			const std::string windowCaption = "[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + captionData.name + " - VIEW TYPE: " + captionData.viewType + " - EXTENSION: " + captionData.extension;
-			window->setCaption(windowCaption);
 
 			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FRAMES_IN_FLIGHT];
 
@@ -668,59 +740,7 @@ public:
 			}
 		}
 	}
-
-	void onAppTerminated_impl() override
-	{
-
-	}
-
-	void workLoopBody() override
-	{
-		
-	}
-
-	bool keepRunning() override
-	{
-		return false;
-	}
-	
-	video::IAPIConnection* getAPIConnection() override
-	{
-		return apiConnection.get();
-	}
-	video::ILogicalDevice* getLogicalDevice()  override
-	{
-		return logicalDevice.get();
-	}
-	video::IGPURenderpass* getRenderpass() override
-	{
-		return renderpass.get();
-	}
-	void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
-	{
-		surface = std::move(s);
-	}
-	void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
-	{
-		for (int i = 0; i < f.size(); i++)
-		{
-			fbos->begin()[i] = core::smart_refctd_ptr(f[i]);
-		}
-	}
-	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
-	{
-		swapchain = std::move(s);
-	}
-	uint32_t getSwapchainImageCount() override
-	{
-		return swapchain->getImageCount();
-	}
-	virtual asset::E_FORMAT getDepthFormat() override
-	{
-		return asset::EF_D32_SFLOAT;
-	}
 };
+#endif
 
-NBL_COMMON_API_MAIN(ColorSpaceTestSampleApp)
-
-extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
+NBL_MAIN_FUNC(ColorSpaceTestSampleApp)
