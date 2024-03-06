@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2023 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
@@ -85,7 +85,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
-			if (!device_base_t::onAppInitialized(std::move(system)))
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;

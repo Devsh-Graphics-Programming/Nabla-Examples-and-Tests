@@ -1,7 +1,6 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
 #include "../common/SimpleWindowedApplication.hpp"
 
 //
@@ -159,7 +158,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				auto window = m_winMgr->createWindow(std::move(params));
 				// uncomment for some nasty testing of swapchain creation!
 				//m_winMgr->minimize(window.get());
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(video::CSurfaceVulkanWin32::create(core::smart_refctd_ptr(m_api), core::move_and_static_cast<ui::IWindowWin32>(window)));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
 			}
 			return {{m_surface->getSurface()/*,EQF_NONE*/}};
 		}
@@ -448,7 +447,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
 				return false;
 
-			return !m_surface || !m_surface->irrecoverable();
+			return m_surface && !m_surface->irrecoverable();
 		}
 
 		virtual bool onAppTerminated() override
