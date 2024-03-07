@@ -1,9 +1,16 @@
-#include "nbl/builtin/hlsl/central_limit_blur/common.hlsl"
-#include "nbl/builtin/hlsl/workgroup/basic.hlsl"
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+
+NBL_CONSTEXPR_STATIC_INLINE uint32_t inputViewBinding = 0u;
+NBL_CONSTEXPR_STATIC_INLINE uint32_t outputViewBinding = 1u;
+
+
+#ifdef __HLSL_VERSION
+#include <nbl/builtin/hlsl/central_limit_blur/common.hlsl>
+#include <nbl/builtin/hlsl/workgroup/basic.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 
-[[vk::binding( 0, 0 )]] Texture2D<nbl::hlsl::float32_t4> input;
-[[vk::binding( 1, 0 )]] RWTexture2D<nbl::hlsl::float32_t4> output;
+[[vk::binding( inputViewBinding, 0 )]] Texture2D<nbl::hlsl::float32_t4> input;
+[[vk::binding( outputViewBinding, 0 )]] RWTexture2D<nbl::hlsl::float32_t4> output;
 
 template<uint16_t ITEMS_PER_THREAD>
 struct TextureProxy
@@ -35,14 +42,17 @@ struct TextureProxy
 		}
 	}
 
-	nbl::hlsl::float32_t4 get( uint16_t itemIdx, uint16_t ch )
+	nbl::hlsl::float32_t get( uint16_t itemIdx, uint16_t ch )
 	{
-		return localSpill[ itemIdx ][ ch ];
+		float32_t4 thisSpill = localSpill[ itemIdx ];
+		return thisSpill[ ch ];
 	}
 
-	void set( uint16_t itemIdx, uint16_t ch, NBL_CONST_REF_ARG( float32_t ) val )
+	void set( uint16_t itemIdx, uint16_t ch, NBL_CONST_REF_ARG(float32_t) val )
 	{
-		localSpill[ itemIdx ][ ch ] = val;
+		float32_t4 thisSpill = localSpill[ itemIdx ];
+		thisSpill[ ch ] = val;
+		localSpill[ itemIdx ] = thisSpill;
 	}
 
 //private:
@@ -55,3 +65,5 @@ struct TextureProxy
 		return coord.xy;
 	}
 };
+
+#endif

@@ -8,6 +8,7 @@
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include <nbl/builtin/hlsl/central_limit_blur/common.hlsl>
+#include "app_resources/descriptors.hlsl"
 
 #include "CArchive.h"
 
@@ -94,7 +95,8 @@ public:
 		const auto& inCpuTexInfo = textureToBlur->getCreationParameters();
 		
 		auto createGPUImages = [ & ](
-			core::bitflag<IGPUImage::E_USAGE_FLAGS> usageFlags,
+			core::bitflag<IImage::E_USAGE_FLAGS> usageFlags,
+			asset::E_FORMAT format,
 			std::string_view name,
 			smart_refctd_ptr<nbl::video::IGPUImage>& imgOut,
 			smart_refctd_ptr<nbl::video::IGPUImageView>& imgViewOut
@@ -112,8 +114,7 @@ public:
 			gpuImageCreateInfo.queueFamilyIndices = nullptr;
 
 			gpuImageCreateInfo.format = m_physicalDevice->promoteImageFormat(
-				{ inCpuTexInfo.format, gpuImageCreateInfo.usage }, gpuImageCreateInfo.tiling
-			);
+				{ format, gpuImageCreateInfo.usage }, gpuImageCreateInfo.tiling );
 			auto gpuImage = m_device->createImage( std::move( gpuImageCreateInfo ) );
 
 			auto gpuImageMemReqs = gpuImage->getMemoryReqs();
@@ -138,8 +139,8 @@ public:
 		smart_refctd_ptr<nbl::video::IGPUImage> outputGpuImg;
 		smart_refctd_ptr<nbl::video::IGPUImageView> inputGpuImgView;
 		smart_refctd_ptr<nbl::video::IGPUImageView> outputGpuImgView;
-		createGPUImages( IGPUImage::EUF_SAMPLED_BIT, "InputImg", inputGpuImg, inputGpuImgView );
-		createGPUImages( IGPUImage::EUF_STORAGE_BIT, "OutputImg", outputGpuImg, outputGpuImgView );
+		createGPUImages( IImage::EUF_SAMPLED_BIT, inCpuTexInfo.format, "InputImg", inputGpuImg, inputGpuImgView );
+		createGPUImages( IImage::EUF_STORAGE_BIT, E_FORMAT::EF_R8G8B8A8_UNORM, "OutputImg", outputGpuImg, outputGpuImgView );
 		assert(inputGpuImg&&outputGpuImg&&inputGpuImgView&&outputGpuImgView);
 
 		auto computeMain = checkedLoad.operator()< nbl::asset::ICPUShader >( "app_resources/main.comp.hlsl" );
@@ -155,24 +156,22 @@ public:
 		}
 
 
-		// TODO: move to shaderd cpp/hlsl descriptors file 
-		// No because this is a C++ only struct, only move the binding and count there
 		NBL_CONSTEXPR_STATIC nbl::video::IGPUDescriptorSetLayout::SBinding bindings[] = {
 			{
-				.binding = 0,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, 
+				.binding = inputViewBinding,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = IShader::ESS_COMPUTE,
 				.count = 1,
 				.samplers = nullptr
 			},
 			{
-				.binding = 1,
+				.binding = outputViewBinding,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = IShader::ESS_COMPUTE,
 				.count = 1,
-				.samplers = nullptr 
+				.samplers = nullptr
 			}
 		};
 		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout( bindings );
@@ -209,8 +208,8 @@ public:
 			info[ 1 ].info.image = { .sampler = nullptr, .imageLayout = IImage::LAYOUT::GENERAL };
 
 			IGPUDescriptorSet::SWriteDescriptorSet writes[] = {
-				{ .dstSet = ds.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &info[ 0 ] },
-				{ .dstSet = ds.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &info[ 1 ] },
+				{ .dstSet = ds.get(), .binding = inputViewBinding, .arrayElement = 0, .count = 1, .info = &info[ 0 ] },
+				{ .dstSet = ds.get(), .binding = outputViewBinding, .arrayElement = 0, .count = 1, .info = &info[ 1 ] },
 			};
 			const bool success = m_device->updateDescriptorSets( writes, {} );
 			assert( success );
@@ -248,9 +247,9 @@ public:
 						},
 					},
 					.image = inputGpuImg.get(),
-					.subresourceRange = { .aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-					.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
-					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.subresourceRange = { .aspectMask = IImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				}
 			};
 			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = imgLayouts } ) )
@@ -283,9 +282,9 @@ public:
 						.otherQueueFamilyIndex = needsOwnershipTransfer ? getComputeQueue()->getFamilyIndex():IQueue::FamilyIgnored
 					},
 					.image = inputGpuImg.get(),
-					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-				    .newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL,
+					.subresourceRange = {.aspectMask = IImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				    .newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
 				}
 			};
 			if( !cmdbuf->pipelineBarrier( nbl::asset::EDF_NONE, { .imgBarriers = releaseOwnership } ) )
@@ -320,20 +319,12 @@ public:
 
 		auto gpuTexSize = inputGpuImg->getCreationParameters().extent;
 		const uint64_t itemsPerWg = inputGpuImg->getCreationParameters().extent.width / WorkgroupSize;
-		struct packed_data_t
-		{
-			uint32_t direction : 2;
-			uint32_t channelCount : 3 = 3; // TODO: don't hardcode
-			uint32_t wrapMode : 2 = hlsl::central_limit_blur::WrapMode::WRAP_MODE_CLAMP_TO_EDGE;
-			uint32_t borderColor : 3 = hlsl::central_limit_blur::BorderColor::BORDER_COLOR_FLOAT_OPAQUE_BLACK;
-
-			explicit operator uint32_t() const {
-				return *reinterpret_cast< const uint32_t* >( this );
-			}
-		};
-
 		hlsl::central_limit_blur::BoxBlurParams pushConstData = {
-			.inputDimensions = {0,0,0,uint32_t( packed_data_t{} )}, .chosenAxis = {1, 0}, .radius = 4.f
+			.radius = 4.f,
+			.direction = 0,
+			.channelCount = 3, // TODO: don't hardcode
+			.wrapMode = hlsl::central_limit_blur::WrapMode::WRAP_MODE_CLAMP_TO_EDGE,
+			.borderColorType = hlsl::central_limit_blur::BorderColor::BORDER_COLOR_FLOAT_OPAQUE_BLACK,
 		};
 
 		cmdbuf->begin( IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT );
@@ -349,9 +340,9 @@ public:
 						},
 					},
 					.image = outputGpuImg.get(),
-					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-					.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
-					.newLayout = IGPUImage::LAYOUT::GENERAL,
+					.subresourceRange = {.aspectMask = IImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::GENERAL,
 				},
 				// this is only for Ownership Acquire, the transfer queue does the layout xform,
 				// so if `!needsOwnershipTransfer` we skip to prevent a double layout transition
@@ -366,9 +357,9 @@ public:
 						.otherQueueFamilyIndex =  getTransferUpQueue()->getFamilyIndex()
 					},
 					.image = inputGpuImg.get(),
-					.subresourceRange = {.aspectMask = IGPUImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
-					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+					.subresourceRange = {.aspectMask = IImage::EAF_COLOR_BIT, .levelCount = 1, .layerCount = 1 },
+					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL
 				}
 			};
 

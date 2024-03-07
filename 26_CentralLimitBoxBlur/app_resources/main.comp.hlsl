@@ -42,13 +42,9 @@ nbl::hlsl::central_limit_blur::BoxBlurParams boxBlurParams;
 [numthreads( WORKGROUP_SIZE, 1, 1 )]
 void main( uint3 invocationID : SV_DispatchThreadID )
 {
-	uint16_t axisIdx = 0;// boxBlurParams.getDirection();
-	uint32_t wrapMode = nbl::hlsl::central_limit_blur::WRAP_MODE_CLAMP_TO_EDGE; //boxBlurParams.getWrapMode();
-	nbl::hlsl::float32_t4 borderColor = float32_t4( 1.f, 0.f, 1.f, 1.f );
-	if( boxBlurParams.getWrapMode() == nbl::hlsl::central_limit_blur::WRAP_MODE_CLAMP_TO_BORDER )
-	{
-		borderColor = boxBlurParams.getBorderColor();
-	}
+	uint16_t axisIdx = uint16_t( boxBlurParams.direction );
+	uint32_t wrapMode = boxBlurParams.wrapMode;
+	nbl::hlsl::float32_t4 borderColor = boxBlurParams.getBorderColor();
 
 	ScratchProxy<float32_t, 0> scratchProxy;
 
@@ -57,9 +53,9 @@ void main( uint3 invocationID : SV_DispatchThreadID )
 	{
 		textureProxy.preload( axisIdx, i );
 	}
+	nbl::hlsl::glsl::barrier();
 
-
-	for( uint16_t chIdx = 0u; chIdx < boxBlurParams.getChannelCount(); ++chIdx )
+	for( uint16_t chIdx = 0u; chIdx < boxBlurParams.channelCount; ++chIdx )
 	{
 		nbl::hlsl::central_limit_blur::BoxBlur<__decltype(textureProxy), __decltype( scratchProxy ), ITEMS_PER_THREAD, scratchSz>( chIdx, boxBlurParams.radius, wrapMode, borderColor, textureProxy, scratchProxy );
 	}
