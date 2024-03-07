@@ -57,6 +57,7 @@ struct CPULineStyle
 		// Invalidate to possibly fill with correct values later
 		shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
 		rigidSegmentIdx = InvalidRigidSegmentIndex;
+		phaseShift = 0.0f;
 
 		assert(stipplePatternUnnormalizedRepresentation.size() <= StipplePatternMaxSize);
 
@@ -78,86 +79,111 @@ struct CPULineStyle
 		for (auto it = stipplePatternUnnormalizedRepresentation.begin(); it != stipplePatternUnnormalizedRepresentation.end();)
 		{
 			double redundantConsecutiveValuesSum = 0.0f;
-			const bool firstValueSign = isValuePositive(*it);
+			const bool firstValueIsPositive = isValuePositive(*it);
 			do
 			{
 				redundantConsecutiveValuesSum += *it;
 				it++;
-			} while (it != stipplePatternUnnormalizedRepresentation.end() && (firstValueSign == isValuePositive(*it)));
+			} while (it != stipplePatternUnnormalizedRepresentation.end() && (firstValueIsPositive == isValuePositive(*it)));
 
 			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
 		}
 
-		if (stipplePatternTransformed.size() == 1)
+		bool stippled = false; // has at least 1 draw and 1 gap section
+		
+		if (stipplePatternTransformed.size() != 1)
 		{
-			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? InvalidStipplePatternSize : 0;
-			return;
+			// merge first and last value if their sign matches
+			double currentPhaseShift = 0.0f;
+			const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
+			const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+			if (firstComponentPositive == lastComponentPositive)
+			{
+				currentPhaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+				stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
+				stipplePatternTransformed.pop_back();
+			}
+
+			if (stipplePatternTransformed.size() != 1)
+			{
+				stippled = true;
+
+				// rotate values if first value is negative value
+				if (!firstComponentPositive)
+				{
+					std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
+					currentPhaseShift += std::abs(stipplePatternTransformed[0]);
+				}
+
+				// calculate normalized prefix sum
+				const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::StipplePatternMaxSize - 1u;
+				const uint32_t PREFIX_SUM_SZ = static_cast<uint32_t>(stipplePatternTransformed.size()) - 1;
+
+				double prefixSum[PREFIX_SUM_MAX_SZ];
+				prefixSum[0] = stipplePatternTransformed[0];
+
+				for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
+					prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
+
+				const double rcpLen = 1.0 / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+
+				for (uint32_t i = 0; i < PREFIX_SUM_SZ; i++)
+					prefixSum[i] *= rcpLen;
+
+				reciprocalStipplePatternLen = static_cast<float>(rcpLen);
+				stipplePatternSize = PREFIX_SUM_SZ;
+				for (uint32_t i = 0u; i < PREFIX_SUM_SZ; ++i)
+					stipplePattern[i] = static_cast<float>(prefixSum[i]);
+
+				currentPhaseShift = currentPhaseShift * rcpLen;
+
+				if (stipplePatternUnnormalizedRepresentation[0] == 0.0)
+					currentPhaseShift -= PatternEpsilon;
+				else if (stipplePatternUnnormalizedRepresentation[0] < 0.0)
+					currentPhaseShift += PatternEpsilon;
+
+				phaseShift = static_cast<float>(currentPhaseShift);
+			}
 		}
-
-		// merge first and last value if their sign matches
-		double currentPhaseShift = 0.0f;
-		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
-		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
-		if (firstComponentPositive == lastComponentPositive)
-		{
-			currentPhaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
-			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
-			stipplePatternTransformed.pop_back();
-		}
-
-		if (stipplePatternTransformed.size() == 1)
-		{
-			stipplePatternSize = (firstComponentPositive) ? 0 : InvalidStipplePatternSize;
-			return;
-		}
-
-		// rotate values if first value is negative value
-		if (!firstComponentPositive)
-		{
-			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
-			currentPhaseShift += std::abs(stipplePatternTransformed[0]);
-		}
-
-		// calculate normalized prefix sum
-		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::StipplePatternMaxSize - 1u;
-		const uint32_t PREFIX_SUM_SZ = static_cast<uint32_t>(stipplePatternTransformed.size()) - 1;
-
-		double prefixSum[PREFIX_SUM_MAX_SZ];
-		prefixSum[0] = stipplePatternTransformed[0];
-
-		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
-
-		const double rcpLen = 1.0 / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
-
-		for (uint32_t i = 0; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] *= rcpLen;
-
-		reciprocalStipplePatternLen = static_cast<float>(rcpLen);
-		stipplePatternSize = PREFIX_SUM_SZ;
-		for (uint32_t i = 0u; i < PREFIX_SUM_SZ; ++i)
-			stipplePattern[i] = static_cast<float>(prefixSum[i]);
-			
-		currentPhaseShift = currentPhaseShift * rcpLen;
-
-		if (stipplePatternUnnormalizedRepresentation[0] == 0.0)
-			currentPhaseShift -= PatternEpsilon;
-		else if (stipplePatternUnnormalizedRepresentation[0] < 0.0)
-			currentPhaseShift += PatternEpsilon;
-
-		phaseShift = static_cast<float>(currentPhaseShift);
 
 		stretchToFit = stretch;
+
+		// is all gap or all draw
+		if (!stippled)
+		{
+			reciprocalStipplePatternLen = static_cast<float>(1.0 / abs(stipplePatternTransformed[0]));
+			// all draw
+			if (stipplePatternTransformed[0] >= 0.0)
+			{
+				stipplePattern[0] = 1.0;
+				stipplePatternSize = 1;
+			}
+			// all gap
+			else 
+			{
+				stipplePattern[0] = 0.0;
+				stipplePatternSize = InvalidStipplePatternSize;
+			}
+		}
+		
 		if (shapeOffsetInPattern != InvalidShapeOffset)
 		{
 			setShapeOffset(shapeOffsetInPattern);
 			if (rigidShapeSegment)
 			{
-				rigidSegmentIdx = getPatternIdxFromNormalizedPosition(shapeNormalizedPlaceInPattern);
-				// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
-				rigidSegmentStart = (rigidSegmentIdx >= 1u) ? stipplePattern[rigidSegmentIdx - 1u] : 0.0f;
-				rigidSegmentEnd = (rigidSegmentIdx < stipplePatternSize) ? stipplePattern[rigidSegmentIdx] : 1.0f;
-				rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+				if (stippled)
+				{
+					rigidSegmentIdx = getPatternIdxFromNormalizedPosition(shapeNormalizedPlaceInPattern);
+					// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
+					rigidSegmentStart = (rigidSegmentIdx >= 1u) ? stipplePattern[rigidSegmentIdx - 1u] : 0.0f;
+					rigidSegmentEnd = (rigidSegmentIdx < stipplePatternSize) ? stipplePattern[rigidSegmentIdx] : 1.0f;
+					rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+				}
+				else
+				{
+					rigidSegmentIdx = 0u;
+					rigidSegmentLen = 1.0f;
+				}
 			}
 		}
 	}
@@ -172,17 +198,27 @@ struct CPULineStyle
 		shapeNormalizedPlaceInPattern = glm::fract(offsetInWorldSpace * reciprocalStipplePatternLen + phaseShift);
 	}
 
+	// If it's all draw or all gap
+	bool isSingleSegment() const
+	{
+		const bool allDraw = stipplePattern[0] == 1.0f && stipplePatternSize == 1u;
+		const bool allGap = !isVisible();
+		return allDraw || allGap;
+	}
+
 	float calculateStretchValue(float64_t arcLen) const
 	{
 		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
 		if (stretchToFit)
 		{
+			const bool singleRigidSegment = rigidShapeSegment() && isSingleSegment(); // we shouldn't apply any stretching if we only have one rigid stipple segment(either all draw or all gap(invisible)
+
 			if (rigidShapeSegment() && arcLen * reciprocalStipplePatternLen <= rigidSegmentLen)
 			{
 				// arcLen is less than or equal to rigidSegmentLen, then stretch value is invalidated to draw the polyline solid without any style
 				ret = InvalidStyleStretchValue;
 			}
-			else
+			else if (!singleRigidSegment)
 			{
 				//	Work out how many segments will fit into the line and calculate the stretch factor
 				int nSegments = 1;
@@ -217,7 +253,7 @@ struct CPULineStyle
 	// normalized place in pattern might change when stretching non-uniformly
 	float getStretchedNormalizedPlaceInPattern(float32_t normalizedPlaceInPattern, float32_t stretchValue) const
 	{
-		if (stretchToFit && rigidShapeSegment())
+		if (stretchToFit && rigidShapeSegment() && !isSingleSegment())
 		{
 			float nonShapeSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
 			float newPlaceInPattern = nbl::core::min(normalizedPlaceInPattern, rigidSegmentStart) * nonShapeSegmentStretchValue; // stretch parts before rigid segment
@@ -461,8 +497,8 @@ public:
 
 	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, const AddShapeFunc& addShape = {})
 	{
-		if (!lineStyle.isVisible())
-			return;
+		//if (!lineStyle.isVisible())
+		//	return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
 		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
