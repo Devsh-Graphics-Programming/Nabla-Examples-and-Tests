@@ -118,19 +118,11 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 			// TODO: I don't think these are needed for sub allocated descriptor sets (alignment isn't needed, and min size is 1)
 			auto subAllocatedDescriptorSet = core::make_smart_refctd_ptr<nbl::video::SubAllocatedDescriptorSet>(core::smart_refctd_ptr(descriptorSet), core::smart_refctd_ptr(m_device)); 
 			std::vector<uint32_t> allocation(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
-			std::vector<video::IGPUDescriptorSet::SDescriptorInfo> descriptors;
-			std::vector<video::IGPUDescriptorSet::SWriteDescriptorSet> descriptorWrites(allocation.size(), video::IGPUDescriptorSet::SWriteDescriptorSet{});
-
-			for (uint32_t i = 0; i < allocation.size(); i++)
-			{
-				auto descriptorInfo = createImageDescriptor(80, 80);
-				descriptors.push_back(descriptorInfo);
-			}
+			std::vector<video::IGPUDescriptorSet::SDropDescriptorSet> descriptorDrops(allocation.size(), video::IGPUDescriptorSet::SDropDescriptorSet{});
 
 			{
-				auto allocNum = subAllocatedDescriptorSet->multi_allocate(AllocatedBinding, allocation.size(), descriptors.data(), descriptorWrites.data(), allocation.data());
+				auto allocNum = subAllocatedDescriptorSet->multi_allocate(AllocatedBinding, allocation.size(), allocation.data());
 				assert(allocNum == 0);
-				m_device->updateDescriptorSets(descriptorWrites, {});
 				for (uint32_t i = 0; i < allocation.size(); i++)
 				{
 					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation[i]);
@@ -144,14 +136,13 @@ class SubAllocatedDescriptorSetApp final : public examples::MonoDeviceApplicatio
 				{
 					addr.push_back(allocation[i]);
 				}
-				subAllocatedDescriptorSet->multi_deallocate(0, addr.size(), &addr[0]);
+				subAllocatedDescriptorSet->multi_deallocate(descriptorDrops.data(), AllocatedBinding, addr.size(), addr.data());
 			}
 			m_logger->log("freed half the descriptors", system::ILogger::ELL_INFO);
 			std::vector<uint32_t> allocation2(128, core::PoolAddressAllocator<uint32_t>::invalid_address);
 			{
-				auto allocNum = subAllocatedDescriptorSet->multi_allocate(AllocatedBinding, allocation2.size(), descriptors.data(), descriptorWrites.data(), &allocation2[0]);
+				auto allocNum = subAllocatedDescriptorSet->multi_allocate(AllocatedBinding, allocation2.size(), allocation2.data());
 				assert(allocNum == 0);
-				m_device->updateDescriptorSets(descriptorWrites, {});
 				for (uint32_t i = 0; i < allocation2.size(); i++)
 				{
 					m_logger->log("allocation[%d]: %d", system::ILogger::ELL_INFO, i, allocation2[i]);
