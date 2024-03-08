@@ -14,9 +14,10 @@ nbl::hlsl::uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize() { return uint32_t3( WOR
 
 static const uint32_t ITEMS_PER_THREAD = 4; // ?
 
-static const uint32_t scratchSz = nbl::hlsl::workgroup::scratch_size_arithmetic<WORKGROUP_SIZE>::value;
+static const uint32_t arithmeticSz = nbl::hlsl::workgroup::scratch_size_arithmetic<WORKGROUP_SIZE>::value;
+static const uint32_t smemSize = WORKGROUP_SIZE + arithmeticSz;
 
-groupshared uint32_t scratch[ scratchSz ];
+groupshared uint32_t scratch[ smemSize ];
 
 template<typename T, uint16_t offset>
 struct ScratchProxy
@@ -47,6 +48,7 @@ void main( uint3 invocationID : SV_DispatchThreadID )
 	nbl::hlsl::float32_t4 borderColor = boxBlurParams.getBorderColor();
 
 	ScratchProxy<float32_t, 0> scratchProxy;
+	ScratchProxy<float32_t, WORKGROUP_SIZE> arithmeticProxy;
 
 	TextureProxy<ITEMS_PER_THREAD> textureProxy;
 	for( uint16_t i = 0u; i < ITEMS_PER_THREAD; ++i )
@@ -57,7 +59,7 @@ void main( uint3 invocationID : SV_DispatchThreadID )
 
 	for( uint16_t chIdx = 0u; chIdx < boxBlurParams.channelCount; ++chIdx )
 	{
-		nbl::hlsl::central_limit_blur::BoxBlur<__decltype(textureProxy), __decltype( scratchProxy ), ITEMS_PER_THREAD, scratchSz>( chIdx, boxBlurParams.radius, wrapMode, borderColor, textureProxy, scratchProxy );
+		nbl::hlsl::central_limit_blur::BoxBlur<__decltype(textureProxy), __decltype( scratchProxy ), __decltype( arithmeticProxy ), WORKGROUP_SIZE, arithmeticSz>( 1, ITEMS_PER_THREAD, chIdx, boxBlurParams.radius, wrapMode, borderColor, textureProxy, scratchProxy, arithmeticProxy );
 	}
 
 	nbl::hlsl::glsl::barrier();

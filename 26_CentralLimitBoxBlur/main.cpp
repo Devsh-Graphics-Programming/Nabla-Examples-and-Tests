@@ -93,7 +93,7 @@ public:
 		}
 		const auto& inCpuTexInfo = textureToBlur->getCreationParameters();
 		
-		auto createGPUImages = [ & ]( core::bitflag<IGPUImage::E_USAGE_FLAGS> usageFlags, std::string_view name 
+		auto createGPUImages = [ & ]( core::bitflag<IGPUImage::E_USAGE_FLAGS> usageFlags, asset::E_FORMAT format, std::string_view name 
 									  ) -> smart_refctd_ptr<nbl::video::IGPUImage> {
 			video::IGPUImage::SCreationParams gpuImageCreateInfo;
 			gpuImageCreateInfo.flags = inCpuTexInfo.flags | IImage::ECF_MUTABLE_FORMAT_BIT;
@@ -107,8 +107,10 @@ public:
 			gpuImageCreateInfo.queueFamilyIndexCount = 0u;
 			gpuImageCreateInfo.queueFamilyIndices = nullptr;
 
-			gpuImageCreateInfo.format = m_physicalDevice->promoteImageFormat(
-				{ inCpuTexInfo.format, gpuImageCreateInfo.usage }, gpuImageCreateInfo.tiling );
+			gpuImageCreateInfo.format = //format;
+				m_physicalDevice->promoteImageFormat({ inCpuTexInfo.format, gpuImageCreateInfo.usage }, gpuImageCreateInfo.tiling );
+			//gpuImageCreateInfo.viewFormats.set( E_FORMAT::EF_R8G8B8A8_SRGB );
+			//gpuImageCreateInfo.viewFormats.set( E_FORMAT::EF_R8G8B8A8_UNORM );
 			auto gpuImage = m_device->createImage( std::move( gpuImageCreateInfo ) );
 
 			auto gpuImageMemReqs = gpuImage->getMemoryReqs();
@@ -121,7 +123,7 @@ public:
 
 
 		smart_refctd_ptr<nbl::video::IGPUImage> gpuImg = createGPUImages( 
-			IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT | IImage::E_USAGE_FLAGS::EUF_STORAGE_BIT, "InputImg" );
+			IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT /* | IImage::E_USAGE_FLAGS::EUF_STORAGE_BIT */, E_FORMAT::EF_R8G8B8A8_SRGB, "GPU Image");
 		const auto& gpuImgParams = gpuImg->getCreationParameters();
 
 		smart_refctd_ptr<nbl::video::IGPUImageView> sampledView;
@@ -132,7 +134,7 @@ public:
 				.subUsages = IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT,
 				.image = gpuImg,
 				.viewType = IGPUImageView::ET_2D,
-				.format = gpuImgParams.format
+				.format = E_FORMAT::EF_R8G8B8A8_SRGB
 			} );
 			sampledView->setObjectDebugName( "Sampled sRGB view" );
 
@@ -141,9 +143,9 @@ public:
 				.subUsages = IImage::E_USAGE_FLAGS::EUF_STORAGE_BIT,
 				.image = gpuImg,
 				.viewType = IGPUImageView::ET_2D,
-				.format = asset::E_FORMAT::EF_R16G16B16A16_UNORM
+				.format = E_FORMAT::EF_R8G8B8A8_UNORM
 			} );
-			unormView->setObjectDebugName( "UNORM8 view" );
+			unormView->setObjectDebugName( "UNORM view" );
 		}
 		assert( gpuImg && sampledView && unormView );
 
