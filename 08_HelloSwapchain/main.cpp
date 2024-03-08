@@ -433,9 +433,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 						.pPresentSemaphoreWaitValue = pBlitWaitValue,
 					},
 					// The Graphics Queue will be the the most recent owner just before it releases ownership
-					cmdbuf->getQueueFamilyIndex(),
-					// keep a hold of the 
-					cmdbuf
+					cmdbuf->getQueueFamilyIndex()
 				};
 				m_surface->present(std::move(swapchainLock),presentInfo);
 			}
@@ -452,15 +450,10 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 		virtual bool onAppTerminated() override
 		{
-			// We actually need to wait on a semaphore to finish the example nicely, otherwise we risk destroying a semaphore currently in use for a frame that hasn't finished yet.
-			ISemaphore::SWaitInfo infos[1] = {
-				{.semaphore=m_semaphore.get(),.value=m_realFrameIx},
-			};
-			m_device->blockForSemaphores(infos);
+			// We actually want to wait for all the frames to finish rendering, otherwise our destructors will run out of order late
+			m_device->waitIdle();
 
-			// These are optional, the example will still work fine, but all the destructors would kick in (refcounts would drop to 0) AFTER we would have exited this function.
-			m_semaphore = nullptr;
-			std::fill_n(m_cmdBufs.data(),ISwapchain::MaxImages,nullptr);
+			// This is optional, but the window would close AFTER we return from this function
 			m_surface = nullptr;
 
 			return base_t::onAppTerminated();
