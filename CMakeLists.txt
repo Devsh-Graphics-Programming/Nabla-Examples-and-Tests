@@ -36,14 +36,11 @@ if(NBL_BUILD_EXAMPLES)
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
 	add_subdirectory(21_LRUCacheUnitTest EXCLUDE_FROM_ALL)
-    add_subdirectory(22_CppCompat EXCLUDE_FROM_ALL)
-	# Long not refactored Examples!
-	if (NBL_BUILD_MITSUBA_LOADER)
-		add_subdirectory(22_RaytracedAO EXCLUDE_FROM_ALL)
-	endif()
+	add_subdirectory(22_CppCompat EXCLUDE_FROM_ALL)
 	add_subdirectory(23_ArithmeticUnitTest EXCLUDE_FROM_ALL)
 	# add_subdirectory(23_Autoexposure EXCLUDE_FROM_ALL)
 	add_subdirectory(26_CentralLimitBoxBlur EXCLUDE_FROM_ALL)
+	add_subdirectory(24_ColorSpaceTest EXCLUDE_FROM_ALL)
 	add_subdirectory(25_FilterTest EXCLUDE_FROM_ALL)
 	# add_subdirectory(36_CUDAInterop EXCLUDE_FROM_ALL)
 
