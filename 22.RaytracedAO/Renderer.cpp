@@ -796,7 +796,7 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 				writes[i].count = 1u;
 				writes[i].info = infos.get()+i;
 			}
-			writes[0].descriptorType = EDT_UNIFORM_BUFFER;
+			writes[0].descriptorType = EDT_STORAGE_BUFFER;
 			writes[1].descriptorType = EDT_STORAGE_IMAGE;
 			writes[2].descriptorType = EDT_COMBINED_IMAGE_SAMPLER;
 			writes[2].count = envMapCPUImages.size();
@@ -826,7 +826,10 @@ void Renderer::initSceneNonAreaLights(Renderer::InitializationData& initData)
 				pInfoEnvmap++;
 			}
 
-			m_driver->updateDescriptorSets(BindingCount,writes,0u,nullptr);
+			auto bindingCount = BindingCount;
+			if (envMapCPUImages.empty())
+				bindingCount--;
+			m_driver->updateDescriptorSets(bindingCount,writes,0u,nullptr);
 		}
 
 		m_driver->bindComputePipeline(pipeline.get());
