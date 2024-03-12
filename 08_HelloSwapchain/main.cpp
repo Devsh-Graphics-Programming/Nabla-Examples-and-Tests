@@ -41,6 +41,8 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 
 			// Ownership of the Source Blit Image, not the Swapchain Image
 			const bool needToAcquireSrcOwnership = qFamToAcquireSrcFrom != IQueue::FamilyIgnored;
+			// Should never get asked to transfer ownership if the source is concurrent sharing
+			assert(!source.image->getCachedCreationParams().isConcurrentSharing() || !needToAcquireSrcOwnership);
 
 			const auto blitDstLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
@@ -361,7 +363,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 
 				// If the Rendering and Blit/Present Queues don't come from the same family we need to transfer ownership, because we need to preserve contents between them.
 				auto blitQueueFamily = m_surface->getAssignedQueue()->getFamilyIndex();
-				if (cmdbuf->getQueueFamilyIndex()!=blitQueueFamily)
+				// Also should crash/error if concurrent sharing enabled but would-be-user-queue is not in the share set, but oh well.
+				const bool needOwnershipRelease = cmdbuf->getQueueFamilyIndex()!=blitQueueFamily && !frame->getCachedCreationParams().isConcurrentSharing(); 
+				if (needOwnershipRelease)
 				{
 					const IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barrier[] = {{
 						.barrier = {
