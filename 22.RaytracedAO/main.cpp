@@ -500,6 +500,9 @@ int main(int argc, char** argv)
 			applicationState.startSensorID = 0;
 			printf("[WARNING]: A valid sensor ID was not found. Selecting the sensor: %u\n", applicationState.startSensorID);
 		}
+
+		// empty out the cache from individual images and meshes taht are not used by the scene
+		am->clearAllAssetCache();
 	}
 	
 	constexpr float DefaultRotateSpeed = 300.0f;
@@ -951,7 +954,9 @@ int main(int argc, char** argv)
 
 	core::smart_refctd_ptr<Renderer> renderer = core::make_smart_refctd_ptr<Renderer>(driver,device->getAssetManager(),smgr,applicationState.isDenoiseDeferred);
 	renderer->initSceneResources(meshes,"LowDiscrepancySequenceCache.bin");
-	meshes = {}; // free memory
+	// free memory
+	meshes = {};
+	device->getAssetManager()->clearAllGPUObjects();
 	
 	RaytracerExampleEventReceiver receiver;
 	device->setEventReceiver(&receiver);
