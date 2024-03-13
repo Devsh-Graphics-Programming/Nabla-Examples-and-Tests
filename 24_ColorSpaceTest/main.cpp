@@ -245,7 +245,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		}
 
 	protected:
-		smart_refctd_ptr<ISurface> m_surface;
+		smart_refctd_ptr<CSurfaceVulkanWin32> m_surface;
 		//
 		std::ifstream m_testPathsFile;
 		system::path m_loadCWD;
