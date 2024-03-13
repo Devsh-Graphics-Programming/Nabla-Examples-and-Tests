@@ -135,85 +135,42 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			if (!m_testPathsFile.is_open())
 				return logFail("Could not open the test paths file");
 			m_loadCWD = m_loadCWD.parent_path();
+
+			// Load Shaders
+			auto loadCompileAndCreateShader = [&]() -> smart_refctd_ptr<IGPUShader>
+			{
+				/*
+					auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
+					auto fs_contents = fs_bundle.getContents();
+					if (fs_contents.empty())
+						assert(false);
+
+					asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
+
+					core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
+					{
+						cpu2gpuParams.beginCommandBuffers();
+						auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
+						cpu2gpuParams.waitForCreationToComplete(false);
+
+						if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
+							assert(false);
+
+						gpuFragmentShader = (*gpu_array)[0];
+					}
+				*/
+				return nullptr;
+			};
+			auto vertexShader = loadCompileAndCreateShader();
+			auto fragmentShader = loadCompileAndCreateShader();
 			
 			// Now surface indep resources
 			m_semaphore = m_device->createSemaphore(m_submitIx);
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
 
-			// TODO: Use the widest gamut possible
-			const auto format = asset::EF_R8G8B8A8_SRGB;
-
-			// Create our Swapchain Resources and Initialize the Managed Surface
-			{
-				smart_refctd_ptr<IGPURenderpass> renderpass;
-				// Create the renderpass
-				{
-					//
-					const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-						{{
-							.format = format,
-							.samples = IGPUImage::ESCF_1_BIT,
-							.mayAlias = false,
-							.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-							.storeOp = IGPURenderpass::STORE_OP::STORE,
-							.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-							.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC // transition to presentation right away so we can skip a barrier
-						}},
-						IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-					};
-					IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-						{},
-						IGPURenderpass::SCreationParams::SubpassesEnd
-					};
-					subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-					// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
-					const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-						// wipe-transition to ATTACHMENT_OPTIMAL
-						{
-							.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-							.dstSubpass = 0,
-							.memoryBarrier = {
-								// since we're uploading the image data we're about to draw 
-								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
-								.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-								.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-								// because we clear and don't blend
-								.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-							}
-							// leave view offsets and flags default
-						},
-						// ATTACHMENT_OPTIMAL to PRESENT_SRC
-						{
-							.srcSubpass = 0,
-							.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-							.memoryBarrier = {
-								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-								.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-								// we can have NONE as the Destinations because the spec says so about presents
-							}
-							// leave view offsets and flags default
-						},
-						IGPURenderpass::SCreationParams::DependenciesEnd
-					};
-
-					IGPURenderpass::SCreationParams params = {};
-					params.colorAttachments = colorAttachments;
-					params.subpasses = subpasses;
-					params.dependencies = dependencies;
-					renderpass = m_device->createRenderpass(params);
-					if (!renderpass)
-						return logFail("Failed to Create a Renderpass!");
-				}
-
-				// Let's just use the same queue since there's no need for async present
-				if (!m_surface || !m_surface->init(getGraphicsQueue(),std::make_unique<CDefaultSwapchainFramebuffers>(std::move(renderpass)),{}))
-					return logFail("Could not create Window & Surface or initialize the Surface!");
-			}
-
-			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-
-			// create the descriptor sets, 1 per FIF and with enough room for one image sampler
+			// create the descriptor sets layout
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				auto defaultSampler = m_device->createSampler({
 					.AnisotropicFilter = 0
@@ -227,14 +184,189 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.count = 1,
 					.samplers = &defaultSampler
 				}};
-				auto layout = m_device->createDescriptorSetLayout(bindings);
+				dsLayout = m_device->createDescriptorSetLayout(bindings);
+				if (!dsLayout)
+					return logFail("Failed to Create Descriptor Layout");
+			}
 
+			// TODO: Use the widest gamut possible
+			const auto format = asset::EF_R8G8B8A8_SRGB;
+
+			smart_refctd_ptr<IGPURenderpass> renderpass;
+			// Create the renderpass
+			{
+				//
+				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+					{{
+						.format = format,
+						.samples = IGPUImage::ESCF_1_BIT,
+						.mayAlias = false,
+						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+						.storeOp = IGPURenderpass::STORE_OP::STORE,
+						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
+						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC // transition to presentation right away so we can skip a barrier
+					}},
+					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+				};
+				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+					{},
+					IGPURenderpass::SCreationParams::SubpassesEnd
+				};
+				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+				// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+				const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+					// wipe-transition to ATTACHMENT_OPTIMAL
+					{
+						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.dstSubpass = 0,
+						.memoryBarrier = {
+							// since we're uploading the image data we're about to draw 
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							// because we clear and don't blend
+							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						}
+						// leave view offsets and flags default
+					},
+					// ATTACHMENT_OPTIMAL to PRESENT_SRC
+					{
+						.srcSubpass = 0,
+						.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.memoryBarrier = {
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							// we can have NONE as the Destinations because the spec says so about presents
+						}
+						// leave view offsets and flags default
+					},
+					IGPURenderpass::SCreationParams::DependenciesEnd
+				};
+
+				IGPURenderpass::SCreationParams params = {};
+				params.colorAttachments = colorAttachments;
+				params.subpasses = subpasses;
+				params.dependencies = dependencies;
+				renderpass = m_device->createRenderpass(params);
+				if (!renderpass)
+					return logFail("Failed to Create a Renderpass!");
+			}
+
+			// Now create the pipeline
+			{
+				auto loadCompileAndCreateShader = [&]() -> smart_refctd_ptr<IGPUShader>
+				{
+					/*
+						auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
+						auto fs_contents = fs_bundle.getContents();
+						if (fs_contents.empty())
+							assert(false);
+
+						asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
+
+						core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
+						{
+							cpu2gpuParams.beginCommandBuffers();
+							auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
+							cpu2gpuParams.waitForCreationToComplete(false);
+
+							if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
+								assert(false);
+
+							gpuFragmentShader = (*gpu_array)[0];
+						}
+					*/
+					return nullptr;
+				};
+				const IGPUShader::SSpecInfo shaders[2] = {
+					{.shader=vertexShader.get()},
+					{.shader=fragmentShader.get()}
+				};
+				nbl::video::IGPUGraphicsPipeline::SCreationParams params = {{
+					.shaders = shaders,
+					.cached = {
+						// the Full Screen Triangle doesn't use any HW vertex input state
+						.primitiveAssembly = {},
+						.rasterization = { // the defaults are for a regular opaque z-tested 3D polygon model, need to change some
+							.faceCullingMode = EFCM_NONE,
+							.depthWriteEnable = false
+						},
+						// no blending
+						.subpassIx = 0
+					},
+					.renderpass = renderpass.get()
+				}};
+//				if (!m_device->createGraphicsPipelines(nullptr,{&params,1},&m_pipeline))
+//					return logFail("Could not create Graphics Pipeline!");
+#if 0 
+		auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
+
+		auto createGPUPipeline = [&](asset::IImageView<asset::ICPUImage>::E_TYPE typeOfImage) -> core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>
+		{
+			auto getPathToFragmentShader = [&]() -> std::string
+			{
+				switch (typeOfImage)
+				{
+				case asset::IImageView<asset::ICPUImage>::ET_2D:
+					return "../present2D.frag";
+				case asset::IImageView<asset::ICPUImage>::ET_2D_ARRAY:
+					return "../present2DArray.frag";
+				case asset::IImageView<asset::ICPUImage>::ET_CUBE_MAP:
+					return "../presentCubemap.frag";
+				default:
+					assert(false);
+					return "";
+				}
+			};
+
+			auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
+			auto fs_contents = fs_bundle.getContents();
+			if (fs_contents.empty())
+				assert(false);
+
+			asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
+
+			core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
+			{
+				cpu2gpuParams.beginCommandBuffers();
+				auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
+				cpu2gpuParams.waitForCreationToComplete(false);
+
+				if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
+					assert(false);
+
+				gpuFragmentShader = (*gpu_array)[0];
+			}
+
+			auto constants = std::get<asset::SPushConstantRange>(fstProtoPipeline);
+			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(&constants, &constants + 1, nullptr, nullptr, nullptr, core::smart_refctd_ptr(gpuDescriptorSetLayout3));
+			return ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fstProtoPipeline, std::move(gpuFragmentShader), std::move(gpuPipelineLayout));
+		};
+
+		auto gpuPipelineFor2D = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D);
+		auto gpuPipelineFor2DArrays = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D_ARRAY);
+		auto gpuPipelineForCubemaps = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_CUBE_MAP);
+#endif
+			}
+
+			// Let's just use the same queue since there's no need for async present
+			if (!m_surface || !m_surface->init(getGraphicsQueue(),std::make_unique<CDefaultSwapchainFramebuffers>(std::move(renderpass)),{}))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
+			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+
+			// create the descriptor sets, 1 per FIF and with enough room for one image sampler
+			{
 				const uint32_t setCount = m_maxFramesInFlight;
-				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&layout.get(),1},&setCount);
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1},&setCount);
 				if (!pool)
 					return logFail("Failed to Create Descriptor Pool");
 
-
+				for (auto i=0u; i<m_maxFramesInFlight; i++)
+				{
+					m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
+					if (!m_descriptorSets[i])
+						return logFail("Could not create Descriptor Set!");
+				}
 			}
 
 			// create the commandbuffers and pools, this time properly 1 pool per FIF
@@ -249,6 +381,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
+			getGraphicsQueue()->startCapture();
 			return true;
 		}
 
@@ -351,17 +484,16 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.offset = {0,0},
 					.extent = {newWindowResolution.width,newWindowResolution.height}
 				};
-/*
-				asset::SViewport viewport;
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
-				viewport.x = 0u;
-				viewport.y = 0u;
-				viewport.width = imgExtents.width;
-				viewport.height = imgExtents.height;
-				cmdbuf->setViewport(0u, 1u, &viewport);
-*/
-				cmdbuf->setScissor(0u,{&currentRenderArea,1});
+				// set viewport
+				{
+					const asset::SViewport viewport =
+					{
+						.width = float(newWindowResolution.width),
+						.height = float(newWindowResolution.height)
+					};
+					cmdbuf->setViewport({&viewport,1});
+				}
+				cmdbuf->setScissor({&currentRenderArea,1});
 
 				// begin the renderpass
 				{
@@ -375,11 +507,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					};
 					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
-#if 0
-				cmdbuf->bindGraphicsPipeline(gpuGraphicsPipeline.get());
-				cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
-				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
-#endif
+//				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+//				cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
+//				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
 				cmdbuf->endRenderPass();
 				cmdbuf->end();
 			}
@@ -465,6 +595,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool onAppTerminated() override
 		{
+			getGraphicsQueue()->endCapture();
 			return device_base_t::onAppTerminated();
 		}
 
@@ -477,6 +608,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		//
 		std::string m_nextPath;
 		clock_t::time_point m_lastImageEnqueued = {};
+		//
+		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
 		// Use a separate counter to cycle through our resources for clarity
@@ -484,6 +617,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		// Maximum frames which can be simultaneously rendered
 		uint64_t m_maxFramesInFlight : 5;
 		// Enough Command Buffers and other resources for all frames in flight!
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
 		std::array<smart_refctd_ptr<IGPUCommandPool>,ISwapchain::MaxImages> m_cmdPools;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 };
@@ -502,70 +636,6 @@ public:
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;
 
-		auto createDescriptorPool = [&](const uint32_t textureCount)
-		{
-			constexpr uint32_t maxItemCount = 256u;
-			{
-				video::IDescriptorPool::SCreateInfo createInfo;
-				createInfo.maxSets = maxItemCount;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
-				return logicalDevice->createDescriptorPool(std::move(createInfo));
-			}
-		};
-
-		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
-		auto immutableSampler = logicalDevice->createSampler(samplerParams);
-
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
-		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
-		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
-		auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
-
-		auto createGPUPipeline = [&](asset::IImageView<asset::ICPUImage>::E_TYPE typeOfImage) -> core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>
-		{
-			auto getPathToFragmentShader = [&]() -> std::string
-			{
-				switch (typeOfImage)
-				{
-				case asset::IImageView<asset::ICPUImage>::ET_2D:
-					return "../present2D.frag";
-				case asset::IImageView<asset::ICPUImage>::ET_2D_ARRAY:
-					return "../present2DArray.frag";
-				case asset::IImageView<asset::ICPUImage>::ET_CUBE_MAP:
-					return "../presentCubemap.frag";
-				default:
-					assert(false);
-					return "";
-				}
-			};
-
-			auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
-			auto fs_contents = fs_bundle.getContents();
-			if (fs_contents.empty())
-				assert(false);
-
-			asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
-
-			core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
-			{
-				cpu2gpuParams.beginCommandBuffers();
-				auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
-				cpu2gpuParams.waitForCreationToComplete(false);
-
-				if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
-					assert(false);
-
-				gpuFragmentShader = (*gpu_array)[0];
-			}
-
-			auto constants = std::get<asset::SPushConstantRange>(fstProtoPipeline);
-			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(&constants, &constants + 1, nullptr, nullptr, nullptr, core::smart_refctd_ptr(gpuDescriptorSetLayout3));
-			return ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fstProtoPipeline, std::move(gpuFragmentShader), std::move(gpuPipelineLayout));
-		};
-
-		auto gpuPipelineFor2D = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D);
-		auto gpuPipelineFor2DArrays = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D_ARRAY);
-		auto gpuPipelineForCubemaps = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_CUBE_MAP);
 
 
 
@@ -752,9 +822,6 @@ public:
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
-			// can't just use windowExtent as the actual window size may have been capped by windows
-			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
-
 			// resize
 
 			video::IGPUDescriptorSet::SDescriptorInfo info;
