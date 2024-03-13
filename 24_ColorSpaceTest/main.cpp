@@ -16,6 +16,10 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+// Just a class to hold framebuffers derived from swapchain images
+class CSwapchainResources final : public ISimpleManagedSurface::ISwapchainResources
+{
+};
 
 class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -37,21 +41,25 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			// So let's create our Window and Surface then!
 			if (!m_surface)
 			{
-				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<nbl::video::IResizableSurface::ICallback>();
-				params.width = 256;
-				params.height = 256;
-				params.x = 32;
-				params.y = 32;
-				// Only programmatic resize, not regular
-				params.flags = ui::IWindow::ECF_INPUT_FOCUS|ui::IWindow::ECF_RESIZABLE;
-				params.windowCaption = "ColorSpaceTestSampleApp";
-				auto window = m_winMgr->createWindow(std::move(params));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window));
-//				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
+				{
+					IWindow::SCreationParams params = {};
+					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.width = 256;
+					params.height = 256;
+					params.x = 32;
+					params.y = 32;
+					// Don't want to have a window lingering about before we're ready so create it hidden.
+					// Only programmatic resize, not regular.
+					params.flags = ui::IWindow::ECF_HIDDEN|IWindow::ECF_BORDERLESS|IWindow::ECF_RESIZABLE;
+					params.windowCaption = "ColorSpaceTestSampleApp";
+					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+				}
+				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<CSwapchainResources>::create(std::move(surface));
 			}
-			return {{m_surface.get()/*,EQF_NONE*/}};
-			//return {{m_surface->getSurface()/*,EQF_NONE*/}};
+			if (m_surface)
+				return {{m_surface->getSurface()/*,EQF_NONE*/}};
+			return {};
 		}
 		
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -79,7 +87,78 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			if (!m_testPathsFile.is_open())
 				return logFail("Could not open the test paths file");
 			m_loadCWD = m_loadCWD.parent_path();
+			
+			// Now surface indep resources
+			m_semaphore = m_device->createSemaphore(m_submitIx);
+			if (!m_semaphore)
+				return logFail("Failed to Create a Semaphore!");
 
+			// TODO: Use the widest gamut possible
+			const auto format = asset::EF_R8G8B8A8_SRGB;
+			// Create the renderpass
+			{
+				//
+				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+					{{
+						.format = format,
+						.samples = IGPUImage::ESCF_1_BIT,
+						.mayAlias = false,
+						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+						.storeOp = IGPURenderpass::STORE_OP::STORE,
+						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
+						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC // transition to presentation right away so we can skip a barrier
+					}},
+					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+				};
+				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+					{},
+					IGPURenderpass::SCreationParams::SubpassesEnd
+				};
+				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+				// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+				const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+					// wipe-transition to ATTACHMENT_OPTIMAL
+					{
+						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.dstSubpass = 0,
+						.memoryBarrier = {
+							// since we're uploading the image data we're about to draw 
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							// because we clear and don't blend
+							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						}
+						// leave view offsets and flags default
+					},
+					// ATTACHMENT_OPTIMAL to PRESENT_SRC
+					{
+						.srcSubpass = 0,
+						.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.memoryBarrier = {
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							// we can have NONE as the Destinations because the spec says so about presents
+						}
+						// leave view offsets and flags default
+					},
+					IGPURenderpass::SCreationParams::DependenciesEnd
+				};
+
+				IGPURenderpass::SCreationParams params = {};
+				params.colorAttachments = colorAttachments;
+				params.subpasses = subpasses;
+				params.dependencies = dependencies;
+				m_renderpass = m_device->createRenderpass(params);
+				if (!m_renderpass)
+					return logFail("Failed to Create a Renderpass!");
+			}
+
+			// Let's just use the same queue since there's no need for async present
+			if (!m_surface || !m_surface->init(getGraphicsQueue()))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
+
+			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
 			// create the descriptor set
 			{
@@ -161,32 +240,68 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						return;
 				}
 			}
+			
+			// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+			if (m_submitIx>=m_maxFramesInFlight)
+			{
+				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+					{ 
+						.semaphore = m_semaphore.get(),
+						.value = m_submitIx+1-m_maxFramesInFlight
+					}
+				};
+				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
+					return;
+			}
 
-#if 0
-						auto& captionData = captionTexturesData.emplace_back();
-						captionData.name = filename.string();
-						captionData.extension = extension.string();
-						captionData.viewType = ;
-
-#endif
 			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
 			m_lastImageEnqueued = clock_t::now();
 
-			auto* window = m_surface->getWindow();
 			const auto newWindowResolution = cpuImgView->getCreationParameters().image->getCreationParameters().extent;
-//			if (newWindowResolution!=m_surface->getSwapchain()->)
+			if (newWindowResolution.width!=m_window->getWidth() || newWindowResolution.height!=m_window->getHeight())
 			{
 				// Resize the window
-				m_winMgr->setWindowSize(window,newWindowResolution.width,newWindowResolution.height);
-
-				// Recreate the swapchain
+				m_winMgr->setWindowSize(m_window.get(),newWindowResolution.width,newWindowResolution.height);
+				// The swapchain will recreate automatically during acquire
 			}
+			// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
+			m_winMgr->show(m_window.get());
 
 			// Acquire
+			auto imageIx = m_surface->acquireNextImage();
+			if (imageIx==ISwapchain::MaxImages)
+				return;
 
 			// Render to the Image
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
+				.semaphore = m_semaphore.get(),
+				.value = ++m_submitIx,
+				// just as we've outputted all pixels, signal
+				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+			}};
+			{
+				const auto resourceIx = m_submitIx%m_maxFramesInFlight;
+
+				// submit
+				{
+					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
+						.semaphore = m_surface->getAcquireSemaphore(),
+						.value = m_surface->getAcquireCount(),
+						.stageMask = PIPELINE_STAGE_FLAGS::NONE
+					}};
+					const IQueue::SSubmitInfo infos[1] = {{
+						.waitSemaphores = acquired,
+						.commandBuffers = {},
+						.signalSemaphores = rendered
+					}};
+					// we won't signal the sema if no success
+					if (getGraphicsQueue()->submit(infos)!=IQueue::RESULT::SUCCESS)
+						m_submitIx--;
+				}
+			}
 
 			// Present
+			m_surface->present(imageIx,rendered);
 			
 			// Set the Caption
 			std::string viewTypeStr;
@@ -204,7 +319,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					assert(false);
 					break;
 			};
-			window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
+			m_window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
 
 			// Now do a write to disk in the meantime
 			{
@@ -229,7 +344,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		inline bool keepRunning() override
 		{
 			// Keep arunning as long as we have a surface to present to (usually this means, as long as the window is open)
-			if (!m_surface)// || m_surface->irrecoverable())
+			if (m_surface->irrecoverable())
 				return false;
 
 			while (std::getline(m_testPathsFile,m_nextPath))
@@ -245,27 +360,28 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		}
 
 	protected:
-		smart_refctd_ptr<CSurfaceVulkanWin32> m_surface;
+		smart_refctd_ptr<IWindow> m_window;
+		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 		//
 		std::ifstream m_testPathsFile;
 		system::path m_loadCWD;
 		//
 		std::string m_nextPath;
 		clock_t::time_point m_lastImageEnqueued = {};
+		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
+		smart_refctd_ptr<ISemaphore> m_semaphore;
+		// Use a separate counter to cycle through our resources for clarity
+		uint64_t m_submitIx : 59 = 0;
+		// Maximum frames which can be simultaneously rendered
+		uint64_t m_maxFramesInFlight : 5;
+		// Simple Renderpass
+		smart_refctd_ptr<IGPURenderpass> m_renderpass;
 };
 #if 0
-struct NBL_CAPTION_DATA_TO_DISPLAY
-{
-	std::string viewType;
-	std::string name;
-	std::string extension;
-};
-
 class ColorSpaceTestSampleApp : public ApplicationBase
 {
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
 
-	core::smart_refctd_ptr<video::IGPURenderpass> renderpass;
 	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
 	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
 	core::smart_refctd_ptr<system::ISystem> system;
@@ -279,13 +395,6 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 public:
 	void onAppInitialized_impl() override
 	{
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
-		assert(swapchain);
-		fbos = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
-			logicalDevice, swapchain, renderpass,
-			asset::EF_UNKNOWN
-		);
 
 		video::IGPUObjectFromAssetConverter cpu2gpu;
 
@@ -681,20 +790,8 @@ public:
 				cb->endRenderPass();
 				cb->end();
 
-				CommonAPI::Submit(
-					logicalDevice.get(),
-					cb.get(),
-					queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-					imageAcquire[resourceIx].get(),
-					renderFinished[resourceIx].get(),
-					fence.get());
-
-				CommonAPI::Present(
-					logicalDevice.get(),
-					swapchain.get(),
-					queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-					renderFinished[resourceIx].get(),
-					imgnum);
+				// submit
+				// present
 			}
 
 			logicalDevice->waitIdle();
