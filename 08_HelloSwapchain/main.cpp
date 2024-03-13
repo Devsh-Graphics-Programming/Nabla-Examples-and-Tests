@@ -23,7 +23,7 @@ constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = {
 };
 
 //
-class CSwapchainResources final : public IResizableSurface::ISwapchainResources
+class CSwapchainResources final : public ISmoothResizeSurface::ISwapchainResources
 {
 	public:
 		// Because we blit to the swapchain image asynchronously, we need a queue which can not only present but also perform graphics commands.
@@ -34,7 +34,7 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 		// We can return `BLIT_BIT` here, because the Source Image will be already in the correct layout to be used for the present
 		inline core::bitflag<asset::PIPELINE_STAGE_FLAGS> getTripleBufferPresentStages() const override {return asset::PIPELINE_STAGE_FLAGS::BLIT_BIT;}
 
-		inline bool tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const IResizableSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
+		inline bool tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const ISmoothResizeSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
 		{
 			bool success = true;
 			auto acquiredImage = getImage(imageIndex);
@@ -150,7 +150,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (!m_surface)
 			{
 				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<nbl::video::IResizableSurface::ICallback>();
+				params.callback = core::make_smart_refctd_ptr<nbl::video::ISmoothResizeSurface::ICallback>();
 				params.width = 640;
 				params.height = 480;
 				params.x = 32;
@@ -160,7 +160,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				auto window = m_winMgr->createWindow(std::move(params));
 				// uncomment for some nasty testing of swapchain creation!
 				//m_winMgr->minimize(window.get());
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSmoothResizeSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
 			}
 			return {{m_surface->getSurface()/*,EQF_NONE*/}};
 		}
@@ -429,7 +429,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				m_realFrameIx++;
 
 				// only present if there's successful content to show
-				const IResizableSurface::SPresentInfo presentInfo = {
+				const ISmoothResizeSurface::SPresentInfo presentInfo = {
 					{
 						.source = {.image=frame,.rect=currentRenderArea},
 						.waitSemaphore = rendered.semaphore,
@@ -468,7 +468,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;
 		// In this example we have just one Window & Swapchain
-		smart_refctd_ptr<CResizableSurface<CSwapchainResources>> m_surface;
+		smart_refctd_ptr<CSmoothResizeSurface<CSwapchainResources>> m_surface;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		// At least two timelines must be used.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
