@@ -23,8 +23,50 @@ class CDefaultSwapchainFramebuffers : public ISimpleManagedSurface::ISwapchainRe
 	public:
 		inline CDefaultSwapchainFramebuffers(core::smart_refctd_ptr<IGPURenderpass>&& _renderpass) : m_renderpass(std::move(_renderpass)) {}
 
+		inline IGPUFramebuffer* getFrambuffer(const uint8_t imageIx)
+		{
+			if (imageIx<m_framebuffers.size())
+				return m_framebuffers[imageIx].get();
+			return nullptr;
+		}
+
 	protected:
+		virtual inline void invalidate_impl()
+		{
+			std::fill(m_framebuffers.begin(),m_framebuffers.end(),nullptr);
+		}
+
+		// For creating extra per-image or swapchain resources you might need
+		virtual inline bool onCreateSwapchain_impl(const uint8_t qFam)
+		{
+			auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
+
+			const auto swapchain = getSwapchain();
+			const auto& sharedParams = swapchain->getCreationParameters().sharedParams;
+			const auto count = swapchain->getImageCount();
+			for (uint8_t i=0u; i<count; i++)
+			{
+				auto imageView = device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+					.image = core::smart_refctd_ptr<video::IGPUImage>(getImage(i)),
+					.viewType = IGPUImageView::ET_2D,
+					.format = swapchain->getCreationParameters().surfaceFormat.format
+				});
+				m_framebuffers[i] = device->createFramebuffer({{
+					.renderpass = core::smart_refctd_ptr(m_renderpass),
+					.colorAttachments = &imageView.get(),
+					.width = sharedParams.width,
+					.height = sharedParams.height
+				}});
+				if (!m_framebuffers[i])
+					return false;
+			}
+			return true;
+		}
+
 		core::smart_refctd_ptr<IGPURenderpass> m_renderpass;
+		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
 };
 
 class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
@@ -198,7 +240,13 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			// create the commandbuffers and pools, this time properly 1 pool per FIF
 			for (auto i=0u; i<m_maxFramesInFlight; i++)
 			{
-				return false;
+				// non-individually-resettable commandbuffers have an advantage over invidually-resettable
+				// mainly that the pool can use a "cheaper", faster allocator internally
+				m_cmdPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
+				if (!m_cmdPools[i])
+					return logFail("Couldn't create Command Pool!");
+				if (!m_cmdPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+1,1}))
+					return logFail("Couldn't create Command Buffer!");
 			}
 
 			return true;
@@ -271,6 +319,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
 					return;
 			}
+			const auto resourceIx = m_submitIx%m_maxFramesInFlight;
+			if (!m_cmdPools[resourceIx]->reset())
+				return;
 
 			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
 			m_lastImageEnqueued = clock_t::now();
@@ -291,6 +342,49 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				return;
 
 			// Render to the Image
+			auto cmdbuf = m_cmdBufs[resourceIx].get();
+			{
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				
+				const VkRect2D currentRenderArea =
+				{
+					.offset = {0,0},
+					.extent = {newWindowResolution.width,newWindowResolution.height}
+				};
+/*
+				asset::SViewport viewport;
+				viewport.minDepth = 1.f;
+				viewport.maxDepth = 0.f;
+				viewport.x = 0u;
+				viewport.y = 0u;
+				viewport.width = imgExtents.width;
+				viewport.height = imgExtents.height;
+				cmdbuf->setViewport(0u, 1u, &viewport);
+*/
+				cmdbuf->setScissor(0u,{&currentRenderArea,1});
+
+				// begin the renderpass
+				{
+					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,1.f,1.f,1.f} };
+					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+						.framebuffer = scRes->getFrambuffer(imageIx),
+						.colorClearValues = &clearValue,
+						.depthStencilClearValues = nullptr,
+						.renderArea = currentRenderArea
+					};
+					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				}
+#if 0
+				cmdbuf->bindGraphicsPipeline(gpuGraphicsPipeline.get());
+				cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
+				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
+#endif
+				cmdbuf->endRenderPass();
+				cmdbuf->end();
+			}
+
+			// submit
 			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
 				.semaphore = m_semaphore.get(),
 				.value = ++m_submitIx,
@@ -298,9 +392,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 			}};
 			{
-				const auto resourceIx = m_submitIx%m_maxFramesInFlight;
-
-				// submit
 				{
 					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
 						.semaphore = m_surface->getAcquireSemaphore(),
@@ -392,8 +483,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		uint64_t m_submitIx : 59 = 0;
 		// Maximum frames which can be simultaneously rendered
 		uint64_t m_maxFramesInFlight : 5;
-		// Simple Renderpass
-		smart_refctd_ptr<IGPURenderpass> m_renderpass;
+		// Enough Command Buffers and other resources for all frames in flight!
+		std::array<smart_refctd_ptr<IGPUCommandPool>,ISwapchain::MaxImages> m_cmdPools;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 };
 #if 0
 class ColorSpaceTestSampleApp : public ApplicationBase
@@ -401,14 +493,8 @@ class ColorSpaceTestSampleApp : public ApplicationBase
 	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
 
 	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
-	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<system::ISystem> system;
-	core::smart_refctd_ptr<asset::IAssetManager> assetManager;
 	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<system::ILogger> logger;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
-	video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
 public:
 	void onAppInitialized_impl() override
@@ -669,19 +755,7 @@ public:
 			// can't just use windowExtent as the actual window size may have been capped by windows
 			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
 
-			if (didResize)
-			{
-				CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, imgExtents.width, imgExtents.height, swapchain);
-				assert(swapchain);
-				fbos = CommonAPI::createFBOWithSwapchainImages(
-					swapchain->getImageCount(), imgExtents.width, imgExtents.height,
-					logicalDevice, swapchain, renderpass,
-					asset::EF_UNKNOWN
-				);
-
-				lastWidth = imgExtents.width;
-				lastHeight = imgExtents.height;
-			}
+			// resize
 
 			video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
@@ -717,102 +791,16 @@ public:
 			core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
 			core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
 
-			const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-			for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-			{
-				logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
-				imageAcquire[i] = logicalDevice->createSemaphore();
-				renderFinished[i] = logicalDevice->createSemaphore();
-			}
-
 			auto startPoint = std::chrono::high_resolution_clock::now();
 
 			uint32_t imgnum = 0u;
 			int32_t resourceIx = -1;
 			for (;;)
 			{
-				resourceIx++;
-				if (resourceIx >= FRAMES_IN_FLIGHT)
-					resourceIx = 0;
 
-				auto& cb = commandBuffers[resourceIx];
-				auto& fence = frameComplete[resourceIx];
-				if (fence)
-				{
-					while (logicalDevice->waitForFences(1u, &fence.get(), false, MAX_TIMEOUT) == video::IGPUFence::ES_TIMEOUT)
-					{
-					}
-					logicalDevice->resetFences(1u, &fence.get());
-				}
-				else
-					fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
-
-				auto aPoint = std::chrono::high_resolution_clock::now();
-				if (std::chrono::duration_cast<std::chrono::milliseconds>(aPoint - startPoint).count() > SWITCH_IMAGES_PER_X_MILISECONDS)
-					break;
-
-				// acquire image 
-				swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
-
-				cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
-
-
-				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
-				layoutTransition.barrier.srcAccessMask = asset::EAF_NONE;
-				layoutTransition.barrier.dstAccessMask = asset::EAF_SHADER_READ_BIT;
-				layoutTransition.oldLayout = asset::IImage::EL_UNDEFINED;
-				layoutTransition.newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
-				layoutTransition.srcQueueFamilyIndex = ~0u;
-				layoutTransition.dstQueueFamilyIndex = ~0u;
-				layoutTransition.image = gpuImageView->getCreationParameters().image;
-				layoutTransition.subresourceRange = gpuImageView->getCreationParameters().subresourceRange;
-
-				cb->pipelineBarrier(asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EPSF_COMPUTE_SHADER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &layoutTransition);
-
-				asset::SViewport viewport;
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
-				viewport.x = 0u;
-				viewport.y = 0u;
-				viewport.width = imgExtents.width;
-				viewport.height = imgExtents.height;
-				cb->setViewport(0u, 1u, &viewport);
-
-				VkRect2D scissor;
-				scissor.offset = { 0, 0 };
-				scissor.extent = { imgExtents.width, imgExtents.height };
-
-				cb->setScissor(0u, 1u, &scissor);
-
-				video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-				{
-					VkRect2D area;
-					area.offset = { 0,0 };
-					area.extent = { imgExtents.width, imgExtents.height };
-					asset::SClearValue clear;
-					clear.color.float32[0] = 1.f;
-					clear.color.float32[1] = 1.f;
-					clear.color.float32[2] = 1.f;
-					clear.color.float32[3] = 1.f;
-					beginInfo.clearValueCount = 1u;
-					beginInfo.framebuffer = fbos->begin()[imgnum];
-					beginInfo.renderpass = renderpass;
-					beginInfo.renderArea = area;
-					beginInfo.clearValues = &clear;
-				}
-
-				cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-				cb->bindGraphicsPipeline(gpuGraphicsPipeline.get());
-				cb->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
-				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
-				cb->endRenderPass();
-				cb->end();
-
-				// submit
-				// present
+				// render
 			}
 
-			logicalDevice->waitIdle();
 
 			const auto& fboCreationParams = fbos->begin()[imgnum]->getCreationParameters();
 			auto gpuSourceImageView = fboCreationParams.attachments[0];
