@@ -242,7 +242,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
 			// TODO: improve the queue allocation/choice and allocate a dedicated presentation queue to improve responsiveness and race to present.
- 			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get())))
+ 			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()),std::make_unique<CSwapchainResources>(),{}))
 				return logFail("Failed to Create a Swapchain!");
 
 			// When a swapchain gets recreated (resize or mode change) the number of images might change.
