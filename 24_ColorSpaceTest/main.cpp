@@ -1,12 +1,12 @@
 ﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "../common/SimpleWindowedApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "../common/SimpleWindowedApplication.hpp"
 
 //
+#include "../common/CDefaultSwapchainFramebuffers.hpp"
 #include "nbl/video/surface/CSurfaceVulkan.h"
-#include "nbl/video/CVulkanSwapchain.h"
 
 
 using namespace nbl;
@@ -16,58 +16,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-// Just a class to hold framebuffers derived from swapchain images
-// WARNING: It assumes the format won't change between swapchain recreates!
-class CDefaultSwapchainFramebuffers : public ISimpleManagedSurface::ISwapchainResources
-{
-	public:
-		inline CDefaultSwapchainFramebuffers(core::smart_refctd_ptr<IGPURenderpass>&& _renderpass) : m_renderpass(std::move(_renderpass)) {}
-
-		inline IGPUFramebuffer* getFrambuffer(const uint8_t imageIx)
-		{
-			if (imageIx<m_framebuffers.size())
-				return m_framebuffers[imageIx].get();
-			return nullptr;
-		}
-
-	protected:
-		virtual inline void invalidate_impl()
-		{
-			std::fill(m_framebuffers.begin(),m_framebuffers.end(),nullptr);
-		}
-
-		// For creating extra per-image or swapchain resources you might need
-		virtual inline bool onCreateSwapchain_impl(const uint8_t qFam)
-		{
-			auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
-
-			const auto swapchain = getSwapchain();
-			const auto& sharedParams = swapchain->getCreationParameters().sharedParams;
-			const auto count = swapchain->getImageCount();
-			for (uint8_t i=0u; i<count; i++)
-			{
-				auto imageView = device->createImageView({
-					.flags = IGPUImageView::ECF_NONE,
-					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
-					.image = core::smart_refctd_ptr<video::IGPUImage>(getImage(i)),
-					.viewType = IGPUImageView::ET_2D,
-					.format = swapchain->getCreationParameters().surfaceFormat.format
-				});
-				m_framebuffers[i] = device->createFramebuffer({{
-					.renderpass = core::smart_refctd_ptr(m_renderpass),
-					.colorAttachments = &imageView.get(),
-					.width = sharedParams.width,
-					.height = sharedParams.height
-				}});
-				if (!m_framebuffers[i])
-					return false;
-			}
-			return true;
-		}
-
-		core::smart_refctd_ptr<IGPURenderpass> m_renderpass;
-		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
-};
 
 class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -103,7 +51,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<CDefaultSwapchainFramebuffers>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<nbl::examples::CDefaultSwapchainFramebuffers>::create(std::move(surface));
 			}
 			if (m_surface)
 				return {{m_surface->getSurface()/*,EQF_NONE*/}};
@@ -137,32 +85,25 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			m_loadCWD = m_loadCWD.parent_path();
 
 			// Load Shaders
-			auto loadCompileAndCreateShader = [&]() -> smart_refctd_ptr<IGPUShader>
+			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
 			{
-				/*
-					auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
-					auto fs_contents = fs_bundle.getContents();
-					if (fs_contents.empty())
-						assert(false);
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset(relPath,lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
+					return nullptr;
 
-					asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				if (!source)
+					return nullptr;
 
-					core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
-					{
-						cpu2gpuParams.beginCommandBuffers();
-						auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
-						cpu2gpuParams.waitForCreationToComplete(false);
-
-						if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
-							assert(false);
-
-						gpuFragmentShader = (*gpu_array)[0];
-					}
-				*/
-				return nullptr;
+				return m_device->createShader(source.get());
 			};
-			auto vertexShader = loadCompileAndCreateShader();
-			auto fragmentShader = loadCompileAndCreateShader();
+			auto vertexShader = loadCompileAndCreateShader(""); // TODO
+			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.hlsl");
 			
 			// Now surface indep resources
 			m_semaphore = m_device->createSemaphore(m_submitIx);
@@ -254,30 +195,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 			// Now create the pipeline
 			{
-				auto loadCompileAndCreateShader = [&]() -> smart_refctd_ptr<IGPUShader>
-				{
-					/*
-						auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
-						auto fs_contents = fs_bundle.getContents();
-						if (fs_contents.empty())
-							assert(false);
-
-						asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
-
-						core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
-						{
-							cpu2gpuParams.beginCommandBuffers();
-							auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
-							cpu2gpuParams.waitForCreationToComplete(false);
-
-							if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
-								assert(false);
-
-							gpuFragmentShader = (*gpu_array)[0];
-						}
-					*/
-					return nullptr;
-				};
 				const IGPUShader::SSpecInfo shaders[2] = {
 					{.shader=vertexShader.get()},
 					{.shader=fragmentShader.get()}
@@ -350,7 +267,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			// Let's just use the same queue since there's no need for async present
-			if (!m_surface || !m_surface->init(getGraphicsQueue(),std::make_unique<CDefaultSwapchainFramebuffers>(std::move(renderpass)),{}))
+			if (!m_surface || !m_surface->init(getGraphicsQueue(),std::make_unique<examples::CDefaultSwapchainFramebuffers>(std::move(renderpass)),{}))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
@@ -498,7 +415,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				// begin the renderpass
 				{
 					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,1.f,1.f,1.f} };
-					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+					auto scRes = static_cast<examples::CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
 						.framebuffer = scRes->getFrambuffer(imageIx),
 						.colorClearValues = &clearValue,
@@ -508,7 +425,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
 //				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-//				cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
+//				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds.get());
 //				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
 				cmdbuf->endRenderPass();
 				cmdbuf->end();
@@ -601,7 +518,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 	protected:
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+		smart_refctd_ptr<CSimpleResizeSurface<examples::CDefaultSwapchainFramebuffers>> m_surface;
 		//
 		std::ifstream m_testPathsFile;
 		system::path m_loadCWD;
@@ -621,32 +538,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		std::array<smart_refctd_ptr<IGPUCommandPool>,ISwapchain::MaxImages> m_cmdPools;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 };
-#if 0
-class ColorSpaceTestSampleApp : public ApplicationBase
-{
-	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-
-	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
-	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	video::IGPUObjectFromAssetConverter cpu2gpu;
-
-public:
-	void onAppInitialized_impl() override
-	{
-
-		video::IGPUObjectFromAssetConverter cpu2gpu;
-
-
-
-
-
-		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> cpuImageViews;
-		
-		// we clone because we need these cpuimages later for directly using upload utilitiy
-		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> clonedCpuImageViews(cpuImageViews.size());
-		for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
-			clonedCpuImageViews[i] = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(cpuImageViews[i]->clone());
-		
+#if 0	
 		// Allocate and Leave 8MB for image uploads, to test image copy with small memory remaining 
 		{
 			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
@@ -655,13 +547,6 @@ public:
 			const uint32_t allocationSize = maxFreeBlock - (0x00F0000u * 4u);
 			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
 		}
-
-		cpu2gpuParams.beginCommandBuffers();
-		auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(clonedCpuImageViews.data(), clonedCpuImageViews.data() + clonedCpuImageViews.size(), cpu2gpuParams);
-		cpu2gpuParams.waitForCreationToComplete(false);
-		
-		if (!gpuImageViews || gpuImageViews->size() < cpuImageViews.size())
-			assert(false);
 
 		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
 		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
@@ -794,31 +679,8 @@ public:
 			}
 		}
 
-		auto getCurrentGPURenderpassIndependentPipeline = [&](video::IGPUImageView* gpuImageView)
-		{
-			switch (gpuImageView->getCreationParameters().viewType)
-			{
-			case asset::IImageView<video::IGPUImage>::ET_2D:
-			{
-				return gpuPipelineFor2D;
-			}
 
-			case asset::IImageView<video::IGPUImage>::ET_2D_ARRAY:
-			{
-				return gpuPipelineFor2DArrays;
-			}
 
-			case asset::IImageView<video::IGPUImage>::ET_CUBE_MAP:
-			{
-				return gpuPipelineForCubemaps;
-			}
-
-			default:
-				assert(false);
-			}
-		};
-
-		auto ds = gpuDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
@@ -841,36 +703,7 @@ public:
 
 			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 
-			auto currentGpuRenderpassIndependentPipeline = getCurrentGPURenderpassIndependentPipeline(gpuImageView.get());
-			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> gpuGraphicsPipeline;
-			{
-				video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams = {};
-				graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>(const_cast<video::IGPURenderpassIndependentPipeline*>(currentGpuRenderpassIndependentPipeline.get()));
-				graphicsPipelineParams.renderpass = core::smart_refctd_ptr(renderpass);
 
-				gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
-			}
-
-
-			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FRAMES_IN_FLIGHT];
-
-			core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
-			core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
-			core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
-
-			auto startPoint = std::chrono::high_resolution_clock::now();
-
-			uint32_t imgnum = 0u;
-			int32_t resourceIx = -1;
-			for (;;)
-			{
-
-				// render
-			}
-
-
-			const auto& fboCreationParams = fbos->begin()[imgnum]->getCreationParameters();
-			auto gpuSourceImageView = fboCreationParams.attachments[0];
 
 			const std::string writePath = "screenShot_" + captionData.name + ".png";
 
