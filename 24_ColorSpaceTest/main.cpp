@@ -17,8 +17,14 @@ using namespace ui;
 using namespace video;
 
 // Just a class to hold framebuffers derived from swapchain images
-class CSwapchainResources final : public ISimpleManagedSurface::ISwapchainResources
+// WARNING: It assumes the format won't change between swapchain recreates!
+class CDefaultSwapchainFramebuffers : public ISimpleManagedSurface::ISwapchainResources
 {
+	public:
+		inline CDefaultSwapchainFramebuffers(core::smart_refctd_ptr<IGPURenderpass>&& _renderpass) : m_renderpass(std::move(_renderpass)) {}
+
+	protected:
+		core::smart_refctd_ptr<IGPURenderpass> m_renderpass;
 };
 
 class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
@@ -55,7 +61,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<CSwapchainResources>::create(std::move(surface));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<CDefaultSwapchainFramebuffers>::create(std::move(surface));
 			}
 			if (m_surface)
 				return {{m_surface->getSurface()/*,EQF_NONE*/}};
@@ -95,94 +101,106 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 			// TODO: Use the widest gamut possible
 			const auto format = asset::EF_R8G8B8A8_SRGB;
-			// Create the renderpass
+
+			// Create our Swapchain Resources and Initialize the Managed Surface
 			{
-				//
-				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-					{{
-						.format = format,
-						.samples = IGPUImage::ESCF_1_BIT,
-						.mayAlias = false,
-						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-						.storeOp = IGPURenderpass::STORE_OP::STORE,
-						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
-						.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC // transition to presentation right away so we can skip a barrier
-					}},
-					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-				};
-				IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-					{},
-					IGPURenderpass::SCreationParams::SubpassesEnd
-				};
-				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-				// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
-				const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-					// wipe-transition to ATTACHMENT_OPTIMAL
-					{
-						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-						.dstSubpass = 0,
-						.memoryBarrier = {
-							// since we're uploading the image data we're about to draw 
-							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
-							.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-							// because we clear and don't blend
-							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-						}
-						// leave view offsets and flags default
-					},
-					// ATTACHMENT_OPTIMAL to PRESENT_SRC
-					{
-						.srcSubpass = 0,
-						.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-						.memoryBarrier = {
-							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-							// we can have NONE as the Destinations because the spec says so about presents
-						}
-						// leave view offsets and flags default
-					},
-					IGPURenderpass::SCreationParams::DependenciesEnd
-				};
+				smart_refctd_ptr<IGPURenderpass> renderpass;
+				// Create the renderpass
+				{
+					//
+					const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+						{{
+							.format = format,
+							.samples = IGPUImage::ESCF_1_BIT,
+							.mayAlias = false,
+							.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
+							.storeOp = IGPURenderpass::STORE_OP::STORE,
+							.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents
+							.finalLayout = IGPUImage::LAYOUT::PRESENT_SRC // transition to presentation right away so we can skip a barrier
+						}},
+						IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+					};
+					IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+						{},
+						IGPURenderpass::SCreationParams::SubpassesEnd
+					};
+					subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+					// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+					const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+						// wipe-transition to ATTACHMENT_OPTIMAL
+						{
+							.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+							.dstSubpass = 0,
+							.memoryBarrier = {
+								// since we're uploading the image data we're about to draw 
+								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+								.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+								// because we clear and don't blend
+								.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							}
+							// leave view offsets and flags default
+						},
+						// ATTACHMENT_OPTIMAL to PRESENT_SRC
+						{
+							.srcSubpass = 0,
+							.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+							.memoryBarrier = {
+								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+								.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+								// we can have NONE as the Destinations because the spec says so about presents
+							}
+							// leave view offsets and flags default
+						},
+						IGPURenderpass::SCreationParams::DependenciesEnd
+					};
 
-				IGPURenderpass::SCreationParams params = {};
-				params.colorAttachments = colorAttachments;
-				params.subpasses = subpasses;
-				params.dependencies = dependencies;
-				m_renderpass = m_device->createRenderpass(params);
-				if (!m_renderpass)
-					return logFail("Failed to Create a Renderpass!");
+					IGPURenderpass::SCreationParams params = {};
+					params.colorAttachments = colorAttachments;
+					params.subpasses = subpasses;
+					params.dependencies = dependencies;
+					renderpass = m_device->createRenderpass(params);
+					if (!renderpass)
+						return logFail("Failed to Create a Renderpass!");
+				}
+
+				// Let's just use the same queue since there's no need for async present
+				if (!m_surface || !m_surface->init(getGraphicsQueue(),std::make_unique<CDefaultSwapchainFramebuffers>(std::move(renderpass)),{}))
+					return logFail("Could not create Window & Surface or initialize the Surface!");
 			}
-
-			// Let's just use the same queue since there's no need for async present
-			if (!m_surface || !m_surface->init(getGraphicsQueue()))
-				return logFail("Could not create Window & Surface or initialize the Surface!");
 
 			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
-			// create the descriptor set
+			// create the descriptor sets, 1 per FIF and with enough room for one image sampler
 			{
+				auto defaultSampler = m_device->createSampler({
+					.AnisotropicFilter = 0
+				});
+
+				const IGPUDescriptorSetLayout::SBinding bindings[1] = {{
+					.binding = 0,
+					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::ESS_COMPUTE,
+					.count = 1,
+					.samplers = &defaultSampler
+				}};
+				auto layout = m_device->createDescriptorSetLayout(bindings);
+
+				const uint32_t setCount = m_maxFramesInFlight;
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&layout.get(),1},&setCount);
+				if (!pool)
+					return logFail("Failed to Create Descriptor Pool");
+
 
 			}
-#if 0
-		auto createDescriptorPool = [&](const uint32_t textureCount)
-		{
-			constexpr uint32_t maxItemCount = 256u;
+
+			// create the commandbuffers and pools, this time properly 1 pool per FIF
+			for (auto i=0u; i<m_maxFramesInFlight; i++)
 			{
-				video::IDescriptorPool::SCreateInfo createInfo;
-				createInfo.maxSets = maxItemCount;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
-				return logicalDevice->createDescriptorPool(std::move(createInfo));
+				return false;
 			}
-		};
 
-		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
-		auto immutableSampler = logicalDevice->createSampler(samplerParams);
-
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
-		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
-		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
-#endif
 			return true;
 		}
 
@@ -361,7 +379,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 	protected:
 		smart_refctd_ptr<IWindow> m_window;
-		smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
+		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 		//
 		std::ifstream m_testPathsFile;
 		system::path m_loadCWD;
