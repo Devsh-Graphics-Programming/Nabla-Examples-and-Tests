@@ -350,14 +350,8 @@ class HelloGraphicsQueueApp final : public examples::MonoDeviceApplication, publ
 
 		IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> constructDefaultInitializedImageBarrier() const
 		{
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> res;
-			res.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
-			res.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
-			res.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
-			res.newLayout = asset::IImage::LAYOUT::UNDEFINED;
-			res.image = nullptr;
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> res = {};
 			res.subresourceRange = constructDefaultInitializedSubresourceRange();
-
 			return res;
 		}
 
