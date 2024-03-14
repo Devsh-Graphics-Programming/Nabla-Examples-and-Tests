@@ -38,60 +38,52 @@ int main()
 
     core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
 
-    
-        asset::IAssetLoader::SAssetLoadParams lparams;
-        auto assetLoaded = device->getAssetManager()->getAsset("../test.ies", lparams);
-        auto assetCand = *assetLoaded.getContents().begin();
-        auto cpuImageView = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(std::move(assetCand));
+    asset::IAssetLoader::SAssetLoadParams lparams;
+    lparams.loaderFlags = asset::IAssetLoader::E_LOADER_PARAMETER_FLAGS::ELPF_LOAD_METADATA_ONLY;
 
-        auto gpuImageView = driver->getGPUObjectsFromAssets(&cpuImageView, &cpuImageView + 1)->front();
+    auto assetLoaded = device->getAssetManager()->getAsset("../028e97564391140b1476695ae7a46fa4.ies", lparams);
+    const auto* meta = assetLoaded.getMetadata();
 
+    if (!meta)
+        return 2; // could not load metadata
 
-        size_t ds0SamplerBinding = 0, ds1UboBinding = 0;
-        /*
-            SBinding for the texture (sampler).
-        */
+    const auto* iesProfileMeta = meta->selfCast<const asset::CIESProfileMetadata>();
+    auto cpuImageView = iesProfileMeta->profile.createCDCTexture();
+    auto gpuImageView = driver->getGPUObjectsFromAssets(&cpuImageView, &cpuImageView + 1)->front();
 
-        IGPUDescriptorSetLayout::SBinding gpuSamplerBinding;
-        gpuSamplerBinding.binding = ds0SamplerBinding;
-        gpuSamplerBinding.type = asset::EDT_COMBINED_IMAGE_SAMPLER;
-        gpuSamplerBinding.count = 1u;
-        gpuSamplerBinding.stageFlags = static_cast<IGPUSpecializedShader::E_SHADER_STAGE>(IGPUSpecializedShader::ESS_FRAGMENT);
-        gpuSamplerBinding.samplers = nullptr;
+    size_t ds0SamplerBinding = 0, ds1UboBinding = 0;
+    /*
+        SBinding for the texture (sampler).
+    */
 
-        /*
-            Creating specific descriptor set layouts from specialized bindings.
-            Those layouts needs to attached to pipeline layout if required by user.
-            IrrlichtBaW provides 4 places for descriptor set layout usage.
-        */
-        auto gpuDs3Layout = driver->createGPUDescriptorSetLayout(&gpuSamplerBinding, &gpuSamplerBinding + 1);
+    IGPUDescriptorSetLayout::SBinding gpuSamplerBinding;
+    gpuSamplerBinding.binding = ds0SamplerBinding;
+    gpuSamplerBinding.type = asset::EDT_COMBINED_IMAGE_SAMPLER;
+    gpuSamplerBinding.count = 1u;
+    gpuSamplerBinding.stageFlags = static_cast<IGPUSpecializedShader::E_SHADER_STAGE>(IGPUSpecializedShader::ESS_FRAGMENT);
+    gpuSamplerBinding.samplers = nullptr;
 
-        /*
-            Creating descriptor sets - texture (sampler) and basic view parameters (UBO).
-            Specifying info and write parameters for updating certain descriptor set to the driver.
-
-            We know ahead of time that `SBasicViewParameters` struct is the expected structure of the only UBO block in the descriptor set nr. 1 of the shader.
-        */
-
-        auto gpuDescriptorSet3 = driver->createGPUDescriptorSet(gpuDs3Layout);
+ 
+    auto gpuDs3Layout = driver->createGPUDescriptorSetLayout(&gpuSamplerBinding, &gpuSamplerBinding + 1);
+    auto gpuDescriptorSet3 = driver->createGPUDescriptorSet(gpuDs3Layout);
+    {
+        video::IGPUDescriptorSet::SWriteDescriptorSet write;
+        write.dstSet = gpuDescriptorSet3.get();
+        write.binding = ds0SamplerBinding;
+        write.count = 1u;
+        write.arrayElement = 0u;
+        write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+        IGPUDescriptorSet::SDescriptorInfo info;
         {
-            video::IGPUDescriptorSet::SWriteDescriptorSet write;
-            write.dstSet = gpuDescriptorSet3.get();
-            write.binding = ds0SamplerBinding;
-            write.count = 1u;
-            write.arrayElement = 0u;
-            write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
-            IGPUDescriptorSet::SDescriptorInfo info;
-            {
-                info.desc = std::move(gpuImageView);
-                asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS };
-                info.image = { driver->createGPUSampler(samplerParams),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
-            }
-            write.info = &info;
-            driver->updateDescriptorSets(1u, &write, 0u, nullptr);
+            info.desc = std::move(gpuImageView);
+            asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS };
+            info.image = { driver->createGPUSampler(samplerParams),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
         }
+        write.info = &info;
+        driver->updateDescriptorSets(1u, &write, 0u, nullptr);
+    }
 
-        layout = driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, std::move(gpuDs3Layout));
+    layout = driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, std::move(gpuDs3Layout));
     
     core::smart_refctd_ptr<video::IGPUMeshBuffer> quad;
     core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> pipeline;
@@ -124,7 +116,6 @@ int main()
         quad = driver->getGPUObjectsFromAssets(&cpusphere.get(), &cpusphere.get()+1)->front();
     }
 
-    //! we want to move around the scene and view it from different angles
     scene::ICameraSceneNode* camera = smgr->addCameraSceneNodeFPS(nullptr , 100.0f, 0.005f);
 
     video::IGPUImage::SCreationParams imgInfo;
@@ -172,7 +163,6 @@ int main()
 
         driver->endScene();
     }
-
 
     return 0;
 }
