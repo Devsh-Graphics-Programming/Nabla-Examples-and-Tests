@@ -4,6 +4,7 @@
 
 #include <nabla.h>
 #include "nbl/ext/ScreenShot/ScreenShot.h"
+#include "compute/common.h"
 
 using namespace nbl;
 using namespace core;
@@ -84,6 +85,176 @@ class IESExampleEventReceiver : public nbl::IEventReceiver
         bool cdcMode = true, running = true, debug = false, regenerateCDC = false;
 };
 
+class IESCompute
+{
+    public:
+        IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const asset::CIESProfile& _profile)
+            : profile(_profile), driver(_driver)
+        {
+            createGPUEnvironment<EM_CDC>(_assetManager);
+            // createGPUEnvironment<EM_RENDER>(_assetManager); // TODO
+        }
+        ~IESCompute() {}
+
+        enum E_MODE
+        {
+            EM_CDC,     //! Candlepower Distribution Curve
+            EM_RENDER,  //! 3D render of an IES light
+            EM_SIZE
+        };
+
+        enum E_BINDINGS
+        {
+            EB_SSBO,     //! IES Profile SSBO
+            EB_IMAGE,    //! Image with data depending on E_MODE
+            EB_SIZE
+        };
+
+        template<E_MODE mode>
+        auto& getGPUE()
+        {
+            static_assert(mode != EM_SIZE);
+            return m_gpue[mode];
+        }
+
+        template<E_MODE mode>
+        void dispatch()
+        {
+            static_assert(mode != EM_SIZE);
+            auto& gpue = getGPUE<mode>();
+
+            driver->bindComputePipeline(gpue.pipeline.get());
+            driver->bindDescriptorSets(EPBP_COMPUTE, gpue.pipeline->getLayout(), 0u, 1u, &gpue.descriptor.get(), nullptr);
+            
+            _NBL_STATIC_INLINE_CONSTEXPR auto xGroups = (TEXTURE_SIZE - 1u) / WORKGROUP_DIMENSION + 1u;
+            driver->dispatch(xGroups, core::max(xGroups >> 1u, 1u), 1u);
+
+            // NOTE: may need correction from our chads of synchro
+            COpenGLExtensionHandler::extGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        }
+
+    private:
+
+        template<E_MODE _mode>
+        void createGPUEnvironment(asset::IAssetManager* _assetManager)
+        {
+            static_assert(_mode != EM_SIZE);
+
+            auto createSSBODescriptor = [&]()
+            {
+                return driver->createFilledDeviceLocalGPUBufferOnDedMem(sizeof(asset::CIESProfile), &profile); // TODO, check it, alignment!
+            };
+
+            auto createImageDescriptor = [&]()
+            {
+                IGPUImage::SCreationParams imageInfo;
+                imageInfo.format = asset::EF_R16_UNORM;
+                imageInfo.type = IGPUImage::ET_2D;
+                imageInfo.extent.width = TEXTURE_SIZE;
+                imageInfo.extent.height = TEXTURE_SIZE;
+                imageInfo.extent.depth = 1u;
+
+                imageInfo.mipLevels = 1u;
+                imageInfo.arrayLayers = 1u;
+                imageInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+                imageInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+
+                auto image = driver->createGPUImageOnDedMem(std::move(imageInfo), driver->getDeviceLocalGPUMemoryReqs());
+
+                IGPUImageView::SCreationParams imgViewInfo;
+                imgViewInfo.image = std::move(image);
+                imgViewInfo.format = asset::EF_R16_UNORM;
+                imgViewInfo.viewType = IGPUImageView::ET_2D;
+                imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
+                imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+                imgViewInfo.subresourceRange.baseMipLevel = 0u;
+                imgViewInfo.subresourceRange.layerCount = 1u;
+                imgViewInfo.subresourceRange.levelCount = 1u;
+
+                return driver->createGPUImageView(std::move(imgViewInfo));
+            };
+
+            auto gpuSpecializedShaderFromFile = [&](const char* path)
+            {
+                auto bundle = _assetManager->getAsset(path, {});
+                auto shader = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*bundle.getContents().begin());
+
+                return driver->getGPUObjectsFromAssets<asset::ICPUSpecializedShader>(&shader, &shader + 1u)->operator[](0); // omg
+            };
+
+            if (_mode == EM_SIZE)
+                return;
+
+            auto& gpue = m_gpue[_mode];
+
+            const std::vector<IGPUDescriptorSetLayout::SBinding> bindings =
+            {
+                { EB_SSBO, asset::EDT_STORAGE_BUFFER, 1,asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                { EB_IMAGE, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr }
+            };
+
+            {
+                auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
+                gpue.pipeline = driver->createGPUComputePipeline(nullptr, driver->createGPUPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout)), gpuSpecializedShaderFromFile(getShaderPath<_mode>().data()));
+                gpue.descriptor = driver->createGPUDescriptorSet(std::move(descriptorSetLayout));
+            }
+
+            {
+                IGPUDescriptorSet::SDescriptorInfo infos[EB_SIZE];
+                {
+                    {
+                        auto ssbo = createSSBODescriptor();
+                        infos[EB_SSBO].desc = core::smart_refctd_ptr(ssbo);
+                        infos[EB_SSBO].buffer = { 0, ssbo->getSize() };
+                    }
+
+                    {
+                        auto imageView = createImageDescriptor();
+                        infos[EB_IMAGE].desc = std::move(imageView);
+                        infos[EB_IMAGE].image = { nullptr, asset::EIL_GENERAL };
+                    }
+                }
+
+                IGPUDescriptorSet::SWriteDescriptorSet writes[EB_SIZE];
+                for (auto i = 0; i < EB_SIZE; i++)
+                {
+                    writes[i].dstSet = gpue.descriptor.get();
+                    writes[i].binding = i;
+                    writes[i].arrayElement = 0u;
+                    writes[i].count = 1u;
+                    writes[i].info = &infos[i];
+                }
+
+                writes[EB_SSBO].descriptorType = asset::EDT_STORAGE_BUFFER;
+                writes[EB_IMAGE].descriptorType = asset::EDT_STORAGE_IMAGE;
+
+                driver->updateDescriptorSets(EB_SIZE, writes, 0u, nullptr);
+            }
+        }
+
+        template<E_MODE mode>
+        _NBL_STATIC_INLINE_CONSTEXPR std::string_view getShaderPath()
+        {
+            if constexpr (mode == EM_CDC)
+                return "../compute/cdc.comp";
+            else if (mode == EM_RENDER)
+                return "../compute/render.comp";
+            else
+                return "";
+
+            static_assert(mode != EM_SIZE);
+        }
+
+        const asset::CIESProfile& profile;
+        video::IVideoDriver* const driver;
+
+        struct GPUE
+        {
+            core::smart_refctd_ptr<video::IGPUComputePipeline> pipeline;
+            core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptor;
+        } m_gpue[EM_SIZE];
+};
+
 int main()
 {
     nbl::SIrrlichtCreationParameters params;
@@ -122,6 +293,8 @@ int main()
         return 2;
 
     const auto* iesProfileMeta = meta->selfCast<const asset::CIESProfileMetadata>();
+
+    IESCompute iesComputeEnvironment(driver, am, iesProfileMeta->profile);
 
     size_t ds0SamplerBinding = 0, ds1UboBinding = 0;
  
@@ -239,6 +412,8 @@ int main()
         const float clear[4] {0.f,0.f,0.f,1.f};
         driver->clearColorBuffer(video::EFAP_COLOR_ATTACHMENT0, clear);
         driver->beginScene(true, false, video::SColor(255, 0, 0, 0));
+
+        iesComputeEnvironment.dispatch<IESCompute::EM_CDC>(); // TODO: testing RD currently only
 
         driver->bindGraphicsPipeline(pipeline.get()); 
         generateDescriptorImage(receiver);

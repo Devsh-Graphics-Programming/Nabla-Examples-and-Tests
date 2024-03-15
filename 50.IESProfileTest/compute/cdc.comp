@@ -1,0 +1,36 @@
+#version 430 core
+
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+
+#include "common.h"
+
+layout(local_size_x = WORKGROUP_DIMENSION, local_size_y = WORKGROUP_DIMENSION) in;
+
+layout(set = 0, binding = 0, row_major) readonly buffer Profile
+{
+	uint type;
+	double hAngles[];
+	double vAngles[];
+	double data[];
+};
+
+layout(set = 0, binding = 1, r16ui) restrict uniform uimage2D outCDCImage;
+
+void main()
+{
+	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 destinationSize = imageSize(outCDCImage);
+	
+	if (all(lessThan(pixelCoordinates, destinationSize)))
+	{
+		const vec2 uv = vec2(pixelCoordinates)/vec2(destinationSize);
+	
+		// TODO, implement logic
+		
+		uint t = type;
+		uvec4 outValue = uvec4(gl_GlobalInvocationID.x,gl_GlobalInvocationID.y,0,0);
+		imageStore(outCDCImage, pixelCoordinates, outValue);
+	}
+}
