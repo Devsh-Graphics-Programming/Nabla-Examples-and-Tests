@@ -1,20 +1,91 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#define _NBL_STATIC_LIB_
-#include <iostream>
-#include <cstdio>
 #include <nabla.h>
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
 using namespace nbl;
 using namespace core;
 
+class IESExampleEventReceiver : public nbl::IEventReceiver
+{
+    public:
+        IESExampleEventReceiver() {}
+
+        bool OnEvent(const nbl::SEvent& event)
+        {
+            auto handleDegress = [&](bool addition = true)
+            {
+                const auto& newDegree = std::clamp<int16_t>(zDegree + (addition ? DEGREE_SHIFT : (-DEGREE_SHIFT)), 0u, 360u);
+
+                if (zDegree != newDegree)
+                    regenerateCDC = true;
+
+                zDegree = newDegree;
+
+                return true;
+            };
+
+            if (event.EventType == nbl::EET_KEY_INPUT_EVENT && !event.KeyInput.PressedDown)
+            {
+                switch (event.KeyInput.Key)
+                {
+                    case nbl::KEY_KEY_C:
+                    {
+                        cdcMode = true;
+                        return true;
+                    }
+                    case nbl::KEY_KEY_R:
+                    {
+                        cdcMode = false;
+                        return true;
+                    }
+                    case nbl::KEY_KEY_D:
+                    {
+                        debug = !debug;
+
+                        if(debug)
+                            printf("[INFO] Debug mode turned ON, verbose logs will be generated to stdout");
+                        else
+                            printf("[INFO] Debug mode turned OFF, verbose logs will be stopped");
+
+                        return true;
+                    }
+                    case nbl::KEY_LEFT:
+                    {
+                        return handleDegress(false);
+                    }
+                    case nbl::KEY_RIGHT:
+                    {
+                        return handleDegress(true);
+                    }
+                    case nbl::KEY_KEY_Q:
+                    {
+                        running = false;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        inline const auto& isRunning() const { return running; }
+        inline const auto& isInCDCMode() const { return cdcMode; }
+        inline const auto& isDebug() const { return debug; }
+        inline const auto& needToRegenerateCDC() const { return regenerateCDC; }
+        template<typename T = int16_t>
+        inline const auto& getZDegree() const { return static_cast<T>(zDegree); }
+        inline void resetRequests() { regenerateCDC = false; }
+
+    private:
+        _NBL_STATIC_INLINE_CONSTEXPR size_t DEGREE_SHIFT = 5u;
+        int16_t zDegree = 0u;
+        bool cdcMode = true, running = true, debug = false, regenerateCDC = false;
+};
+
 int main()
 {
-    // create device with full flexibility over creation parameters
-    // you can add more parameters if desired, check nbl::SIrrlichtCreationParameters
     nbl::SIrrlichtCreationParameters params;
     params.Bits = 24; //may have to set to 32bit for some platforms
     params.ZBufferBits = 24; //we'd like 32bit here
@@ -36,6 +107,9 @@ int main()
     auto* glslc = am->getGLSLCompiler();
     auto* gc = am->getGeometryCreator();
 
+    IESExampleEventReceiver receiver;
+    device->setEventReceiver(&receiver);
+
     core::smart_refctd_ptr<video::IGPUPipelineLayout> layout;
 
     asset::IAssetLoader::SAssetLoadParams lparams;
@@ -45,17 +119,12 @@ int main()
     const auto* meta = assetLoaded.getMetadata();
 
     if (!meta)
-        return 2; // could not load metadata
+        return 2;
 
     const auto* iesProfileMeta = meta->selfCast<const asset::CIESProfileMetadata>();
-    auto cpuImageView = iesProfileMeta->profile.createCDCTexture();
-    auto gpuImageView = driver->getGPUObjectsFromAssets(&cpuImageView, &cpuImageView + 1)->front();
 
     size_t ds0SamplerBinding = 0, ds1UboBinding = 0;
-    /*
-        SBinding for the texture (sampler).
-    */
-
+ 
     IGPUDescriptorSetLayout::SBinding gpuSamplerBinding;
     gpuSamplerBinding.binding = ds0SamplerBinding;
     gpuSamplerBinding.type = asset::EDT_COMBINED_IMAGE_SAMPLER;
@@ -63,27 +132,43 @@ int main()
     gpuSamplerBinding.stageFlags = static_cast<IGPUSpecializedShader::E_SHADER_STAGE>(IGPUSpecializedShader::ESS_FRAGMENT);
     gpuSamplerBinding.samplers = nullptr;
 
- 
     auto gpuDs3Layout = driver->createGPUDescriptorSetLayout(&gpuSamplerBinding, &gpuSamplerBinding + 1);
-    auto gpuDescriptorSet3 = driver->createGPUDescriptorSet(gpuDs3Layout);
-    {
-        video::IGPUDescriptorSet::SWriteDescriptorSet write;
-        write.dstSet = gpuDescriptorSet3.get();
-        write.binding = ds0SamplerBinding;
-        write.count = 1u;
-        write.arrayElement = 0u;
-        write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
-        IGPUDescriptorSet::SDescriptorInfo info;
-        {
-            info.desc = std::move(gpuImageView);
-            asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS };
-            info.image = { driver->createGPUSampler(samplerParams),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
-        }
-        write.info = &info;
-        driver->updateDescriptorSets(1u, &write, 0u, nullptr);
-    }
+    core::smart_refctd_ptr<video::IGPUDescriptorSet> gpuDescriptorSet3 = nullptr;
+    auto gpuD3Sampler = driver->createGPUSampler({ asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS });
 
-    layout = driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, std::move(gpuDs3Layout));
+    auto generateDescriptorImage = [&](const IESExampleEventReceiver& receiver, bool forceRegenerateT = false) -> void
+    {
+        if (receiver.needToRegenerateCDC() || forceRegenerateT)
+        {
+            gpuDescriptorSet3 = std::move(driver->createGPUDescriptorSet(core::smart_refctd_ptr(gpuDs3Layout))); // kill od DS, recreate
+
+            const auto& isDebug = receiver.isDebug();
+            const auto& degrees = receiver.getZDegree();
+
+            if(isDebug)
+                printf("[INFO] updating DS3 and regenerating CDC texture - %d Degrees Computed.\n", degrees);
+
+            auto cpuImageView = iesProfileMeta->profile.createCDCTexture(degrees);
+            auto gpuImageView = driver->getGPUObjectsFromAssets(&cpuImageView, &cpuImageView + 1)->front();
+
+            video::IGPUDescriptorSet::SWriteDescriptorSet write;
+            write.dstSet = gpuDescriptorSet3.get();
+            write.binding = ds0SamplerBinding;
+            write.count = 1u;
+            write.arrayElement = 0u;
+            write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+            IGPUDescriptorSet::SDescriptorInfo info;
+            {
+                info.desc = std::move(gpuImageView);
+                info.image = { core::smart_refctd_ptr(gpuD3Sampler),asset::EIL_SHADER_READ_ONLY_OPTIMAL};
+            }
+            write.info = &info;
+            driver->updateDescriptorSets(1u, &write, 0u, nullptr);
+        }
+    };
+
+    generateDescriptorImage(receiver, true);
+    layout = driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(gpuDs3Layout));
     
     core::smart_refctd_ptr<video::IGPUMeshBuffer> quad;
     core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> pipeline;
@@ -148,7 +233,7 @@ int main()
     fbo->attach(video::EFAP_COLOR_ATTACHMENT0, core::smart_refctd_ptr(imageView));
 
     uint32_t ssNum = 0u;
-    while (device->run())
+    while (device->run() && receiver.isRunning())
     {
         driver->setRenderTarget(fbo);
         const float clear[4] {0.f,0.f,0.f,1.f};
@@ -156,12 +241,21 @@ int main()
         driver->beginScene(true, false, video::SColor(255, 0, 0, 0));
 
         driver->bindGraphicsPipeline(pipeline.get()); 
+        generateDescriptorImage(receiver);
         driver->bindDescriptorSets(video::EPBP_GRAPHICS, pipeline->getLayout(), 3u, 1u, &gpuDescriptorSet3.get(), nullptr);
         driver->drawMeshBuffer(quad.get());
+
+        std::wostringstream windowCaption;
+        {
+            const wchar_t* const mode = receiver.isInCDCMode() ? L"CDC" : L"3D Render";
+            windowCaption << L"IES Demo - Nabla Engine - Degrees: : " << receiver.getZDegree() << L" - Mode: " << mode;
+            device->setWindowCaption(windowCaption.str());
+        }
 
         driver->blitRenderTargets(fbo, nullptr, false, false);
 
         driver->endScene();
+        receiver.resetRequests();
     }
 
     return 0;
