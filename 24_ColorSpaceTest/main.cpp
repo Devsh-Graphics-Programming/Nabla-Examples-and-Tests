@@ -319,6 +319,10 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			if (!m_cmdPools[resourceIx]->reset())
 				return;
 
+			// write to descriptor set
+			auto ds = m_descriptorSets[resourceIx].get();
+
+			// now we can sleep till we're ready for next render
 			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
 			m_lastImageEnqueued = clock_t::now();
 
@@ -371,8 +375,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
 				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds.get());
-				ext::FullScreenTriangle::recordDrawCalls(cmdbuf);
+				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
+				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 				cmdbuf->endRenderPass();
 				cmdbuf->end();
 			}
