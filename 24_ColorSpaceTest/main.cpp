@@ -9,106 +9,6 @@
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
-namespace nbl::ext::FullScreenTriangle
-{
-inline core::smart_refctd_ptr<video::IGPUShader> createDefaultVertexShader(asset::IAssetManager* assMan, video::ILogicalDevice* device, system::ILogger* logger=nullptr)
-{
-	if (!assMan || !device)
-		return nullptr;
-	
-	using namespace ::nbl::asset;
-	IAssetLoader::SAssetLoadParams lp = {};
-	lp.logger = logger;
-	lp.workingDirectory = ""; // virtual root
-	auto assetBundle = assMan->getAsset("nbl/builtin/hlsl/ext/FullScreenTriangle/default.vert.hlsl",lp);
-	const auto assets = assetBundle.getContents();
-	if (assets.empty())
-		return nullptr;
-
-	auto source = IAsset::castDown<ICPUShader>(assets[0]);
-	if (!source)
-		return nullptr;
-
-	return device->createShader(source.get());
-}
-
-struct ProtoPipeline
-{
-	inline ProtoPipeline(core::smart_refctd_ptr<video::IGPUShader>&& shader, const uint16_t swapchainOrientationOffset=0x100u) : m_vxShader(std::move(shader))
-	{
-		// Push constant for surface transform and screen size, used in VS
-		if (swapchainOrientationOffset<video::SPhysicalDeviceLimits::MaxMaxPushConstantsSize-sizeof(uint16_t))
-		{
-			swapchainOrientationConstants.stageFlags = asset::IShader::ESS_VERTEX;
-			swapchainOrientationConstants.offset = swapchainOrientationOffset;
-			swapchainOrientationConstants.size = sizeof(uint16_t);
-		}
-	}
-
-	inline operator bool() const {return m_vxShader.get();}
-
-	inline core::smart_refctd_ptr<video::IGPUGraphicsPipeline> createPipeline(video::IGPUShader* fragShader, video::IGPUPipelineLayout* layout, video::IGPURenderpass* renderpass, const uint32_t subpassIx=0)
-	{
-		if (!renderpass || !bool(*this))
-			return nullptr;
-
-		using namespace ::nbl::video;
-		auto device = const_cast<ILogicalDevice*>(renderpass->getOriginDevice());
-
-		core::smart_refctd_ptr<IGPUGraphicsPipeline> m_retval;
-		const IGPUShader::SSpecInfo shaders[2] = {
-			{.shader=m_vxShader.get()},
-			{.shader=fragShader}
-		};
-		IGPUGraphicsPipeline::SCreationParams params[1];
-		params[0].layout = layout;
-		params[0].shaders = shaders;
-		params[0].cached = {
-			.vertexInput = inputParams,
-			.primitiveAssembly = assemblyParams,
-			.rasterization = rasterParams,
-			.blend = blendParams,
-			.subpassIx = subpassIx
-		};
-		params[0].renderpass = renderpass;
-		if (device->createGraphicsPipelines(nullptr,params,&m_retval))
-			return m_retval;
-		return nullptr;
-	}
-	
-	/*
-		Helper function for drawing full screen triangle.
-		It should be called between command buffer render pass
-		records.
-	*/
-	static inline bool recordDrawCalls(video::IGPUCommandBuffer* commandBuffer,video::IGPUGraphicsPipeline* pipeline, const video::ISurface::E_SURFACE_TRANSFORM_FLAGS swapchainTransform)
-	{
-		constexpr auto VERTEX_COUNT = 3;
-		constexpr auto INSTANCE_COUNT = 1;
-
-		const auto layout = pipeline->getLayout();
-//		uint32_t surfaceTransform = uint32_t(swapchainTransform);
-//		commandBuffer->pushConstants(layout, asset::IShader::ESS_VERTEX, pushConstantOffset, 1 * sizeof(uint32_t), &surfaceTransform);
-
-		return commandBuffer->draw(VERTEX_COUNT,INSTANCE_COUNT,0,0);
-	}
-
-
-	core::smart_refctd_ptr<video::IGPUShader> m_vxShader;
-	// The Full Screen Triangle doesn't use any HW vertex input state
-	constexpr static inline asset::SVertexInputParams inputParams = {};
-	// The default is correct for us
-	constexpr static inline asset::SPrimitiveAssemblyParams assemblyParams = {};
-	// Default is no blending, also ok.
-	constexpr static inline asset::SBlendParams blendParams = {};
-	constexpr static inline asset::SRasterizationParams rasterParams = {
-		.faceCullingMode = asset::EFCM_NONE,
-		.depthWriteEnable = false,
-		.depthCompareOp = asset::ECO_ALWAYS
-	};
-	asset::SPushConstantRange swapchainOrientationConstants = {};
-};
-}
 
 using namespace nbl;
 using namespace core;
@@ -186,8 +86,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			m_loadCWD = m_loadCWD.parent_path();
 
 			// Load FSTri Shader
-			auto vertexShader = ext::FullScreenTriangle::createDefaultVertexShader(m_assetMgr.get(),m_device.get(),m_logger.get());
-			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(std::move(vertexShader));
+			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(),m_device.get(),m_logger.get());
 			if (!fsTriProtoPPln)
 				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
@@ -209,7 +108,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 				return m_device->createShader(source.get());
 			};
-			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.hlsl");
+			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+			if (!fragmentShader)
+				return logFail("Failed to Load and Compile Fragment Shader!");
 			
 			// Now surface indep resources
 			m_semaphore = m_device->createSemaphore(m_submitIx);
@@ -301,8 +202,12 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 			// Now create the pipeline
 			{
-				auto layout = m_device->createPipelineLayout({&fsTriProtoPPln.swapchainOrientationConstants,1},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
-				m_pipeline = fsTriProtoPPln.createPipeline(fragmentShader.get(),layout.get(),renderpass.get()/*,default is subpass 0*/);
+				const IGPUShader::SSpecInfo fragSpec = {
+					.entryPoint = "main",
+					.shader = fragmentShader.get()
+				};
+				auto layout = m_device->createPipelineLayout({},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
+				m_pipeline = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),renderpass.get()/*,default is subpass 0*/);
 				if (!m_pipeline)
 					return logFail("Could not create Graphics Pipeline!");
 			}
@@ -465,9 +370,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					};
 					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
-//				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-//				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds.get());
-//				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
+				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds.get());
+				ext::FullScreenTriangle::recordDrawCalls(cmdbuf);
 				cmdbuf->endRenderPass();
 				cmdbuf->end();
 			}
