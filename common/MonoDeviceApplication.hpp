@@ -84,7 +84,8 @@ class MonoDeviceApplication : public virtual MonoSystemMonoLoggerApplication
 		{
 			video::IAPIConnection::SFeatures retval = {};
 			retval.validations = true;
-			retval.synchronizationValidation = true;
+			// re-enable when https://github.com/KhronosGroup/Vulkan-ValidationLayers/issues/7600 gets fixed
+			retval.synchronizationValidation = false;
 			retval.debugUtils = true;
 			return retval;
 		}
