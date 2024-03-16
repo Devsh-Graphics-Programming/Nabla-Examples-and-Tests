@@ -105,8 +105,10 @@ class IESCompute
 
         enum E_BINDINGS
         {
-            EB_SSBO,     //! IES Profile SSBO
             EB_IMAGE,    //! Image with data depending on E_MODE
+            EB_SSBO_HA,  //! IES Profile SSBO Horizontal Angles 
+            EB_SSBO_VA,  //! IES Profile SSBO Vertical Angles
+            EB_SSBO_D,   //! IES Profile SSBO Data
             EB_SIZE
         };
 
@@ -124,7 +126,7 @@ class IESCompute
             auto& gpue = getGPUE<mode>();
 
             driver->bindComputePipeline(gpue.pipeline.get());
-            driver->bindDescriptorSets(EPBP_COMPUTE, gpue.pipeline->getLayout(), 0u, 1u, &gpue.descriptor.get(), nullptr);
+            driver->bindDescriptorSets(EPBP_COMPUTE, gpue.pipeline->getLayout(), 0u, 1u, &gpue.descriptorSet.get(), nullptr);
             
             _NBL_STATIC_INLINE_CONSTEXPR auto xGroups = (TEXTURE_SIZE - 1u) / WORKGROUP_DIMENSION + 1u;
             driver->dispatch(xGroups, core::max(xGroups >> 1u, 1u), 1u);
@@ -139,11 +141,6 @@ class IESCompute
         void createGPUEnvironment(asset::IAssetManager* _assetManager)
         {
             static_assert(_mode != EM_SIZE);
-
-            auto createSSBODescriptor = [&]()
-            {
-                return driver->createFilledDeviceLocalGPUBufferOnDedMem(sizeof(asset::CIESProfile), &profile); // TODO, check it, alignment!
-            };
 
             auto createImageDescriptor = [&]()
             {
@@ -189,24 +186,24 @@ class IESCompute
 
             const std::vector<IGPUDescriptorSetLayout::SBinding> bindings =
             {
-                { EB_SSBO, asset::EDT_STORAGE_BUFFER, 1,asset::ISpecializedShader::ESS_COMPUTE, nullptr },
-                { EB_IMAGE, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr }
+                { EB_IMAGE, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                { EB_SSBO_HA, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                { EB_SSBO_VA, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                { EB_SSBO_D, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr }
             };
 
             {
                 auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
                 gpue.pipeline = driver->createGPUComputePipeline(nullptr, driver->createGPUPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout)), gpuSpecializedShaderFromFile(getShaderPath<_mode>().data()));
-                gpue.descriptor = driver->createGPUDescriptorSet(std::move(descriptorSetLayout));
+                gpue.descriptorSet = driver->createGPUDescriptorSet(std::move(descriptorSetLayout));
             }
 
             {
                 IGPUDescriptorSet::SDescriptorInfo infos[EB_SIZE];
                 {
-                    {
-                        auto ssbo = createSSBODescriptor();
-                        infos[EB_SSBO].desc = core::smart_refctd_ptr(ssbo);
-                        infos[EB_SSBO].buffer = { 0, ssbo->getSize() };
-                    }
+                    createSSBODescriptorInfo<EB_SSBO_HA>(profile, infos[EB_SSBO_HA]);
+                    createSSBODescriptorInfo<EB_SSBO_VA>(profile, infos[EB_SSBO_VA]);
+                    createSSBODescriptorInfo<EB_SSBO_D>(profile, infos[EB_SSBO_D]);
 
                     {
                         auto imageView = createImageDescriptor();
@@ -218,19 +215,48 @@ class IESCompute
                 IGPUDescriptorSet::SWriteDescriptorSet writes[EB_SIZE];
                 for (auto i = 0; i < EB_SIZE; i++)
                 {
-                    writes[i].dstSet = gpue.descriptor.get();
+                    writes[i].dstSet = gpue.descriptorSet.get();
                     writes[i].binding = i;
                     writes[i].arrayElement = 0u;
                     writes[i].count = 1u;
                     writes[i].info = &infos[i];
                 }
 
-                writes[EB_SSBO].descriptorType = asset::EDT_STORAGE_BUFFER;
                 writes[EB_IMAGE].descriptorType = asset::EDT_STORAGE_IMAGE;
-
+                writes[EB_SSBO_HA].descriptorType = asset::EDT_STORAGE_BUFFER;
+                writes[EB_SSBO_VA].descriptorType = asset::EDT_STORAGE_BUFFER;
+                writes[EB_SSBO_D].descriptorType = asset::EDT_STORAGE_BUFFER;
+                
                 driver->updateDescriptorSets(EB_SIZE, writes, 0u, nullptr);
             }
         }
+
+        template<E_BINDINGS binding>
+        auto createSSBODescriptorInfo(const asset::CIESProfile& profile, IGPUDescriptorSet::SDescriptorInfo& info)
+        {
+            static_assert(binding == EB_SSBO_HA || binding == EB_SSBO_VA || binding == EB_SSBO_D);
+
+            auto createBuffer = [&](const auto& pInput)
+            {
+                core::smart_refctd_ptr<asset::ICPUBuffer> buffer = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(asset::CIESProfile::IES_STORAGE_FORMAT) * pInput.size());
+                memcpy(buffer->getPointer(), pInput.data(), buffer->getSize());
+
+                return buffer;
+            };
+
+            core::smart_refctd_ptr<asset::ICPUBuffer> buffer;
+
+            if constexpr (binding == EB_SSBO_HA)
+                buffer = createBuffer(profile.getHoriAngles());
+            else if (binding == EB_SSBO_VA)
+                buffer = createBuffer(profile.getVertAngles());
+            else
+                buffer = createBuffer(profile.getData());
+
+            auto ssbo = driver->createFilledDeviceLocalGPUBufferOnDedMem(buffer->getSize(), buffer->getPointer());;
+            info.desc = core::smart_refctd_ptr(ssbo);
+            info.buffer = { 0, ssbo->getSize() };
+        };
 
         template<E_MODE mode>
         _NBL_STATIC_INLINE_CONSTEXPR std::string_view getShaderPath()
@@ -251,7 +277,7 @@ class IESCompute
         struct GPUE
         {
             core::smart_refctd_ptr<video::IGPUComputePipeline> pipeline;
-            core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptor;
+            core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSet;
         } m_gpue[EM_SIZE];
 };
 

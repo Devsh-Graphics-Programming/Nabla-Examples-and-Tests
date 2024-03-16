@@ -8,15 +8,22 @@
 
 layout(local_size_x = WORKGROUP_DIMENSION, local_size_y = WORKGROUP_DIMENSION) in;
 
-layout(set = 0, binding = 0, row_major) readonly buffer Profile
+layout(set = 0, binding = 0, r16ui) restrict uniform uimage2D outCDCImage;
+
+layout(std430, set = 0, binding = 1) readonly buffer HorizontalAngles
 {
-	uint type;
 	double hAngles[];
-	double vAngles[];
-	double data[];
 };
 
-layout(set = 0, binding = 1, r16ui) restrict uniform uimage2D outCDCImage;
+layout(std430, set = 0, binding = 2) readonly buffer VerticalAngles
+{
+	double vAngles[];
+};
+
+layout(std430, set = 0, binding = 3) readonly buffer Data
+{
+	double data[];
+};
 
 void main()
 {
@@ -29,7 +36,10 @@ void main()
 	
 		// TODO, implement logic
 		
-		uint t = type;
+		double hA = hAngles[0];
+		double vA = vAngles[0];
+		double dA = data[0];
+		
 		uvec4 outValue = uvec4(gl_GlobalInvocationID.x,gl_GlobalInvocationID.y,0,0);
 		imageStore(outCDCImage, pixelCoordinates, outValue);
 	}
