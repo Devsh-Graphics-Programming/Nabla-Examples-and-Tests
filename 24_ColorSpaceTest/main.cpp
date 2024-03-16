@@ -304,7 +304,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			{
 				// Resize the window
 				m_winMgr->setWindowSize(m_window.get(),newWindowResolution.width,newWindowResolution.height);
-				// The swapchain will recreate automatically during acquire
+				// Don't want to rely on the Swapchain OUT_OF_DATE causing an implicit re-create in the `acquireNextImage` because the
+				// swapchain may report OUT_OF_DATE after the next VBlank after the resize, not getting the message right away.
+				m_surface->recreateSwapchain();
 			}
 			// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
 			m_winMgr->show(m_window.get());
