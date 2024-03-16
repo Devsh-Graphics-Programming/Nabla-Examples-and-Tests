@@ -137,6 +137,146 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t WindowHeightRequest = 900u;
 	constexpr static uint32_t MaxFramesInFlight = 8u;
 public:
+	
+	void initCADResources(uint32_t maxObjects)
+	{
+		for (uint32_t i = 0u; i < m_maxFramesInFlight; ++i)
+		{
+			drawBuffers[i] = DrawBuffersFiller(core::smart_refctd_ptr(m_utils));
+
+			uint32_t maxIndices = maxObjects * 6u * 2u;
+			drawBuffers[i].allocateIndexBuffer(m_device.get(), maxIndices);
+			drawBuffers[i].allocateMainObjectsBuffer(m_device.get(), maxObjects);
+			drawBuffers[i].allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
+			drawBuffers[i].allocateStylesBuffer(m_device.get(), 32u);
+			drawBuffers[i].allocateCustomClipProjectionBuffer(m_device.get(), 128u);
+
+			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
+			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
+			drawBuffers[i].allocateGeometryBuffer(m_device.get(), geometryBufferSize);
+		}
+
+		for (uint32_t i = 0; i < m_maxFramesInFlight; ++i)
+		{
+			IGPUBuffer::SCreationParams globalsCreationParams = {};
+			globalsCreationParams.size = sizeof(Globals);
+			globalsCreationParams.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			globalsBuffer[i] = m_device->createBuffer(std::move(globalsCreationParams));
+
+			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
+			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer[i].get());
+		}
+
+		// pseudoStencil
+		asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
+
+		IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
+		promotionRequest.originalFormat = asset::EF_R32_UINT;
+		promotionRequest.usages = {};
+		promotionRequest.usages.storageImageAtomic = true;
+		pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
+
+		for (uint32_t i = 0u; i < m_maxFramesInFlight; ++i)
+		{
+			IGPUImage::SCreationParams imgInfo;
+			imgInfo.format = pseudoStencilFormat;
+			imgInfo.type = IGPUImage::ET_2D;
+			imgInfo.extent.width = m_window->getWidth();
+			imgInfo.extent.height = m_window->getHeight();
+			imgInfo.extent.depth = 1u;
+			imgInfo.mipLevels = 1u;
+			imgInfo.arrayLayers = 1u;
+			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
+			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
+			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
+			// [VKTODO] imgInfo.initialLayout = IGPUImage::EL_UNDEFINED;
+			imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
+
+			auto image = m_device->createImage(std::move(imgInfo));
+			auto imageMemReqs = image->getMemoryReqs();
+			imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			m_device->allocate(imageMemReqs, image.get());
+
+			image->setObjectDebugName("pseudoStencil Image");
+
+			IGPUImageView::SCreationParams imgViewInfo;
+			imgViewInfo.image = std::move(image);
+			imgViewInfo.format = pseudoStencilFormat;
+			imgViewInfo.viewType = IGPUImageView::ET_2D;
+			imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+			imgViewInfo.subresourceRange.baseMipLevel = 0u;
+			imgViewInfo.subresourceRange.layerCount = 1u;
+			imgViewInfo.subresourceRange.levelCount = 1u;
+
+			pseudoStencilImageViews[i] = m_device->createImageView(std::move(imgViewInfo));
+		}
+	}
+	
+	smart_refctd_ptr<IGPURenderpass> createRenderpass(
+		E_FORMAT colorAttachmentFormat,
+		IGPURenderpass::LOAD_OP loadOp,
+		IImage::LAYOUT initialLayout,
+		IImage::LAYOUT finalLayout)
+	{		
+		const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+			{{
+				.format = colorAttachmentFormat,
+				.samples = IGPUImage::ESCF_1_BIT,
+				.mayAlias = false,
+				.loadOp = loadOp,
+				.storeOp = IGPURenderpass::STORE_OP::STORE,
+				.initialLayout = initialLayout,
+				.finalLayout = finalLayout
+			}},
+			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+		};
+		
+		IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+			{},
+			IGPURenderpass::SCreationParams::SubpassesEnd
+		};
+		subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+		
+		// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+		const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+			// wipe-transition to ATTACHMENT_OPTIMAL
+			{
+				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier = {
+					// we can have NONE as Sources because ????
+					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+				}
+				// leave view offsets and flags default
+			},
+			// ATTACHMENT_OPTIMAL to PRESENT_SRC
+			{
+				.srcSubpass = 0,
+				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier = {
+					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					// we can have NONE as the Destinations because the spec says so about presents
+				}
+				// leave view offsets and flags default
+			},
+			IGPURenderpass::SCreationParams::DependenciesEnd
+		};
+		
+		smart_refctd_ptr<IGPURenderpass> renderpass;
+		IGPURenderpass::SCreationParams params = {};
+		params.colorAttachments = colorAttachments;
+		params.subpasses = subpasses;
+		params.dependencies = dependencies;
+		renderpass = m_device->createRenderpass(params);
+		if (!renderpass)
+			logFail("Failed to Create a Renderpass!");
+		return renderpass;
+	}
 
 
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -172,7 +312,25 @@ public:
 	
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		// TODO
+		// Remember to call the base class initialization!
+		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			return false;
+		if (!asset_base_t::onAppInitialized(std::move(system)))
+			return false;
+
+		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
+		
+		const auto format = asset::EF_R8G8B8A8_SRGB; // TODO: DO I need to recreate render passes if swapchain gets recreated with different format?
+		renderpassInitial = createRenderpass(format, IGPURenderpass::LOAD_OP::CLEAR, IImage::LAYOUT::UNDEFINED, IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		renderpassInBetween = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		renderpassFinal = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::PRESENT_SRC);
+		
+		// Let's just use the same queue since there's no need for async present
+		if (!m_surface || !m_surface->init(getGraphicsQueue(),std::make_unique<examples::CDefaultSwapchainFramebuffers>(std::move(renderpassInitial)),{}))
+			return logFail("Could not create Window & Surface or initialize the Surface!");
+		
+		m_maxFramesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
+		
 		return true;
 	}
 
@@ -201,7 +359,15 @@ public:
 		
 		return device_base_t::onAppTerminated();
 	}
-
+	
+	// virtual function so you can override as needed for some example father down the line
+	virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+	{
+		auto retval = device_base_t::getRequiredDeviceFeatures();
+		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		return retval;
+	}
+		
 protected:
 	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 	clock_t::time_point start;
@@ -214,8 +380,6 @@ protected:
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	*/
 	
-	smart_refctd_ptr<IQueryPool> pipelineStatsPool;
-
 	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
@@ -255,312 +419,12 @@ NBL_MAIN_FUNC(ComputerAidedDesign)
 
 class CADApp : public ApplicationBase
 {
-	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
-	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-
-	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
-	constexpr static uint32_t REQUESTED_WIN_H = 900u;
-
-	int32_t m_resourceIx = -1;
-	uint32_t m_SwapchainImageIx = ~0u;
-
-	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
-
-
-	core::smart_refctd_ptr<video::IGPUImageView> pseudoStencilImageView[FRAMES_IN_FLIGHT];
-	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
-	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugGraphicsPipeline;
-	core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout;
-	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
-
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> resolveAlphaGraphicsPipeline;
-	core::smart_refctd_ptr<video::IGPUPipelineLayout> resolveAlphaPipeLayout;
-
-	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
-
 	// For stress test CASE_1
 	CPolyline bigPolyline;
 	CPolyline bigPolyline2;
 
-	bool fragmentShaderInterlockEnabled = false;
-
-	// TODO: Needs better info about regular scenes and main limiters to improve the allocations in this function
-	void initDrawObjects(uint32_t maxObjects)
-	{
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
-		{
-			drawBuffers[i] = DrawBuffersFiller(core::smart_refctd_ptr(utilities));
-
-			uint32_t maxIndices = maxObjects * 6u * 2u;
-			drawBuffers[i].allocateIndexBuffer(logicalDevice.get(), maxIndices);
-			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice.get(), maxObjects);
-			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice.get(), maxObjects * 5u);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 32u);
-			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice.get(), 128u);
-
-			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
-			drawBuffers[i].allocateGeometryBuffer(logicalDevice.get(), geometryBufferSize);
-		}
-
-		for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
-		{
-			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
-			globalsCreationParams.size = sizeof(Globals);
-			globalsCreationParams.usage = video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
-
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
-			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
-		}
-
-		// pseudoStencil
-
-		asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
-
-		video::IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
-		promotionRequest.originalFormat = asset::EF_R32_UINT;
-		promotionRequest.usages = {};
-		promotionRequest.usages.storageImageAtomic = true;
-		pseudoStencilFormat = physicalDevice->promoteImageFormat(promotionRequest, video::IGPUImage::ET_OPTIMAL);
-
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
-		{
-			video::IGPUImage::SCreationParams imgInfo;
-			imgInfo.format = pseudoStencilFormat;
-			imgInfo.type = video::IGPUImage::ET_2D;
-			imgInfo.extent.width = window->getWidth();
-			imgInfo.extent.height = window->getHeight();
-			imgInfo.extent.depth = 1u;
-			imgInfo.mipLevels = 1u;
-			imgInfo.arrayLayers = 1u;
-			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
-			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
-			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
-			imgInfo.initialLayout = video::IGPUImage::EL_UNDEFINED;
-			imgInfo.tiling = video::IGPUImage::ET_OPTIMAL;
-
-			auto image = logicalDevice->createImage(std::move(imgInfo));
-			auto imageMemReqs = image->getMemoryReqs();
-			imageMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			logicalDevice->allocate(imageMemReqs, image.get());
-
-			image->setObjectDebugName("pseudoStencil Image");
-
-			video::IGPUImageView::SCreationParams imgViewInfo;
-			imgViewInfo.image = std::move(image);
-			imgViewInfo.format = pseudoStencilFormat;
-			imgViewInfo.viewType = video::IGPUImageView::ET_2D;
-			imgViewInfo.flags = video::IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
-			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-			imgViewInfo.subresourceRange.baseMipLevel = 0u;
-			imgViewInfo.subresourceRange.layerCount = 1u;
-			imgViewInfo.subresourceRange.levelCount = 1u;
-
-			pseudoStencilImageView[i] = logicalDevice->createImageView(std::move(imgViewInfo));
-		}
-	}
-
-public:
-	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
-	{
-		window = std::move(wnd);
-	}
-	nbl::ui::IWindow* getWindow() override
-	{
-		return window.get();
-	}
-	void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& system) override
-	{
-		system = std::move(system);
-	}
-	video::IAPIConnection* getAPIConnection() override
-	{
-		return apiConnection.get();
-	}
-	video::ILogicalDevice* getLogicalDevice()  override
-	{
-		return logicalDevice.get();
-	}
-	video::IGPURenderpass* getRenderpass() override
-	{
-		return renderpassFinal.get();
-	}
-	void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
-	{
-		surface = std::move(s);
-	}
-	void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
-	{
-		for (int i = 0; i < f.size(); i++)
-		{
-			auto& fboDynArray = *(framebuffersDynArraySmartPtr.get());
-			fboDynArray[i] = core::smart_refctd_ptr(f[i]);
-		}
-	}
-	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
-	{
-		swapchain = std::move(s);
-	}
-	uint32_t getSwapchainImageCount() override
-	{
-		return swapchain->getImageCount();
-	}
-	virtual nbl::asset::E_FORMAT getDepthFormat() override
-	{
-		return nbl::asset::EF_UNKNOWN;
-	}
-
-	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(
-		nbl::asset::E_FORMAT colorAttachmentFormat,
-		nbl::asset::E_FORMAT baseDepthFormat,
-		nbl::video::IGPURenderpass::E_LOAD_OP loadOp,
-		nbl::asset::IImage::E_LAYOUT initialLayout,
-		nbl::asset::IImage::E_LAYOUT finalLayout)
-	{
-		using namespace nbl;
-
-		bool useDepth = baseDepthFormat != nbl::asset::EF_UNKNOWN;
-		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
-		if (useDepth)
-		{
-			depthFormat = logicalDevice->getPhysicalDevice()->promoteImageFormat(
-				{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsages::SUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
-				nbl::video::IGPUImage::ET_OPTIMAL
-			);
-			assert(depthFormat != nbl::asset::EF_UNKNOWN);
-		}
-
-		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
-		attachments[0].initialLayout = initialLayout;
-		attachments[0].finalLayout = finalLayout;
-		attachments[0].format = colorAttachmentFormat;
-		attachments[0].samples = asset::IImage::ESCF_1_BIT;
-		attachments[0].loadOp = loadOp;
-		attachments[0].storeOp = nbl::video::IGPURenderpass::ESO_STORE;
-
-		attachments[1].initialLayout = asset::IImage::EL_UNDEFINED;
-		attachments[1].finalLayout = asset::IImage::EL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		attachments[1].format = depthFormat;
-		attachments[1].samples = asset::IImage::ESCF_1_BIT;
-		attachments[1].loadOp = loadOp;
-		attachments[1].storeOp = nbl::video::IGPURenderpass::ESO_STORE;
-
-		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef colorAttRef;
-		colorAttRef.attachment = 0u;
-		colorAttRef.layout = asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
-
-		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef depthStencilAttRef;
-		depthStencilAttRef.attachment = 1u;
-		depthStencilAttRef.layout = asset::IImage::EL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription sp;
-		sp.pipelineBindPoint = asset::EPBP_GRAPHICS;
-		sp.colorAttachmentCount = 1u;
-		sp.colorAttachments = &colorAttRef;
-		if (useDepth) {
-			sp.depthStencilAttachment = &depthStencilAttRef;
-		}
-		else {
-			sp.depthStencilAttachment = nullptr;
-		}
-		sp.flags = nbl::video::IGPURenderpass::ESDF_NONE;
-		sp.inputAttachmentCount = 0u;
-		sp.inputAttachments = nullptr;
-		sp.preserveAttachmentCount = 0u;
-		sp.preserveAttachments = nullptr;
-		sp.resolveAttachments = nullptr;
-
-		nbl::video::IGPURenderpass::SCreationParams rp_params;
-		rp_params.attachmentCount = (useDepth) ? 2u : 1u;
-		rp_params.attachments = attachments;
-		rp_params.dependencies = nullptr;
-		rp_params.dependencyCount = 0u;
-		rp_params.subpasses = &sp;
-		rp_params.subpassCount = 1u;
-
-		return logicalDevice->createRenderpass(rp_params);
-	}
-
-	void getAndLogQueryPoolResults()
-	{
-#ifdef BEZIER_CAGE_ADAPTIVE_T_FIND // results for bezier show an optimal number of 0.14 for T
-		{
-			uint32_t samples_passed[1] = {};
-			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT);
-			logicalDevice->getQueryPoolResults(pipelineStatsPool.get(), 0u, 1u, sizeof(samples_passed), samples_passed, sizeof(uint32_t), queryResultFlags);
-			logger->log("[WAIT] SamplesPassed[0] = %d", system::ILogger::ELL_INFO, samples_passed[0]);
-			std::cout << MinT << ", " << PrevSamples << std::endl;
-			if (PrevSamples > samples_passed[0]) {
-				PrevSamples = samples_passed[0];
-				MinT = (sin(T) + 1.01f) / 4.03f;
-			}
-		}
-#endif
-	}
-
-	APP_CONSTRUCTOR(CADApp);
-
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
-
-		CommonAPI::InitParams initParams;
-		initParams.windowCb = core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback>(this);
-		initParams.window = core::smart_refctd_ptr(window);
-		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { _NBL_APP_NAME_ };
-		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = REQUESTED_WIN_W;
-		initParams.windowHeight = REQUESTED_WIN_H;
-		initParams.swapchainImageCount = 3u;
-		initParams.swapchainImageUsage = swapchainImageUsage;
-		initParams.depthFormat = getDepthFormat();
-		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
-		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
-		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
-		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
-		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
-		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
-		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
-		initParams.physicalDeviceFilter.requiredFeatures.shaderClipDistance = true;
-		initParams.physicalDeviceFilter.requiredFeatures.scalarBlockLayout = true;
-		initParams.physicalDeviceFilter.requiredFeatures.shaderDemoteToHelperInvocation = true; //delete later?
-		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-
-		system = std::move(initOutput.system);
-		window = std::move(initParams.window);
-		windowCb = std::move(initParams.windowCb);
-		apiConnection = std::move(initOutput.apiConnection);
-		surface = std::move(initOutput.surface);
-		physicalDevice = std::move(initOutput.physicalDevice);
-		logicalDevice = std::move(initOutput.logicalDevice);
-		utilities = std::move(initOutput.utilities);
-		queues = std::move(initOutput.queues);
-		assetManager = std::move(initOutput.assetManager);
-		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-		logger = std::move(initOutput.logger);
-		inputSystem = std::move(initOutput.inputSystem);
-		windowManager = std::move(initOutput.windowManager);
-		// renderpass = std::move(initOutput.renderToSwapchainRenderpass);
-		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
-
-		fragmentShaderInterlockEnabled = logicalDevice->getEnabledFeatures().fragmentShaderPixelInterlock;
-
-		{
-			video::IQueryPool::SCreationParams queryPoolCreationParams = {};
-			queryPoolCreationParams.queryType = video::IQueryPool::EQT_PIPELINE_STATISTICS;
-			queryPoolCreationParams.queryCount = 1u;
-			queryPoolCreationParams.pipelineStatisticsFlags = video::IQueryPool::EPSF_FRAGMENT_SHADER_INVOCATIONS_BIT;
-			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
-		}
 
 		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
 		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
@@ -611,7 +475,7 @@ public:
 			shaders[3u] = gpuShaders->begin()[3u];
 		}
 
-		initDrawObjects(40960u);
+		initCADResources(40960u);
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
