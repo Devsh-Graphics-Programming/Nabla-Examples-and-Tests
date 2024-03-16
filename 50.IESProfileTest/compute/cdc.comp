@@ -25,22 +25,157 @@ layout(std430, set = 0, binding = 3) readonly buffer Data
 	double data[];
 };
 
+layout(push_constant) uniform PushConstants
+{
+    float maxIValueReciprocal;
+	float zAngleDegreeRotation;
+} pc;
+
+double fmod(double a, double b)
+{
+  double c = fract(abs(a/b))*abs(b);
+  return (a < 0) ? -c : c;
+}
+
+vec3 octahedronUVToDir(vec2 uv) 
+{
+    vec3 position = vec3((uv * 2.0 - 1.0).xy, 0.0);
+	vec2 absP = vec2(abs(position.x), abs(position.y));
+	
+	position.z = 1.0 - absP.x - absP.y; 
+	
+	if (position.z < 0.0) 
+	{
+		position.x = sign(position.x) * (1.0 - absP.y);
+		position.y = sign(position.y) * (1.0 - absP.x);
+	}
+
+	// rotate position vector around Z-axis with "pc.zAngleDegreeRotation"
+	if(pc.zAngleDegreeRotation != 0.0)
+	{
+		const float zAngleRadians = float(pc.zAngleDegreeRotation * M_PI / 180.0);
+		const float cosineV = cos(zAngleRadians);
+		const float sineV = sin(zAngleRadians);
+
+		position = vec3(cosineV * position.x - cosineV * position.y, sineV * position.x + sineV * position.y, position.z);
+	}
+
+	return normalize(position);
+}
+
+vec2 sphericalDirToAngles(vec3 direction)
+{
+	double theta = acos(clamp(direction.z, -1.0, 1.0));
+	double phi = atan(direction.y, direction.x);
+	
+	if(phi < 0)
+		phi += 2 * M_PI;
+	
+	return vec2(theta, phi);
+}
+
+ivec2 implGetVUpperBoundIdx(double angle)
+{
+	uint anglesLength = vAngles.length();
+    int idx = -1;
+	
+    for (int i = 0; i < anglesLength; ++i) {
+        if (vAngles[i] > angle) {
+            idx = i;
+            break;
+        }
+    }
+	
+    return ivec2(idx, anglesLength);
+}
+
+ivec2 implGetHUpperBoundIdx(double angle)
+{
+	uint anglesLength = hAngles.length();
+    int idx = -1;
+	
+    for (int i = 0; i < anglesLength; ++i) {
+        if (hAngles[i] > angle) {
+            idx = i;
+            break;
+        }
+    }
+	
+    return ivec2(idx, anglesLength);
+}
+
+int getVLowerBoundIdx(double angle) 
+{
+    return max(implGetVUpperBoundIdx(angle).x - 1, 0);
+}
+
+int getHLowerBoundIdx(double angle) 
+{
+    return max(implGetHUpperBoundIdx(angle).x - 1, 0);
+}
+
+int getVUpperBoundIdx(double angle)
+{
+	ivec2 returnValue = implGetVUpperBoundIdx(angle);
+    return min(returnValue.x, returnValue.y - 1);
+}
+
+int getHUpperBoundIdx(double angle)
+{
+	ivec2 returnValue = implGetHUpperBoundIdx(angle);
+    return min(returnValue.x, returnValue.y - 1);
+}
+
+double getValue(int i, int j)
+{
+	return data[vAngles.length() * i + j];
+}
+
+double sampleI(double vAngle, double hAngle)
+{
+	double vABack = vAngles[vAngles.length() - 1];
+	double hABack = hAngles[hAngles.length() - 1];
+
+	if (vAngle > vABack)
+		return 0.0;
+	
+	hAngle = hABack == 0.0 ? 0.0 : fmod(hAngle, hABack);
+
+	// bilinear interpolation
+	int j0 = getVLowerBoundIdx(vAngle);
+	int j1 = getVUpperBoundIdx(vAngle);
+	int i0 = getHLowerBoundIdx(hAngle);
+	int i1 = getHUpperBoundIdx(hAngle);
+	
+	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAngles[i1] - hAngles[i0]);
+	double vReciprocal = j1 == j0 ? 1.0 : 1.0 / (vAngles[j1] - vAngles[j0]);
+	
+	double u = (hAngle - hAngles[i0]) * uReciprocal;
+	double v = (vAngle - vAngles[j0]) * vReciprocal;
+	
+	double s0 = getValue(i0, j0) * (1.0 - v) + getValue(i0, j1) * (v);
+	double s1 = getValue(i1, j0) * (1.0 - v) + getValue(i1, j1) * (v);
+	
+	return s0 * (1.0 - u) + s1 * u;
+}
+
 void main()
 {
+	const double VERTICAL_INVERSE = 1.0 / TEXTURE_SIZE;
+	const double HORIZONTAL_INVERSE = 1.0 / TEXTURE_SIZE;
+
 	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
 	const ivec2 destinationSize = imageSize(outCDCImage);
 	
 	if (all(lessThan(pixelCoordinates, destinationSize)))
 	{
-		const vec2 uv = vec2(pixelCoordinates)/vec2(destinationSize);
-	
-		// TODO, implement logic
+		const vec2 uv = vec2(pixelCoordinates.x * VERTICAL_INVERSE, pixelCoordinates.y * HORIZONTAL_INVERSE);
+		vec3 direction = octahedronUVToDir(uv);
+		vec2 sphericalCoordinates = sphericalDirToAngles(direction); // third radius spherical compoment is normalized and skipped
 		
-		double hA = hAngles[0];
-		double vA = vAngles[0];
-		double dA = data[0];
+		double intensity = sampleI(degrees(sphericalCoordinates.x), degrees(sphericalCoordinates.y));
+		uvec4 value = uvec4(uint(clamp(intensity * pc.maxIValueReciprocal * UINT16_MAX, 0u, UINT16_MAX)), 0, 0, 0);
 		
-		uvec4 outValue = uvec4(gl_GlobalInvocationID.x,gl_GlobalInvocationID.y,0,0);
-		imageStore(outCDCImage, pixelCoordinates, outValue);
+		imageStore(outCDCImage, pixelCoordinates, value);
 	}
 }

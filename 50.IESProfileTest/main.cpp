@@ -89,7 +89,7 @@ class IESCompute
 {
     public:
         IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const asset::CIESProfile& _profile)
-            : profile(_profile), driver(_driver)
+            : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), 0.0 })
         {
             createGPUEnvironment<EM_CDC>(_assetManager);
             // createGPUEnvironment<EM_RENDER>(_assetManager); // TODO
@@ -113,13 +113,6 @@ class IESCompute
         };
 
         template<E_MODE mode>
-        auto& getGPUE()
-        {
-            static_assert(mode != EM_SIZE);
-            return m_gpue[mode];
-        }
-
-        template<E_MODE mode>
         void dispatch()
         {
             static_assert(mode != EM_SIZE);
@@ -127,12 +120,23 @@ class IESCompute
 
             driver->bindComputePipeline(gpue.pipeline.get());
             driver->bindDescriptorSets(EPBP_COMPUTE, gpue.pipeline->getLayout(), 0u, 1u, &gpue.descriptorSet.get(), nullptr);
-            
+            driver->pushConstants(gpue.pipeline->getLayout(), asset::ISpecializedShader::ESS_COMPUTE, 0u, sizeof(PushConstant), &pushConstant);
+
             _NBL_STATIC_INLINE_CONSTEXPR auto xGroups = (TEXTURE_SIZE - 1u) / WORKGROUP_DIMENSION + 1u;
-            driver->dispatch(xGroups, core::max(xGroups >> 1u, 1u), 1u);
+            driver->dispatch(xGroups, xGroups, 1u);
 
             // NOTE: may need correction from our chads of synchro
             COpenGLExtensionHandler::extGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        }
+
+        void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degree)
+        {
+            pushConstant.zAngleDegreeRotation = degree;
+        }
+
+        const auto& getZDegree()
+        {
+            return pushConstant.zAngleDegreeRotation;
         }
 
     private:
@@ -144,8 +148,10 @@ class IESCompute
 
             auto createImageDescriptor = [&]()
             {
+                const auto TARGET_FORMAT = asset::EF_R16_UINT;
+
                 IGPUImage::SCreationParams imageInfo;
-                imageInfo.format = asset::EF_R16_UNORM;
+                imageInfo.format = TARGET_FORMAT;
                 imageInfo.type = IGPUImage::ET_2D;
                 imageInfo.extent.width = TEXTURE_SIZE;
                 imageInfo.extent.height = TEXTURE_SIZE;
@@ -160,7 +166,7 @@ class IESCompute
 
                 IGPUImageView::SCreationParams imgViewInfo;
                 imgViewInfo.image = std::move(image);
-                imgViewInfo.format = asset::EF_R16_UNORM;
+                imgViewInfo.format = TARGET_FORMAT;
                 imgViewInfo.viewType = IGPUImageView::ET_2D;
                 imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
                 imgViewInfo.subresourceRange.baseArrayLayer = 0u;
@@ -194,7 +200,9 @@ class IESCompute
 
             {
                 auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
-                gpue.pipeline = driver->createGPUComputePipeline(nullptr, driver->createGPUPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout)), gpuSpecializedShaderFromFile(getShaderPath<_mode>().data()));
+                asset::SPushConstantRange range = { asset::ISpecializedShader::ESS_COMPUTE, 0u, sizeof(PushConstant) };
+
+                gpue.pipeline = driver->createGPUComputePipeline(nullptr, driver->createGPUPipelineLayout(&range, &range + 1u, core::smart_refctd_ptr(descriptorSetLayout)), gpuSpecializedShaderFromFile(getShaderPath<_mode>().data()));
                 gpue.descriptorSet = driver->createGPUDescriptorSet(std::move(descriptorSetLayout));
             }
 
@@ -271,6 +279,13 @@ class IESCompute
             static_assert(mode != EM_SIZE);
         }
 
+        template<E_MODE mode>
+        auto& getGPUE()
+        {
+            static_assert(mode != EM_SIZE);
+            return m_gpue[mode];
+        }
+
         const asset::CIESProfile& profile;
         video::IVideoDriver* const driver;
 
@@ -279,6 +294,16 @@ class IESCompute
             core::smart_refctd_ptr<video::IGPUComputePipeline> pipeline;
             core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSet;
         } m_gpue[EM_SIZE];
+
+        #include "nbl/nblpack.h"
+        struct PushConstant
+        {
+            float maxIValueReciprocal;
+            float zAngleDegreeRotation;
+        } PACK_STRUCT;
+        #include "nbl/nblunpack.h"
+        
+        PushConstant pushConstant;
 };
 
 int main()
@@ -439,6 +464,7 @@ int main()
         driver->clearColorBuffer(video::EFAP_COLOR_ATTACHMENT0, clear);
         driver->beginScene(true, false, video::SColor(255, 0, 0, 0));
 
+        iesComputeEnvironment.updateZDegree(receiver.getZDegree());
         iesComputeEnvironment.dispatch<IESCompute::EM_CDC>(); // TODO: testing RD currently only
 
         driver->bindGraphicsPipeline(pipeline.get()); 
