@@ -1,7 +1,10 @@
-﻿#define _NBL_STATIC_LIB_
-#include <nabla.h>
+﻿
 
-#include "../common/CommonAPI.h"
+#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "../common/SimpleWindowedApplication.hpp"
+#include "nbl/video/utilities/CSimpleResizeSurface.h"
+#include "../common/CDefaultSwapchainFramebuffers.hpp"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
@@ -11,6 +14,9 @@
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawBuffers.h"
+
+#include "nbl/video/surface/CSurfaceVulkan.h"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
@@ -29,9 +35,12 @@ enum class ExampleMode
 constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 using namespace nbl::hlsl;
-
 using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
 using namespace ui;
+using namespace video;
 
 class Camera2D : public core::IReferenceCounted
 {
@@ -118,6 +127,132 @@ private:
 	float64_t2 m_origin = {};
 };
 
+class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+{
+	using device_base_t = examples::SimpleWindowedApplication;
+	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+	using clock_t = std::chrono::steady_clock;
+	
+	constexpr static uint32_t WindowWidthRequest = 1600u;
+	constexpr static uint32_t WindowHeightRequest = 900u;
+	constexpr static uint32_t MaxFramesInFlight = 8u;
+public:
+
+
+	// Yay thanks to multiple inheritance we cannot forward ctors anymore
+	inline ComputerAidedDesign(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+		IApplicationFramework(_localInputCWD,_localOutputCWD,_sharedInputCWD,_sharedOutputCWD) {}
+	
+	// Will get called mid-initialization, via `filterDevices` between when the API Connection is created and Physical Device is chosen
+	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+	{
+		// So let's create our Window and Surface then!
+		if (!m_surface)
+		{
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+				params.width = WindowWidthRequest;
+				params.height = WindowHeightRequest;
+				params.x = 32;
+				params.y = 32;
+				// Don't want to have a window lingering about before we're ready so create it hidden.
+				// Only programmatic resize, not regular.
+				params.flags = ui::IWindow::ECF_HIDDEN|IWindow::ECF_BORDERLESS|IWindow::ECF_RESIZABLE;
+				params.windowCaption = "CAD Playground";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<nbl::examples::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+		}
+		if (m_surface)
+			return {{m_surface->getSurface()/*,EQF_NONE*/}};
+		return {};
+	}
+	
+	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+	{
+		// TODO
+		return true;
+	}
+
+	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
+	inline void workLoopBody() override
+	{
+		// TODO:
+	}
+	
+	//
+	inline bool keepRunning() override
+	{
+		if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
+			return false;
+
+		return m_surface && !m_surface->irrecoverable();
+	}
+
+	virtual bool onAppTerminated() override
+	{
+		// We actually want to wait for all the frames to finish rendering, otherwise our destructors will run out of order late
+		m_device->waitIdle();
+
+		// This is optional, but the window would close AFTER we return from this function
+		m_surface = nullptr;
+		
+		return device_base_t::onAppTerminated();
+	}
+
+protected:
+	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
+	clock_t::time_point start;
+
+	bool fragmentShaderInterlockEnabled = false;
+
+	/*
+	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
+	*/
+	
+	smart_refctd_ptr<IQueryPool> pipelineStatsPool;
+
+	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
+	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
+	smart_refctd_ptr<IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
+	
+	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_cmdPools;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_cmdBufs;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_uploadCmdBufs;
+	
+	std::array<smart_refctd_ptr<IGPUImageView>,		MaxFramesInFlight>	pseudoStencilImageViews;
+	std::array<smart_refctd_ptr<IGPUBuffer>,		MaxFramesInFlight>	globalsBuffer;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>,	MaxFramesInFlight>	descriptorSets;
+	std::array<DrawBuffersFiller,					MaxFramesInFlight>	drawBuffers;
+
+	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
+	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout;
+	smart_refctd_ptr<IGPUPipelineLayout>		graphicsPipelineLayout;
+
+	smart_refctd_ptr<IGPUGraphicsPipeline> resolveAlphaGraphicsPipeline;
+	smart_refctd_ptr<IGPUPipelineLayout> resolveAlphaPipeLayout;
+
+	Camera2D m_Camera;
+
+	// Use a separate counter to cycle through our resources for clarity
+	uint64_t m_realFrameIx : 59 = 0;
+	// Maximum frames which can be simultaneously rendered
+	uint64_t m_maxFramesInFlight : 5;
+
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<examples::CDefaultSwapchainFramebuffers>> m_surface;
+};
+
+NBL_MAIN_FUNC(ComputerAidedDesign)
+
+#if 0
+
+
 class CADApp : public ApplicationBase
 {
 	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
@@ -126,33 +261,6 @@ class CADApp : public ApplicationBase
 	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
 	constexpr static uint32_t REQUESTED_WIN_H = 900u;
 
-	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-
-	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
-	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
-	core::smart_refctd_ptr<nbl::ui::IWindow> window;
-	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
-	core::smart_refctd_ptr<nbl::video::ISurface> surface;
-	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
-	video::IPhysicalDevice* physicalDevice;
-	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
-	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
-	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> framebuffersDynArraySmartPtr;
-	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<nbl::system::ISystem> system;
-	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
-	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<nbl::system::ILogger> logger;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
-	video::IGPUObjectFromAssetConverter cpu2gpu;
-	core::smart_refctd_ptr<video::IGPUImage> m_swapchainImages[CommonAPI::InitOutput::MaxSwapChainImageCount];
-
 	int32_t m_resourceIx = -1;
 	uint32_t m_SwapchainImageIx = ~0u;
 
@@ -160,13 +268,6 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
 	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
 
-	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_uploadCmdBuf[FRAMES_IN_FLIGHT] = { nullptr };
-
-	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
-
-	// Related to Drawing Stuff
-	Camera2D m_Camera;
 
 	core::smart_refctd_ptr<video::IGPUImageView> pseudoStencilImageView[FRAMES_IN_FLIGHT];
 	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
@@ -2467,4 +2568,4 @@ public:
 	}
 };
 
-NBL_MAIN_FUNC(CADApp)
+#endif

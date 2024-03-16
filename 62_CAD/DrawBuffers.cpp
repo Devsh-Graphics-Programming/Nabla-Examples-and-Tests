@@ -79,7 +79,7 @@ void DrawBuffersFiller::allocateGeometryBuffer(nbl::video::ILogicalDevice* logic
 	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-	geometryBufferAddress = logicalDevice->getBufferDeviceAddress(gpuDrawBuffers.geometryBuffer.get());
+	geometryBufferAddress = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
 
 	cpuDrawBuffers.geometryBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(size);
 }
@@ -122,29 +122,29 @@ void DrawBuffersFiller::allocateCustomClipProjectionBuffer(nbl::video::ILogicalD
 
 //! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULineStyle& cpuLineStyle, const uint32_t clipProjectionIdx, nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULineStyle& cpuLineStyle, const uint32_t clipProjectionIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!cpuLineStyle.isVisible())
-		return intendedNextSubmit;
+		return;
 
 	uint32_t styleIdx;
-	intendedNextSubmit = addLineStyle_SubmitIfNeeded(cpuLineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+	addLineStyle_SubmitIfNeeded(cpuLineStyle, styleIdx, intendedNextSubmit);
 
 	MainObject mainObj = {};
 	mainObj.styleIdx = styleIdx;
 	mainObj.clipProjectionIdx = clipProjectionIdx;
 	uint32_t mainObjIdx;
-	intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+	addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, intendedNextSubmit);
 
-	return drawPolyline(submissionQueue, submissionFence, intendedNextSubmit, polyline, mainObjIdx);
+	return drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawPolyline(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit, const CPolylineBase& polyline, const uint32_t polylineMainObjIdx)
+void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32_t polylineMainObjIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (polylineMainObjIdx == InvalidMainObjectIdx)
 	{
 		// TODO: assert or log error here
-		return intendedNextSubmit;
+		return;
 	}
 
 	const auto sectionsCount = polyline.getSectionsCount();
@@ -168,8 +168,8 @@ nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawPolyline(nbl::video::I
 
 		if (shouldSubmit)
 		{
-			intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+			finalizeAllCopiesToGPU(intendedNextSubmit);
+			submitDraws(intendedNextSubmit);
 			resetIndexCounters();
 			resetGeometryCounters();
 			// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
@@ -190,16 +190,14 @@ nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawPolyline(nbl::video::I
 			}
 			else
 			{
-				intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-				intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+				finalizeAllCopiesToGPU(intendedNextSubmit);
+				submitDraws(intendedNextSubmit);
 				resetIndexCounters();
 				resetGeometryCounters();
 				// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
 			}
 		}
 	}
-
-	return intendedNextSubmit;
 }
 
 // If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
@@ -210,20 +208,20 @@ nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawPolyline(nbl::video::I
 // then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
 // then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawHatch(const Hatch& hatch, const float32_t4 color, const uint32_t clipProjectionIdx, nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::drawHatch(const Hatch& hatch, const float32_t4 color, const uint32_t clipProjectionIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	CPULineStyle lineStyle;
 	lineStyle.color = color;
 	lineStyle.stipplePatternSize = 0u;
 
 	uint32_t styleIdx;
-	intendedNextSubmit = addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, submissionQueue, submissionFence, intendedNextSubmit);
+	addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, intendedNextSubmit);
 
 	MainObject mainObj = {};
 	mainObj.styleIdx = styleIdx;
 	mainObj.clipProjectionIdx = clipProjectionIdx;
 	uint32_t mainObjIdx;
-	intendedNextSubmit = addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, submissionQueue, submissionFence, intendedNextSubmit);
+	addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, intendedNextSubmit);
 
 	const auto sectionsCount = 1;
 
@@ -238,100 +236,91 @@ nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::drawHatch(const Hatch& hat
 		if (currentObjectInSection >= sectionObjectCount)
 			break;
 
-		intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
 		resetIndexCounters();
 		resetGeometryCounters();
 	}
-
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeAllCopiesToGPU(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::finalizeAllCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
-	intendedNextSubmit = finalizeIndexCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-	intendedNextSubmit = finalizeMainObjectCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-	intendedNextSubmit = finalizeGeometryCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-	intendedNextSubmit = finalizeLineStyleCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-	intendedNextSubmit = finalizeCustomClipProjectionCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-
-	return intendedNextSubmit;
+	finalizeIndexCopiesToGPU(intendedNextSubmit);
+	finalizeMainObjectCopiesToGPU(intendedNextSubmit);
+	finalizeGeometryCopiesToGPU(intendedNextSubmit);
+	finalizeLineStyleCopiesToGPU(intendedNextSubmit);
+	finalizeCustomClipProjectionCopiesToGPU(intendedNextSubmit);
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const CPULineStyle& lineStyle, uint32_t& outLineStyleIdx, nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const CPULineStyle& lineStyle, uint32_t& outLineStyleIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	outLineStyleIdx = addLineStyle_Internal(lineStyle);
 	if (outLineStyleIdx == InvalidLineStyleIdx)
 	{
-		intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
 		resetAllCounters();
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
 		assert(outLineStyleIdx != InvalidLineStyleIdx);
 	}
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::addMainObject_SubmitIfNeeded(const MainObject& mainObject, uint32_t& outMainObjectIdx, nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::addMainObject_SubmitIfNeeded(const MainObject& mainObject, uint32_t& outMainObjectIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	outMainObjectIdx = addMainObject_Internal(mainObject);
 	if (outMainObjectIdx == InvalidMainObjectIdx)
 	{
-		intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
 		resetAllCounters();
 		outMainObjectIdx = addMainObject_Internal(mainObject);
 		assert(outMainObjectIdx != InvalidMainObjectIdx);
 	}
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, uint32_t& outClipProjectionIdx, nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, uint32_t& outClipProjectionIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
 	if (outClipProjectionIdx == InvalidClipProjectionIdx)
 	{
-		intendedNextSubmit = finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		intendedNextSubmit = submitDraws(submissionQueue, submissionFence, intendedNextSubmit);
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
 		resetAllCounters();
 		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
 		assert(outClipProjectionIdx != InvalidClipProjectionIdx);
 	}
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeIndexCopiesToGPU(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::finalizeIndexCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy Indices
 	uint32_t remainingIndexCount = currentIndexCount - inMemIndexCount;
 	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> indicesRange = { sizeof(index_buffer_type) * inMemIndexCount, sizeof(index_buffer_type) * remainingIndexCount, gpuDrawBuffers.indexBuffer };
 	const index_buffer_type* srcIndexData = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + inMemIndexCount;
 	if (indicesRange.size > 0u)
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(indicesRange, srcIndexData, submissionQueue, submissionFence, intendedNextSubmit);
+		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, indicesRange, srcIndexData);
 	inMemIndexCount = currentIndexCount;
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeMainObjectCopiesToGPU(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::finalizeMainObjectCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy MainObjects
 	uint32_t remainingMainObjects = currentMainObjectCount - inMemMainObjectCount;
 	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> mainObjectsRange = { sizeof(MainObject) * inMemMainObjectCount, sizeof(MainObject) * remainingMainObjects, gpuDrawBuffers.mainObjectsBuffer };
 	const MainObject* srcMainObjData = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer()) + inMemMainObjectCount;
 	if (mainObjectsRange.size > 0u)
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(mainObjectsRange, srcMainObjData, submissionQueue, submissionFence, intendedNextSubmit);
+		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, mainObjectsRange, srcMainObjData);
 	inMemMainObjectCount = currentMainObjectCount;
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeGeometryCopiesToGPU(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::finalizeGeometryCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy DrawObjects
 	uint32_t remainingDrawObjects = currentDrawObjectCount - inMemDrawObjectCount;
 	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
 	const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
 	if (drawObjectsRange.size > 0u)
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(drawObjectsRange, srcDrawObjData, submissionQueue, submissionFence, intendedNextSubmit);
+		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, drawObjectsRange, srcDrawObjData);
 	inMemDrawObjectCount = currentDrawObjectCount;
 
 	// Copy GeometryBuffer
@@ -339,34 +328,30 @@ nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeGeometryCopiesToGP
 	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
 	const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
 	if (geomRange.size > 0u)
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(geomRange, srcGeomData, submissionQueue, submissionFence, intendedNextSubmit);
+		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geomRange, srcGeomData);
 	inMemGeometryBufferSize = currentGeometryBufferSize;
-
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeLineStyleCopiesToGPU(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::finalizeLineStyleCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy LineStyles
 	uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
 	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
 	const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
 	if (stylesRange.size > 0u)
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(stylesRange, srcLineStylesData, submissionQueue, submissionFence, intendedNextSubmit);
+		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData);
 	inMemLineStylesCount = currentLineStylesCount;
-	return intendedNextSubmit;
 }
 
-nbl::video::IGPUQueue::SSubmitInfo DrawBuffersFiller::finalizeCustomClipProjectionCopiesToGPU(nbl::video::IGPUQueue* submissionQueue, nbl::video::IGPUFence* submissionFence, nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+void DrawBuffersFiller::finalizeCustomClipProjectionCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy LineStyles
 	uint32_t remainingClipProjectionData = currentClipProjectionDataCount - inMemClipProjectionDataCount;
 	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> clipProjectionRange = { sizeof(ClipProjectionData) * inMemClipProjectionDataCount, sizeof(ClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
 	const ClipProjectionData* srcClipProjectionData = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer()) + inMemClipProjectionDataCount;
 	if (clipProjectionRange.size > 0u)
-		intendedNextSubmit = utilities->updateBufferRangeViaStagingBuffer(clipProjectionRange, srcClipProjectionData, submissionQueue, submissionFence, intendedNextSubmit);
+		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, clipProjectionRange, srcClipProjectionData);
 	inMemClipProjectionDataCount = currentClipProjectionDataCount;
-	return intendedNextSubmit;
 }
 
 uint32_t DrawBuffersFiller::addMainObject_Internal(const MainObject& mainObject)

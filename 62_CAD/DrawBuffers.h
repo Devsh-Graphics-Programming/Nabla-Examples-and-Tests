@@ -1,5 +1,6 @@
 #include "Polyline.h"
 #include "Hatch.h"
+#include <nbl/video/utilities/SIntendedSubmitInfo.h>
 
 template <typename BufferType>
 struct DrawBuffers
@@ -23,7 +24,7 @@ public:
 
 	DrawBuffersFiller(nbl::core::smart_refctd_ptr<nbl::video::IUtilities>&& utils);
 
-	typedef std::function<nbl::video::IGPUQueue::SSubmitInfo(nbl::video::IGPUQueue*, nbl::video::IGPUFence*, nbl::video::IGPUQueue::SSubmitInfo)> SubmitFunc;
+	typedef std::function<void(nbl::video::SIntendedSubmitInfo&)> SubmitFunc;
 
 	// function is called when buffer is filled and we should submit draws and clear the buffers and continue filling
 	void setSubmitDrawsFunction(SubmitFunc func);
@@ -44,20 +45,16 @@ public:
 	//uint32_t getIndexCount() const { return currentIndexCount; }
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
-	nbl::video::IGPUQueue::SSubmitInfo drawPolyline(
+	void drawPolyline(
 		const CPolylineBase& polyline,
 		const CPULineStyle& cpuLineStyle,
 		const uint32_t clipProjectionIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo drawPolyline(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit,
+	void drawPolyline(
 		const CPolylineBase& polyline,
-		const uint32_t polylineMainObjIdx);
+		const uint32_t polylineMainObjIdx,
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
 	// If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
 	// But we don't have that so we have to follow a similar auto submission as the "drawPolyline" function with some mutations:
@@ -66,19 +63,14 @@ public:
 	// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
 	// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
 	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
-	nbl::video::IGPUQueue::SSubmitInfo drawHatch(
+	void drawHatch(
 		const Hatch& hatch,
 		// If more parameters from cpu line style are used here later, make a new HatchStyle & use that
 		const float32_t4 color,
 		const uint32_t clipProjectionIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeAllCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getIndexCount() const { return currentIndexCount; }
 
@@ -126,56 +118,35 @@ public:
 	DrawBuffers<nbl::asset::ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<nbl::video::IGPUBuffer> gpuDrawBuffers;
 
-	nbl::video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
+	void addLineStyle_SubmitIfNeeded(
 		const CPULineStyle& lineStyle,
 		uint32_t& outLineStyleIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
+	void addMainObject_SubmitIfNeeded(
 		const MainObject& mainObject,
 		uint32_t& outMainObjectIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
+	void addClipProjectionData_SubmitIfNeeded(
 		const ClipProjectionData& clipProjectionData,
 		uint32_t& outClipProjectionIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
 protected:
 
 	SubmitFunc submitDraws;
 	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeIndexCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeIndexCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeMainObjectCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeMainObjectCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeGeometryCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeGeometryCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeLineStyleCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeLineStyleCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeCustomClipProjectionCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeCustomClipProjectionCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit);
 
 	uint32_t addMainObject_Internal(const MainObject& mainObject);
 
