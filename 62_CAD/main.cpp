@@ -220,7 +220,7 @@ public:
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
 		drawBuffer.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
 
-		for (uint32_t i = 0; i < m_maxFramesInFlight; ++i)
+		for (uint32_t i = 0; i < m_framesInFlight; ++i)
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
@@ -241,7 +241,7 @@ public:
 		promotionRequest.usages.storageImageAtomic = true;
 		pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
 
-		for (uint32_t i = 0u; i < m_maxFramesInFlight; ++i)
+		for (uint32_t i = 0u; i < m_framesInFlight; ++i)
 		{
 			IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
@@ -378,7 +378,6 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
-	uint32_t m_resourceIdx = 0u;
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -391,9 +390,10 @@ public:
 		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
 		
 		// Create the Semaphores
-		{
-			// TODO:
-		}
+		m_renderSemaphore = m_device->createSemaphore(0ull);
+		m_overflowSubmitSemaphore = m_device->createSemaphore(0ull);
+		if (!m_renderSemaphore || !m_overflowSubmitSemaphore)
+			return logFail("Failed to Create Semaphores!");
 
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
@@ -412,7 +412,7 @@ public:
 		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
 			return logFail("Could not initialize the Surface!");
 
-		m_maxFramesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
+		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
 		
 		// Shaders
 		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
@@ -500,13 +500,13 @@ public:
 
 			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 			{
-				const uint32_t setCount = m_maxFramesInFlight;
+				const uint32_t setCount = m_framesInFlight;
 				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&descriptorSetLayout.get(),1},&setCount);
 				if (!pool)
 					return logFail("Failed to Create Descriptor Pool");
 			}
 
-			for (size_t i = 0; i < m_maxFramesInFlight; i++)
+			for (size_t i = 0; i < m_framesInFlight; i++)
 			{
 				descriptorSets[i] = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
 				constexpr uint32_t DescriptorCount = 6u;
@@ -641,14 +641,14 @@ public:
 		}
 		
 		// Create the commandbuffers and pools, this time properly 1 pool per FIF
-		for (auto i=0u; i<m_maxFramesInFlight; i++)
+		for (auto i=0u; i<m_framesInFlight; i++)
 		{
 			// non-individually-resettable commandbuffers have an advantage over invidually-resettable
 			// mainly that the pool can use a "cheaper", faster allocator internally
-			m_cmdPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
-			if (!m_cmdPools[i])
+			m_graphicsCommandPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
+			if (!m_graphicsCommandPools[i])
 				return logFail("Couldn't create Command Pool!");
-			if (!m_cmdPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
+			if (!m_graphicsCommandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffers.data()+i,1}))
 				return logFail("Couldn't create Command Buffer!");
 		}
 		
@@ -668,10 +668,162 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-		// TODO:
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
+
+		auto now = std::chrono::high_resolution_clock::now();
+		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
+		lastTime = now;
+		m_timeElapsed += dt;
+		if constexpr (mode == ExampleMode::CASE_0)
+		{
+			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
+		}
+
+		/*
+		inputSystem->getDefaultMouse(&mouse);
+		inputSystem->getDefaultKeyboard(&keyboard);
+
+		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+			{
+				m_Camera.mouseProcess(events);
+			}
+		, logger.get());
+		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			{
+				m_Camera.keyboardProcess(events);
+
+				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+				{
+					auto ev = *eventIt;
+
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
+					{
+						m_hatchDebugStep++;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_Q)
+					{
+						m_hatchDebugStep--;
+					}
+				}
+			}
+		, logger.get());
+		*/
 	}
 	
-	//
+	void beginFrameRender()
+	{
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
+		auto& cb = m_commandBuffers[resourceIx];
+		auto& commandPool = m_graphicsCommandPools[resourceIx];
+		
+		// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+		if (m_realFrameIx>=m_framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+				{ 
+					.semaphore = m_renderSemaphore.get(),
+					.value = m_realFrameIx+1-m_framesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
+		}
+		
+		// Acquire
+		auto imageIx = m_surface->acquireNextImage();
+		if (imageIx==ISwapchain::MaxImages)
+			return;
+
+		// safe to proceed
+		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cb->beginDebugMarker("Frame");
+
+		float64_t3x3 projectionToNDC;
+		projectionToNDC = m_Camera.constructViewProjection();
+		
+		Globals globalData = {};
+		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
+		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
+		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
+		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
+		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
+		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
+		globalData.screenToWorldRatio = screenToWorld;
+		globalData.worldToScreenRatio = (1.0/screenToWorld);
+		globalData.miterLimit = 10.0f;
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer[resourceIx].get() };
+		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
+		assert(updateSuccess);
+		
+		// Clear pseudoStencil
+		{
+			auto pseudoStencilImage = pseudoStencilImageViews[resourceIx]->getCreationParameters().image;
+
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
+			{
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+							.srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+							.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = pseudoStencilImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::GENERAL,
+				}
+			};
+
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = imageBarriers  });
+
+			uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
+			IGPUCommandBuffer::SClearColorValue clear = {};
+			clear.uint32[0] = pseudoStencilInvalidValue;
+
+			asset::IImage::SSubresourceRange subresourceRange = {};
+			subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			subresourceRange.baseArrayLayer = 0u;
+			subresourceRange.baseMipLevel = 0u;
+			subresourceRange.layerCount = 1u;
+			subresourceRange.levelCount = 1u;
+
+			cb->clearColorImage(pseudoStencilImage.get(), asset::IImage::LAYOUT::GENERAL, &clear, 1u, &subresourceRange);
+		}
+
+		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		{
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
+			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+				.framebuffer = scRes->getFrambuffer(imageIx),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = nullptr,
+				.renderArea = currentRenderArea
+			};
+		}
+
+		// you could do this later but only use renderpassInitial on first draw
+		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		cb->endRenderPass();
+	}
+	
 	inline bool keepRunning() override
 	{
 		if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
@@ -722,7 +874,7 @@ protected:
 		drawBuffer.setSubmitDrawsFunction(
 			[&](SIntendedSubmitInfo& intendedNextSubmit)
 			{
-				// return submitInBetweenDraws(m_resourceIx, intendedNextSubmit);
+				// return submitInBetweenDraws(resourceIx, intendedNextSubmit);
 			}
 		);
 		drawBuffer.reset();
@@ -1935,17 +2087,20 @@ protected:
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
 	
-	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_cmdPools;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_cmdBufs;
+	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
 	
 	std::array<smart_refctd_ptr<IGPUImageView>,		MaxFramesInFlight>	pseudoStencilImageViews;
 	std::array<smart_refctd_ptr<IGPUBuffer>,		MaxFramesInFlight>	globalsBuffer;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>,	MaxFramesInFlight>	descriptorSets;
 	DrawBuffersFiller drawBuffer; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
 
-	smart_refctd_ptr<ISemaphore> renderSemaphore; // timeline semaphore to sync frames together
-	std::array<smart_refctd_ptr<ISemaphore>, MaxFramesInFlight>	acquireSemaphores;  // timeline semaphores for acquires
-	smart_refctd_ptr<ISemaphore> overflowSubmitSemaphore; // timeline semaphore used for overflows (they need to be on their own timeline to count overflows
+	smart_refctd_ptr<ISemaphore> m_renderSemaphore; // timeline semaphore to sync frames together
+	smart_refctd_ptr<ISemaphore> m_overflowSubmitSemaphore; // timeline semaphore used for overflows (they need to be on their own timeline to count overflows
+	// Use a separate counter to cycle through our resources for clarity
+	uint64_t m_realFrameIx : 59 = 0;
+	// Maximum frames which can be simultaneously rendered
+	uint64_t m_framesInFlight : 5;
 
 	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
 	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
@@ -1957,10 +2112,6 @@ protected:
 
 	Camera2D m_Camera;
 
-	// Use a separate counter to cycle through our resources for clarity
-	uint64_t m_realFrameIx : 59 = 0;
-	// Maximum frames which can be simultaneously rendered
-	uint64_t m_maxFramesInFlight : 5;
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
@@ -1977,123 +2128,11 @@ class CADApp : public ApplicationBase
 	CPolyline bigPolyline;
 	CPolyline bigPolyline2;
 
-
-	void beginFrameRender()
-	{
-		auto& cb = m_cmdbuf[m_resourceIx];
-		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
-		logicalDevice->blockForFences(1u, &fence.get());
-		logicalDevice->resetFences(1u, &fence.get());
-
-		m_SwapchainImageIx = 0u;
-		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &m_SwapchainImageIx);
-		assert(acquireResult == video::ISwapchain::E_ACQUIRE_IMAGE_RESULT::EAIR_SUCCESS);
-
-		core::smart_refctd_ptr<video::IGPUImage> swapchainImg = m_swapchainImages[m_SwapchainImageIx];
-
-		// safe to proceed
-		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
-		cb->beginDebugMarker("Frame");
-
-		float64_t3x3 projectionToNDC;
-		// TODO: figure out why the matrix multiplication overload isn't getting detected here
-		// 
-		//if constexpr (DebugRotatingViewProj)
-		//{
-		//	double theta = (m_timeElapsed * 0.00008) * (2.0 * nbl::core::PI<double>());
-		//
-		//	auto rotation = float64_t3x3(
-		//		cos(theta), -sin(theta), 0.0,
-		//		sin(theta), cos(theta), 1.0,
-		//		0.0, 0.0, 1.0
-		//	);
-		//
-		//	auto vp = m_Camera.constructViewProjection();
-		//	projectionToNDC = nbl::hlsl::mul(rotation, vp);
-		//}
-		//else
-		//{
-		//	projectionToNDC = m_Camera.constructViewProjection();
-		//}
-		projectionToNDC = m_Camera.constructViewProjection();
-		
-		Globals globalData = {};
-		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
-		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
-		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
-		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
-		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
-		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = screenToWorld;
-		globalData.worldToScreenRatio = (1.0/screenToWorld);
-		globalData.miterLimit = 10.0f;
-		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
-		assert(updateSuccess);
-
-		// Clear pseudoStencil
-		{
-			auto pseudoStencilImage = pseudoStencilImageView[m_resourceIx]->getCreationParameters().image;
-
-			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
-			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_NONE;
-			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
-			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
-			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].image = pseudoStencilImage;
-			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
-			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
-			imageBarriers[0].subresourceRange.levelCount = 1;
-			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
-			imageBarriers[0].subresourceRange.layerCount = 1;
-			cb->pipelineBarrier(nbl::asset::EPSF_TOP_OF_PIPE_BIT, nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
-
-			uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
-			asset::SClearColorValue clear = {};
-			clear.uint32[0] = pseudoStencilInvalidValue;
-
-			asset::IImage::SSubresourceRange subresourceRange = {};
-			subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			subresourceRange.baseArrayLayer = 0u;
-			subresourceRange.baseMipLevel = 0u;
-			subresourceRange.layerCount = 1u;
-			subresourceRange.levelCount = 1u;
-
-			cb->clearColorImage(pseudoStencilImage.get(), asset::IImage::EL_GENERAL, &clear, 1u, &subresourceRange);
-		}
-
-		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { window->getWidth(), window->getHeight() };
-			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 0.f;
-			clear[0].color.float32[1] = 0.f;
-			clear[0].color.float32[2] = 0.f;
-			clear[0].color.float32[3] = 0.f;
-			clear[1].depthStencil.depth = 1.f;
-
-			beginInfo.clearValueCount = 2u;
-			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
-			beginInfo.renderpass = renderpassInitial;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = clear;
-		}
-
-		// you could do this later but only use renderpassInitial on first draw
-		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-		cb->endRenderPass();
-	}
-
 	void pipelineBarriersBeforeDraw(video::IGPUCommandBuffer* const cb)
 	{
-		auto& drawBuffer = drawBuffers[m_resourceIx];
+		auto& drawBuffer = drawBuffers[resourceIx];
 		{
-			auto pseudoStencilImage = pseudoStencilImageView[m_resourceIx]->getCreationParameters().image;
+			auto pseudoStencilImage = pseudoStencilImageView[resourceIx]->getCreationParameters().image;
 			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
 			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
 			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT | nbl::asset::EAF_SHADER_WRITE_BIT; // SYNC_FRAGMENT_SHADER_SHADER_SAMPLED_READ | SYNC_FRAGMENT_SHADER_SHADER_STORAGE_READ | SYNC_FRAGMENT_SHADER_UNIFORM_READ
@@ -2127,16 +2166,16 @@ class CADApp : public ApplicationBase
 			uint32_t bufferBarriersCount = 0u;
 			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[MaxBufferBarriersCount] = {};
 
-			if (globalsBuffer[m_resourceIx]->getSize() > 0u)
+			if (globalsBuffer[resourceIx]->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
 				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_UNIFORM_READ_BIT;
 				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = globalsBuffer[m_resourceIx];
+				bufferBarrier.buffer = globalsBuffer[resourceIx];
 				bufferBarrier.offset = 0u;
-				bufferBarrier.size = globalsBuffer[m_resourceIx]->getSize();
+				bufferBarrier.size = globalsBuffer[resourceIx]->getSize();
 			}
 			if (drawBuffer.getCurrentDrawObjectsBufferSize() > 0u)
 			{
@@ -2190,7 +2229,7 @@ class CADApp : public ApplicationBase
 
 	void endFrameRender()
 	{
-		auto& cb = m_cmdbuf[m_resourceIx];
+		auto& cb = m_cmdbuf[resourceIx];
 
 		uint32_t windowWidth = swapchain->getCreationParameters().width;
 		uint32_t windowHeight = swapchain->getCreationParameters().height;
@@ -2229,22 +2268,22 @@ class CADApp : public ApplicationBase
 
 		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
 
-		const uint32_t currentIndexCount = drawBuffers[m_resourceIx].getIndexCount();
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
-		cb->bindIndexBuffer(drawBuffers[m_resourceIx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
+		const uint32_t currentIndexCount = drawBuffers[resourceIx].getIndexCount();
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
+		cb->bindIndexBuffer(drawBuffers[resourceIx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
 		if (fragmentShaderInterlockEnabled)
 		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
 			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
 		}
 
 		if constexpr (DebugMode)
 		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
@@ -2306,7 +2345,7 @@ class CADApp : public ApplicationBase
 
 		if (fragmentShaderInterlockEnabled)
 		{
-			cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
+			cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
 			cmdbuf->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
 			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cmdbuf);
 		}
@@ -2346,50 +2385,9 @@ class CADApp : public ApplicationBase
 
 	void workLoopBody() override
 	{
-		m_resourceIx++;
-		if (m_resourceIx >= FRAMES_IN_FLIGHT)
-			m_resourceIx = 0;
-
-		auto now = std::chrono::high_resolution_clock::now();
-		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
-		lastTime = now;
-		m_timeElapsed += dt;
-
-		if constexpr (mode == ExampleMode::CASE_0)
-		{
-			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
-		}
-
-		inputSystem->getDefaultMouse(&mouse);
-		inputSystem->getDefaultKeyboard(&keyboard);
-
-		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-			{
-				m_Camera.mouseProcess(events);
-			}
-		, logger.get());
-		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-			{
-				m_Camera.keyboardProcess(events);
-
-				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
-				{
-					auto ev = *eventIt;
-
-					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
-					{
-						m_hatchDebugStep++;
-					}
-					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_Q)
-					{
-						m_hatchDebugStep--;
-					}
-				}
-			}
-		, logger.get());
-
-		auto& cb = m_cmdbuf[m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
+	
+		auto& cb = m_cmdbuf[resourceIx];
+		auto& fence = m_frameComplete[resourceIx];
 
 		auto& graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
 
@@ -2397,8 +2395,8 @@ class CADApp : public ApplicationBase
 		submit.commandBufferCount = 1u;
 		submit.commandBuffers = &cb.get();
 		submit.signalSemaphoreCount = 1u;
-		submit.pSignalSemaphores = &m_renderFinished[m_resourceIx].get();
-		nbl::video::IGPUSemaphore* waitSemaphores[1u] = { m_imageAcquire[m_resourceIx].get() };
+		submit.pSignalSemaphores = &m_renderFinished[resourceIx].get();
+		nbl::video::IGPUSemaphore* waitSemaphores[1u] = { m_imageAcquire[resourceIx].get() };
 		asset::E_PIPELINE_STAGE_FLAGS waitStages[1u] = { nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT };
 		submit.waitSemaphoreCount = 1u;
 		submit.pWaitSemaphores = waitSemaphores;
@@ -2416,7 +2414,7 @@ class CADApp : public ApplicationBase
 			logicalDevice.get(),
 			swapchain.get(),
 			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			m_renderFinished[m_resourceIx].get(),
+			m_renderFinished[resourceIx].get(),
 			m_SwapchainImageIx);
 
 		getAndLogQueryPoolResults();
