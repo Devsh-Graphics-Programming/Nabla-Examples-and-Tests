@@ -148,7 +148,7 @@ class IESCompute
 
             auto createImageDescriptor = [&]()
             {
-                const auto TARGET_FORMAT = asset::EF_R16_UINT;
+                const auto TARGET_FORMAT = asset::EF_R16_UNORM;
 
                 IGPUImage::SCreationParams imageInfo;
                 imageInfo.format = TARGET_FORMAT;
