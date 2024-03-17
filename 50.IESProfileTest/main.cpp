@@ -16,9 +16,9 @@ class IESExampleEventReceiver : public nbl::IEventReceiver
 
         bool OnEvent(const nbl::SEvent& event)
         {
-            auto handleDegress = [&](bool addition = true)
+            if (event.EventType == nbl::EET_MOUSE_INPUT_EVENT)
             {
-                const auto& newDegree = std::clamp<int16_t>(zDegree + (addition ? DEGREE_SHIFT : (-DEGREE_SHIFT)), 0u, 360u);
+                const auto& newDegree = std::clamp<double>(zDegree + event.MouseInput.Wheel, 0.0, 360.0);
 
                 if (zDegree != newDegree)
                     regenerateCDC = true;
@@ -26,7 +26,7 @@ class IESExampleEventReceiver : public nbl::IEventReceiver
                 zDegree = newDegree;
 
                 return true;
-            };
+            }
 
             if (event.EventType == nbl::EET_KEY_INPUT_EVENT && !event.KeyInput.PressedDown)
             {
@@ -53,14 +53,6 @@ class IESExampleEventReceiver : public nbl::IEventReceiver
 
                         return true;
                     }
-                    case nbl::KEY_LEFT:
-                    {
-                        return handleDegress(false);
-                    }
-                    case nbl::KEY_RIGHT:
-                    {
-                        return handleDegress(true);
-                    }
                     case nbl::KEY_KEY_Q:
                     {
                         running = false;
@@ -68,6 +60,7 @@ class IESExampleEventReceiver : public nbl::IEventReceiver
                     }
                 }
             }
+
             return false;
         }
 
@@ -75,13 +68,13 @@ class IESExampleEventReceiver : public nbl::IEventReceiver
         inline const auto& isInCDCMode() const { return cdcMode; }
         inline const auto& isDebug() const { return debug; }
         inline const auto& needToRegenerateCDC() const { return regenerateCDC; }
-        template<typename T = int16_t>
+        template<typename T = double>
         inline const auto& getZDegree() const { return static_cast<T>(zDegree); }
         inline void resetRequests() { regenerateCDC = false; }
 
     private:
         _NBL_STATIC_INLINE_CONSTEXPR size_t DEGREE_SHIFT = 5u;
-        int16_t zDegree = 0u;
+        double zDegree = 0.0;
         bool cdcMode = true, running = true, debug = false, regenerateCDC = false;
 };
 
