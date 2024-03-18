@@ -168,7 +168,7 @@ struct LineStyle
     }
 };
 
-#ifdef __cplusplus
+#ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
     const bool areParametersEqual =
