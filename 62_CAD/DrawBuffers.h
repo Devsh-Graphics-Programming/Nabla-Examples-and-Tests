@@ -5,7 +5,7 @@
 template <typename BufferType>
 struct DrawBuffers
 {
-	nbl::core::smart_refctd_ptr<BufferType> indexBuffer;
+	nbl::core::smart_refctd_ptr<BufferType> indexBuffer; // TODO: we can fill this values up at initialization time because we do custom pulling based on VertexIdx%4
 	nbl::core::smart_refctd_ptr<BufferType> mainObjectsBuffer;
 	nbl::core::smart_refctd_ptr<BufferType> drawObjectsBuffer;
 	nbl::core::smart_refctd_ptr<BufferType> geometryBuffer;

@@ -391,9 +391,12 @@ public:
 		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
-		m_overflowSubmitSemaphore = m_device->createSemaphore(0ull);
-		if (!m_renderSemaphore || !m_overflowSubmitSemaphore)
+		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
+		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
 			return logFail("Failed to Create Semaphores!");
+
+		m_overflowSubmitsScratchSemaphoreInfo.semaphore = m_overflowSubmitScratchSemaphore.get();
+		m_overflowSubmitsScratchSemaphoreInfo.value = 1ull;
 
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
@@ -501,8 +504,8 @@ public:
 			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 			{
 				const uint32_t setCount = m_framesInFlight;
-				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&descriptorSetLayout.get(),1},&setCount);
-				if (!pool)
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&descriptorSetLayout.get(),1},&setCount);
+				if (!descriptorPool)
 					return logFail("Failed to Create Descriptor Pool");
 			}
 
@@ -600,6 +603,9 @@ public:
 
 			resolveAlphaPipeLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
 			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, resolveAlphaPipeLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
+			if (!resolveAlphaGraphicsPipeline)
+				return logFail("Graphics Pipeline Creation Failed.");
+
 		}
 		
 		// Create Main Graphics Pipelines 
@@ -708,14 +714,45 @@ public:
 			}
 		, logger.get());
 		*/
+
+		beginFrameRender();
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo acquired = {
+			.semaphore = m_surface->getAcquireSemaphore(),
+			.value = m_surface->getAcquireCount(),
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // NONE for Acquire, right?
+		};
+
+		// prev frame done using the scene data (is in post process stage)
+		const IQueue::SSubmitInfo::SSemaphoreInfo prevFrameRendered = {
+			.semaphore = m_renderSemaphore.get(),
+			.value = m_realFrameIx,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+		};
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
+			.semaphore = m_renderSemaphore.get(),
+			.value = m_realFrameIx + 1u,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+		};
+
+		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
+		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
+		IQueue::SSubmitInfo::SSemaphoreInfo singalSems[2u] = { m_overflowSubmitsScratchSemaphoreInfo, thisFrameRendered };
+
+		SIntendedSubmitInfo intendedNextSubmit;
+		intendedNextSubmit.frontHalf.queue = getGraphicsQueue();
+		intendedNextSubmit.frontHalf.commandBuffers = cmdbufs;
+		intendedNextSubmit.frontHalf.waitSemaphores = waitSems;
+		intendedNextSubmit.signalSemaphores = singalSems;
+
+		addObjects(intendedNextSubmit);
+		
+		endFrameRender(intendedNextSubmit);
 	}
 	
 	void beginFrameRender()
 	{
-		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto& cb = m_commandBuffers[resourceIx];
-		auto& commandPool = m_graphicsCommandPools[resourceIx];
-		
 		// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
 		if (m_realFrameIx>=m_framesInFlight)
 		{
@@ -730,10 +767,14 @@ public:
 		}
 		
 		// Acquire
-		auto imageIx = m_surface->acquireNextImage();
-		if (imageIx==ISwapchain::MaxImages)
+		m_currentAcquiredImageIdx = m_surface->acquireNextImage();
+		if (m_currentAcquiredImageIdx==ISwapchain::MaxImages)
 			return;
 
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
+		auto& cb = m_commandBuffers[resourceIx];
+		auto& commandPool = m_graphicsCommandPools[resourceIx];
+		
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -812,7 +853,8 @@ public:
 			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-				.framebuffer = scRes->getFrambuffer(imageIx),
+				.compatibleRenderpass = renderpassInitial,
+				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
@@ -824,6 +866,225 @@ public:
 		cb->endRenderPass();
 	}
 	
+	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
+	{
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
+		auto* cb = intendedSubmitInfo.frontHalf.getScratchCommandBuffer();
+		auto&r = drawBuffer;
+		
+		asset::SViewport vp =
+		{
+			.x = 0u,
+			.y = 0u,
+			.width = static_cast<float>(m_window->getWidth()),
+			.height = static_cast<float>(m_window->getHeight()),
+			.minDepth = 1.f,
+			.maxDepth = 0.f,
+		};
+		cb->setViewport(0u, 1u, &vp);
+
+		VkRect2D scissor =
+		{
+			.offset = { 0, 0 },
+			.extent = { m_window->getWidth(), m_window->getHeight() },
+		};
+		cb->setScissor(0u, 1u, &scissor);
+
+		// pipelineBarriersBeforeDraw
+		{
+			// prepare pseudoStencilImage for usage in drawcall
+			auto pseudoStencilImage = pseudoStencilImageViews[resourceIx]->getCreationParameters().image;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
+			{
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = pseudoStencilImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::GENERAL,
+					.newLayout = IImage::LAYOUT::GENERAL,
+				}
+			};
+
+			
+			constexpr uint32_t MaxBufferBarriersCount = 6u;
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
+
+			// Index Buffer Copy Barrier -> Remove after Filling up the index buffer at init time
+			if (drawBuffer.getCurrentIndexBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentIndexBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.indexBuffer,
+				};
+			}
+			if (globalsBuffer[resourceIx]->getSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = globalsBuffer[resourceIx]->getSize(),
+					.buffer = globalsBuffer[resourceIx],
+				};
+			}
+			if (drawBuffer.getCurrentDrawObjectsBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentDrawObjectsBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.drawObjectsBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentGeometryBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentGeometryBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.geometryBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentLineStylesBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentLineStylesBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.lineStylesBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentCustomClipProjectionBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentCustomClipProjectionBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer,
+				};
+			}
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = imageBarriers });
+		}
+
+		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		{
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
+			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+				.compatibleRenderpass = (inBetweenSubmit) ? renderpassInBetween : renderpassFinal,
+				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = nullptr,
+				.renderArea = currentRenderArea
+			};
+		}
+		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+
+		const uint32_t currentIndexCount = drawBuffer.getIndexCount();
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
+		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawBuffer.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
+		cb->bindGraphicsPipeline(graphicsPipeline.get());
+		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+
+		if (fragmentShaderInterlockEnabled)
+		{
+			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
+			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
+			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
+		}
+
+		if constexpr (DebugMode)
+		{
+			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
+			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
+		}
+		
+		cb->endRenderPass();
+
+		if (!inBetweenSubmit)
+			cb->endDebugMarker();
+
+		cb->end();
+
+		if (inBetweenSubmit)
+		{
+			intendedSubmitInfo.overflowSubmit();
+			drawBuffer.reset();
+		}
+		else
+		{
+			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
+			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
+			{
+				m_realFrameIx++;
+				IQueue::SSubmitInfo::SSemaphoreInfo renderFinished =
+				{
+					.semaphore = m_renderSemaphore.get(),
+					.value = m_realFrameIx,
+					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+				};
+				m_surface->present(m_currentAcquiredImageIdx, { &renderFinished, 1u });
+			}
+		}
+	}
+
+	void endFrameRender(SIntendedSubmitInfo& intendedSubmitInfo)
+	{
+		submitDraws(intendedSubmitInfo, false);
+	}
+
 	inline bool keepRunning() override
 	{
 		if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
@@ -874,7 +1135,7 @@ protected:
 		drawBuffer.setSubmitDrawsFunction(
 			[&](SIntendedSubmitInfo& intendedNextSubmit)
 			{
-				// return submitInBetweenDraws(resourceIx, intendedNextSubmit);
+				return submitDraws(intendedNextSubmit, true);
 			}
 		);
 		drawBuffer.reset();
@@ -2090,14 +2351,20 @@ protected:
 	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
 	
-	std::array<smart_refctd_ptr<IGPUImageView>,		MaxFramesInFlight>	pseudoStencilImageViews;
-	std::array<smart_refctd_ptr<IGPUBuffer>,		MaxFramesInFlight>	globalsBuffer;
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>,	MaxFramesInFlight>	descriptorSets;
+	std::array<smart_refctd_ptr<IGPUImageView>,			MaxFramesInFlight>	pseudoStencilImageViews;
+	std::array<smart_refctd_ptr<IGPUBuffer>,			MaxFramesInFlight>	globalsBuffer;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>,		MaxFramesInFlight>	descriptorSets;
 	DrawBuffersFiller drawBuffer; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
 
 	smart_refctd_ptr<ISemaphore> m_renderSemaphore; // timeline semaphore to sync frames together
-	smart_refctd_ptr<ISemaphore> m_overflowSubmitSemaphore; // timeline semaphore used for overflows (they need to be on their own timeline to count overflows
-	// Use a separate counter to cycle through our resources for clarity
+	
+	// timeline semaphore used for overflows (they need to be on their own timeline to count overflows)
+	smart_refctd_ptr<ISemaphore> m_overflowSubmitScratchSemaphore; 
+	// this is the semaphore info the overflows update the value for (the semaphore is set to the overflow semaphore above, and the value get's updated by SIntendedSubmitInfo)
+	IQueue::SSubmitInfo::SSemaphoreInfo m_overflowSubmitsScratchSemaphoreInfo;
+	
+	uint8_t m_currentAcquiredImageIdx = 0u;
+
 	uint64_t m_realFrameIx : 59 = 0;
 	// Maximum frames which can be simultaneously rendered
 	uint64_t m_framesInFlight : 5;
@@ -2128,297 +2395,8 @@ class CADApp : public ApplicationBase
 	CPolyline bigPolyline;
 	CPolyline bigPolyline2;
 
-	void pipelineBarriersBeforeDraw(video::IGPUCommandBuffer* const cb)
-	{
-		auto& drawBuffer = drawBuffers[resourceIx];
-		{
-			auto pseudoStencilImage = pseudoStencilImageView[resourceIx]->getCreationParameters().image;
-			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
-			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT | nbl::asset::EAF_SHADER_WRITE_BIT; // SYNC_FRAGMENT_SHADER_SHADER_SAMPLED_READ | SYNC_FRAGMENT_SHADER_SHADER_STORAGE_READ | SYNC_FRAGMENT_SHADER_UNIFORM_READ
-			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_GENERAL;
-			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
-			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].image = pseudoStencilImage;
-			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
-			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
-			imageBarriers[0].subresourceRange.levelCount = 1;
-			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
-			imageBarriers[0].subresourceRange.layerCount = 1;
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
 
-		}
-		{
-			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[1u] = {};
-			bufferBarriers[0u].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			bufferBarriers[0u].barrier.dstAccessMask = nbl::asset::EAF_INDEX_READ_BIT;
-			bufferBarriers[0u].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[0u].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[0u].buffer = drawBuffer.gpuDrawBuffers.indexBuffer;
-			bufferBarriers[0u].offset = 0u;
-			bufferBarriers[0u].size = drawBuffer.getCurrentIndexBufferSize();
-			if (drawBuffer.getCurrentIndexBufferSize() > 0u)
-				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
-		}
-		{
-			constexpr uint32_t MaxBufferBarriersCount = 5u;
-			uint32_t bufferBarriersCount = 0u;
-			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[MaxBufferBarriersCount] = {};
-
-			if (globalsBuffer[resourceIx]->getSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_UNIFORM_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = globalsBuffer[resourceIx];
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = globalsBuffer[resourceIx]->getSize();
-			}
-			if (drawBuffer.getCurrentDrawObjectsBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = drawBuffer.gpuDrawBuffers.drawObjectsBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = drawBuffer.getCurrentDrawObjectsBufferSize();
-			}
-			if (drawBuffer.getCurrentGeometryBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = drawBuffer.gpuDrawBuffers.geometryBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = drawBuffer.getCurrentGeometryBufferSize();
-			}
-			if (drawBuffer.getCurrentLineStylesBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = drawBuffer.gpuDrawBuffers.lineStylesBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = drawBuffer.getCurrentLineStylesBufferSize();
-			}
-			if (drawBuffer.getCurrentCustomClipProjectionBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = drawBuffer.getCurrentCustomClipProjectionBufferSize();
-			}
-			if (bufferBarriersCount > 0)
-				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
-		}
-	}
 	
-
-	void endFrameRender()
-	{
-		auto& cb = m_cmdbuf[resourceIx];
-
-		uint32_t windowWidth = swapchain->getCreationParameters().width;
-		uint32_t windowHeight = swapchain->getCreationParameters().height;
-
-		asset::SViewport vp;
-		vp.minDepth = 1.f;
-		vp.maxDepth = 0.f;
-		vp.x = 0u;
-		vp.y = 0u;
-		vp.width = windowWidth;
-		vp.height = windowHeight;
-		cb->setViewport(0u, 1u, &vp);
-
-		VkRect2D scissor;
-		scissor.extent = { windowWidth, windowHeight };
-		scissor.offset = { 0, 0 };
-		cb->setScissor(0u, 1u, &scissor);
-
-		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { window->getWidth(), window->getHeight() };
-
-			beginInfo.clearValueCount = 0u;
-			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
-			beginInfo.renderpass = renderpassFinal;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = nullptr;
-		}
-
-		pipelineBarriersBeforeDraw(cb.get());
-
-		cb->resetQueryPool(pipelineStatsPool.get(), 0u, 1u);
-		cb->beginQuery(pipelineStatsPool.get(), 0);
-
-		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-
-		const uint32_t currentIndexCount = drawBuffers[resourceIx].getIndexCount();
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
-		cb->bindIndexBuffer(drawBuffers[resourceIx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
-		cb->bindGraphicsPipeline(graphicsPipeline.get());
-		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-
-		if (fragmentShaderInterlockEnabled)
-		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
-			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
-			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
-		}
-
-		if constexpr (DebugMode)
-		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
-			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-		}
-		cb->endQuery(pipelineStatsPool.get(), 0);
-		cb->endRenderPass();
-
-		cb->endDebugMarker();
-		cb->end();
-
-	}
-
-
-	video::IGPUQueue::SSubmitInfo submitInBetweenDraws(uint32_t resourceIdx, video::IGPUQueue* submissionQueue, video::IGPUFence* submissionFence, video::IGPUQueue::SSubmitInfo intendedNextSubmit)
-	{
-		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto& cmdbuf = intendedNextSubmit.commandBuffers[intendedNextSubmit.commandBufferCount - 1];
-
-		auto& drawBuffer = drawBuffers[resourceIdx];
-
-		uint32_t windowWidth = swapchain->getCreationParameters().width;
-		uint32_t windowHeight = swapchain->getCreationParameters().height;
-
-		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { windowWidth, windowHeight };
-
-			beginInfo.clearValueCount = 0u;
-			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
-			beginInfo.renderpass = renderpassInBetween;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = nullptr;
-		}
-
-		asset::SViewport vp;
-		vp.minDepth = 1.f;
-		vp.maxDepth = 0.f;
-		vp.x = 0u;
-		vp.y = 0u;
-		vp.width = windowWidth;
-		vp.height = windowHeight;
-		cmdbuf->setViewport(0u, 1u, &vp);
-
-		VkRect2D scissor;
-		scissor.extent = { windowWidth, windowHeight };
-		scissor.offset = { 0, 0 };
-		cmdbuf->setScissor(0u, 1u, &scissor);
-
-		pipelineBarriersBeforeDraw(cmdbuf);
-
-		cmdbuf->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-
-		const uint32_t currentIndexCount = drawBuffers[resourceIdx].getIndexCount();
-		cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIdx].get());
-		cmdbuf->bindIndexBuffer(drawBuffers[resourceIdx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
-		cmdbuf->bindGraphicsPipeline(graphicsPipeline.get());
-		cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-
-		if (fragmentShaderInterlockEnabled)
-		{
-			cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
-			cmdbuf->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
-			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cmdbuf);
-		}
-
-		if constexpr (DebugMode)
-		{
-			cmdbuf->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-		}
-		
-		cmdbuf->endRenderPass();
-
-		cmdbuf->end();
-
-		video::IGPUQueue::SSubmitInfo submit = intendedNextSubmit;
-		submit.signalSemaphoreCount = 0u;
-		submit.pSignalSemaphores = nullptr;
-		assert(submit.isValid());
-		submissionQueue->submit(1u, &submit, submissionFence);
-		intendedNextSubmit.commandBufferCount = 1u;
-		intendedNextSubmit.commandBuffers = &cmdbuf;
-		intendedNextSubmit.waitSemaphoreCount = 0u;
-		intendedNextSubmit.pWaitSemaphores = nullptr;
-		intendedNextSubmit.pWaitDstStageMask = nullptr;
-		// we can reset the fence and commandbuffer because we fully wait for the GPU to finish here
-		logicalDevice->blockForFences(1u, &submissionFence);
-		logicalDevice->resetFences(1u, &submissionFence);
-		cmdbuf->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-
-		// reset things
-		// drawBuffer.clear();
-
-		return intendedNextSubmit;
-	}
-
-
-	void workLoopBody() override
-	{
-	
-		auto& cb = m_cmdbuf[resourceIx];
-		auto& fence = m_frameComplete[resourceIx];
-
-		auto& graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
-
-		nbl::video::IGPUQueue::SSubmitInfo submit;
-		submit.commandBufferCount = 1u;
-		submit.commandBuffers = &cb.get();
-		submit.signalSemaphoreCount = 1u;
-		submit.pSignalSemaphores = &m_renderFinished[resourceIx].get();
-		nbl::video::IGPUSemaphore* waitSemaphores[1u] = { m_imageAcquire[resourceIx].get() };
-		asset::E_PIPELINE_STAGE_FLAGS waitStages[1u] = { nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT };
-		submit.waitSemaphoreCount = 1u;
-		submit.pWaitSemaphores = waitSemaphores;
-		submit.pWaitDstStageMask = waitStages;
-
-		beginFrameRender();
-
-		submit = addObjects(graphicsQueue, fence.get(), submit);
-
-		endFrameRender();
-
-		graphicsQueue->submit(1u, &submit, fence.get());
-
-		CommonAPI::Present(
-			logicalDevice.get(),
-			swapchain.get(),
-			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			m_renderFinished[resourceIx].get(),
-			m_SwapchainImageIx);
-
-		getAndLogQueryPoolResults();
-	}
 	
 };
 
