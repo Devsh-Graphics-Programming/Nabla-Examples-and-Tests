@@ -426,7 +426,7 @@ public:
 			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
 			
 			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -437,16 +437,17 @@ public:
 					return nullptr;
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
-				if (!source)
+				auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+				cpuShader->setShaderStage(stage);
+				if (!cpuShader)
 					return nullptr;
 
-				return m_device->createShader(source.get());
+				return m_device->createShader(cpuShader.get());
 			};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath);
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
 
 			initCADResources(40960u);
 		}
