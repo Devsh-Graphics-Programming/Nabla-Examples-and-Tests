@@ -41,7 +41,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-class Camera2D : public core::IReferenceCounted
+class Camera2D
 {
 public:
 	Camera2D()
@@ -362,7 +362,7 @@ public:
 				params.y = 32;
 				// Don't want to have a window lingering about before we're ready so create it hidden.
 				// Only programmatic resize, not regular.
-				params.flags = ui::IWindow::ECF_HIDDEN|IWindow::ECF_BORDERLESS|IWindow::ECF_RESIZABLE;
+				params.flags = IWindow::ECF_BORDERLESS|IWindow::ECF_RESIZABLE;
 				params.windowCaption = "CAD Playground";
 				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 			}
@@ -668,7 +668,7 @@ public:
 		}
 
 		m_timeElapsed = 0.0;
-
+		
 		return true;
 	}
 
@@ -716,7 +716,8 @@ public:
 		, logger.get());
 		*/
 
-		beginFrameRender();
+		if (!beginFrameRender())
+			return;
 
 		const IQueue::SSubmitInfo::SSemaphoreInfo acquired = {
 			.semaphore = m_surface->getAcquireSemaphore(),
@@ -752,7 +753,7 @@ public:
 		endFrameRender(intendedNextSubmit);
 	}
 	
-	void beginFrameRender()
+	bool beginFrameRender()
 	{
 		// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
 		if (m_realFrameIx>=m_framesInFlight)
@@ -764,13 +765,13 @@ public:
 				}
 			};
 			if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
-				return;
+				return false;
 		}
 		
 		// Acquire
 		m_currentAcquiredImageIdx = m_surface->acquireNextImage();
 		if (m_currentAcquiredImageIdx==ISwapchain::MaxImages)
-			return;
+			return false;
 
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
 		auto& cb = m_commandBuffers[resourceIx];
@@ -865,6 +866,8 @@ public:
 		// you could do this later but only use renderpassInitial on first draw
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 		cb->endRenderPass();
+
+		return true;
 	}
 	
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
@@ -1067,6 +1070,7 @@ public:
 		else
 		{
 			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
+			submitInfo.signalSemaphores = { &submitInfo.signalSemaphores[1], 1u };
 			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
 			{
 				m_realFrameIx++;
@@ -1079,6 +1083,8 @@ public:
 				m_surface->present(m_currentAcquiredImageIdx, { &renderFinished, 1u });
 			}
 		}
+
+		m_overflowSubmitsScratchSemaphoreInfo.value = intendedSubmitInfo.getScratchSemaphoreNextWait().value; // because we need this info consistent within frames
 	}
 
 	void endFrameRender(SIntendedSubmitInfo& intendedSubmitInfo)
