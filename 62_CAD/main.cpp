@@ -646,13 +646,13 @@ public:
 					return logFail("Debug Graphics Pipeline Creation Failed.");
 			}
 		}
-		
+
 		// Create the commandbuffers and pools, this time properly 1 pool per FIF
 		for (auto i=0u; i<m_framesInFlight; i++)
 		{
 			// non-individually-resettable commandbuffers have an advantage over invidually-resettable
 			// mainly that the pool can use a "cheaper", faster allocator internally
-			m_graphicsCommandPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
+			m_graphicsCommandPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 			if (!m_graphicsCommandPools[i])
 				return logFail("Couldn't create Command Pool!");
 			if (!m_graphicsCommandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffers.data()+i,1}))
@@ -853,7 +853,7 @@ public:
 
 			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
-			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+			beginInfo = {
 				.compatibleRenderpass = renderpassInitial,
 				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
 				.colorClearValues = &clearValue,
@@ -932,7 +932,7 @@ public:
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
 				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::SHADER_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::INDEX_READ_BIT;
 				bufferBarrier.range =
 				{
 					.offset = 0u,
@@ -1023,7 +1023,7 @@ public:
 
 			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
-			const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+			beginInfo = {
 				.compatibleRenderpass = (inBetweenSubmit) ? renderpassInBetween : renderpassFinal,
 				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
 				.colorClearValues = &clearValue,
@@ -2386,19 +2386,3 @@ protected:
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
-
-#if 0
-
-
-class CADApp : public ApplicationBase
-{
-	// For stress test CASE_1
-	CPolyline bigPolyline;
-	CPolyline bigPolyline2;
-
-
-	
-	
-};
-
-#endif
