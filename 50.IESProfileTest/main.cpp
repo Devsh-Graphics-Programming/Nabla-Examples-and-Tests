@@ -9,101 +9,36 @@
 using namespace nbl;
 using namespace core;
 
-class IESExampleEventReceiver : public nbl::IEventReceiver
-{
-    public:
-        IESExampleEventReceiver() {}
-
-        bool OnEvent(const nbl::SEvent& event)
-        {
-            if (event.EventType == nbl::EET_MOUSE_INPUT_EVENT)
-            {
-                const auto& newDegree = std::clamp<double>(zDegree + event.MouseInput.Wheel, 0.0, 360.0);
-
-                if (zDegree != newDegree)
-                    regenerateCDC = true;
-
-                zDegree = newDegree;
-
-                return true;
-            }
-
-            if (event.EventType == nbl::EET_KEY_INPUT_EVENT && !event.KeyInput.PressedDown)
-            {
-                switch (event.KeyInput.Key)
-                {
-                    case nbl::KEY_KEY_C:
-                    {
-                        cdcMode = true;
-                        return true;
-                    }
-                    case nbl::KEY_KEY_R:
-                    {
-                        cdcMode = false;
-                        return true;
-                    }
-                    case nbl::KEY_KEY_D:
-                    {
-                        debug = !debug;
-
-                        if(debug)
-                            printf("[INFO] Debug mode turned ON, verbose logs will be generated to stdout");
-                        else
-                            printf("[INFO] Debug mode turned OFF, verbose logs will be stopped");
-
-                        return true;
-                    }
-                    case nbl::KEY_KEY_Q:
-                    {
-                        running = false;
-                        return true;
-                    }
-                }
-            }
-
-            return false;
-        }
-
-        inline const auto& isRunning() const { return running; }
-        inline const auto& isInCDCMode() const { return cdcMode; }
-        inline const auto& isDebug() const { return debug; }
-        inline const auto& needToRegenerateCDC() const { return regenerateCDC; }
-        template<typename T = double>
-        inline const auto& getZDegree() const { return static_cast<T>(zDegree); }
-        inline void resetRequests() { regenerateCDC = false; }
-
-    private:
-        _NBL_STATIC_INLINE_CONSTEXPR size_t DEGREE_SHIFT = 5u;
-        double zDegree = 0.0;
-        bool cdcMode = true, running = true, debug = false, regenerateCDC = false;
-};
-
 class IESCompute
 {
     public:
         IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const asset::CIESProfile& _profile)
             : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), 0.0 })
         {
-            createGPUEnvironment<EM_CDC>(_assetManager);
+            createGPUEnvironment(_assetManager);
             // createGPUEnvironment<EM_RENDER>(_assetManager); // TODO
 
             fbo = createFBO<asset::EF_R16G16B16A16_SFLOAT>(driver->getScreenSize().Width, driver->getScreenSize().Height);
         }
         ~IESCompute() {}
 
-        enum E_MODE
+        enum E_MODE : uint32_t
         {
-            EM_CDC,     //! Candlepower Distribution Curve
-            EM_RENDER,  //! 3D render of an IES light
+            EM_CDC,         //! Candlepower Distribution Curve
+            EM_IES_C,       //! IES Candela
+            EM_SPERICAL_C,  //! Sperical coordinates
+            EM_DIRECTION,   //! Sample direction      
             EM_SIZE
         };
 
         enum E_BINDINGS
         {
-            EB_IMAGE,    //! Image with data depending on E_MODE
-            EB_SSBO_HA,  //! IES Profile SSBO Horizontal Angles 
-            EB_SSBO_VA,  //! IES Profile SSBO Vertical Angles
-            EB_SSBO_D,   //! IES Profile SSBO Data
+            EB_IMAGE_IES_C, //! Image with IES Candela data
+            EB_IMAGE_S,     //! Image with spehircal coordinates data
+            EB_IMAGE_D,     //! Image with direction data
+            EB_SSBO_HA,     //! IES Profile SSBO Horizontal Angles 
+            EB_SSBO_VA,     //! IES Profile SSBO Vertical Angles
+            EB_SSBO_D,      //! IES Profile SSBO Data
             EB_SIZE
         };
 
@@ -115,11 +50,9 @@ class IESCompute
             driver->beginScene(true, false, video::SColor(255, 0, 0, 0));
         }
 
-        template<E_MODE mode>
         void dispatch()
         {
-            static_assert(mode != EM_SIZE);
-            auto& gpue = getGPUE<mode>();
+            auto& gpue = m_gpue;
 
             driver->bindComputePipeline(gpue.cPipeline.get());
             driver->bindDescriptorSets(EPBP_COMPUTE, gpue.cPipeline->getLayout(), 0u, 1u, &gpue.cDescriptorSet.get(), nullptr);
@@ -131,14 +64,13 @@ class IESCompute
             COpenGLExtensionHandler::extGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         }
 
-        template<E_MODE mode>
         void renderpass()
         {
-            static_assert(mode != EM_SIZE);
-            auto& gpue = getGPUE<mode>();
+            auto& gpue = m_gpue;
 
             driver->bindGraphicsPipeline(gpue.gPipeline.get());
             driver->bindDescriptorSets(video::EPBP_GRAPHICS, gpue.gPipeline->getLayout(), 3u, 1u, &gpue.gDescriptorSet.get(), nullptr);
+            driver->pushConstants(gpue.gPipeline->getLayout(), asset::ISpecializedShader::ESS_FRAGMENT, 0u, sizeof(PushConstant), &pushConstant);
             driver->drawMeshBuffer(gpue.mBuffer.get());
         }
 
@@ -158,13 +90,20 @@ class IESCompute
             return pushConstant.zAngleDegreeRotation;
         }
 
+        void updateMode(const E_MODE& mode)
+        {
+            pushConstant.mode = static_cast<decltype(pushConstant.mode)>(mode);
+        }
+
+        const auto& getMode()
+        {
+            return pushConstant.mode;
+        }
+
     private:
 
-        template<E_MODE _mode>
         void createGPUEnvironment(asset::IAssetManager* _assetManager)
         {
-            static_assert(_mode != EM_SIZE);
-
             auto gpuSpecializedShaderFromFile = [&](const char* path)
             {
                 auto bundle = _assetManager->getAsset(path, {});
@@ -173,18 +112,19 @@ class IESCompute
                 return driver->getGPUObjectsFromAssets<asset::ICPUSpecializedShader>(&shader, &shader + 1u)->operator[](0); // omg
             };
 
-            if (_mode == EM_SIZE)
-                return;
+            auto& gpue = m_gpue;
 
-            auto& gpue = m_gpue[_mode];
-
-            gpue.dImageV = std::move(createGPUImageView<asset::EF_R16_UNORM>(TEXTURE_SIZE, TEXTURE_SIZE));
+            gpue.dImageIESC = std::move(createGPUImageView<asset::EF_R16_UNORM>(TEXTURE_SIZE, TEXTURE_SIZE));
+            gpue.dImageS = std::move(createGPUImageView<asset::EF_R32G32_SFLOAT>(TEXTURE_SIZE, TEXTURE_SIZE));
+            gpue.dImageD = std::move(createGPUImageView<asset::EF_R32G32B32A32_SFLOAT>(TEXTURE_SIZE, TEXTURE_SIZE));
 
             // Compute
             {
                 const std::vector<IGPUDescriptorSetLayout::SBinding> bindings =
                 {
-                    { EB_IMAGE, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                    { EB_IMAGE_IES_C, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                    { EB_IMAGE_S, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                    { EB_IMAGE_D, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_SSBO_HA, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_SSBO_VA, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_SSBO_D, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr }
@@ -194,7 +134,7 @@ class IESCompute
                     auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
                     asset::SPushConstantRange range = { asset::ISpecializedShader::ESS_COMPUTE, 0u, sizeof(PushConstant) };
 
-                    gpue.cPipeline = driver->createGPUComputePipeline(nullptr, driver->createGPUPipelineLayout(&range, &range + 1u, core::smart_refctd_ptr(descriptorSetLayout)), gpuSpecializedShaderFromFile(getShaderPath<_mode>().data()));
+                    gpue.cPipeline = driver->createGPUComputePipeline(nullptr, driver->createGPUPipelineLayout(&range, &range + 1u, core::smart_refctd_ptr(descriptorSetLayout)), gpuSpecializedShaderFromFile(getShaderPath().data()));
                     gpue.cDescriptorSet = driver->createGPUDescriptorSet(std::move(descriptorSetLayout));
                 }
 
@@ -206,8 +146,14 @@ class IESCompute
                         createSSBODescriptorInfo<EB_SSBO_D>(profile, infos[EB_SSBO_D]);
 
                         {
-                            infos[EB_IMAGE].desc = core::smart_refctd_ptr(gpue.dImageV);
-                            infos[EB_IMAGE].image = { nullptr, asset::EIL_GENERAL };
+                            infos[EB_IMAGE_IES_C].desc = core::smart_refctd_ptr(gpue.dImageIESC);
+                            infos[EB_IMAGE_IES_C].image = { nullptr, asset::EIL_GENERAL };
+
+                            infos[EB_IMAGE_S].desc = core::smart_refctd_ptr(gpue.dImageS);
+                            infos[EB_IMAGE_S].image = { nullptr, asset::EIL_GENERAL };
+
+                            infos[EB_IMAGE_D].desc = core::smart_refctd_ptr(gpue.dImageD);
+                            infos[EB_IMAGE_D].image = { nullptr, asset::EIL_GENERAL };
                         }
                     }
 
@@ -221,7 +167,9 @@ class IESCompute
                         writes[i].info = &infos[i];
                     }
 
-                    writes[EB_IMAGE].descriptorType = asset::EDT_STORAGE_IMAGE;
+                    writes[EB_IMAGE_IES_C].descriptorType = asset::EDT_STORAGE_IMAGE;
+                    writes[EB_IMAGE_S].descriptorType = asset::EDT_STORAGE_IMAGE;
+                    writes[EB_IMAGE_D].descriptorType = asset::EDT_STORAGE_IMAGE;
                     writes[EB_SSBO_HA].descriptorType = asset::EDT_STORAGE_BUFFER;
                     writes[EB_SSBO_VA].descriptorType = asset::EDT_STORAGE_BUFFER;
                     writes[EB_SSBO_D].descriptorType = asset::EDT_STORAGE_BUFFER;
@@ -234,7 +182,9 @@ class IESCompute
             {
                 const std::vector<IGPUDescriptorSetLayout::SBinding> bindings =
                 {
-                    { EB_IMAGE, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr }
+                    { EB_IMAGE_IES_C, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
+                    { EB_IMAGE_S, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
+                    { EB_IMAGE_D, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr }
                 };
 
                 {
@@ -253,30 +203,44 @@ class IESCompute
                     video::IGPUSpecializedShader* shaders[] = { vShader.get(), fShader.get() };
                     asset::SRasterizationParams raster;
 
-                    gpue.gPipeline = driver->createGPURenderpassIndependentPipeline(nullptr, driver->createGPUPipelineLayout(nullptr, nullptr, nullptr, nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout)), shaders, shaders + 2, mesh.inputParams, asset::SBlendParams{}, mesh.assemblyParams, raster);
+                    asset::SPushConstantRange range = { asset::ISpecializedShader::ESS_FRAGMENT, 0u, sizeof(PushConstant) };
+                    gpue.gPipeline = driver->createGPURenderpassIndependentPipeline(nullptr, driver->createGPUPipelineLayout(&range, &range + 1u, nullptr, nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout)), shaders, shaders + 2, mesh.inputParams, asset::SBlendParams{}, mesh.assemblyParams, raster);
                     gpue.gDescriptorSet = driver->createGPUDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
                     gpue.mBuffer = driver->getGPUObjectsFromAssets(&cpusphere.get(), &cpusphere.get() + 1)->front();
                 }
                 
-                auto sampler = driver->createGPUSampler({ asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS });
 
-                video::IGPUDescriptorSet::SWriteDescriptorSet write;
+                auto createSampler = [&]()
                 {
-                    write.dstSet = gpue.gDescriptorSet.get();
-                    write.binding = EB_IMAGE;
-                    write.count = 1u;
-                    write.arrayElement = 0u;
-                    write.descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
-                }
-                
-                IGPUDescriptorSet::SDescriptorInfo info;
+                    return driver->createGPUSampler({ asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS });
+                };
+
+                _NBL_STATIC_INLINE_CONSTEXPR uint8_t NBL_D_IMAGES_AMOUNT = 3u;
+
+                IGPUDescriptorSet::SDescriptorInfo infos[NBL_D_IMAGES_AMOUNT];
                 {
-                    info.desc = core::smart_refctd_ptr(gpue.dImageV);
-                    info.image = { core::smart_refctd_ptr(sampler),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
+                    infos[EB_IMAGE_IES_C].desc = core::smart_refctd_ptr(gpue.dImageIESC);
+                    infos[EB_IMAGE_IES_C].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL};
+
+                    infos[EB_IMAGE_S].desc = core::smart_refctd_ptr(gpue.dImageS);
+                    infos[EB_IMAGE_S].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
+
+                    infos[EB_IMAGE_D].desc = core::smart_refctd_ptr(gpue.dImageD);
+                    infos[EB_IMAGE_D].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
                 }
 
-                write.info = &info;
-                driver->updateDescriptorSets(1u, &write, 0u, nullptr);   
+                video::IGPUDescriptorSet::SWriteDescriptorSet writes[NBL_D_IMAGES_AMOUNT];
+                for (auto i = 0; i < NBL_D_IMAGES_AMOUNT; i++)
+                {
+                    writes[i].dstSet = gpue.gDescriptorSet.get();
+                    writes[i].binding = i;
+                    writes[i].count = 1u;
+                    writes[i].arrayElement = 0u;
+                    writes[i].descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+                    writes[i].info = &infos[i];
+                }
+
+                driver->updateDescriptorSets(NBL_D_IMAGES_AMOUNT, writes, 0u, nullptr);
             }
         }
 
@@ -337,24 +301,9 @@ class IESCompute
             return driver->createGPUImageView(std::move(imgViewInfo));
         }
 
-        template<E_MODE mode>
         _NBL_STATIC_INLINE_CONSTEXPR std::string_view getShaderPath()
         {
-            if constexpr (mode == EM_CDC)
-                return "../compute/cdc.comp";
-            else if (mode == EM_RENDER)
-                return "../compute/render.comp";
-            else
-                return "";
-
-            static_assert(mode != EM_SIZE);
-        }
-
-        template<E_MODE mode>
-        auto& getGPUE()
-        {
-            static_assert(mode != EM_SIZE);
-            return m_gpue[mode];
+            return "../compute/cdc.comp";
         }
 
         template<asset::E_FORMAT format>
@@ -383,14 +332,18 @@ class IESCompute
             core::smart_refctd_ptr<video::IGPUMeshBuffer> mBuffer;
 
             // Shared data
-            core::smart_refctd_ptr<video::IGPUImageView> dImageV;
-        } m_gpue[EM_SIZE];
+            core::smart_refctd_ptr<video::IGPUImageView> dImageIESC;
+            core::smart_refctd_ptr<video::IGPUImageView> dImageS;
+            core::smart_refctd_ptr<video::IGPUImageView> dImageD;
+        } m_gpue;
 
         #include "nbl/nblpack.h"
         struct PushConstant
         {
             float maxIValueReciprocal;
             float zAngleDegreeRotation;
+            IESCompute::E_MODE mode = IESCompute::EM_CDC;
+            uint32_t dummy;
         } PACK_STRUCT;
         #include "nbl/nblunpack.h"
         
@@ -398,6 +351,69 @@ class IESCompute
 
         video::IFrameBuffer* fbo = nullptr;
         core::smart_refctd_ptr<video::IGPUImageView> bBuffer;
+};
+
+class IESExampleEventReceiver : public nbl::IEventReceiver
+{
+public:
+    IESExampleEventReceiver() {}
+
+    bool OnEvent(const nbl::SEvent& event)
+    {
+        if (event.EventType == nbl::EET_MOUSE_INPUT_EVENT)
+        {
+            const auto& newDegree = std::clamp<double>(zDegree + event.MouseInput.Wheel, 0.0, 360.0);
+
+            zDegree = newDegree;
+
+            return true;
+        }
+
+        if (event.EventType == nbl::EET_KEY_INPUT_EVENT && !event.KeyInput.PressedDown)
+        {
+            switch (event.KeyInput.Key)
+            {
+                case nbl::KEY_KEY_C:
+                {
+                    mode = IESCompute::EM_CDC;
+                    return true;
+                }
+                case nbl::KEY_KEY_V:
+                {
+                    mode = IESCompute::EM_IES_C;
+                    return true;
+                }
+                case nbl::KEY_KEY_S:
+                {
+                    mode = IESCompute::EM_SPERICAL_C;
+                    return true;
+                }
+                case nbl::KEY_KEY_D:
+                {
+                    mode = IESCompute::EM_DIRECTION;
+                    return true;
+                }
+                case nbl::KEY_KEY_Q:
+                {
+                    running = false;
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    inline const auto& isRunning() const { return running; }
+    inline const auto& getMode() const { return mode; }
+    template<typename T = double>
+    inline const auto& getZDegree() const { return static_cast<T>(zDegree); }
+
+private:
+    _NBL_STATIC_INLINE_CONSTEXPR size_t DEGREE_SHIFT = 5u;
+    double zDegree = 0.0;
+    IESCompute::E_MODE mode = IESCompute::EM_CDC;
+    bool running = true;
 };
 
 int main()
@@ -438,18 +454,35 @@ int main()
     while (device->run() && receiver.isRunning())
     {
         iesComputeEnvironment.updateZDegree(receiver.getZDegree());
+        iesComputeEnvironment.updateMode(receiver.getMode());
 
         iesComputeEnvironment.begin();
-        iesComputeEnvironment.dispatch<IESCompute::EM_CDC>();
-        iesComputeEnvironment.renderpass<IESCompute::EM_CDC>();
+        iesComputeEnvironment.dispatch();
+        iesComputeEnvironment.renderpass();
         iesComputeEnvironment.end();
 
         std::wostringstream windowCaption;
         {
-            const wchar_t* const mode = receiver.isInCDCMode() ? L"CDC" : L"3D Render";
+            const wchar_t* const mode = [&]()
+            {
+                switch (iesComputeEnvironment.getMode())
+                {
+                    case IESCompute::EM_CDC:
+                        return L"CDC";
+                    case IESCompute::EM_IES_C:
+                        return L"IES Candela";
+                    case IESCompute::EM_SPERICAL_C:
+                        return L"Sperical Coordinates";
+                    case IESCompute::EM_DIRECTION:
+                        return L"Direction sample";
+                    default:
+                        return L"ERROR";
+                }
+            }();
+                
             windowCaption << L"IES Demo - Nabla Engine - Degrees: : " << receiver.getZDegree() << L" - Mode: " << mode;
             device->setWindowCaption(windowCaption.str());
-        } receiver.resetRequests();
+        }
     }
 
     return 0;

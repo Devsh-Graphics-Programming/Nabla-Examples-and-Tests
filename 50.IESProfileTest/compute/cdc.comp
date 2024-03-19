@@ -8,19 +8,21 @@
 
 layout(local_size_x = WORKGROUP_DIMENSION, local_size_y = WORKGROUP_DIMENSION) in;
 
-layout(set = 0, binding = 0, r16) restrict uniform image2D outCDCImage;
+layout(set = 0, binding = 0, r16) restrict uniform image2D outIESCandelaImage;
+layout(set = 0, binding = 1, rg32f) restrict uniform image2D outSphericalCoordinatesImage;
+layout(set = 0, binding = 2, rgba32f) restrict uniform image2D outOUVProjectionDirectionImage;
 
-layout(std430, set = 0, binding = 1) readonly buffer HorizontalAngles
+layout(std430, set = 0, binding = 3) readonly buffer HorizontalAngles
 {
 	double hAngles[];
 };
 
-layout(std430, set = 0, binding = 2) readonly buffer VerticalAngles
+layout(std430, set = 0, binding = 4) readonly buffer VerticalAngles
 {
 	double vAngles[];
 };
 
-layout(std430, set = 0, binding = 3) readonly buffer Data
+layout(std430, set = 0, binding = 5) readonly buffer Data
 {
 	double data[];
 };
@@ -29,6 +31,8 @@ layout(push_constant) uniform PushConstants
 {
     float maxIValue;
 	float zAngleDegreeRotation;
+	uint mode;
+	uint dummy;
 } pc;
 
 double fmod(double a, double b)
@@ -53,7 +57,9 @@ vec3 octahedronUVToDir(vec2 uv)
 	// rotate position vector around Z-axis with "pc.zAngleDegreeRotation"
 	if(pc.zAngleDegreeRotation != 0.0)
 	{
-		const float zAngleRadians = float(pc.zAngleDegreeRotation * M_PI / 180.0);
+		float rDegree = pc.zAngleDegreeRotation;
+		
+		const float zAngleRadians = float(rDegree * M_PI / 180.0);
 		const float cosineV = cos(zAngleRadians);
 		const float sineV = sin(zAngleRadians);
 
@@ -165,7 +171,7 @@ void main()
 	const double HORIZONTAL_INVERSE = 1.0 / TEXTURE_SIZE;
 
 	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
-	const ivec2 destinationSize = imageSize(outCDCImage);
+	const ivec2 destinationSize = imageSize(outIESCandelaImage);
 	
 	if (all(lessThan(pixelCoordinates, destinationSize)))
 	{
@@ -176,6 +182,8 @@ void main()
 		double intensity = sampleI(degrees(sphericalCoordinates.x), degrees(sphericalCoordinates.y));
 		vec4 value = vec4(intensity / pc.maxIValue, 0, 0, 0);
 		
-		imageStore(outCDCImage, pixelCoordinates, value);
+		imageStore(outIESCandelaImage, pixelCoordinates, value);
+		imageStore(outSphericalCoordinatesImage, pixelCoordinates, vec4(sphericalCoordinates.xy, 0, 1));
+		imageStore(outOUVProjectionDirectionImage, pixelCoordinates, vec4(direction.xyz, 1));
 	}
 }
