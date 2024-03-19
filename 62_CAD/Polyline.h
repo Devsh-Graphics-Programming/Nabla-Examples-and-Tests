@@ -52,7 +52,7 @@ struct CPULineStyle
 	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
 	* shapeOffset is the offset into the unnormalized pattern a shape is going to draw, it's specialized this way because sometimes we don't want to stretch the pattern value the shape resides in.
 	*/
-	void setStipplePatternData(const nbl::core::SRange<double>& stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset, bool stretch = false, bool rigidShapeSegment = false)
+	void setStipplePatternData(const std::span<const double> stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset, bool stretch = false, bool rigidShapeSegment = false)
 	{
 		// Invalidate to possibly fill with correct values later
 		shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
@@ -348,7 +348,7 @@ public:
 	virtual const SectionInfo& getSectionInfoAt(const uint32_t idx) const = 0;
 	virtual const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const = 0;
 	virtual const LinePointInfo& getLinePointAt(const uint32_t idx) const = 0;
-	virtual nbl::core::SRange<const PolylineConnector> getConnectors() const = 0;
+	virtual std::span<const PolylineConnector> getConnectors() const = 0;
 	virtual bool checkSectionsContinuity() const = 0;
 };
 
@@ -374,9 +374,9 @@ public:
 		return m_linePoints[idx];
 	}
 
-	nbl::core::SRange<const PolylineConnector> getConnectors() const override
+	std::span<const PolylineConnector> getConnectors() const override
 	{
-		return nbl::core::SRange<const PolylineConnector> { m_polylineConnector.begin()._Ptr, m_polylineConnector.end()._Ptr };
+		return m_polylineConnector;
 	}
 
 	bool checkSectionsContinuity() const override
@@ -411,7 +411,7 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const nbl::core::SRange<float64_t2>& linePoints)
+	void addLinePoints(const std::span<float64_t2> linePoints)
 	{
 		if (linePoints.size() <= 1u)
 			return;
@@ -433,7 +433,7 @@ public:
 		m_sections.push_back(newSection);
 	}
 
-	void addEllipticalArcs(const nbl::core::SRange<curves::EllipticalArcInfo>& ellipses, double errorThreshold)
+	void addEllipticalArcs(const std::span<curves::EllipticalArcInfo> ellipses, double errorThreshold)
 	{
 		nbl::core::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziersArray;
 		for (const auto& ellipticalInfo : ellipses)
@@ -449,7 +449,7 @@ public:
 		}
 	}
 
-	void addQuadBeziers(const nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>& quadBeziers)
+	void addQuadBeziers(const std::span<nbl::hlsl::shapes::QuadraticBezier<double>> quadBeziers)
 	{
 		if (quadBeziers.empty())
 			return;
@@ -760,7 +760,7 @@ public:
 							{
 								// Add QuadBez Position + Intersection to start of right segment
 								float64_t2 newLinePoints[2u] = { prevSectionEndPos, intersection };
-								parallelPolyline.insertLinePointsToSection(nextSectionIdx, 0u, nbl::core::SRange<float64_t2>(newLinePoints, newLinePoints + 2u));
+								parallelPolyline.insertLinePointsToSection(nextSectionIdx, 0u, newLinePoints);
 							}
 						}
 						else if (nextSection.type == ObjectType::QUAD_BEZIER)
@@ -769,7 +769,7 @@ public:
 							{
 								// Add Intersection + right Segment first line position to end of leftSegment
 								float64_t2 newLinePoints[2u] = { intersection, nextSectionStartPos };
-								parallelPolyline.insertLinePointsToSection(prevSectionIdx, prevSection.count + 1u, nbl::core::SRange<float64_t2>(newLinePoints, newLinePoints + 2u));
+								parallelPolyline.insertLinePointsToSection(prevSectionIdx, prevSection.count + 1u, newLinePoints);
 							}
 							else if (prevSection.type == ObjectType::QUAD_BEZIER)
 							{
@@ -786,7 +786,7 @@ public:
 								newSection.index = linePointsInsertion;
 								newSection.count = 0u;
 								newSections.insert(newSections.begin() + newSectionIdx, newSection);
-								parallelPolyline.insertLinePointsToSection(newSectionIdx, 0u, nbl::core::SRange<float64_t2>(newLinePoints, newLinePoints + 3u));
+								parallelPolyline.insertLinePointsToSection(newSectionIdx, 0u, newLinePoints);
 								previousLineSectionIdx = newSectionIdx;
 							}
 						}
@@ -871,7 +871,7 @@ public:
 			};
 		auto connectBezierSection = [&](std::vector<nbl::hlsl::shapes::QuadraticBezier<double>>&& beziers)
 			{
-				parallelPolyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
+				parallelPolyline.addQuadBeziers(beziers);
 				// If there is a previous section, connect to that
 				if (newSections.size() > 1u)
 				{
@@ -882,7 +882,7 @@ public:
 			};
 		auto connectLinesSection = [&](std::vector<float64_t2>&& linePoints)
 			{
-				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(linePoints.begin()._Ptr, linePoints.end()._Ptr));
+				parallelPolyline.addLinePoints(linePoints);
 				// If there is a previous section, connect to that
 				if (newSections.size() > 1u)
 				{
@@ -1194,7 +1194,7 @@ protected:
 
 	// Next 3 are protected member functions to modify current lines and bezier sections used in polyline offsetting:
 
-	void insertLinePointsToSection(uint32_t sectionIdx, uint32_t insertionPoint, const nbl::core::SRange<float64_t2>& linePoints)
+	void insertLinePointsToSection(uint32_t sectionIdx, uint32_t insertionPoint, const std::span<float64_t2> linePoints)
 	{
 		SectionInfo& section = m_sections[sectionIdx];
 		assert(section.type == ObjectType::LINE);

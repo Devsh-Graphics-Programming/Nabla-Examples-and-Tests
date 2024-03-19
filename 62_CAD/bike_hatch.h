@@ -9,13 +9,13 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(100.23856886109431, 21.431386253486075), float64_t2(100.15719746616986, 21.04282180123307), float64_t2(100.00000000269583, 20.694444445824182) });
         quadraticBeziers.push_back({ float64_t2(100.00000000269583, 20.694444445824182), float64_t2(99.68005974937293, 19.985400312752635), float64_t2(99.12590697330299, 19.576033491089387) });
         quadraticBeziers.push_back({ float64_t2(99.12590697330299, 19.576033491089387), float64_t2(98.57175419723305, 19.166666669426142), float64_t2(97.93187369058725, 19.1666666659768) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 97.93187369058725, 19.1666666659768 });
         linePoints.push_back({ 78.85003878081946, 19.1666666659768 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -35,13 +35,13 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(106.91377891222056, 41.747400219793676), float64_t2(104.5464056454192, 43.729344141428115), float64_t2(101.82099269185252, 44.70037293654901) });
         quadraticBeziers.push_back({ float64_t2(101.82099269185252, 44.70037293654901), float64_t2(99.09557973559, 45.67140172822056), float64_t2(96.2683362887578, 45.54023142490122) });
         quadraticBeziers.push_back({ float64_t2(96.2683362887578, 45.54023142490122), float64_t2(93.44109283922978, 45.409061118132534), float64_t2(90.77780091723362, 44.18802270665765) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 90.77780091723362, 44.18802270665765 });
         linePoints.push_back({ 100, 23.750000002069605 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     polylines.push_back(polyline);
 }
@@ -51,14 +51,14 @@ std::vector<CPolyline> polylines;
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(85.13745643750717, 40.02135603999098), float64_t2(82.54736844392633, 37.21217846635867), float64_t2(80.92102223131728, 33.39850424133517) });
         quadraticBeziers.push_back({ float64_t2(80.92102223131728, 33.39850424133517), float64_t2(79.29467601870823, 29.58483001631167), float64_t2(78.85003878081946, 25.277777778467648) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 78.85003878081946, 25.277777778467648 });
         linePoints.push_back({ 91.79016525812575, 25.277777778467648 });
         linePoints.push_back({ 85.13745643750717, 40.02135603999098 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     polylines.push_back(polyline);
 }
@@ -74,7 +74,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(51.433406931486545, 18.820591715888845), float64_t2(51.96222363857086, 17.18707113975176), float64_t2(52.93934950170601, 15.93682861852425) });
         quadraticBeziers.push_back({ float64_t2(52.93934950170601, 15.93682861852425), float64_t2(53.916475364841176, 14.686586093847398), float64_t2(55.19315183025195, 14.00995971634984) });
         quadraticBeziers.push_back({ float64_t2(55.19315183025195, 14.00995971634984), float64_t2(56.46982829835856, 13.333333338852283), float64_t2(57.85169294647871, 13.333333331953595) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -86,7 +86,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(64.2699789722542, 25.62385273890363), float64_t2(63.74116226247405, 27.257373318490053), float64_t2(62.764036399338885, 28.507615839717566) });
         quadraticBeziers.push_back({ float64_t2(62.764036399338885, 28.507615839717566), float64_t2(61.7869105335079, 29.75785836439442), float64_t2(60.51023406540129, 30.434484741891975) });
         quadraticBeziers.push_back({ float64_t2(60.51023406540129, 30.434484741891975), float64_t2(59.233557597294684, 31.111111119389534), float64_t2(57.85169294647871, 31.111111112490846) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     polylines.push_back(polyline);
 }
@@ -97,25 +97,25 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 64.453331546595, 33.24727201834321 });
         linePoints.push_back({ 73.6329219204022, 65.5174373511087 });
         linePoints.push_back({ 81.18532078502435, 48.779986981578446 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(81.18532078502435, 48.779986981578446), float64_t2(76.8151114804778, 44.53859427529905), float64_t2(74.15255625891092, 38.40257201205801) });
         quadraticBeziers.push_back({ float64_t2(74.15255625891092, 38.40257201205801), float64_t2(71.49000103734406, 32.26654974881698), float64_t2(70.98719450787826, 25.277777778467648) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 70.98719450787826, 25.277777778467648 });
         linePoints.push_back({ 68.4405957893852, 25.277777778467648 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(68.4405957893852, 25.277777778467648), float64_t2(68.02130531214648, 27.65660715392894), float64_t2(66.9937599858567, 29.71040044600765) });
         quadraticBeziers.push_back({ float64_t2(66.9937599858567, 29.71040044600765), float64_t2(65.9662146595669, 31.764193738086355), float64_t2(64.453331546595, 33.24727201834321) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     polylines.push_back(polyline);
 }
@@ -125,19 +125,19 @@ std::vector<CPolyline> polylines;
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 66.00744729793786, 4.444444445134313 });
         linePoints.push_back({ 63.77126705102386, 10.580340814259317 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(63.77126705102386, 10.580340814259317), float64_t2(65.54989424097649, 12.060947585161086), float64_t2(66.76183367848054, 14.289556343660312) });
         quadraticBeziers.push_back({ float64_t2(66.76183367848054, 14.289556343660312), float64_t2(67.9737731159846, 16.51816510560888), float64_t2(68.4405957893852, 19.1666666659768) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 68.4405957893852, 19.1666666659768 });
         linePoints.push_back({ 70.98719450787826, 19.1666666659768 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -158,14 +158,14 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(110.3849861406619, 50.76499672054693), float64_t2(106.8573034730548, 53.4876457725962), float64_t2(102.84517445717923, 54.684692514301446) });
         quadraticBeziers.push_back({ float64_t2(102.84517445717923, 54.684692514301446), float64_t2(98.83304544130367, 55.8817392560067), float64_t2(94.72801527546359, 55.43636344028292) });
         quadraticBeziers.push_back({ float64_t2(94.72801527546359, 55.43636344028292), float64_t2(90.62298511231933, 54.99098762455914), float64_t2(86.82566526205497, 52.94665364824511) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 86.82566526205497, 52.94665364824511 });
         linePoints.push_back({ 76.54077671044429, 75.73978399374971 });
         linePoints.push_back({ 78.54280859807695, 82.77777777984738 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -173,7 +173,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(80.89133992526189, 83.49996523034794), float64_t2(82.0214660564955, 84.09605559858458), float64_t2(82.95537027313219, 85.10520429246955) });
         quadraticBeziers.push_back({ float64_t2(82.95537027313219, 85.10520429246955), float64_t2(83.88927449246472, 86.11435298635452), float64_t2(84.53775588509906, 87.44017218963968) });
         quadraticBeziers.push_back({ float64_t2(84.53775588509906, 87.44017218963968), float64_t2(85.18623727773338, 88.76599139637418), float64_t2(85.48735681032304, 90.28184683993459) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -182,13 +182,13 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(85.49575234410645, 90.78285534762674), float64_t2(85.45463302497751, 91.03460283605037), float64_t2(85.33124366116344, 91.23762853581596) });
         quadraticBeziers.push_back({ float64_t2(85.33124366116344, 91.23762853581596), float64_t2(85.2078542973494, 91.44065423558155), float64_t2(85.027293665429, 91.55366044767477) });
         quadraticBeziers.push_back({ float64_t2(85.027293665429, 91.55366044767477), float64_t2(84.8467330335086, 91.66666665976798), float64_t2(84.64572918977726, 91.66666666666666) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 84.64572918977726, 91.66666666666666 });
         linePoints.push_back({ 62.19363215047233, 91.66666666666666 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -201,7 +201,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(60.09375856376019, 88.18383356211362), float64_t2(60.195592173405934, 87.68730000765235), float64_t2(60.42939508894582, 87.27013066204059) });
         quadraticBeziers.push_back({ float64_t2(60.42939508894582, 87.27013066204059), float64_t2(60.66319800718152, 86.85296131297946), float64_t2(60.99808515344623, 86.57026372642981) });
         quadraticBeziers.push_back({ float64_t2(60.99808515344623, 86.57026372642981), float64_t2(61.33297230240677, 86.28756613643081), float64_t2(61.72470550254966, 86.17668431252241) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
@@ -210,7 +210,7 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 69.39944453256167, 75 });
         linePoints.push_back({ 21.84019954342114, 75 });
         linePoints.push_back({ 22.885857597915642, 79.99322332648767 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -218,7 +218,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(23.083474311036415, 82.44116667106196), float64_t2(23.029014460888508, 83.68539472834932), float64_t2(22.67347046362426, 84.8455692158529) });
         quadraticBeziers.push_back({ float64_t2(22.67347046362426, 84.8455692158529), float64_t2(22.31792646636001, 86.0057437033565), float64_t2(21.696893735804004, 86.9657133395473) });
         quadraticBeziers.push_back({ float64_t2(21.696893735804004, 86.9657133395473), float64_t2(21.07586100255217, 87.92568297573814), float64_t2(20.251514451842446, 88.58934005860377) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -230,7 +230,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(19.87257914435553, 90.94561162163262), float64_t2(19.992792302046112, 91.16885412691367), float64_t2(20.16210549709703, 91.33183861289311) });
         quadraticBeziers.push_back({ float64_t2(20.16210549709703, 91.33183861289311), float64_t2(20.331418689452114, 91.49482310232189), float64_t2(20.532374692972475, 91.58074487759559) });
         quadraticBeziers.push_back({ float64_t2(20.532374692972475, 91.58074487759559), float64_t2(20.733330696492835, 91.6666666528693), float64_t2(20.94520971253289, 91.66666666666666) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
@@ -238,7 +238,7 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 30.931669882257395, 91.66666666666666 });
         linePoints.push_back({ 30.931669882257395, 100 });
         linePoints.push_back({ 18.774240110536073, 100 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -250,7 +250,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(11.838856595695546, 90.5950197984499), float64_t2(11.905145268250086, 89.13663954094604), float64_t2(12.332734151189161, 87.78211241587996) });
         quadraticBeziers.push_back({ float64_t2(12.332734151189161, 87.78211241587996), float64_t2(12.76032303682407, 86.42758528736455), float64_t2(13.50423154310238, 85.31940195157573) });
         quadraticBeziers.push_back({ float64_t2(13.50423154310238, 85.31940195157573), float64_t2(14.24814004938069, 84.2112186157869), float64_t2(15.230112080599223, 83.46595538228199) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -258,13 +258,13 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(15.767366648704215, 82.88985185532106), float64_t2(15.999165578081415, 82.54557250895434), float64_t2(16.133141342214945, 82.12473121713157) });
         quadraticBeziers.push_back({ float64_t2(16.133141342214945, 82.12473121713157), float64_t2(16.267117109044307, 81.7038899253088), float64_t2(16.28930191912343, 81.2503619602433) });
         quadraticBeziers.push_back({ float64_t2(16.28930191912343, 81.2503619602433), float64_t2(16.311486726506725, 80.79683399862714), float64_t2(16.219567678436977, 80.35790242116761) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 16.219567678436977, 80.35790242116761 });
         linePoints.push_back({ 10.57862250293831, 53.421277252750265 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -287,14 +287,14 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(27.45618282044724, 22.628559596422644), float64_t2(27.426193116908543, 25.776131244169342), float64_t2(26.93622764573934, 28.860876974822197) });
         quadraticBeziers.push_back({ float64_t2(26.93622764573934, 28.860876974822197), float64_t2(25.947479228985088, 35.08588186361724), float64_t2(23.238729056491316, 40.40931302157265) });
         quadraticBeziers.push_back({ float64_t2(23.238729056491316, 40.40931302157265), float64_t2(20.529978881301716, 45.73274417952807), float64_t2(16.480922627682048, 49.40839628516524) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 16.480922627682048, 49.40839628516524 });
         linePoints.push_back({ 17.325954543192257, 53.44359025842061 });
         linePoints.push_back({ 47.50165856850336, 26.40849214254154 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -304,7 +304,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(48.37099835509587, 15.458445678706523), float64_t2(49.093326550884335, 13.800871444659101), float64_t2(50.13672281962545, 12.452010813824556) });
         quadraticBeziers.push_back({ float64_t2(50.13672281962545, 12.452010813824556), float64_t2(52.263220149623926, 9.70296078465051), float64_t2(55.19415626979962, 8.756009451355096) });
         quadraticBeziers.push_back({ float64_t2(55.19415626979962, 8.756009451355096), float64_t2(58.12509239267114, 7.80905811805968), float64_t2(61.01667373080921, 8.936825349788975) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
@@ -313,7 +313,7 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 59.713115148309456, 4.444444445134313 });
         linePoints.push_back({ 59.713115148309456, 0 });
         linePoints.push_back({ 62.64628497716216, 0 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -321,7 +321,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(63.73359004885505, -1.2249093502759933), float64_t2(64.39470307418071, -1.6666666708058782), float64_t2(65.14053915599732, -1.6666666708058782) });
         quadraticBeziers.push_back({ float64_t2(65.14053915599732, -1.6666666708058782), float64_t2(65.88637523781392, -1.6666666708058782), float64_t2(66.54748826313958, -1.2249093502759933) });
         quadraticBeziers.push_back({ float64_t2(66.54748826313958, -1.2249093502759933), float64_t2(67.20860128846525, -0.7831520262967658), float64_t2(67.63479333213664, 0) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
@@ -329,7 +329,7 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 70.56796315829352, 0 });
         linePoints.push_back({ 70.56796315829352, 4.444444445134313 });
         linePoints.push_back({ 66.00744729793786, 4.444444445134313 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     polylines.push_back(polyline);
 }
@@ -339,13 +339,13 @@ std::vector<CPolyline> polylines;
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(0, 25.02802262358643), float64_t2(2.717404740558329, 27.27083834922976), float64_t2(4.617262276332434, 30.61899776329045) });
         quadraticBeziers.push_back({ float64_t2(4.617262276332434, 30.61899776329045), float64_t2(6.517119812106538, 33.96715717735114), float64_t2(7.342404549629493, 37.96769858993314) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 7.342404549629493, 37.96769858993314 });
         linePoints.push_back({ 8.541846269830518, 43.695269231856976 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -368,20 +368,20 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(19.62715963567816, 21.261374483367913), float64_t2(19.661818116250775, 22.33736135272516), float64_t2(19.618870986188988, 23.41285874998128) });
         quadraticBeziers.push_back({ float64_t2(19.618870986188988, 23.41285874998128), float64_t2(19.445229947720925, 27.76123959295176), float64_t2(18.057626525809063, 31.736858461604072) });
         quadraticBeziers.push_back({ float64_t2(18.057626525809063, 31.736858461604072), float64_t2(16.6700231038972, 35.712477333705735), float64_t2(14.255221756610096, 38.78023588891934) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
         linePoints.push_back({ 14.255221756610096, 38.78023588891934 });
         linePoints.push_back({ 12.789863693152977, 31.78286227846035 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(12.789863693152977, 31.78286227846035), float64_t2(12.273817284201943, 29.34820903810086), float64_t2(11.248978207963201, 27.193208349247772) });
         quadraticBeziers.push_back({ float64_t2(11.248978207963201, 27.193208349247772), float64_t2(10.224139134420291, 25.038207656945342), float64_t2(8.77135628800617, 23.332866129499894) });
         quadraticBeziers.push_back({ float64_t2(8.77135628800617, 23.332866129499894), float64_t2(5.806132868094706, 19.852154156951993), float64_t2(1.846214120639083, 18.936716589248842) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -393,7 +393,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(-1.1977067348054775, 22.13110467074094), float64_t2(-1.210026680946926, 22.7075617691433), float64_t2(-1.0702757789618365, 23.255811062537962) });
         quadraticBeziers.push_back({ float64_t2(-1.0702757789618365, 23.255811062537962), float64_t2(-0.9305248769767469, 23.804060355932624), float64_t2(-0.6549476956394068, 24.260373644668746) });
         quadraticBeziers.push_back({ float64_t2(-0.6549476956394068, 24.260373644668746), float64_t2(-0.37937051699789726, 24.716686936854213), float64_t2(0, 25.02802262358643) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     polylines.push_back(polyline);
 }
@@ -406,12 +406,12 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 45.13542273466389, 39.999999999310134 });
         linePoints.push_back({ 49.69593859501955, 39.999999999310134 });
         linePoints.push_back({ 51.93211884462939, 33.86410363018513 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(51.93211884462939, 33.86410363018513), float64_t2(51.575063246586026, 33.56687499003278), float64_t2(51.2373095912247, 33.234759178702475) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
@@ -420,12 +420,12 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 20.095070888197338, 66.66666666666666 });
         linePoints.push_back({ 67.02893958936777, 66.66666666666666 });
         linePoints.push_back({ 58.3331992002567, 36.097439878654704 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
         quadraticBeziers.push_back({ float64_t2(58.3331992002567, 36.097439878654704), float64_t2(56.47036206743867, 36.2032737100014), float64_t2(54.6867121621482, 35.50761909465547) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     {
         std::vector<float64_t2> linePoints;
@@ -434,7 +434,7 @@ std::vector<CPolyline> polylines;
         linePoints.push_back({ 55.99027074464795, 39.999999999310134 });
         linePoints.push_back({ 55.99027074464795, 44.44444444444444 });
         linePoints.push_back({ 53.05710091579525, 44.44444444444444 });
-        polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+        polyline.addLinePoints(linePoints);
     }
     {
         std::vector<shapes::QuadraticBezier<float64_t>> quadraticBeziers;
@@ -442,7 +442,7 @@ std::vector<CPolyline> polylines;
         quadraticBeziers.push_back({ float64_t2(51.969795844102364, 45.669353787821755), float64_t2(51.30868282147253, 46.111111108351636), float64_t2(50.56284673965592, 46.111111108351636) });
         quadraticBeziers.push_back({ float64_t2(50.56284673965592, 46.111111108351636), float64_t2(49.817010660535146, 46.111111108351636), float64_t2(49.15589763520949, 45.66935379127109) });
         quadraticBeziers.push_back({ float64_t2(49.15589763520949, 45.66935379127109), float64_t2(48.49478460988382, 45.22759647074121), float64_t2(48.068592563516596, 44.44444444444444) });
-        polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<float64_t>>(quadraticBeziers.data(), quadraticBeziers.data() + quadraticBeziers.size()));
+        polyline.addQuadBeziers(quadraticBeziers);
     }
     polylines.push_back(polyline);
 }

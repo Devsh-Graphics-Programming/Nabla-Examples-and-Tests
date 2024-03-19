@@ -320,7 +320,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	return result;
 }
 
-Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
+Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
 {
 	intersectionAmounts = std::vector<uint32_t>();
 	// this threshsold is used to decide when to consider minor position to be 
@@ -348,7 +348,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		tmpBezier.P1 = bezier.P1;
 		tmpBezier.P2 = bezier.P2;
 		beziers.push_back(tmpBezier);
-		outputPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+		outputPolyline.addQuadBeziers(beziers);
 
 		CPULineStyle cpuLineStyle;
 		cpuLineStyle.screenSpaceLineWidth = 4.0f;
@@ -364,7 +364,7 @@ Hatch::Hatch(core::SRange<CPolyline> lines, const MajorAxis majorAxis, int32_t& 
 		std::vector<float64_t2> points;
 		points.push_back(start);
 		points.push_back(end);
-		outputPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+		outputPolyline.addLinePoints(points);
 		
 		CPULineStyle cpuLineStyle;
 		cpuLineStyle.screenSpaceLineWidth = 2.0f;

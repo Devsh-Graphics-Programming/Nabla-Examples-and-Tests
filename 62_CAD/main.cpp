@@ -32,7 +32,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 using namespace nbl::hlsl;
 using namespace nbl;
@@ -1212,7 +1212,7 @@ protected:
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 50.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 			}
 
 			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
@@ -1254,7 +1254,7 @@ protected:
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
 				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
@@ -1278,7 +1278,7 @@ protected:
 						begin, end
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				};
 				{
@@ -1305,12 +1305,12 @@ protected:
 					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
 					line(float64_t2(35, 0), float64_t2(10, 0));
 
-					polyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<float64_t>>(beziers.data(), beziers.data() + beziers.size()));
+					polyline.addQuadBeziers(beziers);
 
 					polylines.push_back(polyline);
 				}
 
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
 				drawBuffer.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 
@@ -1334,7 +1334,7 @@ protected:
 						beziers[i].P2 = (beziers[i].P2 * 200.0) + offset;
 					}
 
-					polyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+					polyline.addQuadBeziers(beziers);
 
 					polylines.push_back(polyline);
 				};
@@ -1343,7 +1343,7 @@ protected:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
 				drawBuffer.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 
@@ -1355,7 +1355,7 @@ protected:
 						begin, end
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				};
 				{
@@ -1382,7 +1382,7 @@ protected:
 					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
 					line(float64_t2(35, 0), float64_t2(10, 0));
 
-					polyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+					polyline.addQuadBeziers(beziers);
 				}
 			}
 
@@ -1413,7 +1413,7 @@ protected:
 						float64_t2(119.196, -152.568)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
 				{
@@ -1440,7 +1440,7 @@ protected:
 						float64_t2(110.846, -97.918)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
 				{
@@ -1467,7 +1467,7 @@ protected:
 						float64_t2(50.504, -128.469)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
 				{
@@ -1494,10 +1494,10 @@ protected:
 						float64_t2(98.133, -111.581)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
 				drawBuffer.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
@@ -1533,11 +1533,10 @@ protected:
 				}
 
 				CPolyline polyline;
-				polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+				polyline.addLinePoints(points);
+				polyline.addQuadBeziers(beziers);
 
-				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
 				drawBuffer.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
@@ -1553,10 +1552,9 @@ protected:
 					100.0 * float64_t2(6.6, 0.13),
 					100.0 * float64_t2(-1.97, 3.2),
 					100.0 * float64_t2(3.7, 7.27) });
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+				polyline.addQuadBeziers(beziers);
 			
-				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
 				drawBuffer.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 		}
@@ -1588,7 +1586,7 @@ protected:
 					linePoints.push_back({ 10.0, -5.0 });
 					linePoints.push_back({ 20.0, 0.0 });
 					linePoints.push_back({ 20.0, 5.0 });
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 
 				{
@@ -1598,14 +1596,14 @@ protected:
 					quadratic1.P1 = float64_t2(30.0, 20.0);
 					quadratic1.P2 = float64_t2(40.0, 5.0);
 					quadBeziers.push_back(quadratic1);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 				}
 
 				{
 					linePoints.clear();
 					linePoints.push_back({ 40.0, 5.0 });
 					linePoints.push_back({ 50.0, -10.0 });
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 
 				{
@@ -1627,7 +1625,7 @@ protected:
 						};
 
 					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 					// ellipse arc ends on 10, -10
 				}
 
@@ -1650,7 +1648,7 @@ protected:
 						};
 
 					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 					// ellipse arc ends on -10, 0.0
 				}
 
@@ -1661,7 +1659,7 @@ protected:
 					linePoints.push_back({ -3.0, -3.0 });
 					linePoints.push_back({ -1.0, -1.0 });
 					linePoints.push_back(endPoint);
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 			}
 
@@ -1800,14 +1798,14 @@ protected:
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<double>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
+					cpuLineStyles[i].setStipplePatternData(stipplePatterns[i]);
 					cpuLineStyles[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
-					polylines[i].addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(&quadratics[i], &quadratics[i] + 1u));
+					polylines[i].addQuadBeziers({ &quadratics[i], &quadratics[i] + 1u });
 
 					float64_t2 linePoints[2u] = {};
 					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
 					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
-					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
+					polylines[i].addLinePoints(linePoints);
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
@@ -1827,8 +1825,8 @@ protected:
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
 //#define CASE_5_POLYLINE_5 // closed polygon
-//#define CASE_5_POLYLINE_6 // stretching
-#define CASE_5_POLYLINE_7 // wide non solid lines
+#define CASE_5_POLYLINE_6 // stretching
+//#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
@@ -1839,7 +1837,7 @@ protected:
 
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.00002) + 1.0f) * 10.0f;
 			std::array<double, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -1852,7 +1850,7 @@ protected:
 				linePoints.push_back({ 80.0, 70.0 });
 				linePoints.push_back({ 100.0, 70.0 });
 				linePoints.push_back({ 120.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				// section 2: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
@@ -1862,7 +1860,7 @@ protected:
 				quadratics[1].P0 = { 140.0, 30.0 };
 				quadratics[1].P1 = { 100.0, 15.0 };
 				quadratics[1].P2 = { 140.0, 0.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				// section 3: lines
 				std::vector<float64_t2> linePoints2;
@@ -1871,7 +1869,7 @@ protected:
 				linePoints2.push_back({ -140.0, -80.0 });
 				linePoints2.push_back({ -150.0, 20.0, });
 				linePoints2.push_back({ -100.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
+				polyline.addLinePoints(linePoints2);
 
 				// section 4: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics2(4u);
@@ -1905,7 +1903,7 @@ protected:
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			std::array<double, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -1917,7 +1915,7 @@ protected:
 				quadratics[1].P0 = { 0.0, -100.0 };
 				quadratics[1].P1 = { -20.0, -75.0 };
 				quadratics[1].P2 = { -50.0, -50.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				// section 1: lines
 				std::vector<float64_t2> linePoints;
@@ -1927,7 +1925,7 @@ protected:
 				linePoints.push_back({ 0.0, -50.0 });
 				linePoints.push_back({ 50.0, 0.0 });
 				linePoints.push_back({ 0.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				// section 2: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics2(3u);
@@ -1953,14 +1951,14 @@ protected:
 				/*linePoints2.push_back({0.0, -50.0});
 				linePoints2.push_back({ 50.0, 0.0 });
 				linePoints2.push_back({ 0.0, 50.0 });*/
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
+				polyline.addLinePoints(linePoints2);
 
 				// section 4: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics3(1u);
 				quadratics3[0].P0 = { -30.0, 10.0 };
 				quadratics3[0].P1 = { -30.0, 0.0 };
 				quadratics3[0].P2 = { -20.0, 5.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics3.data(), quadratics3.data() + quadratics3.size()));
+				polyline.addQuadBeziers(quadratics3);
 
 				polyline.preprocessPolylineWithStyle(style);
 			}
@@ -1977,7 +1975,7 @@ protected:
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			std::array<double, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -1992,7 +1990,7 @@ protected:
 				linePoints.push_back({ 100.0,  50.0 * animationFactor});
 				linePoints.push_back({ 150.0, -50.0 * animationFactor});
 				linePoints.push_back({ 200.0,  50.0 * animationFactor});
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
@@ -2008,7 +2006,7 @@ protected:
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			std::array<double, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			CPolyline polyline2;
@@ -2022,7 +2020,7 @@ protected:
 				linePoints.push_back({ 0.0, -50.0 });
 				linePoints.push_back({ 0.0,  0.0 });
 				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)));
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
 				quadratics[0].P0 = { 0.0, -50.0 };
@@ -2032,7 +2030,7 @@ protected:
 				quadratics[1].P0 = { 0.0, 0.0 };
 				quadratics[1].P1 = { 0.0, 25.0 };
 				quadratics[1].P2 = { mul(rotationMatrix, float64_t2(0.0, 50.0)) };
-				polyline2.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline2.addQuadBeziers(quadratics);
 
 				polyline.preprocessPolylineWithStyle(style);
 				polyline2.preprocessPolylineWithStyle(style);
@@ -2050,7 +2048,7 @@ protected:
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			std::array<double, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			//std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -2060,7 +2058,7 @@ protected:
 				linePoints.push_back({0.0, 50.0});
 				linePoints.push_back({-50.0, 0.0});
 				linePoints.push_back({ 0.0, -50.0});
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);
 			}
@@ -2069,13 +2067,13 @@ protected:
 				/*std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 0.0 });
 				linePoints.push_back({ 0.0, 0.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
 				quadratics[0].P0 = { 0.0, 0.0 };
 				quadratics[0].P1 = { -25.0, -50.0 };
 				quadratics[0].P2 = { -50.0, 0.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);*/
@@ -2087,13 +2085,13 @@ protected:
 				linePoints.push_back({ 50.0, 0.0});
 				linePoints.push_back({ 0.0, 50.0});
 				linePoints.push_back({ -50.0, 0.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
 				quadratics[0].P0 = { -50.0, 0.0 };
 				quadratics[0].P1 = { -25.0, 0.0 };
 				quadratics[0].P2 = { 0.0, -50.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);*/
@@ -2117,14 +2115,14 @@ protected:
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 58.0 });
 				linePoints.push_back({ -50.0 + linesLength, 58.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
 			// std::array<double, 4u> stipplePattern = { 0.0f, -5.0f, 5.0f, -2.5f };
 			std::array<double, 2u> stipplePattern = { 5.0f, -5.0f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 			auto addShapesFunction = [&](const float64_t2& position, const float64_t2& direction, float32_t stretch) {
 				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
 				curves::EllipticalArcInfo myCurve;
@@ -2144,7 +2142,7 @@ protected:
 					};
 
 				curves::Subdivision::adaptive(myCurve, 1e-2, addToBezier, 10u);
-				shapesPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				shapesPolyline.addQuadBeziers(quadBeziers);
 			};
 			
 			{
@@ -2152,7 +2150,7 @@ protected:
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 54.0 });
 				linePoints.push_back({ -50.0 + linesLength, 54.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
@@ -2162,46 +2160,46 @@ protected:
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 52.0 });
 				linePoints.push_back({ -50.0 + linesLength, 52.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, false);
+			style.setStipplePatternData(stipplePattern, 7.5, true, false);
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 50.0 });
 				linePoints.push_back({ -50.0 + linesLength, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, true);
+			style.setStipplePatternData(stipplePattern, 7.5, true, true);
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 48.0 });
 				linePoints.push_back({ -50.0 + linesLength, 48.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
 			std::array<double, 3u> stipplePattern2 = { 2.5f, -5.0f, 2.5f };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern2.data(), stipplePattern2.data() + stipplePattern2.size()), 5.0, true, true);
+			style.setStipplePatternData(stipplePattern2, 5.0, true, true);
 			{
 				CPolyline polyline;
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 46.0 });
 				linePoints.push_back({ -50.0 + linesLength, 46.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, false);
+			style.setStipplePatternData(stipplePattern, 7.5, true, false);
 			{
 				CPolyline polyline;
 
@@ -2223,12 +2221,12 @@ protected:
 					};
 
 				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				polyline.addQuadBeziers(quadBeziers);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()), 7.5, true, true);
+			style.setStipplePatternData(stipplePattern, 7.5, true, true);
 			style.color = float32_t4(0.3f, 0.7f, 0.7f, 0.5f);
 			{
 				CPolyline polyline;
@@ -2251,7 +2249,7 @@ protected:
 					};
 
 				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+				polyline.addQuadBeziers(quadBeziers);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
 				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
@@ -2284,7 +2282,7 @@ protected:
 					linePoints.push_back({ 10.0, -5.0 });
 					linePoints.push_back({ 20.0, 0.0 });
 					linePoints.push_back({ 20.0, 5.0 });
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 
 				{
@@ -2294,14 +2292,14 @@ protected:
 					quadratic1.P1 = float64_t2(30.0, 20.0);
 					quadratic1.P2 = float64_t2(40.0, 5.0);
 					quadBeziers.push_back(quadratic1);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 				}
 
 				{
 					linePoints.clear();
 					linePoints.push_back({ 40.0, 5.0 });
 					linePoints.push_back({ 50.0, -10.0 });
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 
 				{
@@ -2323,7 +2321,7 @@ protected:
 						};
 
 					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 					// ellipse arc ends on 10, -10
 				}
 
@@ -2346,7 +2344,7 @@ protected:
 						};
 
 					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 					// ellipse arc ends on -10, 0.0
 				}
 
@@ -2357,14 +2355,14 @@ protected:
 					linePoints.push_back({ -3.0, -3.0 });
 					linePoints.push_back({ -1.0, -1.0 });
 					linePoints.push_back(endPoint);
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 			}
 
 			// drawBuffer.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 
 			std::array<double, 2u> stipplePattern = { 2, -1 };
-			style.setStipplePatternData(nbl::core::SRange<double>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 			
 			style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
 			CPolyline offsetPolyline1, offsetPolyline2;
