@@ -62,3 +62,6 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
 endif()
+
+	# Branch Local Demo
+	add_subdirectory(XX_BubbleSort EXCLUDE_FROM_ALL)
