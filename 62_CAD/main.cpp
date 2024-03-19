@@ -2,6 +2,7 @@
 
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
+#include "../common/InputSystem.hpp"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -126,6 +127,56 @@ private:
 	float64_t2 m_origin = {};
 };
 
+class CEventCallback : public ISimpleManagedSurface::ICallback
+{
+public:
+	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false){}
+	CEventCallback() {}
+	bool isWindowOpen() const {return !m_gotWindowClosedMsg;}
+	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
+	{
+		m_logger = logger;
+	}
+	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	{
+		m_inputSystem = std::move(m_inputSystem);
+	}
+private:
+		
+	bool onWindowClosed_impl() override
+	{
+		m_logger.log("Window closed");
+		m_gotWindowClosedMsg = true;
+		return true;
+	}
+
+	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
+	{
+		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_mouse,std::move(mch));
+	}
+	void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
+	{
+		m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse,mch);
+	}
+	void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
+	{
+		m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard,std::move(kbch));
+	}
+	void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
+	{
+		m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard,kbch);
+	}
+
+private:
+	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
+	bool m_gotWindowClosedMsg;
+};
+	
 class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 {
 	public:
@@ -354,8 +405,9 @@ public:
 		if (!m_surface)
 		{
 			{
+				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+				params.callback = windowCallback;
 				params.width = WindowWidthRequest;
 				params.height = WindowHeightRequest;
 				params.x = 32;
@@ -381,6 +433,8 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
 		// Remember to call the base class initialization!
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
@@ -686,15 +740,14 @@ public:
 			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
 		}
 
-		/*
-		inputSystem->getDefaultMouse(&mouse);
-		inputSystem->getDefaultKeyboard(&keyboard);
+		m_inputSystem->getDefaultMouse(&mouse);
+		m_inputSystem->getDefaultKeyboard(&keyboard);
 
 		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
 				m_Camera.mouseProcess(events);
 			}
-		, logger.get());
+		, m_logger.get());
 		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 			{
 				m_Camera.keyboardProcess(events);
@@ -713,8 +766,8 @@ public:
 					}
 				}
 			}
-		, logger.get());
-		*/
+		, m_logger.get());
+		
 
 		if (!beginFrameRender())
 			return;
@@ -2345,11 +2398,9 @@ protected:
 
 	bool fragmentShaderInterlockEnabled = false;
 
-	/*
-	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
-	*/
+	core::smart_refctd_ptr<InputSystem> m_inputSystem;
+	InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 	
 	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
 	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
