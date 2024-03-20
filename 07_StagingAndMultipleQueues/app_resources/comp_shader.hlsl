@@ -27,7 +27,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     const uint32_t greenVal = uint32_t(texel.g * 255u);
     const uint32_t blueVal = uint32_t(texel.b * 255u);
 
-InterlockedAdd(histogram[constants.histogramBufferOffset + RED_OFFSET + redVal], 1);
-InterlockedAdd(histogram[constants.histogramBufferOffset + GREEN_OFFSET + greenVal], 1);
-InterlockedAdd(histogram[constants.histogramBufferOffset + BLUE_OFFSET + blueVal], 1);
+    InterlockedAdd(histogram[constants.histogramBufferOffset + RED_OFFSET + redVal], 1);
+    InterlockedAdd(histogram[constants.histogramBufferOffset + GREEN_OFFSET + greenVal], 1);
+    InterlockedAdd(histogram[constants.histogramBufferOffset + BLUE_OFFSET + blueVal], 1);
 }

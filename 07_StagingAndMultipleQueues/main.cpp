@@ -746,12 +746,15 @@ private:
 		// It would be super weird if loading a shader from a file produced more than 1 asset
 		assert(assets.size() == 1);
 		smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
-		auto a = source->getStage();
-		std::cout << a << std::endl;
-		//assert(source->getStage() == IShader::ESS_COMPUTE);
+		source->setShaderStage(IShader::ESS_COMPUTE);
+
+		if (!source)
+			logFailAndTerminate("Could not create a CPU shader!");
 
 		core::smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
-		auto b = shader->getOriginDevice();
+		//auto b = shader->getOriginDevice();
+
+
 
 		size_t imageIdx = 0;
 		for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
