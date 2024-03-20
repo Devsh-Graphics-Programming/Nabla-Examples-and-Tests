@@ -1,7 +1,6 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-
 #include "../common/SimpleWindowedApplication.hpp"
 
 //
@@ -24,18 +23,26 @@ constexpr IGPUImage::SSubresourceRange TripleBufferUsedSubresourceRange = {
 };
 
 //
-class CSwapchainResources final : public IResizableSurface::ISwapchainResources
+class CSwapchainResources final : public ISmoothResizeSurface::ISwapchainResources
 {
 	public:
 		// Because we blit to the swapchain image asynchronously, we need a queue which can not only present but also perform graphics commands.
 		// If we for example used a compute shader to tonemap and MSAA resolve, we'd request the COMPUTE_BIT here. 
 		constexpr static inline IQueue::FAMILY_FLAGS RequiredQueueFlags = IQueue::FAMILY_FLAGS::GRAPHICS_BIT;
 
-	protected:		
-		inline asset::PIPELINE_STAGE_FLAGS tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const IResizableSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
+	protected:
+		// We can return `BLIT_BIT` here, because the Source Image will be already in the correct layout to be used for the present
+		inline core::bitflag<asset::PIPELINE_STAGE_FLAGS> getTripleBufferPresentStages() const override {return asset::PIPELINE_STAGE_FLAGS::BLIT_BIT;}
+
+		inline bool tripleBufferPresent(IGPUCommandBuffer* cmdbuf, const ISmoothResizeSurface::SPresentSource& source, const uint8_t imageIndex, const uint32_t qFamToAcquireSrcFrom) override
 		{
 			bool success = true;
 			auto acquiredImage = getImage(imageIndex);
+
+			// Ownership of the Source Blit Image, not the Swapchain Image
+			const bool needToAcquireSrcOwnership = qFamToAcquireSrcFrom != IQueue::FamilyIgnored;
+			// Should never get asked to transfer ownership if the source is concurrent sharing
+			assert(!source.image->getCachedCreationParams().isConcurrentSharing() || !needToAcquireSrcOwnership);
 
 			const auto blitDstLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
@@ -66,8 +73,11 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 				{
 					.barrier = {
 						.dep = {
-							// when acquiring ownership the source masks don't matter
+							// when acquiring ownership the source access masks don't matter
 							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::NONE,
+							// Acquire must Happen-Before Semaphore wait, but neither has a true stage so NONE here
+							// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+							// If no ownership acquire needed then this dep info won't be used at all
 							.srcAccessMask = asset::ACCESS_FLAGS::NONE,
 							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::BLIT_BIT,
 							.dstAccessMask = asset::ACCESS_FLAGS::TRANSFER_READ_BIT
@@ -81,7 +91,7 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 				}
 			};
 			// We only barrier the source image if we need to acquire ownership, otherwise thanks to Timeline Semaphores all sync is good
-			depInfo.imgBarriers = {preBarriers,qFamToAcquireSrcFrom!=IQueue::FamilyIgnored ? 2ull:1ull};
+			depInfo.imgBarriers = {preBarriers,needToAcquireSrcOwnership ? 2ull:1ull};
 			success &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 		
 			// TODO: Implement scaling modes other than a plain STRETCH, and allow for using subrectangles of the initial contents
@@ -121,7 +131,7 @@ class CSwapchainResources final : public IResizableSurface::ISwapchainResources
 			depInfo.imgBarriers = postBarrier;
 			success &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 
-			return success ? asset::PIPELINE_STAGE_FLAGS::BLIT_BIT:asset::PIPELINE_STAGE_FLAGS::NONE;
+			return success;
 		}
 };
 
@@ -140,17 +150,17 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (!m_surface)
 			{
 				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<nbl::video::IResizableSurface::ICallback>();
+				params.callback = core::make_smart_refctd_ptr<nbl::video::ISmoothResizeSurface::ICallback>();
 				params.width = 640;
 				params.height = 480;
 				params.x = 32;
 				params.y = 32;
-				params.flags = ui::IWindow::ECF_INPUT_FOCUS|ui::IWindow::ECF_RESIZABLE|ui::IWindow::ECF_CAN_MAXIMIZE|ui::IWindow::ECF_CAN_MINIMIZE;
+				params.flags = IWindow::ECF_INPUT_FOCUS|IWindow::ECF_CAN_RESIZE|IWindow::ECF_CAN_MAXIMIZE|IWindow::ECF_CAN_MINIMIZE;
 				params.windowCaption = "HelloSwapchainApp";
 				auto window = m_winMgr->createWindow(std::move(params));
 				// uncomment for some nasty testing of swapchain creation!
 				//m_winMgr->minimize(window.get());
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(video::CSurfaceVulkanWin32::create(core::smart_refctd_ptr(m_api), core::move_and_static_cast<ui::IWindowWin32>(window)));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSmoothResizeSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
 			}
 			return {{m_surface->getSurface()/*,EQF_NONE*/}};
 		}
@@ -191,11 +201,39 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 					IGPURenderpass::SCreationParams::SubpassesEnd
 				};
 				subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+				// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+				IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+					// wipe-transition to ATTACHMENT_OPTIMAL
+					{
+						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.dstSubpass = 0,
+						.memoryBarrier = {
+							// we can have NONE as Sources because the semaphore wait is ALL_COMMANDS
+							// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						}
+						// leave view offsets and flags default
+					},
+					// ATTACHMENT_OPTIMAL to PRESENT_SRC
+					{
+						.srcSubpass = 0,
+						.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.memoryBarrier = {
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							// we can have NONE as the Destinations because the semaphore signal is ALL_COMMANDS
+							// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+						}
+						// leave view offsets and flags default
+					},
+					IGPURenderpass::SCreationParams::DependenciesEnd
+				};
 
 				IGPURenderpass::SCreationParams params = {};
 				params.colorAttachments = colorAttachments;
 				params.subpasses = subpasses;
-				// no subpass dependencies
+				params.dependencies = dependencies;
 				m_renderpass = m_device->createRenderpass(params);
 				if (!m_renderpass)
 					return logFail("Failed to Create a Renderpass!");
@@ -204,7 +242,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			// We just live life in easy mode and have the Swapchain Creation Parameters get deduced from the surface.
 			// We don't need any control over the format of the swapchain because we'll be only using Renderpasses this time!
 			// TODO: improve the queue allocation/choice and allocate a dedicated presentation queue to improve responsiveness and race to present.
- 			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get())))
+ 			if (!m_surface || !m_surface->init(m_surface->pickQueue(m_device.get()),std::make_unique<CSwapchainResources>(),{}))
 				return logFail("Failed to Create a Swapchain!");
 
 			// When a swapchain gets recreated (resize or mode change) the number of images might change.
@@ -238,6 +276,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 					if (!m_device->allocate(image->getMemoryReqs(),image.get()).isValid())
 						return logFail("Failed to allocate Device Memory for Image %d",i);
 				}
+				image->setObjectDebugName(("Triple Buffer Image "+std::to_string(i)).c_str());
 
 				// create framebuffers for the images
 				{
@@ -324,23 +363,31 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				willSubmit &= cmdbuf->endRenderPass();
 
 				// If the Rendering and Blit/Present Queues don't come from the same family we need to transfer ownership, because we need to preserve contents between them.
-				if (cmdbuf->getQueueFamilyIndex()!=m_surface->getAssignedQueue()->getFamilyIndex())
+				auto blitQueueFamily = m_surface->getAssignedQueue()->getFamilyIndex();
+				// Also should crash/error if concurrent sharing enabled but would-be-user-queue is not in the share set, but oh well.
+				const bool needOwnershipRelease = cmdbuf->getQueueFamilyIndex()!=blitQueueFamily && !frame->getCachedCreationParams().isConcurrentSharing(); 
+				if (needOwnershipRelease)
 				{
-					IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {};
-					const decltype(depInfo.imgBarriers)::element_type barrier[2] = {{
+					const IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barrier[] = {{
 						.barrier = {
 							.dep = {
-								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-								.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-								// for a Queue Family Ownership Release the destination masks are irrelevant
+								// Normally I'd put `COLOR_ATTACHMENT` on the masks, but we want this to happen after Layout Transition :(
+								// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+								.srcStageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+								.srcAccessMask = asset::ACCESS_FLAGS::MEMORY_READ_BITS|asset::ACCESS_FLAGS::MEMORY_WRITE_BITS,
+								// For a Queue Family Ownership Release the destination access masks are irrelevant
+								// and source stage mask can be NONE as long as the semaphore signals ALL_COMMANDS_BIT
 								.dstStageMask = asset::PIPELINE_STAGE_FLAGS::NONE,
 								.dstAccessMask = asset::ACCESS_FLAGS::NONE
-							}
+							},
+							.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+							.otherQueueFamilyIndex = blitQueueFamily
 						},
 						.image = frame,
 						.subresourceRange = TripleBufferUsedSubresourceRange
 						// there will be no layout transition, already done by the Renderpass End
 					}};
+					const IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = {.imgBarriers=barrier};
 					willSubmit &= cmdbuf->pipelineBarrier(asset::EDF_NONE,depInfo);
 				}
 
@@ -354,7 +401,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered = {
 					.semaphore = m_semaphore.get(),
 					.value = m_realFrameIx+1,
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT // wait for renderpass/subpass to finish before handing over to blit
+					// Normally I'd put `COLOR_ATTACHMENT` on the masks, but we want to signal after Layout Transitions and optional Ownership Release
+					// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 				};
 				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{
 					.cmdbuf = cmdbuf
@@ -365,7 +414,9 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				const IQueue::SSubmitInfo::SSemaphoreInfo blitted = {
 					.semaphore = m_surface->getPresentSemaphore(),
 					.value = pBlitWaitValue->load(),
-					.stageMask = asset::PIPELINE_STAGE_FLAGS::BLIT_BIT // same mask as returned from tripleBufferPresent
+					// Normally I'd put `BLIT` on the masks, but we want to wait before Implicit Layout Transitions and optional Implicit Ownership Acquire
+					// https://github.com/KhronosGroup/Vulkan-Docs/issues/2319
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 				};
 				const IQueue::SSubmitInfo submitInfos[1] = {
 					{
@@ -379,13 +430,15 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 				m_realFrameIx++;
 
 				// only present if there's successful content to show
-				const IResizableSurface::SPresentInfo presentInfo = {
-					.source = {.image=frame,.rect=currentRenderArea},
-					.wait = rendered,
-					.pPresentSemaphoreWaitValue = pBlitWaitValue,
+				const ISmoothResizeSurface::SPresentInfo presentInfo = {
+					{
+						.source = {.image=frame,.rect=currentRenderArea},
+						.waitSemaphore = rendered.semaphore,
+						.waitValue = rendered.value,
+						.pPresentSemaphoreWaitValue = pBlitWaitValue,
+					},
 					// The Graphics Queue will be the the most recent owner just before it releases ownership
-					.mostRecentFamilyOwningSource = cmdbuf->getQueueFamilyIndex(),
-					.frameResources = cmdbuf
+					cmdbuf->getQueueFamilyIndex()
 				};
 				m_surface->present(std::move(swapchainLock),presentInfo);
 			}
@@ -397,20 +450,15 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
 				return false;
 
-			return !m_surface || !m_surface->irrecoverable();
+			return m_surface && !m_surface->irrecoverable();
 		}
 
 		virtual bool onAppTerminated() override
 		{
-			// We actually need to wait on a semaphore to finish the example nicely, otherwise we risk destroying a semaphore currently in use for a frame that hasn't finished yet.
-			ISemaphore::SWaitInfo infos[1] = {
-				{.semaphore=m_semaphore.get(),.value=m_realFrameIx},
-			};
-			m_device->blockForSemaphores(infos);
+			// We actually want to wait for all the frames to finish rendering, otherwise our destructors will run out of order late
+			m_device->waitIdle();
 
-			// These are optional, the example will still work fine, but all the destructors would kick in (refcounts would drop to 0) AFTER we would have exited this function.
-			m_semaphore = nullptr;
-			std::fill_n(m_cmdBufs.data(),ISwapchain::MaxImages,nullptr);
+			// This is optional, but the window would close AFTER we return from this function
 			m_surface = nullptr;
 
 			return base_t::onAppTerminated();
@@ -421,7 +469,7 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 		std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
 		clock_t::time_point start;
 		// In this example we have just one Window & Swapchain
-		smart_refctd_ptr<CResizableSurface<CSwapchainResources>> m_surface;
+		smart_refctd_ptr<CSmoothResizeSurface<CSwapchainResources>> m_surface;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		// At least two timelines must be used.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
