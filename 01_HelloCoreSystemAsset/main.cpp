@@ -149,7 +149,7 @@ int main(int argc, char** argv)
 	// Non-development builds on Nabla will embed most files under "include/nbl/builtin" using our CMake utilities into the Library's source code,
 	// but whenever `NBL_EMBED_BUILTIN_RESOURCES` is disabled, we'll just mount directories of the SDK under same paths (kinda like a folder symlink).
 	{
-		testPath("nbl/builtin/glsl/utils/acceleration_structures.glsl"); // nbl internal BRs
+		testPath("nbl/builtin/hlsl/acceleration_structures.hlsl"); // nbl internal BRs
 		testPath("spirv/unified1/spirv.hpp"); // dxc internal BRs
 		testPath("boost/preprocessor.hpp"); // boost preprocessor internal BRs
 	}
@@ -245,6 +245,7 @@ int main(int argc, char** argv)
 		imgViewParams.viewType = ICPUImageView::ET_2D;
 		imgViewParams.subresourceRange = { static_cast<IImage::E_ASPECT_FLAGS>(0u),0u,1u,0u,1u };
 		smart_refctd_ptr<nbl::asset::ICPUImageView> imageView = ICPUImageView::create(std::move(imgViewParams));
+		assert(imageView);
 
 		// However the writers all take IImageViews because the engine is supposed to know already the OETF, EOTF, mip-chain and exact type.
 		nbl::asset::IAssetWriter::SAssetWriteParams wp(imageView.get());

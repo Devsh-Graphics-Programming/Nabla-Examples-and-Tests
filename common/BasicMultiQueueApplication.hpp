@@ -19,11 +19,11 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 		using base_t::base_t;
 
 		// So now we need to return "threadsafe" queues because the queues might get aliased and also used on multiple threads
-		virtual video::CThreadSafeGPUQueueAdapter* getComputeQueue() const
+		virtual video::CThreadSafeQueueAdapter* getComputeQueue() const
 		{
 			return m_device->getThreadSafeQueue(m_computeQueue.famIx,m_computeQueue.qIx);
 		}
-		virtual video::CThreadSafeGPUQueueAdapter* getGraphicsQueue() const
+		virtual video::CThreadSafeQueueAdapter* getGraphicsQueue() const
 		{
 			if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
 				return m_device->getThreadSafeQueue(m_graphicsQueue.famIx,m_graphicsQueue.qIx);
@@ -32,11 +32,11 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 		}
 
 		// virtual to allow aliasing and total flexibility, as with the above
-		virtual video::CThreadSafeGPUQueueAdapter* getTransferUpQueue() const
+		virtual video::CThreadSafeQueueAdapter* getTransferUpQueue() const
 		{
 			return m_device->getThreadSafeQueue(m_transferUpQueue.famIx,m_transferUpQueue.qIx);
 		}
-		virtual video::CThreadSafeGPUQueueAdapter* getTransferDownQueue() const
+		virtual video::CThreadSafeQueueAdapter* getTransferDownQueue() const
 		{
 			return m_device->getThreadSafeQueue(m_transferDownQueue.famIx,m_transferDownQueue.qIx);
 		}
@@ -56,16 +56,23 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			return true;
 		}
 
+		// Just to run destructors in a nice order
+		virtual bool onAppTerminated() override
+		{
+			m_utils = nullptr;
+			return base_t::onAppTerminated();
+		}
+
 		// overridable for future graphics queue using examples
 		virtual bool isComputeOnly() const {return true;}
 
-		using queue_flags_t = video::IPhysicalDevice::E_QUEUE_FLAGS;
+		using queue_flags_t = video::IQueue::FAMILY_FLAGS;
 		// So because of lovely Intel GPUs that only have one queue, we can't really request anything different
 		virtual core::vector<queue_req_t> getQueueRequirements() const override
 		{
-			queue_req_t singleQueueReq = {.requiredFlags=queue_flags_t::EQF_COMPUTE_BIT|queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
+			queue_req_t singleQueueReq = {.requiredFlags=queue_flags_t::COMPUTE_BIT|queue_flags_t::TRANSFER_BIT,.disallowedFlags=queue_flags_t::NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
 			if (!isComputeOnly())
-				singleQueueReq.requiredFlags |= queue_flags_t::EQF_GRAPHICS_BIT;
+				singleQueueReq.requiredFlags |= queue_flags_t::GRAPHICS_BIT;
 			return {singleQueueReq};
 		}
 
@@ -117,7 +124,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				const queue_family_range_t& m_familyProperties;
 		};
 
-		virtual core::vector<video::ILogicalDevice::SQueueCreationParams> getQueueCreationParameters(const queue_family_range_t& familyProperties) override
+		virtual std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> getQueueCreationParameters(const queue_family_range_t& familyProperties) override
 		{
 			QueueAllocator queueAllocator(familyProperties);
 
@@ -128,8 +135,8 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			uint8_t fallbackUsers = 0;
 			const SQueueIndex fallbackQueue = {
 				queueAllocator.allocateFamily({
-						.requiredFlags = (isComputeOnly() ? queue_flags_t::EQF_GRAPHICS_BIT:queue_flags_t::EQF_NONE)|queue_flags_t::EQF_COMPUTE_BIT|queue_flags_t::EQF_TRANSFER_BIT,
-						.disallowedFlags = queue_flags_t::EQF_NONE,
+						.requiredFlags = (isComputeOnly() ? queue_flags_t::GRAPHICS_BIT:queue_flags_t::NONE)|queue_flags_t::COMPUTE_BIT|queue_flags_t::TRANSFER_BIT,
+						.disallowedFlags = queue_flags_t::NONE,
 						.queueCount = 1,
 						.maxImageTransferGranularity = {1,1,1}
 					},
@@ -144,8 +151,8 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 
 			// Make sure we have a Compute Queue as we'll always need that
 			queue_req_t computeQueueRequirement = {
-				.requiredFlags = queue_flags_t::EQF_COMPUTE_BIT,
-				.disallowedFlags = queue_flags_t::EQF_NONE,
+				.requiredFlags = queue_flags_t::COMPUTE_BIT,
+				.disallowedFlags = queue_flags_t::NONE,
 				.queueCount = 1
 			};
 			// If we won't have a Graphics Queue, then we need our Compute Queue to be able to do transfers of any granularity
@@ -153,7 +160,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				computeQueueRequirement.maxImageTransferGranularity = {1,1,1};
 			// Ideally we want the Compute Queue to be without Graphics and Transfer Capability
 			// However we'll take a Graphics & Compute queue if there's room in those families for one extra aside from the Fallback.
-			m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+			m_computeQueue.famIx = queueAllocator.allocateFamily(computeQueueRequirement,{queue_flags_t::GRAPHICS_BIT,queue_flags_t::TRANSFER_BIT,queue_flags_t::PROTECTED_BIT});
 			// If no async Compute Queue exists, we'll alias it to the fallback queue
 			if (m_computeQueue.famIx!=QueueAllocator::InvalidIndex)
 				m_computeQueue.qIx = familyQueueCounts[m_computeQueue.famIx]++;
@@ -167,12 +174,12 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			
 			// Next we'll try to allocate the transfer queues from families don't support Graphics or Compute capabilities at all to ensure they're the DMA queues and not clogging up the main CP
 			{
-				constexpr queue_req_t TransferQueueRequirement = {.requiredFlags=queue_flags_t::EQF_TRANSFER_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1};
+				constexpr queue_req_t TransferQueueRequirement = {.requiredFlags=queue_flags_t::TRANSFER_BIT,.disallowedFlags=queue_flags_t::NONE,.queueCount=1};
 				// However if we can't get Queue Families without Graphics or Compute then we'll take whatever space is left so we can at least Async
-				m_transferUpQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+				m_transferUpQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::GRAPHICS_BIT,queue_flags_t::COMPUTE_BIT,queue_flags_t::PROTECTED_BIT});
 				// In my opinion the Asynchronicity of the Upload queue is more important, so we assigned that first.
 				// We don't need to do anything special to ensure the down transfer queue allocates on the same family as the up transfer queue
-				m_transferDownQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::EQF_GRAPHICS_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+				m_transferDownQueue.famIx = queueAllocator.allocateFamily(TransferQueueRequirement,{queue_flags_t::GRAPHICS_BIT,queue_flags_t::COMPUTE_BIT,queue_flags_t::PROTECTED_BIT});
 			}
 
 			// If failed to allocate up-transfer queue, then alias it to the fallback or compute queue
@@ -182,7 +189,7 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			{
 				m_logger->log("Not enough queue counts in families, have to alias the Transfer-Up Queue!",system::ILogger::ELL_PERFORMANCE);
 				// If we have a compute queue the we'll use it for Async, so best to use that for transfer, if it has a transfer capability
-				if (m_physicalDevice->getQueueFamilyProperties()[m_computeQueue.famIx].queueFlags.hasFlags(queue_flags_t::EQF_TRANSFER_BIT))
+				if (m_physicalDevice->getQueueFamilyProperties()[m_computeQueue.famIx].queueFlags.hasFlags(queue_flags_t::TRANSFER_BIT))
 				{
 					m_logger->log("Aliasing Transfer-Up Queue to Compute!",system::ILogger::ELL_PERFORMANCE);
 					m_transferUpQueue = m_computeQueue;
@@ -206,9 +213,8 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 			// Try to allocate a different queue than fallback for graphics and as little extra as possible
 			if (!isComputeOnly())
 			{
-				// TODO: Handle surface compatibility.
-				queue_req_t graphicsQueueRequirement = {.requiredFlags=queue_flags_t::EQF_GRAPHICS_BIT,.disallowedFlags=queue_flags_t::EQF_NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
-				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement,{queue_flags_t::EQF_TRANSFER_BIT,queue_flags_t::EQF_SPARSE_BINDING_BIT,queue_flags_t::EQF_COMPUTE_BIT,queue_flags_t::EQF_PROTECTED_BIT});
+				queue_req_t graphicsQueueRequirement = {.requiredFlags=queue_flags_t::GRAPHICS_BIT,.disallowedFlags=queue_flags_t::NONE,.queueCount=1,.maxImageTransferGranularity={1,1,1}};
+				m_graphicsQueue.famIx = queueAllocator.allocateFamily(graphicsQueueRequirement,{queue_flags_t::TRANSFER_BIT,queue_flags_t::SPARSE_BINDING_BIT,queue_flags_t::COMPUTE_BIT,queue_flags_t::PROTECTED_BIT});
 				if (m_graphicsQueue.famIx!=QueueAllocator::InvalidIndex)
 					m_graphicsQueue.qIx = familyQueueCounts[m_graphicsQueue.famIx]++;
 				else
@@ -224,16 +230,23 @@ class BasicMultiQueueApplication : public virtual MonoDeviceApplication
 				auto found = familyQueueCounts.find(fallbackQueue.famIx);
 				if ((--found->second)==0)
 					familyQueueCounts.erase(found);
+				else
+				{
+					if (m_computeQueue.famIx==fallbackQueue.famIx)
+						m_computeQueue.qIx--;
+					if (m_transferUpQueue.famIx==fallbackQueue.famIx)
+						m_transferUpQueue.qIx--;
+					if (m_transferDownQueue.famIx==fallbackQueue.famIx)
+						m_transferDownQueue.qIx--;
+					if (m_graphicsQueue.famIx==fallbackQueue.famIx)
+						m_graphicsQueue.qIx--;
+				}
 			}
 
 			// Now after assigning all queues to families and indices, collate the creation parameters
-			core::vector<video::ILogicalDevice::SQueueCreationParams> retval(familyQueueCounts.size());
-			auto oit = retval.begin();
-			for (auto it=familyQueueCounts.begin(); it!=familyQueueCounts.end(); it++,oit++)
-			{
-				oit->familyIndex = it->first;
-				oit->count = it->second;
-			}
+			std::array<video::ILogicalDevice::SQueueCreationParams,video::ILogicalDevice::MaxQueueFamilies> retval = {};
+			for (const auto& familyAndCount : familyQueueCounts)
+				retval[familyAndCount.first].count = familyAndCount.second;
 			return retval;
 		}
 
