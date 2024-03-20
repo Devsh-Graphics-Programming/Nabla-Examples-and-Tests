@@ -1,12 +1,12 @@
 ﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "../common/SimpleWindowedApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "../common/SimpleWindowedApplication.hpp"
 
 //
 #include "nbl/video/surface/CSurfaceVulkan.h"
-#include "nbl/video/CVulkanSwapchain.h"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
 
 using namespace nbl;
@@ -37,21 +37,25 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			// So let's create our Window and Surface then!
 			if (!m_surface)
 			{
-				IWindow::SCreationParams params = {};
-				params.callback = core::make_smart_refctd_ptr<nbl::video::IResizableSurface::ICallback>();
-				params.width = 256;
-				params.height = 256;
-				params.x = 32;
-				params.y = 32;
-				// Only programmatic resize, not regular
-				params.flags = ui::IWindow::ECF_INPUT_FOCUS|ui::IWindow::ECF_RESIZABLE;
-				params.windowCaption = "ColorSpaceTestSampleApp";
-				auto window = m_winMgr->createWindow(std::move(params));
-				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window));
-//				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CResizableSurface<CSwapchainResources>::create(CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),move_and_static_cast<IWindowWin32>(window)));
+				{
+					IWindow::SCreationParams params = {};
+					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+					params.width = 256;
+					params.height = 256;
+					params.x = 32;
+					params.y = 32;
+					// Don't want to have a window lingering about before we're ready so create it hidden.
+					// Only programmatic resize, not regular.
+					params.flags = ui::IWindow::ECF_HIDDEN|IWindow::ECF_BORDERLESS|IWindow::ECF_RESIZABLE;
+					params.windowCaption = "ColorSpaceTestSampleApp";
+					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+				}
+				auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+				const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
 			}
-			return {{m_surface.get()/*,EQF_NONE*/}};
-			//return {{m_surface->getSurface()/*,EQF_NONE*/}};
+			if (m_surface)
+				return {{m_surface->getSurface()/*,EQF_NONE*/}};
+			return {};
 		}
 		
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -80,30 +84,140 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				return logFail("Could not open the test paths file");
 			m_loadCWD = m_loadCWD.parent_path();
 
+			// Load FSTri Shader
+			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(),m_device.get(),m_logger.get());
+			if (!fsTriProtoPPln)
+				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-			// create the descriptor set
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
 			{
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset(relPath,lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
+					return nullptr;
 
-			}
-#if 0
-		auto createDescriptorPool = [&](const uint32_t textureCount)
-		{
-			constexpr uint32_t maxItemCount = 256u;
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				if (!source)
+					return nullptr;
+
+				return m_device->createShader(source.get());
+			};
+			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+			if (!fragmentShader)
+				return logFail("Failed to Load and Compile Fragment Shader!");
+			
+			// Now surface indep resources
+			m_semaphore = m_device->createSemaphore(m_submitIx);
+			if (!m_semaphore)
+				return logFail("Failed to Create a Semaphore!");
+
+			// create the descriptor sets layout
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
-				video::IDescriptorPool::SCreateInfo createInfo;
-				createInfo.maxSets = maxItemCount;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
-				return logicalDevice->createDescriptorPool(std::move(createInfo));
+				auto defaultSampler = m_device->createSampler({
+					.AnisotropicFilter = 0
+				});
+
+				const IGPUDescriptorSetLayout::SBinding bindings[1] = {{
+					.binding = 0,
+					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::ESS_FRAGMENT,
+					.count = 1,
+					.samplers = &defaultSampler
+				}};
+				dsLayout = m_device->createDescriptorSetLayout(bindings);
+				if (!dsLayout)
+					return logFail("Failed to Create Descriptor Layout");
 			}
-		};
 
-		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
-		auto immutableSampler = logicalDevice->createSampler(samplerParams);
+			ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
+			// Need to choose a surface format
+			if (!swapchainParams.deduceFormat(m_physicalDevice))
+				return logFail("Could not choose a Surface Format for the Swapchain!");
+			// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+				// wipe-transition to ATTACHMENT_OPTIMAL
+				{
+					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.dstSubpass = 0,
+					.memoryBarrier = {
+						// since we're uploading the image data we're about to draw 
+						.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						// because we clear and don't blend
+						.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					}
+					// leave view offsets and flags default
+				},
+				// ATTACHMENT_OPTIMAL to PRESENT_SRC
+				{
+					.srcSubpass = 0,
+					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.memoryBarrier = {
+						.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						// we can have NONE as the Destinations because the spec says so about presents
+					}
+					// leave view offsets and flags default
+				},
+				IGPURenderpass::SCreationParams::DependenciesEnd
+			};
+			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(),swapchainParams.surfaceFormat.format,dependencies);
+			if (!scResources->getRenderpass())
+				return logFail("Failed to create Renderpass!");
 
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
-		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
-		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
-#endif
+			// Now create the pipeline
+			{
+				const IGPUShader::SSpecInfo fragSpec = {
+					.entryPoint = "main",
+					.shader = fragmentShader.get()
+				};
+				auto layout = m_device->createPipelineLayout({},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
+				m_pipeline = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),scResources->getRenderpass()/*,default is subpass 0*/);
+				if (!m_pipeline)
+					return logFail("Could not create Graphics Pipeline!");
+			}
+
+			// Let's just use the same queue since there's no need for async present
+			if (!m_surface || !m_surface->init(getGraphicsQueue(),std::move(scResources),swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
+			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+
+			// create the descriptor sets, 1 per FIF and with enough room for one image sampler
+			{
+				const uint32_t setCount = m_maxFramesInFlight;
+				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1},&setCount);
+				if (!pool)
+					return logFail("Failed to Create Descriptor Pool");
+
+				for (auto i=0u; i<m_maxFramesInFlight; i++)
+				{
+					m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
+					if (!m_descriptorSets[i])
+						return logFail("Could not create Descriptor Set!");
+				}
+			}
+
+			// create the commandbuffers and pools, this time properly 1 pool per FIF
+			for (auto i=0u; i<m_maxFramesInFlight; i++)
+			{
+				// non-individually-resettable commandbuffers have an advantage over invidually-resettable
+				// mainly that the pool can use a "cheaper", faster allocator internally
+				m_cmdPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
+				if (!m_cmdPools[i])
+					return logFail("Couldn't create Command Pool!");
+				if (!m_cmdPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
+					return logFail("Couldn't create Command Buffer!");
+			}
+
+			getGraphicsQueue()->startCapture();
 			return true;
 		}
 
@@ -161,32 +275,117 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						return;
 				}
 			}
+			
+			// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+			if (m_submitIx>=m_maxFramesInFlight)
+			{
+				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+					{ 
+						.semaphore = m_semaphore.get(),
+						.value = m_submitIx+1-m_maxFramesInFlight
+					}
+				};
+				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
+					return;
+			}
+			const auto resourceIx = m_submitIx%m_maxFramesInFlight;
+			if (!m_cmdPools[resourceIx]->reset())
+				return;
 
-#if 0
-						auto& captionData = captionTexturesData.emplace_back();
-						captionData.name = filename.string();
-						captionData.extension = extension.string();
-						captionData.viewType = ;
+			// write to descriptor set
+			auto ds = m_descriptorSets[resourceIx].get();
 
-#endif
+			// now we can sleep till we're ready for next render
 			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
 			m_lastImageEnqueued = clock_t::now();
 
-			auto* window = m_surface->getWindow();
 			const auto newWindowResolution = cpuImgView->getCreationParameters().image->getCreationParameters().extent;
-//			if (newWindowResolution!=m_surface->getSwapchain()->)
+			if (newWindowResolution.width!=m_window->getWidth() || newWindowResolution.height!=m_window->getHeight())
 			{
 				// Resize the window
-				m_winMgr->setWindowSize(window,newWindowResolution.width,newWindowResolution.height);
-
-				// Recreate the swapchain
+				m_winMgr->setWindowSize(m_window.get(),newWindowResolution.width,newWindowResolution.height);
+				// Don't want to rely on the Swapchain OUT_OF_DATE causing an implicit re-create in the `acquireNextImage` because the
+				// swapchain may report OUT_OF_DATE after the next VBlank after the resize, not getting the message right away.
+				m_surface->recreateSwapchain();
 			}
+			// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
+			m_winMgr->show(m_window.get());
 
 			// Acquire
+			auto imageIx = m_surface->acquireNextImage();
+			if (imageIx==ISwapchain::MaxImages)
+				return;
 
 			// Render to the Image
+			auto cmdbuf = m_cmdBufs[resourceIx].get();
+			{
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				
+				const VkRect2D currentRenderArea =
+				{
+					.offset = {0,0},
+					.extent = {newWindowResolution.width,newWindowResolution.height}
+				};
+				// set viewport
+				{
+					const asset::SViewport viewport =
+					{
+						.width = float(newWindowResolution.width),
+						.height = float(newWindowResolution.height)
+					};
+					cmdbuf->setViewport({&viewport,1});
+				}
+				cmdbuf->setScissor({&currentRenderArea,1});
+
+				// begin the renderpass
+				{
+					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,1.f,1.f,1.f} };
+					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+						.framebuffer = scRes->getFrambuffer(imageIx),
+						.colorClearValues = &clearValue,
+						.depthStencilClearValues = nullptr,
+						.renderArea = currentRenderArea
+					};
+					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				}
+				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
+				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+				cmdbuf->endRenderPass();
+				cmdbuf->end();
+			}
+
+			// submit
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
+				.semaphore = m_semaphore.get(),
+				.value = ++m_submitIx,
+				// just as we've outputted all pixels, signal
+				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+			}};
+			{
+				{
+					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
+						.cmdbuf = cmdbuf
+					}};
+					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
+						.semaphore = m_surface->getAcquireSemaphore(),
+						.value = m_surface->getAcquireCount(),
+						.stageMask = PIPELINE_STAGE_FLAGS::NONE
+					}};
+					const IQueue::SSubmitInfo infos[1] = {{
+						.waitSemaphores = acquired,
+						.commandBuffers = commandBuffers,
+						.signalSemaphores = rendered
+					}};
+					// we won't signal the sema if no success
+					if (getGraphicsQueue()->submit(infos)!=IQueue::RESULT::SUCCESS)
+						m_submitIx--;
+				}
+			}
 
 			// Present
+			m_surface->present(imageIx,rendered);
 			
 			// Set the Caption
 			std::string viewTypeStr;
@@ -204,7 +403,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					assert(false);
 					break;
 			};
-			window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
+			m_window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
 
 			// Now do a write to disk in the meantime
 			{
@@ -229,7 +428,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		inline bool keepRunning() override
 		{
 			// Keep arunning as long as we have a surface to present to (usually this means, as long as the window is open)
-			if (!m_surface)// || m_surface->irrecoverable())
+			if (m_surface->irrecoverable())
 				return false;
 
 			while (std::getline(m_testPathsFile,m_nextPath))
@@ -241,129 +440,33 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool onAppTerminated() override
 		{
+			getGraphicsQueue()->endCapture();
 			return device_base_t::onAppTerminated();
 		}
 
 	protected:
-		smart_refctd_ptr<ISurface> m_surface;
+		smart_refctd_ptr<IWindow> m_window;
+		smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 		//
 		std::ifstream m_testPathsFile;
 		system::path m_loadCWD;
 		//
 		std::string m_nextPath;
 		clock_t::time_point m_lastImageEnqueued = {};
+		//
+		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
+		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
+		smart_refctd_ptr<ISemaphore> m_semaphore;
+		// Use a separate counter to cycle through our resources for clarity
+		uint64_t m_submitIx : 59 = 0;
+		// Maximum frames which can be simultaneously rendered
+		uint64_t m_maxFramesInFlight : 5;
+		// Enough Command Buffers and other resources for all frames in flight!
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
+		std::array<smart_refctd_ptr<IGPUCommandPool>,ISwapchain::MaxImages> m_cmdPools;
+		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 };
-#if 0
-struct NBL_CAPTION_DATA_TO_DISPLAY
-{
-	std::string viewType;
-	std::string name;
-	std::string extension;
-};
-
-class ColorSpaceTestSampleApp : public ApplicationBase
-{
-	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-
-	core::smart_refctd_ptr<video::IGPURenderpass> renderpass;
-	core::smart_refctd_dynamic_array<core::smart_refctd_ptr<video::IGPUFramebuffer>> fbos;
-	std::array<std::array<core::smart_refctd_ptr<video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<system::ISystem> system;
-	core::smart_refctd_ptr<asset::IAssetManager> assetManager;
-	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<system::ILogger> logger;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
-	video::IGPUObjectFromAssetConverter cpu2gpu;
-	video::ISwapchain::SCreationParams m_swapchainCreationParams;
-
-public:
-	void onAppInitialized_impl() override
-	{
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
-		assert(swapchain);
-		fbos = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
-			logicalDevice, swapchain, renderpass,
-			asset::EF_UNKNOWN
-		);
-
-		video::IGPUObjectFromAssetConverter cpu2gpu;
-
-		auto createDescriptorPool = [&](const uint32_t textureCount)
-		{
-			constexpr uint32_t maxItemCount = 256u;
-			{
-				video::IDescriptorPool::SCreateInfo createInfo;
-				createInfo.maxSets = maxItemCount;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = textureCount;
-				return logicalDevice->createDescriptorPool(std::move(createInfo));
-			}
-		};
-
-		asset::ISampler::SParams samplerParams = { asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETC_CLAMP_TO_EDGE, asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK, asset::ISampler::ETF_LINEAR, asset::ISampler::ETF_LINEAR, asset::ISampler::ESMM_LINEAR, 0u, false, asset::ECO_ALWAYS };
-		auto immutableSampler = logicalDevice->createSampler(samplerParams);
-
-		video::IGPUDescriptorSetLayout::SBinding binding{ 0u, asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, video::IGPUShader::ESS_FRAGMENT, 1u, &immutableSampler };
-		auto gpuDescriptorSetLayout3 = logicalDevice->createDescriptorSetLayout(&binding, &binding + 1u);
-		auto gpuDescriptorPool = createDescriptorPool(1u); // per single texture
-		auto fstProtoPipeline = ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
-
-		auto createGPUPipeline = [&](asset::IImageView<asset::ICPUImage>::E_TYPE typeOfImage) -> core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>
-		{
-			auto getPathToFragmentShader = [&]() -> std::string
-			{
-				switch (typeOfImage)
-				{
-				case asset::IImageView<asset::ICPUImage>::ET_2D:
-					return "../present2D.frag";
-				case asset::IImageView<asset::ICPUImage>::ET_2D_ARRAY:
-					return "../present2DArray.frag";
-				case asset::IImageView<asset::ICPUImage>::ET_CUBE_MAP:
-					return "../presentCubemap.frag";
-				default:
-					assert(false);
-					return "";
-				}
-			};
-
-			auto fs_bundle = assetManager->getAsset(getPathToFragmentShader(), {});
-			auto fs_contents = fs_bundle.getContents();
-			if (fs_contents.empty())
-				assert(false);
-
-			asset::ICPUSpecializedShader* cpuFragmentShader = static_cast<asset::ICPUSpecializedShader*>(fs_contents.begin()->get());
-
-			core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuFragmentShader;
-			{
-				cpu2gpuParams.beginCommandBuffers();
-				auto gpu_array = cpu2gpu.getGPUObjectsFromAssets(&cpuFragmentShader, &cpuFragmentShader + 1, cpu2gpuParams);
-				cpu2gpuParams.waitForCreationToComplete(false);
-
-				if (!gpu_array.get() || gpu_array->size() < 1u || !(*gpu_array)[0])
-					assert(false);
-
-				gpuFragmentShader = (*gpu_array)[0];
-			}
-
-			auto constants = std::get<asset::SPushConstantRange>(fstProtoPipeline);
-			auto gpuPipelineLayout = logicalDevice->createPipelineLayout(&constants, &constants + 1, nullptr, nullptr, nullptr, core::smart_refctd_ptr(gpuDescriptorSetLayout3));
-			return ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fstProtoPipeline, std::move(gpuFragmentShader), std::move(gpuPipelineLayout));
-		};
-
-		auto gpuPipelineFor2D = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D);
-		auto gpuPipelineFor2DArrays = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_2D_ARRAY);
-		auto gpuPipelineForCubemaps = createGPUPipeline(asset::IImageView<asset::ICPUImage>::E_TYPE::ET_CUBE_MAP);
-
-
-
-
-		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> cpuImageViews;
-		
-		// we clone because we need these cpuimages later for directly using upload utilitiy
-		core::vector<core::smart_refctd_ptr<asset::ICPUImageView>> clonedCpuImageViews(cpuImageViews.size());
-		for(uint32_t i = 0; i < cpuImageViews.size(); ++i)
-			clonedCpuImageViews[i] = core::smart_refctd_ptr_static_cast<asset::ICPUImageView>(cpuImageViews[i]->clone());
-		
+#if 0	
 		// Allocate and Leave 8MB for image uploads, to test image copy with small memory remaining 
 		{
 			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
@@ -372,13 +475,6 @@ public:
 			const uint32_t allocationSize = maxFreeBlock - (0x00F0000u * 4u);
 			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
 		}
-
-		cpu2gpuParams.beginCommandBuffers();
-		auto gpuImageViews = cpu2gpu.getGPUObjectsFromAssets(clonedCpuImageViews.data(), clonedCpuImageViews.data() + clonedCpuImageViews.size(), cpu2gpuParams);
-		cpu2gpuParams.waitForCreationToComplete(false);
-		
-		if (!gpuImageViews || gpuImageViews->size() < cpuImageViews.size())
-			assert(false);
 
 		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
 		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
@@ -511,50 +607,12 @@ public:
 			}
 		}
 
-		auto getCurrentGPURenderpassIndependentPipeline = [&](video::IGPUImageView* gpuImageView)
-		{
-			switch (gpuImageView->getCreationParameters().viewType)
-			{
-			case asset::IImageView<video::IGPUImage>::ET_2D:
-			{
-				return gpuPipelineFor2D;
-			}
 
-			case asset::IImageView<video::IGPUImage>::ET_2D_ARRAY:
-			{
-				return gpuPipelineFor2DArrays;
-			}
 
-			case asset::IImageView<video::IGPUImage>::ET_CUBE_MAP:
-			{
-				return gpuPipelineForCubemaps;
-			}
-
-			default:
-				assert(false);
-			}
-		};
-
-		auto ds = gpuDescriptorPool->createDescriptorSet(core::smart_refctd_ptr(gpuDescriptorSetLayout3));
 
 		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
 		{
-			// can't just use windowExtent as the actual window size may have been capped by windows
-			VkExtent3D imgExtents = { window->getWidth(), window->getHeight(), 1 };
-
-			if (didResize)
-			{
-				CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, imgExtents.width, imgExtents.height, swapchain);
-				assert(swapchain);
-				fbos = CommonAPI::createFBOWithSwapchainImages(
-					swapchain->getImageCount(), imgExtents.width, imgExtents.height,
-					logicalDevice, swapchain, renderpass,
-					asset::EF_UNKNOWN
-				);
-
-				lastWidth = imgExtents.width;
-				lastHeight = imgExtents.height;
-			}
+			// resize
 
 			video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
@@ -573,134 +631,7 @@ public:
 
 			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
 
-			auto currentGpuRenderpassIndependentPipeline = getCurrentGPURenderpassIndependentPipeline(gpuImageView.get());
-			core::smart_refctd_ptr<video::IGPUGraphicsPipeline> gpuGraphicsPipeline;
-			{
-				video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams = {};
-				graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline>(const_cast<video::IGPURenderpassIndependentPipeline*>(currentGpuRenderpassIndependentPipeline.get()));
-				graphicsPipelineParams.renderpass = core::smart_refctd_ptr(renderpass);
 
-				gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
-			}
-
-
-			core::smart_refctd_ptr<video::IGPUCommandBuffer> commandBuffers[FRAMES_IN_FLIGHT];
-
-			core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
-			core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
-			core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
-
-			const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-			for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-			{
-				logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers+i);
-				imageAcquire[i] = logicalDevice->createSemaphore();
-				renderFinished[i] = logicalDevice->createSemaphore();
-			}
-
-			auto startPoint = std::chrono::high_resolution_clock::now();
-
-			uint32_t imgnum = 0u;
-			int32_t resourceIx = -1;
-			for (;;)
-			{
-				resourceIx++;
-				if (resourceIx >= FRAMES_IN_FLIGHT)
-					resourceIx = 0;
-
-				auto& cb = commandBuffers[resourceIx];
-				auto& fence = frameComplete[resourceIx];
-				if (fence)
-				{
-					while (logicalDevice->waitForFences(1u, &fence.get(), false, MAX_TIMEOUT) == video::IGPUFence::ES_TIMEOUT)
-					{
-					}
-					logicalDevice->resetFences(1u, &fence.get());
-				}
-				else
-					fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
-
-				auto aPoint = std::chrono::high_resolution_clock::now();
-				if (std::chrono::duration_cast<std::chrono::milliseconds>(aPoint - startPoint).count() > SWITCH_IMAGES_PER_X_MILISECONDS)
-					break;
-
-				// acquire image 
-				swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &imgnum);
-
-				cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
-
-
-				video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransition = {};
-				layoutTransition.barrier.srcAccessMask = asset::EAF_NONE;
-				layoutTransition.barrier.dstAccessMask = asset::EAF_SHADER_READ_BIT;
-				layoutTransition.oldLayout = asset::IImage::EL_UNDEFINED;
-				layoutTransition.newLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
-				layoutTransition.srcQueueFamilyIndex = ~0u;
-				layoutTransition.dstQueueFamilyIndex = ~0u;
-				layoutTransition.image = gpuImageView->getCreationParameters().image;
-				layoutTransition.subresourceRange = gpuImageView->getCreationParameters().subresourceRange;
-
-				cb->pipelineBarrier(asset::EPSF_BOTTOM_OF_PIPE_BIT, asset::EPSF_COMPUTE_SHADER_BIT, asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, &layoutTransition);
-
-				asset::SViewport viewport;
-				viewport.minDepth = 1.f;
-				viewport.maxDepth = 0.f;
-				viewport.x = 0u;
-				viewport.y = 0u;
-				viewport.width = imgExtents.width;
-				viewport.height = imgExtents.height;
-				cb->setViewport(0u, 1u, &viewport);
-
-				VkRect2D scissor;
-				scissor.offset = { 0, 0 };
-				scissor.extent = { imgExtents.width, imgExtents.height };
-
-				cb->setScissor(0u, 1u, &scissor);
-
-				video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-				{
-					VkRect2D area;
-					area.offset = { 0,0 };
-					area.extent = { imgExtents.width, imgExtents.height };
-					asset::SClearValue clear;
-					clear.color.float32[0] = 1.f;
-					clear.color.float32[1] = 1.f;
-					clear.color.float32[2] = 1.f;
-					clear.color.float32[3] = 1.f;
-					beginInfo.clearValueCount = 1u;
-					beginInfo.framebuffer = fbos->begin()[imgnum];
-					beginInfo.renderpass = renderpass;
-					beginInfo.renderArea = area;
-					beginInfo.clearValues = &clear;
-				}
-
-				cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-				cb->bindGraphicsPipeline(gpuGraphicsPipeline.get());
-				cb->bindDescriptorSets(asset::EPBP_GRAPHICS, gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), 3, 1, &ds.get());
-				ext::FullScreenTriangle::recordDrawCalls(gpuGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
-				cb->endRenderPass();
-				cb->end();
-
-				CommonAPI::Submit(
-					logicalDevice.get(),
-					cb.get(),
-					queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-					imageAcquire[resourceIx].get(),
-					renderFinished[resourceIx].get(),
-					fence.get());
-
-				CommonAPI::Present(
-					logicalDevice.get(),
-					swapchain.get(),
-					queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-					renderFinished[resourceIx].get(),
-					imgnum);
-			}
-
-			logicalDevice->waitIdle();
-
-			const auto& fboCreationParams = fbos->begin()[imgnum]->getCreationParameters();
-			auto gpuSourceImageView = fboCreationParams.attachments[0];
 
 			const std::string writePath = "screenShot_" + captionData.name + ".png";
 
