@@ -338,13 +338,15 @@ public:
 	{		
 		const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
 			{{
-				.format = colorAttachmentFormat,
-				.samples = IGPUImage::ESCF_1_BIT,
-				.mayAlias = false,
-				.loadOp = loadOp,
-				.storeOp = IGPURenderpass::STORE_OP::STORE,
-				.initialLayout = initialLayout,
-				.finalLayout = finalLayout
+				{
+					.format = colorAttachmentFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+				/*.loadOp = */loadOp,
+				/*.storeOp = */IGPURenderpass::STORE_OP::STORE,
+				/*.initialLayout = */initialLayout,
+				/*.finalLayout = */finalLayout
 			}},
 			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
 		};
@@ -908,7 +910,7 @@ public:
 			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
-				.compatibleRenderpass = renderpassInitial,
+				.renderpass = renderpassInitial.get(),
 				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
@@ -1080,7 +1082,7 @@ public:
 			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
-				.compatibleRenderpass = (inBetweenSubmit) ? renderpassInBetween : renderpassFinal,
+				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
 				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,

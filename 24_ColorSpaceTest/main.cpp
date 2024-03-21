@@ -339,7 +339,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 				// begin the renderpass
 				{
-					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,1.f,1.f,1.f} };
+					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
 					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
 						.framebuffer = scRes->getFrambuffer(imageIx),
