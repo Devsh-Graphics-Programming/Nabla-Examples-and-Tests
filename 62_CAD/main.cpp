@@ -767,9 +767,9 @@ public:
 			return;
 
 		const IQueue::SSubmitInfo::SSemaphoreInfo acquired = {
-			.semaphore = m_surface->getAcquireSemaphore(),
-			.value = m_surface->getAcquireCount(),
-			.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // NONE for Acquire, right?
+			.semaphore = m_currentImageAcquire.semaphore,
+			.value = m_currentImageAcquire.acquireCount,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // NONE for Acquire, right? Yes, the Spec Says so!
 		};
 
 		// prev frame done using the scene data (is in post process stage)
@@ -816,8 +816,8 @@ public:
 		}
 		
 		// Acquire
-		m_currentAcquiredImageIdx = m_surface->acquireNextImage();
-		if (m_currentAcquiredImageIdx==ISwapchain::MaxImages)
+		m_currentImageAcquire = m_surface->acquireNextImage();
+		if (!m_currentImageAcquire)
 			return false;
 
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
@@ -903,7 +903,7 @@ public:
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
-				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
+				.framebuffer = scRes->getFrambuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
@@ -912,6 +912,7 @@ public:
 
 		// you could do this later but only use renderpassInitial on first draw
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		// Wait what's going on here? empty Renderpass!?
 		cb->endRenderPass();
 
 		return true;
@@ -1075,7 +1076,7 @@ public:
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
-				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
+				.framebuffer = scRes->getFrambuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
@@ -1128,7 +1129,7 @@ public:
 					.value = m_realFrameIx,
 					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 				};
-				m_surface->present(m_currentAcquiredImageIdx, { &renderFinished, 1u });
+				m_surface->present(m_currentImageAcquire.imageIndex, { &renderFinished, 1u });
 			}
 		}
 
@@ -2414,7 +2415,7 @@ protected:
 	// this is the semaphore info the overflows update the value for (the semaphore is set to the overflow semaphore above, and the value get's updated by SIntendedSubmitInfo)
 	IQueue::SSubmitInfo::SSemaphoreInfo m_overflowSubmitsScratchSemaphoreInfo;
 	
-	uint8_t m_currentAcquiredImageIdx = 0u;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 	uint64_t m_realFrameIx : 59 = 0;
 	// Maximum frames which can be simultaneously rendered
