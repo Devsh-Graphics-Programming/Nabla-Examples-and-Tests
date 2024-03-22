@@ -32,7 +32,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 using namespace nbl::hlsl;
 using namespace nbl;
@@ -130,9 +130,9 @@ private:
 class CEventCallback : public ISimpleManagedSurface::ICallback
 {
 public:
-	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)), m_gotWindowClosedMsg(false){}
+	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
 	CEventCallback() {}
-	bool isWindowOpen() const {return !m_gotWindowClosedMsg;}
+	
 	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 	{
 		m_logger = logger;
@@ -143,13 +143,6 @@ public:
 	}
 private:
 		
-	bool onWindowClosed_impl() override
-	{
-		m_logger.log("Window closed");
-		m_gotWindowClosedMsg = true;
-		return true;
-	}
-
 	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
 	{
 		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
@@ -174,7 +167,6 @@ private:
 private:
 	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
 	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
-	bool m_gotWindowClosedMsg;
 };
 	
 class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
@@ -1125,10 +1117,11 @@ public:
 		else
 		{
 			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
-			submitInfo.signalSemaphores = { &submitInfo.signalSemaphores[1], 1u };
 			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
 			{
 				m_realFrameIx++;
+				intendedSubmitInfo.advanceScratchSemaphoreValue(); // last submits needs to also advance scratch sema value like overflowSubmit() does
+				
 				IQueue::SSubmitInfo::SSemaphoreInfo renderFinished =
 				{
 					.semaphore = m_renderSemaphore.get(),
