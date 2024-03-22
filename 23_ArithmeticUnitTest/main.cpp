@@ -1,5 +1,5 @@
-#include "../common/BasicMultiQueueApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
 
 using namespace nbl;
@@ -45,10 +45,10 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-class ArithmeticUnitTestApp final : public examples::BasicMultiQueueApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class ArithmeticUnitTestApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::BasicMultiQueueApplication;
-	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = application_templates::BasicMultiQueueApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 public:
 	ArithmeticUnitTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :

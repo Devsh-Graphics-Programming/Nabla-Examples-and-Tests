@@ -4,7 +4,7 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -14,9 +14,9 @@ using namespace video;
 
 
 // this time instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platforms
-class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplication
+class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
 {
-		using base_t = examples::MonoSystemMonoLoggerApplication;
+		using base_t = application_templates::MonoSystemMonoLoggerApplication;
 	public:
 		// Generally speaking because certain platforms delay initialization from main object construction you should just forward and not do anything in the ctor
 		using base_t::base_t;

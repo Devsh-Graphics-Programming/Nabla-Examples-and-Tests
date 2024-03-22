@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2023 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -296,9 +296,9 @@ void AllocatorHandler<core::LinearAddressAllocator<uint32_t>>::randFreeAllocated
 }
 
 
-class AllocatorTestApp final : public nbl::examples::MonoSystemMonoLoggerApplication
+class AllocatorTestApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
 {
-		using base_t = examples::MonoSystemMonoLoggerApplication;
+		using base_t = application_templates::MonoSystemMonoLoggerApplication;
 	public:
 		using base_t::base_t;
 

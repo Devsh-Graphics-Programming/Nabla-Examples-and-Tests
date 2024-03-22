@@ -29,8 +29,8 @@ using namespace glm;
 
 #include <nbl/builtin/hlsl/limits.hlsl>
 
-#include "../common/MonoDeviceApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
 using namespace nbl;
@@ -60,10 +60,10 @@ struct T
     float32_t4      h;
 };
 
-class CompatibilityTest final : public nbl::examples::MonoDeviceApplication, public nbl::examples::MonoAssetManagerAndBuiltinResourceApplication
+class CompatibilityTest final : public nbl::application_templates::MonoDeviceApplication, public nbl::application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-    using device_base_t = examples::MonoDeviceApplication;
-    using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+    using device_base_t = application_templates::MonoDeviceApplication;
+    using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 public:
     CompatibilityTest(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
         system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}

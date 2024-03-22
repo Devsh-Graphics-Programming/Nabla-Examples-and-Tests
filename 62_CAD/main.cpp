@@ -1,6 +1,6 @@
 ﻿
 
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
 #include "../common/InputSystem.hpp"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
@@ -245,10 +245,10 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
 };
 
-class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
-	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 	
 	constexpr static uint32_t WindowWidthRequest = 1600u;
