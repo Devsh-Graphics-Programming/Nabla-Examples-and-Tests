@@ -12,6 +12,7 @@ layout (location = 0) out vec4 outColor;
 layout(set = 3, binding = 0) uniform sampler2D inIESCandelaImage;
 layout(set = 3, binding = 1) uniform sampler2D inSphericalCoordinatesImage;
 layout(set = 3, binding = 2) uniform sampler2D inOUVProjectionDirectionImage;
+layout(set = 3, binding = 3) uniform sampler2D inPassTMask;
 
 layout(push_constant) uniform PushConstants
 {
@@ -58,8 +59,12 @@ void main()
 	{
 		outColor = texture(inSphericalCoordinatesImage, uv);
 	}
-	else
+	else if(pc.mode == 3)
 	{
 		outColor = texture(inOUVProjectionDirectionImage, uv);
-	} 
+	}
+	else
+	{
+		outColor = texture(inPassTMask, uv);
+	}	
 }

@@ -11,18 +11,19 @@ layout(local_size_x = WORKGROUP_DIMENSION, local_size_y = WORKGROUP_DIMENSION) i
 layout(set = 0, binding = 0, r16) restrict uniform image2D outIESCandelaImage;
 layout(set = 0, binding = 1, rg32f) restrict uniform image2D outSphericalCoordinatesImage;
 layout(set = 0, binding = 2, rgba32f) restrict uniform image2D outOUVProjectionDirectionImage;
+layout(set = 0, binding = 3, rg8) restrict uniform image2D outPassTMask;
 
-layout(std430, set = 0, binding = 3) readonly buffer HorizontalAngles
+layout(std430, set = 0, binding = 4) readonly buffer HorizontalAngles
 {
 	double hAngles[];
 };
 
-layout(std430, set = 0, binding = 4) readonly buffer VerticalAngles
+layout(std430, set = 0, binding = 5) readonly buffer VerticalAngles
 {
 	double vAngles[];
 };
 
-layout(std430, set = 0, binding = 5) readonly buffer Data
+layout(std430, set = 0, binding = 6) readonly buffer Data
 {
 	double data[];
 };
@@ -69,7 +70,7 @@ vec3 octahedronUVToDir(vec2 uv)
 	return normalize(position);
 }
 
-vec2 sphericalDirToAngles(vec3 direction)
+vec2 sphericalDirToRadians(vec3 direction)
 {
 	double theta = acos(clamp(direction.z, -1.0, 1.0));
 	double phi = atan(direction.y, direction.x);
@@ -165,6 +166,14 @@ double sampleI(double vAngle, double hAngle)
 	return s0 * (1.0 - u) + s1 * u;
 }
 
+bool isWithinSCDomain(vec2 point) 
+{
+    const vec2 lw = vec2(-M_PI / 2.0, -M_PI);
+    const vec2 ub = vec2(M_PI / 2.0, M_PI);
+
+    return all(lessThanEqual(lw, point)) && all(lessThanEqual(point, ub));
+}
+
 void main()
 {
 	const double VERTICAL_INVERSE = 1.0 / TEXTURE_SIZE;
@@ -177,13 +186,26 @@ void main()
 	{
 		const vec2 uv = vec2((float(pixelCoordinates.x) + 0.5) * VERTICAL_INVERSE, (float(pixelCoordinates.y) + 0.5) * HORIZONTAL_INVERSE);
 		vec3 direction = octahedronUVToDir(uv);
-		vec2 sphericalCoordinates = sphericalDirToAngles(direction); // third radius spherical compoment is normalized and skipped
+		vec2 sphericalCoordinates = sphericalDirToRadians(direction); // third radius spherical compoment is normalized and skipped
 		
 		double intensity = sampleI(degrees(sphericalCoordinates.x), degrees(sphericalCoordinates.y));
 		vec4 value = vec4(intensity / pc.maxIValue, 0, 0, 0);
 		
+		vec2 mask;
+		
+		if(length(direction) == 1.0)
+			mask.x = 1.0; // pass
+		else
+			mask.x = 0;
+			
+		if(isWithinSCDomain(sphericalCoordinates))
+			mask.y = 1.0; // pass
+		else
+			mask.y = 0;
+		
 		imageStore(outIESCandelaImage, pixelCoordinates, value);
 		imageStore(outSphericalCoordinatesImage, pixelCoordinates, vec4(sphericalCoordinates.xy, 0, 1));
 		imageStore(outOUVProjectionDirectionImage, pixelCoordinates, vec4(direction.xyz, 1));
+		imageStore(outPassTMask, pixelCoordinates, vec4(mask.xy, 1, 1));
 	}
 }

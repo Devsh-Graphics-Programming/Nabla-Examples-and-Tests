@@ -27,7 +27,8 @@ class IESCompute
             EM_CDC,         //! Candlepower Distribution Curve
             EM_IES_C,       //! IES Candela
             EM_SPERICAL_C,  //! Sperical coordinates
-            EM_DIRECTION,   //! Sample direction      
+            EM_DIRECTION,   //! Sample direction
+            EM_PASS_T_MASK, //! Test mask
             EM_SIZE
         };
 
@@ -36,6 +37,7 @@ class IESCompute
             EB_IMAGE_IES_C, //! Image with IES Candela data
             EB_IMAGE_S,     //! Image with spehircal coordinates data
             EB_IMAGE_D,     //! Image with direction data
+            EB_IMAGE_T_MASK,//! Image with test mask data
             EB_SSBO_HA,     //! IES Profile SSBO Horizontal Angles 
             EB_SSBO_VA,     //! IES Profile SSBO Vertical Angles
             EB_SSBO_D,      //! IES Profile SSBO Data
@@ -117,6 +119,7 @@ class IESCompute
             gpue.dImageIESC = std::move(createGPUImageView<asset::EF_R16_UNORM>(TEXTURE_SIZE, TEXTURE_SIZE));
             gpue.dImageS = std::move(createGPUImageView<asset::EF_R32G32_SFLOAT>(TEXTURE_SIZE, TEXTURE_SIZE));
             gpue.dImageD = std::move(createGPUImageView<asset::EF_R32G32B32A32_SFLOAT>(TEXTURE_SIZE, TEXTURE_SIZE));
+            gpue.dImageTMask = std::move(createGPUImageView<asset::EF_R8G8_UNORM>(TEXTURE_SIZE, TEXTURE_SIZE));
 
             // Compute
             {
@@ -125,6 +128,7 @@ class IESCompute
                     { EB_IMAGE_IES_C, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_IMAGE_S, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_IMAGE_D, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
+                    { EB_IMAGE_T_MASK, asset::EDT_STORAGE_IMAGE, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_SSBO_HA, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_SSBO_VA, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr },
                     { EB_SSBO_D, asset::EDT_STORAGE_BUFFER, 1, asset::ISpecializedShader::ESS_COMPUTE, nullptr }
@@ -154,6 +158,9 @@ class IESCompute
 
                             infos[EB_IMAGE_D].desc = core::smart_refctd_ptr(gpue.dImageD);
                             infos[EB_IMAGE_D].image = { nullptr, asset::EIL_GENERAL };
+
+                            infos[EB_IMAGE_T_MASK].desc = core::smart_refctd_ptr(gpue.dImageTMask);
+                            infos[EB_IMAGE_T_MASK].image = { nullptr, asset::EIL_GENERAL };
                         }
                     }
 
@@ -170,6 +177,7 @@ class IESCompute
                     writes[EB_IMAGE_IES_C].descriptorType = asset::EDT_STORAGE_IMAGE;
                     writes[EB_IMAGE_S].descriptorType = asset::EDT_STORAGE_IMAGE;
                     writes[EB_IMAGE_D].descriptorType = asset::EDT_STORAGE_IMAGE;
+                    writes[EB_IMAGE_T_MASK].descriptorType = asset::EDT_STORAGE_IMAGE;
                     writes[EB_SSBO_HA].descriptorType = asset::EDT_STORAGE_BUFFER;
                     writes[EB_SSBO_VA].descriptorType = asset::EDT_STORAGE_BUFFER;
                     writes[EB_SSBO_D].descriptorType = asset::EDT_STORAGE_BUFFER;
@@ -184,7 +192,8 @@ class IESCompute
                 {
                     { EB_IMAGE_IES_C, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
                     { EB_IMAGE_S, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
-                    { EB_IMAGE_D, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr }
+                    { EB_IMAGE_D, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
+                    { EB_IMAGE_T_MASK, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr }
                 };
 
                 {
@@ -215,7 +224,7 @@ class IESCompute
                     return driver->createGPUSampler({ asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS });
                 };
 
-                _NBL_STATIC_INLINE_CONSTEXPR uint8_t NBL_D_IMAGES_AMOUNT = 3u;
+                _NBL_STATIC_INLINE_CONSTEXPR uint8_t NBL_D_IMAGES_AMOUNT = 4u;
 
                 IGPUDescriptorSet::SDescriptorInfo infos[NBL_D_IMAGES_AMOUNT];
                 {
@@ -227,6 +236,9 @@ class IESCompute
 
                     infos[EB_IMAGE_D].desc = core::smart_refctd_ptr(gpue.dImageD);
                     infos[EB_IMAGE_D].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
+
+                    infos[EB_IMAGE_T_MASK].desc = core::smart_refctd_ptr(gpue.dImageTMask);
+                    infos[EB_IMAGE_T_MASK].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
                 }
 
                 video::IGPUDescriptorSet::SWriteDescriptorSet writes[NBL_D_IMAGES_AMOUNT];
@@ -335,6 +347,7 @@ class IESCompute
             core::smart_refctd_ptr<video::IGPUImageView> dImageIESC;
             core::smart_refctd_ptr<video::IGPUImageView> dImageS;
             core::smart_refctd_ptr<video::IGPUImageView> dImageD;
+            core::smart_refctd_ptr<video::IGPUImageView> dImageTMask;
         } m_gpue;
 
         #include "nbl/nblpack.h"
@@ -391,6 +404,11 @@ public:
                 case nbl::KEY_KEY_D:
                 {
                     mode = IESCompute::EM_DIRECTION;
+                    return true;
+                }
+                case nbl::KEY_KEY_M:
+                {
+                    mode = IESCompute::EM_PASS_T_MASK;
                     return true;
                 }
                 case nbl::KEY_KEY_Q:
@@ -454,8 +472,9 @@ int main()
         iesProfileMeta->profile.createCDCTexture();
         auto iNew = iesProfileMeta->profile.getIntegralFromGrid();
         const auto error = std::abs((iOld - iNew) / iOld);
+        printf("integral error: %s", std::to_string(error).c_str());
     }
-
+    
     IESExampleEventReceiver receiver;
     device->setEventReceiver(&receiver);
         
@@ -483,6 +502,8 @@ int main()
                         return L"Sperical Coordinates";
                     case IESCompute::EM_DIRECTION:
                         return L"Direction sample";
+                    case IESCompute::EM_PASS_T_MASK:
+                        return L"Pass Mask";
                     default:
                         return L"ERROR";
                 }
