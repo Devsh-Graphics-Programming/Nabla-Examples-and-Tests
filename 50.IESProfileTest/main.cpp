@@ -439,7 +439,7 @@ int main()
     asset::IAssetLoader::SAssetLoadParams lparams;
     lparams.loaderFlags = asset::IAssetLoader::E_LOADER_PARAMETER_FLAGS::ELPF_LOAD_METADATA_ONLY;
 
-    auto assetLoaded = device->getAssetManager()->getAsset("../028e97564391140b1476695ae7a46fa4.ies", lparams);
+    auto assetLoaded = device->getAssetManager()->getAsset("../../media/mitsuba/aniso_ies/028e97564391140b1476695ae7a46fa4.ies", lparams);
     const auto* meta = assetLoaded.getMetadata();
 
     if (!meta)
