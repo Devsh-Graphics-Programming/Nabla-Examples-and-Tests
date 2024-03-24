@@ -6,7 +6,8 @@ static const uint32_t RED_OFFSET = 0u;
 static const uint32_t GREEN_OFFSET = 256u;
 static const uint32_t BLUE_OFFSET = 256u * 2u;
 
-[[vk::binding(0,0)]] RWTexture2D<float4> texture;
+[[vk::combinedImageSampler]][[vk::binding(0,0)]] Texture2D texture;
+[[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
 [[vk::binding(1,0)]] RWStructuredBuffer<uint> histogram;
 
 [[vk::push_constant]]
@@ -21,7 +22,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	if(ID.x >= width || ID.y >= height)
 		return;
 
-    float4 texel = texture.Load(ID.xy);
+    float4 texel = texture.SampleLevel(samplerState, ID.xy, 0.0);
 
     const uint32_t redVal = uint32_t(texel.r * 255u);
     const uint32_t greenVal = uint32_t(texel.g * 255u);

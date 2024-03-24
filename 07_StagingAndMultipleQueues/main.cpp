@@ -2,6 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+// TODO: improve validation of writes (IDescriptor::E_TYPE IGPUDescriptorSet::validateWrite)
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "../common/BasicMultiQueueApplication.hpp"
@@ -532,12 +533,15 @@ class StagingAndMultipleQueuesApp final : public examples::BasicMultiQueueApplic
 	using device_base_t = examples::BasicMultiQueueApplication;
 	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
 
-	static constexpr size_t IMAGE_CNT = 3u;
-	static constexpr std::array<std::string, IMAGE_CNT> imagesToLoad = {
+	static constexpr std::array imagesToLoad = {
+		"../app_resources/test0.png",
+		"../app_resources/test1.png",
+		"../app_resources/test2.png",
 		"../app_resources/test0.png",
 		"../app_resources/test1.png",
 		"../app_resources/test2.png"
 	};
+	static constexpr size_t IMAGE_CNT = imagesToLoad.size();
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -620,21 +624,42 @@ private:
 	smart_refctd_ptr<video::IGPUCommandPool> commandPools[FRAMES_IN_FLIGHT];
 
 	smart_refctd_ptr<IGPUBuffer> histogramBuffer = nullptr;
-	//nbl::video::IDeviceMemoryAllocator::SMemoryOffset histogramBufferAllocation = {};
+	nbl::video::IDeviceMemoryAllocator::SAllocation histogramBufferAllocation = {};
+
+	std::mutex assetManagerMutex; // TODO: make function for loading assets
 
 	void loadImages()
 	{
 		IAssetLoader::SAssetLoadParams lp;
 		lp.logger = m_logger.get();
 
+		core::smart_refctd_ptr<ICPUImage> cpuImages[IMAGE_CNT];
+		{
+			std::lock_guard<std::mutex> assetManagerLock(assetManagerMutex);
+
+			for(uint32_t i = 0; i < IMAGE_CNT; ++i)
+			{
+				SAssetBundle bundle = m_assetMgr->getAsset(imagesToLoad[i], lp);
+
+				if (bundle.getContents().empty())
+					logFailAndTerminate("Couldn't load an image.", ILogger::ELL_ERROR);
+
+				cpuImages[i] = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
+				if(!cpuImages[i])
+					logFailAndTerminate("Asset loaded is not an image.", ILogger::ELL_ERROR);
+			}
+		}
+
 		// TODO: In each thread make FRAMES_IN_FLIGHT commandPools[] with ECF_NONE ( 1 pool : 1 command buffer)
+		auto transferUpQueue = getTransferUpQueue();
+		// TODO: i want to use IGPUCommandPool::CREATE_FLAGS::NONE but `updateImageViaStagingBuffer` requires command buffers to be resetable
 		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
 		std::fill(commandPools.begin(), commandPools.end(), nullptr);
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
-			commandPools[i] = m_device->createCommandPool(getTransferUpQueue()->getFamilyIndex(), commandPoolFlags);
+			commandPools[i] = m_device->createCommandPool(transferUpQueue->getFamilyIndex(), commandPoolFlags);
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, std::span(commandBuffers.data() + i, 1), core::smart_refctd_ptr(m_logger));
 		}
 
@@ -646,8 +671,9 @@ private:
 			// TODO: make sure to use the non-blocking variant of `IUtilities` to control the `IQueue::SSubmitInfo::signalSemaphores`
 
 		size_t imageIdx = 0;
-		for (const auto& imageToLoad : imagesToLoad)
+		for (uint32_t i = 0; i < IMAGE_CNT; ++i)
 		{
+			const auto& imageToLoad = imagesToLoad[i];
 			// block if  imageIdx >= FRAMES_IN_FLIGHT
 			if (imageIdx >= FRAMES_IN_FLIGHT)
 			{
@@ -663,25 +689,28 @@ private:
 			}
 
 			const size_t resourceIdx = imageIdx % FRAMES_IN_FLIGHT;
-			auto& cmdBuff = commandBuffers[resourceIdx];
-
-			//auto assetBundle = m_assetMgr->getAsset(imageToLoad, lp);
-			//assert(assetBundle.getAssetType() == IAsset::E_TYPE::ET_IMAGE);
+			auto& cmdBuff = commandBuffers[resourceIdx]; 
 
 			IGPUImage::SCreationParams imgParams;
 			imgParams.type = IImage::E_TYPE::ET_2D;
 			imgParams.extent.height = 100;
 			imgParams.extent.width = 200;
 			imgParams.extent.depth = 1u;
-			imgParams.format = asset::E_FORMAT::EF_R8G8B8A8_SRGB; // TODO: remove
+			IPhysicalDevice::SImageFormatPromotionRequest formatPromotionRequest;
+			IPhysicalDevice::SFormatImageUsages::SUsage usage;
+			usage.sampledImage = 1;
+			usage.transferDst = 1;
+			formatPromotionRequest.usages = usage;
+			imgParams.format = m_physicalDevice->promoteImageFormat(formatPromotionRequest, IGPUImage::TILING::OPTIMAL);
 			imgParams.mipLevels = 1u;
 			imgParams.flags = IImage::ECF_NONE;
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
-			imgParams.tiling = video::IGPUImage::TILING::OPTIMAL;
-			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT;
-			imgParams.queueFamilyIndexCount = 0u;
-			imgParams.queueFamilyIndices = nullptr;
+			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT; 
+			constexpr uint32_t FAMILY_INDICES_CNT = 2; // TODO: test on intel integrated GPU (which allows only one queue family)
+			uint32_t familyIndices[FAMILY_INDICES_CNT] = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
+			imgParams.queueFamilyIndexCount = FAMILY_INDICES_CNT;
+			imgParams.queueFamilyIndices = familyIndices;
 			imgParams.preinitialized = false;
 
 			// TODO: load actual images
@@ -691,30 +720,103 @@ private:
 			if (!emptyImageAllocation.isValid())
 				logFailAndTerminate("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier;
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier0; // TODO: better names maybe?
 			{
 				IImage::SSubresourceRange imgSubresourceRange{};
 				imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 				imgSubresourceRange.baseMipLevel = 0u;
 				imgSubresourceRange.baseArrayLayer = 0u;
+				imgSubresourceRange.levelCount = 1;
+				imgSubresourceRange.layerCount = 1u;
 
-				imageLayoutTransitionBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
-				imageLayoutTransitionBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				imageLayoutTransitionBarrier.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
-				imageLayoutTransitionBarrier.newLayout = asset::IImage::LAYOUT::GENERAL; // TODO: use more suitable layout
-				imageLayoutTransitionBarrier.image = nullptr;
-				imageLayoutTransitionBarrier.subresourceRange = imgSubresourceRange;
-				
+				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+				imageLayoutTransitionBarrier0.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				imageLayoutTransitionBarrier0.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
+				imageLayoutTransitionBarrier0.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL; // TODO: use more suitable layout
+				imageLayoutTransitionBarrier0.image = emptyImage.get();
+				imageLayoutTransitionBarrier0.subresourceRange = imgSubresourceRange;
 			}
 
-			cmdBuff->begin(IGPUCommandBuffer::USAGE::NONE);
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier1;
+			{
+				IImage::SSubresourceRange imgSubresourceRange{};
+				imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				imgSubresourceRange.baseMipLevel = 0u;
+				imgSubresourceRange.baseArrayLayer = 0u;
+				imgSubresourceRange.levelCount = 1u;
+				imgSubresourceRange.layerCount = 1u;
 
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo;
-			pplnBarrierDepInfo.imgBarriers = std::span(&imageLayoutTransitionBarrier, &imageLayoutTransitionBarrier + 1);
-			cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo);
+				imageLayoutTransitionBarrier1.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS; 
+				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
+				imageLayoutTransitionBarrier1.oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
+				imageLayoutTransitionBarrier1.newLayout = asset::IImage::LAYOUT::GENERAL; // TODO: use more suitable layout
+				imageLayoutTransitionBarrier1.image = emptyImage.get();
+				imageLayoutTransitionBarrier1.subresourceRange = imgSubresourceRange;
+			}
+
+			core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0); // TODO: don't create semaphore every iteration
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = { {.cmdbuf = cmdBuff.get()} };
+
+			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = { cmdBuff.get() };
+			IQueue::SSubmitInfo::SSemaphoreInfo imgFillSemaphoreWaitInfo = {
+				.semaphore = imgFillSemaphore.get(),
+				.value = 1,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			};
+
+			IQueue::SSubmitInfo imgFillSubmitInfo = {
+				.waitSemaphores = {&imgFillSemaphoreWaitInfo, 1},
+				.commandBuffers = {&imgFillCmdBuffInfo, 1}
+			};
+
+			transferUpQueue->submit({ &imgFillSubmitInfo, 1 });
+
+			IQueue::SSubmitInfo::SSemaphoreInfo imgFillSemaphoreInfo =
+			{
+				.semaphore = imgFillSemaphore.get(),
+				.value = 0,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			};
+			SIntendedSubmitInfo intendedSubmit = {
+				.frontHalf = {.queue = transferUpQueue, .waitSemaphores = {}, .commandBuffers = cmdBufs}, .signalSemaphores = {&imgFillSemaphoreInfo, 1}
+			};
+
+			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo0;
+			pplnBarrierDepInfo0.imgBarriers = std::span(&imageLayoutTransitionBarrier0, &imageLayoutTransitionBarrier0 + 1);
+			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
+				logFailAndTerminate("Failed to issue barrier!\n");
+
+			bool uploaded = m_utils->updateImageViaStagingBuffer(
+				intendedSubmit, cpuImages[i]->getBuffer(), cpuImages[i]->getCreationParameters().format,
+				emptyImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, cpuImages[i]->getRegions()
+			);
+			if (!uploaded)
+				logFailAndTerminate("Couldn't update image data.\n");
+
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo1;
+			pplnBarrierDepInfo1.imgBarriers = std::span(&imageLayoutTransitionBarrier1, &imageLayoutTransitionBarrier1 + 1);
+
+			if(!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo1))
+				logFailAndTerminate("Failed to issue barrier!\n");
 
 			cmdBuff->end();
-			cmdBuff->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+
+			core::smart_refctd_ptr<ISemaphore> allDoneSemaphore = m_device->createSemaphore(0u);
+			IQueue::SSubmitInfo submitInfo[1];
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdBuffSubmitInfo[] = { {commandBuffers[resourceIdx].get()} };
+			IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphoreSubmitInfo[] = { { .semaphore = allDoneSemaphore.get(), .value = 1, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS } };
+			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
+			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
+			getTransferUpQueue()->submit(submitInfo);
+
+			ISemaphore::SWaitInfo waitInfo[] = { {.semaphore = allDoneSemaphore.get(), .value = 1 } };
+			m_device->blockForSemaphores(waitInfo);
+
+			commandPools[resourceIdx]->reset();
+
+			images[imageIdx] = std::move(emptyImage);
 
 			std::cout << "Image nr " << imageIdx << " loaded.\n";
 			m_imagesLoadedSemaphore->signal(++imageIdx);
@@ -723,46 +825,129 @@ private:
 
 	void calculateHistograms()
 	{
-		// TODO: In each thread make FRAMES_IN_FLIGHT commandPools[] with ECF_NONE ( 1 pool : 1 command buffer)
+		// INITIALIZE COMMON DATA
+		auto computeQueue = getComputeQueue();
 		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
+		core::smart_refctd_ptr<IGPUDescriptorSet> descSets[FRAMES_IN_FLIGHT];
 		std::fill(commandPools.begin(), commandPools.end(), nullptr);
+		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
+			{
+				.binding = 0,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count = 1,
+				.samplers = nullptr
+			},
+			{
+				.binding = 1,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+				.count = 1,
+				.samplers = nullptr
+			}
+		};
+		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout[1] = { m_device->createDescriptorSetLayout(bindings) };
+		if (!dsLayout[0])
+			logFailAndTerminate("Failed to create a Descriptor Layout!\n");
+		smart_refctd_ptr<nbl::video::IDescriptorPool> descPools[FRAMES_IN_FLIGHT] = {
+			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(&dsLayout[0].get(), 1)),
+			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(&dsLayout[0].get(), 1)),
+			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(&dsLayout[0].get(), 1))
+		};
+
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
 			commandPools[i] = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), commandPoolFlags);
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, std::span(commandBuffers.data() + i, 1), core::smart_refctd_ptr(m_logger));
+			
+			descSets[i] = descPools[i]->createDescriptorSet(core::smart_refctd_ptr(dsLayout[0]));
 		}
 
-		// load shader from file
-		IAssetLoader::SAssetLoadParams lp;
-		lp.logger = m_logger.get();
-		auto assetBundle = m_assetMgr->getAsset("../app_resources/comp_shader.hlsl", lp);
-		assert(assetBundle.getAssetType() == IAsset::E_TYPE::ET_SHADER);
-		const auto assets = assetBundle.getContents();
-		if (assets.empty())
-			logFailAndTerminate("Could not load shader!");
+		// LOAD SHADER FROM FILE
+		smart_refctd_ptr<ICPUShader> source;
+		{
+			std::lock_guard<std::mutex> assetManagerLock(assetManagerMutex);
 
-		// It would be super weird if loading a shader from a file produced more than 1 asset
-		assert(assets.size() == 1);
-		smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
-		source->setShaderStage(IShader::ESS_COMPUTE);
+			IAssetLoader::SAssetLoadParams lp;
+			lp.logger = m_logger.get();
+			auto assetBundle = m_assetMgr->getAsset("../app_resources/comp_shader.hlsl", lp);
+			assert(assetBundle.getAssetType() == IAsset::E_TYPE::ET_SHADER);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+				logFailAndTerminate("Could not load shader!");
+
+			// It would be super weird if loading a shader from a file produced more than 1 asset
+			assert(assets.size() == 1);
+			source = IAsset::castDown<ICPUShader>(assets[0]);
+			source->setShaderStage(IShader::ESS_COMPUTE);
+		}
 
 		if (!source)
 			logFailAndTerminate("Could not create a CPU shader!");
 
 		core::smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
-		//auto b = shader->getOriginDevice();
+		if(!shader)
+			logFailAndTerminate("Could not create a GPU shader!");
 
+		// CREATE COMPUTE PIPELINE
+		SPushConstantRange pc[1];
+		pc[0].stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+		pc[0].offset = 0u;
+		pc[0].size = sizeof(PushConstants);
 
+		smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+		{
+			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
+			smart_refctd_ptr<IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(pc, smart_refctd_ptr(dsLayout[0]));
+			if (!pplnLayout)
+				logFailAndTerminate("Failed to create a Pipeline Layout!\n");
 
+			IGPUComputePipeline::SCreationParams params = {};
+			params.layout = pplnLayout.get();
+			// Theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one (and glslang used to require it be called "main")
+			params.shader.entryPoint = "main";
+			params.shader.shader = shader.get();
+			// we'll cover the specialization constant API in another example
+			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+				logFailAndTerminate("Failed to create pipelines (compile & link shaders)!\n");
+		}
+
+		// CREATE HISTOGRAM BUFFER
+		{
+			const size_t histogramBufferByteSize = IMAGE_CNT * 256u * 3u * sizeof(uint32_t);
+
+			IGPUBuffer::SCreationParams gpuBufCreationParams;
+			gpuBufCreationParams.size = histogramBufferByteSize;
+			gpuBufCreationParams.usage = IGPUBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT;
+			histogramBuffer = m_device->createBuffer(std::move(gpuBufCreationParams));
+			if (!histogramBuffer)
+				logFailAndTerminate("Failed to create a GPU Buffer of size %d!\n", gpuBufCreationParams.size);
+
+			histogramBuffer->setObjectDebugName("Histogram Buffer");
+
+			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = histogramBuffer->getMemoryReqs();
+			// you can simply constrain the memory requirements by AND-ing the type bits of the host visible memory types
+			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+			histogramBufferAllocation = m_device->allocate(reqs, histogramBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
+			if (!histogramBufferAllocation.isValid())
+				logFailAndTerminate("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+			//assert(histogramBuffer->getBoundMemory() == histogramBufferAllocation.memory.get());
+		}
+
+		// PROCESS IMAGES
 		size_t imageIdx = 0;
 		for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
 		{
 			const ISemaphore::SWaitInfo imagesReadyToBeProcessed[] = {
 					{
 						.semaphore = m_imagesLoadedSemaphore.get(),
-						.value = imageIdx+1
+						.value = imageIdx + 1
 					}
 			};
 			if (m_device->blockForSemaphores(imagesReadyToBeProcessed) != ISemaphore::WAIT_RESULT::SUCCESS)
@@ -777,61 +962,103 @@ private:
 					}
 				};
 
-				if (m_device->blockForSemaphores(cmdBufDonePending) == ISemaphore::WAIT_RESULT::SUCCESS)
+				if (m_device->blockForSemaphores(cmdBufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 					logFailAndTerminate("Couldn't block for the `m_imagesProcessedSemaphore`.");
 			}
 
 			const auto resourceIdx = imageIdx % FRAMES_IN_FLIGHT;
-			auto& cmdBuff = commandBuffers[resourceIdx];
+			auto& cmdBuf = commandBuffers[resourceIdx];
+
+			// UPDATE DESCRIPTOR SET WRITES
+			IGPUDescriptorSet::SDescriptorInfo imgInfo;
+			IGPUImageView::SCreationParams params{};
+			params.viewType = IImageView<IGPUImage>::ET_2D;
+			params.image = images[imageIdx];
+			params.format = images[imageIdx]->getCreationParameters().format;
+			params.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			params.subresourceRange.layerCount = images[resourceIdx]->getCreationParameters().arrayLayers;
+
+			IGPUSampler::SParams samplerParams;
+			samplerParams.AnisotropicFilter = false;
+			core::smart_refctd_ptr<IGPUSampler> sampler = m_device->createSampler(samplerParams);
+
+			imgInfo.desc = m_device->createImageView(std::move(params));
+			if (!imgInfo.desc)
+				logFailAndTerminate("Couldn't create descriptor.");
+			imgInfo.info.image = { .sampler = sampler, .imageLayout = IImage::LAYOUT::GENERAL };
+
+			IGPUDescriptorSet::SDescriptorInfo bufInfo;
+			bufInfo.desc = smart_refctd_ptr(histogramBuffer);
+			bufInfo.info.buffer = { .offset = 0u, .size = histogramBuffer->getSize() };
+
+			IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
+				{.dstSet = descSets[resourceIdx].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &imgInfo },
+				{.dstSet = descSets[resourceIdx].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &bufInfo }
+			};
+
+			m_device->updateDescriptorSets(2, writes, 0u, nullptr);
+
+			cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			//cmdBuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1)); // TODO: figure it out
+
+			cmdBuf->bindComputePipeline(pipeline.get());
+
+			cmdBuf->end();
+
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdBufInfo = { cmdBuf.get() };
+			IQueue::SSubmitInfo submitInfo = {
+				.commandBuffers = { &cmdBufInfo, 1 },
+			};
+			computeQueue->submit({ &submitInfo, 1 });
+			cmdBuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 
 			std::cout << "Image nr " << imageIdx << " processed.\n";
 			m_imagesProcessedSemaphore->signal(++imageIdx);
-
 		}
 	}
 
 	void saveHistograms()
 	{
-		// TODO: In each thread make FRAMES_IN_FLIGHT commandPools[] with ECF_NONE ( 1 pool : 1 command buffer)
-		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
-		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
-		std::fill(commandPools.begin(), commandPools.end(), nullptr);
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
-		{
-			commandPools[i] = m_device->createCommandPool(getTransferUpQueue()->getFamilyIndex(), commandPoolFlags);
-			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, std::span(commandBuffers.data() + i, 1), core::smart_refctd_ptr(m_logger));
-		}
+		//// TODO: In each thread make FRAMES_IN_FLIGHT commandPools[] with ECF_NONE ( 1 pool : 1 command buffer)
+		//const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		//std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
+		//std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
+		//std::fill(commandPools.begin(), commandPools.end(), nullptr);
+		//for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
+		//{
+		//	commandPools[i] = m_device->createCommandPool(getTransferUpQueue()->getFamilyIndex(), commandPoolFlags);
+		//	commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, std::span(commandBuffers.data() + i, 1), core::smart_refctd_ptr(m_logger));
+		//}
 
-		size_t imageIdx = 0;
-		for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
-		{
-			const ISemaphore::SWaitInfo imagesReadyToBeProcessed[] = {
-					{
-						.semaphore = m_imagesLoadedSemaphore.get(),
-						.value = imageIdx == 0 ? imageIdx : imageIdx - 1
-					}
-			};
+		//size_t imageIdx = 0;
+		//for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
+		//{
+		//	const ISemaphore::SWaitInfo imagesReadyToBeProcessed[] = {
+		//			{
+		//				.semaphore = m_imagesLoadedSemaphore.get(),
+		//				.value = imageIdx + 1 - FRAMES_IN_FLIGHT
+		//			}
+		//	};
 
-			if (m_device->blockForSemaphores(imagesReadyToBeProcessed) == ISemaphore::WAIT_RESULT::SUCCESS)
-				logFailAndTerminate("Couldn't block for the `m_imagesProcessedSemaphore`.");
+		//	if (m_device->blockForSemaphores(imagesReadyToBeProcessed) == ISemaphore::WAIT_RESULT::SUCCESS)
+		//		logFailAndTerminate("Couldn't block for the `m_imagesProcessedSemaphore`.");
 
-			if (imageIdx >= FRAMES_IN_FLIGHT)
-			{
-				const ISemaphore::SWaitInfo cmdBufDonePending[] = {
-					{
-						.semaphore = m_imagesProcessedSemaphore.get(),
-						.value = imageIdx + 1 - FRAMES_IN_FLIGHT
-					}
-				};
+		//	if (imageIdx >= FRAMES_IN_FLIGHT)
+		//	{
+		//		const ISemaphore::SWaitInfo cmdBufDonePending[] = {
+		//			{
+		//				.semaphore = m_imagesProcessedSemaphore.get(),
+		//				.value = imageIdx + 1 - FRAMES_IN_FLIGHT
+		//			}
+		//		};
 
-				if (m_device->blockForSemaphores(cmdBufDonePending) == ISemaphore::WAIT_RESULT::SUCCESS)
-					logFailAndTerminate("Couldn't block for the `m_imagesProcessedSemaphore`.");
-			}
+		//		if (m_device->blockForSemaphores(cmdBufDonePending) == ISemaphore::WAIT_RESULT::SUCCESS)
+		//			logFailAndTerminate("Couldn't block for the `m_imagesProcessedSemaphore`.");
+		//	}
 
-			const auto resourceIdx = imageIdx % FRAMES_IN_FLIGHT;
-			auto& cmdBuff = commandBuffers[resourceIdx];
-		}
+		//	const auto resourceIdx = imageIdx % FRAMES_IN_FLIGHT;
+		//	auto& cmdBuff = commandBuffers[resourceIdx];
+		//}
 	}
 };
 
