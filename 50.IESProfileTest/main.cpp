@@ -448,6 +448,14 @@ int main()
     const auto* iesProfileMeta = meta->selfCast<const asset::CIESProfileMetadata>();
     IESCompute iesComputeEnvironment(driver, am, iesProfileMeta->profile);
 
+    // temporary, to remove later
+    {
+        auto iOld = iesProfileMeta->profile.getIntegral();
+        iesProfileMeta->profile.createCDCTexture();
+        auto iNew = iesProfileMeta->profile.getIntegralFromGrid();
+        const auto error = std::abs((iOld - iNew) / iOld);
+    }
+
     IESExampleEventReceiver receiver;
     device->setEventReceiver(&receiver);
         

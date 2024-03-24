@@ -175,7 +175,7 @@ void main()
 	
 	if (all(lessThan(pixelCoordinates, destinationSize)))
 	{
-		const vec2 uv = vec2(pixelCoordinates.x * VERTICAL_INVERSE, pixelCoordinates.y * HORIZONTAL_INVERSE);
+		const vec2 uv = vec2((float(pixelCoordinates.x) + 0.5) * VERTICAL_INVERSE, (float(pixelCoordinates.y) + 0.5) * HORIZONTAL_INVERSE);
 		vec3 direction = octahedronUVToDir(uv);
 		vec2 sphericalCoordinates = sphericalDirToAngles(direction); // third radius spherical compoment is normalized and skipped
 		
