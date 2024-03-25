@@ -10,7 +10,6 @@ NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxPossibleElementCount = 1 << 20;
 struct PushConstantData
 {
 	uint64_t inputAddress;
-	uint64_t outputAddress;
 	uint32_t dataElementCount;
 };
 
