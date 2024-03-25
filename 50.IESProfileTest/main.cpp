@@ -13,7 +13,7 @@ class IESCompute
 {
     public:
         IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const asset::CIESProfile& _profile)
-            : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), 0.0 })
+            : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), (float)profile.getHoriAngles().front()})
         {
             createGPUEnvironment(_assetManager);
             // createGPUEnvironment<EM_RENDER>(_assetManager); // TODO
@@ -82,14 +82,15 @@ class IESCompute
             driver->endScene();
         }
 
-        void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degree)
+        void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degreeOffset)
         {
-            pushConstant.zAngleDegreeRotation = degree;
+            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, 0, std::abs(profile.getHoriAngles().back() - profile.getHoriAngles().front()));
+            pushConstant.zAngleDegreeRotation = newDegreeRotation;
         }
 
         const auto& getZDegree()
         {
-            return pushConstant.zAngleDegreeRotation;
+            return pushConstant.zAngleDegreeRotation + profile.getHoriAngles().front();
         }
 
         void updateMode(const E_MODE& mode)
@@ -272,7 +273,16 @@ class IESCompute
             core::smart_refctd_ptr<asset::ICPUBuffer> buffer;
 
             if constexpr (binding == EB_SSBO_HA)
-                buffer = createBuffer(profile.getHoriAngles());
+            {
+                auto hAnglesCopy = profile.getHoriAngles();
+                const auto firstHAngle = hAnglesCopy.front();
+
+                // to interprete angles pairs starting with (0, phi) for easier computations we shift the angles
+                for(auto& hAngle : hAnglesCopy)
+                    hAngle = std::fmod((hAngle - firstHAngle + 360), 360);
+
+                buffer = createBuffer(hAnglesCopy);
+            }
             else if (binding == EB_SSBO_VA)
                 buffer = createBuffer(profile.getVertAngles());
             else
@@ -375,9 +385,7 @@ public:
     {
         if (event.EventType == nbl::EET_MOUSE_INPUT_EVENT)
         {
-            const auto& newDegree = std::clamp<double>(zDegree + event.MouseInput.Wheel, 0.0, 360.0);
-
-            zDegree = newDegree;
+            zDegreeOffset = event.MouseInput.Wheel;
 
             return true;
         }
@@ -422,14 +430,15 @@ public:
         return false;
     }
 
+    void reset() { zDegreeOffset = 0; }
     inline const auto& isRunning() const { return running; }
     inline const auto& getMode() const { return mode; }
     template<typename T = double>
-    inline const auto& getZDegree() const { return static_cast<T>(zDegree); }
+    inline const auto& getZDegreeOffset() const { return static_cast<T>(zDegreeOffset); }
 
 private:
     _NBL_STATIC_INLINE_CONSTEXPR size_t DEGREE_SHIFT = 5u;
-    double zDegree = 0.0;
+    double zDegreeOffset = 0.0;
     IESCompute::E_MODE mode = IESCompute::EM_CDC;
     bool running = true;
 };
@@ -480,7 +489,7 @@ int main()
         
     while (device->run() && receiver.isRunning())
     {
-        iesComputeEnvironment.updateZDegree(receiver.getZDegree());
+        iesComputeEnvironment.updateZDegree(receiver.getZDegreeOffset());
         iesComputeEnvironment.updateMode(receiver.getMode());
 
         iesComputeEnvironment.begin();
@@ -508,10 +517,10 @@ int main()
                         return L"ERROR";
                 }
             }();
-                
-            windowCaption << L"IES Demo - Nabla Engine - Degrees: : " << receiver.getZDegree() << L" - Mode: " << mode;
+            windowCaption << L"IES Demo - Nabla Engine - Degrees: : " << iesComputeEnvironment.getZDegree() << L" - Mode: " << mode;
             device->setWindowCaption(windowCaption.str());
         }
+        receiver.reset();
     }
 
     return 0;

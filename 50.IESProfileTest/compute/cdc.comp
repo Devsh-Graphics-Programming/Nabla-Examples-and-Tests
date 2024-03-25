@@ -72,11 +72,12 @@ vec3 octahedronUVToDir(vec2 uv)
 
 vec2 sphericalDirToRadians(vec3 direction)
 {
-	double theta = acos(clamp(direction.z, -1.0, 1.0));
+	// physics convention, theta is polar angle & phi is azimuthal angle
+	double theta = acos(clamp(direction.z/length(direction), -1.0, 1.0));
 	double phi = atan(direction.y, direction.x);
 	
-	if(phi < 0)
-		phi += 2 * M_PI;
+	//if(phi > 0)
+	//	phi += 2 * M_PI;
 	
 	return vec2(theta, phi);
 }
@@ -192,8 +193,9 @@ void main()
 		vec4 value = vec4(intensity / pc.maxIValue, 0, 0, 0);
 		
 		vec2 mask;
+		double normD = length(direction);
 		
-		if(length(direction) == 1.0)
+		if(1.0 - QUANT_ERROR_ADMISSIBLE <= normD && normD <= 1.0 + QUANT_ERROR_ADMISSIBLE)
 			mask.x = 1.0; // pass
 		else
 			mask.x = 0;
