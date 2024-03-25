@@ -74,10 +74,7 @@ vec2 sphericalDirToRadians(vec3 direction)
 {
 	// physics convention, theta is polar angle & phi is azimuthal angle
 	double theta = acos(clamp(direction.z/length(direction), -1.0, 1.0));
-	double phi = atan(direction.y, direction.x);
-	
-	//if(phi > 0)
-	//	phi += 2 * M_PI;
+	double phi = abs(atan(direction.y, direction.x));
 	
 	return vec2(theta, phi);
 }
