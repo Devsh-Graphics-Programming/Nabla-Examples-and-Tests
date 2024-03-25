@@ -11,8 +11,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	if (ID.x>=pushConstants.dataElementCount)
 		return;
 
-	const input_t self = vk::RawBufferLoad<input_t>(pushConstants.inputAddress+sizeof(input_t)*ID.x);
+	const uint32_t self = vk::RawBufferLoad<uint32_t>(pushConstants.inputAddress+sizeof(uint32_t)*ID.x);
 
-	float32_t acc = nbl::hlsl::numeric_limits<float32_t>::max;
-	vk::RawBufferStore<float32_t>(pushConstants.outputAddress+sizeof(float32_t)*ID.x,acc);
+	vk::RawBufferStore<uint32_t>(pushConstants.inputAddress+sizeof(uint32_t)*ID.x, 2 * self);
 }
