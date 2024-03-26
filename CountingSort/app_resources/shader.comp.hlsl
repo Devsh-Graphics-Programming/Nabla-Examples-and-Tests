@@ -13,5 +13,5 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	const uint32_t self = vk::RawBufferLoad<uint32_t>(pushConstants.inputAddress+sizeof(uint32_t)*ID.x);
 
-	vk::RawBufferStore<uint32_t>(pushConstants.inputAddress+sizeof(uint32_t)*ID.x, 2 * self);
+	vk::RawBufferStore<uint32_t>(pushConstants.outputAddress+sizeof(uint32_t)*ID.x, 2 * self);
 }
