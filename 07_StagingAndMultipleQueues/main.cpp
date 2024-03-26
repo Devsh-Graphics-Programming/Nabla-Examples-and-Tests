@@ -28,7 +28,10 @@ class StagingAndMultipleQueuesApp final : public examples::BasicMultiQueueApplic
 		"../app_resources/test2.png",
 		"../app_resources/test0.png",
 		"../app_resources/test1.png",
-		"../app_resources/test2.png"
+		"../app_resources/test2.png",
+		"../app_resources/test1.png",
+		"../app_resources/test2.png",
+		"../app_resources/test0.png"
 	};
 	static constexpr size_t IMAGE_CNT = imagesToLoad.size();
 
@@ -192,7 +195,9 @@ private:
 			if (!imageAllocation.isValid())
 				logFailAndTerminate("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
+			
 			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier0; // TODO: better names maybe?
+			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier1;
 			{
 				IImage::SSubresourceRange imgSubresourceRange{};
 				imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
@@ -203,23 +208,17 @@ private:
 
 				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
 				imageLayoutTransitionBarrier0.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
+				imageLayoutTransitionBarrier0.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS; //TODO: COPY_BIT?
 				imageLayoutTransitionBarrier0.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
 				imageLayoutTransitionBarrier0.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL; // TODO: use more suitable layout
 				imageLayoutTransitionBarrier0.image = images[imageIdx].get();
 				imageLayoutTransitionBarrier0.subresourceRange = imgSubresourceRange;
-			}
-
-			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier1;
-			{
-				IImage::SSubresourceRange imgSubresourceRange{};
-				imgSubresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-				imgSubresourceRange.baseMipLevel = 0u;
-				imgSubresourceRange.baseArrayLayer = 0u;
-				imgSubresourceRange.levelCount = 1u;
-				imgSubresourceRange.layerCount = 1u;
 
 				imageLayoutTransitionBarrier1.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS; 
 				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
+				imageLayoutTransitionBarrier1.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS; //TODO: COPY_BIT?
+				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE;
 				imageLayoutTransitionBarrier1.oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 				imageLayoutTransitionBarrier1.newLayout = asset::IImage::LAYOUT::GENERAL; // TODO: use more suitable layout
 				imageLayoutTransitionBarrier1.image = images[imageIdx].get();
@@ -259,7 +258,7 @@ private:
 			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
 				logFailAndTerminate("Failed to issue barrier!\n");
 
-			//transferUpQueue->startCapture();
+			transferUpQueue->startCapture();
 			bool uploaded = m_utils->updateImageViaStagingBuffer(
 				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
 				images[imageIdx].get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, cpuImages[imageIdx]->getRegions()
@@ -281,7 +280,7 @@ private:
 			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
 			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
 			getTransferUpQueue()->submit(submitInfo);
-			//transferUpQueue->endCapture();
+			transferUpQueue->endCapture();
 
 			// this is for basic testing purposes, will be deleted ofc
 			std::string msg = std::string("Image nr ") + std::to_string(imageIdx) + " loaded. Resource idx: " + std::to_string(resourceIdx);
@@ -309,8 +308,7 @@ private:
 			},
 			{
 				.binding = 1,
-				// TODO: intentionaly used wrong type, use ET_STORAGE_BUFFER instead
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 				.count = 1,
@@ -547,7 +545,7 @@ private:
 		{
 			const ISemaphore::SWaitInfo cmdBufDonePending[] = {
 				{
-					.semaphore = m_imagesProcessedSemaphore.get(),
+					.semaphore = semaphore,
 					.value = imageIdx + 1 - FRAMES_IN_FLIGHT
 				}
 			};
