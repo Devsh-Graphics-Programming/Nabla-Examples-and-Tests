@@ -139,14 +139,13 @@ public:
 		// Create the Semaphore
 		constexpr uint64_t started_value = 0;
 		uint64_t timeline = started_value;
-		//static_assert(StartedValue < FinishedValue);
 		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(started_value);
 
 		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdBuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 		cmdBuf->bindComputePipeline(pipeline.get());
 		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-		cmdBuf->dispatch(ceil((float)10 / WorkgroupSize), 1, 1);
+		cmdBuf->dispatch(WorkgroupSize, 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
 
