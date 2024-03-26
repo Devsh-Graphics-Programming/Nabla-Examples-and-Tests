@@ -15,9 +15,6 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 	using device_base_t = application_templates::MonoDeviceApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
-	// This example really lets the advantages of a timeline semaphore shine through!
-	smart_refctd_ptr<ISemaphore> m_timeline;
-
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	CountingSortApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
