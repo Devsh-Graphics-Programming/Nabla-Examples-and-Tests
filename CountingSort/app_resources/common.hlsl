@@ -5,6 +5,8 @@ struct PushConstantData
 	uint64_t inputAddress;
     uint64_t outputAddress;
 	uint32_t dataElementCount;
+    uint32_t minimum;
+    uint32_t maximum;
 };
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
