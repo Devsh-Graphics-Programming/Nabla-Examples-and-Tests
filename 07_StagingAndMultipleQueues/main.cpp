@@ -2,8 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-// TODO: improve validation of writes (IDescriptor::E_TYPE IGPUDescriptorSet::validateWrite)
-
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
 #include "../common/BasicMultiQueueApplication.hpp"
 #include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
@@ -311,7 +309,8 @@ private:
 			},
 			{
 				.binding = 1,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+				// TODO: intentionaly used wrong type, use ET_STORAGE_BUFFER instead
+				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 				.count = 1,
