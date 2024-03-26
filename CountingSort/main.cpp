@@ -75,13 +75,13 @@ public:
 
 		// Allocate memory
 		nbl::video::IDeviceMemoryAllocator::SAllocation allocation[2] = {};
+		constexpr size_t element_count = 100;
 		uint64_t buffer_device_address[2];
 		{
-			constexpr size_t buffer_size = sizeof(uint32_t) * 10;
-
 			auto build_buffer = [this](
 				smart_refctd_ptr<ILogicalDevice> m_device,
 				nbl::video::IDeviceMemoryAllocator::SAllocation *allocation,
+				size_t buffer_size,
 				uint64_t *bda,
 				const char *label) {
 				IGPUBuffer::SCreationParams params;
@@ -105,8 +105,8 @@ public:
 				*bda = buffer->getDeviceAddress();
 			};
 
-			build_buffer(m_device, allocation, buffer_device_address, "Input Buffer");
-			build_buffer(m_device, allocation + 1, buffer_device_address + 1, "Output Buffer");
+			build_buffer(m_device, allocation, sizeof(uint32_t) * element_count, buffer_device_address, "Input Buffer");
+			build_buffer(m_device, allocation + 1, sizeof(uint32_t) * element_count, buffer_device_address + 1, "Output Buffer");
 		}
 
 		void* mapped_memory[2] = {
@@ -116,17 +116,32 @@ public:
 		if (!mapped_memory[0] || !mapped_memory[1])
 			return logFail("Failed to map the Device Memory!\n");
 
-		uint32_t bufferData[10];
-		for (uint32_t i = 0; i < 10; i++) {
-			bufferData[i] = 1;
+		// Generate random data
+		constexpr uint32_t minimum = 0;
+		constexpr uint32_t maximum = 100;
+		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+		std::mt19937 g(seed);
+		uint32_t bufferData[element_count];
+		for (uint32_t i = 0; i < element_count; i++) {
+			bufferData[i] = minimum + g() % (maximum - minimum + 1);
 		}
 
-		memcpy(mapped_memory[0], bufferData, sizeof(uint32_t) * 10);
+		std::string outBuffer;
+		for (auto i = 0; i < element_count; i++) {
+			outBuffer.append(std::to_string(bufferData[i]));
+			outBuffer.append(" ");
+		}
+		outBuffer.append("\n");
+		m_logger->log("Your input array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
+
+		memcpy(mapped_memory[0], bufferData, sizeof(uint32_t) * element_count);
 
 		auto pc = PushConstantData{
 			.inputAddress = buffer_device_address[0],
 			.outputAddress = buffer_device_address[1],
-			.dataElementCount = 10
+			.dataElementCount = element_count,
+			.minimum = minimum,
+			.maximum = maximum
 		};
 
 		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdBuf;
@@ -145,7 +160,7 @@ public:
 		cmdBuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 		cmdBuf->bindComputePipeline(pipeline.get());
 		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-		cmdBuf->dispatch(WorkgroupSize, 1, 1);
+		cmdBuf->dispatch(ceil((float)(maximum - minimum + 1) / WorkgroupSize), 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
 
@@ -201,9 +216,22 @@ public:
 		
 		auto buffData = reinterpret_cast<const uint32_t*>(allocation[1].memory->getMappedPointer());
 		assert(allocation[1].offset == 0); // simpler than writing out all the pointer arithmetic
-		std::string outBuffer;
-		for (auto i = 0; i < 10; i++) {
-			outBuffer.append(std::to_string(buffData[i]));
+
+		uint32_t index = 0;
+		uint32_t count = 0;
+		for (auto i = 0; i <= maximum - minimum; i++) {
+			while (buffData[i] && count < buffData[i]) {
+				bufferData[index++] = i;
+				count++;
+			}
+			count = 0;
+		}
+
+		outBuffer.clear();
+		for (auto i = 0; i < element_count; i++) {
+			//if (element_count % 10 == 0)
+			//	outBuffer.append("\n");
+			outBuffer.append(std::to_string(bufferData[i]));
 			outBuffer.append(" ");
 		}
 		outBuffer.append("\n");
