@@ -74,34 +74,46 @@ public:
 		}
 
 		// Allocate memory
-		nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
-		uint64_t buffer_device_address;
+		nbl::video::IDeviceMemoryAllocator::SAllocation allocation[2] = {};
+		uint64_t buffer_device_address[2];
 		{
 			constexpr size_t buffer_size = sizeof(uint32_t) * 10;
 
-			IGPUBuffer::SCreationParams params;
-			params.size = buffer_size;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-			auto buffer = m_device->createBuffer(std::move(params));
-			if (!buffer)
-				return logFail("Failed to create GPU buffer of size %d!\n", params.size);
+			auto build_buffer = [this](
+				smart_refctd_ptr<ILogicalDevice> m_device,
+				nbl::video::IDeviceMemoryAllocator::SAllocation *allocation,
+				uint64_t *bda,
+				const char *label) {
+				IGPUBuffer::SCreationParams params;
+				params.size = buffer_size;
+				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+				auto buffer = m_device->createBuffer(std::move(params));
+				if (!buffer)
+					return logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
 
-			buffer->setObjectDebugName("Input Buffer");
+				buffer->setObjectDebugName(label);
 
-			auto reqs = buffer->getMemoryReqs();
-			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+				auto reqs = buffer->getMemoryReqs();
+				reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
 
-			allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
-			if (!allocation.isValid())
-				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+				*allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+				if (!allocation->isValid())
+					return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
-			assert(allocation.memory.get() == buffer->getBoundMemory().memory);
+				assert(allocation->memory.get() == buffer->getBoundMemory().memory);
 
-			buffer_device_address = buffer->getDeviceAddress();
+				*bda = buffer->getDeviceAddress();
+			};
+
+			build_buffer(m_device, allocation, buffer_device_address, "Input Buffer");
+			build_buffer(m_device, allocation + 1, buffer_device_address + 1, "Output Buffer");
 		}
 
-		auto mapped_memory = allocation.memory->map({ 0ull,allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
-		if (!mapped_memory)
+		void* mapped_memory[2] = {
+			allocation[0].memory->map({0ull,allocation[0].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+			allocation[1].memory->map({0ull,allocation[1].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+		};
+		if (!mapped_memory[0] || !mapped_memory[1])
 			return logFail("Failed to map the Device Memory!\n");
 
 		uint32_t bufferData[10];
@@ -109,10 +121,11 @@ public:
 			bufferData[i] = 1;
 		}
 
-		memcpy(mapped_memory, bufferData, sizeof(uint32_t) * 10);
+		memcpy(mapped_memory[0], bufferData, sizeof(uint32_t) * 10);
 
 		auto pc = PushConstantData{
-			.inputAddress = buffer_device_address,
+			.inputAddress = buffer_device_address[0],
+			.outputAddress = buffer_device_address[1],
 			.dataElementCount = 10
 		};
 
@@ -177,12 +190,18 @@ public:
 			} };
 		m_device->blockForSemaphores(wait_infos);
 
-		const ILogicalDevice::MappedMemoryRange memory_range(allocation.memory.get(), 0ull, allocation.memory->getAllocationSize());
-		if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-			m_device->invalidateMappedMemoryRanges(1, &memory_range);
+		const ILogicalDevice::MappedMemoryRange memory_range[2] = {
+			ILogicalDevice::MappedMemoryRange(allocation[0].memory.get(), 0ull, allocation[0].memory->getAllocationSize()),
+			ILogicalDevice::MappedMemoryRange(allocation[1].memory.get(), 0ull, allocation[1].memory->getAllocationSize())
+		};
+
+		if (!allocation[0].memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+			m_device->invalidateMappedMemoryRanges(1, &memory_range[0]);
+		if (!allocation[1].memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+			m_device->invalidateMappedMemoryRanges(1, &memory_range[1]);
 		
-		auto buffData = reinterpret_cast<const uint32_t*>(allocation.memory->getMappedPointer());
-		assert(allocation.offset == 0); // simpler than writing out all the pointer arithmetic
+		auto buffData = reinterpret_cast<const uint32_t*>(allocation[1].memory->getMappedPointer());
+		assert(allocation[1].offset == 0); // simpler than writing out all the pointer arithmetic
 		std::string outBuffer;
 		for (auto i = 0; i < 10; i++) {
 			outBuffer.append(std::to_string(buffData[i]));
@@ -191,7 +210,8 @@ public:
 		outBuffer.append("\n");
 		m_logger->log("Your ordered array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
 
-		allocation.memory->unmap();
+		allocation[0].memory->unmap();
+		allocation[1].memory->unmap();
 
 		m_device->waitIdle();
 
