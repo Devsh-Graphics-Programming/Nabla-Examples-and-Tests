@@ -48,14 +48,13 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		// TODO: create all semaphores before going into threads
-
 		constexpr size_t TIMELINE_SEMAPHORE_STARTING_VALUE = 0;
 		m_imagesLoadedSemaphore = m_device->createSemaphore(TIMELINE_SEMAPHORE_STARTING_VALUE);
 		m_imagesProcessedSemaphore = m_device->createSemaphore(TIMELINE_SEMAPHORE_STARTING_VALUE);
 		m_histogramSavedSeamphore = m_device->createSemaphore(TIMELINE_SEMAPHORE_STARTING_VALUE);
 
 		// TODO: create/initialize array of atomic pointers to IGPUImage* and IGPUBuffer* to hold results
+		// no need i think
 
 		std::thread loadImagesThread(&StagingAndMultipleQueuesApp::loadImages, this);
 		std::thread saveHistogramsThread(&StagingAndMultipleQueuesApp::saveHistograms, this);
@@ -124,7 +123,7 @@ private:
 	std::array<ILogicalDevice::MappedMemoryRange, FRAMES_IN_FLIGHT> m_histogramBufferMemoryRanges;
 	uint32_t* m_histogramBufferMemPtrs[3];
 
-	std::mutex assetManagerMutex; // TODO: make function for loading assets
+	std::mutex assetManagerMutex;
 
 	void loadImages()
 	{
@@ -133,21 +132,8 @@ private:
 
 		// LOAD CPU IMAGES
 		core::smart_refctd_ptr<ICPUImage> cpuImages[IMAGE_CNT];
-		{
-			std::lock_guard<std::mutex> assetManagerLock(assetManagerMutex);
-
-			for(uint32_t i = 0; i < IMAGE_CNT; ++i)
-			{
-				SAssetBundle bundle = m_assetMgr->getAsset(imagesToLoad[i], lp);
-
-				if (bundle.getContents().empty())
-					logFailAndTerminate("Couldn't load an image.", ILogger::ELL_ERROR);
-
-				cpuImages[i] = IAsset::castDown<ICPUImage>(bundle.getContents()[0]);
-				if(!cpuImages[i])
-					logFailAndTerminate("Asset loaded is not an image.", ILogger::ELL_ERROR);
-			}
-		}
+		for(uint32_t i = 0; i < IMAGE_CNT; ++i)
+			cpuImages[i] = loadFistAssetInBundle<ICPUImage>(imagesToLoad[i]);
 
 		auto transferUpQueue = getTransferUpQueue();
 		// TODO: i want to use IGPUCommandPool::CREATE_FLAGS::NONE but `updateImageViaStagingBuffer` requires command buffers to be resetable
@@ -270,7 +256,6 @@ private:
 			
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
-
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo0;
 			pplnBarrierDepInfo0.imgBarriers = std::span(&imageLayoutTransitionBarrier0, &imageLayoutTransitionBarrier0 + 1);
 			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
@@ -353,19 +338,7 @@ private:
 		// LOAD SHADER FROM FILE
 		smart_refctd_ptr<ICPUShader> source;
 		{
-			std::lock_guard<std::mutex> assetManagerLock(assetManagerMutex);
-
-			IAssetLoader::SAssetLoadParams lp;
-			lp.logger = m_logger.get();
-			auto assetBundle = m_assetMgr->getAsset("../app_resources/comp_shader.hlsl", lp);
-			assert(assetBundle.getAssetType() == IAsset::E_TYPE::ET_SHADER);
-			const auto assets = assetBundle.getContents();
-			if (assets.empty())
-				logFailAndTerminate("Could not load shader!");
-
-			// It would be super weird if loading a shader from a file produced more than 1 asset
-			assert(assets.size() == 1);
-			source = IAsset::castDown<ICPUShader>(assets[0]);
+			source = loadFistAssetInBundle<ICPUShader>("../app_resources/comp_shader.hlsl");
 			source->setShaderStage(IShader::ESS_COMPUTE);
 		}
 
@@ -412,11 +385,9 @@ private:
 
 			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = histogramBuffer->getMemoryReqs();
 			// you can simply constrain the memory requirements by AND-ing the type bits of the host visible memory types
-			reqs.memoryTypeBits &= (m_physicalDevice->getHostVisibleMemoryTypeBits() & m_physicalDevice->getDeviceLocalMemoryTypeBits());
-			auto a = m_physicalDevice->getHostVisibleMemoryTypeBits();
-			auto b = m_physicalDevice->getDeviceLocalMemoryTypeBits();
+			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits() & m_physicalDevice->getDeviceLocalMemoryTypeBits();
 
-			m_histogramBufferAllocation = m_device->allocate(reqs, histogramBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+			m_histogramBufferAllocation = m_device->allocate(reqs, histogramBuffer.get(), nbl::video::IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_NONE);
 			if (!m_histogramBufferAllocation.isValid())
 				logFailAndTerminate("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			assert(histogramBuffer->getBoundMemory().memory == m_histogramBufferAllocation.memory.get());
@@ -526,7 +497,7 @@ private:
 			const uint32_t resourceIdx = imageHistogramIdx % FRAMES_IN_FLIGHT;
 			uint32_t* histogramBuff = m_histogramBufferMemPtrs[resourceIdx];
 
-			auto isResourceReused = waitForResourceAvailability(m_histogramSavedSeamphore.get(), imageHistogramIdx);
+			waitForResourceAvailability(m_histogramSavedSeamphore.get(), imageHistogramIdx);
 			if(!m_device->invalidateMappedMemoryRanges(1, &m_histogramBufferMemoryRanges[resourceIdx]))
 				logFailAndTerminate("Failed to invalidate the Device Memory!\n");
 
@@ -589,6 +560,24 @@ private:
 		}
 
 		return false;
+	}
+
+	template<typename AssetType>
+	core::smart_refctd_ptr<AssetType> loadFistAssetInBundle(const std::string& path)
+	{
+		// TODO: not sure if m_assetMgr needs to be synchronized
+		std::lock_guard<std::mutex> assetManagerLock(assetManagerMutex);
+		
+		IAssetLoader::SAssetLoadParams lp;
+		SAssetBundle bundle = m_assetMgr->getAsset(path, lp);
+		if (bundle.getContents().empty())
+			logFailAndTerminate("Couldn't load an asset.", ILogger::ELL_ERROR);
+
+		auto asset = IAsset::castDown<AssetType>(bundle.getContents()[0]);
+		if (!asset)
+			logFailAndTerminate("Incorrect asset loaded.", ILogger::ELL_ERROR);
+
+		return asset;
 	}
 };
 
