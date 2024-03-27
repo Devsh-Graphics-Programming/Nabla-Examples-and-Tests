@@ -1,0 +1,210 @@
+#version 430 core
+
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+
+#include "common.h"
+
+layout(local_size_x = WORKGROUP_DIMENSION, local_size_y = WORKGROUP_DIMENSION) in;
+
+layout(set = 0, binding = 0, r16) restrict uniform image2D outIESCandelaImage;
+layout(set = 0, binding = 1, rg32f) restrict uniform image2D outSphericalCoordinatesImage;
+layout(set = 0, binding = 2, rgba32f) restrict uniform image2D outOUVProjectionDirectionImage;
+layout(set = 0, binding = 3, rg8) restrict uniform image2D outPassTMask;
+
+layout(std430, set = 0, binding = 4) readonly buffer HorizontalAngles
+{
+	double hAngles[];
+};
+
+layout(std430, set = 0, binding = 5) readonly buffer VerticalAngles
+{
+	double vAngles[];
+};
+
+layout(std430, set = 0, binding = 6) readonly buffer Data
+{
+	double data[];
+};
+
+layout(push_constant) uniform PushConstants
+{
+    float maxIValue;
+	float zAngleDegreeRotation;
+	uint mode;
+	uint dummy;
+} pc;
+
+double fmod(double a, double b)
+{
+  double c = fract(abs(a/b))*abs(b);
+  return (a < 0) ? -c : c;
+}
+
+vec3 octahedronUVToDir(vec2 uv) 
+{
+    vec3 position = vec3((uv * 2.0 - 1.0).xy, 0.0);
+	vec2 absP = vec2(abs(position.x), abs(position.y));
+	
+	position.z = 1.0 - absP.x - absP.y; 
+	
+	if (position.z < 0.0) 
+	{
+		position.x = sign(position.x) * (1.0 - absP.y);
+		position.y = sign(position.y) * (1.0 - absP.x);
+	}
+
+	// rotate position vector around Z-axis with "pc.zAngleDegreeRotation"
+	if(pc.zAngleDegreeRotation != 0.0)
+	{
+		float rDegree = pc.zAngleDegreeRotation;
+		
+		const float zAngleRadians = float(rDegree * M_PI / 180.0);
+		const float cosineV = cos(zAngleRadians);
+		const float sineV = sin(zAngleRadians);
+
+		position = vec3(cosineV * position.x - cosineV * position.y, sineV * position.x + sineV * position.y, position.z);
+	}
+
+	return normalize(position);
+}
+
+vec2 sphericalDirToRadians(vec3 direction)
+{
+	// physics convention, theta is polar angle & phi is azimuthal angle
+	double theta = acos(clamp(direction.z/length(direction), -1.0, 1.0));
+	double phi = abs(atan(direction.y, direction.x));
+	
+	return vec2(theta, phi);
+}
+
+ivec2 implGetVUpperBoundIdx(double angle)
+{
+	uint anglesLength = vAngles.length();
+    int idx = -1;
+	
+    for (int i = 0; i < anglesLength; ++i) {
+        if (vAngles[i] > angle) {
+            idx = i;
+            break;
+        }
+    }
+	
+    return ivec2(idx, anglesLength);
+}
+
+ivec2 implGetHUpperBoundIdx(double angle)
+{
+	uint anglesLength = hAngles.length();
+    int idx = -1;
+	
+    for (int i = 0; i < anglesLength; ++i) {
+        if (hAngles[i] > angle) {
+            idx = i;
+            break;
+        }
+    }
+	
+    return ivec2(idx, anglesLength);
+}
+
+int getVLowerBoundIdx(double angle) 
+{
+    return max(implGetVUpperBoundIdx(angle).x - 1, 0);
+}
+
+int getHLowerBoundIdx(double angle) 
+{
+    return max(implGetHUpperBoundIdx(angle).x - 1, 0);
+}
+
+int getVUpperBoundIdx(double angle)
+{
+	ivec2 returnValue = implGetVUpperBoundIdx(angle);
+    return min(returnValue.x, returnValue.y - 1);
+}
+
+int getHUpperBoundIdx(double angle)
+{
+	ivec2 returnValue = implGetHUpperBoundIdx(angle);
+    return min(returnValue.x, returnValue.y - 1);
+}
+
+double getValue(int i, int j)
+{
+	return data[vAngles.length() * i + j];
+}
+
+double sampleI(double vAngle, double hAngle)
+{
+	double vABack = vAngles[vAngles.length() - 1];
+	double hABack = hAngles[hAngles.length() - 1];
+
+	if (vAngle > vABack)
+		return 0.0;
+	
+	hAngle = hABack == 0.0 ? 0.0 : fmod(hAngle, hABack);
+
+	// bilinear interpolation
+	int j0 = getVLowerBoundIdx(vAngle);
+	int j1 = getVUpperBoundIdx(vAngle);
+	int i0 = getHLowerBoundIdx(hAngle);
+	int i1 = getHUpperBoundIdx(hAngle);
+	
+	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAngles[i1] - hAngles[i0]);
+	double vReciprocal = j1 == j0 ? 1.0 : 1.0 / (vAngles[j1] - vAngles[j0]);
+	
+	double u = (hAngle - hAngles[i0]) * uReciprocal;
+	double v = (vAngle - vAngles[j0]) * vReciprocal;
+	
+	double s0 = getValue(i0, j0) * (1.0 - v) + getValue(i0, j1) * (v);
+	double s1 = getValue(i1, j0) * (1.0 - v) + getValue(i1, j1) * (v);
+	
+	return s0 * (1.0 - u) + s1 * u;
+}
+
+bool isWithinSCDomain(vec2 point) 
+{
+    const vec2 lw = vec2(-M_PI / 2.0, -M_PI);
+    const vec2 ub = vec2(M_PI / 2.0, M_PI);
+
+    return all(lessThanEqual(lw, point)) && all(lessThanEqual(point, ub));
+}
+
+void main()
+{
+	const double VERTICAL_INVERSE = 1.0 / TEXTURE_SIZE;
+	const double HORIZONTAL_INVERSE = 1.0 / TEXTURE_SIZE;
+
+	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
+	const ivec2 destinationSize = imageSize(outIESCandelaImage);
+	
+	if (all(lessThan(pixelCoordinates, destinationSize)))
+	{
+		const vec2 uv = vec2((float(pixelCoordinates.x) + 0.5) * VERTICAL_INVERSE, (float(pixelCoordinates.y) + 0.5) * HORIZONTAL_INVERSE);
+		vec3 direction = octahedronUVToDir(uv);
+		vec2 sphericalCoordinates = sphericalDirToRadians(direction); // third radius spherical compoment is normalized and skipped
+		
+		double intensity = sampleI(degrees(sphericalCoordinates.x), degrees(sphericalCoordinates.y));
+		vec4 value = vec4(intensity / pc.maxIValue, 0, 0, 0);
+		
+		vec2 mask;
+		double normD = length(direction);
+		
+		if(1.0 - QUANT_ERROR_ADMISSIBLE <= normD && normD <= 1.0 + QUANT_ERROR_ADMISSIBLE)
+			mask.x = 1.0; // pass
+		else
+			mask.x = 0;
+			
+		if(isWithinSCDomain(sphericalCoordinates))
+			mask.y = 1.0; // pass
+		else
+			mask.y = 0;
+		
+		imageStore(outIESCandelaImage, pixelCoordinates, value);
+		imageStore(outSphericalCoordinatesImage, pixelCoordinates, vec4(sphericalCoordinates.xy, 0, 1));
+		imageStore(outOUVProjectionDirectionImage, pixelCoordinates, vec4(direction.xyz, 1));
+		imageStore(outPassTMask, pixelCoordinates, vec4(mask.xy, 1, 1));
+	}
+}
