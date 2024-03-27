@@ -39,14 +39,15 @@ float f(vec2 uv) {
 
 void main()
 {
-    vec2 uv = Pos.xy;
+    vec2 ndc = Pos.xy;
+	vec2 uv = (ndc + 1) / 2;
 	
 	if(pc.mode == 0)
 	{
-		float dist = sqrt(uv.x*uv.x+uv.y*uv.y)*1.015625;
+		float dist = length(ndc)*1.015625;
 		vec3 col = vec3(plot(dist,1.0,0.75));
 
-		float normalizedStrength = f(uv);
+		float normalizedStrength = f(ndc);
 		if (dist<normalizedStrength)
 			col += vec3(1.0,0.0,0.0);
 		outColor = vec4(col,1.0);

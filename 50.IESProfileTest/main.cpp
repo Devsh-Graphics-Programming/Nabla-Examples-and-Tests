@@ -499,7 +499,7 @@ int main()
                     case IESCompute::EM_IES_C:
                         return L"IES Candela";
                     case IESCompute::EM_SPERICAL_C:
-                        return L"Sperical Coordinates";
+                        return L"Spherical Coordinates";
                     case IESCompute::EM_DIRECTION:
                         return L"Direction sample";
                     case IESCompute::EM_PASS_T_MASK:
