@@ -13,7 +13,7 @@ class IESCompute
 {
     public:
         IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const asset::CIESProfile& _profile)
-            : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), (float)profile.getHoriAngles().front()})
+            : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), 0.f})
         {
             createGPUEnvironment(_assetManager);
             // createGPUEnvironment<EM_RENDER>(_assetManager); // TODO
@@ -84,13 +84,13 @@ class IESCompute
 
         void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degreeOffset)
         {
-            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, 0, std::abs(profile.getHoriAngles().back() - profile.getHoriAngles().front()));
+            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, 0, std::abs((profile.getHoriAngles().back() - profile.getHoriAngles().front())));
             pushConstant.zAngleDegreeRotation = newDegreeRotation;
         }
 
         const auto& getZDegree()
         {
-            return pushConstant.zAngleDegreeRotation + profile.getHoriAngles().front();
+            return pushConstant.zAngleDegreeRotation + profile.getHoriAngles().front() + profile.getHAnglesOffset();
         }
 
         void updateMode(const E_MODE& mode)
@@ -273,16 +273,7 @@ class IESCompute
             core::smart_refctd_ptr<asset::ICPUBuffer> buffer;
 
             if constexpr (binding == EB_SSBO_HA)
-            {
-                auto hAnglesCopy = profile.getHoriAngles();
-                const auto firstHAngle = hAnglesCopy.front();
-
-                // to interprete angles pairs starting with (0, phi) for easier computations we shift the angles
-                for(auto& hAngle : hAnglesCopy)
-                    hAngle = std::fmod((hAngle - firstHAngle + 360), 360);
-
-                buffer = createBuffer(hAnglesCopy);
-            }
+                buffer = createBuffer(profile.getHoriAngles());
             else if (binding == EB_SSBO_VA)
                 buffer = createBuffer(profile.getVertAngles());
             else
