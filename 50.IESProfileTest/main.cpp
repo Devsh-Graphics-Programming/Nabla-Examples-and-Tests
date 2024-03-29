@@ -15,8 +15,7 @@ class IESCompute
         IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const asset::CIESProfile& _profile)
             : profile(_profile), driver(_driver), pushConstant({ (float)profile.getMaxValue(), 0.f})
         {
-            createGPUEnvironment(_assetManager);
-            // createGPUEnvironment<EM_RENDER>(_assetManager); // TODO
+            createGPUEnvironment(_assetManager); 
 
             fbo = createFBO<asset::EF_R16G16B16A16_SFLOAT>(driver->getScreenSize().Width, driver->getScreenSize().Height);
         }
@@ -84,13 +83,16 @@ class IESCompute
 
         void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degreeOffset)
         {
-            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, 0, std::abs((profile.getHoriAngles().back() - profile.getHoriAngles().front())));
+            //const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, profile.getHoriAngles().front(), profile.getHoriAngles().back());
+            // TMP
+
+            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, 0, 360);
             pushConstant.zAngleDegreeRotation = newDegreeRotation;
         }
 
         const auto& getZDegree()
         {
-            return pushConstant.zAngleDegreeRotation + profile.getHoriAngles().front() + profile.getHAnglesOffset();
+            return pushConstant.zAngleDegreeRotation;
         }
 
         void updateMode(const E_MODE& mode)

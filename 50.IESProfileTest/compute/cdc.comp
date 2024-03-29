@@ -36,12 +36,6 @@ layout(push_constant) uniform PushConstants
 	uint dummy;
 } pc;
 
-double fmod(double a, double b)
-{
-  double c = fract(abs(a/b))*abs(b);
-  return (a < 0) ? -c : c;
-}
-
 vec3 octahedronUVToDir(vec2 uv) 
 {
     vec3 position = vec3((uv * 2.0 - 1.0).xy, 0.0);
@@ -65,8 +59,9 @@ vec3 octahedronUVToDir(vec2 uv)
 		const float sineV = sin(zAngleRadians);
 
 		position = vec3(cosineV * position.x - cosineV * position.y, sineV * position.x + sineV * position.y, position.z);
+		//position = vec3((cosineV * position.x) - (sineV * position.y), (cosineV * position.x) + (sineV * position.y), position.z);
 	}
-
+	
 	return normalize(position);
 }
 
@@ -74,7 +69,10 @@ vec2 sphericalDirToRadians(vec3 direction)
 {
 	// physics convention, theta is polar angle & phi is azimuthal angle
 	double theta = acos(clamp(direction.z/length(direction), -1.0, 1.0));
-	double phi = abs(atan(direction.y, direction.x));
+	double phi = atan(direction.y, direction.x);
+	
+	if(phi < 0)
+		phi += 2 * M_PI;
 	
 	return vec2(theta, phi);
 }
@@ -136,7 +134,105 @@ double getValue(int i, int j)
 	return data[vAngles.length() * i + j];
 }
 
-double sampleI(double vAngle, double hAngle)
+uint getQuadrant(const double angle)
+{
+	for (uint i = 0; i < 4; ++i)
+	{
+		const uint lb = i * 90;
+		if (angle >= lb && angle < lb + 90)
+			return i;
+	}
+}
+
+// quadrant
+#define Q_1 0u	//! angle in range [0, 90)
+#define Q_2 1u	//! angle in range [90, 180)
+#define Q_3 2u	//! angle in range [180, 270)
+#define Q_4 3u	//! angle in range [270, 360)
+
+// symmetry
+#define QUAD_SYMETRIC 0u
+#define HALF_SYMETRIC 1u
+#define OTHER_HALF_SYMMETRIC 2u
+
+uint getSymmetry()
+{
+	double hABack = hAngles[hAngles.length() - 1];
+	
+	if(hABack == 90)
+		return QUAD_SYMETRIC;
+	else if(hABack == 180)
+		return HALF_SYMETRIC;
+	else if(hABack == 270)
+		return OTHER_HALF_SYMMETRIC;
+	else
+		return 69; // ISOTROPIC or NO_LATERAL_SYMMET
+}
+
+double wrapHAngle(const double _hAngle, const uint symmetry) //! wrap to horizontal angles range
+{
+	const uint quadrant = getQuadrant(_hAngle);
+
+	switch (quadrant)
+	{
+		case Q_1: //! eg. maps 89 -> 91
+			return 180 - _hAngle;
+		case Q_3: //! eg. maps 271 -> 269
+			return 270 - (_hAngle - 270);
+		default:
+			return _hAngle;
+	}
+
+	switch (symmetry)
+	{
+		case QUAD_SYMETRIC: //! phi MIRROR_REPEAT wrap
+		{
+			switch (quadrant)
+			{
+				case Q_2: //! eg. 91 -> 89
+					return 90 - (_hAngle - 90);
+				case Q_3: //! eg. 269 -> 89
+					return (_hAngle - 180);
+				case Q_4: //! eg. 271 -> 89
+					return 90 - (_hAngle - 270);
+				default:
+					return _hAngle;
+			}
+		}
+		case HALF_SYMETRIC: //! phi MIRROR wrap
+		{
+			switch (quadrant)
+			{
+				case Q_3: //! eg. maps 181 -> 179
+					return 180 - (_hAngle - 180);
+				case Q_4: //! eg. maps 359 -> 1
+					return (360 - _hAngle);
+				default:
+					return _hAngle;
+			}
+			break;
+		}
+		case OTHER_HALF_SYMMETRIC: //! HALF_SYMETRIC case with shifted range about 90 degrees
+		{
+			switch (quadrant)
+			{
+				case Q_1: //! eg. maps 89 -> 91
+					return 180 - _hAngle;
+				//case Q_3: //! eg. maps 271 -> 269
+				//	return 270 - (_hAngle - 270);
+				case Q_3: //! eg. maps 269 -> 271
+					return (270 - _hAngle) + 270;
+				default:
+					return _hAngle;
+			}
+			break;
+		}
+		default:
+			return _hAngle;
+	}
+}
+
+double sampleI(double vAngle, double hAngle, uint symmetry)
 {
 	double vABack = vAngles[vAngles.length() - 1];
 	double hABack = hAngles[hAngles.length() - 1];
@@ -144,7 +240,10 @@ double sampleI(double vAngle, double hAngle)
 	if (vAngle > vABack)
 		return 0.0;
 	
-	hAngle = hABack == 0.0 ? 0.0 : fmod(hAngle, hABack);
+	if(hAngles.length() < 2)
+		return hAngles[0];
+	
+	hAngle = wrapHAngle(hAngle, symmetry);
 
 	// bilinear interpolation
 	int j0 = getVLowerBoundIdx(vAngle);
@@ -186,7 +285,7 @@ void main()
 		vec3 direction = octahedronUVToDir(uv);
 		vec2 sphericalCoordinates = sphericalDirToRadians(direction); // third radius spherical compoment is normalized and skipped
 		
-		double intensity = sampleI(degrees(sphericalCoordinates.x), degrees(sphericalCoordinates.y));
+		double intensity = sampleI(degrees(sphericalCoordinates.x), degrees(sphericalCoordinates.y), getSymmetry());
 		vec4 value = vec4(intensity / pc.maxIValue, 0, 0, 0);
 		
 		vec2 mask;
