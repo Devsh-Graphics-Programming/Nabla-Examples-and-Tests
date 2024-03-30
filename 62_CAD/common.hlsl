@@ -432,13 +432,15 @@ struct PSInput
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 
+// Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-[[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
-[[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
-[[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
-[[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+[[vk::binding(2, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
+[[vk::binding(3, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
+[[vk::binding(4, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
 
+// Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
+[[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 #endif
 
 #endif
