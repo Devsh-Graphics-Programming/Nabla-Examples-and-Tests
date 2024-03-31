@@ -71,7 +71,7 @@ vec2 sphericalDirToRadians(vec3 direction)
 	double theta = acos(clamp(direction.z/length(direction), -1.0, 1.0));
 	double phi = atan(direction.y, direction.x);
 	
-	if(phi < 0)
+	if(phi < 0) // make sure we are in [0, 2PI range], not [-PI, PI]
 		phi += 2 * M_PI;
 	
 	return vec2(theta, phi);
@@ -134,7 +134,7 @@ double getValue(int i, int j)
 	return data[vAngles.length() * i + j];
 }
 
-uint getQuadrant(const double angle)
+uint getQuadrant(const double angle) // [0, 360] input range
 {
 	for (uint i = 0; i < 4; ++i)
 	{
@@ -142,13 +142,15 @@ uint getQuadrant(const double angle)
 		if (angle >= lb && angle < lb + 90)
 			return i;
 	}
+	if(angle >= 360)
+		return 3;
 }
 
 // quadrant
 #define Q_1 0u	//! angle in range [0, 90)
 #define Q_2 1u	//! angle in range [90, 180)
 #define Q_3 2u	//! angle in range [180, 270)
-#define Q_4 3u	//! angle in range [270, 360)
+#define Q_4 3u	//! angle in range [270, 360]
 
 // symmetry
 #define QUAD_SYMETRIC 0u
@@ -173,15 +175,7 @@ double wrapHAngle(const double _hAngle, const uint symmetry) //! wrap to horizon
 {
 	const uint quadrant = getQuadrant(_hAngle);
 
-	switch (quadrant)
-	{
-		case Q_1: //! eg. maps 89 -> 91
-			return 180 - _hAngle;
-		case Q_3: //! eg. maps 271 -> 269
-			return 270 - (_hAngle - 270);
-		default:
-			return _hAngle;
-	}
+	double wrapAngle = _hAngle;
 
 	switch (symmetry)
 	{
@@ -190,46 +184,44 @@ double wrapHAngle(const double _hAngle, const uint symmetry) //! wrap to horizon
 			switch (quadrant)
 			{
 				case Q_2: //! eg. 91 -> 89
-					return 90 - (_hAngle - 90);
+					wrapAngle = 90 - (_hAngle - 90); break;
 				case Q_3: //! eg. 269 -> 89
-					return (_hAngle - 180);
+					wrapAngle = (_hAngle - 180); break;
 				case Q_4: //! eg. 271 -> 89
-					return 90 - (_hAngle - 270);
-				default:
-					return _hAngle;
+					wrapAngle = 90 - (_hAngle - 270); break;
 			}
+			
+			wrapAngle = clamp(wrapAngle, 0.0f, 90.0f);
 		}
 		case HALF_SYMETRIC: //! phi MIRROR wrap
 		{
 			switch (quadrant)
 			{
 				case Q_3: //! eg. maps 181 -> 179
-					return 180 - (_hAngle - 180);
+					wrapAngle = 180 - (_hAngle - 180); break;
 				case Q_4: //! eg. maps 359 -> 1
-					return (360 - _hAngle);
-				default:
-					return _hAngle;
+					wrapAngle = (360 - _hAngle); break;
 			}
-			break;
+			
+			wrapAngle = clamp(wrapAngle, 0.0f, 180.0f);
 		}
 		case OTHER_HALF_SYMMETRIC: //! HALF_SYMETRIC case with shifted range about 90 degrees
 		{
 			switch (quadrant)
 			{
 				case Q_1: //! eg. maps 89 -> 91
-					return 180 - _hAngle;
+					wrapAngle = 180.0f - _hAngle; break;
 				//case Q_3: //! eg. maps 271 -> 269
-				//	return 270 - (_hAngle - 270);
+				//	wrapAngle = 270.0f - (_hAngle - 270.0f); break;
 				case Q_3: //! eg. maps 269 -> 271
-					return (270 - _hAngle) + 270;
-				default:
-					return _hAngle;
+					wrapAngle = (270.0f - _hAngle) + 270.0f; break;
 			}
-			break;
+			
+			wrapAngle = clamp(wrapAngle, 90.0f, 270.0f);
 		}
-		default:
-			return _hAngle;
 	}
+	
+	return wrapAngle;
 }
 
 double sampleI(double vAngle, double hAngle, uint symmetry)
@@ -243,6 +235,7 @@ double sampleI(double vAngle, double hAngle, uint symmetry)
 	if(hAngles.length() < 2)
 		return hAngles[0];
 	
+	// wrap current input angle
 	hAngle = wrapHAngle(hAngle, symmetry);
 
 	// bilinear interpolation
@@ -251,10 +244,14 @@ double sampleI(double vAngle, double hAngle, uint symmetry)
 	int i0 = getHLowerBoundIdx(hAngle);
 	int i1 = getHUpperBoundIdx(hAngle);
 	
-	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAngles[i1] - hAngles[i0]);
+	// wrap SSBO horizontal angles
+	const double hAi0 = wrapHAngle(hAngles[i0], symmetry);
+	const double hAi1 = wrapHAngle(hAngles[i1], symmetry);
+	
+	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAi1 - hAi0);
 	double vReciprocal = j1 == j0 ? 1.0 : 1.0 / (vAngles[j1] - vAngles[j0]);
 	
-	double u = (hAngle - hAngles[i0]) * uReciprocal;
+	double u = (hAngle - hAi0) * uReciprocal;
 	double v = (vAngle - vAngles[j0]) * vReciprocal;
 	
 	double s0 = getValue(i0, j0) * (1.0 - v) + getValue(i0, j1) * (v);
@@ -263,10 +260,14 @@ double sampleI(double vAngle, double hAngle, uint symmetry)
 	return s0 * (1.0 - u) + s1 * u;
 }
 
-bool isWithinSCDomain(vec2 point) 
+// if x /in [0,PI] x [0,2PI] product
+// IES vertical range is [0, 180] degrees
+// and horizontal range is [0, 360] degrees
+
+bool isWithinSCDomain(vec2 point)
 {
-    const vec2 lw = vec2(-M_PI / 2.0, -M_PI);
-    const vec2 ub = vec2(M_PI / 2.0, M_PI);
+    const vec2 lw = vec2(0, 0);
+    const vec2 ub = vec2(M_PI, 2*M_PI);
 
     return all(lessThanEqual(lw, point)) && all(lessThanEqual(point, ub));
 }
@@ -302,7 +303,7 @@ void main()
 			mask.y = 0;
 		
 		imageStore(outIESCandelaImage, pixelCoordinates, value);
-		imageStore(outSphericalCoordinatesImage, pixelCoordinates, vec4(sphericalCoordinates.xy, 0, 1));
+		imageStore(outSphericalCoordinatesImage, pixelCoordinates, vec4(sphericalCoordinates, 0, 1));
 		imageStore(outOUVProjectionDirectionImage, pixelCoordinates, vec4(direction.xyz, 1));
 		imageStore(outPassTMask, pixelCoordinates, vec4(mask.xy, 1, 1));
 	}
