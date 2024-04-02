@@ -80,59 +80,49 @@ vec2 sphericalDirToRadians(vec3 direction)
 	return vec2(theta, phi);
 }
 
-ivec2 implGetVUpperBoundIdx(double angle)
+uint implGetVUB(const float angle)
 {
-	uint anglesLength = vAngles.length();
-    int idx = -1;
+    const uint len = vAngles.length();
 	
-    for (int i = 0; i < anglesLength; ++i) {
-        if (vAngles[i] > angle) {
-            idx = i;
-            break;
-        }
-    }
+    for(uint i = 0; i < len; ++i)
+        if(vAngles[i] > angle)
+            return i;
+
+    return len;
+}
+
+uint implGetHUB(const float angle)
+{
+    const uint len = hAngles.length();
 	
-    return ivec2(idx, anglesLength);
+    for(uint i = 0; i < len; ++i)
+        if(hAngles[i] > angle)
+            return i;
+
+    return len;
 }
 
-ivec2 implGetHUpperBoundIdx(double angle)
+uint getVLB(const float angle)
 {
-	uint anglesLength = hAngles.length();
-    int idx = -1;
-	
-    for (int i = 0; i < anglesLength; ++i) {
-        if (hAngles[i] > angle) {
-            idx = i;
-            break;
-        }
-    }
-	
-    return ivec2(idx, anglesLength);
+	return uint(max(int(implGetVUB(angle)) - 1, 0));
 }
 
-int getVLowerBoundIdx(double angle) 
+uint getHLB(const float angle)
 {
-    return max(implGetVUpperBoundIdx(angle).x - 1, 0);
+	return uint(max(int(implGetHUB(angle)) - 1, 0));
 }
 
-int getHLowerBoundIdx(double angle) 
+uint getVUB(const float angle)
 {
-    return max(implGetHUpperBoundIdx(angle).x - 1, 0);
+	return uint(min(int(implGetVUB(angle)), int(vAngles.length()) - 1));
 }
 
-int getVUpperBoundIdx(double angle)
+uint getHUB(const float angle)
 {
-	ivec2 returnValue = implGetVUpperBoundIdx(angle);
-    return min(returnValue.x, returnValue.y - 1);
+	return uint(min(int(implGetHUB(angle)), int(hAngles.length()) - 1));
 }
 
-int getHUpperBoundIdx(double angle)
-{
-	ivec2 returnValue = implGetHUpperBoundIdx(angle);
-    return min(returnValue.x, returnValue.y - 1);
-}
-
-double getValue(int i, int j)
+double getValue(uint i, uint j)
 {
 	return data[vAngles.length() * i + j];
 }
@@ -192,10 +182,10 @@ double sampleI(const vec2 sphericalCoordinates, const uint symmetry)
 		return 0.0;
 	
 	// bilinear interpolation
-	int j0 = getVLowerBoundIdx(vAngle);
-	int j1 = getVUpperBoundIdx(vAngle);
-	int i0 = symmetry == ISOTROPIC ? 0 : getHLowerBoundIdx(hAngle);
-	int i1 = symmetry == ISOTROPIC ? 0 : getHUpperBoundIdx(hAngle);
+	uint j0 = getVLB(vAngle);
+	uint j1 = getVUB(vAngle);
+	uint i0 = symmetry == ISOTROPIC ? 0 : getHLB(hAngle); 
+	uint i1 = symmetry == ISOTROPIC ? 0 : getHUB(hAngle);
 	
 	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAngles[i1] - hAngles[i0]);
 	double vReciprocal = j1 == j0 ? 1.0 : 1.0 / (vAngles[j1] - vAngles[j0]);
