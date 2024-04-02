@@ -83,16 +83,13 @@ class IESCompute
 
         void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degreeOffset)
         {
-            //const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, profile.getHoriAngles().front(), profile.getHoriAngles().back());
-            // TMP
-
-            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, 0, 360);
+            const auto newDegreeRotation = std::clamp<float>(pushConstant.zAngleDegreeRotation + degreeOffset, profile.getHoriAngles().front(), profile.getHoriAngles().back());
             pushConstant.zAngleDegreeRotation = newDegreeRotation;
         }
 
-        const auto& getZDegree()
+        const asset::CIESProfile::IES_STORAGE_FORMAT getZDegree()
         {
-            return pushConstant.zAngleDegreeRotation;
+            return pushConstant.zAngleDegreeRotation + profile.getHAnglesOffset();
         }
 
         void updateMode(const E_MODE& mode)
