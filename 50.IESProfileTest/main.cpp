@@ -454,8 +454,14 @@ int main()
 
     asset::IAssetLoader::SAssetLoadParams lparams;
     lparams.loaderFlags = asset::IAssetLoader::E_LOADER_PARAMETER_FLAGS::ELPF_LOAD_METADATA_ONLY;
+   
+    constexpr auto IES_INPUTS = std::array
+    { 
+        std::string_view("../../media/mitsuba/ies/ANIISOTROPIC/OTHER_HALF_SYMMETRY/028e97564391140b1476695ae7a46fa4.ies"),
+        std::string_view("../../media/mitsuba/ies/ISOTROPIC/007cfb11e343e2f42e3b476be4ab684e.ies"),
+    };
 
-    auto assetLoaded = device->getAssetManager()->getAsset("../../media/mitsuba/aniso_ies/028e97564391140b1476695ae7a46fa4.ies", lparams);
+    auto assetLoaded = device->getAssetManager()->getAsset(IES_INPUTS[1].data(), lparams);
     const auto* meta = assetLoaded.getMetadata();
 
     if (!meta)

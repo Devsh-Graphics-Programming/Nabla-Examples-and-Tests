@@ -138,25 +138,33 @@ double getValue(int i, int j)
 }
 
 // symmetry
-#define QUAD_SYMETRIC 0u
-#define HALF_SYMETRIC 1u
+#define ISOTROPIC 0u
+#define QUAD_SYMETRIC 1u
+#define HALF_SYMETRIC 2u
+#define NO_LATERAL_SYMMET 3u
 
 uint getSymmetry() // TODO: to reduce check time we could pass it with PCs
 {
-	double hABack = hAngles[hAngles.length() - 1];
+	const uint hALength = hAngles.length();
+	if(hALength < 2) // careful here, somebody can break it by feeding us with too much data by mistake
+		return ISOTROPIC;
+	
+	const double hABack = hAngles[hALength - 1];
 	
 	if(hABack == 90)
 		return QUAD_SYMETRIC;
 	else if(hABack == 180) // note that OTHER_HALF_SYMMETRIC = HALF_SYMETRIC here
 		return HALF_SYMETRIC;
 	else
-		return 69; // ISOTROPIC or NO_LATERAL_SYMMET
+		return NO_LATERAL_SYMMET;
 }
 
 float wrapPhi(const float phi, const uint symmetry) //! wrap phi spherical coordinate compoment to range defined by symmetry
 {
 	switch (symmetry)
 	{
+		case ISOTROPIC:
+			return 0.0;
 		case QUAD_SYMETRIC: //! phi MIRROR_REPEAT wrap onto [0, 90] degrees range
 		{
 			float wrapPhi = abs(phi); //! first MIRROR
@@ -170,7 +178,7 @@ float wrapPhi(const float phi, const uint symmetry) //! wrap phi spherical coord
 			return abs(phi); //! eg. maps (in degress) 181 -> 179 or 359 -> 1
 	}
 	
-	return phi; // if ISOTROPIC or NO_LATERAL_SYMMET then just return it's value, no wrap needed
+	return phi; // if NO_LATERAL_SYMMET then just return it's value, no wrap needed
 }
 
 double sampleI(const vec2 sphericalCoordinates, const uint symmetry)
@@ -183,14 +191,11 @@ double sampleI(const vec2 sphericalCoordinates, const uint symmetry)
 	if (vAngle > vABack)
 		return 0.0;
 	
-	if(hAngles.length() < 2)
-		return hAngles[0];
-
 	// bilinear interpolation
 	int j0 = getVLowerBoundIdx(vAngle);
 	int j1 = getVUpperBoundIdx(vAngle);
-	int i0 = getHLowerBoundIdx(hAngle);
-	int i1 = getHUpperBoundIdx(hAngle);
+	int i0 = symmetry == ISOTROPIC ? 0 : getHLowerBoundIdx(hAngle);
+	int i1 = symmetry == ISOTROPIC ? 0 : getHUpperBoundIdx(hAngle);
 	
 	double uReciprocal = i1 == i0 ? 1.0 : 1.0 / (hAngles[i1] - hAngles[i0]);
 	double vReciprocal = j1 == j0 ? 1.0 : 1.0 / (vAngles[j1] - vAngles[j0]);
