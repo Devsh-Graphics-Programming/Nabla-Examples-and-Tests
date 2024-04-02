@@ -461,7 +461,7 @@ int main()
         std::string_view("../../media/mitsuba/ies/ISOTROPIC/007cfb11e343e2f42e3b476be4ab684e.ies"),
     };
 
-    auto assetLoaded = device->getAssetManager()->getAsset(IES_INPUTS[1].data(), lparams);
+    auto assetLoaded = device->getAssetManager()->getAsset(IES_INPUTS[0].data(), lparams);
     const auto* meta = assetLoaded.getMetadata();
 
     if (!meta)
@@ -511,7 +511,27 @@ int main()
                         return L"ERROR";
                 }
             }();
-            windowCaption << L"IES Demo - Nabla Engine - Degrees: : " << iesComputeEnvironment.getZDegree() << L" - Mode: " << mode;
+
+            const wchar_t* const profile = [&]()
+            {
+                switch (iesProfileMeta->profile.getSymmetry())
+                {
+                    case asset::CIESProfile::ISOTROPIC:
+                        return L"ISOTROPIC";
+                    case asset::CIESProfile::QUAD_SYMETRIC:
+                        return L"QUAD_SYMETRIC";
+                    case asset::CIESProfile::HALF_SYMETRIC:
+                        return L"HALF_SYMETRIC";
+                    case asset::CIESProfile::OTHER_HALF_SYMMETRIC:
+                        return L"OTHER_HALF_SYMMETRIC";
+                    case asset::CIESProfile::NO_LATERAL_SYMMET:
+                        return L"NO_LATERAL_SYMMET";
+                    default:
+                        return L"ERROR";
+                }
+            }();
+
+            windowCaption << L"IES Demo - Nabla Engine - Profile: " << profile << " - Degrees: " << iesComputeEnvironment.getZDegree() << L" - Mode: " << mode;
             device->setWindowCaption(windowCaption.str());
         }
         receiver.reset();
