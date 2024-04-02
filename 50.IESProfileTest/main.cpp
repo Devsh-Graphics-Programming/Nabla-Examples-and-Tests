@@ -218,7 +218,6 @@ class IESCompute
                     gpue.mBuffer = driver->getGPUObjectsFromAssets(&cpusphere.get(), &cpusphere.get() + 1)->front();
                 }
                 
-
                 auto createSampler = [&]()
                 {
                     return driver->createGPUSampler({ asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS });
@@ -464,14 +463,13 @@ int main()
 
     const auto* iesProfileMeta = meta->selfCast<const asset::CIESProfileMetadata>();
     IESCompute iesComputeEnvironment(driver, am, iesProfileMeta->profile);
-
-    // temporary, to remove later
     {
-        auto iOld = iesProfileMeta->profile.getIntegral();
-        iesProfileMeta->profile.createCDCTexture();
-        auto iNew = iesProfileMeta->profile.getIntegralFromGrid();
-        const auto error = std::abs((iOld - iNew) / iOld);
-        printf("integral error: %s", std::to_string(error).c_str());
+        auto cdc = iesProfileMeta->profile.createCDCTexture();
+        const auto integral = iesProfileMeta->profile.getIntegralFromGrid();
+        printf("integral: %s", std::to_string(integral).c_str());
+
+        asset::IAssetWriter::SAssetWriteParams wparams(cdc.get());
+        am->writeAsset((io::path("ies.png")).c_str(), wparams);
     }
     
     IESExampleEventReceiver receiver;
