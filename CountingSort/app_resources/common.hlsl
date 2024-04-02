@@ -1,4 +1,7 @@
+#include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+
+NBL_CONSTEXPR uint32_t WorkgroupSize = 1024;
 
 struct PushConstantData
 {
@@ -6,10 +9,7 @@ struct PushConstantData
     uint64_t outputAddress;
 	uint32_t dataElementCount;
     uint32_t minimum;
-    uint32_t maximum;
 };
-
-NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
 
 // Yes we do have our own re-creation of C++'s STL in HLSL2021 !
 #include "nbl/builtin/hlsl/limits.hlsl"

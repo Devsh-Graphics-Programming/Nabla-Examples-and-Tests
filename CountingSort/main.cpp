@@ -29,6 +29,8 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
+		auto x = m_physicalDevice->getLimits();
+
 		// this time we load a shader directly from a file
 		smart_refctd_ptr<IGPUShader> shader;
 		{
@@ -51,6 +53,20 @@ public:
 				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
 		}
 
+		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+				{
+					.binding = 0,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
+					.stageFlags = IGPUShader::ESS_COMPUTE,
+					.count = 1,
+					.samplers = nullptr // irrelevant for a buffer
+				}
+		};
+		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+		if (!dsLayout)
+			return logFail("Failed to create a Descriptor Layout!\n");
+
 		// People love Reflection but I prefer Shader Sources instead!
 		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 
@@ -62,29 +78,31 @@ public:
 		smart_refctd_ptr<IGPUPipelineLayout> layout;
 		smart_refctd_ptr<IGPUComputePipeline> pipeline;
 		{
-			layout = m_device->createPipelineLayout({ &pcRange,1 });
+			layout = m_device->createPipelineLayout({ &pcRange,1 }, smart_refctd_ptr(dsLayout));
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = layout.get();
 			params.shader.shader = shader.get();
+			params.shader.entryPoint = "main";
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
 				return logFail("Failed to create compute pipeline!\n");
 		}
 
 		// Allocate memory
-		nbl::video::IDeviceMemoryAllocator::SAllocation allocation[2] = {};
-		constexpr size_t element_count = 100;
-		uint64_t buffer_device_address[2];
+		nbl::video::IDeviceMemoryAllocator::SAllocation allocation[3] = {};
+		smart_refctd_ptr<IGPUBuffer> buffers[3];
+		smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
+		constexpr size_t element_count = 10000;
 		{
 			auto build_buffer = [this](
 				smart_refctd_ptr<ILogicalDevice> m_device,
 				nbl::video::IDeviceMemoryAllocator::SAllocation *allocation,
+				smart_refctd_ptr<IGPUBuffer>& buffer,
 				size_t buffer_size,
-				uint64_t *bda,
 				const char *label) {
 				IGPUBuffer::SCreationParams params;
 				params.size = buffer_size;
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
-				auto buffer = m_device->createBuffer(std::move(params));
+				buffer = m_device->createBuffer(std::move(params));
 				if (!buffer)
 					return logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
 
@@ -98,29 +116,48 @@ public:
 					return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
 				assert(allocation->memory.get() == buffer->getBoundMemory().memory);
-
-				*bda = buffer->getDeviceAddress();
 			};
 
-			build_buffer(m_device, allocation, sizeof(uint32_t) * element_count, buffer_device_address, "Input Buffer");
-			build_buffer(m_device, allocation + 1, sizeof(uint32_t) * element_count, buffer_device_address + 1, "Output Buffer");
-		}
+			build_buffer(m_device,	allocation,		buffers[0], sizeof(uint32_t) * element_count,"Input Buffer");
+			build_buffer(m_device,	allocation + 1,	buffers[1], sizeof(uint32_t) * WorkgroupSize, "Scratch Buffer");
+			build_buffer(m_device,	allocation + 2,	buffers[2], sizeof(uint32_t) * element_count, "Output Buffer");
 
-		void* mapped_memory[2] = {
+			smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+			// note how the pool will go out of scope but thanks for backreferences in each object to its parent/dependency it will be kept alive for as long as all the Sets it allocated
+			ds = pool->createDescriptorSet(std::move(dsLayout));
+			// we still use Vulkan 1.0 descriptor update style, could move to Update Templates but Descriptor Buffer ubiquity seems just around the corner
+			{
+				IGPUDescriptorSet::SDescriptorInfo info[1];
+				info[0].desc = buffers[1]; // bad API, too late to change, should just take raw-pointers since not consumed
+				info[0].info.buffer = { .offset = 0,.size = sizeof(uint32_t) * WorkgroupSize };
+				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+					{.dstSet = ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+				};
+				m_device->updateDescriptorSets(writes, {});
+			}
+		}
+		uint64_t buffer_device_address[] = {
+			buffers[0]->getDeviceAddress(),
+			buffers[2]->getDeviceAddress()
+		};
+
+		void* mapped_memory[3] = {
 			allocation[0].memory->map({0ull,allocation[0].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
 			allocation[1].memory->map({0ull,allocation[1].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
+			allocation[2].memory->map({0ull,allocation[2].memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ),
 		};
-		if (!mapped_memory[0] || !mapped_memory[1])
+		if (!mapped_memory[0] || !mapped_memory[1] || !mapped_memory[2])
 			return logFail("Failed to map the Device Memory!\n");
 
 		// Generate random data
 		constexpr uint32_t minimum = 0;
-		constexpr uint32_t maximum = 100;
+		constexpr uint32_t range = 1024;
 		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 		std::mt19937 g(seed);
-		uint32_t bufferData[element_count];
+		auto bufferData = new uint32_t[element_count];
 		for (uint32_t i = 0; i < element_count; i++) {
-			bufferData[i] = minimum + g() % (maximum - minimum + 1);
+			bufferData[i] = minimum + g() % range;
 		}
 
 		std::string outBuffer;
@@ -128,6 +165,9 @@ public:
 			outBuffer.append(std::to_string(bufferData[i]));
 			outBuffer.append(" ");
 		}
+		outBuffer.append("\n");
+		outBuffer.append("Count: ");
+		outBuffer.append(std::to_string(element_count));
 		outBuffer.append("\n");
 		m_logger->log("Your input array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
 
@@ -138,7 +178,6 @@ public:
 			.outputAddress = buffer_device_address[1],
 			.dataElementCount = element_count,
 			.minimum = minimum,
-			.maximum = maximum
 		};
 
 		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdBuf;
@@ -156,8 +195,9 @@ public:
 		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdBuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 		cmdBuf->bindComputePipeline(pipeline.get());
+		cmdBuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, layout.get(), 0, 1, &ds.get());
 		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-		cmdBuf->dispatch(ceil((float)(maximum - minimum + 1) / WorkgroupSize), 1, 1);
+		cmdBuf->dispatch(ceil((float)element_count / WorkgroupSize), 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
 
@@ -214,23 +254,40 @@ public:
 		auto buffData = reinterpret_cast<const uint32_t*>(allocation[1].memory->getMappedPointer());
 		assert(allocation[1].offset == 0); // simpler than writing out all the pointer arithmetic
 
-		uint32_t index = 0;
+		outBuffer.clear();
 		uint32_t count = 0;
-		for (auto i = 0; i <= maximum - minimum; i++) {
-			while (buffData[i] && count < buffData[i]) {
-				bufferData[index++] = i;
-				count++;
-			}
-			count = 0;
+		int c = 0;
+		for (auto i = 0; i < WorkgroupSize; i++) {
+			outBuffer.append(std::to_string(buffData[i]));
+			outBuffer.append(" ");
+			count += buffData[i];
+			if (buffData[i])
+				c++;
 		}
+		outBuffer.append("\n");
+		outBuffer.append("Count: ");
+		outBuffer.append(std::to_string(WorkgroupSize));
+		outBuffer.append("\n");
+		outBuffer.append("True Count: ");
+		outBuffer.append(std::to_string(c));
+		outBuffer.append("\n");
+		outBuffer.append("Sum: ");
+		outBuffer.append(std::to_string(count));
+		outBuffer.append("\n");
+
+		m_logger->log("Scratch buffer is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
+
+		buffData = reinterpret_cast<const uint32_t*>(allocation[2].memory->getMappedPointer());
+		assert(allocation[2].offset == 0); // simpler than writing out all the pointer arithmetic
 
 		outBuffer.clear();
 		for (auto i = 0; i < element_count; i++) {
-			//if (element_count % 10 == 0)
-			//	outBuffer.append("\n");
-			outBuffer.append(std::to_string(bufferData[i]));
+			outBuffer.append(std::to_string(buffData[i]));
 			outBuffer.append(" ");
 		}
+		outBuffer.append("\n");
+		outBuffer.append("Count: ");
+		outBuffer.append(std::to_string(element_count));
 		outBuffer.append("\n");
 		m_logger->log("Your ordered array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
 
@@ -238,6 +295,8 @@ public:
 		allocation[1].memory->unmap();
 
 		m_device->waitIdle();
+
+		delete[] bufferData;
 
 		return true;
 	}
