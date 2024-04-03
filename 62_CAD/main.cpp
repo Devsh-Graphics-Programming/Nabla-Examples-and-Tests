@@ -32,7 +32,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 using namespace nbl::hlsl;
 using namespace nbl;
@@ -1793,7 +1793,7 @@ protected:
 					// test case 8: start with `0` pattern + 2 `0` patterns close together
 				stipplePatterns[8] = { 0.0, -10.0f, 0.0, -1.0, 0.0, -7.0 };
 					// test case 9: max pattern size
-				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
+				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f };
 					// test case 10: A = 0 (line), evenly distributed controll points
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 11: A = 0 (line), not evenly distributed controll points
@@ -2419,7 +2419,7 @@ protected:
 	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
 	
-	std::array<smart_refctd_ptr<IGPUImageView>,			MaxFramesInFlight>	pseudoStencilImageViews;
+	std::array<smart_refctd_ptr<IGPUImageView>,		MaxFramesInFlight>	pseudoStencilImageViews;
 	std::array<smart_refctd_ptr<IGPUBuffer>,			MaxFramesInFlight>	globalsBuffer;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>,		MaxFramesInFlight>	descriptorSets0;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>,		MaxFramesInFlight>	descriptorSets1;
