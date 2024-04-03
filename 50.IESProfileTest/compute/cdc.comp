@@ -166,9 +166,16 @@ float wrapPhi(const float phi, const uint symmetry) //! wrap phi spherical coord
 		}
 		case HALF_SYMETRIC: //! phi MIRROR wrap onto [0, 180] degrees range
 			return abs(phi); //! eg. maps (in degress) 181 -> 179 or 359 -> 1
+		case NO_LATERAL_SYMMET:
+		{
+			if(phi < 0)
+				return phi + 2.0 * M_PI;
+			else
+				return phi;
+		}
 	}
 	
-	return phi; // if NO_LATERAL_SYMMET then just return it's value, no wrap needed
+	return 69;
 }
 
 double sampleI(const vec2 sphericalCoordinates, const uint symmetry)
