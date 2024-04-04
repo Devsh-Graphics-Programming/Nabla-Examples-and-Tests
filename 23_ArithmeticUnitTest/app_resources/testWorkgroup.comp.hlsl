@@ -26,6 +26,11 @@ struct ScratchProxy
 		scratch[ix+offset] = value;
 	}
 
+	uint32_t atomicOr(const uint32_t ix, const uint32_t value)
+	{
+		return nbl::hlsl::glsl::atomicOr(scratch[ix],value);
+	}
+
 	void workgroupExecutionAndMemoryBarrier()
 	{
 		nbl::hlsl::glsl::barrier();
