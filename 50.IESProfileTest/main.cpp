@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include <nabla.h>
+#include <filesystem>
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "compute/common.h"
 
@@ -554,23 +555,66 @@ int main()
     const auto ASSETS = [&]()
     {
         std::vector<asset::SAssetBundle> assets;
+        std::vector<std::string> outStems;
             
         for (size_t i = 0; i < IES_INPUTS.size(); ++i)
         {
             auto asset = device->getAssetManager()->getAsset(IES_INPUTS[i].data(), lparams);
-            
+            const auto stem = std::filesystem::path(IES_INPUTS[i].data()).stem().string();
+
             if (asset.getMetadata())
+            {
                 assets.emplace_back(std::move(asset));
+                outStems.push_back(stem);
+            }
             else
-                printf("Could not load metadata from \"%s\" asset! Skipping..", IES_INPUTS[i].data());
+                printf("Could not load metadata from \"%s\" asset! Skipping..", stem.c_str());
         }
 
-        return assets;
+        return std::make_pair(assets, outStems);
     }();
 
-    IESCompute iesComputeEnvironment(driver, am, ASSETS);    
+    IESCompute iesComputeEnvironment(driver, am, ASSETS.first);    
     IESExampleEventReceiver receiver;
     device->setEventReceiver(&receiver);
+
+    auto getModeRS = [&]()
+    {
+        switch (iesComputeEnvironment.getMode())
+        {
+            case IESCompute::EM_CDC:
+                return "CDC";
+            case IESCompute::EM_IES_C:
+                return "IES Candela";
+            case IESCompute::EM_SPERICAL_C:
+                return "Spherical Coordinates";
+            case IESCompute::EM_DIRECTION:
+                return "Direction sample";
+            case IESCompute::EM_PASS_T_MASK:
+                return "Pass Mask";
+            default:
+                return "ERROR";
+        }
+    };
+
+    auto getProfileRS = [&](const asset::CIESProfile& profile)
+    {            
+        switch (profile.getSymmetry())
+        {
+            case asset::CIESProfile::ISOTROPIC:
+                return "ISOTROPIC";
+            case asset::CIESProfile::QUAD_SYMETRIC:
+                return "QUAD_SYMETRIC";
+            case asset::CIESProfile::HALF_SYMETRIC:
+                return "HALF_SYMETRIC";
+            case asset::CIESProfile::OTHER_HALF_SYMMETRIC:
+                return "OTHER_HALF_SYMMETRIC";
+            case asset::CIESProfile::NO_LATERAL_SYMMET:
+                return "NO_LATERAL_SYMMET";
+            default:
+                return "ERROR";
+        }
+    };
         
     while (device->run() && receiver.isRunning())
     {
@@ -585,48 +629,32 @@ int main()
 
         std::wostringstream windowCaption;
         {
-            const wchar_t* const mode = [&]()
-            {
-                switch (iesComputeEnvironment.getMode())
-                {
-                    case IESCompute::EM_CDC:
-                        return L"CDC";
-                    case IESCompute::EM_IES_C:
-                        return L"IES Candela";
-                    case IESCompute::EM_SPERICAL_C:
-                        return L"Spherical Coordinates";
-                    case IESCompute::EM_DIRECTION:
-                        return L"Direction sample";
-                    case IESCompute::EM_PASS_T_MASK:
-                        return L"Pass Mask";
-                    default:
-                        return L"ERROR";
-                }
-            }();
+            const auto* const mode = getModeRS();
+            const auto* const profile = getProfileRS(iesComputeEnvironment.getActiveProfile());
 
-            const wchar_t* const profile = [&]()
-            {
-                switch (iesComputeEnvironment.getActiveProfile().getSymmetry())
-                {
-                    case asset::CIESProfile::ISOTROPIC:
-                        return L"ISOTROPIC";
-                    case asset::CIESProfile::QUAD_SYMETRIC:
-                        return L"QUAD_SYMETRIC";
-                    case asset::CIESProfile::HALF_SYMETRIC:
-                        return L"HALF_SYMETRIC";
-                    case asset::CIESProfile::OTHER_HALF_SYMMETRIC:
-                        return L"OTHER_HALF_SYMMETRIC";
-                    case asset::CIESProfile::NO_LATERAL_SYMMET:
-                        return L"NO_LATERAL_SYMMET";
-                    default:
-                        return L"ERROR";
-                }
-            }();
-
-            windowCaption << L"IES Demo - Nabla Engine - Profile: " << profile << " - Degrees: " << iesComputeEnvironment.getZDegree() << L" - Mode: " << mode;
+            windowCaption << "IES Demo - Nabla Engine - Profile: " << profile << " - Degrees: " << iesComputeEnvironment.getZDegree() << " - Mode: " << mode;
             device->setWindowCaption(windowCaption.str());
         }
         receiver.reset();
+    }
+
+    for (size_t i = 0; i < ASSETS.first.size(); ++i)
+    {
+        const auto& asset = ASSETS.first[i];
+        const auto& stem = ASSETS.second[i];
+
+        const auto& profile = asset.getMetadata()->selfCast<const asset::CIESProfileMetadata>()->profile;
+        // const std::string out = std::filesystem::absolute("out/cpu/" + std::string(getProfileRS(profile)) + "/" + stem + ".png").string(); TODO (?): why its not working?
+        const std::string out = std::filesystem::absolute(std::string(getProfileRS(profile)) + "_" + stem + ".png").string();
+
+        auto cdc = profile.createCDCTexture();
+
+        asset::IAssetWriter::SAssetWriteParams wparams(cdc.get());
+
+        if (am->writeAsset(out.c_str(), wparams))
+            printf("Saved \"%s\"\n", out.c_str());
+        else
+            printf("Could not write \"%s\"\n", out.c_str());
     }
 
     return 0;
