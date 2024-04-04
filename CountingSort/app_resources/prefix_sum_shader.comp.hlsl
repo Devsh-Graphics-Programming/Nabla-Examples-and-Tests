@@ -2,28 +2,22 @@
 
 // just a small test
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
-#include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
-
-static const uint32_t ArithmeticSz = nbl::hlsl::workgroup::scratch_size_arithmetic<WorkgroupSize>::value;
-static const uint32_t BallotSz = nbl::hlsl::workgroup::scratch_size_ballot<WorkgroupSize>::value;
-static const uint32_t ScratchSz = ArithmeticSz + BallotSz;
-
-groupshared uint32_t prefixScratch[ScratchSz];
 
 [[vk::push_constant]] PushConstantData pushConstants;
 [[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> scratch;
 
-template<uint16_t offset>
+groupshared uint32_t prefixScratch[WorkgroupSize];
+
 struct ScratchProxy
 {
     uint32_t get(const uint32_t ix)
     {
-        return prefixScratch[ix + offset];
+        return prefixScratch[ix];
     }
     void set(const uint32_t ix, const uint32_t value)
     {
-        prefixScratch[ix + offset] = value;
+        prefixScratch[ix] = value;
     }
 
     void workgroupExecutionAndMemoryBarrier()
@@ -32,9 +26,7 @@ struct ScratchProxy
     }
 };
 
-static ScratchProxy<0> arithmeticAccessor;
-
-static ScratchProxy<ArithmeticSz> ballotAccessor;
+static ScratchProxy arithmeticAccessor;
 
 groupshared uint32_t sdata[WorkgroupSize];
 
@@ -60,17 +52,8 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     nbl::hlsl::glsl::barrier();
 
-    //nbl::hlsl::workgroup::ballot < decltype(ballotAccessor) > (bool(sdata[tid]), ballotAccessor);
-    //ballotAccessor.workgroupExecutionAndMemoryBarrier();
-    //uint32_t dest_value = nbl::hlsl::workgroup::ballotExclusiveBitCount < WorkgroupSize, decltype(ballotAccessor), decltype(arithmeticAccessor), nbl::hlsl::jit::device_capabilities > (ballotAccessor, arithmeticAccessor);
+    uint32_t retval = nbl::hlsl::workgroup::exclusive_scan<nbl::hlsl::plus<uint32_t>, WorkgroupSize>::template __call<ScratchProxy> (sdata[tid], arithmeticAccessor);
+    arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
 
-    for (uint32_t i = 1; i < WorkgroupSize; i *= 2)
-    {
-        nbl::hlsl::glsl::barrier();
-        if (tid - i >= 0)
-            sdata[tid] += sdata[tid - i];
-        nbl::hlsl::glsl::barrier();
-    }
-
-    nbl::hlsl::glsl::atomicAdd(scratch[tid], sdata[tid]);    
+    nbl::hlsl::glsl::atomicAdd(scratch[tid], retval);
 }
