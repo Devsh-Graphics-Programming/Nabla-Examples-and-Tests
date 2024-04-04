@@ -1,9 +1,9 @@
 #include "common.hlsl"
 
 // just a small test
-#include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/workgroup/scratch_size.hlsl"
+#include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 
 static const uint32_t ArithmeticSz = nbl::hlsl::workgroup::scratch_size_arithmetic<WorkgroupSize>::value;
 static const uint32_t BallotSz = nbl::hlsl::workgroup::scratch_size_ballot<WorkgroupSize>::value;
@@ -46,8 +46,9 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
-    sdata[ID.x] = 0;
-    uint32_t index = WorkgroupSize * GroupID.x + ID.x;
+    uint32_t tid = nbl::hlsl::workgroup::SubgroupContiguousIndex();
+    sdata[tid] = 0;
+    uint32_t index = nbl::hlsl::glsl::gl_WorkGroupID().x * WorkgroupSize + tid;
 
     nbl::hlsl::glsl::barrier();
 
@@ -59,15 +60,17 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     nbl::hlsl::glsl::barrier();
 
-    // we can only ballot booleans, so low bit
-    nbl::hlsl::workgroup::ballot < decltype(ballotAccessor) > (bool(sdata[ID.x] & 0x1u), ballotAccessor);
-	// need to barrier between ballot and usages of a ballot by myself
-    ballotAccessor.workgroupExecutionAndMemoryBarrier();
-    sdata[ID.x] = nbl::hlsl::workgroup::ballotInclusiveBitCount < WorkgroupSize, decltype(ballotAccessor), decltype(arithmeticAccessor), nbl::hlsl::jit::device_capabilities > (ballotAccessor, arithmeticAccessor);
+    //nbl::hlsl::workgroup::ballot < decltype(ballotAccessor) > (bool(sdata[tid]), ballotAccessor);
+    //ballotAccessor.workgroupExecutionAndMemoryBarrier();
+    //uint32_t dest_value = nbl::hlsl::workgroup::ballotExclusiveBitCount < WorkgroupSize, decltype(ballotAccessor), decltype(arithmeticAccessor), nbl::hlsl::jit::device_capabilities > (ballotAccessor, arithmeticAccessor);
 
-    nbl::hlsl::glsl::atomicAdd(scratch[ID.x], sdata[ID.x]);
+    for (uint32_t i = 1; i < WorkgroupSize; i *= 2)
+    {
+        nbl::hlsl::glsl::barrier();
+        if (tid - i >= 0)
+            sdata[tid] += sdata[tid - i];
+        nbl::hlsl::glsl::barrier();
+    }
 
-    nbl::hlsl::glsl::barrier();
-
-    //vk::RawBufferStore(pushConstants.outputAddress + sizeof(uint32_t) * index, ID.x);
+    nbl::hlsl::glsl::atomicAdd(scratch[tid], sdata[tid]);    
 }

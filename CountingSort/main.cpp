@@ -32,12 +32,13 @@ public:
 		auto x = m_physicalDevice->getLimits();
 
 		// this time we load a shader directly from a file
-		smart_refctd_ptr<IGPUShader> shader;
+		smart_refctd_ptr<IGPUShader> prefixSumShader;
+		smart_refctd_ptr<IGPUShader> scatterShader;
 		{
 			IAssetLoader::SAssetLoadParams lp = {};
 			lp.logger = m_logger.get();
 			lp.workingDirectory = ""; // virtual root
-			auto assetBundle = m_assetMgr->getAsset("app_resources/shader.comp.hlsl", lp);
+			auto assetBundle = m_assetMgr->getAsset("app_resources/prefix_sum_shader.comp.hlsl", lp);
 			const auto assets = assetBundle.getContents();
 			if (assets.empty())
 				return logFail("Could not load shader!");
@@ -48,9 +49,28 @@ public:
 			assert(source);
 
 			// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-			shader = m_device->createShader(source.get());
-			if (!shader)
-				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
+			prefixSumShader = m_device->createShader(source.get());
+			if (!prefixSumShader)
+				return logFail("Creation of Prefix Sum Shader from CPU Shader source failed!");
+		}
+		{
+			IAssetLoader::SAssetLoadParams lp = {};
+			lp.logger = m_logger.get();
+			lp.workingDirectory = ""; // virtual root
+			auto assetBundle = m_assetMgr->getAsset("app_resources/scatter_shader.comp.hlsl", lp);
+			const auto assets = assetBundle.getContents();
+			if (assets.empty())
+				return logFail("Could not load shader!");
+
+			// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+			auto source = IAsset::castDown<ICPUShader>(assets[0]);
+			// The down-cast should not fail!
+			assert(source);
+
+			// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+			scatterShader = m_device->createShader(source.get());
+			if (!scatterShader)
+				return logFail("Creation of Scatter Shader from CPU Shader source failed!");
 		}
 
 		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
@@ -76,14 +96,21 @@ public:
 		// only the offset. This means that we'd have to write the "worst case" length into the descriptor set binding.
 		// Then this has a knock-on effect that we couldn't allocate closer to the end of the streaming buffer than the "worst case" size.
 		smart_refctd_ptr<IGPUPipelineLayout> layout;
-		smart_refctd_ptr<IGPUComputePipeline> pipeline;
+		smart_refctd_ptr<IGPUComputePipeline> prefixSumPipeline;
+		smart_refctd_ptr<IGPUComputePipeline> scatterPipeline;
 		{
 			layout = m_device->createPipelineLayout({ &pcRange,1 }, smart_refctd_ptr(dsLayout));
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = layout.get();
-			params.shader.shader = shader.get();
+			params.shader.shader = prefixSumShader.get();
 			params.shader.entryPoint = "main";
-			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+			params.shader.entries = nullptr;
+			params.shader.requireFullSubgroups = true;
+			params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &prefixSumPipeline))
+				return logFail("Failed to create compute pipeline!\n");
+			params.shader.shader = scatterShader.get();
+			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &scatterPipeline))
 				return logFail("Failed to create compute pipeline!\n");
 		}
 
@@ -187,14 +214,57 @@ public:
 				return logFail("Failed to create Command Buffers!\n");
 		}
 
-		// Create the Semaphore
+		// Create the Semaphore for prefix sum
 		constexpr uint64_t started_value = 0;
 		uint64_t timeline = started_value;
 		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(started_value);
 
 		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-		cmdBuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
-		cmdBuf->bindComputePipeline(pipeline.get());
+		cmdBuf->beginDebugMarker("Prefix Sum Dispatch", core::vectorSIMDf(0, 1, 0, 1));
+		cmdBuf->bindComputePipeline(prefixSumPipeline.get());
+		cmdBuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, layout.get(), 0, 1, &ds.get());
+		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
+		cmdBuf->dispatch(ceil((float)element_count / WorkgroupSize), 1, 1);
+		cmdBuf->endDebugMarker();
+		cmdBuf->end();
+
+		{
+			auto queue = getComputeQueue();
+
+			IQueue::SSubmitInfo submit_infos[1];
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
+				{
+					.cmdbuf = cmdBuf.get()
+				}
+			};
+			submit_infos[0].commandBuffers = cmdBufs;
+			IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
+				{
+					.semaphore = progress.get(),
+					.value = ++timeline,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				}
+			};
+			submit_infos[0].signalSemaphores = signals;
+
+			queue->startCapture();
+			queue->submit(submit_infos);
+			queue->endCapture();
+		}
+
+		const ISemaphore::SWaitInfo wait_infos[] = { {
+				.semaphore = progress.get(),
+				.value = timeline
+			} };
+		m_device->blockForSemaphores(wait_infos);
+
+		// Create the Semaphore for Scatter
+		uint64_t timeline2 = started_value;
+		smart_refctd_ptr<ISemaphore> progress2 = m_device->createSemaphore(started_value);
+
+		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cmdBuf->beginDebugMarker("Scatter Dispatch", core::vectorSIMDf(0, 1, 0, 1));
+		cmdBuf->bindComputePipeline(scatterPipeline.get());
 		cmdBuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, layout.get(), 0, 1, &ds.get());
 		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
 		cmdBuf->dispatch(ceil((float)element_count / WorkgroupSize), 1, 1);
@@ -221,8 +291,8 @@ public:
 			submit_infos[0].waitSemaphores = waits;
 			IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
 				{
-					.semaphore = progress.get(),
-					.value = timeline + 1,
+					.semaphore = progress2.get(),
+					.value = ++timeline2,
 					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 				}
 			};
@@ -231,15 +301,13 @@ public:
 			queue->startCapture();
 			queue->submit(submit_infos);
 			queue->endCapture();
-
-			timeline++;
 		}
 
-		const ISemaphore::SWaitInfo wait_infos[] = { {
-				.semaphore = progress.get(),
-				.value = timeline
+		const ISemaphore::SWaitInfo wait_infos2[] = {{
+				.semaphore = progress2.get(),
+				.value = timeline2
 			} };
-		m_device->blockForSemaphores(wait_infos);
+		m_device->blockForSemaphores(wait_infos2);
 
 		const ILogicalDevice::MappedMemoryRange memory_range[2] = {
 			ILogicalDevice::MappedMemoryRange(allocation[0].memory.get(), 0ull, allocation[0].memory->getAllocationSize()),
@@ -261,7 +329,7 @@ public:
 			outBuffer.append(std::to_string(buffData[i]));
 			outBuffer.append(" ");
 			count += buffData[i];
-			if (buffData[i])
+			if (i > 0 && buffData[i] > buffData[i-1])
 				c++;
 		}
 		outBuffer.append("\n");
