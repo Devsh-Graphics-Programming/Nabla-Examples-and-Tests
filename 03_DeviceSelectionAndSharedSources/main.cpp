@@ -36,31 +36,41 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
+		// TODO: run-time sized buffers are not supporten in hlsl.. do it when testing glsl
 		// Just a check that out specialization info will match
 		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
 			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
 
+		// flexible test
+		{
+			m_logger->log("------- test.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+			CSPIRVIntrospector introspector;
+			auto sourceIntrospectionPair = this->compileShaderAndTestIntrospection("app_resources/test.hlsl", introspector);
+			CSPIRVIntrospector::CPipelineIntrospectionData pplnIntroData;
+			pplnIntroData.merge(sourceIntrospectionPair.second.get());
+		}
+
 		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
-		auto introspector = std::make_unique<CSPIRVIntrospector>();
-		auto source = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
-		auto source2 = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector); // to make sure caching works
+		CSPIRVIntrospector introspector;
+		auto source = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector).first;
+		// auto source2 = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector); // to make sure caching works
 
 		m_logger->log("------- vtx_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
-		auto introspector_test1 = std::make_unique<CSPIRVIntrospector>();
+		CSPIRVIntrospector introspector_test1;
 		auto vtx_test1 = this->compileShaderAndTestIntrospection("app_resources/vtx_test1.hlsl", introspector_test1);
-		
+
 		m_logger->log("------- frag_test1.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto test1_frag = this->compileShaderAndTestIntrospection("app_resources/frag_test1.hlsl", introspector_test1);
 
-		auto introspector_test2 = std::make_unique<CSPIRVIntrospector>();
+		CSPIRVIntrospector introspector_test2;
 		m_logger->log("------- frag_test2.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto test2_comp = this->compileShaderAndTestIntrospection("app_resources/comp_test2_nestedStructs.hlsl", introspector_test2);
 
-		auto introspector_test3 = std::make_unique<CSPIRVIntrospector>();
+		CSPIRVIntrospector introspector_test3;
 		m_logger->log("------- comp_test3_ArraysAndMatrices.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto test3_comp = this->compileShaderAndTestIntrospection("app_resources/comp_test3_ArraysAndMatrices.hlsl", introspector_test3);
 
-		auto introspector_test4 = std::make_unique<CSPIRVIntrospector>();
+		CSPIRVIntrospector introspector_test4;
 		m_logger->log("------- frag_test4_SamplersTexBuffAndImgStorage.hlsl -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		auto test4_comp = this->compileShaderAndTestIntrospection("app_resources/frag_test4_SamplersTexBuffAndImgStorage.hlsl", introspector_test4);
 
@@ -70,7 +80,7 @@ public:
 		specInfo.shader = source.get();
 
 		m_logger->log("------- shader.comp.hlsl PIPELINE CREATION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
-		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector->createApproximateComputePipelineFromIntrospection(specInfo);
+		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
 
 		smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
 
@@ -80,7 +90,7 @@ public:
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
 					.stageFlags = IGPUShader::ESS_COMPUTE,
-					.count = 2, // TODO: check what will happen with: .count = 5
+					.count = 4, // TODO: check what will happen with: .count = 5
 					.samplers = nullptr // irrelevant for a buffer
 				},
 		};
@@ -270,7 +280,8 @@ public:
 	// Whether to keep invoking the above. In this example because its headless GPU compute, we do all the work in the app initialization.
 	bool keepRunning() override { return false; }
 
-	smart_refctd_ptr<ICPUShader> compileShaderAndTestIntrospection(const std::string& shaderPath, std::unique_ptr<CSPIRVIntrospector>& introspector)
+	std::pair<smart_refctd_ptr<ICPUShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileShaderAndTestIntrospection(
+		const std::string& shaderPath, CSPIRVIntrospector& introspector)
 	{
 		IAssetLoader::SAssetLoadParams lp = {};
 		lp.logger = m_logger.get();
@@ -288,7 +299,7 @@ public:
 		assert(assets.size() == 1);
 		smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
 		
-		smart_refctd_ptr<const CSPIRVIntrospector::CIntrospectionData> introspection;
+		smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspection;
 		{
 			// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
 			auto* compilerSet = m_assetMgr->getCompilerSet();
@@ -312,12 +323,11 @@ public:
 			auto spirvUnspecialized = compilerSet->compileToSPIRV(source.get(), options);
 			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspctParams = { .entryPoint = "main", .shader = spirvUnspecialized };
 
-			// TODO [Przemek]: fix 'insertToCache' and test it
-			introspection = introspector->introspect(inspctParams);
+			introspection = introspector.introspect(inspctParams);
 			if (!introspection)
 			{
 				logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
-				return nullptr;
+				return std::pair(nullptr, nullptr);
 			}
 
 			{
@@ -337,7 +347,34 @@ public:
 			source = std::move(spirvUnspecialized);
 		}
 
-		return source;
+		return std::pair(source, introspection);
+	}
+
+	// requires two compute shaders for simplicity of the example
+	core::smart_refctd_ptr<ICPUComputePipeline> createComputePipelinesWithCompatibleLayout(std::span<core::smart_refctd_ptr<ICPUShader>> spirvShaders)
+	{
+		CSPIRVIntrospector introspector;
+		auto pplnIntroData = CSPIRVIntrospector::CPipelineIntrospectionData();
+		
+		for (auto it = spirvShaders.begin(); it != spirvShaders.end(); ++it)
+		{
+			CSPIRVIntrospector::CStageIntrospectionData::SParams params;
+			params.entryPoint = "main"; //whatever
+			params.shader = *it;
+
+			auto stageIntroData = introspector.introspect(params);
+			const bool hasMerged = pplnIntroData.merge(stageIntroData.get());
+
+			if (!hasMerged)
+			{
+				m_logger->log("Unable to create a compatible layout.", ILogger::ELL_PERFORMANCE);
+				return nullptr;
+			}
+		}
+
+		// TODO: create ppln from `pplnIntroData`..
+		//return core::make_smart_refctd_ptr<ICPUComputePipeline>();
+		return nullptr;
 	}
 };
 
