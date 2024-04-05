@@ -1263,17 +1263,37 @@ public:
 				{
 					// Hatch
 					{
-						std::vector<float64_t2> points = {
-							float64_t2(1.0, 0.0),
-							float64_t2(8.0, 7.0),
-							float64_t2(8.0, 8.0),
-							float64_t2(7.0, 8.0),
-							float64_t2(0.0, 1.0),
-							float64_t2(0.0, 0.0),
-							float64_t2(1.0, 0.0),
-						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						{
+							std::vector<float64_t2> points = {
+								float64_t2(1.0, 0.0),
+								float64_t2(8.0, 7.0),
+								float64_t2(8.0, 8.0),
+								float64_t2(7.0, 8.0),
+								float64_t2(0.0, 1.0),
+								float64_t2(0.0, 0.0),
+								float64_t2(1.0, 0.0),
+							};
+							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						}
+						{
+							std::vector<float64_t2> points = {
+								float64_t2(0.0, 8.0),
+								float64_t2(1.0, 8.0),
+								float64_t2(0.0, 7.0),
+								float64_t2(0.0, 8.0),
+							};
+							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						}
+						{
+							std::vector<float64_t2> points = {
+								float64_t2(8.0, 0.0),
+								float64_t2(7.0, 0.0),
+								float64_t2(8.0, 1.0),
+								float64_t2(8.0, 0.0),
+							};
+							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						}
 						polylines.push_back(polyline);
 					}
 
@@ -1381,17 +1401,37 @@ public:
 				{
 					// Reverse Hatch 
 					{
-						std::vector<float64_t2> points = {
-							float64_t2(7.0, 0.0),
-							float64_t2(0.0, 7.0),
-							float64_t2(0.0, 8.0),
-							float64_t2(1.0, 8.0),
-							float64_t2(8.0, 1.0),
-							float64_t2(8.0, 0.0),
-							float64_t2(7.0, 0.0),
-						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						{
+							std::vector<float64_t2> points = {
+								float64_t2(7.0, 0.0),
+								float64_t2(0.0, 7.0),
+								float64_t2(0.0, 8.0),
+								float64_t2(1.0, 8.0),
+								float64_t2(8.0, 1.0),
+								float64_t2(8.0, 0.0),
+								float64_t2(7.0, 0.0),
+							};
+							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						}
+						{
+							std::vector<float64_t2> points = {
+								float64_t2(8.0, 8.0),
+								float64_t2(7.0, 8.0),
+								float64_t2(8.0, 7.0),
+								float64_t2(8.0, 8.0),
+							};
+							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						}
+						{
+							std::vector<float64_t2> points = {
+								float64_t2(0.0, 0.0),
+								float64_t2(1.0, 0.0),
+								float64_t2(0.0, 1.0),
+								float64_t2(0.0, 0.0),
+							};
+							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						}
 						polylines.push_back(polyline);
 					}
 
@@ -1417,6 +1457,42 @@ public:
 							float64_t2(6.0, 6.0),
 							float64_t2(2.0, 6.0),
 							float64_t2(2.0, 2.0),
+						};
+						polyline.addLinePoints(core::SRange<float64_t2>(innerSquare.data(), innerSquare.data() + innerSquare.size()));
+						polylines.push_back(polyline);
+					}
+
+					std::vector<CPolyline> polylinesClone(polylines);
+					shapes.push_back(polylines);
+					polylines.clear();
+				}
+				{
+					// Circle
+					// TODO: should this be an actual circle?
+					{
+						CPolyline polyline;
+						std::vector<float64_t2> outerSquare = {
+							float64_t2(2.0, 1.0),
+							float64_t2(1.0, 2.0),
+							float64_t2(1.0, 6.0),
+							float64_t2(2.0, 7.0),
+							float64_t2(6.0, 7.0),
+							float64_t2(7.0, 6.0),
+							float64_t2(7.0, 2.0),
+							float64_t2(6.0, 1.0),
+							float64_t2(2.0, 1.0)
+						};
+						polyline.addLinePoints(core::SRange<float64_t2>(outerSquare.data(), outerSquare.data() + outerSquare.size()));
+						std::vector<float64_t2> innerSquare = {
+							float64_t2(2.5, 2.0),
+							float64_t2(2.0, 2.5),
+							float64_t2(2.0, 5.5),
+							float64_t2(2.5, 6.0),
+							float64_t2(5.5, 6.0),
+							float64_t2(6.0, 5.5),
+							float64_t2(6.0, 2.5),
+							float64_t2(5.5, 2.0),
+							float64_t2(2.5, 2.0),
 						};
 						polyline.addLinePoints(core::SRange<float64_t2>(innerSquare.data(), innerSquare.data() + innerSquare.size()));
 						polylines.push_back(polyline);
@@ -1460,10 +1536,56 @@ public:
 					polylines.clear();
 				}
 
+				constexpr double hatchFillShapeSize = 10.0;
+				constexpr double hatchFillShapePadding = 1.0;
+
+				if (hatchDebugStep < shapes.size())
+				{
+					const auto& shapePolylines = shapes[hatchDebugStep];
+					for (int x = -3; x <= 3; x++)
+					{
+						for (int y = -3; y <= 3; y++)
+						{
+							double xx = double(x) * hatchFillShapeSize;
+							double yy = double(y) * hatchFillShapeSize;
+
+							std::vector<CPolyline> transformedPolylines;
+							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+							{
+								auto& polyline = shapePolylines[polylineIdx];
+								CPolyline transformedPolyline;
+								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+								{
+									auto& section = polyline.getSectionInfoAt(sectorIdx);
+									if (section.type == ObjectType::LINE)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<float64_t2> points;
+										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+										{
+											auto point = polyline.getLinePointAt(i).p / 8.0;
+											points.push_back(point * hatchFillShapeSize + float64_t2(xx, yy));
+										}
+										transformedPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+									}
+									else if (section.type == ObjectType::QUAD_BEZIER)
+									{
+										// TODO
+									}
+								}
+								transformedPolylines.push_back(transformedPolyline);
+							}
+
+							Hatch hatch(core::SRange<CPolyline>(transformedPolylines.data(), transformedPolylines.data() + transformedPolylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+							intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+						}
+					}
+				}
+				hatchDebugStep -= shapes.size();
+
 				// Hatch fill shapes described above
 				// Iterate each one of them, rendering
-				double hatchFillShapeSize = 10.0;
-				double hatchFillShapePadding = 1.0;
 				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < shapes.size(); hatchFillShapeIdx++)
 				{
 					if (hatchDebugStep == 0) break;
