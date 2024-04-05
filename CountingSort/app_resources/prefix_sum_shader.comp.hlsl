@@ -4,6 +4,8 @@
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 
+NBL_CONSTEXPR uint32_t BucketsPerThread = MaxBucketCount / WorkgroupSize;
+
 [[vk::push_constant]] PushConstantData pushConstants;
 [[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> scratch;
 
@@ -39,7 +41,10 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     uint32_t tid = nbl::hlsl::workgroup::SubgroupContiguousIndex();
-    sdata[tid] = 0;
+    
+    [unroll]
+    for (int i = 0; i < BucketsPerThread; i++)
+        sdata[BucketsPerThread * tid + i] = 0;
     uint32_t index = nbl::hlsl::glsl::gl_WorkGroupID().x * WorkgroupSize + tid;
 
     nbl::hlsl::glsl::barrier();
@@ -52,8 +57,23 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     nbl::hlsl::glsl::barrier();
 
-    uint32_t retval = nbl::hlsl::workgroup::exclusive_scan<nbl::hlsl::plus<uint32_t>, WorkgroupSize>::template __call<ScratchProxy> (sdata[tid], arithmeticAccessor);
-    arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
-
-    nbl::hlsl::glsl::atomicAdd(scratch[tid], retval);
+    uint32_t sum = 0;
+    
+    for (int i = 0; i < MaxBucketCount; i++)
+    {
+        sum = nbl::hlsl::workgroup::inclusive_scan < nbl::hlsl::plus < uint32_t >, WorkgroupSize > ::
+        template __call <ScratchProxy>
+        (sdata[WorkgroupSize * i + tid], arithmeticAccessor);
+        
+        arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+    
+        nbl::hlsl::glsl::atomicAdd(scratch[WorkgroupSize * i + tid], sum);
+        
+        arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+        
+        if ((tid == WorkgroupSize - 1) && i < (MaxBucketCount - 1))
+            sdata[WorkgroupSize * (i + 1)] += sum;
+    
+        arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
+    }
 }
