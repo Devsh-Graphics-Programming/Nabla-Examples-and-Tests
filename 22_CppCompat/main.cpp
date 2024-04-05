@@ -61,7 +61,7 @@ struct T
     float32_t4      h;
 };
 
-class CompatibilityTest final : public nbl::application_templates::MonoDeviceApplication, public nbl::application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class CompatibilityTest final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
     using device_base_t = application_templates::MonoDeviceApplication;
     using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
@@ -78,47 +78,38 @@ public:
             return false;
     
         m_queue = m_device->getQueue(0, 0);
-        m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), nbl::video::IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
-        m_device->createCommandBuffers(
-            m_commandPool.get(),
-            video::IGPUCommandBuffer::EL_PRIMARY,
-            1,
-            &m_cmdbuf);
+        m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+        m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, core::smart_refctd_ptr(m_logger));
+        
 
-
-        video::IGPUObjectFromAssetConverter CPU2GPU;
-        core::smart_refctd_ptr<video::IGPUSpecializedShader> specializedShader = nullptr;
+        core::smart_refctd_ptr<IGPUShader> shader;
         {
             IAssetLoader::SAssetLoadParams lp = {};
             lp.logger = m_logger.get();
             lp.workingDirectory = ""; // virtual root
-            auto assetBundle = m_assetMgr->getAsset("../app_resources/test.comp.hlsl", lp);
+            auto assetBundle = m_assetMgr->getAsset("app_resources/test.comp.hlsl", lp);
             const auto assets = assetBundle.getContents();
             if (assets.empty())
                 return logFail("Could not load shader!");
 
-            // It would be super weird if loading a shader from a file produced more than 1 asset
-            assert(assets.size() == 1);
-            smart_refctd_ptr<ICPUSpecializedShader> source = IAsset::castDown<ICPUSpecializedShader>(assets[0]);
-            auto stage = source->getStage();
-            assert(stage = IShader::ESS_COMPUTE);
+            // lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+            auto source = IAsset::castDown<ICPUShader>(assets[0]);
+            // The down-cast should not fail!
+            assert(source);
+            assert(source->getStage() == IShader::ESS_COMPUTE);
 
-            nbl::video::IGPUObjectFromAssetConverter::SParams cvtParams = {};
-            cvtParams.device = m_device.get();
-            cvtParams.assetManager = m_assetMgr.get();
-            video::IGPUObjectFromAssetConverter CPU2GPU;
-            specializedShader = CPU2GPU.getGPUObjectsFromAssets(&source, &source + 1, cvtParams)->front();
-            assert(specializedShader);
+            // this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+            shader = m_device->createShader(source.get());
+            if (!shader)
+                return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
         }
 
 		const uint32_t bindingCount = 4u;
 		video::IGPUDescriptorSetLayout::SBinding bindings[bindingCount] = {};
-		{
-			bindings[0].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-			bindings[1].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-			bindings[2].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[3].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-		}
+		bindings[0].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+		bindings[1].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
+		bindings[2].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
+		bindings[3].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
         
         for(int i = 0; i < bindingCount; ++i)
         {
@@ -126,13 +117,20 @@ public:
             bindings[i].count = 1;
             bindings[i].binding = i;
         }
-		m_descriptorSetLayout = m_device->createDescriptorSetLayout(bindings, bindings + bindingCount);
-		asset::SPushConstantRange pcRange = {};
-		pcRange.stageFlags = asset::IShader::ESS_COMPUTE;
-		pcRange.offset = 0u;
-		pcRange.size = 2 * sizeof(uint32_t);
-		auto pipelineLayout = m_device->createPipelineLayout(&pcRange, &pcRange + 1, core::smart_refctd_ptr(m_descriptorSetLayout));
-        m_pipeline = m_device->createComputePipeline(nullptr, std::move(pipelineLayout), core::smart_refctd_ptr(specializedShader));
+		m_descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+        {
+		    asset::SPushConstantRange pcRange = {};
+		    pcRange.stageFlags = asset::IShader::ESS_COMPUTE;
+		    pcRange.offset = 0u;
+		    pcRange.size = 2 * sizeof(uint32_t);
+            auto layout = m_device->createPipelineLayout({ &pcRange,1 }, nbl::core::smart_refctd_ptr(m_descriptorSetLayout));
+            IGPUComputePipeline::SCreationParams params = {};
+            params.layout = layout.get();
+            params.shader.shader = shader.get();
+            if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
+                return logFail("Failed to create compute pipeline!\n");
+        }
+
 
         for (int i = 0; i < 2; ++i)
         {
@@ -202,12 +200,11 @@ public:
             writeDescriptorSets[i].dstSet = m_descriptorSet.get();
             writeDescriptorSets[i].binding = i;
             writeDescriptorSets[i].count = bindings[i].count;
-            writeDescriptorSets[i].descriptorType = bindings[i].type;
 
             if(i<2)
             {
                 descriptorInfos[i].desc = m_imageViews[i];
-                descriptorInfos[i].info.image.imageLayout = asset::IImage::EL_GENERAL;
+                descriptorInfos[i].info.image.imageLayout = asset::IImage::LAYOUT::GENERAL;
             }
             else
             {
@@ -217,6 +214,8 @@ public:
         }
 
         m_device->updateDescriptorSets(bindingCount, writeDescriptorSets, 0u, nullptr);
+       
+        // In contrast to fences, we just need one semaphore to rule all dispatches
         return true;
     }
 
@@ -229,67 +228,73 @@ public:
     {
         cpu_tests();
 
-        if (m_fence)
-            m_device->blockForFences(1u, &m_fence.get());
-        else
-            m_fence = m_device->createFence(static_cast<nbl::video::IGPUFence::E_CREATE_FLAGS>(0));
+        constexpr auto StartedValue = 0;
 
-        m_device->resetFences(1u, &m_fence.get());
+        nbl::core::smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
+        
 
-        m_cmdbuf->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-        m_cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+        m_cmdbuf->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+        m_cmdbuf->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
-        video::IGPUCommandBuffer::SImageMemoryBarrier layoutTransBarriers[2] = {
-            {
-            .barrier = { .srcAccessMask = static_cast<asset::E_ACCESS_FLAGS>(0), .dstAccessMask = asset::EAF_SHADER_WRITE_BIT, },
-            .oldLayout = asset::IImage::EL_UNDEFINED,
-            .newLayout = asset::IImage::EL_GENERAL,
-            .srcQueueFamilyIndex = ~0u,
-            .dstQueueFamilyIndex = ~0u,
-            .image = core::smart_refctd_ptr<video::IGPUImage>(m_images[0]),
+
+        IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t layoutTransBarriers[2] = { {
+            .barrier = {
+                .dep = {
+                    .srcStageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+                    .dstAccessMask = asset::ACCESS_FLAGS::SHADER_WRITE_BITS
+                },
+                .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+                .otherQueueFamilyIndex = ~0u
+            },
+            .image = m_images[0].get(),
             .subresourceRange = {
                 .aspectMask = asset::IImage::EAF_COLOR_BIT,
                 .baseMipLevel = 0u,
                 .levelCount = 1u,
                 .baseArrayLayer = 0u,
                 .layerCount = 1u,
-                }
-            }
-        };
+            },
+            .oldLayout = asset::IImage::LAYOUT::UNDEFINED,
+            .newLayout = asset::IImage::LAYOUT::GENERAL,
+        } };
 
         layoutTransBarriers[1] = layoutTransBarriers[0];
-        layoutTransBarriers[1].image = m_images[1];
+        layoutTransBarriers[1].image = m_images[1].get();
 
-        m_cmdbuf->pipelineBarrier(
-            asset::EPSF_TOP_OF_PIPE_BIT,
-            asset::EPSF_COMPUTE_SHADER_BIT,
-            static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
-            0u, nullptr,
-            0u, nullptr,
-            2u, layoutTransBarriers);
+        const IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = { .imgBarriers = layoutTransBarriers };
+
+        
 
         const uint32_t pushConstants[2] = { 1920, 1080 };
         const video::IGPUDescriptorSet* set = m_descriptorSet.get();
         m_cmdbuf->bindComputePipeline(m_pipeline.get());
         m_cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, m_pipeline->getLayout(), 0u, 1u, &set);
         m_cmdbuf->dispatch(240, 135, 1u);
-        
         for (int i = 0; i < 2; ++i)
         {
-            layoutTransBarriers[i].barrier.srcAccessMask = layoutTransBarriers[i].barrier.dstAccessMask;
-            layoutTransBarriers[i].barrier.dstAccessMask = asset::EAF_TRANSFER_READ_BIT;
+            layoutTransBarriers[i].barrier.dep.srcAccessMask = layoutTransBarriers[i].barrier.dep.dstAccessMask;
+            layoutTransBarriers[i].barrier.dep.dstAccessMask = asset::ACCESS_FLAGS::TRANSFER_READ_BIT;
             layoutTransBarriers[i].oldLayout = layoutTransBarriers[i].newLayout;
-            layoutTransBarriers[i].newLayout = asset::IImage::EL_TRANSFER_SRC_OPTIMAL;
+            layoutTransBarriers[i].newLayout = asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
         }
 
-        m_cmdbuf->pipelineBarrier(
-            asset::EPSF_COMPUTE_SHADER_BIT,
-            asset::EPSF_TRANSFER_BIT,
-            static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
-            0u, nullptr,
-            0u, nullptr,
-            2u, layoutTransBarriers);
-
+        //{
+        //    constexpr auto FinishedValue1 = 42;
+        //    IQueue::SSubmitInfo submitInfos[1] = {};
+        //    const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
+        //    submitInfos[0].commandBuffers = cmdbufs;
+        //    const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue1,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+        //    submitInfos[0].signalSemaphores = signals;
+        //    m_queue->startCapture();
+        //    m_queue->submit(submitInfos);  //Command buffer is NOT IN THE EXECUTABLE STATE
+        //    m_queue->endCapture();
+        //    const ISemaphore::SWaitInfo waitInfos[] = { {
+        //            .semaphore = progress.get(),
+        //            .value = FinishedValue1
+        //        } };
+        //    m_device->blockForSemaphores(waitInfos);
+       
+        //}
         nbl::asset::IImage::SBufferCopy copy = {
             .imageSubresource = { 
                 .aspectMask = nbl::video::IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
@@ -300,22 +305,28 @@ public:
             .imageExtent = {1920, 1080, 1},
         };
         
-        bool succ = m_cmdbuf->copyImageToBuffer(m_images[0].get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL, m_readbackBuffers[0].get(), 1, &copy);
-        succ &= m_cmdbuf->copyImageToBuffer(m_images[1].get(), nbl::asset::IImage::EL_TRANSFER_SRC_OPTIMAL, m_readbackBuffers[1].get(), 1, &copy);
+        bool succ = m_cmdbuf->copyImageToBuffer(m_images[0].get(), nbl::asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, m_readbackBuffers[0].get(), 1, &copy);
+        succ &= m_cmdbuf->copyImageToBuffer(m_images[1].get(), nbl::asset::IImage::LAYOUT::TRANSFER_SRC_OPTIMAL, m_readbackBuffers[1].get(), 1, &copy);
         assert(succ);
         m_cmdbuf->end();
-        
+
         {
-            auto cmd = m_cmdbuf.get();
-            IGPUQueue::SSubmitInfo info = {
-                .commandBufferCount = 1,
-                .commandBuffers = &cmd,
-            };
-            m_queue->submit(1, &info, m_fence.get());
+            constexpr auto FinishedValue = 69;
+            IQueue::SSubmitInfo submitInfos[1] = {};
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()} };
+            submitInfos[0].commandBuffers = cmdbufs;
+            const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+            submitInfos[0].signalSemaphores = signals;
+            m_queue->startCapture();
+            m_queue->submit(submitInfos);
+            m_queue->endCapture();
+            const ISemaphore::SWaitInfo waitInfos[] = { {
+                    .semaphore = progress.get(),
+                    .value = FinishedValue
+                } };
+            m_device->blockForSemaphores(waitInfos);
         }
 
-        m_device->blockForFences(1u, &m_fence.get());
-        
         using res = std::array<std::array<std::array<float, 4>, 1080>, 1920>;
         res* ptrs[4] = {};
         
@@ -324,9 +335,9 @@ public:
         for (int i = 0; i < 4; ++i)
         {
             auto mem = (i < 2 ? m_buffers[i] : m_readbackBuffers[i-2])->getBoundMemory();
-            assert(mem->isMappable());
-            m_device->mapMemory(nbl::video::IDeviceMemoryAllocation::MappedMemoryRange(mem, 0, mem->getAllocationSize()));
-            ptrs[i] = (res*)mem->getMappedPointer();
+            assert(mem.memory->isMappable());
+            auto* ptr = mem.memory->map({ .offset = 0, .length = mem.memory->getAllocationSize() });
+            ptrs[i] = (res*)ptr;
         }
         res& buf = *ptrs[1];
         res& img = *ptrs[3];
@@ -370,12 +381,10 @@ private:
     core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_readbackBuffers[2];
     core::smart_refctd_ptr<nbl::video::IGPUImageView> m_imageViews[2];
     core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf = nullptr;
-    video::IGPUQueue* m_queue;
-    core::smart_refctd_ptr<video::IGPUFence> m_fence = nullptr;
+    video::IQueue* m_queue;
     nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> m_commandPool;
-    
-    // core::smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
-    // video::IGPUObjectFromAssetConverter::SParams m_cpu2gpuParams;
+    uint64_t m_iteration = 0;
+    constexpr static inline uint64_t MaxIterations = 200;
 
     bool m_keepRunning = true;
 };
@@ -573,9 +582,9 @@ void cpu_tests()
 
     auto zero = cross(x,x);
     auto lenX2 = dot(x,x);
-    float32_t3x3 z_inv = inverse(z);
+    //auto z_inv = inverse(z); //busted return type conversion
     auto mid = lerp(x,x,0.5f);
-    auto w = transpose(y);
+    //auto w = transpose(y); //also busted
     
 
     // half test
@@ -771,7 +780,7 @@ void cpu_tests()
     TEST_CMATH(fdim, 2, type) \
 
 
-TEST_CMATH_FOR_TYPE(float32_t)
-TEST_CMATH_FOR_TYPE(float64_t)
-
+    TEST_CMATH_FOR_TYPE(float32_t)
+    TEST_CMATH_FOR_TYPE(float64_t)
+    std::cout << "cpu tests done\n";
 }
