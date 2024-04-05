@@ -1,8 +1,6 @@
 #include "nbl/builtin/hlsl/glsl_compat/core.hlsl"
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 1024;
-
 struct PushConstantData
 {
 	uint64_t inputAddress;

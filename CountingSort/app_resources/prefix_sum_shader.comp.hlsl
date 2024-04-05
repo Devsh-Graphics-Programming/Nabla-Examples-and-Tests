@@ -7,7 +7,7 @@
 [[vk::push_constant]] PushConstantData pushConstants;
 [[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> scratch;
 
-groupshared uint32_t prefixScratch[WorkgroupSize];
+groupshared uint32_t prefixScratch[MaxBucketCount];
 
 struct ScratchProxy
 {
@@ -28,7 +28,7 @@ struct ScratchProxy
 
 static ScratchProxy arithmeticAccessor;
 
-groupshared uint32_t sdata[WorkgroupSize];
+groupshared uint32_t sdata[MaxBucketCount];
 
 uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 {
