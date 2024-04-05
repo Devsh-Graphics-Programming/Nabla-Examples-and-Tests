@@ -647,7 +647,7 @@ int main()
         // const std::string out = std::filesystem::absolute("out/cpu/" + std::string(getProfileRS(profile)) + "/" + stem + ".png").string(); TODO (?): why its not working?
         const std::string out = std::filesystem::absolute(std::string(getProfileRS(profile)) + "_" + stem + ".png").string();
 
-        auto cdc = profile.createCDCTexture();
+        auto cdc = profile.createIESTexture();
 
         asset::IAssetWriter::SAssetWriteParams wparams(cdc.get());
 
