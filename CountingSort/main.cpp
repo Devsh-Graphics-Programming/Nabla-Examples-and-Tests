@@ -32,6 +32,8 @@ public:
 		auto limits = m_physicalDevice->getLimits();
 		const uint32_t WorkgroupSize = limits.maxComputeWorkGroupInvocations;
 		const uint32_t MaxBucketCount = (limits.maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
+		constexpr size_t element_count = 10000;
+		const size_t bucket_count = std::min((uint32_t)3000, MaxBucketCount);
 
 		// this time we load a shader directly from a file
 		smart_refctd_ptr<IGPUShader> prefixSumShader;
@@ -51,8 +53,8 @@ public:
 			assert(source);
 
 			auto overrideSource = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define WorkgroupSize %d\n#define MaxBucketCount %d\n",
-				WorkgroupSize, MaxBucketCount
+				source.get(), "#define WorkgroupSize %d\n#define BucketCount %d\n",
+				WorkgroupSize, bucket_count
 			);
 
 			// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
@@ -130,7 +132,6 @@ public:
 		nbl::video::IDeviceMemoryAllocator::SAllocation allocation[3] = {};
 		smart_refctd_ptr<IGPUBuffer> buffers[3];
 		smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
-		constexpr size_t element_count = 10000;
 		{
 			auto build_buffer = [this](
 				smart_refctd_ptr<ILogicalDevice> m_device,
@@ -158,7 +159,7 @@ public:
 			};
 
 			build_buffer(m_device,	allocation,		buffers[0], sizeof(uint32_t) * element_count,	"Input Buffer");
-			build_buffer(m_device,	allocation + 1,	buffers[1], sizeof(uint32_t) * MaxBucketCount,	"Scratch Buffer");
+			build_buffer(m_device,	allocation + 1,	buffers[1], sizeof(uint32_t) * bucket_count,	"Scratch Buffer");
 			build_buffer(m_device,	allocation + 2,	buffers[2], sizeof(uint32_t) * element_count,	"Output Buffer");
 
 			smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
@@ -169,7 +170,7 @@ public:
 			{
 				IGPUDescriptorSet::SDescriptorInfo info[1];
 				info[0].desc = buffers[1]; // bad API, too late to change, should just take raw-pointers since not consumed
-				info[0].info.buffer = { .offset = 0,.size = sizeof(uint32_t) * MaxBucketCount };
+				info[0].info.buffer = { .offset = 0,.size = sizeof(uint32_t) * bucket_count };
 				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
 					{.dstSet = ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
 				};
@@ -191,7 +192,7 @@ public:
 
 		// Generate random data
 		constexpr uint32_t minimum = 0;
-		const uint32_t range = MaxBucketCount;
+		const uint32_t range = bucket_count;
 		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 		std::mt19937 g(seed);
 		auto bufferData = new uint32_t[element_count];
@@ -337,7 +338,7 @@ public:
 		outBuffer.clear();
 		uint32_t count = 0;
 		int c = 0;
-		for (auto i = 0; i < MaxBucketCount; i++) {
+		for (auto i = 0; i < bucket_count; i++) {
 			outBuffer.append(std::to_string(buffData[i]));
 			outBuffer.append(" ");
 			count += buffData[i];
@@ -346,7 +347,7 @@ public:
 		}
 		outBuffer.append("\n");
 		outBuffer.append("Count: ");
-		outBuffer.append(std::to_string(MaxBucketCount));
+		outBuffer.append(std::to_string(bucket_count));
 		outBuffer.append("\n");
 		outBuffer.append("True Count: ");
 		outBuffer.append(std::to_string(c));

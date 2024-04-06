@@ -4,12 +4,12 @@
 #include "nbl/builtin/hlsl/jit/device_capabilities.hlsl"
 #include "nbl/builtin/hlsl/workgroup/arithmetic.hlsl"
 
-NBL_CONSTEXPR uint32_t BucketsPerThread = MaxBucketCount / WorkgroupSize;
+NBL_CONSTEXPR uint32_t BucketsPerThread = BucketCount / WorkgroupSize;
 
 [[vk::push_constant]] PushConstantData pushConstants;
 [[vk::binding(0,0)]] RWStructuredBuffer<uint32_t> scratch;
 
-groupshared uint32_t prefixScratch[MaxBucketCount];
+groupshared uint32_t prefixScratch[BucketCount];
 
 struct ScratchProxy
 {
@@ -30,7 +30,7 @@ struct ScratchProxy
 
 static ScratchProxy arithmeticAccessor;
 
-groupshared uint32_t sdata[MaxBucketCount];
+groupshared uint32_t sdata[BucketCount];
 
 uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 {
@@ -59,7 +59,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     uint32_t sum = 0;
     
-    for (int i = 0; i < MaxBucketCount; i++)
+    for (int i = 0; i < BucketCount; i++)
     {
         sum = nbl::hlsl::workgroup::inclusive_scan < nbl::hlsl::plus < uint32_t >, WorkgroupSize > ::
         template __call <ScratchProxy>
@@ -71,7 +71,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
         
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
         
-        if ((tid == WorkgroupSize - 1) && i < (MaxBucketCount - 1))
+        if ((tid == WorkgroupSize - 1) && i < (BucketCount - 1))
             sdata[WorkgroupSize * (i + 1)] += sum;
     
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
