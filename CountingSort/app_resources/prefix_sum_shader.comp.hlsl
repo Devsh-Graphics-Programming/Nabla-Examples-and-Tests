@@ -45,13 +45,15 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     [unroll]
     for (int i = 0; i < BucketsPerThread; i++)
         sdata[BucketsPerThread * tid + i] = 0;
-    uint32_t index = nbl::hlsl::glsl::gl_WorkGroupID().x * WorkgroupSize + tid;
+    uint32_t index = (nbl::hlsl::glsl::gl_WorkGroupID().x * WorkgroupSize + tid) * pushConstants.elementsPerWT;
 
     nbl::hlsl::glsl::barrier();
 
-    if (index < pushConstants.dataElementCount)
+    for (int i = 0; i < pushConstants.elementsPerWT; i++)
     {
-        uint32_t value = vk::RawBufferLoad(pushConstants.inputAddress + sizeof(uint32_t) * index);
+        if (index + i >= pushConstants.dataElementCount)
+            break;
+        uint32_t value = vk::RawBufferLoad(pushConstants.inputAddress + sizeof(uint32_t) * (index + i));
         nbl::hlsl::glsl::atomicAdd(sdata[value - pushConstants.minimum], (uint32_t) 1);
     }
 

@@ -7,6 +7,7 @@ struct PushConstantData
     uint64_t outputAddress;
 	uint32_t dataElementCount;
     uint32_t minimum;
+    uint32_t elementsPerWT;
 };
 
 // Yes we do have our own re-creation of C++'s STL in HLSL2021 !

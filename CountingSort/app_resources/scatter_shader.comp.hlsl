@@ -14,13 +14,15 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     uint32_t tid = nbl::hlsl::workgroup::SubgroupContiguousIndex();
-    uint32_t index = nbl::hlsl::glsl::gl_WorkGroupID().x * WorkgroupSize + tid;
+    uint32_t index = (nbl::hlsl::glsl::gl_WorkGroupID().x * WorkgroupSize + tid) * pushConstants.elementsPerWT;
 
     nbl::hlsl::glsl::barrier();
     
-    if (index < pushConstants.dataElementCount)
+    for (int i = 0; i < pushConstants.elementsPerWT; i++)
     {
-        uint32_t value = vk::RawBufferLoad(pushConstants.inputAddress + sizeof(uint32_t) * index);
+        if (index + i >= pushConstants.dataElementCount)
+            break;
+        uint32_t value = vk::RawBufferLoad(pushConstants.inputAddress + sizeof(uint32_t) * (index + i));
         uint32_t address = nbl::hlsl::glsl::atomicAdd(scratch[value - pushConstants.minimum], (uint32_t) -1);
         vk::RawBufferStore(pushConstants.outputAddress + sizeof(uint32_t) * (address - 1), value);
     }

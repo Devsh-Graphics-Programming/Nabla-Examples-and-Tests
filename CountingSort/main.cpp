@@ -32,8 +32,9 @@ public:
 		auto limits = m_physicalDevice->getLimits();
 		const uint32_t WorkgroupSize = limits.maxComputeWorkGroupInvocations;
 		const uint32_t MaxBucketCount = (limits.maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
-		constexpr size_t element_count = 10000;
+		constexpr size_t element_count = 100000;
 		const size_t bucket_count = std::min((uint32_t)3000, MaxBucketCount);
+		const uint32_t elements_per_thread = ceil((float)ceil((float)element_count / limits.computeUnits) / WorkgroupSize);
 
 		// this time we load a shader directly from a file
 		smart_refctd_ptr<IGPUShader> prefixSumShader;
@@ -218,6 +219,7 @@ public:
 			.outputAddress = buffer_device_address[1],
 			.dataElementCount = element_count,
 			.minimum = minimum,
+			.elementsPerWT = elements_per_thread
 		};
 
 		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdBuf;
@@ -237,7 +239,7 @@ public:
 		cmdBuf->bindComputePipeline(prefixSumPipeline.get());
 		cmdBuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, layout.get(), 0, 1, &ds.get());
 		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-		cmdBuf->dispatch(ceil((float)element_count / WorkgroupSize), 1, 1);
+		cmdBuf->dispatch(ceil((float)element_count / (elements_per_thread * WorkgroupSize)), 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
 
@@ -280,7 +282,7 @@ public:
 		cmdBuf->bindComputePipeline(scatterPipeline.get());
 		cmdBuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, layout.get(), 0, 1, &ds.get());
 		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-		cmdBuf->dispatch(ceil((float)element_count / WorkgroupSize), 1, 1);
+		cmdBuf->dispatch(ceil((float)element_count / (elements_per_thread * WorkgroupSize)), 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
 
