@@ -60,22 +60,28 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     nbl::hlsl::glsl::barrier();
 
     uint32_t sum = 0;
+    uint32_t scan_sum = 0;
     
     for (int i = 0; i < BucketsPerThread; i++)
     {
-        sum = nbl::hlsl::workgroup::inclusive_scan < nbl::hlsl::plus < uint32_t >, WorkgroupSize > ::
+        sum = nbl::hlsl::workgroup::exclusive_scan < nbl::hlsl::plus < uint32_t >, WorkgroupSize > ::
         template __call <ScratchProxy>
         (sdata[WorkgroupSize * i + tid], arithmeticAccessor);
-        
+
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
     
         nbl::hlsl::glsl::atomicAdd(scratch[WorkgroupSize * i + tid], sum);
+        if ((tid == WorkgroupSize - 1) && i > 0)
+            nbl::hlsl::glsl::atomicAdd(scratch[WorkgroupSize * i], scan_sum);
         
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
         
         if ((tid == WorkgroupSize - 1) && i < (BucketsPerThread - 1))
-            sdata[WorkgroupSize * (i + 1)] += sum;
-    
+        {
+            scan_sum = sum + sdata[WorkgroupSize * i + tid];
+            sdata[WorkgroupSize * (i + 1)] += scan_sum;
+        }
+
         arithmeticAccessor.workgroupExecutionAndMemoryBarrier();
     }
 }

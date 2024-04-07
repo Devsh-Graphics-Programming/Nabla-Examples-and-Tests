@@ -23,7 +23,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
         if (index + i >= pushConstants.dataElementCount)
             break;
         uint32_t value = vk::RawBufferLoad(pushConstants.inputAddress + sizeof(uint32_t) * (index + i));
-        uint32_t address = nbl::hlsl::glsl::atomicAdd(scratch[value - pushConstants.minimum], (uint32_t) -1);
-        vk::RawBufferStore(pushConstants.outputAddress + sizeof(uint32_t) * (address - 1), value);
+        uint32_t address = nbl::hlsl::glsl::atomicAdd(scratch[value - pushConstants.minimum], (uint32_t) 1);
+        vk::RawBufferStore(pushConstants.outputAddress + sizeof(uint32_t) * address, value);
     }
 }
