@@ -78,8 +78,8 @@ public:
 			assert(source);
 
 			auto overrideSource = CHLSLCompiler::createOverridenCopy(
-				source.get(), "#define WorkgroupSize %d\n",
-				WorkgroupSize
+				source.get(), "#define WorkgroupSize %d\n#define BucketCount %d\n",
+				WorkgroupSize, bucket_count
 			);
 
 			// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
