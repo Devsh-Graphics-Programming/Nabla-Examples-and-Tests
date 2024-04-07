@@ -190,7 +190,7 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 			m_renderpass = renderpass;
 		}
 
-		inline IGPUFramebuffer* getFrambuffer(const uint8_t imageIx)
+		inline IGPUFramebuffer* getFramebuffer(const uint8_t imageIx)
 		{
 			if (imageIx<m_framebuffers.size())
 				return m_framebuffers[imageIx].get();
@@ -919,7 +919,7 @@ public:
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
-				.framebuffer = scRes->getFrambuffer(m_currentImageAcquire.imageIndex),
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
@@ -1092,7 +1092,7 @@ public:
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
-				.framebuffer = scRes->getFrambuffer(m_currentImageAcquire.imageIndex),
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
