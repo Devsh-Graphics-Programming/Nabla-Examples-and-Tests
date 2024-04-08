@@ -66,7 +66,7 @@ float64_t2 ExplicitCurve::computeTangent(float64_t x) const
 {
     const float64_t deriv = derivative(x);
     float64_t2 v = float64_t2(1.0, deriv);
-    if (core::isinf(deriv))
+    if (std::isinf(deriv))
         v = float64_t2(0.0, 1.0);
     return v;
 }
