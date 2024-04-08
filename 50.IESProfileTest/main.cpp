@@ -14,7 +14,7 @@ class IESCompute
 {
     public:
         IESCompute(video::IVideoDriver* _driver, asset::IAssetManager* _assetManager, const std::vector<asset::SAssetBundle>& _assets)
-            : assets(_assets), driver(_driver), generalPurposeOffset(0), pushConstant({(float)getProfile(0).getMaxValue(), 0.f})
+            : assets(_assets), driver(_driver), generalPurposeOffset(0), pushConstant({(float)getProfile(0).getMaxCandelaValue(), 0.f})
         {
             createGPUEnvironment(_assetManager); 
 
@@ -109,14 +109,15 @@ class IESCompute
 
                 // not elegant way to do it here but lets leave it as it is
                 updateCDescriptorSets();
-                pushConstant.maxIValueReciprocal = (float)getActiveProfile().getMaxValue();
+                pushConstant.maxIValueReciprocal = (float)getActiveProfile().getMaxCandelaValue();
             }
         }
 
         const asset::CIESProfile::IES_STORAGE_FORMAT getZDegree()
         {
-            return pushConstant.zAngleDegreeRotation + getProfile(generalPurposeOffset).getHAnglesOffset();
-        }
+            const auto& profile = getProfile(generalPurposeOffset);
+            return pushConstant.zAngleDegreeRotation + (profile.getSymmetry() == asset::CIESProfile::OTHER_HALF_SYMMETRIC ? 90.0 : 0.0); // real IES horizontal angle has 90.0 degress offset if OTHER_HALF_SYMMETRY, we handle it because of legacy IES 1995 specification case
+        } 
 
         void updateMode(const E_MODE& mode)
         {
