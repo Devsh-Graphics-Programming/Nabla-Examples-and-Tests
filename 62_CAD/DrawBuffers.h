@@ -41,9 +41,6 @@ public:
 
 	void allocateCustomClipProjectionBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount);
 
-	// TODO
-	//uint32_t getIndexCount() const { return currentIndexCount; }
-
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(
 		const CPolylineBase& polyline,

@@ -136,7 +136,7 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULin
 	uint32_t mainObjIdx;
 	addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, intendedNextSubmit);
 
-	return drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
+	drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
 }
 
 void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32_t polylineMainObjIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
