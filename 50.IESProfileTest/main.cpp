@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include <nabla.h>
+#include <chrono>
 #include <filesystem>
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "compute/common.h"
@@ -648,7 +649,10 @@ int main()
         // const std::string out = std::filesystem::absolute("out/cpu/" + std::string(getProfileRS(profile)) + "/" + stem + ".png").string(); TODO (?): why its not working?
         const std::string out = std::filesystem::absolute(std::string(getProfileRS(profile)) + "_" + stem + ".png").string();
 
+        auto start = std::chrono::steady_clock::now();
         auto cdc = profile.createIESTexture();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+        printf("Created CDC texture, took %s ms\n", std::to_string(elapsed.count()).c_str());
 
         asset::IAssetWriter::SAssetWriteParams wparams(cdc.get());
 
