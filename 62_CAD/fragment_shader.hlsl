@@ -6,13 +6,8 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
-
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-[[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
-void beginInvocationInterlockEXT();
-[[vk::ext_instruction(/* OpEndInvocationInterlockEXT */ 5365)]]
-void endInvocationInterlockEXT();
-#endif
+#include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
+#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 template<typename float_t>
 struct DefaultClipper
@@ -33,7 +28,19 @@ struct DefaultClipper
     }
 };
 
-template<typename CurveType, typename StyleAccessor>
+// for usage in upper_bound function
+struct StyleAccessor
+{
+    LineStyle style;
+    using value_type = float;
+
+    float operator[](const uint32_t ix)
+    {
+        return style.getStippleValue(ix);
+    }
+};
+
+template<typename CurveType>
 struct StyleClipper
 {
     using float_t = typename CurveType::scalar_t;
@@ -41,13 +48,54 @@ struct StyleClipper
     using float_t3 = typename CurveType::float_t3;
     NBL_CONSTEXPR_STATIC_INLINE float_t AccuracyThresholdT = 0.000001;
 
-    static StyleClipper<CurveType, StyleAccessor> construct(StyleAccessor styleAccessor,
+    static StyleClipper<CurveType> construct(
+        LineStyle style,
         CurveType curve,
         typename CurveType::ArcLengthCalculator arcLenCalc,
-        float phaseShift)
+        float phaseShift,
+        float stretch,
+        float worldToScreenRatio)
     {
-        StyleClipper<CurveType, StyleAccessor> ret = { styleAccessor, curve, arcLenCalc, phaseShift };
+        StyleClipper<CurveType> ret = { style, curve, arcLenCalc, phaseShift, stretch, worldToScreenRatio, 0.0f, 0.0f, 0.0f, 0.0f };
+
+        // values for non-uniform stretching with a rigid segment
+        if (style.rigidSegmentIdx != InvalidRigidSegmentIndex && stretch != 1.0f)
+        {
+            // rigidSegment info in old non stretched pattern
+            ret.rigidSegmentStart = (style.rigidSegmentIdx >= 1u) ? style.getStippleValue(style.rigidSegmentIdx - 1u) : 0.0f;
+            ret.rigidSegmentEnd = (style.rigidSegmentIdx < style.stipplePatternSize) ? style.getStippleValue(style.rigidSegmentIdx) : 1.0f;
+            ret.rigidSegmentLen = ret.rigidSegmentEnd - ret.rigidSegmentStart;
+            // stretch value for non rigid segments
+            ret.nonRigidSegmentStretchValue = (stretch - ret.rigidSegmentLen) / (1.0f - ret.rigidSegmentLen);
+            // rigidSegment info to new stretched pattern
+            ret.rigidSegmentStart *= ret.nonRigidSegmentStretchValue / stretch; // get the new normalized rigid segment start
+            ret.rigidSegmentLen /= stretch; // get the new rigid segment normalized len
+            ret.rigidSegmentEnd = ret.rigidSegmentStart + ret.rigidSegmentLen; // get the new normalized rigid segment end 
+        }
+        else
+        {
+            ret.nonRigidSegmentStretchValue = stretch;
+        }
+        
         return ret;
+    }
+
+    // For non-uniform stretching with a rigid segment (the one segement that shouldn't stretch) the whole pattern changes
+    // instead of transforming each of the style.stipplePattern values (max 14 of them), we transform the normalized place in pattern
+    float getRealNormalizedPlaceInPattern(float normalizedPlaceInPattern)
+    {
+        if (style.rigidSegmentIdx != InvalidRigidSegmentIndex && stretch != 1.0f)
+        {
+            float ret = min(normalizedPlaceInPattern, rigidSegmentStart) / nonRigidSegmentStretchValue; // unstretch parts before rigid segment
+            ret += max(normalizedPlaceInPattern - rigidSegmentEnd, 0.0f) / nonRigidSegmentStretchValue; // unstretch parts after rigid segment
+            ret += max(min(rigidSegmentLen, normalizedPlaceInPattern - rigidSegmentStart), 0.0f); // unstretch parts inside rigid segment
+            ret *= stretch;
+            return ret;
+        }
+        else
+        {
+            return normalizedPlaceInPattern;
+        }
     }
 
     float_t2 operator()(float_t t)
@@ -56,16 +104,19 @@ struct StyleClipper
         const float_t minT = 0.0 - 1.0;
         const float_t maxT = 1.0 + 1.0;
 
-        const LineStyle style = lineStyles[styleAccessor.styleIdx];
+        StyleAccessor styleAccessor = { style };
+        const float_t reciprocalStretchedStipplePatternLen = style.reciprocalStipplePatternLen / stretch;
+        const float_t patternLenInScreenSpace = 1.0 / (worldToScreenRatio * style.reciprocalStipplePatternLen);
+
         const float_t arcLen = arcLenCalc.calcArcLen(t);
-        const float_t worldSpaceArcLen = arcLen * float_t(globals.worldToScreenRatio);
-        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * style.reciprocalStipplePatternLen + phaseShift);
+        const float_t worldSpaceArcLen = arcLen * float_t(worldToScreenRatio);
+        float_t normalizedPlaceInPattern = frac(worldSpaceArcLen * reciprocalStretchedStipplePatternLen + phaseShift);
+        normalizedPlaceInPattern = getRealNormalizedPlaceInPattern(normalizedPlaceInPattern);
         uint32_t patternIdx = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPattern);
 
         const float_t InvalidT = nbl::hlsl::numeric_limits<float32_t>::infinity; 
         float_t2 ret = float_t2(InvalidT, InvalidT);
 
-        const float_t patternLen = float_t(globals.screenToWorldRatio) / style.reciprocalStipplePatternLen;
         // odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
         const bool notInDrawSection = patternIdx & 0x1;
         
@@ -74,6 +125,7 @@ struct StyleClipper
         float_t maxDrawT = 1.0;
         {
             float_t normalizedPlaceInPatternBegin = frac(phaseShift);
+            normalizedPlaceInPatternBegin = getRealNormalizedPlaceInPattern(normalizedPlaceInPatternBegin);
             uint32_t patternIdxBegin = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternBegin);
             const bool BeginInNonDrawSection = patternIdxBegin & 0x1;
 
@@ -81,14 +133,19 @@ struct StyleClipper
             {
                 float_t diffToRightDrawableSection = (patternIdxBegin == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdxBegin];
                 diffToRightDrawableSection -= normalizedPlaceInPatternBegin;
-                float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
+                float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLenInScreenSpace * ((patternIdxBegin != style.rigidSegmentIdx) ? nonRigidSegmentStretchValue : 1.0);
                 const float_t arcLenForT1 = 0.0 + scrSpcOffsetToArcLen1;
                 minDrawT = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, 0.0);
             }
+            
+            // Completely in non-draw section -> clip away:
+            if (minDrawT >= 1.0)
+                return ret;
 
             const float_t arcLenEnd = arcLenCalc.calcArcLen(1.0);
-            const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(globals.worldToScreenRatio);
-            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * style.reciprocalStipplePatternLen + phaseShift);
+            const float_t worldSpaceArcLenEnd = arcLenEnd * float_t(worldToScreenRatio);
+            float_t normalizedPlaceInPatternEnd = frac(worldSpaceArcLenEnd * reciprocalStretchedStipplePatternLen + phaseShift);
+            normalizedPlaceInPatternEnd = getRealNormalizedPlaceInPattern(normalizedPlaceInPatternEnd);
             uint32_t patternIdxEnd = nbl::hlsl::upper_bound(styleAccessor, 0, style.stipplePatternSize, normalizedPlaceInPatternEnd);
             const bool EndInNonDrawSection = patternIdxEnd & 0x1;
 
@@ -96,7 +153,7 @@ struct StyleClipper
             {
                 float_t diffToLeftDrawableSection = (patternIdxEnd == 0) ? 0.0 : styleAccessor[patternIdxEnd - 1];
                 diffToLeftDrawableSection -= normalizedPlaceInPatternEnd;
-                float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+                float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLenInScreenSpace * ((patternIdxEnd != style.rigidSegmentIdx) ? nonRigidSegmentStretchValue : 1.0);
                 const float_t arcLenForT0 = arcLenEnd + scrSpcOffsetToArcLen0;
                 maxDrawT = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, 1.0);
             }
@@ -104,16 +161,18 @@ struct StyleClipper
 
         if (notInDrawSection)
         {
+            float toScreenSpaceLen = patternLenInScreenSpace * ((patternIdx != style.rigidSegmentIdx) ? nonRigidSegmentStretchValue : 1.0);
+
             float_t diffToLeftDrawableSection = (patternIdx == 0) ? 0.0 : styleAccessor[patternIdx - 1];
             diffToLeftDrawableSection -= normalizedPlaceInPattern;
-            float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * patternLen;
+            float_t scrSpcOffsetToArcLen0 = diffToLeftDrawableSection * toScreenSpaceLen;
             const float_t arcLenForT0 = arcLen + scrSpcOffsetToArcLen0;
             float_t t0 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT0, AccuracyThresholdT, t);
             t0 = clamp(t0, minDrawT, maxDrawT);
 
             float_t diffToRightDrawableSection = (patternIdx == style.stipplePatternSize) ? 1.0 : styleAccessor[patternIdx];
             diffToRightDrawableSection -= normalizedPlaceInPattern;
-            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * patternLen;
+            float_t scrSpcOffsetToArcLen1 = diffToRightDrawableSection * toScreenSpaceLen;
             const float_t arcLenForT1 = arcLen + scrSpcOffsetToArcLen1;
             float_t t1 = arcLenCalc.calcArcLenInverse(curve, minT, maxT, arcLenForT1, AccuracyThresholdT, t);
             t1 = clamp(t1, minDrawT, maxDrawT);
@@ -129,10 +188,17 @@ struct StyleClipper
         return ret;
     }
 
-    StyleAccessor styleAccessor;
+    LineStyle style;
     CurveType curve;
     typename CurveType::ArcLengthCalculator arcLenCalc;
     float phaseShift;
+    float stretch;
+    float worldToScreenRatio;
+    // precomp value for non uniform stretching
+    float rigidSegmentStart;
+    float rigidSegmentEnd;
+    float rigidSegmentLen;
+    float nonRigidSegmentStretchValue;
 };
 
 template<typename CurveType, typename Clipper = DefaultClipper<typename CurveType::scalar_t> >
@@ -264,17 +330,50 @@ float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb
     return sdTrapezoid(p, ra, rb, h);
 }
 
-typedef StyleClipper<nbl::hlsl::shapes::Quadratic<float>, StyleAccessor> BezierStyleClipper;
-typedef StyleClipper<nbl::hlsl::shapes::Line<float>, StyleAccessor> LineStyleClipper;
+typedef StyleClipper< nbl::hlsl::shapes::Quadratic<float> > BezierStyleClipper;
+typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
+
+// We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
+// because there is no `if constexpr` in hlsl
+template<bool FragmentShaderPixelInterlock>
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx);
+
+template<>
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+{
+    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
+    col.w *= localAlpha;
+    return float4(col);
+}
+template<>
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+{
+    nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
+    nbl::hlsl::spirv::beginInvocationInterlockEXT();
+
+    const uint32_t packedData = pseudoStencil[fragCoord];
+
+    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
+    const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
+    const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
+    const bool resolve = currentMainObjectIdx != mainObjectIdx;
+    if (resolve || localQuantizedAlpha > quantizedAlpha)
+        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+
+    nbl::hlsl::spirv::endInvocationInterlockEXT();
+
+    if (!resolve)
+        discard;
+
+    // draw with previous geometry's style's color :kek:
+    float32_t4 col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
+    col.w *= float(quantizedAlpha) / 255.f;
+    return col;
+}
 
 float4 main(PSInput input) : SV_TARGET
 {
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-    [[vk::ext_capability(/*FragmentShaderPixelInterlockEXT*/ 5378)]]
-    [[vk::ext_extension("SPV_EXT_fragment_shader_interlock")]]
-    vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
-#endif
-	
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
@@ -285,21 +384,24 @@ float4 main(PSInput input) : SV_TARGET
         const float2 end = input.getLineEnd();
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
-        const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
+        const float phaseShift = input.getCurrentPhaseShift();
+        const float stretch = input.getPatternStretch();
+        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
         nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
         nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
 
+        LineStyle style = lineStyles[styleIdx];
+        
         float distance;
-        if (!lineStyles[styleIdx].hasStipples())
+        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, isRoadStyle);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
         }
         else
         {
-            StyleAccessor styleAccessor = { styleIdx };
-            LineStyleClipper clipper = LineStyleClipper::construct(styleAccessor, lineSegment, arcLenCalc, input.getCurrentPhaseShift());
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, isRoadStyle, clipper);
+            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
         }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -312,18 +414,20 @@ float4 main(PSInput input) : SV_TARGET
 
         const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
         const float thickness = input.getLineThickness();
-        const bool isRoadStyle = lineStyles[styleIdx].isRoadStyleFlag;
-        float distance;
+        const float phaseShift = input.getCurrentPhaseShift();
+        const float stretch = input.getPatternStretch();
+        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
-        if (!lineStyles[styleIdx].hasStipples())
+        LineStyle style = lineStyles[styleIdx];
+        float distance;
+        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, isRoadStyle);
+            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
         }
         else
         {
-            StyleAccessor styleAccessor = { styleIdx };
-            BezierStyleClipper clipper = BezierStyleClipper::construct(styleAccessor, quadratic, arcLenCalc, input.getCurrentPhaseShift());
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, isRoadStyle, clipper);
+            BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
         }
 
         const float antiAliasingFactor = globals.antiAliasingFactor;
@@ -453,36 +557,9 @@ float4 main(PSInput input) : SV_TARGET
     }
 
     uint2 fragCoord = uint2(input.position.xy);
-    float4 col;
-
+    
     if (localAlpha <= 0)
         discard;
 
-
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-        beginInvocationInterlockEXT();
-
-    const uint32_t packedData = pseudoStencil[fragCoord];
-
-    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
-    const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
-    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
-    const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
-    const bool resolve = currentMainObjectIdx != mainObjectIdx;
-    if (resolve || localQuantizedAlpha > quantizedAlpha)
-        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
-
-    endInvocationInterlockEXT();
-
-    if (!resolve)
-        discard;
-
-    // draw with previous geometry's style's color :kek:
-    col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
-    col.w *= float(quantizedAlpha) / 255.f;
-#else
-    col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
-    col.w *= localAlpha;
-#endif
-    return float4(col);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
 }

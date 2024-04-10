@@ -1,7 +1,18 @@
-﻿#define _NBL_STATIC_LIB_
-#include <nabla.h>
+﻿
+using namespace nbl::hlsl;
+using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
 
-#include "../common/CommonAPI.h"
+
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "../common/SimpleWindowedApplication.hpp"
+#include "../common/InputSystem.hpp"
+#include "nbl/video/utilities/CSimpleResizeSurface.h"
+
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 #include "nbl/ext/TextRendering/TextRendering.h"
 #include "nbl/core/SRange.h"
@@ -13,9 +24,12 @@
 #include "Polyline.h"
 #include "DrawBuffers.h"
 
+#include "nbl/video/surface/CSurfaceVulkan.h"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -24,17 +38,12 @@ enum class ExampleMode
 	CASE_2, // hatches
 	CASE_3, // CURVES AND LINES
 	CASE_4, // STIPPLE PATTERN
-	CASE_5  // POLYLINES
+	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
-using namespace nbl::hlsl;
-
-using namespace nbl;
-using namespace ui;
-
-class Camera2D : public core::IReferenceCounted
+class Camera2D
 {
 public:
 	Camera2D()
@@ -119,536 +128,523 @@ private:
 	float64_t2 m_origin = {};
 };
 
-class CADApp : public ApplicationBase
+class CEventCallback : public ISimpleManagedSurface::ICallback
 {
-	constexpr static uint32_t FRAMES_IN_FLIGHT = 3u;
-	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-
-	constexpr static uint32_t REQUESTED_WIN_W = 1600u;
-	constexpr static uint32_t REQUESTED_WIN_H = 900u;
-
-	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-
-	core::smart_refctd_ptr<video::IQueryPool> pipelineStatsPool;
-	core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
-	core::smart_refctd_ptr<nbl::ui::IWindow> window;
-	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
-	core::smart_refctd_ptr<nbl::video::ISurface> surface;
-	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
-	video::IPhysicalDevice* physicalDevice;
-	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
-	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
-	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> framebuffersDynArraySmartPtr;
-	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<nbl::system::ISystem> system;
-	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
-	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<nbl::system::ILogger> logger;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
-	video::IGPUObjectFromAssetConverter cpu2gpu;
-	core::smart_refctd_ptr<video::IGPUImage> m_swapchainImages[CommonAPI::InitOutput::MaxSwapChainImageCount];
-	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
-
-	static constexpr char FirstGeneratedCharacter = ' ';
-	static constexpr char LastGeneratedCharacter = '~';
-	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
-	FT_Library m_glyphLibrary;
-	FT_Face m_glyphFace;
-
-	int32_t m_resourceIx = -1;
-	uint32_t m_SwapchainImageIx = ~0u;
-
-	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
-
-	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_cmdbuf[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_uploadCmdBuf[FRAMES_IN_FLIGHT] = { nullptr };
-
-	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
-
-	// Related to Drawing Stuff
-	Camera2D m_Camera;
-
-	core::smart_refctd_ptr<video::IGPUImageView> pseudoStencilImageView[FRAMES_IN_FLIGHT];
-	core::smart_refctd_ptr<video::IGPUBuffer> globalsBuffer[FRAMES_IN_FLIGHT];
-	core::smart_refctd_ptr<video::IGPUDescriptorSet> descriptorSets[FRAMES_IN_FLIGHT];
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> graphicsPipeline;
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> debugGraphicsPipeline;
-	core::smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout;
-	core::smart_refctd_ptr<video::IGPUPipelineLayout> graphicsPipelineLayout;
-
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> resolveAlphaGraphicsPipeline;
-	core::smart_refctd_ptr<video::IGPUPipelineLayout> resolveAlphaPipeLayout;
-
-	DrawBuffersFiller drawBuffers[FRAMES_IN_FLIGHT];
-
-	// For stress test CASE_1
-	CPolyline bigPolyline;
-	CPolyline bigPolyline2;
-
-	bool fragmentShaderInterlockEnabled = false;
-
-	// TODO: Needs better info about regular scenes and main limiters to improve the allocations in this function
-	void initDrawObjects(uint32_t maxObjects)
+public:
+	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)){}
+	CEventCallback() {}
+	
+	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
 	{
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
+		m_logger = logger;
+	}
+	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	{
+		m_inputSystem = std::move(m_inputSystem);
+	}
+private:
+		
+	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
+	{
+		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_mouse,std::move(mch));
+	}
+	void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
+	{
+		m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse,mch);
+	}
+	void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
+	{
+		m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard,std::move(kbch));
+	}
+	void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
+	{
+		m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard,kbch);
+	}
+
+private:
+	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
+};
+	
+class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
+{
+	public:
+
+		CSwapchainResources() = default;
+
+		inline E_FORMAT deduceRenderpassFormat(ISurface* surface, IPhysicalDevice* physDev)
 		{
-			drawBuffers[i] = DrawBuffersFiller(core::smart_refctd_ptr(utilities));
-
-			uint32_t maxIndices = maxObjects * 6u * 2u;
-			drawBuffers[i].allocateIndexBuffer(logicalDevice.get(), maxIndices);
-			drawBuffers[i].allocateMainObjectsBuffer(logicalDevice.get(), maxObjects);
-			drawBuffers[i].allocateDrawObjectsBuffer(logicalDevice.get(), maxObjects * 5u);
-			drawBuffers[i].allocateStylesBuffer(logicalDevice.get(), 32u);
-			drawBuffers[i].allocateCustomClipProjectionBuffer(logicalDevice.get(), 128u);
-
-			// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-			size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
-			drawBuffers[i].allocateGeometryBuffer(logicalDevice.get(), geometryBufferSize);
+			ISwapchain::SCreationParams swapchainParams = {.surface=smart_refctd_ptr<ISurface>(surface), };
+			// Need to choose a surface format
+			if (!swapchainParams.deduceFormat(physDev, getPreferredFormats(), getPreferredEOTFs(), getPreferredColorPrimaries()))
+				return EF_UNKNOWN;
+			return swapchainParams.surfaceFormat.format;
 		}
 
-		for (uint32_t i = 0; i < FRAMES_IN_FLIGHT; ++i)
+		// When needing to recreate the framebuffer, We need to have access to a renderpass compatible to renderpass used to render to the framebuffer
+		inline void setCompatibleRenderpass(core::smart_refctd_ptr<IGPURenderpass> renderpass)
 		{
-			video::IGPUBuffer::SCreationParams globalsCreationParams = {};
-			globalsCreationParams.size = sizeof(Globals);
-			globalsCreationParams.usage = video::IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | video::IGPUBuffer::EUF_TRANSFER_DST_BIT | video::IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			globalsBuffer[i] = logicalDevice->createBuffer(std::move(globalsCreationParams));
+			m_renderpass = renderpass;
+		}
 
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
-			memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = logicalDevice->allocate(memReq, globalsBuffer[i].get());
+		inline IGPUFramebuffer* getFramebuffer(const uint8_t imageIx)
+		{
+			if (imageIx<m_framebuffers.size())
+				return m_framebuffers[imageIx].get();
+			return nullptr;
+		}
+
+	protected:
+		virtual inline void invalidate_impl()
+		{
+			std::fill(m_framebuffers.begin(),m_framebuffers.end(),nullptr);
+		}
+
+		// For creating extra per-image or swapchain resources you might need
+		virtual inline bool onCreateSwapchain_impl(const uint8_t qFam)
+		{
+			auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
+
+			const auto swapchain = getSwapchain();
+			const auto count = swapchain->getImageCount();
+			const auto& sharedParams = swapchain->getCreationParameters().sharedParams;
+			for (uint8_t i=0u; i<count; i++)
+			{
+				auto imageView = device->createImageView({
+					.flags = IGPUImageView::ECF_NONE,
+					.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+					.image = core::smart_refctd_ptr<IGPUImage>(getImage(i)),
+					.viewType = IGPUImageView::ET_2D,
+					.format = getImage(i)->getCreationParameters().format
+				});
+				m_framebuffers[i] = device->createFramebuffer({{
+					.renderpass = core::smart_refctd_ptr(m_renderpass),
+					.colorAttachments = &imageView.get(),
+					.width = sharedParams.width,
+					.height = sharedParams.height
+				}});
+				if (!m_framebuffers[i])
+					return false;
+			}
+			return true;
+		}
+
+		// Per-swapchain
+		core::smart_refctd_ptr<IGPURenderpass> m_renderpass;
+		std::array<core::smart_refctd_ptr<IGPUFramebuffer>,ISwapchain::MaxImages> m_framebuffers;
+};
+
+class ComputerAidedDesign final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+{
+	using device_base_t = examples::SimpleWindowedApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using clock_t = std::chrono::steady_clock;
+	
+	constexpr static uint32_t WindowWidthRequest = 1600u;
+	constexpr static uint32_t WindowHeightRequest = 900u;
+	constexpr static uint32_t MaxFramesInFlight = 8u;
+public:
+	
+	void allocateResources(uint32_t maxObjects)
+	{
+		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
+
+		uint32_t maxIndices = maxObjects * 6u * 2u;
+		drawBuffer.allocateIndexBuffer(m_device.get(), maxIndices);
+		drawBuffer.allocateMainObjectsBuffer(m_device.get(), maxObjects);
+		drawBuffer.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
+		drawBuffer.allocateStylesBuffer(m_device.get(), 32u);
+		drawBuffer.allocateCustomClipProjectionBuffer(m_device.get(), 128u);
+
+		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
+		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
+		drawBuffer.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
+
+		{
+			IGPUBuffer::SCreationParams globalsCreationParams = {};
+			globalsCreationParams.size = sizeof(Globals);
+			globalsCreationParams.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
+
+			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
+			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer.get());
 		}
 
 		// pseudoStencil
-
 		asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
 
-		video::IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
+		IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
 		promotionRequest.originalFormat = asset::EF_R32_UINT;
 		promotionRequest.usages = {};
 		promotionRequest.usages.storageImageAtomic = true;
-		pseudoStencilFormat = physicalDevice->promoteImageFormat(promotionRequest, video::IGPUImage::ET_OPTIMAL);
+		pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
 
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
-			video::IGPUImage::SCreationParams imgInfo;
+			IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
-			imgInfo.type = video::IGPUImage::ET_2D;
-			imgInfo.extent.width = window->getWidth();
-			imgInfo.extent.height = window->getHeight();
+			imgInfo.type = IGPUImage::ET_2D;
+			imgInfo.extent.width = m_window->getWidth();
+			imgInfo.extent.height = m_window->getHeight();
 			imgInfo.extent.depth = 1u;
 			imgInfo.mipLevels = 1u;
 			imgInfo.arrayLayers = 1u;
 			imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 			imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
 			imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT;
-			imgInfo.initialLayout = video::IGPUImage::EL_UNDEFINED;
-			imgInfo.tiling = video::IGPUImage::ET_OPTIMAL;
+			// [VKTODO] imgInfo.initialLayout = IGPUImage::EL_UNDEFINED;
+			imgInfo.tiling = IGPUImage::TILING::OPTIMAL;
 
-			auto image = logicalDevice->createImage(std::move(imgInfo));
+			auto image = m_device->createImage(std::move(imgInfo));
 			auto imageMemReqs = image->getMemoryReqs();
-			imageMemReqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			logicalDevice->allocate(imageMemReqs, image.get());
+			imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			m_device->allocate(imageMemReqs, image.get());
 
 			image->setObjectDebugName("pseudoStencil Image");
 
-			video::IGPUImageView::SCreationParams imgViewInfo;
+			IGPUImageView::SCreationParams imgViewInfo;
 			imgViewInfo.image = std::move(image);
 			imgViewInfo.format = pseudoStencilFormat;
-			imgViewInfo.viewType = video::IGPUImageView::ET_2D;
-			imgViewInfo.flags = video::IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
+			imgViewInfo.viewType = IGPUImageView::ET_2D;
+			imgViewInfo.flags = IGPUImageView::E_CREATE_FLAGS::ECF_NONE;
 			imgViewInfo.subresourceRange.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 			imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 			imgViewInfo.subresourceRange.baseMipLevel = 0u;
 			imgViewInfo.subresourceRange.layerCount = 1u;
 			imgViewInfo.subresourceRange.levelCount = 1u;
 
-			pseudoStencilImageView[i] = logicalDevice->createImageView(std::move(imgViewInfo));
+			pseudoStencilImageView = m_device->createImageView(std::move(imgViewInfo));
 		}
 	}
+	
+	smart_refctd_ptr<IGPURenderpass> createRenderpass(
+		E_FORMAT colorAttachmentFormat,
+		IGPURenderpass::LOAD_OP loadOp,
+		IImage::LAYOUT initialLayout,
+		IImage::LAYOUT finalLayout)
+	{		
+		const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+			{{
+				{
+					.format = colorAttachmentFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+				/*.loadOp = */loadOp,
+				/*.storeOp = */IGPURenderpass::STORE_OP::STORE,
+				/*.initialLayout = */initialLayout,
+				/*.finalLayout = */finalLayout
+			}},
+			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+		};
+		
+		IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+			{},
+			IGPURenderpass::SCreationParams::SubpassesEnd
+		};
+		subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+		
+		// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+		const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+			// wipe-transition to ATTACHMENT_OPTIMAL
+			{
+				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier = {
+					// we can have NONE as Sources because ????
+					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+				}
+				// leave view offsets and flags default
+			},
+			// ATTACHMENT_OPTIMAL to PRESENT_SRC
+			{
+				.srcSubpass = 0,
+				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier = {
+					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					// we can have NONE as the Destinations because the spec says so about presents
+				}
+				// leave view offsets and flags default
+			},
+			IGPURenderpass::SCreationParams::DependenciesEnd
+		};
+		
+		smart_refctd_ptr<IGPURenderpass> renderpass;
+		IGPURenderpass::SCreationParams params = {};
+		params.colorAttachments = colorAttachments;
+		params.subpasses = subpasses;
+		params.dependencies = dependencies;
+		renderpass = m_device->createRenderpass(params);
+		if (!renderpass)
+			logFail("Failed to Create a Renderpass!");
+		return renderpass;
+	}
 
-public:
-	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
+
+	// Yay thanks to multiple inheritance we cannot forward ctors anymore
+	inline ComputerAidedDesign(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+		IApplicationFramework(_localInputCWD,_localOutputCWD,_sharedInputCWD,_sharedOutputCWD) {}
+	
+	// Will get called mid-initialization, via `filterDevices` between when the API Connection is created and Physical Device is chosen
+	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
-		window = std::move(wnd);
-	}
-	nbl::ui::IWindow* getWindow() override
-	{
-		return window.get();
-	}
-	void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& system) override
-	{
-		system = std::move(system);
-	}
-	video::IAPIConnection* getAPIConnection() override
-	{
-		return apiConnection.get();
-	}
-	video::ILogicalDevice* getLogicalDevice()  override
-	{
-		return logicalDevice.get();
-	}
-	video::IGPURenderpass* getRenderpass() override
-	{
-		return renderpassFinal.get();
-	}
-	void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
-	{
-		surface = std::move(s);
-	}
-	void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
-	{
-		for (int i = 0; i < f.size(); i++)
+		// So let's create our Window and Surface then!
+		if (!m_surface)
 		{
-			auto& fboDynArray = *(framebuffersDynArraySmartPtr.get());
-			fboDynArray[i] = core::smart_refctd_ptr(f[i]);
-		}
-	}
-	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
-	{
-		swapchain = std::move(s);
-	}
-	uint32_t getSwapchainImageCount() override
-	{
-		return swapchain->getImageCount();
-	}
-	virtual nbl::asset::E_FORMAT getDepthFormat() override
-	{
-		return nbl::asset::EF_UNKNOWN;
-	}
-
-	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> createRenderpass(
-		nbl::asset::E_FORMAT colorAttachmentFormat,
-		nbl::asset::E_FORMAT baseDepthFormat,
-		nbl::video::IGPURenderpass::E_LOAD_OP loadOp,
-		nbl::asset::IImage::E_LAYOUT initialLayout,
-		nbl::asset::IImage::E_LAYOUT finalLayout)
-	{
-		using namespace nbl;
-
-		bool useDepth = baseDepthFormat != nbl::asset::EF_UNKNOWN;
-		nbl::asset::E_FORMAT depthFormat = nbl::asset::EF_UNKNOWN;
-		if (useDepth)
-		{
-			depthFormat = logicalDevice->getPhysicalDevice()->promoteImageFormat(
-				{ baseDepthFormat, nbl::video::IPhysicalDevice::SFormatImageUsages::SUsage(nbl::asset::IImage::EUF_DEPTH_STENCIL_ATTACHMENT_BIT) },
-				nbl::video::IGPUImage::ET_OPTIMAL
-			);
-			assert(depthFormat != nbl::asset::EF_UNKNOWN);
-		}
-
-		nbl::video::IGPURenderpass::SCreationParams::SAttachmentDescription attachments[2];
-		attachments[0].initialLayout = initialLayout;
-		attachments[0].finalLayout = finalLayout;
-		attachments[0].format = colorAttachmentFormat;
-		attachments[0].samples = asset::IImage::ESCF_1_BIT;
-		attachments[0].loadOp = loadOp;
-		attachments[0].storeOp = nbl::video::IGPURenderpass::ESO_STORE;
-
-		attachments[1].initialLayout = asset::IImage::EL_UNDEFINED;
-		attachments[1].finalLayout = asset::IImage::EL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-		attachments[1].format = depthFormat;
-		attachments[1].samples = asset::IImage::ESCF_1_BIT;
-		attachments[1].loadOp = loadOp;
-		attachments[1].storeOp = nbl::video::IGPURenderpass::ESO_STORE;
-
-		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef colorAttRef;
-		colorAttRef.attachment = 0u;
-		colorAttRef.layout = asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL;
-
-		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription::SAttachmentRef depthStencilAttRef;
-		depthStencilAttRef.attachment = 1u;
-		depthStencilAttRef.layout = asset::IImage::EL_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-
-		nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription sp;
-		sp.pipelineBindPoint = asset::EPBP_GRAPHICS;
-		sp.colorAttachmentCount = 1u;
-		sp.colorAttachments = &colorAttRef;
-		if (useDepth) {
-			sp.depthStencilAttachment = &depthStencilAttRef;
-		}
-		else {
-			sp.depthStencilAttachment = nullptr;
-		}
-		sp.flags = nbl::video::IGPURenderpass::ESDF_NONE;
-		sp.inputAttachmentCount = 0u;
-		sp.inputAttachments = nullptr;
-		sp.preserveAttachmentCount = 0u;
-		sp.preserveAttachments = nullptr;
-		sp.resolveAttachments = nullptr;
-
-		nbl::video::IGPURenderpass::SCreationParams rp_params;
-		rp_params.attachmentCount = (useDepth) ? 2u : 1u;
-		rp_params.attachments = attachments;
-		rp_params.dependencies = nullptr;
-		rp_params.dependencyCount = 0u;
-		rp_params.subpasses = &sp;
-		rp_params.subpassCount = 1u;
-
-		return logicalDevice->createRenderpass(rp_params);
-	}
-
-	void getAndLogQueryPoolResults()
-	{
-#ifdef BEZIER_CAGE_ADAPTIVE_T_FIND // results for bezier show an optimal number of 0.14 for T
-		{
-			uint32_t samples_passed[1] = {};
-			auto queryResultFlags = core::bitflag<video::IQueryPool::E_QUERY_RESULTS_FLAGS>(video::IQueryPool::EQRF_WAIT_BIT);
-			logicalDevice->getQueryPoolResults(pipelineStatsPool.get(), 0u, 1u, sizeof(samples_passed), samples_passed, sizeof(uint32_t), queryResultFlags);
-			logger->log("[WAIT] SamplesPassed[0] = %d", system::ILogger::ELL_INFO, samples_passed[0]);
-			std::cout << MinT << ", " << PrevSamples << std::endl;
-			if (PrevSamples > samples_passed[0]) {
-				PrevSamples = samples_passed[0];
-				MinT = (sin(T) + 1.01f) / 4.03f;
+			{
+				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				IWindow::SCreationParams params = {};
+				params.callback = windowCallback;
+				params.width = WindowWidthRequest;
+				params.height = WindowHeightRequest;
+				params.x = 32;
+				params.y = 32;
+				// Don't want to have a window lingering about before we're ready so create it hidden.
+				// Only programmatic resize, not regular.
+				params.flags = IWindow::ECF_BORDERLESS|IWindow::ECF_RESIZABLE;
+				params.windowCaption = "CAD Playground";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api),smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = CSimpleResizeSurface<CSwapchainResources>::create(std::move(surface));
 		}
-#endif
+		if (m_surface)
+			return {{m_surface->getSurface()/*,EQF_NONE*/}};
+		return {};
 	}
+	
+	double dt = 0;
+	double m_timeElapsed = 0.0;
+	std::chrono::steady_clock::time_point lastTime;
+	uint32_t m_hatchDebugStep = 0u;
 
-	APP_CONSTRUCTOR(CADApp);
-
-	void onAppInitialized_impl() override
+	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-		std::array<asset::E_FORMAT, 1> acceptableSurfaceFormats = { asset::EF_B8G8R8A8_UNORM };
+		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
-		CommonAPI::InitParams initParams;
-		initParams.windowCb = core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback>(this);
-		initParams.window = core::smart_refctd_ptr(window);
-		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { _NBL_APP_NAME_ };
-		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = REQUESTED_WIN_W;
-		initParams.windowHeight = REQUESTED_WIN_H;
-		initParams.swapchainImageCount = 3u;
-		initParams.swapchainImageUsage = swapchainImageUsage;
-		initParams.depthFormat = getDepthFormat();
-		initParams.acceptableSurfaceFormats = acceptableSurfaceFormats.data();
-		initParams.acceptableSurfaceFormatCount = acceptableSurfaceFormats.size();
-		initParams.physicalDeviceFilter.requiredFeatures.bufferDeviceAddress = true;
-		initParams.physicalDeviceFilter.requiredFeatures.shaderFloat64 = true;
-		initParams.physicalDeviceFilter.requiredFeatures.fillModeNonSolid = DebugMode;
-		initParams.physicalDeviceFilter.requiredFeatures.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
-		initParams.physicalDeviceFilter.requiredFeatures.pipelineStatisticsQuery = true;
-		initParams.physicalDeviceFilter.requiredFeatures.shaderClipDistance = true;
-		initParams.physicalDeviceFilter.requiredFeatures.scalarBlockLayout = true;
-		initParams.physicalDeviceFilter.requiredFeatures.shaderDemoteToHelperInvocation = true; //delete later?
-		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
+		// Remember to call the base class initialization!
+		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			return false;
+		if (!asset_base_t::onAppInitialized(std::move(system)))
+			return false;
 
-		system = std::move(initOutput.system);
-		window = std::move(initParams.window);
-		windowCb = std::move(initParams.windowCb);
-		apiConnection = std::move(initOutput.apiConnection);
-		surface = std::move(initOutput.surface);
-		physicalDevice = std::move(initOutput.physicalDevice);
-		logicalDevice = std::move(initOutput.logicalDevice);
-		utilities = std::move(initOutput.utilities);
-		queues = std::move(initOutput.queues);
-		assetManager = std::move(initOutput.assetManager);
-		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-		logger = std::move(initOutput.logger);
-		inputSystem = std::move(initOutput.inputSystem);
-		windowManager = std::move(initOutput.windowManager);
-		// renderpass = std::move(initOutput.renderToSwapchainRenderpass);
-		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
+		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
+		
+		// Create the Semaphores
+		m_renderSemaphore = m_device->createSemaphore(0ull);
+		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
+		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
+			return logFail("Failed to Create Semaphores!");
 
-		fragmentShaderInterlockEnabled = logicalDevice->getEnabledFeatures().fragmentShaderPixelInterlock;
+		m_overflowSubmitsScratchSemaphoreInfo.semaphore = m_overflowSubmitScratchSemaphore.get();
+		m_overflowSubmitsScratchSemaphoreInfo.value = 1ull;
 
+		// Let's just use the same queue since there's no need for async present
+		if (!m_surface)
+			return logFail("Could not create Window & Surface!");
+		
+		auto scResources = std::make_unique<CSwapchainResources>();
+		const auto format = scResources->deduceRenderpassFormat(m_surface->getSurface(), m_physicalDevice); // TODO: DO I need to recreate render passes if swapchain gets recreated with different format?
+		renderpassInitial = createRenderpass(format, IGPURenderpass::LOAD_OP::CLEAR, IImage::LAYOUT::UNDEFINED, IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		renderpassInBetween = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		renderpassFinal = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::PRESENT_SRC);
+		const auto compatibleRenderPass = renderpassInitial; // all 3 above are compatible
+
+		scResources->setCompatibleRenderpass(compatibleRenderPass);
+
+		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
+			return logFail("Could not initialize the Surface!");
+
+		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
+
+		allocateResources(40960u);
+
+		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
-			video::IQueryPool::SCreationParams queryPoolCreationParams = {};
-			queryPoolCreationParams.queryType = video::IQueryPool::EQT_PIPELINE_STATISTICS;
-			queryPoolCreationParams.queryCount = 1u;
-			queryPoolCreationParams.pipelineStatisticsFlags = video::IQueryPool::EPSF_FRAGMENT_SHADER_INVOCATIONS_BIT;
-			pipelineStatsPool = logicalDevice->createQueryPool(std::move(queryPoolCreationParams));
+			video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
+				{
+					.binding = 0u,
+					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 1u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 2u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 3u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 4u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX,
+					.count = 1u,
+				},
+			};
+			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
+			if (!descriptorSetLayout0)
+				return logFail("Failed to Create Descriptor Layout 0");
+			
+			video::IGPUDescriptorSetLayout::SBinding bindingsSet1[] = {
+				{
+					.binding = 0u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+			};
+			descriptorSetLayout1 = m_device->createDescriptorSetLayout(bindingsSet1);
+			if (!descriptorSetLayout1)
+				return logFail("Failed to Create Descriptor Layout 1");
+
+			const video::IGPUDescriptorSetLayout* const layouts[2u] = { descriptorSetLayout0.get(), descriptorSetLayout1.get() };
+
+			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
+			{
+				const uint32_t setCounts[2u] = { 1u, 1u};
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				if (!descriptorPool)
+					return logFail("Failed to Create Descriptor Pool");
+			}
+
+			{
+				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
+				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
+				constexpr uint32_t DescriptorCount = 6u;
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
+
+				// Descriptors For Set 0:
+				descriptorInfos[0u].info.buffer.offset = 0u;
+				descriptorInfos[0u].info.buffer.size = globalsBuffer->getCreationParams().size;
+				descriptorInfos[0u].desc = globalsBuffer;
+
+				descriptorInfos[1u].info.buffer.offset = 0u;
+				descriptorInfos[1u].info.buffer.size = drawBuffer.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
+				descriptorInfos[1u].desc = drawBuffer.gpuDrawBuffers.drawObjectsBuffer;
+
+				descriptorInfos[2u].info.buffer.offset = 0u;
+				descriptorInfos[2u].info.buffer.size = drawBuffer.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
+				descriptorInfos[2u].desc = drawBuffer.gpuDrawBuffers.lineStylesBuffer;
+
+				descriptorInfos[3u].info.buffer.offset = 0u;
+				descriptorInfos[3u].info.buffer.size = drawBuffer.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
+				descriptorInfos[3u].desc = drawBuffer.gpuDrawBuffers.mainObjectsBuffer;
+
+				descriptorInfos[4u].info.buffer.offset = 0u;
+				descriptorInfos[4u].info.buffer.size = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer->getCreationParams().size;
+				descriptorInfos[4u].desc = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer;
+				
+				// Descriptors For Set 1:
+				descriptorInfos[5u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				descriptorInfos[5u].info.image.sampler = nullptr;
+				descriptorInfos[5u].desc = pseudoStencilImageView;
+
+				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
+				
+				// Set 0 Updates:
+				descriptorUpdates[0u].dstSet = descriptorSet0.get();
+				descriptorUpdates[0u].binding = 0u;
+				descriptorUpdates[0u].arrayElement = 0u;
+				descriptorUpdates[0u].count = 1u;
+				descriptorUpdates[0u].info = &descriptorInfos[0u];
+
+				descriptorUpdates[1u].dstSet = descriptorSet0.get();
+				descriptorUpdates[1u].binding = 1u;
+				descriptorUpdates[1u].arrayElement = 0u;
+				descriptorUpdates[1u].count = 1u;
+				descriptorUpdates[1u].info = &descriptorInfos[1u];
+
+				descriptorUpdates[2u].dstSet = descriptorSet0.get();
+				descriptorUpdates[2u].binding = 2u;
+				descriptorUpdates[2u].arrayElement = 0u;
+				descriptorUpdates[2u].count = 1u;
+				descriptorUpdates[2u].info = &descriptorInfos[2u];
+
+				descriptorUpdates[3u].dstSet = descriptorSet0.get();
+				descriptorUpdates[3u].binding = 3u;
+				descriptorUpdates[3u].arrayElement = 0u;
+				descriptorUpdates[3u].count = 1u;
+				descriptorUpdates[3u].info = &descriptorInfos[3u];
+
+				descriptorUpdates[4u].dstSet = descriptorSet0.get();
+				descriptorUpdates[4u].binding = 4u;
+				descriptorUpdates[4u].arrayElement = 0u;
+				descriptorUpdates[4u].count = 1u;
+				descriptorUpdates[4u].info = &descriptorInfos[4u];
+
+				// Set 1 Updates:
+				descriptorUpdates[5u].dstSet = descriptorSet1.get();
+				descriptorUpdates[5u].binding = 0u;
+				descriptorUpdates[5u].arrayElement = 0u;
+				descriptorUpdates[5u].count = 1u;
+				descriptorUpdates[5u].info = &descriptorInfos[5u];
+
+
+				m_device->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
+			}
+
+			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
 		}
-
-		renderpassInitial = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_CLEAR, asset::IImage::EL_UNDEFINED, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
-		renderpassInBetween = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL);
-		renderpassFinal = createRenderpass(m_swapchainCreationParams.surfaceFormat.format, getDepthFormat(), nbl::video::IGPURenderpass::ELO_LOAD, asset::IImage::EL_COLOR_ATTACHMENT_OPTIMAL, asset::IImage::EL_PRESENT_SRC);
-
-		commandPools = std::move(initOutput.commandPools);
-		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-		const auto& transferCommandPools = commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP];
-
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, window->getWidth(), window->getHeight(), swapchain);
-
-		framebuffersDynArraySmartPtr = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), window->getWidth(), window->getHeight(),
-			logicalDevice, swapchain, renderpassFinal,
-			getDepthFormat()
-		);
-
-		const uint32_t swapchainImageCount = swapchain->getImageCount();
-		for (uint32_t i = 0; i < swapchainImageCount; ++i)
+		
+		// Shaders
+		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
 		{
-			auto& fboDynArray = *(framebuffersDynArraySmartPtr.get());
-			m_swapchainImages[i] = fboDynArray[i]->getCreationParameters().attachments[0u]->getCreationParameters().image;
-		}
-
-		video::IGPUObjectFromAssetConverter CPU2GPU;
-
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> shaders[4u] = {};
-		{
-			asset::IAssetLoader::SAssetLoadParams params = {};
-			params.logger = logger.get();
-			core::smart_refctd_ptr<asset::ICPUSpecializedShader> cpuShaders[4u] = {};
 			constexpr auto vertexShaderPath = "../vertex_shader.hlsl";
 			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
 			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
 			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
-			cpuShaders[0u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(vertexShaderPath, params).getContents().begin());
-			cpuShaders[1u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(fragmentShaderPath, params).getContents().begin());
-			cpuShaders[2u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(debugfragmentShaderPath, params).getContents().begin());
-			cpuShaders[3u] = core::smart_refctd_ptr_static_cast<asset::ICPUSpecializedShader>(*assetManager->getAsset(resolveAlphasShaderPath, params).getContents().begin());
-			cpuShaders[0u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-			cpuShaders[1u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-			cpuShaders[2u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-			cpuShaders[3u]->setSpecializationInfo(asset::ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-			auto gpuShaders = CPU2GPU.getGPUObjectsFromAssets(cpuShaders, cpuShaders + 4u, cpu2gpuParams);
-			shaders[0u] = gpuShaders->begin()[0u];
-			shaders[1u] = gpuShaders->begin()[1u];
-			shaders[2u] = gpuShaders->begin()[2u];
-			shaders[3u] = gpuShaders->begin()[3u];
-		}
-
-		initDrawObjects(40960u);
-
-		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
-		{
-			constexpr uint32_t BindingCount = 6u;
-			video::IGPUDescriptorSetLayout::SBinding bindings[BindingCount] = {};
-			bindings[0].binding = 0u;
-			bindings[0].type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
-			bindings[0].count = 1u;
-			bindings[0].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-			bindings[1].binding = 1u;
-			bindings[1].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[1].count = 1u;
-			bindings[1].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-			bindings[2].binding = 2u;
-			bindings[2].type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-			bindings[2].count = 1u;
-			bindings[2].stageFlags = asset::IShader::ESS_FRAGMENT;
-
-			bindings[3].binding = 3u;
-			bindings[3].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[3].count = 1u;
-			bindings[3].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-			bindings[4].binding = 4u;
-			bindings[4].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[4].count = 1u;
-			bindings[4].stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT;
-
-			bindings[5].binding = 5u;
-			bindings[5].type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-			bindings[5].count = 1u;
-			bindings[5].stageFlags = asset::IShader::ESS_VERTEX;
-
-			descriptorSetLayout = logicalDevice->createDescriptorSetLayout(bindings, bindings + BindingCount);
-
-			nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool = nullptr;
+			
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
 			{
-				nbl::video::IDescriptorPool::SCreateInfo createInfo = {};
-				createInfo.flags = nbl::video::IDescriptorPool::ECF_NONE;
-				createInfo.maxSets = 128u;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER)] = FRAMES_IN_FLIGHT;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER)] = 4 * FRAMES_IN_FLIGHT;
-				createInfo.maxDescriptorCount[static_cast<uint32_t>(nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE)] = FRAMES_IN_FLIGHT;
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset(relPath,lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
+					return nullptr;
 
-				descriptorPool = logicalDevice->createDescriptorPool(std::move(createInfo));
-			}
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+				cpuShader->setShaderStage(stage);
+				if (!cpuShader)
+					return nullptr;
 
-			for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
-			{
-				descriptorSets[i] = descriptorPool->createDescriptorSet(core::smart_refctd_ptr(descriptorSetLayout));
-				constexpr uint32_t DescriptorCount = 6u;
-				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
-				descriptorInfos[0u].info.buffer.offset = 0u;
-				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
-				descriptorInfos[0u].desc = globalsBuffer[i];
-
-				descriptorInfos[1u].info.buffer.offset = 0u;
-				descriptorInfos[1u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
-				descriptorInfos[1u].desc = drawBuffers[i].gpuDrawBuffers.drawObjectsBuffer;
-
-				descriptorInfos[2u].info.image.imageLayout = asset::IImage::E_LAYOUT::EL_GENERAL;
-				descriptorInfos[2u].info.image.sampler = nullptr;
-				descriptorInfos[2u].desc = pseudoStencilImageView[i];
-
-				descriptorInfos[3u].info.buffer.offset = 0u;
-				descriptorInfos[3u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-				descriptorInfos[3u].desc = drawBuffers[i].gpuDrawBuffers.lineStylesBuffer;
-
-				descriptorInfos[4u].info.buffer.offset = 0u;
-				descriptorInfos[4u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-				descriptorInfos[4u].desc = drawBuffers[i].gpuDrawBuffers.mainObjectsBuffer;
-
-				descriptorInfos[5u].info.buffer.offset = 0u;
-				descriptorInfos[5u].info.buffer.size = drawBuffers[i].gpuDrawBuffers.customClipProjectionBuffer->getCreationParams().size;
-				descriptorInfos[5u].desc = drawBuffers[i].gpuDrawBuffers.customClipProjectionBuffer;
-
-				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
-				descriptorUpdates[0u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[0u].binding = 0u;
-				descriptorUpdates[0u].arrayElement = 0u;
-				descriptorUpdates[0u].count = 1u;
-				descriptorUpdates[0u].descriptorType = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER;
-				descriptorUpdates[0u].info = &descriptorInfos[0u];
-
-				descriptorUpdates[1u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[1u].binding = 1u;
-				descriptorUpdates[1u].arrayElement = 0u;
-				descriptorUpdates[1u].count = 1u;
-				descriptorUpdates[1u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-				descriptorUpdates[1u].info = &descriptorInfos[1u];
-
-				descriptorUpdates[2u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[2u].binding = 2u;
-				descriptorUpdates[2u].arrayElement = 0u;
-				descriptorUpdates[2u].count = 1u;
-				descriptorUpdates[2u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE;
-				descriptorUpdates[2u].info = &descriptorInfos[2u];
-
-				descriptorUpdates[3u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[3u].binding = 3u;
-				descriptorUpdates[3u].arrayElement = 0u;
-				descriptorUpdates[3u].count = 1u;
-				descriptorUpdates[3u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-				descriptorUpdates[3u].info = &descriptorInfos[3u];
-
-				descriptorUpdates[4u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[4u].binding = 4u;
-				descriptorUpdates[4u].arrayElement = 0u;
-				descriptorUpdates[4u].count = 1u;
-				descriptorUpdates[4u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-				descriptorUpdates[4u].info = &descriptorInfos[4u];
-
-				descriptorUpdates[5u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[5u].binding = 5u;
-				descriptorUpdates[5u].arrayElement = 0u;
-				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].descriptorType = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER;
-				descriptorUpdates[5u].info = &descriptorInfos[5u];
-
-				logicalDevice->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
-			}
-
-			graphicsPipelineLayout = logicalDevice->createPipelineLayout(nullptr, nullptr, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
+				return m_device->createShader(cpuShader.get());
+			};
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
 		}
 
 		// Shared Blend Params between pipelines
-		asset::SBlendParams blendParams = {};
-		blendParams.blendParams[0u].blendEnable = true;
+		SBlendParams blendParams = {};
 		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
 		blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
 		blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
@@ -656,92 +652,75 @@ public:
 		blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
 		blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
 		blendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
-
+		
 		// Create Alpha Resovle Pipeline
 		{
-			auto fsTriangleProtoPipe = nbl::ext::FullScreenTriangle::createProtoPipeline(cpu2gpuParams, 0u);
-			std::get<asset::SBlendParams>(fsTriangleProtoPipe) = blendParams;
+			// Load FSTri Shader
+			ext::FullScreenTriangle::ProtoPipeline fsTriangleProtoPipe(m_assetMgr.get(),m_device.get(),m_logger.get());
+			
+			const IGPUShader::SSpecInfo fragSpec = {
+				.entryPoint = "main",
+				.shader = shaders[3u].get()
+			};
 
-			auto constants = std::get<asset::SPushConstantRange>(fsTriangleProtoPipe);
-			resolveAlphaPipeLayout = logicalDevice->createPipelineLayout(&constants, &constants+1, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
-			auto fsTriangleRenderPassIndependantPipe = nbl::ext::FullScreenTriangle::createRenderpassIndependentPipeline(logicalDevice.get(), fsTriangleProtoPipe, core::smart_refctd_ptr(shaders[3u]), core::smart_refctd_ptr(resolveAlphaPipeLayout));
+			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
+			if (!resolveAlphaGraphicsPipeline)
+				return logFail("Graphics Pipeline Creation Failed.");
 
-			video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineCreateInfo = {};
-			graphicsPipelineCreateInfo.renderpassIndependent = fsTriangleRenderPassIndependantPipe;
-			graphicsPipelineCreateInfo.renderpass = renderpassFinal;
-			resolveAlphaGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
 		}
-
+		
 		// Create Main Graphics Pipelines 
 		{
-			video::IGPURenderpassIndependentPipeline::SCreationParams renderpassIndependantPipeInfo = {};
-			renderpassIndependantPipeInfo.layout = graphicsPipelineLayout;
-			renderpassIndependantPipeInfo.shaders[0u] = shaders[0u];
-			renderpassIndependantPipeInfo.shaders[1u] = shaders[1u];
-			// renderpassIndependantPipeInfo.vertexInput; no gpu vertex buffers
-			renderpassIndependantPipeInfo.blend = blendParams;
+			
+			IGPUShader::SSpecInfo specInfo[2] = {
+				{.shader=shaders[0u].get() },
+				{.shader=shaders[1u].get() },
+			};
 
-			renderpassIndependantPipeInfo.primitiveAssembly.primitiveType = asset::E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST;
-			renderpassIndependantPipeInfo.rasterization.depthTestEnable = false;
-			renderpassIndependantPipeInfo.rasterization.depthWriteEnable = false;
-			renderpassIndependantPipeInfo.rasterization.stencilTestEnable = false;
-			renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_FILL;
-			renderpassIndependantPipeInfo.rasterization.faceCullingMode = asset::EFCM_NONE;
-
-			core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependant;
-			bool succ = logicalDevice->createRenderpassIndependentPipelines(
-				nullptr,
-				core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
-				&renderpassIndependant);
-			assert(succ);
-
-			video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineCreateInfo = {};
-			graphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependant;
-			graphicsPipelineCreateInfo.renderpass = renderpassFinal;
-			graphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineCreateInfo));
+			IGPUGraphicsPipeline::SCreationParams params[1] = {};
+			params[0].layout = pipelineLayout.get();
+			params[0].shaders = specInfo;
+			params[0].cached = {
+				.vertexInput = {},
+				.primitiveAssembly = {
+					.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
+				},
+				.rasterization = {
+					.polygonMode = EPM_FILL,
+					.faceCullingMode = EFCM_NONE,
+					.depthWriteEnable = false,
+				},
+				.blend = blendParams,
+			};
+			params[0].renderpass = compatibleRenderPass.get();
+			
+			if (!m_device->createGraphicsPipelines(nullptr,params,&graphicsPipeline))
+				return logFail("Graphics Pipeline Creation Failed.");
 
 			if constexpr (DebugMode)
 			{
-				core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> renderpassIndependantDebug;
-				renderpassIndependantPipeInfo.shaders[1u] = shaders[2u];
-				renderpassIndependantPipeInfo.rasterization.polygonMode = asset::EPM_LINE;
-				succ = logicalDevice->createRenderpassIndependentPipelines(
-					nullptr,
-					core::SRange<const video::IGPURenderpassIndependentPipeline::SCreationParams>(&renderpassIndependantPipeInfo, &renderpassIndependantPipeInfo + 1u),
-					&renderpassIndependantDebug);
-				assert(succ);
-
-				video::IGPUGraphicsPipeline::SCreationParams debugGraphicsPipelineCreateInfo = {};
-				debugGraphicsPipelineCreateInfo.renderpassIndependent = renderpassIndependantDebug;
-				debugGraphicsPipelineCreateInfo.renderpass = renderpassFinal;
-				debugGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(debugGraphicsPipelineCreateInfo));
+				specInfo[1u].shader = shaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
+				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
+				
+				if (!m_device->createGraphicsPipelines(nullptr,params,&debugGraphicsPipeline))
+					return logFail("Debug Graphics Pipeline Creation Failed.");
 			}
 		}
 
-		for (size_t i = 0; i < FRAMES_IN_FLIGHT; i++)
+		// Create the commandbuffers and pools, this time properly 1 pool per FIF
+		for (auto i=0u; i<m_framesInFlight; i++)
 		{
-			logicalDevice->createCommandBuffers(
-				graphicsCommandPools[i].get(),
-				video::IGPUCommandBuffer::EL_PRIMARY,
-				1,
-				m_cmdbuf + i);
-
-			logicalDevice->createCommandBuffers(
-				transferCommandPools[i].get(),
-				video::IGPUCommandBuffer::EL_PRIMARY,
-				1,
-				m_uploadCmdBuf + i);
+			// non-individually-resettable commandbuffers have an advantage over invidually-resettable
+			// mainly that the pool can use a "cheaper", faster allocator internally
+			m_graphicsCommandPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			if (!m_graphicsCommandPools[i])
+				return logFail("Couldn't create Command Pool!");
+			if (!m_graphicsCommandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_commandBuffers.data()+i,1}))
+				return logFail("Couldn't create Command Buffer!");
 		}
-
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-		{
-			m_frameComplete[i] = logicalDevice->createFence(video::IGPUFence::ECF_SIGNALED_BIT);
-			m_imageAcquire[i] = logicalDevice->createSemaphore();
-			m_renderFinished[i] = logicalDevice->createSemaphore();
-		}
-
+		
 		m_Camera.setOrigin({ 0.0, 0.0 });
-		m_Camera.setAspectRatio((double)window->getWidth() / window->getHeight());
+		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
 		m_Camera.setSize(10.0);
 		if constexpr (mode == ExampleMode::CASE_2)
 		{
@@ -749,52 +728,90 @@ public:
 		}
 
 		m_timeElapsed = 0.0;
+		
+		return true;
+	}
 
+	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
+	inline void workLoopBody() override
+	{
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
 
-		if constexpr (mode == ExampleMode::CASE_1)
+		auto now = std::chrono::high_resolution_clock::now();
+		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
+		lastTime = now;
+		m_timeElapsed += dt;
+		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			{
-				std::vector<float64_t2> linePoints;
-				for (uint32_t i = 0u; i < 20u; ++i)
-				{
-					for (uint32_t i = 0u; i < 256u; ++i)
-					{
-						double y = -112.0 + i * 1.1;
-						linePoints.push_back({ -200.0, y });
-						linePoints.push_back({ +200.0, y });
-					}
-					for (uint32_t i = 0u; i < 256u; ++i)
-					{
-						double x = -200.0 + i * 1.5;
-						linePoints.push_back({ x, -100.0 });
-						linePoints.push_back({ x, +100.0 });
-					}
-				}
-				bigPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
-			}
-			{
-				std::vector<float64_t2> linePoints;
-				for (uint32_t i = 0u; i < 20u; ++i)
-				{
-					for (uint32_t i = 0u; i < 256u; ++i)
-					{
-						double y = -112.0 + i * 1.1;
-						double x = -200.0 + i * 1.5;
-						linePoints.push_back({ -200.0 + x, y });
-						linePoints.push_back({ +200.0 + x, y });
-					}
-					for (uint32_t i = 0u; i < 256u; ++i)
-					{
-						double y = -112.0 + i * 1.1;
-						double x = -200.0 + i * 1.5;
-						linePoints.push_back({ x, -100.0 + y });
-						linePoints.push_back({ x, +100.0 + y });
-					}
-				}
-				bigPolyline2.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
-			}
+			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
 		}
 
+		m_inputSystem->getDefaultMouse(&mouse);
+		m_inputSystem->getDefaultKeyboard(&keyboard);
+
+		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+			{
+				m_Camera.mouseProcess(events);
+			}
+		, m_logger.get());
+		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			{
+				m_Camera.keyboardProcess(events);
+
+				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+				{
+					auto ev = *eventIt;
+
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
+					{
+						m_hatchDebugStep++;
+					}
+					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_Q)
+					{
+						m_hatchDebugStep--;
+					}
+				}
+			}
+		, m_logger.get());
+		
+
+		if (!beginFrameRender())
+			return;
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo acquired = {
+			.semaphore = m_currentImageAcquire.semaphore,
+			.value = m_currentImageAcquire.acquireCount,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // NONE for Acquire, right? Yes, the Spec Says so!
+		};
+
+		// prev frame done using the scene data (is in post process stage)
+		const IQueue::SSubmitInfo::SSemaphoreInfo prevFrameRendered = {
+			.semaphore = m_renderSemaphore.get(),
+			.value = m_realFrameIx,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+		};
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
+			.semaphore = m_renderSemaphore.get(),
+			.value = m_realFrameIx + 1u,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+		};
+
+		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
+		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
+		IQueue::SSubmitInfo::SSemaphoreInfo singalSems[2u] = { m_overflowSubmitsScratchSemaphoreInfo, thisFrameRendered };
+
+		SIntendedSubmitInfo intendedNextSubmit;
+		intendedNextSubmit.frontHalf.queue = getGraphicsQueue();
+		intendedNextSubmit.frontHalf.commandBuffers = cmdbufs;
+		intendedNextSubmit.frontHalf.waitSemaphores = waitSems;
+		intendedNextSubmit.signalSemaphores = singalSems;
+
+		addObjects(intendedNextSubmit);
+		
+		endFrameRender(intendedNextSubmit);
+		
+		// Loading font stuff
 		std::string fontFilename = "C:\\Windows\\Fonts\\arialbd.ttf";
 
 		FT_Library library;
@@ -838,95 +855,86 @@ public:
 		m_glyphLibrary = library;
 		m_glyphFace = face;
 	}
-
-	void onAppTerminated_impl() override
+	
+	bool beginFrameRender()
 	{
-		logicalDevice->waitIdle();
-	}
+		// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+		if (m_realFrameIx>=m_framesInFlight)
+		{
+			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+				{ 
+					.semaphore = m_renderSemaphore.get(),
+					.value = m_realFrameIx+1-m_framesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
+				return false;
+		}
+		
+		// Acquire
+		m_currentImageAcquire = m_surface->acquireNextImage();
+		if (!m_currentImageAcquire)
+			return false;
 
-	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
-	{
-		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
-		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
-		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
-	}
-
-	void beginFrameRender()
-	{
-		auto& cb = m_cmdbuf[m_resourceIx];
-		auto& commandPool = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS][m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
-		logicalDevice->blockForFences(1u, &fence.get());
-		logicalDevice->resetFences(1u, &fence.get());
-
-		m_SwapchainImageIx = 0u;
-		auto acquireResult = swapchain->acquireNextImage(m_imageAcquire[m_resourceIx].get(), nullptr, &m_SwapchainImageIx);
-		assert(acquireResult == video::ISwapchain::E_ACQUIRE_IMAGE_RESULT::EAIR_SUCCESS);
-
-		core::smart_refctd_ptr<video::IGPUImage> swapchainImg = m_swapchainImages[m_SwapchainImageIx];
-
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
+		auto& cb = m_commandBuffers[resourceIx];
+		auto& commandPool = m_graphicsCommandPools[resourceIx];
+		
 		// safe to proceed
-		cb->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT); // TODO: Begin doesn't release the resources in the command pool, meaning the old swapchains never get dropped
-		cb->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT); // TODO: Reset Frame's CommandPool
+		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
 
 		float64_t3x3 projectionToNDC;
-		// TODO: figure out why the matrix multiplication overload isn't getting detected here
-		// 
-		//if constexpr (DebugRotatingViewProj)
-		//{
-		//	double theta = (m_timeElapsed * 0.00008) * (2.0 * nbl::core::PI<double>());
-		//
-		//	auto rotation = float64_t3x3(
-		//		cos(theta), -sin(theta), 0.0,
-		//		sin(theta), cos(theta), 1.0,
-		//		0.0, 0.0, 1.0
-		//	);
-		//
-		//	auto vp = m_Camera.constructViewProjection();
-		//	projectionToNDC = nbl::hlsl::mul(rotation, vp);
-		//}
-		//else
-		//{
-		//	projectionToNDC = m_Camera.constructViewProjection();
-		//}
 		projectionToNDC = m_Camera.constructViewProjection();
 		
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
-		globalData.resolution = uint32_t2{ window->getWidth(), window->getHeight() };
+		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
 		globalData.defaultClipProjection.projectionToNDC = projectionToNDC;
 		globalData.defaultClipProjection.minClipNDC = float32_t2(-1.0, -1.0);
 		globalData.defaultClipProjection.maxClipNDC = float32_t2(+1.0, +1.0);
 		auto screenToWorld = getScreenToWorldRatio(globalData.defaultClipProjection.projectionToNDC, globalData.resolution);
-		globalData.screenToWorldRatio = (float) screenToWorld;
-		globalData.worldToScreenRatio = (float) (1.0f/screenToWorld);
+		globalData.screenToWorldRatio = screenToWorld;
+		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
-		bool updateSuccess = cb->updateBuffer(globalsBuffer[m_resourceIx].get(), 0ull, sizeof(Globals), &globalData);
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer.get() };
+		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
-
+		
 		// Clear pseudoStencil
 		{
-			auto pseudoStencilImage = pseudoStencilImageView[m_resourceIx]->getCreationParameters().image;
+			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
 
-			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
-			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_NONE;
-			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_UNDEFINED;
-			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
-			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].image = pseudoStencilImage;
-			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
-			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
-			imageBarriers[0].subresourceRange.levelCount = 1;
-			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
-			imageBarriers[0].subresourceRange.layerCount = 1;
-			cb->pipelineBarrier(nbl::asset::EPSF_TOP_OF_PIPE_BIT, nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
+			{
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+							.srcAccessMask = ACCESS_FLAGS::NONE,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+							.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = pseudoStencilImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::GENERAL,
+				}
+			};
+
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = imageBarriers  });
 
 			uint32_t pseudoStencilInvalidValue = core::bitfieldInsert<uint32_t>(0u, InvalidMainObjectIdx, AlphaBits, MainObjectIdxBits);
-			asset::SClearColorValue clear = {};
+			IGPUCommandBuffer::SClearColorValue clear = {};
 			clear.uint32[0] = pseudoStencilInvalidValue;
 
 			asset::IImage::SSubresourceRange subresourceRange = {};
@@ -936,199 +944,252 @@ public:
 			subresourceRange.layerCount = 1u;
 			subresourceRange.levelCount = 1u;
 
-			cb->clearColorImage(pseudoStencilImage.get(), asset::IImage::EL_GENERAL, &clear, 1u, &subresourceRange);
+			cb->clearColorImage(pseudoStencilImage.get(), asset::IImage::LAYOUT::GENERAL, &clear, 1u, &subresourceRange);
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { window->getWidth(), window->getHeight() };
-			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 0.3f;
-			clear[0].color.float32[1] = 0.3f;
-			clear[0].color.float32[2] = 0.3f;
-			clear[0].color.float32[3] = 0.f;
-			clear[1].depthStencil.depth = 1.f;
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
 
-			beginInfo.clearValueCount = 2u;
-			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
-			beginInfo.renderpass = renderpassInitial;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = clear;
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
+			beginInfo = {
+				.renderpass = renderpassInitial.get(),
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = nullptr,
+				.renderArea = currentRenderArea
+			};
 		}
 
 		// you could do this later but only use renderpassInitial on first draw
-		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
+		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		// Wait what's going on here? empty Renderpass!?
 		cb->endRenderPass();
+
+		return true;
 	}
-
-	void pipelineBarriersBeforeDraw(video::IGPUCommandBuffer* const cb)
+	
+	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
-		auto& currentDrawBuffers = drawBuffers[m_resourceIx];
+		const auto resourceIx = m_realFrameIx%m_framesInFlight;
+		auto* cb = intendedSubmitInfo.frontHalf.getScratchCommandBuffer();
+		auto&r = drawBuffer;
+		
+		asset::SViewport vp =
 		{
-			auto pseudoStencilImage = pseudoStencilImageView[m_resourceIx]->getCreationParameters().image;
-			nbl::video::IGPUCommandBuffer::SImageMemoryBarrier imageBarriers[1u] = {};
-			imageBarriers[0].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			imageBarriers[0].barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT | nbl::asset::EAF_SHADER_WRITE_BIT; // SYNC_FRAGMENT_SHADER_SHADER_SAMPLED_READ | SYNC_FRAGMENT_SHADER_SHADER_STORAGE_READ | SYNC_FRAGMENT_SHADER_UNIFORM_READ
-			imageBarriers[0].oldLayout = nbl::asset::IImage::EL_GENERAL;
-			imageBarriers[0].newLayout = nbl::asset::IImage::EL_GENERAL;
-			imageBarriers[0].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			imageBarriers[0].image = pseudoStencilImage;
-			imageBarriers[0].subresourceRange.aspectMask = nbl::asset::IImage::EAF_COLOR_BIT;
-			imageBarriers[0].subresourceRange.baseMipLevel = 0u;
-			imageBarriers[0].subresourceRange.levelCount = 1;
-			imageBarriers[0].subresourceRange.baseArrayLayer = 0u;
-			imageBarriers[0].subresourceRange.layerCount = 1;
-			cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 0u, nullptr, 1u, imageBarriers);
-
-		}
-		{
-			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[1u] = {};
-			bufferBarriers[0u].barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-			bufferBarriers[0u].barrier.dstAccessMask = nbl::asset::EAF_INDEX_READ_BIT;
-			bufferBarriers[0u].srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[0u].dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-			bufferBarriers[0u].buffer = currentDrawBuffers.gpuDrawBuffers.indexBuffer;
-			bufferBarriers[0u].offset = 0u;
-			bufferBarriers[0u].size = currentDrawBuffers.getCurrentIndexBufferSize();
-			if (currentDrawBuffers.getCurrentIndexBufferSize() > 0u)
-				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_INPUT_BIT, nbl::asset::EDF_NONE, 0u, nullptr, 1u, bufferBarriers, 0u, nullptr);
-		}
-		{
-			constexpr uint32_t MaxBufferBarriersCount = 5u;
-			uint32_t bufferBarriersCount = 0u;
-			nbl::video::IGPUCommandBuffer::SBufferMemoryBarrier bufferBarriers[MaxBufferBarriersCount] = {};
-
-			if (globalsBuffer[m_resourceIx]->getSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_UNIFORM_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = globalsBuffer[m_resourceIx];
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = globalsBuffer[m_resourceIx]->getSize();
-			}
-			if (currentDrawBuffers.getCurrentDrawObjectsBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.drawObjectsBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = currentDrawBuffers.getCurrentDrawObjectsBufferSize();
-			}
-			if (currentDrawBuffers.getCurrentGeometryBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.geometryBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = currentDrawBuffers.getCurrentGeometryBufferSize();
-			}
-			if (currentDrawBuffers.getCurrentLineStylesBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.lineStylesBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = currentDrawBuffers.getCurrentLineStylesBufferSize();
-			}
-			if (currentDrawBuffers.getCurrentCustomClipProjectionBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.srcAccessMask = nbl::asset::EAF_MEMORY_WRITE_BIT;
-				bufferBarrier.barrier.dstAccessMask = nbl::asset::EAF_SHADER_READ_BIT;
-				bufferBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-				bufferBarrier.buffer = currentDrawBuffers.gpuDrawBuffers.customClipProjectionBuffer;
-				bufferBarrier.offset = 0u;
-				bufferBarrier.size = currentDrawBuffers.getCurrentCustomClipProjectionBufferSize();
-			}
-			if (bufferBarriersCount > 0)
-				cb->pipelineBarrier(nbl::asset::EPSF_TRANSFER_BIT, nbl::asset::EPSF_VERTEX_SHADER_BIT | nbl::asset::EPSF_FRAGMENT_SHADER_BIT, nbl::asset::EDF_NONE, 0u, nullptr, bufferBarriersCount, bufferBarriers, 0u, nullptr);
-		}
-	}
-
-	uint32_t m_hatchDebugStep = 0u;
-
-	void endFrameRender()
-	{
-		auto& cb = m_cmdbuf[m_resourceIx];
-
-		uint32_t windowWidth = swapchain->getCreationParameters().width;
-		uint32_t windowHeight = swapchain->getCreationParameters().height;
-
-		asset::SViewport vp;
-		vp.minDepth = 1.f;
-		vp.maxDepth = 0.f;
-		vp.x = 0u;
-		vp.y = 0u;
-		vp.width = windowWidth;
-		vp.height = windowHeight;
+			.x = 0u,
+			.y = 0u,
+			.width = static_cast<float>(m_window->getWidth()),
+			.height = static_cast<float>(m_window->getHeight()),
+			.minDepth = 1.f,
+			.maxDepth = 0.f,
+		};
 		cb->setViewport(0u, 1u, &vp);
 
-		VkRect2D scissor;
-		scissor.extent = { windowWidth, windowHeight };
-		scissor.offset = { 0, 0 };
+		VkRect2D scissor =
+		{
+			.offset = { 0, 0 },
+			.extent = { m_window->getWidth(), m_window->getHeight() },
+		};
 		cb->setScissor(0u, 1u, &scissor);
+
+		// pipelineBarriersBeforeDraw
+		{
+			// prepare pseudoStencilImage for usage in drawcall
+			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
+			{
+				{
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::CLEAR_BIT,
+							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS, // could be ALL_TRANSFER but let's be specific we only want to CLEAR right now
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = pseudoStencilImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::GENERAL,
+					.newLayout = IImage::LAYOUT::GENERAL,
+				}
+			};
+
+			
+			constexpr uint32_t MaxBufferBarriersCount = 6u;
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
+
+			// Index Buffer Copy Barrier -> Only do once at the beginning of the frames
+			if (m_realFrameIx == 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_INPUT_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::INDEX_READ_BIT;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.gpuDrawBuffers.indexBuffer->getSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.indexBuffer,
+				};
+			}
+			if (globalsBuffer->getSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = globalsBuffer->getSize(),
+					.buffer = globalsBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentDrawObjectsBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentDrawObjectsBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.drawObjectsBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentGeometryBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentGeometryBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.geometryBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentLineStylesBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentLineStylesBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.lineStylesBuffer,
+				};
+			}
+			if (drawBuffer.getCurrentCustomClipProjectionBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawBuffer.getCurrentCustomClipProjectionBufferSize(),
+					.buffer = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer,
+				};
+			}
+			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = imageBarriers });
+		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { window->getWidth(), window->getHeight() };
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
 
-			beginInfo.clearValueCount = 0u;
-			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
-			beginInfo.renderpass = renderpassFinal;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = nullptr;
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
+			beginInfo = {
+				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = nullptr,
+				.renderArea = currentRenderArea
+			};
 		}
+		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-		pipelineBarriersBeforeDraw(cb.get());
-
-		cb->resetQueryPool(pipelineStatsPool.get(), 0u, 1u);
-		cb->beginQuery(pipelineStatsPool.get(), 0);
-
-		cb->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-
-		const uint32_t currentIndexCount = drawBuffers[m_resourceIx].getIndexCount();
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
-		cb->bindIndexBuffer(drawBuffers[m_resourceIx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
+		const uint32_t currentIndexCount = drawBuffer.getDrawObjectCount() * 6u;
+		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
+		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawBuffer.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
 		if (fragmentShaderInterlockEnabled)
 		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
-			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cb.get());
+			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
 
 		if constexpr (DebugMode)
 		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 		}
-		cb->endQuery(pipelineStatsPool.get(), 0);
+		
 		cb->endRenderPass();
 
-		cb->endDebugMarker();
+		if (!inBetweenSubmit)
+			cb->endDebugMarker();
+
 		cb->end();
 
+		if (inBetweenSubmit)
+		{
+			intendedSubmitInfo.overflowSubmit();
+			drawBuffer.reset();
+		}
+		else
+		{
+			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
+			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
+			{
+				m_realFrameIx++;
+				intendedSubmitInfo.advanceScratchSemaphoreValue(); // last submits needs to also advance scratch sema value like overflowSubmit() does
+				
+				IQueue::SSubmitInfo::SSemaphoreInfo renderFinished =
+				{
+					.semaphore = m_renderSemaphore.get(),
+					.value = m_realFrameIx,
+					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+				};
+				m_surface->present(m_currentImageAcquire.imageIndex, { &renderFinished, 1u });
+			}
+		}
+
+		m_overflowSubmitsScratchSemaphoreInfo.value = intendedSubmitInfo.getScratchSemaphoreNextWait().value; // because we need this info consistent within frames
 	}
 
 	class FreetypeHatchBuilder
@@ -1233,33 +1294,65 @@ public:
 		return 0;
 	}
 
-	video::IGPUQueue::SSubmitInfo addObjects(video::IGPUQueue* submissionQueue, video::IGPUFence* submissionFence, video::IGPUQueue::SSubmitInfo& intendedNextSubmit)
+	void endFrameRender(SIntendedSubmitInfo& intendedSubmitInfo)
+	{
+		submitDraws(intendedSubmitInfo, false);
+	}
+
+	inline bool keepRunning() override
+	{
+		if (duration_cast<decltype(timeout)>(clock_t::now()-start)>timeout)
+			return false;
+
+		return m_surface && !m_surface->irrecoverable();
+	}
+
+	virtual bool onAppTerminated() override
+	{
+		// We actually want to wait for all the frames to finish rendering, otherwise our destructors will run out of order late
+		m_device->waitIdle();
+
+		// This is optional, but the window would close AFTER we return from this function
+		m_surface = nullptr;
+		
+		return device_base_t::onAppTerminated();
+	}
+	
+	// virtual function so you can override as needed for some example father down the line
+	virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+	{
+		auto retval = device_base_t::getRequiredDeviceFeatures();
+		retval.fragmentShaderPixelInterlock = FragmentShaderPixelInterlock;
+		return retval;
+	}
+		
+protected:
+	
+	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
 	{
 		// we record upload of our objects and if we failed to allocate we submit everything
-		if (!intendedNextSubmit.isValid() || intendedNextSubmit.commandBufferCount <= 0u)
+		if (!intendedNextSubmit.valid())
 		{
 			// log("intendedNextSubmit is invalid.", nbl::system::ILogger::ELL_ERROR);
 			assert(false);
-			return intendedNextSubmit;
+			return;
 		}
 
 		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto& cmdbuf = intendedNextSubmit.commandBuffers[intendedNextSubmit.commandBufferCount - 1];
+		auto* cmdbuf = intendedNextSubmit.frontHalf.getScratchCommandBuffer();
 
-		assert(cmdbuf->getState() == video::IGPUCommandBuffer::ES_RECORDING && cmdbuf->isResettable());
-		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT));
+		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
+		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
 
 		auto* cmdpool = cmdbuf->getPool();
-		assert(cmdpool->getQueueFamilyIndex() == submissionQueue->getFamilyIndex());
 
-		auto& currentDrawBuffers = drawBuffers[m_resourceIx];
-		currentDrawBuffers.setSubmitDrawsFunction(
-			[&](video::IGPUQueue* submissionQueue, video::IGPUFence* submissionFence, video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+		drawBuffer.setSubmitDrawsFunction(
+			[&](SIntendedSubmitInfo& intendedNextSubmit)
 			{
-				return submitInBetweenDraws(m_resourceIx, submissionQueue, submissionFence, intendedNextSubmit);
+				return submitDraws(intendedNextSubmit, true);
 			}
 		);
-		currentDrawBuffers.reset();
+		drawBuffer.reset();
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
@@ -1273,10 +1366,10 @@ public:
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, -50.0 });
 				linePoints.push_back({ 50.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
@@ -1290,14 +1383,14 @@ public:
 			style2.worldSpaceLineWidth = 0.8f;
 			style2.color = float32_t4(0.119f, 0.825f, 0.709f, 0.5f);
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(bigPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			// drawBuffer.drawPolyline(bigPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			// drawBuffer.drawPolyline(bigPolyline2, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
 			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
 			{
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, intendedNextSubmit);
 			};
 			
 			int32_t hatchDebugStep = m_hatchDebugStep;
@@ -1968,13 +2061,12 @@ public:
 					lineStyle.screenSpaceLineWidth = 5.0;
 					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 0.2);
 					// assert(polylines[i].checkSectionsContunuity());
-					//intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+					//drawBuffer.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, intendedNextSubmit);
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
 				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
@@ -1987,7 +2079,7 @@ public:
 				//	"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
 				//	percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
 				//).c_str());
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -1998,7 +2090,7 @@ public:
 						begin, end
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				};
 				{
@@ -2006,31 +2098,32 @@ public:
 					std::vector<nbl::hlsl::shapes::QuadraticBezier<float64_t>> beziers;
 
 					// new test case with messed up intersection
-					//beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
-					//beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
+					beziers.push_back({ float64_t2(-26, 160), float64_t2(-10, 160), float64_t2(-20, 175.0), });
+					beziers.push_back({ float64_t2(-26, 160), float64_t2(-5, 160), float64_t2(-29, 175.0), });
 
-					//beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
-					//beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
-					//line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(23, 120), float64_t2(20.07, 145.34), });
+					beziers.push_back({ float64_t2(-26, 120), float64_t2(19.73, 120), float64_t2(27.76, 138.04), });
+					line(float64_t2(20.07, 145.34), float64_t2(27.76, 138.04));
 
-					//beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
-					//beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
-					//line(float64_t2(30, 90), float64_t2(20, 90));
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(30, 90), });
+					beziers.push_back({ float64_t2(25, 70), float64_t2(25, 86), float64_t2(20, 90), });
+					line(float64_t2(30, 90), float64_t2(20, 90));
 
 					beziers.push_back({ float64_t2(26, 20), float64_t2(37.25, 29.15), float64_t2(34.9, 42.75), });
 					beziers.push_back({ float64_t2(26, 20), float64_t2(33.8, 26.35), float64_t2(15.72, 40.84), });
 					line(float64_t2(34.9, 42.75), float64_t2(15.72, 40.84));
 
-					//beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
-					//beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
-					//line(float64_t2(35, 0), float64_t2(10, 0));
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(35, -20), float64_t2(35, 0), });
+					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
+					line(float64_t2(35, 0), float64_t2(10, 0));
 
-					polyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<float64_t>>(beziers.data(), beziers.data() + beziers.size()));
+					polyline.addQuadBeziers(beziers);
 
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				drawBuffer.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -2053,7 +2146,7 @@ public:
 						beziers[i].P2 = (beziers[i].P2 * 200.0) + offset;
 					}
 
-					polyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+					polyline.addQuadBeziers(beziers);
 
 					polylines.push_back(polyline);
 				};
@@ -2062,8 +2155,8 @@ public:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				drawBuffer.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -2074,7 +2167,7 @@ public:
 						begin, end
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				};
 				{
@@ -2101,8 +2194,7 @@ public:
 					beziers.push_back({ float64_t2(22.5, -20), float64_t2(10, -20), float64_t2(10, 0), });
 					line(float64_t2(35, 0), float64_t2(10, 0));
 
-
-					polyline.addQuadBeziers(nbl::core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+					polyline.addQuadBeziers(beziers);
 				}
 			}
 
@@ -2133,7 +2225,7 @@ public:
 						float64_t2(119.196, -152.568)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
 				{
@@ -2160,7 +2252,7 @@ public:
 						float64_t2(110.846, -97.918)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
 				{
@@ -2187,7 +2279,7 @@ public:
 						float64_t2(50.504, -128.469)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
 				{
@@ -2214,12 +2306,11 @@ public:
 						float64_t2(98.133, -111.581)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
-
-				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				drawBuffer.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -2254,12 +2345,11 @@ public:
 				}
 
 				CPolyline polyline;
-				polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+				polyline.addLinePoints(points);
+				polyline.addQuadBeziers(beziers);
 
-				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
+				drawBuffer.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 			
 			if (hatchDebugStep > 0)
@@ -2274,11 +2364,10 @@ public:
 					100.0 * float64_t2(6.6, 0.13),
 					100.0 * float64_t2(-1.97, 3.2),
 					100.0 * float64_t2(3.7, 7.27) });
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(beziers.data(), beziers.data() + beziers.size()));
+				polyline.addQuadBeziers(beziers);
 			
-				core::SRange<CPolyline> polylines = core::SRange<CPolyline>(&polyline, &polyline + 1);
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
-				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
+				drawBuffer.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 			}
 		}
 		else if (mode == ExampleMode::CASE_3)
@@ -2289,9 +2378,9 @@ public:
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 			CPULineStyle style2 = {};
-			style2.screenSpaceLineWidth = 5.0f;
+			style2.screenSpaceLineWidth = 2.0f;
 			style2.worldSpaceLineWidth = 0.0f;
-			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 0.5f);
+			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 1.0f);
 
 
 			CPolyline originalPolyline;
@@ -2309,7 +2398,7 @@ public:
 					linePoints.push_back({ 10.0, -5.0 });
 					linePoints.push_back({ 20.0, 0.0 });
 					linePoints.push_back({ 20.0, 5.0 });
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 
 				{
@@ -2319,14 +2408,14 @@ public:
 					quadratic1.P1 = float64_t2(30.0, 20.0);
 					quadratic1.P2 = float64_t2(40.0, 5.0);
 					quadBeziers.push_back(quadratic1);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 				}
 
 				{
 					linePoints.clear();
 					linePoints.push_back({ 40.0, 5.0 });
 					linePoints.push_back({ 50.0, -10.0 });
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 
 				{
@@ -2348,7 +2437,7 @@ public:
 						};
 
 					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 					// ellipse arc ends on 10, -10
 				}
 
@@ -2371,7 +2460,7 @@ public:
 						};
 
 					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
-					originalPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+					originalPolyline.addQuadBeziers(quadBeziers);
 					// ellipse arc ends on -10, 0.0
 				}
 
@@ -2382,51 +2471,26 @@ public:
 					linePoints.push_back({ -3.0, -3.0 });
 					linePoints.push_back({ -1.0, -1.0 });
 					linePoints.push_back(endPoint);
-					originalPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+					originalPolyline.addLinePoints(linePoints);
 				}
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			// CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(-1.0 + -0.0 * abs(cos(m_timeElapsed * 0.0009)));
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-
-			CPolyline polyline;
-
-
-			curves::ExplicitEllipse myCurve = curves::ExplicitEllipse(20.0, 50.0);
-			// curves::ExplicitMixedCircle myCurve = curves::ExplicitMixedCircle::fromFourPoints(float64_t2(-25, 10.0), float64_t2(-20, 0.0), float64_t2(20.0, 0.0), float64_t2(0.0, -20.0));
-			// curves::Parabola myCurve = curves::Parabola::fromThreePoints(float64_t2(-6.0, 4.0), float64_t2(0.0, 0.0), float64_t2(5.0, 0.0));
-			// curves::MixedParabola myCurve = curves::MixedParabola::fromFourPoints(float64_t2(-60.0, 90.0), float64_t2(0.0, 0.0), float64_t2(50.0, 0.0), float64_t2(60.0,-20.0));
-			//curves::CubicCurve myCurve = curves::CubicCurve(float64_t4(-10.0, 15.0, 5.0, 0.0), float64_t4(-8.0, 10.0, -5.0, 0.0));
-			//curves::EllipticalArcInfo myCurve;
-			{
-				//myCurve.majorAxis = {50.0, 50.0};
-				//myCurve.center = { 50.0, 50.0 };
-				//myCurve.angleBounds = { 
-				//	nbl::core::PI<double>() * 1.25,
-				//	nbl::core::PI<double>() * 1.25 + abs(cos(m_timeElapsed*0.001)) * nbl::core::PI<double>() * 2.0 };
-				//myCurve.eccentricity = 0.5;
-			}
-
-			// curves::CircularArc arc1 = curves::CircularArc(float64_t2(-6, 50));
-			// curves::CircularArc arc2 = curves::CircularArc(float64_t2(-6, -1));
-			// curves::MixedParametricCurves myCurve = curves::MixedParametricCurves(&arc1, &arc2);
-			//static int ix = 0;
-			//const int pp = (ix / 30) % 10;
-			//double error = pow(10.0, -1.0 * double(pp + 1));
-
+			drawBuffer.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			drawBuffer.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
 			constexpr uint32_t CURVE_CNT = 16u;
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
-			CPULineStyle cpuLineStyle;
+			CPULineStyle cpuLineStyle = {};
 			cpuLineStyle.screenSpaceLineWidth = 7.0f;
 			cpuLineStyle.worldSpaceLineWidth = 0.0f;
-			cpuLineStyle.color = float32_t4(0.0f, 0.3f, 0.0f, 0.5f);
+			cpuLineStyle.color = float32_t4(0.7f, 0.3f, 0.7f, 0.8f);
+			cpuLineStyle.isRoadStyleFlag = false;
 
 			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
 			std::vector<CPolyline> polylines(CURVE_CNT);
@@ -2506,7 +2570,7 @@ public:
 					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
-				std::array<core::vector<float>, CURVE_CNT> stipplePatterns;
+				std::array<core::vector<double>, CURVE_CNT> stipplePatterns;
 
 				// TODO: fix uninvited circles at beggining and end of curves, solve with clipping (precalc tMin, tMax)
 
@@ -2529,7 +2593,7 @@ public:
 					// test case 8: start with `0` pattern + 2 `0` patterns close together
 				stipplePatterns[8] = { 0.0, -10.0f, 0.0, -1.0, 0.0, -7.0 };
 					// test case 9: max pattern size
-				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
+				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f };
 					// test case 10: A = 0 (line), evenly distributed controll points
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 11: A = 0 (line), not evenly distributed controll points
@@ -2546,14 +2610,14 @@ public:
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					cpuLineStyles[i].setStipplePatternData(nbl::core::SRange<float>(stipplePatterns[i].begin()._Ptr, stipplePatterns[i].end()._Ptr));
+					cpuLineStyles[i].setStipplePatternData(stipplePatterns[i]);
 					cpuLineStyles[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
-					polylines[i].addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(&quadratics[i], &quadratics[i] + 1u));
+					polylines[i].addQuadBeziers({ &quadratics[i], &quadratics[i] + 1u });
 
 					float64_t2 linePoints[2u] = {};
 					linePoints[0] = { -200.0, 50.0 - 5.0 * i };
 					linePoints[1] = { -100.0, 50.0 - 6.0 * i };
-					polylines[i].addLinePoints(core::SRange<float64_t2>(linePoints, linePoints + 2));
+					polylines[i].addLinePoints(linePoints);
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
@@ -2564,7 +2628,7 @@ public:
 			}
 
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
-				intendedNextSubmit = currentDrawBuffers.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+				drawBuffer.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
@@ -2572,7 +2636,9 @@ public:
 //#define CASE_5_POLYLINE_2 // miter test static
 //#define CASE_5_POLYLINE_3 // miter test animated
 //#define CASE_5_POLYLINE_4 // miter test animated (every angle)
-#define CASE_5_POLYLINE_5 // closed polygon
+//#define CASE_5_POLYLINE_5 // closed polygon
+#define CASE_5_POLYLINE_6 // stretching
+//#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
 			CPULineStyle style = {};
@@ -2582,8 +2648,8 @@ public:
 			style.isRoadStyleFlag = true;
 
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.00002) + 1.0f) * 10.0f;
-			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -2596,7 +2662,7 @@ public:
 				linePoints.push_back({ 80.0, 70.0 });
 				linePoints.push_back({ 100.0, 70.0 });
 				linePoints.push_back({ 120.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				// section 2: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
@@ -2606,7 +2672,7 @@ public:
 				quadratics[1].P0 = { 140.0, 30.0 };
 				quadratics[1].P1 = { 100.0, 15.0 };
 				quadratics[1].P2 = { 140.0, 0.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				// section 3: lines
 				std::vector<float64_t2> linePoints2;
@@ -2615,7 +2681,7 @@ public:
 				linePoints2.push_back({ -140.0, -80.0 });
 				linePoints2.push_back({ -150.0, 20.0, });
 				linePoints2.push_back({ -100.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
+				polyline.addLinePoints(linePoints2);
 
 				// section 4: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics2(4u);
@@ -2636,7 +2702,7 @@ public:
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 
 #elif defined(CASE_5_POLYLINE_2)
 
@@ -2648,8 +2714,8 @@ public:
 
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -2661,7 +2727,7 @@ public:
 				quadratics[1].P0 = { 0.0, -100.0 };
 				quadratics[1].P1 = { -20.0, -75.0 };
 				quadratics[1].P2 = { -50.0, -50.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				// section 1: lines
 				std::vector<float64_t2> linePoints;
@@ -2671,7 +2737,7 @@ public:
 				linePoints.push_back({ 0.0, -50.0 });
 				linePoints.push_back({ 50.0, 0.0 });
 				linePoints.push_back({ 0.0, 50.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				// section 2: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics2(3u);
@@ -2697,19 +2763,19 @@ public:
 				/*linePoints2.push_back({0.0, -50.0});
 				linePoints2.push_back({ 50.0, 0.0 });
 				linePoints2.push_back({ 0.0, 50.0 });*/
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints2.data(), linePoints2.data() + linePoints2.size()));
+				polyline.addLinePoints(linePoints2);
 
 				// section 4: beziers
 				std::vector<shapes::QuadraticBezier<double>> quadratics3(1u);
 				quadratics3[0].P0 = { -30.0, 10.0 };
 				quadratics3[0].P1 = { -30.0, 0.0 };
 				quadratics3[0].P2 = { -20.0, 5.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics3.data(), quadratics3.data() + quadratics3.size()));
+				polyline.addQuadBeziers(quadratics3);
 
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 
 #elif defined(CASE_5_POLYLINE_3)
 			CPULineStyle style = {};
@@ -2720,8 +2786,8 @@ public:
 
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -2736,11 +2802,11 @@ public:
 				linePoints.push_back({ 100.0,  50.0 * animationFactor});
 				linePoints.push_back({ 150.0, -50.0 * animationFactor});
 				linePoints.push_back({ 200.0,  50.0 * animationFactor});
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 
 #elif defined(CASE_5_POLYLINE_4)
 			CPULineStyle style = {};
@@ -2751,8 +2817,8 @@ public:
 
 			//const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
 			//std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
-			std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			std::array<double, 1u> stipplePattern = { 1.0f };
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			CPolyline polyline2;
@@ -2766,7 +2832,7 @@ public:
 				linePoints.push_back({ 0.0, -50.0 });
 				linePoints.push_back({ 0.0,  0.0 });
 				linePoints.push_back(mul(rotationMatrix, float64_t2(0.0, 50.0)));
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(2u);
 				quadratics[0].P0 = { 0.0, -50.0 };
@@ -2776,14 +2842,14 @@ public:
 				quadratics[1].P0 = { 0.0, 0.0 };
 				quadratics[1].P1 = { 0.0, 25.0 };
 				quadratics[1].P2 = { mul(rotationMatrix, float64_t2(0.0, 50.0)) };
-				polyline2.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline2.addQuadBeziers(quadratics);
 
 				polyline.preprocessPolylineWithStyle(style);
 				polyline2.preprocessPolylineWithStyle(style);
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
-			//intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline2, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			//drawBuffer.drawPolyline(polyline2, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
 #elif defined(CASE_5_POLYLINE_5)
 			CPULineStyle style = {};
 			style.screenSpaceLineWidth = 0.0f;
@@ -2792,9 +2858,9 @@ public:
 			style.isRoadStyleFlag = true;
 
 			const double firstDrawSectionSize = (std::cos(m_timeElapsed * 0.0002) + 1.0f) * 10.0f;
-			std::array<float, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
+			std::array<double, 4u> stipplePattern = { firstDrawSectionSize, -20.0f, 1.0f, -5.0f };
 			//std::array<float, 1u> stipplePattern = { 1.0f };
-			style.setStipplePatternData(nbl::core::SRange<float>(stipplePattern.data(), stipplePattern.data() + stipplePattern.size()));
+			style.setStipplePatternData(stipplePattern);
 
 			CPolyline polyline;
 			{
@@ -2804,7 +2870,7 @@ public:
 				linePoints.push_back({0.0, 50.0});
 				linePoints.push_back({-50.0, 0.0});
 				linePoints.push_back({ 0.0, -50.0});
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);
 			}
@@ -2813,13 +2879,13 @@ public:
 				/*std::vector<float64_t2> linePoints;
 				linePoints.push_back({ -50.0, 0.0 });
 				linePoints.push_back({ 0.0, 0.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
 				quadratics[0].P0 = { 0.0, 0.0 };
 				quadratics[0].P1 = { -25.0, -50.0 };
 				quadratics[0].P2 = { -50.0, 0.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);*/
@@ -2831,199 +2897,359 @@ public:
 				linePoints.push_back({ 50.0, 0.0});
 				linePoints.push_back({ 0.0, 50.0});
 				linePoints.push_back({ -50.0, 0.0 });
-				polyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				polyline.addLinePoints(linePoints);
 
 				std::vector<shapes::QuadraticBezier<double>> quadratics(1u);
 				quadratics[0].P0 = { -50.0, 0.0 };
 				quadratics[0].P1 = { -25.0, 0.0 };
 				quadratics[0].P2 = { 0.0, -50.0 };
-				polyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadratics.data(), quadratics.data() + quadratics.size()));
+				polyline.addQuadBeziers(quadratics);
 
 				polyline.setClosed(true);
 				polyline.preprocessPolylineWithStyle(style);*/
 			}
 
-			intendedNextSubmit = currentDrawBuffers.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+#elif defined(CASE_5_POLYLINE_6)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 3.0f;
+			style.worldSpaceLineWidth = 0.0f;
+			style.color = float32_t4(0.85f, 0.1f, 0.1f, 0.5f);
+			style.isRoadStyleFlag = false;
+
+			CPULineStyle shapeStyle = style;
+			CPolyline shapesPolyline;
+
+			// double linesLength = 20.0;
+			double linesLength = 10.0 + 20.0 * abs(cos(m_timeElapsed * 0.0001));
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 58.0 });
+				linePoints.push_back({ -50.0 + linesLength, 58.0 });
+				polyline.addLinePoints(linePoints);
+				polyline.preprocessPolylineWithStyle(style);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+			
+			// std::array<double, 4u> stipplePattern = { 0.0f, -5.0f, 5.0f, -2.5f };
+			std::array<double, 2u> stipplePattern = { 5.0f, -5.0f };
+			style.setStipplePatternData(stipplePattern);
+			auto addShapesFunction = [&](const float64_t2& position, const float64_t2& direction, float32_t stretch) {
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCurve;
+				{
+					myCurve.majorAxis = glm::normalize(direction) * 0.4;
+					myCurve.center = position;
+					myCurve.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * 2.0
+					};
+					myCurve.eccentricity = 0.4;
+				}
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				curves::Subdivision::adaptive(myCurve, 1e-2, addToBezier, 10u);
+				shapesPolyline.addQuadBeziers(quadBeziers);
+			};
+			
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 54.0 });
+				linePoints.push_back({ -50.0 + linesLength, 54.0 });
+				polyline.addLinePoints(linePoints);
+				polyline.preprocessPolylineWithStyle(style);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 52.0 });
+				linePoints.push_back({ -50.0 + linesLength, 52.0 });
+				polyline.addLinePoints(linePoints);
+				polyline.preprocessPolylineWithStyle(style);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+			
+			style.setStipplePatternData(stipplePattern, 7.5, true, false);
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 50.0 });
+				linePoints.push_back({ -50.0 + linesLength, 50.0 });
+				polyline.addLinePoints(linePoints);
+				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+			
+			style.setStipplePatternData(stipplePattern, 7.5, true, true);
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 48.0 });
+				linePoints.push_back({ -50.0 + linesLength, 48.0 });
+				polyline.addLinePoints(linePoints);
+				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+			
+			std::array<double, 3u> stipplePattern2 = { 2.5f, -5.0f, 2.5f };
+			style.setStipplePatternData(stipplePattern2, 5.0, true, true);
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -50.0, 46.0 });
+				linePoints.push_back({ -50.0 + linesLength, 46.0 });
+				polyline.addLinePoints(linePoints);
+				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+			
+			style.setStipplePatternData(stipplePattern, 7.5, true, false);
+			{
+				CPolyline polyline;
+
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCurve;
+				{
+					myCurve.majorAxis = { -50.0, 0.0 };
+					myCurve.center = { 0.0, 25.0 };
+					myCurve.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * abs(cos(m_timeElapsed * 0.00005))
+					};
+					myCurve.eccentricity = 1.0;
+				}
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
+				polyline.addQuadBeziers(quadBeziers);
+				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+			
+			style.setStipplePatternData(stipplePattern, 7.5, true, true);
+			style.color = float32_t4(0.3f, 0.7f, 0.7f, 0.5f);
+			{
+				CPolyline polyline;
+
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCurve;
+				{
+					myCurve.majorAxis = { -52.0, 0.0 };
+					myCurve.center = { 0.0, 25.0 };
+					myCurve.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * abs(cos(m_timeElapsed * 0.00005))
+					};
+					myCurve.eccentricity = 1.0;
+				}
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
+				polyline.addQuadBeziers(quadBeziers);
+				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
+				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			}
+
+			drawBuffer.drawPolyline(shapesPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+#elif defined(CASE_5_POLYLINE_7)
+			CPULineStyle style = {};
+			style.screenSpaceLineWidth = 4.0f;
+			style.worldSpaceLineWidth = 0.0f;
+			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+
+			CPULineStyle style2 = {};
+			style2.screenSpaceLineWidth = 2.0f;
+			style2.worldSpaceLineWidth = 0.0f;
+			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 1.0f);
+
+
+			CPolyline originalPolyline;
+			{
+				// float64_t2 endPoint = { cos(m_timeElapsed * 0.0005), sin(m_timeElapsed * 0.0005) };
+				float64_t2 endPoint = { 0.0, 0.0 };
+				originalPolyline.setClosed(true);
+				std::vector<float64_t2> linePoints;
+
+				{
+					linePoints.push_back(endPoint);
+					linePoints.push_back({ 1.25, -0.625 });
+					linePoints.push_back({ 2.5, -1.25 });
+					linePoints.push_back({ 5.0, -2.5 });
+					linePoints.push_back({ 10.0, -5.0 });
+					linePoints.push_back({ 20.0, 0.0 });
+					linePoints.push_back({ 20.0, 5.0 });
+					originalPolyline.addLinePoints(linePoints);
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					shapes::QuadraticBezier<double>  quadratic1;
+					quadratic1.P0 = float64_t2(20.0, 5.0);
+					quadratic1.P1 = float64_t2(30.0, 20.0);
+					quadratic1.P2 = float64_t2(40.0, 5.0);
+					quadBeziers.push_back(quadratic1);
+					originalPolyline.addQuadBeziers(quadBeziers);
+				}
+
+				{
+					linePoints.clear();
+					linePoints.push_back({ 40.0, 5.0 });
+					linePoints.push_back({ 50.0, -10.0 });
+					originalPolyline.addLinePoints(linePoints);
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					curves::EllipticalArcInfo myCurve;
+					{
+						myCurve.majorAxis = { -20.0, 0.0 };
+						myCurve.center = { 30, -10.0 };
+						myCurve.angleBounds = {
+							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 0.0
+						};
+						myCurve.eccentricity = 1.0;
+					}
+
+					curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+						{
+							quadBeziers.push_back(info);
+						};
+
+					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+					originalPolyline.addQuadBeziers(quadBeziers);
+					// ellipse arc ends on 10, -10
+				}
+
+				{
+					std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+					curves::EllipticalArcInfo myCurve;
+					{
+						myCurve.majorAxis = { -10.0, 5.0 };
+						myCurve.center = { 0, -5.0 };
+						myCurve.angleBounds = {
+							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 0.0
+							};
+						myCurve.eccentricity = 1.0;
+					}
+
+					curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+						{
+							quadBeziers.push_back(info);
+						};
+
+					curves::Subdivision::adaptive(myCurve, 1e-5, addToBezier, 10u);
+					originalPolyline.addQuadBeziers(quadBeziers);
+					// ellipse arc ends on -10, 0.0
+				}
+
+				{
+					linePoints.clear();
+					linePoints.push_back({ -10.0, 0.0 });
+					linePoints.push_back({ -5.0, -5.0 });
+					linePoints.push_back({ -3.0, -3.0 });
+					linePoints.push_back({ -1.0, -1.0 });
+					linePoints.push_back(endPoint);
+					originalPolyline.addLinePoints(linePoints);
+				}
+			}
+
+			// drawBuffer.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+
+			std::array<double, 2u> stipplePattern = { 2, -1 };
+			style.setStipplePatternData(stipplePattern);
+			
+			style.phaseShift += abs(cos(m_timeElapsed * 0.0003));
+			CPolyline offsetPolyline1, offsetPolyline2;
+			originalPolyline.stippleBreakDown(style, [&](const CPolyline& smallPoly)
+				{
+					smallPoly.makeWideWhole(offsetPolyline1, offsetPolyline2, 0.1f, 1e-3);
+					drawBuffer.drawPolyline(smallPoly, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+					drawBuffer.drawPolyline(offsetPolyline1, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+					drawBuffer.drawPolyline(offsetPolyline2, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				});
+
 #endif
 
 		}
 
-		intendedNextSubmit = currentDrawBuffers.finalizeAllCopiesToGPU(submissionQueue, submissionFence, intendedNextSubmit);
-		return intendedNextSubmit;
+		drawBuffer.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 
-	video::IGPUQueue::SSubmitInfo submitInBetweenDraws(uint32_t resourceIdx, video::IGPUQueue* submissionQueue, video::IGPUFence* submissionFence, video::IGPUQueue::SSubmitInfo intendedNextSubmit)
+	double getScreenToWorldRatio(const float64_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
 	{
-		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto& cmdbuf = intendedNextSubmit.commandBuffers[intendedNextSubmit.commandBufferCount - 1];
-
-		auto& currentDrawBuffers = drawBuffers[resourceIdx];
-
-		uint32_t windowWidth = swapchain->getCreationParameters().width;
-		uint32_t windowHeight = swapchain->getCreationParameters().height;
-
-		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { windowWidth, windowHeight };
-
-			beginInfo.clearValueCount = 0u;
-			beginInfo.framebuffer = framebuffersDynArraySmartPtr->begin()[m_SwapchainImageIx];
-			beginInfo.renderpass = renderpassInBetween;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = nullptr;
-		}
-
-		asset::SViewport vp;
-		vp.minDepth = 1.f;
-		vp.maxDepth = 0.f;
-		vp.x = 0u;
-		vp.y = 0u;
-		vp.width = windowWidth;
-		vp.height = windowHeight;
-		cmdbuf->setViewport(0u, 1u, &vp);
-
-		VkRect2D scissor;
-		scissor.extent = { windowWidth, windowHeight };
-		scissor.offset = { 0, 0 };
-		cmdbuf->setScissor(0u, 1u, &scissor);
-
-		pipelineBarriersBeforeDraw(cmdbuf);
-
-		cmdbuf->beginRenderPass(&beginInfo, asset::ESC_INLINE);
-
-		const uint32_t currentIndexCount = drawBuffers[resourceIdx].getIndexCount();
-		cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIdx].get());
-		cmdbuf->bindIndexBuffer(drawBuffers[resourceIdx].gpuDrawBuffers.indexBuffer.get(), 0u, asset::EIT_32BIT);
-		cmdbuf->bindGraphicsPipeline(graphicsPipeline.get());
-		cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-
-		if (fragmentShaderInterlockEnabled)
-		{
-			cmdbuf->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[m_resourceIx].get());
-			cmdbuf->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
-			nbl::ext::FullScreenTriangle::recordDrawCalls(resolveAlphaGraphicsPipeline, 0u, swapchain->getPreTransform(), cmdbuf);
-		}
-
-		if constexpr (DebugMode)
-		{
-			cmdbuf->bindGraphicsPipeline(debugGraphicsPipeline.get());
-			cmdbuf->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
-		}
-		
-		cmdbuf->endRenderPass();
-
-		cmdbuf->end();
-
-		video::IGPUQueue::SSubmitInfo submit = intendedNextSubmit;
-		submit.signalSemaphoreCount = 0u;
-		submit.pSignalSemaphores = nullptr;
-		assert(submit.isValid());
-		submissionQueue->submit(1u, &submit, submissionFence);
-		intendedNextSubmit.commandBufferCount = 1u;
-		intendedNextSubmit.commandBuffers = &cmdbuf;
-		intendedNextSubmit.waitSemaphoreCount = 0u;
-		intendedNextSubmit.pWaitSemaphores = nullptr;
-		intendedNextSubmit.pWaitDstStageMask = nullptr;
-		// we can reset the fence and commandbuffer because we fully wait for the GPU to finish here
-		logicalDevice->blockForFences(1u, &submissionFence);
-		logicalDevice->resetFences(1u, &submissionFence);
-		cmdbuf->reset(video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		cmdbuf->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
-
-		// reset things
-		// currentDrawBuffers.clear();
-
-		return intendedNextSubmit;
+		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
+		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
+		double det_2x2_mat = idx_0_0 * idx_1_1;
+		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
 	}
 
-	double dt = 0;
-	double m_timeElapsed = 0.0;
-	std::chrono::steady_clock::time_point lastTime;
+protected:
 
-	void workLoopBody() override
-	{
-		m_resourceIx++;
-		if (m_resourceIx >= FRAMES_IN_FLIGHT)
-			m_resourceIx = 0;
+	std::chrono::seconds timeout = std::chrono::seconds(0x7fffFFFFu);
+	clock_t::time_point start;
 
-		auto now = std::chrono::high_resolution_clock::now();
-		dt = std::chrono::duration_cast<std::chrono::milliseconds>(now - lastTime).count();
-		lastTime = now;
-		m_timeElapsed += dt;
+	bool fragmentShaderInterlockEnabled = false;
 
-		if constexpr (mode == ExampleMode::CASE_0)
-		{
-			m_Camera.setSize(20.0 + abs(cos(m_timeElapsed * 0.001)) * 600);
-		}
+	core::smart_refctd_ptr<InputSystem> m_inputSystem;
+	InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+	
+	smart_refctd_ptr<IGPURenderpass> renderpassInitial; // this renderpass will clear the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
+	smart_refctd_ptr<IGPURenderpass> renderpassInBetween; // this renderpass will load the attachment and transition it to COLOR_ATTACHMENT_OPTIMAL
+	smart_refctd_ptr<IGPURenderpass> renderpassFinal; // this renderpass will load the attachment and transition it to PRESENT
+	
+	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
+	
+	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+	smart_refctd_ptr<IGPUBuffer>		globalsBuffer;
+	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;
+	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet1;
+	DrawBuffersFiller drawBuffer; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
 
-		inputSystem->getDefaultMouse(&mouse);
-		inputSystem->getDefaultKeyboard(&keyboard);
+	smart_refctd_ptr<ISemaphore> m_renderSemaphore; // timeline semaphore to sync frames together
+	
+	// timeline semaphore used for overflows (they need to be on their own timeline to count overflows)
+	smart_refctd_ptr<ISemaphore> m_overflowSubmitScratchSemaphore; 
+	// this is the semaphore info the overflows update the value for (the semaphore is set to the overflow semaphore above, and the value get's updated by SIntendedSubmitInfo)
+	IQueue::SSubmitInfo::SSemaphoreInfo m_overflowSubmitsScratchSemaphoreInfo;
+	
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-		mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-			{
-				m_Camera.mouseProcess(events);
-			}
-		, logger.get());
-		keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-			{
-				m_Camera.keyboardProcess(events);
+	uint64_t m_realFrameIx : 59 = 0;
+	// Maximum frames which can be simultaneously rendered
+	uint64_t m_framesInFlight : 5;
 
-				for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
-				{
-					auto ev = *eventIt;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
+	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;
+	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout1;
+	smart_refctd_ptr<IGPUPipelineLayout>		pipelineLayout;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		resolveAlphaGraphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
 
-					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_E)
-					{
-						m_hatchDebugStep++;
-					}
-					if (ev.action == nbl::ui::SKeyboardEvent::E_KEY_ACTION::ECA_PRESSED && ev.keyCode == nbl::ui::E_KEY_CODE::EKC_Q)
-					{
-						m_hatchDebugStep--;
-					}
-				}
-			}
-		, logger.get());
+	Camera2D m_Camera;
 
-		auto& cb = m_cmdbuf[m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
 
-		auto& graphicsQueue = queues[CommonAPI::InitOutput::EQT_GRAPHICS];
-
-		nbl::video::IGPUQueue::SSubmitInfo submit;
-		submit.commandBufferCount = 1u;
-		submit.commandBuffers = &cb.get();
-		submit.signalSemaphoreCount = 1u;
-		submit.pSignalSemaphores = &m_renderFinished[m_resourceIx].get();
-		nbl::video::IGPUSemaphore* waitSemaphores[1u] = { m_imageAcquire[m_resourceIx].get() };
-		asset::E_PIPELINE_STAGE_FLAGS waitStages[1u] = { nbl::asset::EPSF_COLOR_ATTACHMENT_OUTPUT_BIT };
-		submit.waitSemaphoreCount = 1u;
-		submit.pWaitSemaphores = waitSemaphores;
-		submit.pWaitDstStageMask = waitStages;
-
-		beginFrameRender();
-
-		submit = addObjects(graphicsQueue, fence.get(), submit);
-
-		endFrameRender();
-
-		graphicsQueue->submit(1u, &submit, fence.get());
-
-		CommonAPI::Present(
-			logicalDevice.get(),
-			swapchain.get(),
-			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			m_renderFinished[m_resourceIx].get(),
-			m_SwapchainImageIx);
-
-		getAndLogQueryPoolResults();
-	}
-
-	bool keepRunning() override
-	{
-		return windowCb->isWindowOpen();
-	}
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 };
 
-NBL_MAIN_FUNC(CADApp)
+NBL_MAIN_FUNC(ComputerAidedDesign)

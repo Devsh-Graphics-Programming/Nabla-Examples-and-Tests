@@ -1,12 +1,8 @@
-//// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
+//// Copyright (C) 2023-2024 - DevSH Graphics Programming Sp. z O.O.
 //// This file is part of the "Nabla Engine".
 //// For conditions of distribution and use, see copyright notice in nabla.h
+#include "app_resources/common.hlsl"
 
-#pragma shader_stage(compute)
-
-#define STATIC_ASSERT(C) { nbl::hlsl::conditional<C, int, void>::type a = 0; }
-
-#define IS_SAME(L,R) nbl::hlsl::is_same<L,R>::value
 #define SHADER_CRASHING_ASSERT(expr) \
 { \
     bool con = (expr); \
@@ -16,27 +12,9 @@
     } while(!con); \
 } 
 
-// tcpp dies, we need to fix first!
-//#include <boost/preprocessor.hpp>
+template<typename L, typename R>
+const static bool is_same_v = nbl::hlsl::is_same_v<L,R>;
 
-
-#include <nbl/builtin/hlsl/cpp_compat.hlsl>
-#include <nbl/builtin/hlsl/type_traits.hlsl>
-
-#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
-
-#include <nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl>
-#include <nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl>
-#include <nbl/builtin/hlsl/colorspace/EOTF.hlsl>
-#include <nbl/builtin/hlsl/colorspace/OETF.hlsl>
-
-#include <nbl/builtin/hlsl/random/xoroshiro.hlsl>
-
-#include <nbl/builtin/hlsl/mpl.hlsl>
-#include <nbl/builtin/hlsl/bit.hlsl>
-
-#include <nbl/builtin/hlsl/limits.hlsl>
 
 struct PushConstants
 {
@@ -87,7 +65,36 @@ void fill(uint3 invocationID, float4 val)
     outImage[invocationID.xy] = val;
     outBuffer[invocationID.x * invocationID.y] = val;
 }
+struct S
+{
+    int x;
+    int a(int) { return 1; }
+};
 
+struct device_capabilities0
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderFloat64 = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderDrawParameters = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool subgroupArithmetic = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
+};
+
+struct device_capabilities1
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderFloat64 = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
+};
+
+struct device_capabilities2
+{
+    NBL_CONSTEXPR_STATIC_INLINE bool subgroupArithmetic = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
+    NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t extraRandomField = 42;
+    NBL_CONSTEXPR_STATIC_INLINE uint32_t extraRandomField2 = 53;
+};
 
 [numthreads(8, 8, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
@@ -211,32 +218,32 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         float4 v;
         const volatile float4 u;
 
-        STATIC_ASSERT(IS_SAME(decltype(v.x), nbl::hlsl::impl::add_lvalue_reference<decltype(v.x)>::type));
+        STATIC_ASSERT(is_same_v<decltype(v.x), nbl::hlsl::impl::add_lvalue_reference<decltype(v.x)>::type>);
         STATIC_ASSERT(nbl::hlsl::impl::is_reference<decltype(v.x)>::value);
-        STATIC_ASSERT(IS_SAME(float,nbl::hlsl::impl::remove_reference<decltype(v.x)>::type));
-        STATIC_ASSERT(IS_SAME(decltype(v.x),nbl::hlsl::impl::add_lvalue_reference<float>::type));
-        STATIC_ASSERT(IS_SAME(decltype(v.x),nbl::hlsl::impl::add_lvalue_reference<nbl::hlsl::impl::remove_reference<decltype(v.x)>::type>::type));
+        STATIC_ASSERT(is_same_v<float,nbl::hlsl::impl::remove_reference<decltype(v.x)>::type>);
+        STATIC_ASSERT(is_same_v<decltype(v.x),nbl::hlsl::impl::add_lvalue_reference<float>::type>);
+        STATIC_ASSERT(is_same_v<decltype(v.x),nbl::hlsl::impl::add_lvalue_reference<nbl::hlsl::impl::remove_reference<decltype(v.x)>::type>::type>);
         
-        STATIC_ASSERT(IS_SAME(float,nbl::hlsl::remove_cvref<decltype(v.x)>::type));
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::remove_cv<decltype(v.x)>::type,nbl::hlsl::impl::add_lvalue_reference<float>::type));
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::remove_cv<decltype(v.x)>::type,nbl::hlsl::impl::add_lvalue_reference<nbl::hlsl::remove_cvref<decltype(v.x)>::type>::type));
+        STATIC_ASSERT(is_same_v<float,nbl::hlsl::remove_cvref<decltype(v.x)>::type>);
+        STATIC_ASSERT(is_same_v<nbl::hlsl::remove_cv<decltype(v.x)>::type,nbl::hlsl::impl::add_lvalue_reference<float>::type>);
+        STATIC_ASSERT(is_same_v<nbl::hlsl::remove_cv<decltype(v.x)>::type,nbl::hlsl::impl::add_lvalue_reference<nbl::hlsl::remove_cvref<decltype(v.x)>::type>::type>);
     }
     fill(invocationID, 7);
     {
         float x[4][4];
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::remove_extent<decltype(x)>::type, float[4]));
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::remove_all_extents<decltype(x)>::type, float));
+        STATIC_ASSERT(is_same_v<nbl::hlsl::remove_extent<decltype(x)>::type, float[4]>);
+        STATIC_ASSERT(is_same_v<nbl::hlsl::remove_all_extents<decltype(x)>::type, float>);
     }
     fill(invocationID, 8);
     {
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::make_signed<int16_t>::type,   nbl::hlsl::make_signed<uint16_t>::type));
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::make_unsigned<int16_t>::type, nbl::hlsl::make_unsigned<uint16_t>::type));
+        STATIC_ASSERT(is_same_v<nbl::hlsl::make_signed<int16_t>::type,   nbl::hlsl::make_signed<uint16_t>::type>);
+        STATIC_ASSERT(is_same_v<nbl::hlsl::make_unsigned<int16_t>::type, nbl::hlsl::make_unsigned<uint16_t>::type>);
 
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::make_signed<int32_t>::type,   nbl::hlsl::make_signed<uint32_t>::type));
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::make_unsigned<int32_t>::type, nbl::hlsl::make_unsigned<uint32_t>::type));
+        STATIC_ASSERT(is_same_v<nbl::hlsl::make_signed<int32_t>::type,   nbl::hlsl::make_signed<uint32_t>::type>);
+        STATIC_ASSERT(is_same_v<nbl::hlsl::make_unsigned<int32_t>::type, nbl::hlsl::make_unsigned<uint32_t>::type>);
 
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::make_signed<int64_t>::type,   nbl::hlsl::make_signed<uint64_t>::type));
-        STATIC_ASSERT(IS_SAME(nbl::hlsl::make_unsigned<int64_t>::type, nbl::hlsl::make_unsigned<uint64_t>::type));
+        STATIC_ASSERT(is_same_v<nbl::hlsl::make_signed<int64_t>::type,   nbl::hlsl::make_signed<uint64_t>::type>);
+        STATIC_ASSERT(is_same_v<nbl::hlsl::make_unsigned<int64_t>::type, nbl::hlsl::make_unsigned<uint64_t>::type>);
     }
 
     {
@@ -262,6 +269,33 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     }
 
     fill(invocationID, 10);
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S,int>::value;   STATIC_ASSERT(nbl::hlsl::e_member_presence::is_present == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S,float, float>::value; STATIC_ASSERT(V == 0); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_method_a<S>::value;       STATIC_ASSERT(V == 0); }
 
+
+    fill(invocationID, 11);
+
+    {
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::shaderFloat64 == device_capabilities0::shaderFloat64);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::subgroupArithmetic == device_capabilities0::subgroupArithmetic);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::fragmentShaderPixelInterlock == device_capabilities0::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::maxOptimallyResidentWorkgroupInvocations == device_capabilities0::maxOptimallyResidentWorkgroupInvocations);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::shaderFloat64 == device_capabilities1::shaderFloat64);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::subgroupArithmetic == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::fragmentShaderPixelInterlock == device_capabilities1::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::maxOptimallyResidentWorkgroupInvocations == device_capabilities1::maxOptimallyResidentWorkgroupInvocations);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::shaderFloat64 == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::subgroupArithmetic == device_capabilities2::subgroupArithmetic);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::fragmentShaderPixelInterlock == device_capabilities2::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::maxOptimallyResidentWorkgroupInvocations == device_capabilities2::maxOptimallyResidentWorkgroupInvocations);
+
+    }
+
+    fill(invocationID, 12);
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,int>::value;      STATIC_ASSERT(nbl::hlsl::e_member_presence::is_present == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,float>::value;    STATIC_ASSERT(0 == V); }
+    { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,void>::value;     STATIC_ASSERT(0 == V); }
+    
     fill(invocationID, -1);
 }

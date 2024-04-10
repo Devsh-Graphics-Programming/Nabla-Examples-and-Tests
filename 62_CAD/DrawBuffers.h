@@ -1,15 +1,21 @@
 #include "Polyline.h"
 #include "Hatch.h"
+#include <nbl/video/utilities/SIntendedSubmitInfo.h>
+
+using namespace nbl;
+using namespace nbl::video;
+using namespace nbl::core;
+using namespace nbl::asset;
 
 template <typename BufferType>
 struct DrawBuffers
 {
-	nbl::core::smart_refctd_ptr<BufferType> indexBuffer;
-	nbl::core::smart_refctd_ptr<BufferType> mainObjectsBuffer;
-	nbl::core::smart_refctd_ptr<BufferType> drawObjectsBuffer;
-	nbl::core::smart_refctd_ptr<BufferType> geometryBuffer;
-	nbl::core::smart_refctd_ptr<BufferType> lineStylesBuffer;
-	nbl::core::smart_refctd_ptr<BufferType> customClipProjectionBuffer;
+	smart_refctd_ptr<BufferType> indexBuffer; // only is valid for IGPUBuffer because it's filled at allocation time and never touched again
+	smart_refctd_ptr<BufferType> mainObjectsBuffer;
+	smart_refctd_ptr<BufferType> drawObjectsBuffer;
+	smart_refctd_ptr<BufferType> geometryBuffer;
+	smart_refctd_ptr<BufferType> lineStylesBuffer;
+	smart_refctd_ptr<BufferType> customClipProjectionBuffer;
 };
 
 // ! this is just a buffers filler with autosubmission features used for convenience to how you feed our CAD renderer
@@ -21,77 +27,51 @@ public:
 
 	DrawBuffersFiller() {}
 
-	DrawBuffersFiller(nbl::core::smart_refctd_ptr<nbl::video::IUtilities>&& utils);
+	DrawBuffersFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
 
-	typedef std::function<nbl::video::IGPUQueue::SSubmitInfo(nbl::video::IGPUQueue*, nbl::video::IGPUFence*, nbl::video::IGPUQueue::SSubmitInfo)> SubmitFunc;
+	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 
 	// function is called when buffer is filled and we should submit draws and clear the buffers and continue filling
 	void setSubmitDrawsFunction(SubmitFunc func);
 
-	void allocateIndexBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t indices);
+	void allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t indices);
 
-	void allocateMainObjectsBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t mainObjects);
+	void allocateMainObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t mainObjects);
 
-	void allocateDrawObjectsBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t drawObjects);
+	void allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects);
 
-	void allocateGeometryBuffer(nbl::video::ILogicalDevice* logicalDevice, size_t size);
+	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
 
-	void allocateStylesBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t stylesCount);
+	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t stylesCount);
 
-	void allocateCustomClipProjectionBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount);
-
-	// TODO
-	//uint32_t getIndexCount() const { return currentIndexCount; }
+	void allocateCustomClipProjectionBuffer(ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
-	nbl::video::IGPUQueue::SSubmitInfo drawPolyline(
+	void drawPolyline(
 		const CPolylineBase& polyline,
 		const CPULineStyle& cpuLineStyle,
 		const uint32_t clipProjectionIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo drawPolyline(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit,
+	void drawPolyline(
 		const CPolylineBase& polyline,
-		const uint32_t polylineMainObjIdx);
+		const uint32_t polylineMainObjIdx,
+		SIntendedSubmitInfo& intendedNextSubmit);
 
-	// If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
-	// But we don't have that so we have to follow a similar auto submission as the "drawPolyline" function with some mutations:
-	// We have to find the MAX number of "CurveBoxes" we could draw, and since both the "Curves" and "CurveBoxes" reside in geometry buffer,
-	// it has to be taken into account when calculating "how many curve boxes we could draw and when we need to submit/clear"
-	// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
-	// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
-	// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
-	nbl::video::IGPUQueue::SSubmitInfo drawHatch(
+	void drawHatch(
 		const Hatch& hatch,
 		// If more parameters from cpu line style are used here later, make a new HatchStyle & use that
 		const float32_t4 color,
 		const uint32_t clipProjectionIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeAllCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
-
-	inline uint32_t getIndexCount() const { return currentIndexCount; }
+	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
 
 	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; }
 
 	inline uint32_t getMainObjectCount() const { return currentMainObjectCount; }
-
-	inline size_t getCurrentIndexBufferSize() const
-	{
-		return sizeof(index_buffer_type) * currentIndexCount;
-	}
 
 	inline size_t getCurrentMainObjectsBufferSize() const
 	{
@@ -123,59 +103,36 @@ public:
 		resetAllCounters();
 	}
 
-	DrawBuffers<nbl::asset::ICPUBuffer> cpuDrawBuffers;
-	DrawBuffers<nbl::video::IGPUBuffer> gpuDrawBuffers;
+	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
+	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
 
-	nbl::video::IGPUQueue::SSubmitInfo addLineStyle_SubmitIfNeeded(
+	void addLineStyle_SubmitIfNeeded(
 		const CPULineStyle& lineStyle,
 		uint32_t& outLineStyleIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo addMainObject_SubmitIfNeeded(
+	void addMainObject_SubmitIfNeeded(
 		const MainObject& mainObject,
 		uint32_t& outMainObjectIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo addClipProjectionData_SubmitIfNeeded(
+	void addClipProjectionData_SubmitIfNeeded(
 		const ClipProjectionData& clipProjectionData,
 		uint32_t& outClipProjectionIdx,
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+		SIntendedSubmitInfo& intendedNextSubmit);
 
 protected:
 
 	SubmitFunc submitDraws;
 	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeIndexCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeMainObjectCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeGeometryCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
-	nbl::video::IGPUQueue::SSubmitInfo finalizeLineStyleCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
-
-	nbl::video::IGPUQueue::SSubmitInfo finalizeCustomClipProjectionCopiesToGPU(
-		nbl::video::IGPUQueue* submissionQueue,
-		nbl::video::IGPUFence* submissionFence,
-		nbl::video::IGPUQueue::SSubmitInfo intendedNextSubmit);
+	void finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	uint32_t addMainObject_Internal(const MainObject& mainObject);
 
@@ -194,7 +151,7 @@ protected:
 
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
-	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a nbl::core::Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
+	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
 	// And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
 	void addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx);
 
@@ -206,14 +163,10 @@ protected:
 
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
 
-	//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-	void addCagedObjectIndices_Internal(uint32_t startObject, uint32_t objectCount);
-
 	void resetAllCounters()
 	{
 		resetMainObjectCounters();
 		resetGeometryCounters();
-		resetIndexCounters();
 		resetStyleCounters();
 		resetCustomClipProjectionCounters();
 	}
@@ -233,12 +186,6 @@ protected:
 		currentGeometryBufferSize = 0u;
 	}
 
-	void resetIndexCounters()
-	{
-		inMemIndexCount = 0u;
-		currentIndexCount = 0u;
-	}
-
 	void resetStyleCounters()
 	{
 		currentLineStylesCount = 0u;
@@ -251,11 +198,10 @@ protected:
 		inMemClipProjectionDataCount = 0u;
 	}
 
-	nbl::core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
+	smart_refctd_ptr<IUtilities> m_utilities;
+	IQueue* m_copyQueue;
 
-	uint32_t inMemIndexCount = 0u;
-	uint32_t currentIndexCount = 0u;
-	uint32_t maxIndices = 0u;
+	uint32_t maxIndexCount;
 
 	uint32_t inMemMainObjectCount = 0u;
 	uint32_t currentMainObjectCount = 0u;

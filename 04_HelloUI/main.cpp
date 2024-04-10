@@ -3,7 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 // always include nabla first before std:: headers
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 
 #include "nbl/ui/ICursorControl.h"
 
@@ -16,9 +16,9 @@ using namespace ui;
 class WindowEventDemoCallback;
 
 // This example is Desktop only, because just how the system creation gets weird on other platforms the window creation is similar
-class HelloUIApp final : public examples::MonoSystemMonoLoggerApplication
+class HelloUIApp final : public application_templates::MonoSystemMonoLoggerApplication
 {
-		using base_t = examples::MonoSystemMonoLoggerApplication;
+		using base_t = application_templates::MonoSystemMonoLoggerApplication;
 		using clock_t = std::chrono::steady_clock;
 
 	public:

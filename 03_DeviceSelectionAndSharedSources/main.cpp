@@ -4,8 +4,8 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -19,10 +19,10 @@ using namespace video;
 
 
 // This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
-class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::MonoDeviceApplication;
-		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = application_templates::MonoDeviceApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
 		DeviceSelectionAndSharedSourcesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -98,6 +98,7 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 			// And now I show you how to save 100 lines of code to create all objects between a Compute Pipeline and a Shader
 			smart_refctd_ptr<IGPUComputePipeline> pipeline;
 			{
+#if 0
 				// This is the main workhorse of our asset system, it automates the creation of matching IGPU objects for ICPU object while
 				// making sure that if two ICPU objects reference the same dependency, that structure carries over to their associated IGPU objects.
 				// We're working on a new improved Hash Tree based system which will catch identically defined ICPU objects even if their pointers differ.
@@ -126,6 +127,9 @@ class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceAppl
 				assert(source->getUnspecialized()->getContent()->getPointer() == nullptr);
 
 				pipeline = convertedGPUObjects->front();
+#else
+				static_assert(false,"TODO: Przemog you need to make a temporary workaround in this example to not use the Asset Converter to convert an ICPUComputePipeline to IGPUComputePipeline and just do it manually here from a ICPUShader");
+#endif
 			}
 
 			// Nabla hardcodes the maximum descriptor set count to 4

@@ -1,7 +1,7 @@
 // Copyright (C) 2018-2023 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -55,9 +55,10 @@ class AllocatorHandler
 	using Traits = core::address_allocator_traits<AlctrType>;
 
 public:
-	void executeAllocatorTest()
+	void executeAllocatorTest(ILogger* logger)
 	{
-		uint32_t testsCnt = rng.getRndAllocCnt();
+		const uint32_t testsCnt = rng.getRndAllocCnt();
+		logger->log("Performing %d top level tests!\n",ILogger::ELL_INFO,testsCnt);
 
 		// TODO: log progress
 		for (size_t i = 0; i < testsCnt; i++)
@@ -295,9 +296,9 @@ void AllocatorHandler<core::LinearAddressAllocator<uint32_t>>::randFreeAllocated
 }
 
 
-class AllocatorTestApp final : public nbl::examples::MonoSystemMonoLoggerApplication
+class AllocatorTestApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
 {
-		using base_t = examples::MonoSystemMonoLoggerApplication;
+		using base_t = application_templates::MonoSystemMonoLoggerApplication;
 	public:
 		using base_t::base_t;
 
@@ -312,27 +313,28 @@ class AllocatorTestApp final : public nbl::examples::MonoSystemMonoLoggerApplica
 			{
 				{
 					AllocatorHandler<core::PoolAddressAllocator<uint32_t>> poolAlctrHandler;
-					poolAlctrHandler.executeAllocatorTest();
+					poolAlctrHandler.executeAllocatorTest(m_logger.get());
 				}
 
 				{
 					AllocatorHandler<core::IteratablePoolAddressAllocator<uint32_t>> iterPoolAlctrHandler;
-					iterPoolAlctrHandler.executeAllocatorTest();
+					iterPoolAlctrHandler.executeAllocatorTest(m_logger.get());
 				}
 
 				{
 					AllocatorHandler<core::LinearAddressAllocator<uint32_t>> linearAlctrHandler;
-					linearAlctrHandler.executeAllocatorTest();
+					linearAlctrHandler.executeAllocatorTest(m_logger.get());
 				}
 
 				{
 					AllocatorHandler<core::StackAddressAllocator<uint32_t>> stackAlctrHandler;
-					stackAlctrHandler.executeAllocatorTest();
+					stackAlctrHandler.executeAllocatorTest(m_logger.get());
 				}
 
+				// TODO: make this test take less time
 				{
 					AllocatorHandler<core::GeneralpurposeAddressAllocator<uint32_t>> generalpurposeAlctrHandler;
-					generalpurposeAlctrHandler.executeAllocatorTest();
+					generalpurposeAlctrHandler.executeAllocatorTest(m_logger.get());
 				}
 			}
 
@@ -367,6 +369,9 @@ class AllocatorTestApp final : public nbl::examples::MonoSystemMonoLoggerApplica
 		void workLoopBody() override {}
 
 		bool keepRunning() override { return false; }
+
+	protected:
+		virtual core::bitflag<system::ILogger::E_LOG_LEVEL> getLogLevelMask() {return ILogger::ELL_ALL;}
 };
 
 NBL_MAIN_FUNC(AllocatorTestApp)

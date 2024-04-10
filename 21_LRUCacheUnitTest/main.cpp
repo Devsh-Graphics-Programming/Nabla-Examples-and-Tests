@@ -4,7 +4,7 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -13,9 +13,9 @@ using namespace asset;
 using namespace video;
 
 
-class LRUCacheTestApp final : public nbl::examples::MonoSystemMonoLoggerApplication
+class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
 {
-		using base_t = examples::MonoSystemMonoLoggerApplication;
+		using base_t = application_templates::MonoSystemMonoLoggerApplication;
 	public:
 		using base_t::base_t;
 

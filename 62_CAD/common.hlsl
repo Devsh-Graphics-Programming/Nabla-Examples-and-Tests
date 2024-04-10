@@ -41,14 +41,14 @@ struct LinePointInfo
 {
     float64_t2 p;
     float32_t phaseShift;
-    float32_t _reserved_pad;
+    float32_t stretchValue;
 };
 
 struct QuadraticBezierInfo
 {
     nbl::hlsl::shapes::QuadraticBezier<float64_t> shape; // 48bytes = 3 (control points) x 16 (float64_t2)
     float32_t phaseShift;
-    float32_t _reserved_pad;
+    float32_t stretchValue;
 };
 #ifndef __HLSL_VERSION
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
@@ -99,25 +99,28 @@ struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
     double screenToWorldRatio; // 96
-    float worldToScreenRatio; // 100
+    double worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
     float miterLimit; // 116
-    float32_t3 _padding; // 128
+    float32_t2 _padding; // 128
 };
 
 #ifndef __HLSL_VERSION
 static_assert(offsetof(Globals, defaultClipProjection) == 0u);
 static_assert(offsetof(Globals, screenToWorldRatio) == 88u);
 static_assert(offsetof(Globals, worldToScreenRatio) == 96u);
-static_assert(offsetof(Globals, resolution) == 100u);
-static_assert(offsetof(Globals, antiAliasingFactor) == 108u);
-static_assert(offsetof(Globals, miterLimit) == 112u);
+static_assert(offsetof(Globals, resolution) == 104u);
+static_assert(offsetof(Globals, antiAliasingFactor) == 112u);
+static_assert(offsetof(Globals, miterLimit) == 116u);
 #endif
+
+NBL_CONSTEXPR uint32_t InvalidRigidSegmentIndex = 0xffffffff;
+NBL_CONSTEXPR float InvalidStyleStretchValue = nbl::hlsl::numeric_limits<float>::infinity;
 
 struct LineStyle
 {
-    static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+    const static uint32_t StipplePatternMaxSize = 14u;
 
     // common data
     float32_t4 color;
@@ -127,13 +130,19 @@ struct LineStyle
     // stipple pattern data
     int32_t stipplePatternSize;
     float reciprocalStipplePatternLen;
-    uint32_t stipplePattern[STIPPLE_PATTERN_MAX_SZ]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
-    uint32_t isRoadStyleFlag; // can pack more bools here in the future
+    uint32_t stipplePattern[StipplePatternMaxSize]; // packed float into uint (top two msb indicate leftIsDotPattern and rightIsDotPattern as an optimization)
+    uint32_t isRoadStyleFlag;
+    uint32_t rigidSegmentIdx; // TODO: can be more mem efficient with styles by packing this along other values, since stipple pattern size is bounded by StipplePatternMaxSize 
 
     float getStippleValue(const uint32_t ix)
     {
         const uint32_t floatValBis = 0xffffffff >> 2; // clear two msb bits reserved for something else
         return (stipplePattern[ix] & floatValBis) / float(1u << 29);
+    }
+
+    void setStippleValue(const uint32_t ix, const float val)
+    {
+        stipplePattern[ix] = (uint32_t)(val * (1u << 29u));
     }
 
     bool isLeftDot(const uint32_t ix)
@@ -152,9 +161,14 @@ struct LineStyle
     {
         return stipplePatternSize > 0 ? true : false;
     }
+
+    void stretch(float stretch)
+    {
+        reciprocalStipplePatternLen /= stretch;
+    }
 };
 
-#ifdef __cplusplus
+#ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
     const bool areParametersEqual =
@@ -162,12 +176,14 @@ inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
         lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
         lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
         lhs.stipplePatternSize == rhs.stipplePatternSize &&
-        lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen;
+        lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
+        lhs.isRoadStyleFlag == rhs.isRoadStyleFlag &&
+        lhs.rigidSegmentIdx == rhs.rigidSegmentIdx;
 
     if (!areParametersEqual)
         return false;
-
-    const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(decltype(lhs.stipplePatternSize)) * lhs.stipplePatternSize) : true;
+    
+    const bool isStipplePatternArrayEqual = (lhs.stipplePatternSize > 0) ? (std::memcmp(lhs.stipplePattern, rhs.stipplePattern, sizeof(uint32_t) * lhs.stipplePatternSize) == 0) : true;
 
     return isStipplePatternArrayEqual;
 }
@@ -237,8 +253,8 @@ uint bitfieldExtract(uint value, int offset, int bits)
 template<typename float_t>
 struct PrecomputedRootFinder 
 {
-    using float2_t = vector<float_t, 2>;
-    using float3_t = vector<float_t, 3>;
+    using float_t2 = vector<float_t, 2>;
+    using float_t3 = vector<float_t, 3>;
     
     float_t C2;
     float_t negB;
@@ -287,10 +303,12 @@ struct PSInput
     ObjectType getObjType() { return (ObjectType) data1.x; }
     uint getMainObjectIdx() { return data1.y; }
     float getLineThickness() { return asfloat(data1.z); }
+    float getPatternStretch() { return asfloat(data1.w); }
     
     void setObjType(ObjectType objType) { data1.x = (uint) objType; }
     void setMainObjectIdx(uint mainObjIdx) { data1.y = mainObjIdx; }
     void setLineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
+    void setPatternStretch(float stretch) { data1.w = asuint(stretch); }
     
     // data2
     float2 getLineStart() { return data2.xy; }
@@ -299,10 +317,6 @@ struct PSInput
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
     
-    // data3 xy
-    float2 getBezierP2() { return data3.xy; }
-    void setBezierP2(float2 p2) { data3.xy = p2; }
-
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
     // curveMin = smaller x / left, curveMax = bigger x / right)
@@ -392,7 +406,17 @@ struct PSInput
     {
         return interp_data5.x;
     }
+    
+    // Use only for Lines and QuadBeziers, other objects use this slot of interp_data5.y
+    void setCurrentWorldToScreenRatio(float worldToScreen)
+    {
+        interp_data5.y = worldToScreen;
+    }
 
+    float getCurrentWorldToScreenRatio()
+    {
+        return interp_data5.y;
+    }
     // POLYLINE_CONNECTOR data
 
     void setPolylineConnectorTrapezoidStart(float2 trapezoidStart) { data2.xy = trapezoidStart; }
@@ -408,24 +432,15 @@ struct PSInput
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
 };
 
+// Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-[[vk::binding(2, 0)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
-[[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
-[[vk::binding(4, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
-[[vk::binding(5, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+[[vk::binding(2, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
+[[vk::binding(3, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
+[[vk::binding(4, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
 
-// shared by both vertex and fragment shader
-struct StyleAccessor
-{
-    uint32_t styleIdx;
-    using value_type = float;
-
-    float operator[](const uint32_t ix)
-    {
-        return lineStyles[styleIdx].getStippleValue(ix);
-    }
-};
+// Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
+[[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 #endif
 
 #endif

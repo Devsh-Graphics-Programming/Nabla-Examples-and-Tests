@@ -83,15 +83,16 @@ PSInput main(uint vertexID : SV_VertexID)
     if (objType == ObjectType::LINE)
     {
         outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-
-        const double3x3 transformation = clipProjectionData.projectionToNDC;
+        outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0]*globals.resolution.x)));
 
         double2 points[2u];
         points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
         points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
         const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2), 8u);
+        const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float), 8u);
         outV.setCurrentPhaseShift(phaseShift);
+        outV.setPatternStretch(patternStretch);
 
         float2 transformedPoints[2u];
         for (uint i = 0u; i < 2u; ++i)
@@ -132,7 +133,10 @@ PSInput main(uint vertexID : SV_VertexID)
         points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
 
         const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
+        const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u + sizeof(float), 8u);
         outV.setCurrentPhaseShift(phaseShift);
+        outV.setPatternStretch(patternStretch);
+        outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0]*globals.resolution.x)));
 
         // transform these points into screen space and pass to fragment
         float2 transformedPoints[3u];
@@ -172,7 +176,7 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 obbV1;
             float2 obbV2;
             float2 obbV3;
-            quadraticBezier.OBBAligned(screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3);
+            quadraticBezier.computeOBB(screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3);
             if (subsectionIdx == 0)
             {
                 if (vertexIdx == 0u)
@@ -228,12 +232,12 @@ PSInput main(uint vertexID : SV_VertexID)
             float2 leftTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
             float2 leftNormal = normalize(float2(-leftTangent.y, leftTangent.x)) * flip;
             float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * screenSpaceLineWidth / 2.0f;
-            float2 exterior0 = nbl::hlsl::shapes::util::LineLineIntersection(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
+            float2 exterior0 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
             
             float2 rightTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT));
             float2 rightNormal = normalize(float2(-rightTangent.y, rightTangent.x)) * flip;
             float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f-optimalT) - rightNormal * screenSpaceLineWidth / 2.0f;
-            float2 exterior1 = nbl::hlsl::shapes::util::LineLineIntersection(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
+            float2 exterior1 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
 
             // Interiors
             {
@@ -254,7 +258,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 endPointExterior = transformedPoints[0u] - endPointTangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
+                    outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[0u] + endPointNormal * screenSpaceLineWidth / 2.0f - endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)
@@ -280,7 +284,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 endPointExterior = transformedPoints[2u] + endPointTangent * screenSpaceLineWidth / 2.0f;
 
                 if (vertexIdx == 0u)
-                    outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
+                    outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                 else if (vertexIdx == 1u)
                     outV.position = float4(transformedPoints[2u] + endPointNormal * screenSpaceLineWidth / 2.0f + endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
                 else if (vertexIdx == 2u)

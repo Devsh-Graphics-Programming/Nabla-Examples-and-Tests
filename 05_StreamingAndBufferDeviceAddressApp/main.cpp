@@ -1,11 +1,12 @@
-// Copyright (C) 2018-2023 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+
 
 using namespace nbl;
 using namespace core;
@@ -19,10 +20,10 @@ using namespace video;
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::MonoDeviceApplication;
-		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = application_templates::MonoDeviceApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 		// This is the first example that submits multiple workloads in-flight. 
 		// What the shader does is it computes the minimum distance of each point against K other random input points.
@@ -58,19 +59,22 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 		// When choosing the memory properties of a mapped buffer consider which processor (CPU or GPU) needs faster access in event of a cache-miss.
 		nbl::video::StreamingTransientDataBufferMT<>* m_upStreamingBuffer;
 		StreamingTransientDataBufferMT<>* m_downStreamingBuffer;
+
 		// These are Buffer Device Addresses
 		uint64_t m_upStreamingBufferAddress;
 		uint64_t m_downStreamingBufferAddress;
 
 		// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 		uint32_t m_alignment;
-		
+
 		// The pool cache is just a formalized way of round-robining command pools and resetting + reusing them after their most recent submit signals finished.
 		// Its a little more ergonomic to use if you don't have a 1:1 mapping between frames and pools.
 		smart_refctd_ptr<nbl::video::ICommandPoolCache> m_poolCache;
 
-		// We'll run the iterations in reverse, easier to write "keep running"
-		uint32_t m_iteration = 200;
+		// This example really lets the advantages of a timeline semaphore shine through!
+		smart_refctd_ptr<ISemaphore> m_timeline;
+		uint64_t m_iteration = 0;
+		constexpr static inline uint64_t MaxIterations = 200;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -81,13 +85,13 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
-			if (!device_base_t::onAppInitialized(std::move(system)))
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
 			// this time we load a shader directly from a file
-			smart_refctd_ptr<IGPUSpecializedShader> shader;
+			smart_refctd_ptr<IGPUShader> shader;
 			{
 				IAssetLoader::SAssetLoadParams lp = {};
 				lp.logger = m_logger.get();
@@ -98,32 +102,29 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 					return logFail("Could not load shader!");
 
 				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUSpecializedShader>(assets[0]);
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
 				// The down-cast should not fail!
 				assert(source);
 
-				IGPUObjectFromAssetConverter::SParams conversionParams = {};
-				conversionParams.device = m_device.get();
-				conversionParams.assetManager = m_assetMgr.get();
-				created_gpu_object_array<ICPUSpecializedShader> convertedGPUObjects = std::make_unique<IGPUObjectFromAssetConverter>()->getGPUObjectsFromAssets(&source,&source+1,conversionParams);
-				if (convertedGPUObjects->empty() || !convertedGPUObjects->front())
-					return logFail("Conversion of a CPU Specialized Shader to GPU failed!");
-
-				shader = convertedGPUObjects->front();
+				// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+				shader = m_device->createShader(source.get());
+				if (!shader)
+					return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
 			}
 
 			// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
 			// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
 			// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
-			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<24;
-			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<24;
+			constexpr uint32_t DownstreamBufferSize = sizeof(output_t)<<23;
+			constexpr uint32_t UpstreamBufferSize = sizeof(input_t)<<23;
+
 			m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device),smart_refctd_ptr(m_logger),DownstreamBufferSize,UpstreamBufferSize);
 			if (!m_utils)
 				return logFail("Failed to create Utilities!");
 			m_upStreamingBuffer = m_utils->getDefaultUpStreamingBuffer();
 			m_downStreamingBuffer = m_utils->getDefaultDownStreamingBuffer();
-			m_upStreamingBufferAddress = m_device->getBufferDeviceAddress(m_upStreamingBuffer->getBuffer());
-			m_downStreamingBufferAddress = m_device->getBufferDeviceAddress(m_downStreamingBuffer->getBuffer());
+			m_upStreamingBufferAddress = m_upStreamingBuffer->getBuffer()->getDeviceAddress();
+			m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
 
 			// People love Reflection but I prefer Shader Sources instead!
 			const nbl::asset::SPushConstantRange pcRange = {.stageFlags=IShader::ESS_COMPUTE,.offset=0,.size=sizeof(PushConstantData)};
@@ -133,7 +134,14 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 			// I even started writing this sample with the use of Dynamic SSBOs, however the length of the buffer range is not dynamic
 			// only the offset. This means that we'd have to write the "worst case" length into the descriptor set binding.
 			// Then this has a knock-on effect that we couldn't allocate closer to the end of the streaming buffer than the "worst case" size.
-			m_pipeline = m_device->createComputePipeline(nullptr,m_device->createPipelineLayout(&pcRange,&pcRange+1),std::move(shader));
+			{
+				auto layout = m_device->createPipelineLayout({&pcRange,1});
+				IGPUComputePipeline::SCreationParams params = {};
+				params.layout = layout.get();
+				params.shader.shader = shader.get();
+				if (!m_device->createComputePipelines(nullptr,{&params,1},&m_pipeline))
+					return logFail("Failed to create compute pipeline!\n");
+			}
 
 			const auto& deviceLimits = m_device->getPhysicalDevice()->getLimits();
 			// The ranges of non-coherent mapped memory you flush or invalidate need to be aligned. You'll often see a value of 64 reported by devices
@@ -147,20 +155,23 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 			// We'll allow subsequent iterations to overlap each other on the GPU, the only limiting factors are
 			// the amount of memory in the streaming buffers and the number of commandpools we can use simultaenously.
 			constexpr auto MaxConcurrency = 64;
+
 			// Since this time we don't throw the Command Pools away and we'll reset them instead, we don't create the pools with the transient flag
-			m_poolCache = make_smart_refctd_ptr<ICommandPoolCache>(m_device.get(),getComputeQueue()->getFamilyIndex(), IGPUCommandPool::ECF_NONE, MaxConcurrency);
+			m_poolCache = ICommandPoolCache::create(core::smart_refctd_ptr(m_device),getComputeQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE,MaxConcurrency);
+
+			// In contrast to fences, we just need one semaphore to rule all dispatches
+			m_timeline = m_device->createSemaphore(m_iteration);
 
 			return true;
 		}
 
 		// Ok this time we'll actually have a work loop (maybe just for the sake of future WASM so we don't timeout a Browser Tab with an unresponsive script)
-		bool keepRunning() override { return m_iteration; }
+		bool keepRunning() override { return m_iteration<MaxIterations; }
 
 		// Finally the first actual work-loop
 		void workLoopBody() override
 		{
-			m_iteration--;
-			IGPUQueue* const queue = getComputeQueue();
+			IQueue* const queue = getComputeQueue();
 
 			// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
 			auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({m_iteration^0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_)});
@@ -171,6 +182,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 
 			// The allocators can do multiple allocations at once for efficiency
 			const uint32_t AllocationCount = 1;
+
 			// It comes with a certain drawback that you need to remember to initialize your "yet unallocated" offsets to the Invalid value
 			// this is to allow a set of allocations to fail, and you to re-try after doing something to free up space without repacking args.
 			auto inputOffset = m_upStreamingBuffer->invalid_value;
@@ -193,7 +205,8 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 				// Always remember to flush!
 				if (m_upStreamingBuffer->needsManualFlushOrInvalidate())
 				{
-					const IDeviceMemoryAllocation::MappedMemoryRange range(m_upStreamingBuffer->getBuffer()->getBoundMemory(),inputOffset,inputSize);
+					const auto bound = m_upStreamingBuffer->getBuffer()->getBoundMemory();
+					const ILogicalDevice::MappedMemoryRange range(bound.memory,bound.offset+inputOffset,inputSize);
 					m_device->flushMappedMemoryRanges(1,&range);
 				}
 			}
@@ -207,14 +220,15 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 
 			// finally allocate our output range
 			const uint32_t outputSize = sizeof(output_t)*elementCount;
+
 			auto outputOffset = m_downStreamingBuffer->invalid_value;
 			m_downStreamingBuffer->multi_allocate(waitTill,AllocationCount,&outputOffset,&outputSize,&m_alignment);
 
 			smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 			{
-				m_device->createCommandBuffers(m_poolCache->getPool(poolIx),IGPUCommandBuffer::EL_PRIMARY,1,&cmdbuf);
+				m_poolCache->getPool(poolIx)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1},core::smart_refctd_ptr(m_logger));
 				// lets record, its still a one time submit because we have to re-record with different push constants each time
-				cmdbuf->begin(IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 				cmdbuf->bindComputePipeline(m_pipeline.get());
 				// This is the new fun part, pushing constants
 				const PushConstantData pc = {
@@ -228,28 +242,44 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 				cmdbuf->end();
 			}
 
-			// TODO: redo with a single timeline semaphore
-			auto fence = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
+
+			const auto savedIterNum = m_iteration++;
 			{
-				IGPUQueue::SSubmitInfo submitInfo = {};
-				submitInfo.commandBufferCount = 1;
-				submitInfo.commandBuffers = &cmdbuf.get();
+				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
+				{
+					.cmdbuf = cmdbuf.get()
+				};
+				const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
+				{
+					.semaphore = m_timeline.get(),
+					.value = m_iteration,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				};
+				// Generally speaking we don't need to wait on any semaphore because in this example every dispatch gets its own clean piece of memory to use
+				// from the point of view of the GPU. Implicit domain operations between Host and Device happen upon a submit and a semaphore/fence signal operation,
+				// this ensures we can touch the input and get accurate values from the output memory using the CPU before and after respectively, each submit becoming PENDING.
+				// If we actually cared about this submit seeing the memory accesses of a previous dispatch we could add a semaphore wait
+				const IQueue::SSubmitInfo submitInfo = {
+					.waitSemaphores = {},
+					.commandBuffers = {&cmdbufInfo,1},
+					.signalSemaphores = {&signalInfo,1}
+				};
 
 				queue->startCapture();
-				queue->submit(1u,&submitInfo,fence.get());
+				queue->submit({&submitInfo,1});
 				queue->endCapture();
 			}
 				
+			// We let all latches know what semaphore and counter value has to be passed for the functors to execute
+			const ISemaphore::SWaitInfo futureWait = {m_timeline.get(),m_iteration};
+
 			// We can also actually latch our Command Pool reset and its return to the pool of free pools!
-			m_poolCache->releaseSet(m_device.get(),smart_refctd_ptr(fence),poolIx);
+			m_poolCache->releasePool(futureWait,poolIx);
 
 			// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
 			// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
-			m_upStreamingBuffer->multi_deallocate(AllocationCount,&inputOffset,&inputSize,smart_refctd_ptr(fence));
+			m_upStreamingBuffer->multi_deallocate(AllocationCount,&inputOffset,&inputSize,futureWait);
 
-			// Because C++17 and C++20 can't make their mind up about what to do with `this` in event of a [=] capture, lets triple ensure the m_iteration is captured by value.
-			const auto savedIterNum = m_iteration;
-				
 			// Now a new and even more advanced usage of the latched events, we make our own refcounted object with a custom destructor and latch that like we did the commandbuffer.
 			// Instead of making our own and duplicating logic, we'll use one from IUtilities meant for down-staging memory.
 			// Its nice because it will also remember to invalidate our memory mapping if its not coherent.
@@ -275,7 +305,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 				std::move(cmdbuf),m_downStreamingBuffer
 			);
 			// We put a function we want to execute 
-			m_downStreamingBuffer->multi_deallocate(AllocationCount,&outputOffset,&outputSize,std::move(fence),&latchedConsumer.get());
+			m_downStreamingBuffer->multi_deallocate(AllocationCount,&outputOffset,&outputSize,futureWait,&latchedConsumer.get());
 		}
 
 		bool onAppTerminated() override
@@ -283,7 +313,6 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 			// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
 			// (the destructors of the Command Pool Cache and Streaming buffers will still wait for all lambda events to drain)
 			while (m_downStreamingBuffer->cull_frees()) {}
-
 			return device_base_t::onAppTerminated();
 		}
 };

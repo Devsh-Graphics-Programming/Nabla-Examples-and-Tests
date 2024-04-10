@@ -4,8 +4,8 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/BasicMultiQueueApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -18,10 +18,10 @@ using namespace video;
 
 
 // This time we let the new base class score and pick queue families, as well as initialize `nbl::video::IUtilities` for us
-class StagingAndMultipleQueuesApp final : public examples::BasicMultiQueueApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class StagingAndMultipleQueuesApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::BasicMultiQueueApplication;
-		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = application_templates::BasicMultiQueueApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore

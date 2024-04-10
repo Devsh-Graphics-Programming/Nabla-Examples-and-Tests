@@ -11,104 +11,279 @@
 struct CPULineStyle
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
-	static const uint32_t STIPPLE_PATTERN_MAX_SZ = 15u;
+	static constexpr double InvalidShapeOffset = nbl::hlsl::numeric_limits<double>::infinity;
+	static constexpr double InvalidNormalizedShapeOffset = nbl::hlsl::numeric_limits<float>::infinity;
+	static constexpr float PatternEpsilon = 1e-3f;  // TODO: I think for phase shift in normalized stipple space this is a reasonable value? right?
+	static const uint32_t StipplePatternMaxSize = LineStyle::StipplePatternMaxSize;
 
 	float32_t4 color;
 	float screenSpaceLineWidth;
 	float worldSpaceLineWidth;
-	// gpu stipple pattern data form
+	
+	/*
+		Stippling Values:
+	*/
 	int32_t stipplePatternSize = 0u;
-	float reciprocalStipplePatternLen;
-	float stipplePattern[STIPPLE_PATTERN_MAX_SZ];
-	float phaseShift;
-	bool isRoadStyleFlag;
+	float reciprocalStipplePatternLen = 0.0;
+	float stipplePattern[StipplePatternMaxSize] = {};
+	float phaseShift = 0.0;
+	/*
+		Customization Flags:
+		isRoadStyleFlag -> generate mitering and use square edges in sdf
+		stretchToFit -> allows stretching of the pattern to fit inside the current line or curve segment, this flag also cause each line or curve section to start from the beginning of the pattern
+	*/
+	bool isRoadStyleFlag = false;
+	bool stretchToFit = false;
+	/*
+		special segment -> this is an index to stipple pattern to not stretch that value in the pattern when stretchToFit is true
+		a valid shape segments means we don't want to stretch the shape segment and we treat it differently
+		InvalidRigidSegmentIndex means we want to stretch the shape segment as well and we don't treat it differently -> simpler
+	*/
+	uint32_t rigidSegmentIdx = InvalidRigidSegmentIndex;
+	
 
-	void setStipplePatternData(const nbl::core::SRange<float>& stipplePatternCPURepresentation)
-		//void prepareGPUStipplePatternData(const nbl::core::vector<float>& stipplePatternCPURepresentation)
+	// Cached and Precomputed Values used in preprocessing a polyline
+	float shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
+	float rigidSegmentStart = 0.0f;
+	float rigidSegmentEnd = 0.0f;
+	float rigidSegmentLen = 0.0f;
+
+	/*
+	* stipplePatternUnnormalizedRepresentation is the pattern user fills, normalization makes the pattern size 1.0 with +,-,+,- pattern
+	* shapeOffset is the offset into the unnormalized pattern a shape is going to draw, it's specialized this way because sometimes we don't want to stretch the pattern value the shape resides in.
+	*/
+	void setStipplePatternData(const std::span<const double> stipplePatternUnnormalizedRepresentation, double shapeOffsetInPattern = InvalidShapeOffset, bool stretch = false, bool rigidShapeSegment = false)
 	{
-		assert(stipplePatternCPURepresentation.size() <= STIPPLE_PATTERN_MAX_SZ);
+		// Invalidate to possibly fill with correct values later
+		shapeNormalizedPlaceInPattern = InvalidNormalizedShapeOffset;
+		rigidSegmentIdx = InvalidRigidSegmentIndex;
+		phaseShift = 0.0f;
 
-		if (stipplePatternCPURepresentation.size() == 0)
+		assert(stipplePatternUnnormalizedRepresentation.size() <= StipplePatternMaxSize);
+
+		if (stipplePatternUnnormalizedRepresentation.size() == 0)
 		{
 			stipplePatternSize = 0;
 			return;
 		}
 
-		nbl::core::vector<float> stipplePatternTransformed;
+		nbl::core::vector<double> stipplePatternTransformed;
 
 		// just to make sure we have a consistent definition of what's positive and what's negative
-		auto isValuePositive = [](float x)
-		{
-			return (x >= 0);
-		};
+		auto isValuePositive = [](double x)
+			{
+				return (x >= 0);
+			};
 
 		// merge redundant values
-		for (auto it = stipplePatternCPURepresentation.begin(); it != stipplePatternCPURepresentation.end();)
+		for (auto it = stipplePatternUnnormalizedRepresentation.begin(); it != stipplePatternUnnormalizedRepresentation.end();)
 		{
-			float redundantConsecutiveValuesSum = 0.0f;
-			const bool firstValueSign = isValuePositive(*it);
+			double redundantConsecutiveValuesSum = 0.0f;
+			const bool firstValueIsPositive = isValuePositive(*it);
 			do
 			{
 				redundantConsecutiveValuesSum += *it;
 				it++;
-			} while (it != stipplePatternCPURepresentation.end() && (firstValueSign == isValuePositive(*it)));
+			} while (it != stipplePatternUnnormalizedRepresentation.end() && (firstValueIsPositive == isValuePositive(*it)));
 
 			stipplePatternTransformed.push_back(redundantConsecutiveValuesSum);
 		}
 
-		if (stipplePatternTransformed.size() == 1)
+		bool stippled = false; // has at least 1 draw and 1 gap section
+		
+		if (stipplePatternTransformed.size() != 1)
 		{
-			stipplePatternSize = stipplePatternTransformed[0] < 0.0f ? InvalidStipplePatternSize : 0;
-			return;
+			// merge first and last value if their sign matches
+			double currentPhaseShift = 0.0f;
+			const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
+			const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+			if (firstComponentPositive == lastComponentPositive)
+			{
+				currentPhaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
+				stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
+				stipplePatternTransformed.pop_back();
+			}
+
+			if (stipplePatternTransformed.size() != 1)
+			{
+				stippled = true;
+
+				// rotate values if first value is negative value
+				if (!firstComponentPositive)
+				{
+					std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
+					currentPhaseShift += std::abs(stipplePatternTransformed[0]);
+				}
+
+				// calculate normalized prefix sum
+				const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::StipplePatternMaxSize - 1u;
+				const uint32_t PREFIX_SUM_SZ = static_cast<uint32_t>(stipplePatternTransformed.size()) - 1;
+
+				double prefixSum[PREFIX_SUM_MAX_SZ];
+				prefixSum[0] = stipplePatternTransformed[0];
+
+				for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
+					prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
+
+				const double rcpLen = 1.0 / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
+
+				for (uint32_t i = 0; i < PREFIX_SUM_SZ; i++)
+					prefixSum[i] *= rcpLen;
+
+				reciprocalStipplePatternLen = static_cast<float>(rcpLen);
+				stipplePatternSize = PREFIX_SUM_SZ;
+				for (uint32_t i = 0u; i < PREFIX_SUM_SZ; ++i)
+					stipplePattern[i] = static_cast<float>(prefixSum[i]);
+
+				currentPhaseShift = currentPhaseShift * rcpLen;
+
+				if (stipplePatternUnnormalizedRepresentation[0] == 0.0)
+					currentPhaseShift -= PatternEpsilon;
+				else if (stipplePatternUnnormalizedRepresentation[0] < 0.0)
+					currentPhaseShift += PatternEpsilon;
+
+				phaseShift = static_cast<float>(currentPhaseShift);
+			}
 		}
 
-		// merge first and last value if their sign matches
-		phaseShift = 0.0f;
-		const bool firstComponentPositive = isValuePositive(stipplePatternTransformed[0]);
-		const bool lastComponentPositive = isValuePositive(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
-		if (firstComponentPositive == lastComponentPositive)
+		stretchToFit = stretch;
+
+		// is all gap or all draw
+		if (!stippled)
 		{
-			phaseShift += std::abs(stipplePatternTransformed[stipplePatternTransformed.size() - 1]);
-			stipplePatternTransformed[0] += stipplePatternTransformed[stipplePatternTransformed.size() - 1];
-			stipplePatternTransformed.pop_back();
+			reciprocalStipplePatternLen = static_cast<float>(1.0 / abs(stipplePatternTransformed[0]));
+			// all draw
+			if (stipplePatternTransformed[0] >= 0.0)
+			{
+				stipplePattern[0] = 1.0;
+				stipplePatternSize = 1;
+			}
+			// all gap
+			else 
+			{
+				stipplePattern[0] = 0.0;
+				stipplePatternSize = InvalidStipplePatternSize;
+			}
 		}
-
-		if (stipplePatternTransformed.size() == 1)
+		
+		if (shapeOffsetInPattern != InvalidShapeOffset)
 		{
-			stipplePatternSize = (firstComponentPositive) ? 0 : InvalidStipplePatternSize;
-			return;
+			setShapeOffset(shapeOffsetInPattern);
+			if (rigidShapeSegment)
+			{
+				if (stippled)
+				{
+					rigidSegmentIdx = getPatternIdxFromNormalizedPosition(shapeNormalizedPlaceInPattern);
+					// only way the stretchValue is going to change phase shift is if it's a non uniform stretch with a rigid segment (that one segment that shouldn't stretch)
+					rigidSegmentStart = (rigidSegmentIdx >= 1u) ? stipplePattern[rigidSegmentIdx - 1u] : 0.0f;
+					rigidSegmentEnd = (rigidSegmentIdx < stipplePatternSize) ? stipplePattern[rigidSegmentIdx] : 1.0f;
+					rigidSegmentLen = rigidSegmentEnd - rigidSegmentStart;
+				}
+				else
+				{
+					rigidSegmentIdx = 0u;
+					rigidSegmentLen = 1.0f;
+				}
+			}
 		}
+	}
+		
+	void scalePattern(float64_t scale)
+	{
+		reciprocalStipplePatternLen /= scale;
+	}
 
-		// rotate values if first value is negative value
-		if (!firstComponentPositive)
+	void setShapeOffset(float64_t offsetInWorldSpace)
+	{
+		shapeNormalizedPlaceInPattern = glm::fract(offsetInWorldSpace * reciprocalStipplePatternLen + phaseShift);
+	}
+
+	// If it's all draw or all gap
+	bool isSingleSegment() const
+	{
+		const bool allDraw = stipplePattern[0] == 1.0f && stipplePatternSize == 1u;
+		const bool allGap = !isVisible();
+		return allDraw || allGap;
+	}
+
+	float calculateStretchValue(float64_t arcLen) const
+	{
+		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+		if (stretchToFit)
 		{
-			std::rotate(stipplePatternTransformed.rbegin(), stipplePatternTransformed.rbegin() + 1, stipplePatternTransformed.rend());
-			phaseShift += std::abs(stipplePatternTransformed[0]);
+			const bool singleRigidSegment = rigidShapeSegment() && isSingleSegment(); // we shouldn't apply any stretching if we only have one rigid stipple segment(either all draw or all gap(invisible)
+
+			if (rigidShapeSegment() && arcLen * reciprocalStipplePatternLen <= rigidSegmentLen)
+			{
+				// arcLen is less than or equal to rigidSegmentLen, then stretch value is invalidated to draw the polyline solid without any style
+				ret = InvalidStyleStretchValue;
+			}
+			else if (!singleRigidSegment)
+			{
+				//	Work out how many segments will fit into the line and calculate the stretch factor
+				int nSegments = 1;
+				double dInteger;
+				double dFraction = ::modf(arcLen * reciprocalStipplePatternLen, &dInteger);
+				if (dInteger < 1.0)
+					nSegments = 1;
+				else
+				{
+					nSegments = (int)dInteger;
+					if (dFraction > 0.5)
+						nSegments++;
+				}
+
+				if (dFraction == 0.0)
+					ret = 1.0;
+				else
+				{
+					// here we calculate the stretch value so that the pattern ends when the line/curve ends.
+					// below `+ CPULineStyle::PhaseShiftEpsilon`, stretches the value a little more  behaves as if arcLen is += epsilon * patternLen.
+					// because we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+					// example: when we need to fit a pattern onto a curve, and the pattern ends at a non-draw section
+					//		the erros in the computations using phaseShift and stretch could incorrectly flag the last pixels of the curve to be in the pattern's next draw section but we needed it to end on a non draw section
+					//		when stretching a little more it will ensure the clipping does it's job so that we don't get dots at the end of the line.
+					ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
+				}
+			}
 		}
+		return ret;
+	}
 
-		// calculate normalized prefix sum
-		const uint32_t PREFIX_SUM_MAX_SZ = LineStyle::STIPPLE_PATTERN_MAX_SZ - 1u;
-		const uint32_t PREFIX_SUM_SZ = stipplePatternTransformed.size() - 1;
-
-		float prefixSum[PREFIX_SUM_MAX_SZ];
-		prefixSum[0] = stipplePatternTransformed[0];
-
-		for (uint32_t i = 1u; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] = abs(stipplePatternTransformed[i]) + prefixSum[i - 1];
-
-		reciprocalStipplePatternLen = 1.0f / (prefixSum[PREFIX_SUM_SZ - 1] + abs(stipplePatternTransformed[PREFIX_SUM_SZ]));
-
-		for (int i = 0; i < PREFIX_SUM_SZ; i++)
-			prefixSum[i] *= reciprocalStipplePatternLen;
-
-		stipplePatternSize = PREFIX_SUM_SZ;
-		std::memcpy(stipplePattern, prefixSum, sizeof(prefixSum));
-
-		phaseShift = phaseShift * reciprocalStipplePatternLen;
-		if (stipplePatternTransformed[0] == 0.0)
+	// normalized place in pattern might change when stretching non-uniformly
+	float getStretchedNormalizedPlaceInPattern(float32_t normalizedPlaceInPattern, float32_t stretchValue) const
+	{
+		if (stretchToFit && rigidShapeSegment() && !isSingleSegment())
 		{
-			phaseShift -= 1.0e-3f; // TODO: I think 1e-3 phase shift in normalized stipple space is a reasonable value? right?
+			float nonShapeSegmentStretchValue = (stretchValue - rigidSegmentLen) / (1.0 - rigidSegmentLen);
+			float newPlaceInPattern = nbl::core::min(normalizedPlaceInPattern, rigidSegmentStart) * nonShapeSegmentStretchValue; // stretch parts before rigid segment
+			newPlaceInPattern += nbl::core::max(normalizedPlaceInPattern - rigidSegmentEnd, 0.0f) * nonShapeSegmentStretchValue; // stretch parts after rigid segment
+			newPlaceInPattern += nbl::core::max(nbl::core::min(rigidSegmentLen, normalizedPlaceInPattern - rigidSegmentStart), 0.0f); // stretch parts inside rigid segment
+			newPlaceInPattern /= stretchValue; // scale back to normalized phaseShift
+			return newPlaceInPattern;
 		}
+		else
+		{
+			return normalizedPlaceInPattern;
+		}
+	}
+
+	float getStretchedPhaseShift(float32_t stretchValue) const
+	{
+		return getStretchedNormalizedPlaceInPattern(phaseShift, stretchValue);
+	}
+	
+	float getStretchedShapeNormalizedPlaceInPattern(float32_t stretchValue) const
+	{
+		return getStretchedNormalizedPlaceInPattern(shapeNormalizedPlaceInPattern, stretchValue);
+	}
+
+	uint32_t getPatternIdxFromNormalizedPosition(float normalizedPlaceInPattern) const
+	{
+		float integralPart;
+		normalizedPlaceInPattern = std::modf(normalizedPlaceInPattern, &integralPart);
+		const float* patternPtr = std::upper_bound(stipplePattern, stipplePattern + stipplePatternSize, normalizedPlaceInPattern);
+		return std::distance(stipplePattern, patternPtr);
 	}
 
 	LineStyle getAsGPUData() const
@@ -126,7 +301,7 @@ struct CPULineStyle
 				(i == stipplePatternSize && stipplePattern[0] == 0.0) ||
 				(i + 2 <= stipplePatternSize && stipplePattern[i] == stipplePattern[i + 1]);
 
-			ret.stipplePattern[i] = static_cast<uint32_t>(stipplePattern[i] * (1u << 29u));
+			ret.setStippleValue(i, stipplePattern[i]);
 
 			if (leftIsDot)
 				ret.stipplePattern[i] |= 1u << 30u;
@@ -140,9 +315,14 @@ struct CPULineStyle
 		ret.stipplePatternSize = stipplePatternSize;
 		ret.reciprocalStipplePatternLen = reciprocalStipplePatternLen;
 		ret.isRoadStyleFlag = isRoadStyleFlag;
+		ret.rigidSegmentIdx = rigidSegmentIdx;
 
 		return ret;
 	}
+
+	inline bool rigidShapeSegment() const { return rigidSegmentIdx != InvalidRigidSegmentIndex; }
+
+	inline bool hasShape() const { return shapeNormalizedPlaceInPattern != InvalidNormalizedShapeOffset; }
 
 	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
 };
@@ -168,7 +348,7 @@ public:
 	virtual const SectionInfo& getSectionInfoAt(const uint32_t idx) const = 0;
 	virtual const QuadraticBezierInfo& getQuadBezierInfoAt(const uint32_t idx) const = 0;
 	virtual const LinePointInfo& getLinePointAt(const uint32_t idx) const = 0;
-	virtual nbl::core::SRange<const PolylineConnector> getConnectors() const = 0;
+	virtual std::span<const PolylineConnector> getConnectors() const = 0;
 	virtual bool checkSectionsContinuity() const = 0;
 };
 
@@ -194,9 +374,9 @@ public:
 		return m_linePoints[idx];
 	}
 
-	nbl::core::SRange<const PolylineConnector> getConnectors() const override
+	std::span<const PolylineConnector> getConnectors() const override
 	{
-		return nbl::core::SRange<const PolylineConnector> { m_polylineConnector.begin()._Ptr, m_polylineConnector.end()._Ptr };
+		return m_polylineConnector;
 	}
 
 	bool checkSectionsContinuity() const override
@@ -231,16 +411,10 @@ public:
 		m_quadBeziers.reserve(noOfBeziers);
 	}
 
-	void addLinePoints(const nbl::core::SRange<float64_t2>& linePoints, bool forceConnectToLastSection = false)
+	void addLinePoints(const std::span<float64_t2> linePoints)
 	{
 		if (linePoints.size() <= 1u)
 			return;
-
-		SectionInfo newSection = {};
-		newSection.type = ObjectType::LINE;
-		newSection.index = static_cast<uint32_t>(m_linePoints.size());
-		newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
-		m_sections.push_back(newSection);
 
 		const uint32_t oldLinePointSize = m_linePoints.size();
 		const uint32_t newLinePointSize = oldLinePointSize + linePoints.size();
@@ -248,16 +422,18 @@ public:
 		for (uint32_t i = 0u; i < linePoints.size(); i++)
 		{
 			m_linePoints[oldLinePointSize + i].p = linePoints[i];
+			m_linePoints[oldLinePointSize + i].phaseShift = 0.0;
+			m_linePoints[oldLinePointSize + i].stretchValue = 1.0;
 		}
 
-		if (forceConnectToLastSection && m_sections.size() >= 2u)
-		{
-			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
-			m_linePoints[oldLinePointSize].p = prevPoint;
-		}
+		SectionInfo newSection = {};
+		newSection.type = ObjectType::LINE;
+		newSection.index = oldLinePointSize;
+		newSection.count = static_cast<uint32_t>(linePoints.size() - 1u);
+		m_sections.push_back(newSection);
 	}
 
-	void addEllipticalArcs(const nbl::core::SRange<curves::EllipticalArcInfo>& ellipses, double errorThreshold)
+	void addEllipticalArcs(const std::span<curves::EllipticalArcInfo> ellipses, double errorThreshold)
 	{
 		nbl::core::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziersArray;
 		for (const auto& ellipticalInfo : ellipses)
@@ -273,18 +449,10 @@ public:
 		}
 	}
 
-	// TODO[Przemek]: this input should be nbl::hlsl::QuadraticBezier instead cause `QuadraticBezierInfo` includes precomputed data I don't want user to see
-	void addQuadBeziers(const nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>& quadBeziers, bool forceConnectToLastSection = false)
+	void addQuadBeziers(const std::span<nbl::hlsl::shapes::QuadraticBezier<double>> quadBeziers)
 	{
 		if (quadBeziers.empty())
 			return;
-
-		SectionInfo newSection = {};
-		newSection.type = ObjectType::QUAD_BEZIER;
-		newSection.index = static_cast<uint32_t>(m_quadBeziers.size());
-		newSection.count = static_cast<uint32_t>(quadBeziers.size());
-		m_sections.push_back(newSection);
-
 
 		constexpr QuadraticBezierInfo EMPTY_QUADRATIC_BEZIER_INFO = {};
 		const uint32_t oldQuadBezierSize = m_quadBeziers.size();
@@ -294,24 +462,52 @@ public:
 		{
 			const uint32_t currBezierIdx = oldQuadBezierSize + i;
 			m_quadBeziers[currBezierIdx].shape = quadBeziers[i];
+			m_quadBeziers[currBezierIdx].phaseShift = 0.0;
+			m_quadBeziers[currBezierIdx].stretchValue = 1.0;
 		}
-
-		if (forceConnectToLastSection && m_sections.size() >= 2u)
+				
+		const bool unifiedSection = (m_sections.size() > lastSectionsSize && m_sections.back().type == ObjectType::QUAD_BEZIER);
+		if (unifiedSection)
 		{
-			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 2u]); // - 2 because we just added a new section
-			m_quadBeziers[oldQuadBezierSize].shape.P0 = prevPoint; // or we can average?
+			float64_t2 prevPoint = getSectionLastPoint(m_sections[m_sections.size() - 1u]);
+			m_quadBeziers[oldQuadBezierSize].shape.P0 = prevPoint; // or we can average
+			m_sections.back().count += static_cast<uint32_t>(quadBeziers.size());
+		}
+		else
+		{
+			SectionInfo newSection = {};
+			newSection.type = ObjectType::QUAD_BEZIER;
+			newSection.index = oldQuadBezierSize;
+			newSection.count = static_cast<uint32_t>(quadBeziers.size());
+			m_sections.push_back(newSection);
 		}
 	}
 
-	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle)
+	// The next two functions make sure consecutive calls to `addQuadBeziers` between `beginUnifiedCurveSection` and `endUnifiedCurveSection` get into a single bezier section (to keep consistent with n4ce on polyline stretching on individual curve segments)
+	void beginUnifiedCurveSection()
 	{
-		if (!lineStyle.isVisible())
-			return;
+		lastSectionsSize = m_sections.size();
+	}
+	void endUnifiedCurveSection()
+	{
+		lastSectionsSize = std::numeric_limits<uint32_t>::max();
+	}
+
+	typedef std::function<void(const float64_t2& /*position*/, const float64_t2& /*direction*/, float32_t /*stretch*/)> AddShapeFunc;
+
+	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, const AddShapeFunc& addShape = {})
+	{
+		//if (!lineStyle.isVisible())
+		//	return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
-		_NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
+		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
 
-		float phaseShiftTotal = lineStyle.phaseShift;
+		const bool shouldAddShapes = (lineStyle.hasShape() && addShape.operator bool());
+		// When stretchToFit is true, the curve section and individual lines should start from the beginning of the pattern (phaseShift = lineStyle.phaseShift)
+		const bool patternStartAgain = lineStyle.stretchToFit;
+		float currentPhaseShift = lineStyle.phaseShift;
+
 		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
 		{
 			const auto& section = m_sections[sectionIdx];
@@ -319,77 +515,126 @@ public:
 			if (section.type == ObjectType::LINE)
 			{
 				// calculate phase shift at each point of each line in section
-				const uint32_t linePointCnt = section.count + 1u;
-				for (uint32_t i = 0u; i < linePointCnt; i++)
+				const uint32_t lineCount = section.count;
+				for (uint32_t i = 0u; i < lineCount; i++)
 				{
 					const uint32_t currIdx = section.index + i;
 					auto& linePoint = m_linePoints[currIdx];
-					if (i == 0u)
-					{
-						linePoint.phaseShift = phaseShiftTotal;
-						continue;
-					}
+					const auto& nextLinePoint = m_linePoints[currIdx + 1u];
+					const float64_t2 lineVector = nextLinePoint.p - linePoint.p;
+					const float64_t lineLen = glm::length(lineVector);
+					const float32_t stretchValue = lineStyle.calculateStretchValue(lineLen);
+					const float rcpStretchedPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
 
-					const auto& prevLinePoint = m_linePoints[section.index + i - 1u];
-					const float64_t2 lineVector = linePoint.p - prevLinePoint.p;
-					const double lineLen = glm::length(lineVector);
+					if (patternStartAgain)
+						currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
+					linePoint.phaseShift = currentPhaseShift;
+					linePoint.stretchValue = stretchValue;
+					
 					if (lineStyle.isRoadStyleFlag)
+						connectorBuilder.addLineNormal(lineVector, lineLen, linePoint.p, currentPhaseShift);
+
+					if (shouldAddShapes)
 					{
-						connectorBuilder.addLineNormal(lineVector, lineLen, prevLinePoint.p, phaseShiftTotal);
+						float shapeOffsetNormalized = lineStyle.getStretchedShapeNormalizedPlaceInPattern(stretchValue);
+						// next shape Offset from start of line/curve
+						float nextShapeOffset = shapeOffsetNormalized - currentPhaseShift;
+						if (nextShapeOffset < 0.0f)
+							nextShapeOffset += 1.0f;
+						
+						int32_t numberOfShapes = static_cast<int32_t>(std::ceil(lineLen * rcpStretchedPatternLen - nextShapeOffset)); // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
+
+						float64_t stretchedPatternLen = 1.0 / (float64_t)rcpStretchedPatternLen;
+						float64_t currentWorldSpaceOffset = nextShapeOffset * stretchedPatternLen;
+						float64_t2 direction = lineVector / lineLen;
+						for (int32_t s = 0; s < numberOfShapes; ++s)
+						{
+							const float64_t2 position = linePoint.p + direction * currentWorldSpaceOffset;
+							addShape(position, direction, stretchValue);
+							currentWorldSpaceOffset += stretchedPatternLen;
+						}
 					}
 
-					const double changeInPhaseShiftBetweenCurrAndPrevPoint = std::remainder(lineLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					linePoint.phaseShift = static_cast<float32_t>(glm::fract(phaseShiftTotal + changeInPhaseShiftBetweenCurrAndPrevPoint));
-					phaseShiftTotal = linePoint.phaseShift;
+					if (!patternStartAgain)
+					{
+						// setting next phase shift based on current arc length
+						const double changeInPhaseShift = glm::fract(lineLen * rcpStretchedPatternLen);
+						currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
+					}
 				}
 			}
 			else if (section.type == ObjectType::QUAD_BEZIER)
 			{
-				// calculate phase shift at point P0 of each bezier
-				const uint32_t quadBezierCnt = section.count;
-				for (uint32_t i = 0u; i <= quadBezierCnt; i++)
+				const uint32_t quadBezierCount = section.count;
+				
+				// when stretchToFit is true, we need to calculate the whole section arc length to figure out the stretch value needed for stippling phaseshift
+				float stretchValue = 1.0;
+				if (lineStyle.stretchToFit)
 				{
+					float64_t sectionArcLen = 0.0;
+					for (uint32_t i = 0u; i < quadBezierCount; i++)
+					{
+						const QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[section.index + i];
+						nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
+						nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+						sectionArcLen += arcLenCalc.calcArcLen(1.0);
+					}
+					stretchValue = lineStyle.calculateStretchValue(sectionArcLen);
+				}
+				
+				if (patternStartAgain)
+					currentPhaseShift = lineStyle.getStretchedPhaseShift(stretchValue);
 
+				const float rcpStretchedPatternLen = (lineStyle.reciprocalStipplePatternLen) / stretchValue;
+
+				// calculate phase shift at point P0 of each bezier
+				for (uint32_t i = 0u; i < quadBezierCount; i++)
+				{
 					const uint32_t currIdx = section.index + i;
-					if (i == 0u)
-					{
-						QuadraticBezierInfo& firstInSectionQuadBezierInfo = m_quadBeziers[currIdx];
-						firstInSectionQuadBezierInfo.phaseShift = phaseShiftTotal;
 
-						if (lineStyle.isRoadStyleFlag)
-						{
-							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
-						}
+					QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+					quadBezierInfo.phaseShift = currentPhaseShift;
+					quadBezierInfo.stretchValue = stretchValue;
 
-						continue;
-					}
-
-					const QuadraticBezierInfo& prevQuadBezierInfo = m_quadBeziers[currIdx - 1u];
-					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(prevQuadBezierInfo.shape);
+					if (lineStyle.isRoadStyleFlag)
+						connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], currentPhaseShift);
+					
+					// setting next phase shift based on current arc length
+					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
 					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
-					const double bezierLen = arcLenCalc.calcArcLen(1.0f);
-
-					const double nextLineInSectionLocalPhaseShift = std::remainder(bezierLen, 1.0f / lineStyle.reciprocalStipplePatternLen) * lineStyle.reciprocalStipplePatternLen;
-					phaseShiftTotal = static_cast<float32_t>(glm::fract(phaseShiftTotal + nextLineInSectionLocalPhaseShift));
-
-					if (i < quadBezierCnt)
+					const double bezierLen = arcLenCalc.calcArcLen(1.0);
+					
+					if (shouldAddShapes)
 					{
-						QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
-						quadBezierInfo.phaseShift = phaseShiftTotal;
+						float shapeOffsetNormalized = lineStyle.getStretchedShapeNormalizedPlaceInPattern(stretchValue);
 
-						if (lineStyle.isRoadStyleFlag)
+						// next shape Offset from start of line/curve
+						float nextShapeOffset = shapeOffsetNormalized - currentPhaseShift;
+						if (nextShapeOffset < 0.0f)
+							nextShapeOffset += 1.0f;
+						
+						int32_t numberOfShapes = static_cast<int32_t>(std::ceil(bezierLen * rcpStretchedPatternLen - nextShapeOffset)); // numberOfShapes = (ArcLen - nextShapeOffset*PatternLen)/PatternLen + 1
+
+						float64_t stretchedPatternLen = 1.0 / (float64_t)rcpStretchedPatternLen;
+						float64_t currentWorldSpaceOffset = nextShapeOffset * stretchedPatternLen;
+						for (int32_t s = 0; s < numberOfShapes; ++s)
 						{
-							connectorBuilder.addBezierNormals(m_quadBeziers[currIdx], phaseShiftTotal);
+							float64_t t = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, currentWorldSpaceOffset, 1e-5, 0.5);
+							addShape(quadratic.evaluate(t), quadratic.derivative(t), stretchValue);
+							currentWorldSpaceOffset += stretchedPatternLen;
 						}
 					}
+
+					const double changeInPhaseShift = glm::fract(bezierLen * rcpStretchedPatternLen);
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
 				}
 			}
 		}
 
 		if (lineStyle.isRoadStyleFlag)
 		{
-			connectorBuilder.setPhaseShiftAtEndOfPolyline(phaseShiftTotal);
+			connectorBuilder.setPhaseShiftAtEndOfPolyline(currentPhaseShift);
 			m_polylineConnector = connectorBuilder.buildConnectors(lineStyle, m_closedPolygon);
 		}
 	}
@@ -501,7 +746,7 @@ public:
 					{
 						float64_t2 prevSectionEndPos = parallelPolyline.getSectionLastPoint(prevSection);
 						float64_t2 nextSectionStartPos = parallelPolyline.getSectionFirstPoint(nextSection);
-						float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
+						float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection<float64_t>(prevSectionEndPos, prevTangent, nextSectionStartPos, nextTangent);
 
 						if (nextSection.type == ObjectType::LINE)
 						{
@@ -515,7 +760,7 @@ public:
 							{
 								// Add QuadBez Position + Intersection to start of right segment
 								float64_t2 newLinePoints[2u] = { prevSectionEndPos, intersection };
-								parallelPolyline.insertLinePointsToSection(nextSectionIdx, 0u, nbl::core::SRange<float64_t2>(newLinePoints, newLinePoints + 2u));
+								parallelPolyline.insertLinePointsToSection(nextSectionIdx, 0u, newLinePoints);
 							}
 						}
 						else if (nextSection.type == ObjectType::QUAD_BEZIER)
@@ -524,7 +769,7 @@ public:
 							{
 								// Add Intersection + right Segment first line position to end of leftSegment
 								float64_t2 newLinePoints[2u] = { intersection, nextSectionStartPos };
-								parallelPolyline.insertLinePointsToSection(prevSectionIdx, prevSection.count + 1u, nbl::core::SRange<float64_t2>(newLinePoints, newLinePoints + 2u));
+								parallelPolyline.insertLinePointsToSection(prevSectionIdx, prevSection.count + 1u, newLinePoints);
 							}
 							else if (prevSection.type == ObjectType::QUAD_BEZIER)
 							{
@@ -541,59 +786,92 @@ public:
 								newSection.index = linePointsInsertion;
 								newSection.count = 0u;
 								newSections.insert(newSections.begin() + newSectionIdx, newSection);
-								parallelPolyline.insertLinePointsToSection(newSectionIdx, 0u, nbl::core::SRange<float64_t2>(newLinePoints, newLinePoints + 3u));
+								parallelPolyline.insertLinePointsToSection(newSectionIdx, 0u, newLinePoints);
 								previousLineSectionIdx = newSectionIdx;
 							}
 						}
 					}
 					else // Inward Needs Trim and Prune
 					{
-						const SectionIntersectResult sectionIntersectResult = parallelPolyline.intersectTwoSections(prevSection, nextSection);
+						SectionIntersectResult sectionIntersectResult = parallelPolyline.intersectTwoSections(prevSection, nextSection);
 
 						if (sectionIntersectResult.valid())
 						{
+							const bool sameSectionIntersection = (prevSectionIdx == nextSectionIdx);
+							if (sameSectionIntersection)
+								std::swap(sectionIntersectResult.prevObjIndex, sectionIntersectResult.nextObjIndex); // because `intersectionTwoSections` function prioritizes the largest distance intersection, it will get the indices swapped to get the largest indices distance
+									
 							assert(sectionIntersectResult.prevObjIndex < prevSection.count);
 							assert(sectionIntersectResult.nextObjIndex < nextSection.count);
+							
+							// we want to first delete from (idx to end) and then (begin to idx)
 							parallelPolyline.removeSectionObjectsFromIdxToEnd(prevSectionIdx, sectionIntersectResult.prevObjIndex + 1u);
 							parallelPolyline.removeSectionObjectsFromBeginToIdx(nextSectionIdx, sectionIntersectResult.nextObjIndex);
+							const bool removePrevSection = (prevSection.count == 0u);
+							const bool removeNextSection = (nextSection.count == 0u);
+
 							if (nextSection.type == ObjectType::LINE)
 							{
 								if (prevSection.type == ObjectType::LINE)
 								{
-									parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
-									parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
+									if (!removePrevSection)
+										parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
+									if (!removeNextSection)
+										parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
-									parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
-									parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
+									if (!removePrevSection)
+										parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
+									if (!removeNextSection)
+										parallelPolyline.m_linePoints[nextSection.index].p = sectionIntersectResult.intersection;
 								}
 							}
 							else if (nextSection.type == ObjectType::QUAD_BEZIER)
 							{
 								if (prevSection.type == ObjectType::LINE)
 								{
-									parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
-									parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
+									if (!removePrevSection)
+										parallelPolyline.m_linePoints[prevSection.index + prevSection.count].p = sectionIntersectResult.intersection;
+									if (!removeNextSection)
+										parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
 								}
 								else if (prevSection.type == ObjectType::QUAD_BEZIER)
 								{
-									// TODO clip prev section last bezier from 0 to t0
-									// TODO clip next section first bezier from t1 to 1.0
-
+									if (!removePrevSection)
+										parallelPolyline.m_quadBeziers[prevSection.index + prevSection.count - 1u].shape.splitFromStart(sectionIntersectResult.prevT);
+									if (!removeNextSection)
+										parallelPolyline.m_quadBeziers[nextSection.index].shape.splitToEnd(sectionIntersectResult.nextT);
 								}
+							}
+							
+							// Remove Sections that got their whole objects removed
+							if (nextSectionIdx >= prevSectionIdx)
+							{
+								// we want to first delete the higher idx 
+								if (removeNextSection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + nextSectionIdx);
+								if (removePrevSection && !sameSectionIntersection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + prevSectionIdx);
+							}
+							else
+							{
+								if (removePrevSection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + prevSectionIdx);
+								if (removeNextSection)
+									parallelPolyline.m_sections.erase(parallelPolyline.m_sections.begin() + nextSectionIdx);
 							}
 						}
 						else
 						{
-							// TODO:
+							// TODO: If Polyline is continuous, and the tangents are reported correctly this shouldn't happen
 						}
 					}
 				}
 			};
 		auto connectBezierSection = [&](std::vector<nbl::hlsl::shapes::QuadraticBezier<double>>&& beziers)
 			{
-				parallelPolyline.addQuadBeziers(nbl::core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>(beziers.begin()._Ptr, beziers.end()._Ptr));
+				parallelPolyline.addQuadBeziers(beziers);
 				// If there is a previous section, connect to that
 				if (newSections.size() > 1u)
 				{
@@ -604,7 +882,7 @@ public:
 			};
 		auto connectLinesSection = [&](std::vector<float64_t2>&& linePoints)
 			{
-				parallelPolyline.addLinePoints(nbl::core::SRange<float64_t2>(linePoints.begin()._Ptr, linePoints.end()._Ptr));
+				parallelPolyline.addLinePoints(linePoints);
 				// If there is a previous section, connect to that
 				if (newSections.size() > 1u)
 				{
@@ -680,6 +958,227 @@ public:
 
 		return parallelPolyline;
 	}
+	
+	// outputs two offsets to the polyline and connects the ends if not closed
+	void makeWideWhole(CPolyline& outOffset1, CPolyline& outOffset2, float64_t offset, const float64_t maxError = 1e-5) const
+	{
+		outOffset1 = generateParallelPolyline(offset, maxError);
+		outOffset2 = generateParallelPolyline(-1.0 * offset, maxError);
+
+		if (!m_closedPolygon)
+		{
+			nbl::hlsl::float64_t2 beginToBeginConnector[2u];
+			beginToBeginConnector[0u] = outOffset1.getSectionFirstPoint(outOffset1.getSectionInfoAt(0u));
+			beginToBeginConnector[1u] = outOffset2.getSectionFirstPoint(outOffset2.getSectionInfoAt(0u));
+			nbl::hlsl::float64_t2 endToEndConnector[2u];
+			endToEndConnector[0u] = outOffset1.getSectionLastPoint(outOffset1.getSectionInfoAt(outOffset1.getSectionsCount() - 1u));
+			endToEndConnector[1u] = outOffset2.getSectionLastPoint(outOffset2.getSectionInfoAt(outOffset2.getSectionsCount() - 1u));
+			outOffset2.addLinePoints({ beginToBeginConnector, beginToBeginConnector + 2 });
+			outOffset2.addLinePoints({ endToEndConnector, endToEndConnector + 2 });
+		}
+	}
+			
+	// Manual CPU Styling: breaks the current polyline into more polylines based the stipple pattern
+	// we could output a list/vector of polylines instead of using lambda but most of the time we need to work with the output and throw it away immediately.
+	typedef std::function<void(const CPolyline& /*current stipple*/)> OutputPolylineFunc; 
+	void stippleBreakDown(const CPULineStyle& lineStyle, const OutputPolylineFunc& addPolyline) const
+	{
+		if (!lineStyle.isVisible())
+			return;
+		
+		// currently only works for road styles with only 2 stipple values (1 draw, 1 gap)
+		assert(lineStyle.stipplePatternSize == 1);
+		
+		const float64_t patternLen = 1.0 / lineStyle.reciprocalStipplePatternLen;
+		const float32_t drawSectionNormalizedLen = lineStyle.stipplePattern[0];
+		const float32_t gapSectionNormalizedLen = 1.0 - lineStyle.stipplePattern[0];
+		const float32_t drawSectionLen = drawSectionNormalizedLen / lineStyle.reciprocalStipplePatternLen;
+		
+		CPolyline currentPolyline;
+		std::vector<float64_t2> linePoints;
+		std::vector<nbl::hlsl::shapes::QuadraticBezier<float64_t>> beziers;
+		auto flushCurrentPolyline = [&]()
+			{
+				if (linePoints.size() > 1u)
+				{
+					currentPolyline.addLinePoints({ linePoints.data(), linePoints.data() + linePoints.size() });
+					linePoints.clear();
+				}
+				if (beziers.size() > 0u)
+				{
+					currentPolyline.addQuadBeziers({ beziers.data(), beziers.data() + beziers.size() });
+					beziers.clear();
+				}
+				if (currentPolyline.getSectionsCount() > 0u)
+					addPolyline(currentPolyline);
+				currentPolyline.clearEverything();
+			};
+		auto pushBackToLinePoints = [&](const float64_t2& point)
+			{
+				if (linePoints.empty())
+				{
+					linePoints.push_back(point);
+				}
+				else if (linePoints.back() != point)
+				{
+					linePoints.push_back(point);
+				}
+			};
+
+		float currentPhaseShift = lineStyle.phaseShift;
+		for (uint32_t sectionIdx = 0u; sectionIdx < m_sections.size(); sectionIdx++)
+		{
+			const auto& section = m_sections[sectionIdx];
+
+			if (section.type == ObjectType::LINE)
+			{
+				// calculate phase shift at each point of each line in section
+				const uint32_t lineCount = section.count;
+				for (uint32_t i = 0u; i < lineCount; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+					const auto& currlinePoint = m_linePoints[currIdx];
+					const auto& nextLinePoint = m_linePoints[currIdx + 1u];
+					const float64_t2 lineVector = nextLinePoint.p - currlinePoint.p;
+					const float64_t lineLen = glm::length(lineVector);
+					const float64_t2 lineVectorNormalized = lineVector / lineLen;
+
+					float64_t currentTracedLen = 0.0;
+					const float32_t differenceToNextDrawSectionEnd = drawSectionNormalizedLen - currentPhaseShift;
+					const bool insideDrawSection = differenceToNextDrawSectionEnd > 0.0f;
+					if (insideDrawSection)
+					{
+						const float64_t nextDrawSectionEnd = differenceToNextDrawSectionEnd / lineStyle.reciprocalStipplePatternLen;
+						const bool finishesOnThisShape = nextDrawSectionEnd <= lineLen;
+						
+						pushBackToLinePoints(currlinePoint.p);
+						
+						if (finishesOnThisShape)
+						{
+							pushBackToLinePoints(currlinePoint.p + nextDrawSectionEnd * lineVectorNormalized);
+							flushCurrentPolyline();
+						}
+						else
+						{
+							pushBackToLinePoints(nextLinePoint.p);
+						}
+						currentTracedLen = nbl::core::min(nextDrawSectionEnd, lineLen);
+					}
+					
+					const float32_t currentTracedLenPlaceInPattern = glm::fract(currentPhaseShift + currentTracedLen * lineStyle.reciprocalStipplePatternLen);
+					const float32_t differenceToNextDrawSectionBegin = glm::fract(1.0 - currentTracedLenPlaceInPattern); // 0.0 gives 0.0, and 1.0 gives 0.0
+					const float64_t lenToNextDrawBegin = differenceToNextDrawSectionBegin / lineStyle.reciprocalStipplePatternLen;
+					currentTracedLen = nbl::core::min(currentTracedLen + lenToNextDrawBegin, lineLen);
+					const float64_t remainingLen = lineLen - currentTracedLen;
+					
+					if (remainingLen > 0.0)
+					{
+						float64_t remainingLenNormalized = remainingLen * lineStyle.reciprocalStipplePatternLen;
+						int32_t fullPatternsFitNumber = static_cast<int32_t>(std::ceil(remainingLenNormalized));
+						linePoints.reserve(linePoints.size() + fullPatternsFitNumber * 2u);
+						
+						for (int32_t s = 0; s < fullPatternsFitNumber; ++s)
+						{
+							const bool completelyInsideShape = (currentTracedLen + drawSectionLen) <= lineLen;
+							const float64_t nextDrawSectionEnd = (completelyInsideShape) ? (currentTracedLen + drawSectionLen) : lineLen;
+							
+							pushBackToLinePoints(currlinePoint.p + currentTracedLen * lineVectorNormalized);
+							pushBackToLinePoints(currlinePoint.p + nextDrawSectionEnd * lineVectorNormalized);
+
+							if (completelyInsideShape)
+								flushCurrentPolyline();
+
+							currentTracedLen = nbl::core::min(currentTracedLen + patternLen, lineLen);
+						}
+					}
+
+					const double changeInPhaseShift = glm::fract(lineLen * lineStyle.reciprocalStipplePatternLen);
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
+				}
+				
+				currentPolyline.addLinePoints({ linePoints.data(), linePoints.data() + linePoints.size() });
+				linePoints.clear();
+			}
+			else if (section.type == ObjectType::QUAD_BEZIER)
+			{
+				const uint32_t quadBezierCount = section.count;
+				
+				// calculate phase shift at point P0 of each bezier
+				for (uint32_t i = 0u; i < quadBezierCount; i++)
+				{
+					const uint32_t currIdx = section.index + i;
+					const QuadraticBezierInfo& quadBezierInfo = m_quadBeziers[currIdx];
+					// setting next phase shift based on current arc length
+					nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(quadBezierInfo.shape);
+					nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Quadratic<double>::ArcLengthCalculator::construct(quadratic);
+					const double bezierLen = arcLenCalc.calcArcLen(1.0);
+
+					float64_t currentTracedLen = 0.0;
+					const float32_t differenceToNextDrawSectionEnd = drawSectionNormalizedLen - currentPhaseShift;
+					const bool insideDrawSection = differenceToNextDrawSectionEnd > 0.0f;
+					if (insideDrawSection)
+					{
+						const float64_t nextDrawSectionEnd = differenceToNextDrawSectionEnd / lineStyle.reciprocalStipplePatternLen;
+						const bool finishesOnThisShape = nextDrawSectionEnd <= bezierLen;
+						
+						auto newBezier = quadBezierInfo.shape;
+						if (finishesOnThisShape)
+						{
+							float64_t t = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, nextDrawSectionEnd, 1e-5, 0.5);
+							newBezier.splitFromStart(t);
+							beziers.push_back(std::move(newBezier));
+							flushCurrentPolyline();
+						}
+						else
+						{
+							// draw section covers entire bezier, no need for clipping
+							beziers.push_back(std::move(newBezier));
+						}
+
+						currentTracedLen = nbl::core::min(nextDrawSectionEnd, bezierLen);
+					}
+					
+					const float32_t currentTracedLenPlaceInPattern = glm::fract(currentPhaseShift + currentTracedLen * lineStyle.reciprocalStipplePatternLen);
+					const float32_t differenceToNextDrawSectionBegin = glm::fract(1.0 - currentTracedLenPlaceInPattern); // 0.0 gives 0.0, and 1.0 gives 0.0
+					const float64_t lenToNextDrawBegin = differenceToNextDrawSectionBegin / lineStyle.reciprocalStipplePatternLen;
+					currentTracedLen = nbl::core::min(currentTracedLen + lenToNextDrawBegin, bezierLen);
+					const float64_t remainingLen = bezierLen - currentTracedLen;
+
+					if (remainingLen > 0.0)
+					{
+						float64_t remainingLenNormalized = remainingLen * lineStyle.reciprocalStipplePatternLen;
+						int32_t fullPatternsFitNumber = static_cast<int32_t>(std::ceil(remainingLenNormalized));
+						beziers.reserve(beziers.size() + fullPatternsFitNumber);
+
+						for (int32_t s = 0; s < fullPatternsFitNumber; ++s)
+						{
+							const bool completelyInsideShape = (currentTracedLen + drawSectionLen) <= bezierLen;
+							const float64_t nextDrawSectionEnd = (completelyInsideShape) ? (currentTracedLen + drawSectionLen) : bezierLen;
+							float64_t tStart = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, currentTracedLen, 1e-5, 0.5);
+							float64_t tEnd = arcLenCalc.calcArcLenInverse(quadratic, 0.0, 1.0, nextDrawSectionEnd, 1e-5, 0.5);
+
+							auto newBezier = quadBezierInfo.shape;
+							newBezier.splitFromMinToMax(tStart, tEnd);
+							beziers.push_back(std::move(newBezier));
+							
+							if (completelyInsideShape)
+								flushCurrentPolyline();
+
+							currentTracedLen = nbl::core::min(currentTracedLen + patternLen, bezierLen);
+						}
+					}
+					
+					const double changeInPhaseShift = glm::fract(bezierLen * lineStyle.reciprocalStipplePatternLen);
+					currentPhaseShift = static_cast<float32_t>(glm::fract(currentPhaseShift + changeInPhaseShift));
+				}
+				
+				currentPolyline.addQuadBeziers({ beziers.data(), beziers.data() + beziers.size() });
+				beziers.clear();
+			}
+		}
+
+		flushCurrentPolyline();
+	}
 
 	void setClosed(bool closed)
 	{
@@ -691,10 +1190,11 @@ protected:
 	std::vector<SectionInfo> m_sections;
 	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
+	uint32_t lastSectionsSize = std::numeric_limits<uint32_t>::max();
 
 	// Next 3 are protected member functions to modify current lines and bezier sections used in polyline offsetting:
 
-	void insertLinePointsToSection(uint32_t sectionIdx, uint32_t insertionPoint, const nbl::core::SRange<float64_t2>& linePoints)
+	void insertLinePointsToSection(uint32_t sectionIdx, uint32_t insertionPoint, const std::span<float64_t2> linePoints)
 	{
 		SectionInfo& section = m_sections[sectionIdx];
 		assert(section.type == ObjectType::LINE);
@@ -722,6 +1222,8 @@ protected:
 
 	void removeSectionObjectsFromIdxToEnd(uint32_t sectionIdx, uint32_t idx)
 	{
+		if (sectionIdx >= m_sections.size())
+			return;
 		SectionInfo& section = m_sections[sectionIdx];
 		if (idx >= section.count)
 			return;
@@ -737,10 +1239,7 @@ protected:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			m_quadBeziers.erase(m_quadBeziers.begin() + section.index + idx, m_quadBeziers.begin() + section.index + section.count);
 
-		if (section.count > removedCount)
-			section.count -= removedCount;
-		else
-			m_sections.erase(m_sections.begin() + sectionIdx);
+		section.count -= removedCount;
 
 		// update next sections offsets
 		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
@@ -752,13 +1251,15 @@ protected:
 
 	void removeSectionObjectsFromBeginToIdx(uint32_t sectionIdx, uint32_t idx)
 	{
+		if (sectionIdx >= m_sections.size())
+			return;
 		SectionInfo& section = m_sections[sectionIdx];
 		if (idx <= 0)
 			return;
-		const size_t removedCount = idx;
+		const size_t removedCount = nbl::core::min(idx, section.count);
 		if (section.type == ObjectType::LINE)
 		{
-			if (idx >= section.count) // if idx==section.count it means it wants to delete the whole line section, so we remove all the line points including the last one in the section
+			if (idx == section.count) // if idx==section.count it means it wants to delete the whole line section, so we remove all the line points including the last one in the section
 				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + section.count + 1u);
 			else
 				m_linePoints.erase(m_linePoints.begin() + section.index, m_linePoints.begin() + section.index + idx);
@@ -766,10 +1267,7 @@ protected:
 		else if (section.type == ObjectType::QUAD_BEZIER)
 			m_quadBeziers.erase(m_quadBeziers.begin() + section.index, m_quadBeziers.begin() + section.index + idx);
 
-		if (section.count > removedCount)
-			section.count -= removedCount;
-		else
-			m_sections.erase(m_sections.begin() + sectionIdx);
+		section.count -= removedCount;
 
 		// update next sections offsets
 		for (uint32_t i = sectionIdx + 1u; i < m_sections.size(); ++i)
@@ -808,7 +1306,7 @@ protected:
 			const float64_t2 A1 = m_linePoints[nextSection.index + nextObjIdx].p;
 			const float64_t2 V1 = m_linePoints[nextSection.index + nextObjIdx + 1u].p - A1;
 
-			const float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection(A0, V0, A1, V1);
+			const float64_t2 intersection = nbl::hlsl::shapes::util::LineLineIntersection<float64_t>(A0, V0, A1, V1);
 			const float64_t t0 = nbl::hlsl::dot(V0, intersection - A0) / nbl::hlsl::dot(V0, V0);
 			const float64_t t1 = nbl::hlsl::dot(V1, intersection - A1) / nbl::hlsl::dot(V1, V1);
 			if (t0 >= 0.0 && t0 <= 1.0 && t1 >= 0.0 && t1 <= 1.0)
@@ -822,18 +1320,6 @@ protected:
 		}
 
 		return res;
-	}
-
-	// TODO: move this function to a better place, shared functionality with hatches
-	static void BezierLineIntersection(nbl::hlsl::shapes::QuadraticBezier<float64_t> bezier, const float64_t2 lineStart, const float64_t2 lineVector, float64_t2& outBezierTs)
-	{
-		float64_t2 lineDir = glm::normalize(lineVector);
-		float64_t2x2 rotate = float64_t2x2({ lineDir.x, lineDir.y }, { -lineDir.y, lineDir.x });
-		bezier.P0 = mul(rotate, bezier.P0 - lineStart);
-		bezier.P1 = mul(rotate, bezier.P1 - lineStart);
-		bezier.P2 = mul(rotate, bezier.P2 - lineStart);
-		nbl::hlsl::shapes::Quadratic<double> quadratic = nbl::hlsl::shapes::Quadratic<double>::constructFromBezier(bezier);
-		outBezierTs = nbl::hlsl::math::equations::Quadratic<float64_t>::construct(quadratic.A.y, quadratic.B.y, quadratic.C.y).computeRoots();
 	}
 
 	std::array<SectionIntersectResult, 2> intersectLineBezierSectionObjects(const SectionInfo& prevSection, uint32_t prevObjIdx, const SectionInfo& nextSection, uint32_t nextObjIdx) const
@@ -851,9 +1337,7 @@ protected:
 
 			const auto& bezier = m_quadBeziers[bezierIdx].shape;
 
-			float64_t2 bezierTs;
-			BezierLineIntersection(bezier, A, V, bezierTs);
-
+			float64_t2 bezierTs = nbl::hlsl::shapes::getBezierLineIntersectionEquation<float64_t>(bezier, A, V).computeRoots();
 			uint8_t resIdx = 0u;
 			for (uint32_t i = 0u; i < 2u; ++i)
 			{
@@ -895,6 +1379,32 @@ protected:
 
 		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 		{
+			const auto& prevBezier = m_quadBeziers[prevSection.index + prevObjIdx].shape;
+			const auto& nextBezier = m_quadBeziers[nextSection.index + nextObjIdx].shape;
+			float64_t4 bezierTs = nbl::hlsl::shapes::getBezierBezierIntersectionEquation<float64_t>(prevBezier, nextBezier).computeRoots();
+			uint8_t resIdx = 0u;
+			for (uint32_t i = 0u; i < 4u; ++i)
+			{
+				const float64_t prevBezierT = bezierTs[i];
+				if (prevBezierT > 0.0 && prevBezierT < 1.0)
+				{
+					const float64_t2 intersection = prevBezier.evaluate(prevBezierT);
+					
+					// Optimization before doing SDF to find other T:
+					// (for next bezier) If both P1 and the intersection point are on the same side of the P0 -> P2 line, it's a a valid intersection
+					const bool sideP1 = nbl::hlsl::cross2D(nextBezier.P2 - nextBezier.P0, nextBezier.P1 - nextBezier.P0) >= 0.0;
+					const bool sideIntersection = nbl::hlsl::cross2D(nextBezier.P2 - nextBezier.P0, intersection - nextBezier.P0) >= 0.0;
+					if (sideP1 == sideIntersection)
+					{
+						auto& localRes = res[resIdx++];
+						localRes.intersection = intersection;
+						localRes.prevObjIndex = prevObjIdx;
+						localRes.nextObjIndex = nextObjIdx;
+						localRes.prevT = prevBezierT;
+						localRes.nextT = nbl::hlsl::shapes::Quadratic<float64_t>::constructFromBezier(nextBezier).getClosestT(intersection); // basically doing sdf to find other T :D
+					}
+				}
+			}
 		}
 
 		return res;
@@ -906,10 +1416,6 @@ protected:
 		ret.invalidate();
 
 		if (prevSection.count == 0 || nextSection.count == 0)
-			return ret;
-
-		// tmp for testing
-		if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
 			return ret;
 
 		const float64_t2 chordDir = glm::normalize(getSectionLastPoint(prevSection) - getSectionFirstPoint(prevSection));
@@ -994,32 +1500,42 @@ protected:
 						int32_t objectsToRemove = (prevSection.count - prevObjIdx - 1u) + (nextObjIdx); // number of objects that will be pruned/removed if this intersection is selected
 						assert(objectsToRemove >= 0);
 
+						constexpr uint32_t MaxIntersectionResults = 4u;
+						SectionIntersectResult intersectionResults[MaxIntersectionResults];
+						uint32_t intersectionResultCount = 0u;
+
 						if (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::LINE)
 						{
 							SectionIntersectResult localIntersectionResult = intersectLineSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
-							if (localIntersectionResult.valid())
-							{
-								// TODO: Better Criterial to select between multiple intersections of the same objects
-								if (objectsToRemove > currentIntersectionObjectRemoveCount)
-								{
-									ret = localIntersectionResult;
-									currentIntersectionObjectRemoveCount = objectsToRemove;
-								}
-							}
+							intersectionResults[0u] = localIntersectionResult;
+							intersectionResultCount = 1u;
 						}
 						else if ((prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::LINE) || (prevSection.type == ObjectType::LINE && nextSection.type == ObjectType::QUAD_BEZIER))
 						{
 							std::array<SectionIntersectResult, 2> localIntersectionResults = intersectLineBezierSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
-							for (const auto& localIntersectionResult : localIntersectionResults)
+							intersectionResults[0] = localIntersectionResults[0];
+							intersectionResults[1] = localIntersectionResults[1];
+							intersectionResultCount = 2u;
+						}
+						else if (prevSection.type == ObjectType::QUAD_BEZIER && nextSection.type == ObjectType::QUAD_BEZIER)
+						{
+							std::array<SectionIntersectResult, 4> localIntersectionResults = intersectBezierBezierSectionObjects(prevSection, prevObjIdx, nextSection, nextObjIdx);
+							intersectionResults[0] = localIntersectionResults[0];
+							intersectionResults[1] = localIntersectionResults[1];
+							intersectionResults[2] = localIntersectionResults[2];
+							intersectionResults[3] = localIntersectionResults[3];
+							intersectionResultCount = 4u;
+						}
+						
+						for (uint32_t i = 0u; i < intersectionResultCount; ++i)
+						{
+							if (intersectionResults[i].valid())
 							{
-								if (localIntersectionResult.valid())
+								// TODO: Better Criterial to select between multiple intersections of the same objects
+								if (objectsToRemove > currentIntersectionObjectRemoveCount)
 								{
-									// TODO: Better Criterial to select between multiple intersections of the same objects
-									if (objectsToRemove > currentIntersectionObjectRemoveCount)
-									{
-										ret = localIntersectionResult;
-										currentIntersectionObjectRemoveCount = objectsToRemove;
-									}
+									ret = intersectionResults[i];
+									currentIntersectionObjectRemoveCount = objectsToRemove;
 								}
 							}
 						}
@@ -1187,10 +1703,7 @@ private:
 
 		bool checkIfInDrawSection(const CPULineStyle& lineStyle, float normalizedPlaceInPattern)
 		{
-			float integralPart;
-			normalizedPlaceInPattern = std::modf(normalizedPlaceInPattern, &integralPart);
-			const float* patternPtr = std::upper_bound(lineStyle.stipplePattern, lineStyle.stipplePattern + lineStyle.stipplePatternSize, normalizedPlaceInPattern);
-			const uint32_t patternIdx = std::distance(lineStyle.stipplePattern, patternPtr);
+			const uint32_t patternIdx = lineStyle.getPatternIdxFromNormalizedPosition(normalizedPlaceInPattern);
 			// odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
 			return !(patternIdx & 0x1);
 		}

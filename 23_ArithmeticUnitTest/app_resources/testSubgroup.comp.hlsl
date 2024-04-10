@@ -12,10 +12,7 @@ uint32_t globalIndex()
 bool canStore() {return true;}
 
 [numthreads(WORKGROUP_SIZE,1,1)]
-void main(uint32_t invIdx : SV_GroupIndex, uint32_t3 wgId : SV_GroupID)
+void main()
 {
-	__gl_LocalInvocationIndex = invIdx;
-	__gl_WorkGroupID = wgId;
-
 	test();
 }
