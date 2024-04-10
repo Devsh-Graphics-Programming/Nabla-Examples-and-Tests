@@ -1,4 +1,12 @@
 ﻿
+using namespace nbl::hlsl;
+using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
+
 
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
@@ -32,15 +40,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
-
-using namespace nbl::hlsl;
-using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+constexpr ExampleMode mode = ExampleMode::CASE_5;
 
 class Camera2D
 {
@@ -248,12 +248,11 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t MaxFramesInFlight = 8u;
 public:
 	
-	void initCADResources(uint32_t maxObjects)
+	void allocateResources(uint32_t maxObjects)
 	{
 		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils));
 
 		uint32_t maxIndices = maxObjects * 6u * 2u;
-		drawBuffer.allocateIndexBuffer(m_device.get(), maxIndices);
 		drawBuffer.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawBuffer.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
 		drawBuffer.allocateStylesBuffer(m_device.get(), 32u);
@@ -263,16 +262,15 @@ public:
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
 		drawBuffer.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
 
-		for (uint32_t i = 0; i < m_framesInFlight; ++i)
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
 			globalsCreationParams.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			globalsBuffer[i] = m_device->createBuffer(std::move(globalsCreationParams));
+			globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
 
-			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
+			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer[i].get());
+			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer.get());
 		}
 
 		// pseudoStencil
@@ -284,7 +282,6 @@ public:
 		promotionRequest.usages.storageImageAtomic = true;
 		pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
 
-		for (uint32_t i = 0u; i < m_framesInFlight; ++i)
 		{
 			IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
@@ -318,7 +315,7 @@ public:
 			imgViewInfo.subresourceRange.layerCount = 1u;
 			imgViewInfo.subresourceRange.levelCount = 1u;
 
-			pseudoStencilImageViews[i] = m_device->createImageView(std::move(imgViewInfo));
+			pseudoStencilImageView = m_device->createImageView(std::move(imgViewInfo));
 		}
 	}
 	
@@ -457,16 +454,14 @@ public:
 		renderpassFinal = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::PRESENT_SRC);
 		const auto compatibleRenderPass = renderpassInitial; // all 3 above are compatible
 
-
 		scResources->setCompatibleRenderpass(compatibleRenderPass);
 
 		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
 			return logFail("Could not initialize the Surface!");
 
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
-		
 
-		initCADResources(40960u);
+		allocateResources(40960u);
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
@@ -528,23 +523,22 @@ public:
 
 			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 			{
-				const uint32_t setCounts[2u] = { m_framesInFlight, m_framesInFlight};
+				const uint32_t setCounts[2u] = { 1u, 1u};
 				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
 				if (!descriptorPool)
 					return logFail("Failed to Create Descriptor Pool");
 			}
 
-			for (size_t i = 0; i < m_framesInFlight; i++)
 			{
-				descriptorSets0[i] = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
-				descriptorSets1[i] = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
+				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
+				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
 				constexpr uint32_t DescriptorCount = 6u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
 
 				// Descriptors For Set 0:
 				descriptorInfos[0u].info.buffer.offset = 0u;
-				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
-				descriptorInfos[0u].desc = globalsBuffer[i];
+				descriptorInfos[0u].info.buffer.size = globalsBuffer->getCreationParams().size;
+				descriptorInfos[0u].desc = globalsBuffer;
 
 				descriptorInfos[1u].info.buffer.offset = 0u;
 				descriptorInfos[1u].info.buffer.size = drawBuffer.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
@@ -565,43 +559,43 @@ public:
 				// Descriptors For Set 1:
 				descriptorInfos[5u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 				descriptorInfos[5u].info.image.sampler = nullptr;
-				descriptorInfos[5u].desc = pseudoStencilImageViews[i];
+				descriptorInfos[5u].desc = pseudoStencilImageView;
 
 				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
 				
 				// Set 0 Updates:
-				descriptorUpdates[0u].dstSet = descriptorSets0[i].get();
+				descriptorUpdates[0u].dstSet = descriptorSet0.get();
 				descriptorUpdates[0u].binding = 0u;
 				descriptorUpdates[0u].arrayElement = 0u;
 				descriptorUpdates[0u].count = 1u;
 				descriptorUpdates[0u].info = &descriptorInfos[0u];
 
-				descriptorUpdates[1u].dstSet = descriptorSets0[i].get();
+				descriptorUpdates[1u].dstSet = descriptorSet0.get();
 				descriptorUpdates[1u].binding = 1u;
 				descriptorUpdates[1u].arrayElement = 0u;
 				descriptorUpdates[1u].count = 1u;
 				descriptorUpdates[1u].info = &descriptorInfos[1u];
 
-				descriptorUpdates[2u].dstSet = descriptorSets0[i].get();
+				descriptorUpdates[2u].dstSet = descriptorSet0.get();
 				descriptorUpdates[2u].binding = 2u;
 				descriptorUpdates[2u].arrayElement = 0u;
 				descriptorUpdates[2u].count = 1u;
 				descriptorUpdates[2u].info = &descriptorInfos[2u];
 
-				descriptorUpdates[3u].dstSet = descriptorSets0[i].get();
+				descriptorUpdates[3u].dstSet = descriptorSet0.get();
 				descriptorUpdates[3u].binding = 3u;
 				descriptorUpdates[3u].arrayElement = 0u;
 				descriptorUpdates[3u].count = 1u;
 				descriptorUpdates[3u].info = &descriptorInfos[3u];
 
-				descriptorUpdates[4u].dstSet = descriptorSets0[i].get();
+				descriptorUpdates[4u].dstSet = descriptorSet0.get();
 				descriptorUpdates[4u].binding = 4u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfos[4u];
 
 				// Set 1 Updates:
-				descriptorUpdates[5u].dstSet = descriptorSets1[i].get();
+				descriptorUpdates[5u].dstSet = descriptorSet1.get();
 				descriptorUpdates[5u].binding = 0u;
 				descriptorUpdates[5u].arrayElement = 0u;
 				descriptorUpdates[5u].count = 1u;
@@ -858,13 +852,13 @@ public:
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer[resourceIx].get() };
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer.get() };
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 		
 		// Clear pseudoStencil
 		{
-			auto pseudoStencilImage = pseudoStencilImageViews[resourceIx]->getCreationParameters().image;
+			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
 			{
@@ -961,7 +955,7 @@ public:
 		// pipelineBarriersBeforeDraw
 		{
 			// prepare pseudoStencilImage for usage in drawcall
-			auto pseudoStencilImage = pseudoStencilImageViews[resourceIx]->getCreationParameters().image;
+			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
 			{
 				{
@@ -2419,10 +2413,10 @@ protected:
 	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
 	
-	std::array<smart_refctd_ptr<IGPUImageView>,		MaxFramesInFlight>	pseudoStencilImageViews;
-	std::array<smart_refctd_ptr<IGPUBuffer>,			MaxFramesInFlight>	globalsBuffer;
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>,		MaxFramesInFlight>	descriptorSets0;
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>,		MaxFramesInFlight>	descriptorSets1;
+	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+	smart_refctd_ptr<IGPUBuffer>		globalsBuffer;
+	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;
+	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet1;
 	DrawBuffersFiller drawBuffer; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
 
 	smart_refctd_ptr<ISemaphore> m_renderSemaphore; // timeline semaphore to sync frames together
