@@ -1,8 +1,9 @@
 #include "DrawBuffers.h"
 
-DrawBuffersFiller::DrawBuffersFiller(nbl::core::smart_refctd_ptr<nbl::video::IUtilities>&& utils)
+DrawBuffersFiller::DrawBuffersFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue)
 {
-	utilities = utils;
+	m_utilities = utils;
+	m_copyQueue = copyQueue;
 }
 
 // function is called when buffer is filled and we should submit draws and clear the buffers and continue filling
@@ -12,117 +13,128 @@ void DrawBuffersFiller::setSubmitDrawsFunction(SubmitFunc func)
 	submitDraws = func;
 }
 
-void DrawBuffersFiller::allocateIndexBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t indices)
+void DrawBuffersFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t maxIndices)
 {
-	maxIndices = indices;
-	const size_t indexBufferSize = maxIndices * sizeof(uint32_t);
+	maxIndexCount = maxIndices;
+	const size_t indexBufferSize = maxIndices * sizeof(index_buffer_type);
+	auto indexBuffer = make_smart_refctd_ptr<ICPUBuffer>(indexBufferSize);
 
-	nbl::video::IGPUBuffer::SCreationParams indexBufferCreationParams = {};
+	index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(indexBuffer->getPointer());
+	for (uint32_t i = 0u; i < maxIndices / 6u; ++i)
+	{
+		index_buffer_type objIndex = i;
+		indices[i * 6] = objIndex * 4u + 1u;
+		indices[i * 6 + 1u] = objIndex * 4u + 0u;
+		indices[i * 6 + 2u] = objIndex * 4u + 2u;
+
+		indices[i * 6 + 3u] = objIndex * 4u + 1u;
+		indices[i * 6 + 4u] = objIndex * 4u + 2u;
+		indices[i * 6 + 5u] = objIndex * 4u + 3u;
+	}
+	
+	IGPUBuffer::SCreationParams indexBufferCreationParams = {};
 	indexBufferCreationParams.size = indexBufferSize;
-	indexBufferCreationParams.usage = nbl::video::IGPUBuffer::EUF_INDEX_BUFFER_BIT | nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	gpuDrawBuffers.indexBuffer = logicalDevice->createBuffer(std::move(indexBufferCreationParams));
+	indexBufferCreationParams.usage = IGPUBuffer::EUF_INDEX_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+
+	SIntendedSubmitInfo::SFrontHalf intendedNextSubmit; 
+	intendedNextSubmit.queue = m_copyQueue;
+	gpuDrawBuffers.indexBuffer = m_utilities->createFilledDeviceLocalBufferOnDedMem(intendedNextSubmit, std::move(indexBufferCreationParams), indices);
 	gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
-
-	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.indexBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto indexBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.indexBuffer.get());
-
-	cpuDrawBuffers.indexBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(indexBufferSize);
 }
 
-void DrawBuffersFiller::allocateMainObjectsBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t mainObjects)
+void DrawBuffersFiller::allocateMainObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t mainObjects)
 {
 	maxMainObjects = mainObjects;
 	size_t mainObjectsBufferSize = mainObjects * sizeof(MainObject);
 
-	nbl::video::IGPUBuffer::SCreationParams mainObjectsCreationParams = {};
+	IGPUBuffer::SCreationParams mainObjectsCreationParams = {};
 	mainObjectsCreationParams.size = mainObjectsBufferSize;
-	mainObjectsCreationParams.usage = nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	mainObjectsCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 	gpuDrawBuffers.mainObjectsBuffer = logicalDevice->createBuffer(std::move(mainObjectsCreationParams));
 	gpuDrawBuffers.mainObjectsBuffer->setObjectDebugName("mainObjectsBuffer");
 
-	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.mainObjectsBuffer->getMemoryReqs();
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.mainObjectsBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto mainObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.mainObjectsBuffer.get());
 
-	cpuDrawBuffers.mainObjectsBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(mainObjectsBufferSize);
+	cpuDrawBuffers.mainObjectsBuffer = make_smart_refctd_ptr<ICPUBuffer>(mainObjectsBufferSize);
 }
 
-void DrawBuffersFiller::allocateDrawObjectsBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t drawObjects)
+void DrawBuffersFiller::allocateDrawObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t drawObjects)
 {
 	maxDrawObjects = drawObjects;
 	size_t drawObjectsBufferSize = drawObjects * sizeof(DrawObject);
 
-	nbl::video::IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
+	IGPUBuffer::SCreationParams drawObjectsCreationParams = {};
 	drawObjectsCreationParams.size = drawObjectsBufferSize;
-	drawObjectsCreationParams.usage = nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	drawObjectsCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 	gpuDrawBuffers.drawObjectsBuffer = logicalDevice->createBuffer(std::move(drawObjectsCreationParams));
 	gpuDrawBuffers.drawObjectsBuffer->setObjectDebugName("drawObjectsBuffer");
 
-	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.drawObjectsBuffer->getMemoryReqs();
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.drawObjectsBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto drawObjectsBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.drawObjectsBuffer.get());
 
-	cpuDrawBuffers.drawObjectsBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(drawObjectsBufferSize);
+	cpuDrawBuffers.drawObjectsBuffer = make_smart_refctd_ptr<ICPUBuffer>(drawObjectsBufferSize);
 }
 
-void DrawBuffersFiller::allocateGeometryBuffer(nbl::video::ILogicalDevice* logicalDevice, size_t size)
+void DrawBuffersFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size)
 {
 	maxGeometryBufferSize = size;
 
-	nbl::video::IGPUBuffer::SCreationParams geometryCreationParams = {};
+	IGPUBuffer::SCreationParams geometryCreationParams = {};
 	geometryCreationParams.size = size;
-	geometryCreationParams.usage = nbl::core::bitflag(nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | nbl::video::IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	geometryCreationParams.usage = bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 	gpuDrawBuffers.geometryBuffer = logicalDevice->createBuffer(std::move(geometryCreationParams));
 	gpuDrawBuffers.geometryBuffer->setObjectDebugName("geometryBuffer");
 
-	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.geometryBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+	auto geometryBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.geometryBuffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 	geometryBufferAddress = gpuDrawBuffers.geometryBuffer->getDeviceAddress();
 
-	cpuDrawBuffers.geometryBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(size);
+	cpuDrawBuffers.geometryBuffer = make_smart_refctd_ptr<ICPUBuffer>(size);
 }
 
-void DrawBuffersFiller::allocateStylesBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t stylesCount)
+void DrawBuffersFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t stylesCount)
 {
 	maxLineStyles = stylesCount;
 	size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
 
-	nbl::video::IGPUBuffer::SCreationParams lineStylesCreationParams = {};
+	IGPUBuffer::SCreationParams lineStylesCreationParams = {};
 	lineStylesCreationParams.size = lineStylesBufferSize;
-	lineStylesCreationParams.usage = nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	lineStylesCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 	gpuDrawBuffers.lineStylesBuffer = logicalDevice->createBuffer(std::move(lineStylesCreationParams));
 	gpuDrawBuffers.lineStylesBuffer->setObjectDebugName("lineStylesBuffer");
 
-	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.lineStylesBuffer->getMemoryReqs();
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.lineStylesBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
 
-	cpuDrawBuffers.lineStylesBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(lineStylesBufferSize);
+	cpuDrawBuffers.lineStylesBuffer = make_smart_refctd_ptr<ICPUBuffer>(lineStylesBufferSize);
 }
 
-void DrawBuffersFiller::allocateCustomClipProjectionBuffer(nbl::video::ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount)
+void DrawBuffersFiller::allocateCustomClipProjectionBuffer(ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount)
 {
 	maxClipProjectionData = ClipProjectionDataCount;
 	size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(ClipProjectionData);
 
-	nbl::video::IGPUBuffer::SCreationParams customClipProjectionCreationParams = {};
+	IGPUBuffer::SCreationParams customClipProjectionCreationParams = {};
 	customClipProjectionCreationParams.size = customClipProjectionBufferSize;
-	customClipProjectionCreationParams.usage = nbl::video::IGPUBuffer::EUF_STORAGE_BUFFER_BIT | nbl::video::IGPUBuffer::EUF_TRANSFER_DST_BIT;
+	customClipProjectionCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 	gpuDrawBuffers.customClipProjectionBuffer = logicalDevice->createBuffer(std::move(customClipProjectionCreationParams));
 	gpuDrawBuffers.customClipProjectionBuffer->setObjectDebugName("customClipProjectionBuffer");
 
-	nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.customClipProjectionBuffer->getMemoryReqs();
+	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.customClipProjectionBuffer->getMemoryReqs();
 	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 	auto customClipProjectionBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.customClipProjectionBuffer.get());
 
-	cpuDrawBuffers.customClipProjectionBuffer = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUBuffer>(customClipProjectionBufferSize);
+	cpuDrawBuffers.customClipProjectionBuffer = make_smart_refctd_ptr<ICPUBuffer>(customClipProjectionBufferSize);
 }
 
 //! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 
-void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULineStyle& cpuLineStyle, const uint32_t clipProjectionIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULineStyle& cpuLineStyle, const uint32_t clipProjectionIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!cpuLineStyle.isVisible())
 		return;
@@ -136,10 +148,10 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULin
 	uint32_t mainObjIdx;
 	addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, intendedNextSubmit);
 
-	return drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
+	drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
 }
 
-void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32_t polylineMainObjIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (polylineMainObjIdx == InvalidMainObjectIdx)
 	{
@@ -170,7 +182,6 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32
 		{
 			finalizeAllCopiesToGPU(intendedNextSubmit);
 			submitDraws(intendedNextSubmit);
-			resetIndexCounters();
 			resetGeometryCounters();
 			// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
 			shouldSubmit = false;
@@ -192,7 +203,6 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32
 			{
 				finalizeAllCopiesToGPU(intendedNextSubmit);
 				submitDraws(intendedNextSubmit);
-				resetIndexCounters();
 				resetGeometryCounters();
 				// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
 			}
@@ -208,7 +218,7 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32
 // then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
 // then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
 
-void DrawBuffersFiller::drawHatch(const Hatch& hatch, const float32_t4 color, const uint32_t clipProjectionIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::drawHatch(const Hatch& hatch, const float32_t4 color, const uint32_t clipProjectionIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	CPULineStyle lineStyle;
 	lineStyle.color = color;
@@ -238,21 +248,19 @@ void DrawBuffersFiller::drawHatch(const Hatch& hatch, const float32_t4 color, co
 
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		resetIndexCounters();
 		resetGeometryCounters();
 	}
 }
 
-void DrawBuffersFiller::finalizeAllCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	finalizeIndexCopiesToGPU(intendedNextSubmit);
 	finalizeMainObjectCopiesToGPU(intendedNextSubmit);
 	finalizeGeometryCopiesToGPU(intendedNextSubmit);
 	finalizeLineStyleCopiesToGPU(intendedNextSubmit);
 	finalizeCustomClipProjectionCopiesToGPU(intendedNextSubmit);
 }
 
-void DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const CPULineStyle& lineStyle, uint32_t& outLineStyleIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const CPULineStyle& lineStyle, uint32_t& outLineStyleIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	outLineStyleIdx = addLineStyle_Internal(lineStyle);
 	if (outLineStyleIdx == InvalidLineStyleIdx)
@@ -265,7 +273,7 @@ void DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const CPULineStyle& lineStyl
 	}
 }
 
-void DrawBuffersFiller::addMainObject_SubmitIfNeeded(const MainObject& mainObject, uint32_t& outMainObjectIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::addMainObject_SubmitIfNeeded(const MainObject& mainObject, uint32_t& outMainObjectIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	outMainObjectIdx = addMainObject_Internal(mainObject);
 	if (outMainObjectIdx == InvalidMainObjectIdx)
@@ -278,7 +286,7 @@ void DrawBuffersFiller::addMainObject_SubmitIfNeeded(const MainObject& mainObjec
 	}
 }
 
-void DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, uint32_t& outClipProjectionIdx, nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, uint32_t& outClipProjectionIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
 	if (outClipProjectionIdx == InvalidClipProjectionIdx)
@@ -291,66 +299,55 @@ void DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectio
 	}
 }
 
-void DrawBuffersFiller::finalizeIndexCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
-{
-	// Copy Indices
-	uint32_t remainingIndexCount = currentIndexCount - inMemIndexCount;
-	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> indicesRange = { sizeof(index_buffer_type) * inMemIndexCount, sizeof(index_buffer_type) * remainingIndexCount, gpuDrawBuffers.indexBuffer };
-	const index_buffer_type* srcIndexData = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + inMemIndexCount;
-	if (indicesRange.size > 0u)
-		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, indicesRange, srcIndexData);
-	inMemIndexCount = currentIndexCount;
-}
-
-void DrawBuffersFiller::finalizeMainObjectCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy MainObjects
 	uint32_t remainingMainObjects = currentMainObjectCount - inMemMainObjectCount;
-	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> mainObjectsRange = { sizeof(MainObject) * inMemMainObjectCount, sizeof(MainObject) * remainingMainObjects, gpuDrawBuffers.mainObjectsBuffer };
+	SBufferRange<IGPUBuffer> mainObjectsRange = { sizeof(MainObject) * inMemMainObjectCount, sizeof(MainObject) * remainingMainObjects, gpuDrawBuffers.mainObjectsBuffer };
 	const MainObject* srcMainObjData = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer()) + inMemMainObjectCount;
 	if (mainObjectsRange.size > 0u)
-		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, mainObjectsRange, srcMainObjData);
+		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, mainObjectsRange, srcMainObjData);
 	inMemMainObjectCount = currentMainObjectCount;
 }
 
-void DrawBuffersFiller::finalizeGeometryCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy DrawObjects
 	uint32_t remainingDrawObjects = currentDrawObjectCount - inMemDrawObjectCount;
-	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
+	SBufferRange<IGPUBuffer> drawObjectsRange = { sizeof(DrawObject) * inMemDrawObjectCount, sizeof(DrawObject) * remainingDrawObjects, gpuDrawBuffers.drawObjectsBuffer };
 	const DrawObject* srcDrawObjData = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + inMemDrawObjectCount;
 	if (drawObjectsRange.size > 0u)
-		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, drawObjectsRange, srcDrawObjData);
+		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, drawObjectsRange, srcDrawObjData);
 	inMemDrawObjectCount = currentDrawObjectCount;
 
 	// Copy GeometryBuffer
 	uint64_t remainingGeometrySize = currentGeometryBufferSize - inMemGeometryBufferSize;
-	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
+	SBufferRange<IGPUBuffer> geomRange = { inMemGeometryBufferSize, remainingGeometrySize, gpuDrawBuffers.geometryBuffer };
 	const uint8_t* srcGeomData = reinterpret_cast<uint8_t*>(cpuDrawBuffers.geometryBuffer->getPointer()) + inMemGeometryBufferSize;
 	if (geomRange.size > 0u)
-		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geomRange, srcGeomData);
+		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, geomRange, srcGeomData);
 	inMemGeometryBufferSize = currentGeometryBufferSize;
 }
 
-void DrawBuffersFiller::finalizeLineStyleCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy LineStyles
 	uint32_t remainingLineStyles = currentLineStylesCount - inMemLineStylesCount;
-	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
+	SBufferRange<IGPUBuffer> stylesRange = { sizeof(LineStyle) * inMemLineStylesCount, sizeof(LineStyle) * remainingLineStyles, gpuDrawBuffers.lineStylesBuffer };
 	const LineStyle* srcLineStylesData = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer()) + inMemLineStylesCount;
 	if (stylesRange.size > 0u)
-		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData);
+		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, stylesRange, srcLineStylesData);
 	inMemLineStylesCount = currentLineStylesCount;
 }
 
-void DrawBuffersFiller::finalizeCustomClipProjectionCopiesToGPU(nbl::video::SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// Copy LineStyles
 	uint32_t remainingClipProjectionData = currentClipProjectionDataCount - inMemClipProjectionDataCount;
-	nbl::asset::SBufferRange<nbl::video::IGPUBuffer> clipProjectionRange = { sizeof(ClipProjectionData) * inMemClipProjectionDataCount, sizeof(ClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
+	SBufferRange<IGPUBuffer> clipProjectionRange = { sizeof(ClipProjectionData) * inMemClipProjectionDataCount, sizeof(ClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
 	const ClipProjectionData* srcClipProjectionData = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer()) + inMemClipProjectionDataCount;
 	if (clipProjectionRange.size > 0u)
-		utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, clipProjectionRange, srcClipProjectionData);
+		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, clipProjectionRange, srcClipProjectionData);
 	inMemClipProjectionDataCount = currentClipProjectionDataCount;
 }
 
@@ -409,24 +406,20 @@ void DrawBuffersFiller::addPolylineObjects_Internal(const CPolylineBase& polylin
 		assert(false); // we don't handle other object types
 }
 
-// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a nbl::core::Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
+// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
 // And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
 void DrawBuffersFiller::addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx)
 {
 	const auto maxGeometryBufferConnectors = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(PolylineConnector);
 
-	constexpr uint32_t INDEX_COUNT_PER_CAGE = 6u;
-	uint32_t uploadableObjects = (maxIndices - currentIndexCount) / INDEX_COUNT_PER_CAGE;
-	uploadableObjects = nbl::core::min(uploadableObjects, maxGeometryBufferConnectors);
-	uploadableObjects = nbl::core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferConnectors);
+	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
 	const auto connectorCount = polyline.getConnectors().size();
 	const auto remainingObjects = connectorCount - currentPolylineConnectorObj;
 
-	const uint32_t objectsToUpload = nbl::core::min(uploadableObjects, remainingObjects);
-
-	// Add Indices
-	addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
+	const uint32_t objectsToUpload = min(uploadableObjects, remainingObjects);
 
 	// Add DrawObjs
 	DrawObject drawObj = {};
@@ -464,16 +457,13 @@ void DrawBuffersFiller::addLines_Internal(const CPolylineBase& polyline, const C
 	const auto maxGeometryBufferPoints = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(LinePointInfo);
 	const auto maxGeometryBufferLines = (maxGeometryBufferPoints <= 1u) ? 0u : maxGeometryBufferPoints - 1u;
 
-	uint32_t uploadableObjects = (maxIndices - currentIndexCount) / 6u;
-	uploadableObjects = nbl::core::min(uploadableObjects, maxGeometryBufferLines);
-	uploadableObjects = nbl::core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferLines);
+	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
 
 	const auto lineCount = section.count;
 	const auto remainingObjects = lineCount - currentObjectInSection;
-	uint32_t objectsToUpload = nbl::core::min(uploadableObjects, remainingObjects);
-
-	// Add Indices
-	addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload);
+	uint32_t objectsToUpload = min(uploadableObjects, remainingObjects);
 
 	// Add DrawObjs
 	DrawObject drawObj = {};
@@ -504,21 +494,18 @@ void DrawBuffersFiller::addLines_Internal(const CPolylineBase& polyline, const C
 void DrawBuffersFiller::addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
 {
 	constexpr uint32_t CagesPerQuadBezier = getCageCountPerPolylineObject(ObjectType::QUAD_BEZIER);
-	constexpr uint32_t IndicesPerQuadBezier = 6u * CagesPerQuadBezier;
 	assert(section.type == ObjectType::QUAD_BEZIER);
 
 	const auto maxGeometryBufferBeziers = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(QuadraticBezierInfo);
-
-	uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerQuadBezier;
-	uploadableObjects = nbl::core::min(uploadableObjects, maxGeometryBufferBeziers);
-	uploadableObjects = nbl::core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	
+	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferBeziers);
+	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects /= CagesPerQuadBezier;
 
 	const auto beziersCount = section.count;
 	const auto remainingObjects = beziersCount - currentObjectInSection;
-	uint32_t objectsToUpload = nbl::core::min(uploadableObjects, remainingObjects);
-
-	// Add Indices
-	addCagedObjectIndices_Internal(currentDrawObjectCount, objectsToUpload * CagesPerQuadBezier);
+	uint32_t objectsToUpload = min(uploadableObjects, remainingObjects);
 
 	// Add DrawObjs
 	DrawObject drawObj = {};
@@ -551,16 +538,14 @@ void DrawBuffersFiller::addQuadBeziers_Internal(const CPolylineBase& polyline, c
 
 void DrawBuffersFiller::addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex)
 {
-	constexpr uint32_t IndicesPerHatchBox = 6u;
-
 	const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(Hatch::CurveHatchBox);
-
-	uint32_t uploadableObjects = (maxIndices - currentIndexCount) / IndicesPerHatchBox;
-	uploadableObjects = nbl::core::min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-	uploadableObjects = nbl::core::min(uploadableObjects, maxGeometryBufferHatchBoxes);
+	
+	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferHatchBoxes);
 
 	uint32_t remainingObjects = hatch.getHatchBoxCount() - currentObjectInSection;
-	uploadableObjects = nbl::core::min(uploadableObjects, remainingObjects);
+	uploadableObjects = min(uploadableObjects, remainingObjects);
 
 	for (uint32_t i = 0; i < uploadableObjects; i++)
 	{
@@ -584,42 +569,6 @@ void DrawBuffersFiller::addHatch_Internal(const Hatch& hatch, uint32_t& currentO
 	}
 
 	// Add Indices
-	addCagedObjectIndices_Internal(currentDrawObjectCount, uploadableObjects);
 	currentDrawObjectCount += uploadableObjects;
 	currentObjectInSection += uploadableObjects;
-}
-
-//@param oddProvokingVertex is used for our polyline-wide transparency algorithm where we draw the object twice, once to resolve the alpha and another time to draw them
-void DrawBuffersFiller::addCagedObjectIndices_Internal(uint32_t startObject, uint32_t objectCount)
-{
-	constexpr bool oddProvokingVertex = true; // was useful before, might probably deprecate it later for simplicity or it might be useful for some tricks later on
-	index_buffer_type* indices = reinterpret_cast<index_buffer_type*>(cpuDrawBuffers.indexBuffer->getPointer()) + currentIndexCount;
-	for (uint32_t i = 0u; i < objectCount; ++i)
-	{
-		index_buffer_type objIndex = startObject + i;
-		if (oddProvokingVertex)
-		{
-			indices[i * 6] = objIndex * 4u + 1u;
-			indices[i * 6 + 1u] = objIndex * 4u + 0u;
-		}
-		else
-		{
-			indices[i * 6] = objIndex * 4u + 0u;
-			indices[i * 6 + 1u] = objIndex * 4u + 1u;
-		}
-		indices[i * 6 + 2u] = objIndex * 4u + 2u;
-
-		if (oddProvokingVertex)
-		{
-			indices[i * 6 + 3u] = objIndex * 4u + 1u;
-			indices[i * 6 + 4u] = objIndex * 4u + 2u;
-		}
-		else
-		{
-			indices[i * 6 + 3u] = objIndex * 4u + 2u;
-			indices[i * 6 + 4u] = objIndex * 4u + 1u;
-		}
-		indices[i * 6 + 5u] = objIndex * 4u + 3u;
-	}
-	currentIndexCount += objectCount * 6u;
 }

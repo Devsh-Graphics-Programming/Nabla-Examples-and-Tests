@@ -84,7 +84,7 @@ complex<float_t> solveLaguerreRoot(polynomial<complex<float_t>> p, complex<float
 		complex_t aSign0 = G + det;
 		complex_t aSign1 = G - det;
 		a = complex_t(n, 0.0) / (abs(aSign0) > abs(aSign1) ? aSign0 : aSign1);
-		//if (isnan(a) || isinf(a)) return nbl::core::nan<double>();
+		//if (core::isnan(a) || isinf(a)) return nbl::core::nan<double>();
 		x -= a;
 		k++;
 	// Repeat until a is small enough or if the maximum number of iterations has been reached.
@@ -203,7 +203,7 @@ bool Hatch::Segment::isStraightLineConstantMajor() const
 		p1 = originalBezier->P1[major], 
 		p2 = originalBezier->P2[major];
 	//assert(p0 <= p1 && p1 <= p2); (PRECISION ISSUES ARISE ONCE MORE)
-	return abs(p1 - p0) <= exp2(-24) && abs(p2 - p0) <= exp(-24);
+	return abs(p1 - p0) <= core::exp2(-24.0) && abs(p2 - p0) <= exp(-24);
 }
 
 std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
@@ -290,7 +290,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 		for (uint32_t i = 0; i < intersections.size(); i++)
 		{
 			auto t = intersections[i];
-			if (isnan(t) || other.t_start >= t || t >= other.t_end)
+			if (core::isnan(t) || other.t_start >= t || t >= other.t_end)
 				continue;
 
 			auto intersection = otherBezier.evaluate(t);
@@ -730,7 +730,7 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& deb
 					const Segment& item = activeCandidates[i];
 					auto curveMinEnd = intersectOrtho(*item.originalBezier, newMajor, major);
 					auto splitCurveMin = *item.originalBezier;
-					splitCurveMin.splitCurveFromMinToMax(item.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+					splitCurveMin.splitCurveFromMinToMax(item.t_start, core::isnan(curveMinEnd) ? 1.0 : curveMinEnd);
 
 					drawDebugBezier(splitCurveMin, (i == candidatesSize - 1) ? float32_t4(0.0, 0.0, 1.0, 1.0) : float32_t4(1.0, 0.0, 0.0, 1.0));
 					if (i == candidatesSize - 1)
@@ -756,9 +756,9 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& deb
 				auto curveMaxEnd = intersectOrtho(*right.originalBezier, newMajor, major);
 
 				auto splitCurveMin = *left.originalBezier;
-				splitCurveMin.splitFromMinToMax(left.t_start, isnan(curveMinEnd) ? 1.0 : curveMinEnd);
+				splitCurveMin.splitFromMinToMax(left.t_start, core::isnan(curveMinEnd) ? 1.0 : curveMinEnd);
 				auto splitCurveMax = *right.originalBezier;  
-				splitCurveMax.splitFromMinToMax(right.t_start, isnan(curveMaxEnd) ? 1.0 : curveMaxEnd);
+				splitCurveMax.splitFromMinToMax(right.t_start, core::isnan(curveMaxEnd) ? 1.0 : curveMaxEnd);
 
 				assert(splitCurveMin.evaluate(0.0)[major] <= splitCurveMin.evaluate(1.0)[major]);
 				assert(splitCurveMax.evaluate(0.0)[major] <= splitCurveMax.evaluate(1.0)[major]);
@@ -893,7 +893,7 @@ std::array<double, 4> Hatch::bezierBezierIntersections(const QuadraticBezier& lh
 	}
 	
 	// TODO: why did we do this?
-	// if (t[0] == t[1] || isnan(t[0]) || isnan(t[1]))
+	// if (t[0] == t[1] || core::isnan(t[0]) || core::isnan(t[1]))
 	//	t[0] = (t[0] != 0.0) ? 0.0 : 1.0;
 	
 	return t;
@@ -957,7 +957,7 @@ std::pair<float64_t2, float64_t2> Hatch::getBezierBoundingBoxMinor(const Quadrat
 	for (uint32_t i = 0; i < searchTSize; i++)
 	{
 		double t = searchT[i];
-		if (t < 0.0 || t > 1.0 || isnan(t))
+		if (t < 0.0 || t > 1.0 || core::isnan(t))
 			continue;
 		float64_t2 value = bezier.evaluate(t);
 		min = float64_t2(std::min(min.x, value.x), std::min(min.y, value.y));

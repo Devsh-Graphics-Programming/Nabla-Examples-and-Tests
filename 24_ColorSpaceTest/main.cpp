@@ -312,8 +312,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			m_winMgr->show(m_window.get());
 
 			// Acquire
-			auto imageIx = m_surface->acquireNextImage();
-			if (imageIx==ISwapchain::MaxImages)
+			auto acquire = m_surface->acquireNextImage();
+			if (!acquire)
 				return;
 
 			// Render to the Image
@@ -342,7 +342,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
 					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-						.framebuffer = scRes->getFrambuffer(imageIx),
+						.framebuffer = scRes->getFrambuffer(acquire.imageIndex),
 						.colorClearValues = &clearValue,
 						.depthStencilClearValues = nullptr,
 						.renderArea = currentRenderArea
@@ -369,8 +369,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						.cmdbuf = cmdbuf
 					}};
 					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
-						.semaphore = m_surface->getAcquireSemaphore(),
-						.value = m_surface->getAcquireCount(),
+						.semaphore = acquire.semaphore,
+						.value = acquire.acquireCount,
 						.stageMask = PIPELINE_STAGE_FLAGS::NONE
 					}};
 					const IQueue::SSubmitInfo infos[1] = {{
@@ -385,7 +385,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			// Present
-			m_surface->present(imageIx,rendered);
+			m_surface->present(acquire.imageIndex,rendered);
 			
 			// Set the Caption
 			std::string viewTypeStr;

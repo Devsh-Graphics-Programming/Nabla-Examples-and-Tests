@@ -6,13 +6,8 @@
 #include <nbl/builtin/hlsl/algorithm.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
-
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-[[vk::ext_instruction(/* OpBeginInvocationInterlockEXT */ 5364)]]
-void beginInvocationInterlockEXT();
-[[vk::ext_instruction(/* OpEndInvocationInterlockEXT */ 5365)]]
-void endInvocationInterlockEXT();
-#endif
+#include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
+#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 template<typename float_t>
 struct DefaultClipper
@@ -338,14 +333,47 @@ float miterSDF(float2 p, float thickness, float2 a, float2 b, float ra, float rb
 typedef StyleClipper< nbl::hlsl::shapes::Quadratic<float> > BezierStyleClipper;
 typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 
+// We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
+// because there is no `if constexpr` in hlsl
+template<bool FragmentShaderPixelInterlock>
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx);
+
+template<>
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+{
+    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
+    col.w *= localAlpha;
+    return float4(col);
+}
+template<>
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+{
+    nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
+    nbl::hlsl::spirv::beginInvocationInterlockEXT();
+
+    const uint32_t packedData = pseudoStencil[fragCoord];
+
+    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
+    const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
+    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
+    const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
+    const bool resolve = currentMainObjectIdx != mainObjectIdx;
+    if (resolve || localQuantizedAlpha > quantizedAlpha)
+        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
+
+    nbl::hlsl::spirv::endInvocationInterlockEXT();
+
+    if (!resolve)
+        discard;
+
+    // draw with previous geometry's style's color :kek:
+    float32_t4 col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
+    col.w *= float(quantizedAlpha) / 255.f;
+    return col;
+}
+
 float4 main(PSInput input) : SV_TARGET
 {
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-    [[vk::ext_capability(/*FragmentShaderPixelInterlockEXT*/ 5378)]]
-    [[vk::ext_extension("SPV_EXT_fragment_shader_interlock")]]
-    vk::ext_execution_mode(/*PixelInterlockOrderedEXT*/ 5366);
-#endif
-	
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
@@ -529,36 +557,9 @@ float4 main(PSInput input) : SV_TARGET
     }
 
     uint2 fragCoord = uint2(input.position.xy);
-    float4 col;
-
+    
     if (localAlpha <= 0)
         discard;
 
-
-#if defined(NBL_FEATURE_FRAGMENT_SHADER_PIXEL_INTERLOCK)
-        beginInvocationInterlockEXT();
-
-    const uint32_t packedData = pseudoStencil[fragCoord];
-
-    const uint32_t localQuantizedAlpha = (uint32_t)(localAlpha * 255.f);
-    const uint32_t quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
-    // if geomID has changed, we resolve the SDF alpha (draw using blend), else accumulate
-    const uint32_t mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
-    const bool resolve = currentMainObjectIdx != mainObjectIdx;
-    if (resolve || localQuantizedAlpha > quantizedAlpha)
-        pseudoStencil[fragCoord] = bitfieldInsert(localQuantizedAlpha,currentMainObjectIdx,AlphaBits,MainObjectIdxBits);
-
-    endInvocationInterlockEXT();
-
-    if (!resolve)
-        discard;
-
-    // draw with previous geometry's style's color :kek:
-    col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
-    col.w *= float(quantizedAlpha) / 255.f;
-#else
-    col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
-    col.w *= localAlpha;
-#endif
-    return float4(col);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
 }

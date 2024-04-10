@@ -1,4 +1,12 @@
 ﻿
+using namespace nbl::hlsl;
+using namespace nbl;
+using namespace core;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
+
 
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
@@ -32,15 +40,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
-
-using namespace nbl::hlsl;
-using namespace nbl;
-using namespace core;
-using namespace system;
-using namespace asset;
-using namespace ui;
-using namespace video;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -190,7 +190,7 @@ class CSwapchainResources : public ISimpleManagedSurface::ISwapchainResources
 			m_renderpass = renderpass;
 		}
 
-		inline IGPUFramebuffer* getFrambuffer(const uint8_t imageIx)
+		inline IGPUFramebuffer* getFramebuffer(const uint8_t imageIx)
 		{
 			if (imageIx<m_framebuffers.size())
 				return m_framebuffers[imageIx].get();
@@ -248,9 +248,9 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t MaxFramesInFlight = 8u;
 public:
 	
-	void initCADResources(uint32_t maxObjects)
+	void allocateResources(uint32_t maxObjects)
 	{
-		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils));
+		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
 
 		uint32_t maxIndices = maxObjects * 6u * 2u;
 		drawBuffer.allocateIndexBuffer(m_device.get(), maxIndices);
@@ -263,16 +263,15 @@ public:
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
 		drawBuffer.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
 
-		for (uint32_t i = 0; i < m_framesInFlight; ++i)
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
 			globalsCreationParams.size = sizeof(Globals);
 			globalsCreationParams.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
-			globalsBuffer[i] = m_device->createBuffer(std::move(globalsCreationParams));
+			globalsBuffer = m_device->createBuffer(std::move(globalsCreationParams));
 
-			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer[i]->getMemoryReqs();
+			IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = globalsBuffer->getMemoryReqs();
 			memReq.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer[i].get());
+			auto globalsBufferMem = m_device->allocate(memReq, globalsBuffer.get());
 		}
 
 		// pseudoStencil
@@ -284,7 +283,6 @@ public:
 		promotionRequest.usages.storageImageAtomic = true;
 		pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
 
-		for (uint32_t i = 0u; i < m_framesInFlight; ++i)
 		{
 			IGPUImage::SCreationParams imgInfo;
 			imgInfo.format = pseudoStencilFormat;
@@ -318,7 +316,7 @@ public:
 			imgViewInfo.subresourceRange.layerCount = 1u;
 			imgViewInfo.subresourceRange.levelCount = 1u;
 
-			pseudoStencilImageViews[i] = m_device->createImageView(std::move(imgViewInfo));
+			pseudoStencilImageView = m_device->createImageView(std::move(imgViewInfo));
 		}
 	}
 	
@@ -457,13 +455,159 @@ public:
 		renderpassFinal = createRenderpass(format, IGPURenderpass::LOAD_OP::LOAD, IImage::LAYOUT::ATTACHMENT_OPTIMAL, IImage::LAYOUT::PRESENT_SRC);
 		const auto compatibleRenderPass = renderpassInitial; // all 3 above are compatible
 
-
 		scResources->setCompatibleRenderpass(compatibleRenderPass);
 
 		if (!m_surface->init(getGraphicsQueue(),std::move(scResources),{}))
 			return logFail("Could not initialize the Surface!");
 
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
+
+		allocateResources(40960u);
+
+		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
+		{
+			video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
+				{
+					.binding = 0u,
+					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 1u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 2u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 3u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 4u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_VERTEX,
+					.count = 1u,
+				},
+			};
+			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
+			if (!descriptorSetLayout0)
+				return logFail("Failed to Create Descriptor Layout 0");
+			
+			video::IGPUDescriptorSetLayout::SBinding bindingsSet1[] = {
+				{
+					.binding = 0u,
+					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+			};
+			descriptorSetLayout1 = m_device->createDescriptorSetLayout(bindingsSet1);
+			if (!descriptorSetLayout1)
+				return logFail("Failed to Create Descriptor Layout 1");
+
+			const video::IGPUDescriptorSetLayout* const layouts[2u] = { descriptorSetLayout0.get(), descriptorSetLayout1.get() };
+
+			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
+			{
+				const uint32_t setCounts[2u] = { 1u, 1u};
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				if (!descriptorPool)
+					return logFail("Failed to Create Descriptor Pool");
+			}
+
+			{
+				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
+				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
+				constexpr uint32_t DescriptorCount = 6u;
+				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
+
+				// Descriptors For Set 0:
+				descriptorInfos[0u].info.buffer.offset = 0u;
+				descriptorInfos[0u].info.buffer.size = globalsBuffer->getCreationParams().size;
+				descriptorInfos[0u].desc = globalsBuffer;
+
+				descriptorInfos[1u].info.buffer.offset = 0u;
+				descriptorInfos[1u].info.buffer.size = drawBuffer.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
+				descriptorInfos[1u].desc = drawBuffer.gpuDrawBuffers.drawObjectsBuffer;
+
+				descriptorInfos[2u].info.buffer.offset = 0u;
+				descriptorInfos[2u].info.buffer.size = drawBuffer.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
+				descriptorInfos[2u].desc = drawBuffer.gpuDrawBuffers.lineStylesBuffer;
+
+				descriptorInfos[3u].info.buffer.offset = 0u;
+				descriptorInfos[3u].info.buffer.size = drawBuffer.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
+				descriptorInfos[3u].desc = drawBuffer.gpuDrawBuffers.mainObjectsBuffer;
+
+				descriptorInfos[4u].info.buffer.offset = 0u;
+				descriptorInfos[4u].info.buffer.size = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer->getCreationParams().size;
+				descriptorInfos[4u].desc = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer;
+				
+				// Descriptors For Set 1:
+				descriptorInfos[5u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				descriptorInfos[5u].info.image.sampler = nullptr;
+				descriptorInfos[5u].desc = pseudoStencilImageView;
+
+				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
+				
+				// Set 0 Updates:
+				descriptorUpdates[0u].dstSet = descriptorSet0.get();
+				descriptorUpdates[0u].binding = 0u;
+				descriptorUpdates[0u].arrayElement = 0u;
+				descriptorUpdates[0u].count = 1u;
+				descriptorUpdates[0u].info = &descriptorInfos[0u];
+
+				descriptorUpdates[1u].dstSet = descriptorSet0.get();
+				descriptorUpdates[1u].binding = 1u;
+				descriptorUpdates[1u].arrayElement = 0u;
+				descriptorUpdates[1u].count = 1u;
+				descriptorUpdates[1u].info = &descriptorInfos[1u];
+
+				descriptorUpdates[2u].dstSet = descriptorSet0.get();
+				descriptorUpdates[2u].binding = 2u;
+				descriptorUpdates[2u].arrayElement = 0u;
+				descriptorUpdates[2u].count = 1u;
+				descriptorUpdates[2u].info = &descriptorInfos[2u];
+
+				descriptorUpdates[3u].dstSet = descriptorSet0.get();
+				descriptorUpdates[3u].binding = 3u;
+				descriptorUpdates[3u].arrayElement = 0u;
+				descriptorUpdates[3u].count = 1u;
+				descriptorUpdates[3u].info = &descriptorInfos[3u];
+
+				descriptorUpdates[4u].dstSet = descriptorSet0.get();
+				descriptorUpdates[4u].binding = 4u;
+				descriptorUpdates[4u].arrayElement = 0u;
+				descriptorUpdates[4u].count = 1u;
+				descriptorUpdates[4u].info = &descriptorInfos[4u];
+
+				// Set 1 Updates:
+				descriptorUpdates[5u].dstSet = descriptorSet1.get();
+				descriptorUpdates[5u].binding = 0u;
+				descriptorUpdates[5u].arrayElement = 0u;
+				descriptorUpdates[5u].count = 1u;
+				descriptorUpdates[5u].info = &descriptorInfos[5u];
+
+
+				m_device->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
+			}
+
+			pipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout0), core::smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+		}
 		
 		// Shaders
 		std::array<smart_refctd_ptr<IGPUShader>, 4u> shaders = {};
@@ -496,140 +640,8 @@ public:
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
 			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
 			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
-
-			initCADResources(40960u);
 		}
 
-		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
-		{
-			video::IGPUDescriptorSetLayout::SBinding bindings[] = {
-				{
-					.binding = 0u,
-					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 1u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 2u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 3u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 4u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
-					.count = 1u,
-				},
-				{
-					.binding = 5u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX,
-					.count = 1u,
-				},
-			};
-			descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-			if (!descriptorSetLayout)
-				return logFail("Failed to Create Descriptor Layout");
-
-			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
-			{
-				const uint32_t setCount = m_framesInFlight;
-				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&descriptorSetLayout.get(),1},&setCount);
-				if (!descriptorPool)
-					return logFail("Failed to Create Descriptor Pool");
-			}
-
-			for (size_t i = 0; i < m_framesInFlight; i++)
-			{
-				descriptorSets[i] = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
-				constexpr uint32_t DescriptorCount = 6u;
-				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
-				descriptorInfos[0u].info.buffer.offset = 0u;
-				descriptorInfos[0u].info.buffer.size = globalsBuffer[i]->getCreationParams().size;
-				descriptorInfos[0u].desc = globalsBuffer[i];
-
-				descriptorInfos[1u].info.buffer.offset = 0u;
-				descriptorInfos[1u].info.buffer.size = drawBuffer.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
-				descriptorInfos[1u].desc = drawBuffer.gpuDrawBuffers.drawObjectsBuffer;
-
-				descriptorInfos[2u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				descriptorInfos[2u].info.image.sampler = nullptr;
-				descriptorInfos[2u].desc = pseudoStencilImageViews[i];
-
-				descriptorInfos[3u].info.buffer.offset = 0u;
-				descriptorInfos[3u].info.buffer.size = drawBuffer.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-				descriptorInfos[3u].desc = drawBuffer.gpuDrawBuffers.lineStylesBuffer;
-
-				descriptorInfos[4u].info.buffer.offset = 0u;
-				descriptorInfos[4u].info.buffer.size = drawBuffer.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-				descriptorInfos[4u].desc = drawBuffer.gpuDrawBuffers.mainObjectsBuffer;
-
-				descriptorInfos[5u].info.buffer.offset = 0u;
-				descriptorInfos[5u].info.buffer.size = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer->getCreationParams().size;
-				descriptorInfos[5u].desc = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer;
-
-				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
-				descriptorUpdates[0u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[0u].binding = 0u;
-				descriptorUpdates[0u].arrayElement = 0u;
-				descriptorUpdates[0u].count = 1u;
-				descriptorUpdates[0u].info = &descriptorInfos[0u];
-
-				descriptorUpdates[1u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[1u].binding = 1u;
-				descriptorUpdates[1u].arrayElement = 0u;
-				descriptorUpdates[1u].count = 1u;
-				descriptorUpdates[1u].info = &descriptorInfos[1u];
-
-				descriptorUpdates[2u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[2u].binding = 2u;
-				descriptorUpdates[2u].arrayElement = 0u;
-				descriptorUpdates[2u].count = 1u;
-				descriptorUpdates[2u].info = &descriptorInfos[2u];
-
-				descriptorUpdates[3u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[3u].binding = 3u;
-				descriptorUpdates[3u].arrayElement = 0u;
-				descriptorUpdates[3u].count = 1u;
-				descriptorUpdates[3u].info = &descriptorInfos[3u];
-
-				descriptorUpdates[4u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[4u].binding = 4u;
-				descriptorUpdates[4u].arrayElement = 0u;
-				descriptorUpdates[4u].count = 1u;
-				descriptorUpdates[4u].info = &descriptorInfos[4u];
-
-				descriptorUpdates[5u].dstSet = descriptorSets[i].get();
-				descriptorUpdates[5u].binding = 5u;
-				descriptorUpdates[5u].arrayElement = 0u;
-				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfos[5u];
-
-				m_device->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
-			}
-
-			graphicsPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
-		}
-		
 		// Shared Blend Params between pipelines
 		SBlendParams blendParams = {};
 		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
@@ -650,8 +662,7 @@ public:
 				.shader = shaders[3u].get()
 			};
 
-			resolveAlphaPipeLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(descriptorSetLayout), nullptr, nullptr, nullptr);
-			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, resolveAlphaPipeLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
+			resolveAlphaGraphicsPipeline = fsTriangleProtoPipe.createPipeline(fragSpec, pipelineLayout.get(), compatibleRenderPass.get(), 0u, blendParams);
 			if (!resolveAlphaGraphicsPipeline)
 				return logFail("Graphics Pipeline Creation Failed.");
 
@@ -666,7 +677,7 @@ public:
 			};
 
 			IGPUGraphicsPipeline::SCreationParams params[1] = {};
-			params[0].layout = graphicsPipelineLayout.get();
+			params[0].layout = pipelineLayout.get();
 			params[0].shaders = specInfo;
 			params[0].cached = {
 				.vertexInput = {},
@@ -767,9 +778,9 @@ public:
 			return;
 
 		const IQueue::SSubmitInfo::SSemaphoreInfo acquired = {
-			.semaphore = m_surface->getAcquireSemaphore(),
-			.value = m_surface->getAcquireCount(),
-			.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // NONE for Acquire, right?
+			.semaphore = m_currentImageAcquire.semaphore,
+			.value = m_currentImageAcquire.acquireCount,
+			.stageMask = asset::PIPELINE_STAGE_FLAGS::NONE // NONE for Acquire, right? Yes, the Spec Says so!
 		};
 
 		// prev frame done using the scene data (is in post process stage)
@@ -816,8 +827,8 @@ public:
 		}
 		
 		// Acquire
-		m_currentAcquiredImageIdx = m_surface->acquireNextImage();
-		if (m_currentAcquiredImageIdx==ISwapchain::MaxImages)
+		m_currentImageAcquire = m_surface->acquireNextImage();
+		if (!m_currentImageAcquire)
 			return false;
 
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
@@ -842,13 +853,13 @@ public:
 		globalData.screenToWorldRatio = screenToWorld;
 		globalData.worldToScreenRatio = (1.0/screenToWorld);
 		globalData.miterLimit = 10.0f;
-		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer[resourceIx].get() };
+		SBufferRange<IGPUBuffer> globalBufferUpdateRange = { .offset = 0ull, .size = sizeof(Globals), .buffer = globalsBuffer.get() };
 		bool updateSuccess = cb->updateBuffer(globalBufferUpdateRange, &globalData);
 		assert(updateSuccess);
 		
 		// Clear pseudoStencil
 		{
-			auto pseudoStencilImage = pseudoStencilImageViews[resourceIx]->getCreationParameters().image;
+			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
 			{
@@ -903,7 +914,7 @@ public:
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
-				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
@@ -912,6 +923,7 @@ public:
 
 		// you could do this later but only use renderpassInitial on first draw
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		// Wait what's going on here? empty Renderpass!?
 		cb->endRenderPass();
 
 		return true;
@@ -944,7 +956,7 @@ public:
 		// pipelineBarriersBeforeDraw
 		{
 			// prepare pseudoStencilImage for usage in drawcall
-			auto pseudoStencilImage = pseudoStencilImageViews[resourceIx]->getCreationParameters().image;
+			auto pseudoStencilImage = pseudoStencilImageView->getCreationParameters().image;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t imageBarriers[] =
 			{
 				{
@@ -975,8 +987,8 @@ public:
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
 
-			// Index Buffer Copy Barrier -> Remove after Filling up the index buffer at init time
-			if (drawBuffer.getCurrentIndexBufferSize() > 0u)
+			// Index Buffer Copy Barrier -> Only do once at the beginning of the frames
+			if (m_realFrameIx == 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -986,11 +998,11 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = drawBuffer.getCurrentIndexBufferSize(),
+					.size = drawBuffer.gpuDrawBuffers.indexBuffer->getSize(),
 					.buffer = drawBuffer.gpuDrawBuffers.indexBuffer,
 				};
 			}
-			if (globalsBuffer[resourceIx]->getSize() > 0u)
+			if (globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -1000,8 +1012,8 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = globalsBuffer[resourceIx]->getSize(),
-					.buffer = globalsBuffer[resourceIx],
+					.size = globalsBuffer->getSize(),
+					.buffer = globalsBuffer,
 				};
 			}
 			if (drawBuffer.getCurrentDrawObjectsBufferSize() > 0u)
@@ -1075,7 +1087,7 @@ public:
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
-				.framebuffer = scRes->getFrambuffer(m_currentAcquiredImageIdx),
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
 				.depthStencilClearValues = nullptr,
 				.renderArea = currentRenderArea
@@ -1083,15 +1095,15 @@ public:
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-		const uint32_t currentIndexCount = drawBuffer.getIndexCount();
-		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, graphicsPipelineLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
+		const uint32_t currentIndexCount = drawBuffer.getDrawObjectCount() * 6u;
+		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
+		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
 		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawBuffer.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
 		cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
 
 		if (fragmentShaderInterlockEnabled)
 		{
-			cb->bindDescriptorSets(asset::EPBP_GRAPHICS, resolveAlphaPipeLayout.get(), 0u, 1u, &descriptorSets[resourceIx].get());
 			cb->bindGraphicsPipeline(resolveAlphaGraphicsPipeline.get());
 			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
@@ -1128,7 +1140,7 @@ public:
 					.value = m_realFrameIx,
 					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 				};
-				m_surface->present(m_currentAcquiredImageIdx, { &renderFinished, 1u });
+				m_surface->present(m_currentImageAcquire.imageIndex, { &renderFinished, 1u });
 			}
 		}
 
@@ -1776,7 +1788,7 @@ protected:
 					// test case 8: start with `0` pattern + 2 `0` patterns close together
 				stipplePatterns[8] = { 0.0, -10.0f, 0.0, -1.0, 0.0, -7.0 };
 					// test case 9: max pattern size
-				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -2.0f };
+				stipplePatterns[9] = { 1.0f, 1.0f, 1.0f, 1.0f, 1.0f, -1.0f, -1.0f, -1.0f, -1.0f, -1.0f, 1.0f, -1.0f, -1.0f, -1.0f };
 					// test case 10: A = 0 (line), evenly distributed controll points
 				stipplePatterns[10] = { 5.0f, -5.0f, 1.0f, -5.0f };
 					// test case 11: A = 0 (line), not evenly distributed controll points
@@ -2402,9 +2414,10 @@ protected:
 	std::array<smart_refctd_ptr<IGPUCommandPool>,	MaxFramesInFlight>	m_graphicsCommandPools;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>,	MaxFramesInFlight>	m_commandBuffers;
 	
-	std::array<smart_refctd_ptr<IGPUImageView>,			MaxFramesInFlight>	pseudoStencilImageViews;
-	std::array<smart_refctd_ptr<IGPUBuffer>,			MaxFramesInFlight>	globalsBuffer;
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>,		MaxFramesInFlight>	descriptorSets;
+	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+	smart_refctd_ptr<IGPUBuffer>		globalsBuffer;
+	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet0;
+	smart_refctd_ptr<IGPUDescriptorSet>	descriptorSet1;
 	DrawBuffersFiller drawBuffer; // you can think of this as the scene data needed to draw everything, we only have one instance so let's use a timeline semaphore to sync all renders
 
 	smart_refctd_ptr<ISemaphore> m_renderSemaphore; // timeline semaphore to sync frames together
@@ -2414,19 +2427,18 @@ protected:
 	// this is the semaphore info the overflows update the value for (the semaphore is set to the overflow semaphore above, and the value get's updated by SIntendedSubmitInfo)
 	IQueue::SSubmitInfo::SSemaphoreInfo m_overflowSubmitsScratchSemaphoreInfo;
 	
-	uint8_t m_currentAcquiredImageIdx = 0u;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 	uint64_t m_realFrameIx : 59 = 0;
 	// Maximum frames which can be simultaneously rendered
 	uint64_t m_framesInFlight : 5;
 
-	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
 	smart_refctd_ptr<IGPUGraphicsPipeline>		debugGraphicsPipeline;
-	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout;
-	smart_refctd_ptr<IGPUPipelineLayout>		graphicsPipelineLayout;
-
-	smart_refctd_ptr<IGPUGraphicsPipeline> resolveAlphaGraphicsPipeline;
-	smart_refctd_ptr<IGPUPipelineLayout> resolveAlphaPipeLayout;
+	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout0;
+	smart_refctd_ptr<IGPUDescriptorSetLayout>	descriptorSetLayout1;
+	smart_refctd_ptr<IGPUPipelineLayout>		pipelineLayout;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		resolveAlphaGraphicsPipeline;
+	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
 
 	Camera2D m_Camera;
 
