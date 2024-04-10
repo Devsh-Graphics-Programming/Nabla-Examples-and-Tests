@@ -543,7 +543,7 @@ int main()
     auto* am = device->getAssetManager();
 
     asset::IAssetLoader::SAssetLoadParams lparams;
-    lparams.loaderFlags = asset::IAssetLoader::E_LOADER_PARAMETER_FLAGS::ELPF_LOAD_METADATA_ONLY;
+    lparams.loaderFlags;
    
     constexpr auto IES_INPUTS = std::array
     { 
@@ -642,19 +642,14 @@ int main()
 
     for (size_t i = 0; i < ASSETS.first.size(); ++i)
     {
-        const auto& asset = ASSETS.first[i];
+        const auto& bundle = ASSETS.first[i];
         const auto& stem = ASSETS.second[i];
 
-        const auto& profile = asset.getMetadata()->selfCast<const asset::CIESProfileMetadata>()->profile;
+        const auto& profile = bundle.getMetadata()->selfCast<const asset::CIESProfileMetadata>()->profile;
         // const std::string out = std::filesystem::absolute("out/cpu/" + std::string(getProfileRS(profile)) + "/" + stem + ".png").string(); TODO (?): why its not working?
         const std::string out = std::filesystem::absolute(std::string(getProfileRS(profile)) + "_" + stem + ".png").string();
 
-        auto start = std::chrono::steady_clock::now();
-        auto cdc = profile.createIESTexture();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-        printf("Created CDC texture, took %s ms\n", std::to_string(elapsed.count()).c_str());
-
-        asset::IAssetWriter::SAssetWriteParams wparams(cdc.get());
+        asset::IAssetWriter::SAssetWriteParams wparams(bundle.getContents().begin()->get());
 
         if (am->writeAsset(out.c_str(), wparams))
             printf("Saved \"%s\"\n", out.c_str());
