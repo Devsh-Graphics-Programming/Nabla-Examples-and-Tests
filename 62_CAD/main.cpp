@@ -153,7 +153,13 @@ class CADApp : public ApplicationBase
 	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 	video::IGPUObjectFromAssetConverter cpu2gpu;
 	core::smart_refctd_ptr<video::IGPUImage> m_swapchainImages[CommonAPI::InitOutput::MaxSwapChainImageCount];
-	std::unique_ptr<msdfgen::Shape> m_bikeMsdfImage = nullptr;
+	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
+
+	static constexpr char FirstGeneratedCharacter = ' ';
+	static constexpr char LastGeneratedCharacter = '~';
+	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
+	FT_Library m_glyphLibrary;
+	FT_Face m_glyphFace;
 
 	int32_t m_resourceIx = -1;
 	uint32_t m_SwapchainImageIx = ~0u;
@@ -789,6 +795,48 @@ public:
 			}
 		}
 
+		std::string fontFilename = "C:\\Windows\\Fonts\\arialbd.ttf";
+
+		FT_Library library;
+		FT_Face face;
+
+		auto error = FT_Init_FreeType(&library);
+		assert(!error);
+
+		error = FT_New_Face(library, fontFilename.c_str(), 0, &face);
+		assert(!error);
+
+		// For each represented character
+		for (uint32_t characterIdx = FirstGeneratedCharacter; characterIdx <= LastGeneratedCharacter; characterIdx ++)
+		{
+			char k = char(characterIdx);
+			wchar_t unicode = wchar_t(k);
+			uint32_t glyphIndex = FT_Get_Char_Index(face, unicode);
+
+			// special case for space as it seems to break msdfgen
+			if (glyphIndex != 0 || k != ' ')
+			{
+				error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE);
+				assert(!error);
+
+				FreetypeHatchBuilder builder;
+				FT_Outline_Funcs ftFunctions;
+				ftFunctions.move_to = &ftMoveTo;
+				ftFunctions.line_to = &ftLineTo;
+				ftFunctions.conic_to = &ftConicTo;
+				ftFunctions.cubic_to = &ftCubicTo;
+				ftFunctions.shift = 0;
+				ftFunctions.delta = 0;
+				FT_Error error = FT_Outline_Decompose(&face->glyph->outline, &ftFunctions, &builder);
+				assert(!error);
+				builder.finish();
+
+				m_glyphPolylines[characterIdx - uint32_t(FirstGeneratedCharacter)] = std::move(builder.polylines);
+			}
+		}
+
+		m_glyphLibrary = library;
+		m_glyphFace = face;
 	}
 
 	void onAppTerminated_impl() override
@@ -1081,6 +1129,108 @@ public:
 		cb->endDebugMarker();
 		cb->end();
 
+	}
+
+	class FreetypeHatchBuilder
+	{
+	public:
+		// Start a new line from here
+		void moveTo(const float64_t2 to)
+		{
+			lastPosition = to;
+		}
+
+		// Continue the last line started with moveTo (could also use the last 
+		// position from a lineTo)
+		void lineTo(const float64_t2 to)
+		{
+			if (to != lastPosition) {
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back(lastPosition);
+				linePoints.push_back(to);
+				currentPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+
+				lastPosition = to;
+			}
+		}
+
+		// Continue the last moveTo or lineTo with a quadratic bezier:
+		// [last position, control, end]
+		void quadratic(const float64_t2 control, const float64_t2 to)
+		{
+			shapes::QuadraticBezier<double> bezier = shapes::QuadraticBezier<double>::construct(
+				lastPosition,
+				control,
+				to
+			);
+			currentPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(&bezier, &bezier + 1));
+			lastPosition = to;
+		}
+
+		// Continue the last moveTo or lineTo with a cubic bezier:
+		// [last position, control1, control2, end]
+		void cubic(const float64_t2 control1, const float64_t2 control2, const float64_t2 to)
+		{
+			std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+			curves::CubicCurve myCurve(
+				float64_t4(lastPosition.x, lastPosition.y, control1.x, control1.y),
+				float64_t4(control2.x, control2.y, to.x, to.y)
+			);
+
+			curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+				{
+					quadBeziers.push_back(info);
+				};
+
+			curves::Subdivision::adaptive(myCurve, 0.0, 1.0, 1e-5, addToBezier, 10u);
+			currentPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+
+			lastPosition = to;
+		}
+
+		void finish()
+		{
+			if (currentPolyline.getSectionsCount() > 0)
+				polylines.push_back(currentPolyline);
+		}
+
+		std::vector<CPolyline> polylines;
+		CPolyline currentPolyline = {};
+		// Set with move to and line to
+		float64_t2 lastPosition = float64_t2(0.0);
+	};
+
+	// TODO: Figure out what this is supposed to do
+	static double f26dot6ToDouble(float x)
+	{
+		return (1 / 64. * double(x));
+	}
+
+	static float64_t2 ftPoint2(const FT_Vector& vector) {
+		return float64_t2(f26dot6ToDouble(vector.x), f26dot6ToDouble(vector.y));
+	}
+
+	static int ftMoveTo(const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->moveTo(ftPoint2(*to));
+		return 0;
+	}
+	static int ftLineTo(const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->lineTo(ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftConicTo(const FT_Vector* control, const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->quadratic(ftPoint2(*control), ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftCubicTo(const FT_Vector* control1, const FT_Vector* control2, const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->cubic(ftPoint2(*control1), ftPoint2(*control2), ftPoint2(*to));
+		return 0;
 	}
 
 	video::IGPUQueue::SSubmitInfo addObjects(video::IGPUQueue* submissionQueue, video::IGPUFence* submissionFence, video::IGPUQueue::SSubmitInfo& intendedNextSubmit)
@@ -1589,6 +1739,95 @@ public:
 				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < shapes.size(); hatchFillShapeIdx++)
 				{
 					if (hatchDebugStep == 0) break;
+					const auto& shapePolylines = shapes[hatchFillShapeIdx];
+
+					/*
+					* 
+					* GENERATING THE MSDF FOR THE SHAPES 
+					* 
+					*/
+
+					// Only do this once, otherwise everything blows up
+					//if (m_shapeMsdfImages.size() <= hatchFillShapeIdx) {
+					//	// MSDF gen test
+					//	msdfgen::Shape bikeGlyphShape;
+					//	nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(bikeGlyphShape);
+					//	for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+					//	{
+					//		auto& polyline = shapePolylines[polylineIdx];
+					//		for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+					//		{
+					//			auto& section = polyline.getSectionInfoAt(sectorIdx);
+					//			if (section.type == ObjectType::LINE)
+					//			{
+					//				if (section.count == 0u) continue;
+
+					//				glyphShapeBuilder.moveTo(polyline.getLinePointAt(section.index).p);
+					//				for (uint32_t i = section.index + 1; i < section.index + section.count + 1; i++)
+					//					glyphShapeBuilder.lineTo(polyline.getLinePointAt(i).p);
+					//			}
+					//		}
+					//	}
+					//	glyphShapeBuilder.finish();
+					//	bikeGlyphShape.normalize();
+
+					//	msdfgen::Shape* shapePtr = new msdfgen::Shape;
+					//	*shapePtr = bikeGlyphShape;
+					//	m_shapeMsdfImages.push_back(std::unique_ptr<msdfgen::Shape>(shapePtr));
+					//}
+					//else
+					//{
+					//	auto bikeGlyphShape = *m_shapeMsdfImages[hatchFillShapeIdx];
+					//	auto shapeBounds = bikeGlyphShape.getBounds();
+					//	uint32_t pixelSizes = 4;
+
+					//	uint32_t shapeBoundsW = shapeBounds.r - shapeBounds.l;
+					//	uint32_t shapeBoundsH = shapeBounds.t - shapeBounds.b;
+					//	uint32_t glyphW = shapeBoundsW * pixelSizes;
+					//	uint32_t glyphH = shapeBoundsH * pixelSizes;
+
+					//	video::IGPUBuffer::SCreationParams bufParams;
+					//	bufParams.size = glyphW * glyphH * 4;
+					//	bufParams.usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT;
+
+					//	// TODO: Merge with image_upload_utils and use uploadImageViaStagingBuffer 
+					//	auto data = logicalDevice->createBuffer(std::move(bufParams));
+					//	auto bufreqs = data->getMemoryReqs();
+					//	bufreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+					//	auto mem = logicalDevice->allocate(bufreqs, data.get());
+
+					//	video::IDeviceMemoryAllocation::MappedMemoryRange mappedMemoryRange(data->getBoundMemory(), 0u, glyphW * glyphH * 4);
+					//	logicalDevice->mapMemory(mappedMemoryRange, video::IDeviceMemoryAllocation::EMCAF_READ);
+
+					//	// Generate MSDF for the current mip and copy it
+					//	auto bufferCopyRegion = nbl::ext::TextRendering::TextRenderer::copyGlyphShapeToImage(data.get(), 0, glyphW, glyphH, bikeGlyphShape);
+
+					//	// MSDF Image
+					//	video::IGPUImage::SCreationParams imgParams;
+					//	imgParams.type = asset::IImage::ET_2D;
+					//	imgParams.format = asset::EF_R8G8B8A8_UNORM;
+					//	imgParams.samples = asset::IImage::ESCF_1_BIT;
+					//	imgParams.extent.width = glyphW;
+					//	imgParams.extent.height = glyphH;
+					//	imgParams.extent.depth = 1;
+					//	imgParams.mipLevels = 1;
+					//	imgParams.arrayLayers = 1;
+					//	imgParams.usage = core::bitflag<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_TRANSFER_DST_BIT) | asset::IImage::EUF_SAMPLED_BIT;
+
+					//	auto msdfImage = logicalDevice->createImage(std::move(imgParams));
+
+					//	auto imgreqs = msdfImage->getMemoryReqs();
+					//	imgreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+					//	logicalDevice->allocate(imgreqs, msdfImage.get());
+
+					//	cmdbuf->copyBufferToImage(data.get(), msdfImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, 1, &bufferCopyRegion);
+					//}
+
+					/*
+					* 
+					* RENDERING THE SHAPE FOR VISUAL
+					* 
+					*/
 
 					double totalShapesWidth = hatchFillShapeSize * double(shapes.size()) + hatchFillShapePadding * double(shapes.size() - 1);
 					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(nbl::core::max(hatchFillShapeIdx, 1) - 1);
@@ -1596,7 +1835,6 @@ public:
 					offset -= totalShapesWidth / 2.0;
 
 					std::vector<CPolyline> transformedPolylines;
-					const auto& shapePolylines = shapes[hatchFillShapeIdx];
 					for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
 					{
 						auto& polyline = shapePolylines[polylineIdx];
@@ -1630,6 +1868,96 @@ public:
 					hatchDebugStep--;
 				}
 			}
+
+			if (hatchDebugStep > 0)
+			{
+				constexpr auto TestString = "The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+
+				auto slot = m_glyphFace->glyph;
+				auto penX = -100.0;
+				auto penY = -500.0;
+				auto previous = 0;
+
+				for (uint32_t i = 0; i < strlen(TestString); i++)
+				{
+					if (hatchDebugStep == 0) break;
+					hatchDebugStep--; 
+
+					char k = TestString[i];
+					auto unicode = wchar_t(k);
+					auto glyphIndex = FT_Get_Char_Index(m_glyphFace, unicode);
+
+					if (glyphIndex)
+					{
+						FT_Vector delta;
+						FT_Get_Kerning(m_glyphFace, previous, glyphIndex, FT_KERNING_DEFAULT, &delta);
+						penX += delta.x >> 6;
+					}
+
+					auto error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
+					if (error) continue;
+
+					auto offsetX = double(slot->metrics.horiBearingX >> 6);
+					auto offsetY = double(slot->metrics.horiBearingY >> 6);
+					auto drawX = penX - offsetX;
+					auto drawY = penY;
+
+					penX += slot->advance.x >> 6;
+					previous = glyphIndex;
+
+					if (k >= FirstGeneratedCharacter && k <= LastGeneratedCharacter)
+					{
+						auto shapePolylines = m_glyphPolylines[uint32_t(k) - uint32_t(FirstGeneratedCharacter)];
+
+						std::vector<CPolyline> transformedPolylines;
+						for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+						{
+							auto& polyline = shapePolylines[polylineIdx];
+							if (polyline.getSectionsCount() == 0) continue;
+							CPolyline transformedPolyline;
+							for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+							{
+								auto& section = polyline.getSectionInfoAt(sectorIdx);
+								if (section.type == ObjectType::LINE)
+								{
+									if (section.count == 0u) continue;
+
+									std::vector<float64_t2> points;
+									for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+									{
+										auto point = polyline.getLinePointAt(i).p;
+										points.push_back(point + float64_t2(drawX, drawY));
+									}
+									transformedPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+								}
+								else if (section.type == ObjectType::QUAD_BEZIER)
+								{
+									if (section.count == 0u) continue;
+
+									std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
+									for (uint32_t i = section.index; i < section.index + section.count; i++)
+									{
+										QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
+										beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
+											bezier.shape.P0 + float64_t2(drawX, drawY),
+											bezier.shape.P1 + float64_t2(drawX, drawY),
+											bezier.shape.P2 + float64_t2(drawX, drawY)
+										));
+									}
+									transformedPolyline.addQuadBeziers(core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>(
+										beziers.data(), beziers.data() + beziers.size()));
+								}
+							}
+							transformedPolylines.push_back(transformedPolyline);
+						}
+
+						if (transformedPolylines.size() == 0) continue;
+						Hatch hatch(core::SRange<CPolyline>(transformedPolylines.data(), transformedPolylines.data() + transformedPolylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
+						intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+					}
+				}
+			}
+			
 
 			if (hatchDebugStep > 0)
 			{
@@ -1890,95 +2218,10 @@ public:
 					polylines.push_back(polyline);
 				}
 
-				// Only do this once, otherwise everything blows up
-				if (!m_bikeMsdfImage) {
-					// MSDF gen test
-					msdfgen::Shape bikeGlyphShape;
-					nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(bikeGlyphShape);
-					for (uint32_t polylineIdx = 0; polylineIdx < polylines.size(); polylineIdx++)
-					{
-						auto& polyline = polylines[polylineIdx];
-						for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-						{
-							auto& section = polyline.getSectionInfoAt(sectorIdx);
-							if (section.type == ObjectType::LINE)
-							{
-								if (section.count == 0u) continue;
-
-								glyphShapeBuilder.moveTo(polyline.getLinePointAt(section.index).p);
-								for (uint32_t i = section.index + 1; i < section.index + section.count + 1; i++)
-									glyphShapeBuilder.lineTo(polyline.getLinePointAt(i).p);
-							}
-							else if (section.type == ObjectType::QUAD_BEZIER)
-							{
-								for (uint32_t objectIdx = section.index; objectIdx < section.index + section.count; objectIdx++)
-								{
-									auto bezierInfo = polyline.getQuadBezierInfoAt(objectIdx);
-									glyphShapeBuilder.moveTo(bezierInfo.shape.P0);
-									glyphShapeBuilder.quadratic(bezierInfo.shape.P1, bezierInfo.shape.P1);
-								}
-							}
-						}
-					}
-					glyphShapeBuilder.finish();
-					bikeGlyphShape.normalize();
-
-					msdfgen::Shape* shapePtr = new msdfgen::Shape;
-					*shapePtr = bikeGlyphShape;
-					m_bikeMsdfImage = std::unique_ptr<msdfgen::Shape>(shapePtr);
-				}
-				else
-				{
-					auto bikeGlyphShape = *m_bikeMsdfImage;
-					auto shapeBounds = bikeGlyphShape.getBounds();
-					uint32_t pixelSizes = 1;
-
-					uint32_t shapeBoundsW = shapeBounds.r - shapeBounds.l;
-					uint32_t shapeBoundsH = shapeBounds.t - shapeBounds.b;
-					uint32_t glyphW = shapeBoundsW * pixelSizes;
-					uint32_t glyphH = shapeBoundsH * pixelSizes;
-
-					video::IGPUBuffer::SCreationParams bufParams;
-					bufParams.size = glyphW * glyphH * 4;
-					bufParams.usage = asset::IBuffer::EUF_TRANSFER_SRC_BIT;
-					
-					// TODO: Merge with image_upload_utils and use uploadImageViaStagingBuffer 
-					auto data = logicalDevice->createBuffer(std::move(bufParams));
-					auto bufreqs = data->getMemoryReqs();
-					bufreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-					auto mem = logicalDevice->allocate(bufreqs, data.get());
-
-					video::IDeviceMemoryAllocation::MappedMemoryRange mappedMemoryRange(data->getBoundMemory(), 0u, glyphW * glyphH * 4);
-					logicalDevice->mapMemory(mappedMemoryRange, video::IDeviceMemoryAllocation::EMCAF_READ);
-
-					// Generate MSDF for the current mip and copy it
-					auto bufferCopyRegion = nbl::ext::TextRendering::TextRenderer::copyGlyphShapeToImage(data.get(), 0, glyphW, glyphH, bikeGlyphShape);
-				
-					// MSDF Image
-					video::IGPUImage::SCreationParams imgParams;
-					imgParams.type = asset::IImage::ET_2D;
-					imgParams.format = asset::EF_R8G8B8A8_UNORM;
-					imgParams.samples = asset::IImage::ESCF_1_BIT;
-					imgParams.extent.width = glyphW;
-					imgParams.extent.height = glyphH;
-					imgParams.extent.depth = 1;
-					imgParams.mipLevels = 1;
-					imgParams.arrayLayers = 1;
-					imgParams.usage = core::bitflag<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_TRANSFER_DST_BIT) | asset::IImage::EUF_SAMPLED_BIT;
-
-					auto msdfImage = logicalDevice->createImage(std::move(imgParams));
-
-					auto imgreqs = msdfImage->getMemoryReqs();
-					imgreqs.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-					logicalDevice->allocate(imgreqs, msdfImage.get());
-
-					cmdbuf->copyBufferToImage(data.get(), msdfImage.get(), asset::IImage::EL_TRANSFER_DST_OPTIMAL, 1, &bufferCopyRegion);
-				}
-
 				Hatch hatch(core::SRange<CPolyline>(polylines.data(), polylines.data() + polylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
 				intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
 			}
-			
+
 			if (hatchDebugStep > 0)
 			{
 				std::vector<float64_t2> points;
@@ -2118,7 +2361,7 @@ public:
 						myCurve.angleBounds = {
 							nbl::core::PI<double>() * 1.0,
 							nbl::core::PI<double>() * 0.0
-							};
+						};
 						myCurve.eccentricity = 1.0;
 					}
 
