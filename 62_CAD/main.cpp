@@ -1209,7 +1209,7 @@ public:
 				std::vector<float64_t2> linePoints;
 				linePoints.push_back(lastPosition);
 				linePoints.push_back(to);
-				currentPolyline.addLinePoints(core::SRange<float64_t2>(linePoints.data(), linePoints.data() + linePoints.size()));
+				currentPolyline.addLinePoints(linePoints);
 
 				lastPosition = to;
 			}
@@ -1224,7 +1224,7 @@ public:
 				control,
 				to
 			);
-			currentPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(&bezier, &bezier + 1));
+			currentPolyline.addQuadBeziers({ &bezier, 1 });
 			lastPosition = to;
 		}
 
@@ -1244,7 +1244,7 @@ public:
 				};
 
 			curves::Subdivision::adaptive(myCurve, 0.0, 1.0, 1e-5, addToBezier, 10u);
-			currentPolyline.addQuadBeziers(core::SRange<shapes::QuadraticBezier<double>>(quadBeziers.data(), quadBeziers.data() + quadBeziers.size()));
+			currentPolyline.addQuadBeziers(quadBeziers);
 
 			lastPosition = to;
 		}
@@ -1404,7 +1404,7 @@ protected:
 						begin, end
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				};
 				auto square = [&](float64_t2 position) {
@@ -1416,7 +1416,7 @@ protected:
 						float64_t2(position.x, position.y)
 					};
 					CPolyline polyline;
-					polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				};
 				{
@@ -1445,7 +1445,7 @@ protected:
 							float64_t2(3.5, 8.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 					{
@@ -1458,7 +1458,7 @@ protected:
 							float64_t2(3.5, 6.5)
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 
@@ -1482,7 +1482,7 @@ protected:
 							float64_t2(3.0, 0.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 					{
@@ -1495,7 +1495,7 @@ protected:
 							float64_t2(4.0, 1.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 
@@ -1517,7 +1517,7 @@ protected:
 								float64_t2(0.0, 0.0),
 								float64_t2(1.0, 0.0),
 							};
-							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+							polyline.addLinePoints(points);
 						}
 						{
 							std::vector<float64_t2> points = {
@@ -1526,7 +1526,7 @@ protected:
 								float64_t2(0.0, 7.0),
 								float64_t2(0.0, 8.0),
 							};
-							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+							polyline.addLinePoints(points);
 						}
 						{
 							std::vector<float64_t2> points = {
@@ -1535,7 +1535,7 @@ protected:
 								float64_t2(8.0, 1.0),
 								float64_t2(8.0, 0.0),
 							};
-							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+							polyline.addLinePoints(points);
 						}
 						polylines.push_back(polyline);
 					}
@@ -1555,7 +1555,7 @@ protected:
 							float64_t2(0.0, 3.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 					{
@@ -1567,7 +1567,7 @@ protected:
 							float64_t2(0.0, 7.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 
@@ -1586,7 +1586,7 @@ protected:
 							float64_t2(0.0, 0.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 					{
@@ -1598,7 +1598,7 @@ protected:
 							float64_t2(4.0, 0.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 
@@ -1619,7 +1619,7 @@ protected:
 							float64_t2(4.0, 0.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 					{
@@ -1633,7 +1633,7 @@ protected:
 							float64_t2(3.0, 4.0),
 						};
 						CPolyline polyline;
-						polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+						polyline.addLinePoints(points);
 						polylines.push_back(polyline);
 					}
 
@@ -1655,7 +1655,7 @@ protected:
 								float64_t2(8.0, 0.0),
 								float64_t2(7.0, 0.0),
 							};
-							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+							polyline.addLinePoints(points);
 						}
 						{
 							std::vector<float64_t2> points = {
@@ -1664,7 +1664,7 @@ protected:
 								float64_t2(8.0, 7.0),
 								float64_t2(8.0, 8.0),
 							};
-							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+							polyline.addLinePoints(points);
 						}
 						{
 							std::vector<float64_t2> points = {
@@ -1673,7 +1673,7 @@ protected:
 								float64_t2(0.0, 1.0),
 								float64_t2(0.0, 0.0),
 							};
-							polyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+							polyline.addLinePoints(points);
 						}
 						polylines.push_back(polyline);
 					}
@@ -1693,7 +1693,7 @@ protected:
 							float64_t2(1.0, 7.0),
 							float64_t2(1.0, 1.0),
 						};
-						polyline.addLinePoints(core::SRange<float64_t2>(outerSquare.data(), outerSquare.data() + outerSquare.size()));
+						polyline.addLinePoints(outerSquare);
 						std::vector<float64_t2> innerSquare = {
 							float64_t2(2.0, 2.0),
 							float64_t2(6.0, 2.0),
@@ -1701,7 +1701,7 @@ protected:
 							float64_t2(2.0, 6.0),
 							float64_t2(2.0, 2.0),
 						};
-						polyline.addLinePoints(core::SRange<float64_t2>(innerSquare.data(), innerSquare.data() + innerSquare.size()));
+						polyline.addLinePoints(innerSquare);
 						polylines.push_back(polyline);
 					}
 
@@ -1725,7 +1725,7 @@ protected:
 							float64_t2(6.0, 1.0),
 							float64_t2(2.0, 1.0)
 						};
-						polyline.addLinePoints(core::SRange<float64_t2>(outerSquare.data(), outerSquare.data() + outerSquare.size()));
+						polyline.addLinePoints(outerSquare);
 						std::vector<float64_t2> innerSquare = {
 							float64_t2(2.5, 2.0),
 							float64_t2(2.0, 2.5),
@@ -1737,7 +1737,7 @@ protected:
 							float64_t2(5.5, 2.0),
 							float64_t2(2.5, 2.0),
 						};
-						polyline.addLinePoints(core::SRange<float64_t2>(innerSquare.data(), innerSquare.data() + innerSquare.size()));
+						polyline.addLinePoints(innerSquare);
 						polylines.push_back(polyline);
 					}
 
@@ -1810,7 +1810,7 @@ protected:
 											auto point = polyline.getLinePointAt(i).p / 8.0;
 											points.push_back(point * hatchFillShapeSize + float64_t2(xx, yy));
 										}
-										transformedPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+										transformedPolyline.addLinePoints(points);
 									}
 									else if (section.type == ObjectType::QUAD_BEZIER)
 									{
@@ -1820,8 +1820,8 @@ protected:
 								transformedPolylines.push_back(transformedPolyline);
 							}
 
-							Hatch hatch(core::SRange<CPolyline>(transformedPolylines.data(), transformedPolylines.data() + transformedPolylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-							intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
+							drawBuffer.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 						}
 					}
 				}
@@ -1945,7 +1945,7 @@ protected:
 									auto point = polyline.getLinePointAt(i).p / 8.0;
 									points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0));
 								}
-								transformedPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+								transformedPolyline.addLinePoints(points);
 							}
 							else if (section.type == ObjectType::QUAD_BEZIER)
 							{
@@ -1955,8 +1955,8 @@ protected:
 						transformedPolylines.push_back(transformedPolyline);
 					}
 
-					Hatch hatch(core::SRange<CPolyline>(transformedPolylines.data(), transformedPolylines.data() + transformedPolylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-					intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+					Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
+					drawBuffer.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 
 					hatchDebugStep--;
 				}
@@ -2021,7 +2021,7 @@ protected:
 										auto point = polyline.getLinePointAt(i).p;
 										points.push_back(point + float64_t2(drawX, drawY));
 									}
-									transformedPolyline.addLinePoints(core::SRange<float64_t2>(points.data(), points.data() + points.size()));
+									transformedPolyline.addLinePoints(points);
 								}
 								else if (section.type == ObjectType::QUAD_BEZIER)
 								{
@@ -2037,16 +2037,15 @@ protected:
 											bezier.shape.P2 + float64_t2(drawX, drawY)
 										));
 									}
-									transformedPolyline.addQuadBeziers(core::SRange<nbl::hlsl::shapes::QuadraticBezier<double>>(
-										beziers.data(), beziers.data() + beziers.size()));
+									transformedPolyline.addQuadBeziers(beziers);
 								}
 							}
 							transformedPolylines.push_back(transformedPolyline);
 						}
 
 						if (transformedPolylines.size() == 0) continue;
-						Hatch hatch(core::SRange<CPolyline>(transformedPolylines.data(), transformedPolylines.data() + transformedPolylines.size()), SelectedMajorAxis, hatchDebugStep, debug);
-						intendedNextSubmit = currentDrawBuffers.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, submissionQueue, submissionFence, intendedNextSubmit);
+						Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
+						drawBuffer.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
 					}
 				}
 			}
@@ -3250,6 +3249,15 @@ protected:
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
+
+	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
+
+	static constexpr char FirstGeneratedCharacter = ' ';
+	static constexpr char LastGeneratedCharacter = '~';
+	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
+	FT_Library m_glyphLibrary;
+	FT_Face m_glyphFace;
+
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
