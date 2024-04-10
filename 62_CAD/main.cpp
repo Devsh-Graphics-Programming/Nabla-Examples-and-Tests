@@ -40,7 +40,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_5;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -250,9 +250,10 @@ public:
 	
 	void allocateResources(uint32_t maxObjects)
 	{
-		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils));
+		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
 
 		uint32_t maxIndices = maxObjects * 6u * 2u;
+		drawBuffer.allocateIndexBuffer(m_device.get(), maxIndices);
 		drawBuffer.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawBuffer.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
 		drawBuffer.allocateStylesBuffer(m_device.get(), 32u);
@@ -986,8 +987,8 @@ public:
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[MaxBufferBarriersCount];
 
-			// Index Buffer Copy Barrier -> Remove after Filling up the index buffer at init time
-			if (drawBuffer.getCurrentIndexBufferSize() > 0u)
+			// Index Buffer Copy Barrier -> Only do once at the beginning of the frames
+			if (m_realFrameIx == 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -997,11 +998,11 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = drawBuffer.getCurrentIndexBufferSize(),
+					.size = drawBuffer.gpuDrawBuffers.indexBuffer->getSize(),
 					.buffer = drawBuffer.gpuDrawBuffers.indexBuffer,
 				};
 			}
-			if (globalsBuffer[resourceIx]->getSize() > 0u)
+			if (globalsBuffer->getSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
@@ -1011,8 +1012,8 @@ public:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = globalsBuffer[resourceIx]->getSize(),
-					.buffer = globalsBuffer[resourceIx],
+					.size = globalsBuffer->getSize(),
+					.buffer = globalsBuffer,
 				};
 			}
 			if (drawBuffer.getCurrentDrawObjectsBufferSize() > 0u)
@@ -1094,8 +1095,8 @@ public:
 		}
 		cb->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-		const uint32_t currentIndexCount = drawBuffer.getIndexCount();
-		IGPUDescriptorSet* descriptorSets[] = { descriptorSets0[resourceIx].get(), descriptorSets1[resourceIx].get() };
+		const uint32_t currentIndexCount = drawBuffer.getDrawObjectCount() * 6u;
+		IGPUDescriptorSet* descriptorSets[] = { descriptorSet0.get(), descriptorSet1.get() };
 		cb->bindDescriptorSets(asset::EPBP_GRAPHICS, pipelineLayout.get(), 0u, 2u, descriptorSets);
 		cb->bindIndexBuffer({ .offset = 0u, .buffer = drawBuffer.gpuDrawBuffers.indexBuffer.get() }, asset::EIT_32BIT);
 		cb->bindGraphicsPipeline(graphicsPipeline.get());
