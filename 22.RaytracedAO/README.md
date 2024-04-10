@@ -165,13 +165,14 @@ So the full width, height are 1152x1152 (64+1024+64=1152)
 
 | Property Name | Description                                                                                                      | Type  | Default Value |
 |---------------|------------------------------------------------------------------------------------------------------------------|-------|---------------|
-|     normalizeEnergy     | Parameter to normalize the intensity of emission profile. <br> 1) If `normalizeEnergy` is zero, it will not perform any normalization. (no normalization) <br> 2) If `normalizeEnergy` is negative, it will normalize the intensity by dividing out the maximum intensity. (normalization by max) <br> 3) If `normalizeEnergy` is positive, it will first normalize the intensity by average energy and multiply `normalizeEnergy` to intensity. (normalization by energy) | float | 0.0 (no normalization) |
-|     filename      | The filename of the IES profile. | string | ""          |
+| normalization | Parameter to normalize the intensity of emission profile. <br> 1) If `normalization` is `NONE` or invalid/none of the below, it will not perform any normalization. <br> 2) If `normalization` is `UNIT_MAX`, it will normalize the intensity by dividing out the maximum intensity. (normalization by max) <br> 3) If `normalization` is `UNIT_AVERAGE_OVER_IMPLIED_DOMAIN`, it will integrate the profile over the hemisphere as well as the solid angles where the profile has emission above 0. This has an advantage over a plain average as you don't need to care whether the light is a sphere, hemisphere, or a spotlight of a given aperture. (normalization by energy) <br> 4) If `normalization` is `UNIT_AVERAGE_OVER_FULL_DOMAIN` we behave like `UNIT_AVERAGE` but presume the soild angle of the domain is `(CIESProfile::vAngles.front()-CIESProfile::vAngles.back())*4.f`   | string | "" <br> (no normalization) |
+|   flatten     | Optional "blend" of the original profile value with the average value, if negative we use the average as if for `UNIT_AVERAGE_OVER_FULL_DOMAIN` if positive we use the average as-if for `UNIT_AVERAGE_OVER_IMPLIED_DOMAIN`.  <br> This is useful when the emitter appears "not bright enough" when observing from directions outside the main power-lobes. <br> Valid range is 0.0 to 1.0, value gets treated with `min(abs(flatten),1.f)` to make it conform. <br> A value equal to 1.0 or -1.0 will render your IES profile uniform, so its not something you should use and a warning will be emitted. | float | 0.0 |
+|   filename    | The filename of the IES profile. | string | "" |
 
 
 NOTE: **\<transform\>** tag of emitter node can be used to orient the emission direction of IES light.
 
-#### Example of Area Light with IES Profile
+#### Example of Area Light with IES Profile which flattens its profile against a full Sphere or Hemisphere average
 
 ```xml
 <emitter type="area" >
@@ -180,7 +181,8 @@ NOTE: **\<transform\>** tag of emitter node can be used to orient the emission d
 	</transform>
 	<rgb name="radiance" value="20.0"/>
 	<emissionprofile type="measured">
-		<float name="normalizeEnergy" value="42.5"/>
+		<string name="normalization" value="UNIT_AVERAGE_OVER_FULL_DOMAIN"/>
+		<float name="flatten" value="-0.1"/>
 		<string name="filename" value="emission_profile.ies"/>
 	</emissionprofile> 
 </emitter>
