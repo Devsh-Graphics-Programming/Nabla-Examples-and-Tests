@@ -5,13 +5,13 @@
 #define _NBL_EXAMPLES_COMMON_SIMPLE_WINDOWED_APPLICATION_HPP_INCLUDED_
 
 // Build on top of the previous one
-#include "../common/BasicMultiQueueApplication.hpp"
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
 
 namespace nbl::examples
 {
 	
 // Virtual Inheritance because apps might end up doing diamond inheritance
-class SimpleWindowedApplication : public virtual BasicMultiQueueApplication
+class SimpleWindowedApplication : public virtual application_templates::BasicMultiQueueApplication
 {
 		using base_t = BasicMultiQueueApplication;
 

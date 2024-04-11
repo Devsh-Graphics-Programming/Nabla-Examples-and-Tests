@@ -4,6 +4,9 @@
 #include <nbl/builtin/hlsl/shapes/util.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 
+using namespace nbl;
+using namespace nbl::core;
+using namespace nbl::video;
 using namespace nbl::hlsl;
 
 namespace curves
@@ -63,7 +66,7 @@ float64_t2 ExplicitCurve::computeTangent(float64_t x) const
 {
     const float64_t deriv = derivative(x);
     float64_t2 v = float64_t2(1.0, deriv);
-    if (isinf(deriv))
+    if (std::isinf(deriv))
         v = float64_t2(0.0, 1.0);
     return v;
 }
@@ -414,7 +417,7 @@ static void fixBezierMidPoint(shapes::QuadraticBezier<double>& bezier)
     const float64_t2 localChord = bezier.P2 - bezier.P0;
     const float64_t localX = dot(normalize(localChord), bezier.P1 - bezier.P0);
     const bool outside = localX<0 || localX>length(localChord);
-    if (outside || isnan(bezier.P1.x) || isnan(bezier.P1.y))
+    if (outside || core::isnan(bezier.P1.x) || core::isnan(bezier.P1.y))
     {
         // _NBL_DEBUG_BREAK_IF(true); // this shouldn't happen but we fix it just in case anyways
         bezier.P1 = bezier.P0 * 0.4 + bezier.P2 * 0.6;
@@ -542,9 +545,9 @@ void Subdivision::adaptive_impl(const ParametricCurve& curve, float64_t min, flo
             {
                 const float64_t2 curvePositionAtSplit = curve.computePosition(split);
                 float64_t bezierYAtSplit = bezier.calcYatX(curvePositionAtSplit.x);
-                //_NBL_DEBUG_BREAK_IF(isnan(bezierYAtSplit)); 
+                //_NBL_DEBUG_BREAK_IF(core::isnan(bezierYAtSplit)); 
                 // TODO: maybe a better error comaprison is find the normal at split and intersect with the bezier
-                if (isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
+                if (core::isnan(bezierYAtSplit) || abs(curvePositionAtSplit.y - bezierYAtSplit) > targetMaxError)
                     shouldSubdivide = true;
             }
         }

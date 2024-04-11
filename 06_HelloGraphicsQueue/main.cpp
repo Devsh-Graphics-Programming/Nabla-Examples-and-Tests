@@ -4,8 +4,8 @@
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
@@ -26,10 +26,10 @@ using namespace video;
 // - save the smallImg to disk
 // 
 // all without using IUtilities.
-class HelloGraphicsQueueApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class HelloGraphicsQueueApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::MonoDeviceApplication;
-		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = application_templates::MonoDeviceApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 	public:
 		// Yay thanks to multiple inheritance we cannot forward ctors anymore.

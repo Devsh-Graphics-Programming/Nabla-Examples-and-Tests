@@ -3,8 +3,9 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../include/nbl/application_templates/BasicMultiQueueApplication.hpp"
-#include "../include/nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace core;

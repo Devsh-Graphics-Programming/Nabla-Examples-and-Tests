@@ -186,13 +186,15 @@ class HelloSwapchainApp final : public examples::SimpleWindowedApplication
 			{
 				const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
 					{{
-						.format = format,
-						.samples = samples,
-						.mayAlias = false,
-						.loadOp = IGPURenderpass::LOAD_OP::CLEAR,
-						.storeOp = IGPURenderpass::STORE_OP::STORE,
-						.initialLayout = IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents when we grab the triple buffer img again
-						.finalLayout = IGPUImage::LAYOUT::TRANSFER_SRC_OPTIMAL // put it already in the correct layout for the blit operation
+						{
+							.format = format,
+							.samples = samples,
+							.mayAlias = false
+						},
+						/*.loadOp = */IGPURenderpass::LOAD_OP::CLEAR,
+						/*.storeOp = */IGPURenderpass::STORE_OP::STORE,
+						/*.initialLayout = */IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents when we grab the triple buffer img again
+						/*.finalLayout = */IGPUImage::LAYOUT::TRANSFER_SRC_OPTIMAL // put it already in the correct layout for the blit operation
 					}},
 					IGPURenderpass::SCreationParams::ColorAttachmentsEnd
 				};

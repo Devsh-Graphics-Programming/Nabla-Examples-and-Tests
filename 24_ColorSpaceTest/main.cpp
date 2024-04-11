@@ -1,7 +1,7 @@
 ﻿// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
 
 //
@@ -17,10 +17,10 @@ using namespace ui;
 using namespace video;
 
 
-class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 		using device_base_t = examples::SimpleWindowedApplication;
-		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
 
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -312,8 +312,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			m_winMgr->show(m_window.get());
 
 			// Acquire
-			auto imageIx = m_surface->acquireNextImage();
-			if (imageIx==ISwapchain::MaxImages)
+			auto acquire = m_surface->acquireNextImage();
+			if (!acquire)
 				return;
 
 			// Render to the Image
@@ -339,10 +339,10 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 				// begin the renderpass
 				{
-					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,1.f,1.f,1.f} };
+					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
 					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-						.framebuffer = scRes->getFrambuffer(imageIx),
+						.framebuffer = scRes->getFrambuffer(acquire.imageIndex),
 						.colorClearValues = &clearValue,
 						.depthStencilClearValues = nullptr,
 						.renderArea = currentRenderArea
@@ -369,8 +369,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						.cmdbuf = cmdbuf
 					}};
 					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
-						.semaphore = m_surface->getAcquireSemaphore(),
-						.value = m_surface->getAcquireCount(),
+						.semaphore = acquire.semaphore,
+						.value = acquire.acquireCount,
 						.stageMask = PIPELINE_STAGE_FLAGS::NONE
 					}};
 					const IQueue::SSubmitInfo infos[1] = {{
@@ -385,7 +385,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			// Present
-			m_surface->present(imageIx,rendered);
+			m_surface->present(acquire.imageIndex,rendered);
 			
 			// Set the Caption
 			std::string viewTypeStr;

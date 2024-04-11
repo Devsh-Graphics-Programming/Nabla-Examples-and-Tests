@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "../common/MonoSystemMonoLoggerApplication.hpp"
+#include "nbl/application_templates/MonoSystemMonoLoggerApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -10,9 +10,9 @@ using namespace asset;
 using namespace system;
 
 // instead of defining our own `int main()` we derive from `nbl::system::IApplicationFramework` to play "nice" wil all platofmrs
-class HelloComputeApp final : public nbl::examples::MonoSystemMonoLoggerApplication
+class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoLoggerApplication
 {
-	using base_t = examples::MonoSystemMonoLoggerApplication;
+	using base_t = application_templates::MonoSystemMonoLoggerApplication;
 public:
 	using base_t::base_t;
 
