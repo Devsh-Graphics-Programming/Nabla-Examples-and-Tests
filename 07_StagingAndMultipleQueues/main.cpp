@@ -139,9 +139,8 @@ private:
 			usage.sampledImage = 1;
 			usage.transferDst = 1;
 			formatPromotionRequest.usages = usage;
-			// why my images are VK_FORMAT_R8_SRGB?
-			//imgParams.format = m_physicalDevice->promoteImageFormat(formatPromotionRequest, IGPUImage::TILING::OPTIMAL);
-			imgParams.format = E_FORMAT::EF_R8G8B8A8_SRGB;
+			formatPromotionRequest.originalFormat = cpuImages[imageIdx]->getCreationParameters().format;
+			imgParams.format = m_physicalDevice->promoteImageFormat(formatPromotionRequest, IGPUImage::TILING::OPTIMAL);
 			imgParams.mipLevels = 1u;
 			imgParams.flags = IImage::ECF_NONE;
 			imgParams.arrayLayers = 1u;
