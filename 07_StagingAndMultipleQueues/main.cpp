@@ -186,9 +186,9 @@ private:
 				imgSubresourceRange.levelCount = 1;
 				imgSubresourceRange.layerCount = 1u;
 
-				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::ALL_COMMANDS_BITS;
+				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
 				imageLayoutTransitionBarrier0.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
 				imageLayoutTransitionBarrier0.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				imageLayoutTransitionBarrier0.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
 				imageLayoutTransitionBarrier0.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
@@ -196,9 +196,9 @@ private:
 				imageLayoutTransitionBarrier0.subresourceRange = imgSubresourceRange;
 
 				imageLayoutTransitionBarrier1.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS; 
-				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
 				imageLayoutTransitionBarrier1.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS; // NONE because the semaphore singnal comes right after
+				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE; // NONE because the semaphore singnal comes right after
 				imageLayoutTransitionBarrier1.oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 				imageLayoutTransitionBarrier1.newLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				imageLayoutTransitionBarrier1.image = images[imageIdx].get();
@@ -213,8 +213,6 @@ private:
 			SIntendedSubmitInfo intendedSubmit = {
 				.frontHalf = {.queue = transferUpQueue, .waitSemaphores = {}, .commandBuffers = {&imgFillCmdBuffInfo, 1}}, .signalSemaphores = imgFillSemaphoreInfo
 			};
-
-			static_cast<IQueue::SSubmitInfo>(intendedSubmit);
 			
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
@@ -252,8 +250,8 @@ private:
 
 			// TODO: this is for basic testing purposes, will be deleted ofc
 			std::string msg = std::string("Image nr ") + std::to_string(imageIdx) + " loaded. Resource idx: " + std::to_string(resourceIdx);
-			m_logger->log(msg);
 			std::this_thread::sleep_for(std::chrono::milliseconds(6969));
+			m_logger->log(msg);
 		}
 	}
 
