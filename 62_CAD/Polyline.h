@@ -8,7 +8,7 @@
 #include "curves.h"
 
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
-struct CPULineStyle
+struct LineStyleInfo
 {
 	static constexpr int32_t InvalidStipplePatternSize = -1;
 	static constexpr double InvalidShapeOffset = nbl::hlsl::numeric_limits<double>::infinity;
@@ -208,7 +208,7 @@ struct CPULineStyle
 
 	float calculateStretchValue(float64_t arcLen) const
 	{
-		float ret = 1.0f + CPULineStyle::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
+		float ret = 1.0f + LineStyleInfo::PatternEpsilon; // we stretch a little but more, this is to avoid clipped sdf numerical precision errors at the end of the line when we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
 		if (stretchToFit)
 		{
 			const bool singleRigidSegment = rigidShapeSegment() && isSingleSegment(); // we shouldn't apply any stretching if we only have one rigid stipple segment(either all draw or all gap(invisible)
@@ -238,12 +238,12 @@ struct CPULineStyle
 				else
 				{
 					// here we calculate the stretch value so that the pattern ends when the line/curve ends.
-					// below `+ CPULineStyle::PhaseShiftEpsilon`, stretches the value a little more  behaves as if arcLen is += epsilon * patternLen.
+					// below `+ LineStyleInfo::PhaseShiftEpsilon`, stretches the value a little more  behaves as if arcLen is += epsilon * patternLen.
 					// because we need it to be consistent (last pixels in a line or curve need to be in draw section or gap if end of pattern is in draw section or gap respectively)
 					// example: when we need to fit a pattern onto a curve, and the pattern ends at a non-draw section
 					//		the erros in the computations using phaseShift and stretch could incorrectly flag the last pixels of the curve to be in the pattern's next draw section but we needed it to end on a non draw section
 					//		when stretching a little more it will ensure the clipping does it's job so that we don't get dots at the end of the line.
-					ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + CPULineStyle::PatternEpsilon) / nSegments);
+					ret = static_cast<float>((arcLen * reciprocalStipplePatternLen + LineStyleInfo::PatternEpsilon) / nSegments);
 				}
 			}
 		}
@@ -326,12 +326,6 @@ struct CPULineStyle
 
 	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
 };
-
-static_assert(sizeof(DrawObject) == 16u);
-static_assert(sizeof(MainObject) == 8u);
-static_assert(sizeof(Globals) == 128u);
-static_assert(sizeof(LineStyle) == 96u);
-static_assert(sizeof(ClipProjectionData) == 88u);
 
 class CPolylineBase
 {
@@ -495,7 +489,7 @@ public:
 
 	typedef std::function<void(const float64_t2& /*position*/, const float64_t2& /*direction*/, float32_t /*stretch*/)> AddShapeFunc;
 
-	void preprocessPolylineWithStyle(const CPULineStyle& lineStyle, const AddShapeFunc& addShape = {})
+	void preprocessPolylineWithStyle(const LineStyleInfo& lineStyle, const AddShapeFunc& addShape = {})
 	{
 		//if (!lineStyle.isVisible())
 		//	return;
@@ -981,7 +975,7 @@ public:
 	// Manual CPU Styling: breaks the current polyline into more polylines based the stipple pattern
 	// we could output a list/vector of polylines instead of using lambda but most of the time we need to work with the output and throw it away immediately.
 	typedef std::function<void(const CPolyline& /*current stipple*/)> OutputPolylineFunc; 
-	void stippleBreakDown(const CPULineStyle& lineStyle, const OutputPolylineFunc& addPolyline) const
+	void stippleBreakDown(const LineStyleInfo& lineStyle, const OutputPolylineFunc& addPolyline) const
 	{
 		if (!lineStyle.isVisible())
 			return;
@@ -1640,7 +1634,7 @@ private:
 			connectorNormalInfos.push_back(connectorNormalInfoAtP2);
 		}
 
-		std::vector<PolylineConnector> buildConnectors(const CPULineStyle& lineStyle, bool isClosedPolygon)
+		std::vector<PolylineConnector> buildConnectors(const LineStyleInfo& lineStyle, bool isClosedPolygon)
 		{
 			std::vector<PolylineConnector> connectors;
 
@@ -1701,7 +1695,7 @@ private:
 			}
 		}
 
-		bool checkIfInDrawSection(const CPULineStyle& lineStyle, float normalizedPlaceInPattern)
+		bool checkIfInDrawSection(const LineStyleInfo& lineStyle, float normalizedPlaceInPattern)
 		{
 			const uint32_t patternIdx = lineStyle.getPatternIdxFromNormalizedPosition(normalizedPlaceInPattern);
 			// odd patternIdx means a "no draw section" and current candidate should split into two nearest draw sections
@@ -1709,7 +1703,7 @@ private:
 		}
 
 		void constructMiterIfVisible(
-			const CPULineStyle& lineStyle,
+			const LineStyleInfo& lineStyle,
 			const PolylineConnectorNormalHelperInfo& prevLine,
 			const PolylineConnectorNormalHelperInfo& nextLine,
 			bool isMiterClosingPolyline,

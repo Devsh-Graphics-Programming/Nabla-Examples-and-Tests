@@ -378,60 +378,78 @@ float4 main(PSInput input) : SV_TARGET
     float localAlpha = 0.0f;
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
 
-    if (objType == ObjectType::LINE)
+    // figure out local alpha with sdf
+    if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
-        const float2 start = input.getLineStart();
-        const float2 end = input.getLineEnd();
-        const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
-        const float thickness = input.getLineThickness();
-        const float phaseShift = input.getCurrentPhaseShift();
-        const float stretch = input.getPatternStretch();
-        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
-
-        nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
-        nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
-
-        LineStyle style = lineStyles[styleIdx];
-        
-        float distance;
-        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+        if (objType == ObjectType::LINE)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
+            const float2 start = input.getLineStart();
+            const float2 end = input.getLineEnd();
+            const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+            const float thickness = input.getLineThickness();
+            const float phaseShift = input.getCurrentPhaseShift();
+            const float stretch = input.getPatternStretch();
+            const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
+
+            nbl::hlsl::shapes::Line<float> lineSegment = nbl::hlsl::shapes::Line<float>::construct(start, end);
+            nbl::hlsl::shapes::Line<float>::ArcLengthCalculator arcLenCalc = nbl::hlsl::shapes::Line<float>::ArcLengthCalculator::construct(lineSegment);
+
+            LineStyle style = lineStyles[styleIdx];
+
+            float distance;
+            if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+            {
+                distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
+            }
+            else
+            {
+                LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+            }
+
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
-        else
+        else if (objType == ObjectType::QUAD_BEZIER)
         {
-            LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+            nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
+            nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
+
+            const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
+            const float thickness = input.getLineThickness();
+            const float phaseShift = input.getCurrentPhaseShift();
+            const float stretch = input.getPatternStretch();
+            const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
+
+            LineStyle style = lineStyles[styleIdx];
+            float distance;
+            if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+            {
+                distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
+            }
+            else
+            {
+                BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
+                distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
+            }
+
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
-
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
-    }
-    else if (objType == ObjectType::QUAD_BEZIER)
-    {
-        nbl::hlsl::shapes::Quadratic<float> quadratic = input.getQuadratic();
-        nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator arcLenCalc = input.getQuadraticArcLengthCalculator();
-
-        const uint32_t styleIdx = mainObjects[currentMainObjectIdx].styleIdx;
-        const float thickness = input.getLineThickness();
-        const float phaseShift = input.getCurrentPhaseShift();
-        const float stretch = input.getPatternStretch();
-        const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
-
-        LineStyle style = lineStyles[styleIdx];
-        float distance;
-        if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
+        else if (objType == ObjectType::POLYLINE_CONNECTOR)
         {
-            distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
-        }
-        else
-        {
-            BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
-            distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
-        }
+            const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
+            const float distance = miterSDF(
+                P,
+                input.getLineThickness(),
+                input.getPolylineConnectorTrapezoidStart(),
+                input.getPolylineConnectorTrapezoidEnd(),
+                input.getPolylineConnectorTrapezoidLongBase(),
+                input.getPolylineConnectorTrapezoidShortBase());
 
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+            const float antiAliasingFactor = globals.antiAliasingFactor;
+            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
+        }
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
@@ -540,20 +558,6 @@ float4 main(PSInput input) : SV_TARGET
             const float dist = sqrt(closestDistanceSquared);
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
         }
-    }
-    else if (objType == ObjectType::POLYLINE_CONNECTOR)
-    {
-        const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-        const float distance = miterSDF(
-            P,
-            input.getLineThickness(),
-            input.getPolylineConnectorTrapezoidStart(),
-            input.getPolylineConnectorTrapezoidEnd(),
-            input.getPolylineConnectorTrapezoidLongBase(),
-            input.getPolylineConnectorTrapezoidShortBase());
-
-        const float antiAliasingFactor = globals.antiAliasingFactor;
-        localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
     }
 
     uint2 fragCoord = uint2(input.position.xy);

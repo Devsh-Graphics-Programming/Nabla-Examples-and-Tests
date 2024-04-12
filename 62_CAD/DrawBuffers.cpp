@@ -96,69 +96,49 @@ void DrawBuffersFiller::allocateGeometryBuffer(ILogicalDevice* logicalDevice, si
 	cpuDrawBuffers.geometryBuffer = make_smart_refctd_ptr<ICPUBuffer>(size);
 }
 
-void DrawBuffersFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t stylesCount)
+void DrawBuffersFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount)
 {
-	maxLineStyles = stylesCount;
-	size_t lineStylesBufferSize = stylesCount * sizeof(LineStyle);
+	{
+		maxLineStyles = lineStylesCount;
+		size_t lineStylesBufferSize = lineStylesCount * sizeof(LineStyle);
 
-	IGPUBuffer::SCreationParams lineStylesCreationParams = {};
-	lineStylesCreationParams.size = lineStylesBufferSize;
-	lineStylesCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	gpuDrawBuffers.lineStylesBuffer = logicalDevice->createBuffer(std::move(lineStylesCreationParams));
-	gpuDrawBuffers.lineStylesBuffer->setObjectDebugName("lineStylesBuffer");
+		IGPUBuffer::SCreationParams lineStylesCreationParams = {};
+		lineStylesCreationParams.size = lineStylesBufferSize;
+		lineStylesCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
+		gpuDrawBuffers.lineStylesBuffer = logicalDevice->createBuffer(std::move(lineStylesCreationParams));
+		gpuDrawBuffers.lineStylesBuffer->setObjectDebugName("lineStylesBuffer");
 
-	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.lineStylesBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
+		IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.lineStylesBuffer->getMemoryReqs();
+		memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+		auto stylesBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.lineStylesBuffer.get());
 
-	cpuDrawBuffers.lineStylesBuffer = make_smart_refctd_ptr<ICPUBuffer>(lineStylesBufferSize);
-}
-
-void DrawBuffersFiller::allocateCustomClipProjectionBuffer(ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount)
-{
-	maxClipProjectionData = ClipProjectionDataCount;
-	size_t customClipProjectionBufferSize = maxClipProjectionData * sizeof(ClipProjectionData);
-
-	IGPUBuffer::SCreationParams customClipProjectionCreationParams = {};
-	customClipProjectionCreationParams.size = customClipProjectionBufferSize;
-	customClipProjectionCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-	gpuDrawBuffers.customClipProjectionBuffer = logicalDevice->createBuffer(std::move(customClipProjectionCreationParams));
-	gpuDrawBuffers.customClipProjectionBuffer->setObjectDebugName("customClipProjectionBuffer");
-
-	IDeviceMemoryBacked::SDeviceMemoryRequirements memReq = gpuDrawBuffers.customClipProjectionBuffer->getMemoryReqs();
-	memReq.memoryTypeBits &= logicalDevice->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-	auto customClipProjectionBufferMem = logicalDevice->allocate(memReq, gpuDrawBuffers.customClipProjectionBuffer.get());
-
-	cpuDrawBuffers.customClipProjectionBuffer = make_smart_refctd_ptr<ICPUBuffer>(customClipProjectionBufferSize);
+		cpuDrawBuffers.lineStylesBuffer = make_smart_refctd_ptr<ICPUBuffer>(lineStylesBufferSize);
+	}
 }
 
 //! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 
-void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const CPULineStyle& cpuLineStyle, const uint32_t clipProjectionIdx, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (!cpuLineStyle.isVisible())
+	if (!lineStyleInfo.isVisible())
 		return;
 
-	uint32_t styleIdx;
-	addLineStyle_SubmitIfNeeded(cpuLineStyle, styleIdx, intendedNextSubmit);
+	uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyleInfo, intendedNextSubmit);
 
-	MainObject mainObj = {};
-	mainObj.styleIdx = styleIdx;
-	mainObj.clipProjectionIdx = clipProjectionIdx;
-	uint32_t mainObjIdx;
-	addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, intendedNextSubmit);
+	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
 
 	drawPolyline(polyline, mainObjIdx, intendedNextSubmit);
 }
 
-void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (polylineMainObjIdx == InvalidMainObjectIdx)
 	{
 		// TODO: assert or log error here
+		assert(false);
 		return;
 	}
-
+	
 	const auto sectionsCount = polyline.getSectionsCount();
 
 	uint32_t currentSectionIdx = 0u;
@@ -166,7 +146,6 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32
 
 	while (currentSectionIdx < sectionsCount)
 	{
-		bool shouldSubmit = false;
 		const auto& currentSection = polyline.getSectionInfoAt(currentSectionIdx);
 		addPolylineObjects_Internal(polyline, currentSection, currentObjectInSection, polylineMainObjIdx);
 
@@ -176,79 +155,61 @@ void DrawBuffersFiller::drawPolyline(const CPolylineBase& polyline, const uint32
 			currentObjectInSection = 0u;
 		}
 		else
-			shouldSubmit = true;
-
-		if (shouldSubmit)
-		{
-			finalizeAllCopiesToGPU(intendedNextSubmit);
-			submitDraws(intendedNextSubmit);
-			resetGeometryCounters();
-			// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
-			shouldSubmit = false;
-		}
+			submitCurrentObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
 	}
 
 	if (!polyline.getConnectors().empty())
 	{
 		uint32_t currentConnectorPolylineObject = 0u;
-		while (true)
+		while (currentConnectorPolylineObject < polyline.getConnectors().size())
 		{
 			addPolylineConnectors_Internal(polyline, currentConnectorPolylineObject, polylineMainObjIdx);
 
-			if (currentConnectorPolylineObject >= polyline.getConnectors().size())
-			{
-				break;
-			}
-			else
-			{
-				finalizeAllCopiesToGPU(intendedNextSubmit);
-				submitDraws(intendedNextSubmit);
-				resetGeometryCounters();
-				// We don't reset counters for linestyles, mainObjects and customClipProjection because we will be reusing them
-			}
+			if (currentConnectorPolylineObject < polyline.getConnectors().size())
+				submitCurrentObjectsAndReset(intendedNextSubmit, polylineMainObjIdx);
 		}
 	}
 }
 
-// If we had infinite mem, we would first upload all curves into geometry buffer then upload the "CurveBoxes" with correct gpu addresses to those
-// But we don't have that so we have to follow a similar auto submission as the "drawPolyline" function with some mutations:
-// We have to find the MAX number of "CurveBoxes" we could draw, and since both the "Curves" and "CurveBoxes" reside in geometry buffer,
-// it has to be taken into account when calculating "how many curve boxes we could draw and when we need to submit/clear"
-// So same as drawPolylines, we would first try to fill the geometry buffer and index buffer that corresponds to "backfaces or even provoking vertices"
-// then change index buffer to draw front faces of the curveBoxes that already reside in geometry buffer memory
-// then if anything was left (the ones that weren't in memory for front face of the curveBoxes) we copy their geom to mem again and use frontface/oddProvoking vertex
-
-void DrawBuffersFiller::drawHatch(const Hatch& hatch, const float32_t4 color, const uint32_t clipProjectionIdx, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::drawHatch(
+		const Hatch& hatch,
+		const float32_t4& foregroundColor, 
+		const float32_t4& backgroundColor,
+		/* something that gets you the texture id */
+		SIntendedSubmitInfo& intendedNextSubmit)
 {
-	CPULineStyle lineStyle;
+	drawHatch(hatch, backgroundColor /* , invalid texture id to get solid fill */, intendedNextSubmit);
+	// drawHatch(hatch, foregroundColor, /* valid texture id to get foreground pattern msdf fill */, intendedNextSubmit);
+}
+
+void DrawBuffersFiller::drawHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		/* something that gets you the texture id */
+		SIntendedSubmitInfo& intendedNextSubmit)
+{
+	uint32_t textureIdx = InvalidTextureIdx; // TODO
+	// TODO: figure out a good way to alias every style into a single structured buffer 
+	// because mainObj fragInterlock color lookup is going to be much easier not caring about where to get the color info from.
+	// as of now resolve uses the mainObject.styleIdx to index into lineStyles structured buffer
+	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
-	lineStyle.stipplePatternSize = 0u;
+	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
 
-	uint32_t styleIdx;
-	addLineStyle_SubmitIfNeeded(lineStyle, styleIdx, intendedNextSubmit);
+	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
-	MainObject mainObj = {};
-	mainObj.styleIdx = styleIdx;
-	mainObj.clipProjectionIdx = clipProjectionIdx;
-	uint32_t mainObjIdx;
-	addMainObject_SubmitIfNeeded(mainObj, mainObjIdx, intendedNextSubmit);
+	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+	MainObject mainObjCached = *getMainObject(mainObjIdx);
 
 	const auto sectionsCount = 1;
 
 	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
 
-	while (true)
+	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
-		bool shouldSubmit = false;
 		addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
-
-		const auto sectionObjectCount = hatch.getHatchBoxCount();
-		if (currentObjectInSection >= sectionObjectCount)
-			break;
-
-		finalizeAllCopiesToGPU(intendedNextSubmit);
-		submitDraws(intendedNextSubmit);
-		resetGeometryCounters();
+		if (currentObjectInSection < hatch.getHatchBoxCount())
+			submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
 	}
 }
 
@@ -257,46 +218,56 @@ void DrawBuffersFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNext
 	finalizeMainObjectCopiesToGPU(intendedNextSubmit);
 	finalizeGeometryCopiesToGPU(intendedNextSubmit);
 	finalizeLineStyleCopiesToGPU(intendedNextSubmit);
-	finalizeCustomClipProjectionCopiesToGPU(intendedNextSubmit);
 }
 
-void DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const CPULineStyle& lineStyle, uint32_t& outLineStyleIdx, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawBuffersFiller::addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	outLineStyleIdx = addLineStyle_Internal(lineStyle);
-	if (outLineStyleIdx == InvalidLineStyleIdx)
+	uint32_t outLineStyleIdx = addLineStyle_Internal(lineStyle);
+	if (outLineStyleIdx == InvalidStyleIdx)
 	{
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		resetAllCounters();
+		resetGeometryCounters();
+		resetMainObjectCounters();
+		resetLineStyleCounters();
 		outLineStyleIdx = addLineStyle_Internal(lineStyle);
-		assert(outLineStyleIdx != InvalidLineStyleIdx);
+		assert(outLineStyleIdx != InvalidStyleIdx);
 	}
+	return outLineStyleIdx;
 }
 
-void DrawBuffersFiller::addMainObject_SubmitIfNeeded(const MainObject& mainObject, uint32_t& outMainObjectIdx, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawBuffersFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	outMainObjectIdx = addMainObject_Internal(mainObject);
+	MainObject mainObject = {};
+	mainObject.styleIdx = styleIdx;
+	mainObject.clipProjectionAddress = getCurrentClipProjectionAddress(intendedNextSubmit);
+	uint32_t outMainObjectIdx = addMainObject_Internal(mainObject);
 	if (outMainObjectIdx == InvalidMainObjectIdx)
 	{
 		finalizeAllCopiesToGPU(intendedNextSubmit);
 		submitDraws(intendedNextSubmit);
-		resetAllCounters();
+
+		// geometries needs to be reset because they reference draw objects and draw objects reference main objects that are now unavailable and reset
+		resetGeometryCounters();
+		// mainObjects needs to be reset because we submitted every previous main object
+		resetMainObjectCounters();
+		// getCurrentClipProjectionAddress again here because clip projection exists in the geometry buffer, and reseting geometry counters will invalidate the current clip proj and requires repush
+		mainObject.clipProjectionAddress = getCurrentClipProjectionAddress(intendedNextSubmit);
 		outMainObjectIdx = addMainObject_Internal(mainObject);
 		assert(outMainObjectIdx != InvalidMainObjectIdx);
 	}
+	
+	return outMainObjectIdx;
 }
 
-void DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, uint32_t& outClipProjectionIdx, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::pushClipProjectionData(const ClipProjectionData& clipProjectionData)
 {
-	outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
-	if (outClipProjectionIdx == InvalidClipProjectionIdx)
-	{
-		finalizeAllCopiesToGPU(intendedNextSubmit);
-		submitDraws(intendedNextSubmit);
-		resetAllCounters();
-		outClipProjectionIdx = addClipProjectionData_Internal(clipProjectionData);
-		assert(outClipProjectionIdx != InvalidClipProjectionIdx);
-	}
+	clipProjectionStack.push(clipProjectionData);
+}
+
+void DrawBuffersFiller::popClipProjectionData()
+{
+	clipProjectionStack.pop();
 }
 
 void DrawBuffersFiller::finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -340,33 +311,42 @@ void DrawBuffersFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intend
 	inMemLineStylesCount = currentLineStylesCount;
 }
 
-void DrawBuffersFiller::finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
+void DrawBuffersFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)
 {
-	// Copy LineStyles
-	uint32_t remainingClipProjectionData = currentClipProjectionDataCount - inMemClipProjectionDataCount;
-	SBufferRange<IGPUBuffer> clipProjectionRange = { sizeof(ClipProjectionData) * inMemClipProjectionDataCount, sizeof(ClipProjectionData) * remainingClipProjectionData, gpuDrawBuffers.customClipProjectionBuffer };
-	const ClipProjectionData* srcClipProjectionData = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer()) + inMemClipProjectionDataCount;
-	if (clipProjectionRange.size > 0u)
-		m_utilities->updateBufferRangeViaStagingBuffer(intendedNextSubmit, clipProjectionRange, srcClipProjectionData);
-	inMemClipProjectionDataCount = currentClipProjectionDataCount;
+	finalizeAllCopiesToGPU(intendedNextSubmit);
+	submitDraws(intendedNextSubmit);
+
+	// We reset Geometry Counters (drawObj+geometryInfos) because we're done rendering previous geometry
+	// We don't reset counters for styles because we will be reusing them
+	resetGeometryCounters();
+
+	uint32_t newClipProjectionAddress = getCurrentClipProjectionAddress(intendedNextSubmit);
+	// If there clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data)
+	if (newClipProjectionAddress != InvalidClipProjectionAddress)
+	{
+		// then modify the mainObject data
+		getMainObject(mainObjectIndex)->clipProjectionAddress = newClipProjectionAddress;
+		// we need to modify inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
+		inMemMainObjectCount = min(inMemMainObjectCount, mainObjectIndex);
+	}
 }
 
 uint32_t DrawBuffersFiller::addMainObject_Internal(const MainObject& mainObject)
 {
 	MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
-	if (currentMainObjectCount >= maxMainObjects)
+	if (currentMainObjectCount >= MaxIndexableMainObjects)
 		return InvalidMainObjectIdx;
 
 	void* dst = mainObjsArray + currentMainObjectCount;
 	memcpy(dst, &mainObject, sizeof(MainObject));
-	uint32_t ret = (currentMainObjectCount % MaxIndexableMainObjects); // just to wrap around if it ever exceeded (we pack this id into 24 bits)
+	uint32_t ret = currentMainObjectCount;
 	currentMainObjectCount++;
 	return ret;
 }
 
-uint32_t DrawBuffersFiller::addLineStyle_Internal(const CPULineStyle& cpuLineStyle)
+uint32_t DrawBuffersFiller::addLineStyle_Internal(const LineStyleInfo& lineStyleInfo)
 {
-	LineStyle gpuLineStyle = cpuLineStyle.getAsGPUData();
+	LineStyle gpuLineStyle = lineStyleInfo.getAsGPUData();
 	_NBL_DEBUG_BREAK_IF(gpuLineStyle.stipplePatternSize > LineStyle::StipplePatternMaxSize); // Oops, even after style normalization the style is too long to be in gpu mem :(
 	LineStyle* stylesArray = reinterpret_cast<LineStyle*>(cpuDrawBuffers.lineStylesBuffer->getPointer());
 	for (uint32_t i = 0u; i < currentLineStylesCount; ++i)
@@ -378,22 +358,49 @@ uint32_t DrawBuffersFiller::addLineStyle_Internal(const CPULineStyle& cpuLineSty
 	}
 
 	if (currentLineStylesCount >= maxLineStyles)
-		return InvalidLineStyleIdx;
+		return InvalidStyleIdx;
 
 	void* dst = stylesArray + currentLineStylesCount;
 	memcpy(dst, &gpuLineStyle, sizeof(LineStyle));
 	return currentLineStylesCount++;
 }
 
-uint32_t DrawBuffersFiller::addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
+inline uint64_t DrawBuffersFiller::getCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	ClipProjectionData* clipProjectionArray = reinterpret_cast<ClipProjectionData*>(cpuDrawBuffers.customClipProjectionBuffer->getPointer());
-	if (currentClipProjectionDataCount >= maxClipProjectionData)
-		return InvalidClipProjectionIdx;
+	if (clipProjectionStackTopAddressInGPU == InvalidClipProjectionAddress && !clipProjectionStack.empty())
+		clipProjectionStackTopAddressInGPU = addClipProjectionData_SubmitIfNeeded(clipProjectionStack.top(), intendedNextSubmit);
+	return clipProjectionStackTopAddressInGPU;
+}
 
-	void* dst = clipProjectionArray + currentClipProjectionDataCount;
+uint64_t DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	uint64_t outClipProjectionAddress = addClipProjectionData_Internal(clipProjectionData);
+	if (outClipProjectionAddress == InvalidClipProjectionAddress)
+	{
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+
+		resetGeometryCounters();
+		resetMainObjectCounters();
+
+		outClipProjectionAddress = addClipProjectionData_Internal(clipProjectionData);
+		assert(outClipProjectionAddress != InvalidClipProjectionAddress);
+	}
+	return outClipProjectionAddress;
+}
+
+uint64_t DrawBuffersFiller::addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData)
+{
+	const uint64_t maxGeometryBufferClipProjData = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ClipProjectionData);
+	if (maxGeometryBufferClipProjData <= 0)
+		return InvalidClipProjectionAddress;
+	
+	void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
 	memcpy(dst, &clipProjectionData, sizeof(ClipProjectionData));
-	return currentClipProjectionDataCount++;
+
+	const uint64_t ret = currentGeometryBufferSize + geometryBufferAddress;
+	currentGeometryBufferSize += sizeof(ClipProjectionData);
+	return ret;
 }
 
 void DrawBuffersFiller::addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx)

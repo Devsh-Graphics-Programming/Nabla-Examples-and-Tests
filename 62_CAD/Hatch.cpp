@@ -320,7 +320,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	return result;
 }
 
-Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, CPULineStyle)> debugOutput /* tmp */)
+Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, LineStyleInfo)> debugOutput /* tmp */)
 {
 	intersectionAmounts = std::vector<uint32_t>();
 	// this threshsold is used to decide when to consider minor position to be 
@@ -350,12 +350,12 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& deb
 		beziers.push_back(tmpBezier);
 		outputPolyline.addQuadBeziers(beziers);
 
-		CPULineStyle cpuLineStyle;
-		cpuLineStyle.screenSpaceLineWidth = 4.0f;
-		cpuLineStyle.worldSpaceLineWidth = 0.0f;
-		cpuLineStyle.color = color;
+		LineStyleInfo lineStyleInfo;
+		lineStyleInfo.screenSpaceLineWidth = 4.0f;
+		lineStyleInfo.worldSpaceLineWidth = 0.0f;
+		lineStyleInfo.color = color;
 
-		debugOutput(outputPolyline, cpuLineStyle);
+		debugOutput(outputPolyline, lineStyleInfo);
 	};
 
 	auto drawDebugLine = [&](float64_t2 start, float64_t2 end, float32_t4 color)
@@ -366,12 +366,12 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& deb
 		points.push_back(end);
 		outputPolyline.addLinePoints(points);
 		
-		CPULineStyle cpuLineStyle;
-		cpuLineStyle.screenSpaceLineWidth = 2.0f;
-		cpuLineStyle.worldSpaceLineWidth = 0.0f;
-		cpuLineStyle.color = color;
+		LineStyleInfo lineStyleInfo;
+		lineStyleInfo.screenSpaceLineWidth = 2.0f;
+		lineStyleInfo.worldSpaceLineWidth = 0.0f;
+		lineStyleInfo.color = color;
 		
-		debugOutput(outputPolyline, cpuLineStyle);
+		debugOutput(outputPolyline, lineStyleInfo);
 	};
 #endif
 

@@ -7,6 +7,12 @@ using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
 
+static_assert(sizeof(DrawObject) == 16u);
+static_assert(sizeof(MainObject) == 16u);
+static_assert(sizeof(Globals) == 128u);
+static_assert(sizeof(LineStyle) == 96u);
+static_assert(sizeof(ClipProjectionData) == 88u);
+
 template <typename BufferType>
 struct DrawBuffers
 {
@@ -15,7 +21,6 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> drawObjectsBuffer;
 	smart_refctd_ptr<BufferType> geometryBuffer;
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
-	smart_refctd_ptr<BufferType> customClipProjectionBuffer;
 };
 
 // ! this is just a buffers filler with autosubmission features used for convenience to how you feed our CAD renderer
@@ -42,34 +47,34 @@ public:
 
 	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
 
-	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t stylesCount);
+	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 
 	void allocateCustomClipProjectionBuffer(ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
-	void drawPolyline(
-		const CPolylineBase& polyline,
-		const CPULineStyle& cpuLineStyle,
-		const uint32_t clipProjectionIdx,
-		SIntendedSubmitInfo& intendedNextSubmit);
+	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
-	void drawPolyline(
-		const CPolylineBase& polyline,
-		const uint32_t polylineMainObjIdx,
+	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// !drawSolid
+	void drawHatch(
+		const Hatch& hatch,
+		const float32_t4& foregroundColor, 
+		const float32_t4& backgroundColor,
+		/* something that gets you the texture id */
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	void drawHatch(
 		const Hatch& hatch,
-		// If more parameters from cpu line style are used here later, make a new HatchStyle & use that
-		const float32_t4 color,
-		const uint32_t clipProjectionIdx,
+		const float32_t4& color,
+		/* something that gets you the texture id */
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
 
-	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; }
+	inline uint32_t getDrawObjectCount() const { return currentDrawObjectCount; } 
 
 	inline uint32_t getMainObjectCount() const { return currentMainObjectCount; }
 
@@ -93,52 +98,52 @@ public:
 		return sizeof(LineStyle) * currentLineStylesCount;
 	}
 
-	inline size_t getCurrentCustomClipProjectionBufferSize() const
-	{
-		return sizeof(ClipProjectionData) * currentClipProjectionDataCount;
-	}
-
 	void reset()
 	{
-		resetAllCounters();
+		resetGeometryCounters();
+		resetMainObjectCounters();
+		resetLineStyleCounters();
 	}
 
 	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
 
-	void addLineStyle_SubmitIfNeeded(
-		const CPULineStyle& lineStyle,
-		uint32_t& outLineStyleIdx,
-		SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addLineStyle_SubmitIfNeeded(const LineStyleInfo& lineStyle, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	uint32_t addMainObject_SubmitIfNeeded(uint32_t styleIdx, SIntendedSubmitInfo& intendedNextSubmit);
 
-	void addMainObject_SubmitIfNeeded(
-		const MainObject& mainObject,
-		uint32_t& outMainObjectIdx,
-		SIntendedSubmitInfo& intendedNextSubmit);
-
-	void addClipProjectionData_SubmitIfNeeded(
-		const ClipProjectionData& clipProjectionData,
-		uint32_t& outClipProjectionIdx,
-		SIntendedSubmitInfo& intendedNextSubmit);
+	// we need to store the clip projection stack to make sure the front is always available in memory
+	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
+	void popClipProjectionData();
 
 protected:
 
 	SubmitFunc submitDraws;
-	static constexpr uint32_t InvalidLineStyleIdx = ~0u;
+	static constexpr uint32_t InvalidStyleIdx = ~0u;
 
 	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	void finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
-
+	
 	void finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// A hatch and a polyline are considered a "Main Object" which consists of smaller geometries such as beziers, lines, connectors, hatchBoxes
+	// If the whole polyline can't fit into memory for draw, then we submit the render of smaller geometries midway and continue
+	void submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
 
 	uint32_t addMainObject_Internal(const MainObject& mainObject);
 
-	uint32_t addLineStyle_Internal(const CPULineStyle& cpuLineStyle);
+	uint32_t addLineStyle_Internal(const LineStyleInfo& lineStyleInfo);
 
-	uint32_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData);
+	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
+	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
+	uint64_t getCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
+	
+	uint64_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint64_t addClipProjectionData_Internal(const ClipProjectionData& clipProjectionData);
 
 	static constexpr uint32_t getCageCountPerPolylineObject(ObjectType type)
 	{
@@ -151,25 +156,13 @@ protected:
 
 	void addPolylineObjects_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
-	// TODO[Prezmek]: another function named addPolylineConnectors_Internal and you pass a Range<PolylineConnectorInfo>, uint32_t currentPolylineConnectorObj, uint32_t mainObjIdx
-	// And implement it similar to addLines/QuadBeziers_Internal which is check how much memory is left and how many PolylineConnectors you can fit into the current geometry and drawobj memory left and return to the drawPolylinefunction
 	void addPolylineConnectors_Internal(const CPolylineBase& polyline, uint32_t& currentPolylineConnectorObj, uint32_t mainObjIdx);
 
-	// TODO[Przemek]: this function will change a little as you'll be copying LinePointInfos instead of double2's
-	// Make sure to test with small memory to trigger submitInBetween function when you run out of memory to see if your changes here didn't mess things up, ask Lucas for help if you're not sure on how to do this
 	void addLines_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
 	void addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
-
-	void resetAllCounters()
-	{
-		resetMainObjectCounters();
-		resetGeometryCounters();
-		resetStyleCounters();
-		resetCustomClipProjectionCounters();
-	}
 
 	void resetMainObjectCounters()
 	{
@@ -184,18 +177,20 @@ protected:
 
 		inMemGeometryBufferSize = 0u;
 		currentGeometryBufferSize = 0u;
+
+		clipProjectionStackTopAddressInGPU = InvalidClipProjectionAddress;
 	}
 
-	void resetStyleCounters()
+	void resetLineStyleCounters()
 	{
 		currentLineStylesCount = 0u;
 		inMemLineStylesCount = 0u;
 	}
 
-	void resetCustomClipProjectionCounters()
+	MainObject* getMainObject(uint32_t idx)
 	{
-		currentClipProjectionDataCount = 0u;
-		inMemClipProjectionDataCount = 0u;
+		MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
+		return &mainObjsArray[idx];
 	}
 
 	smart_refctd_ptr<IUtilities> m_utilities;
@@ -219,9 +214,8 @@ protected:
 	uint32_t currentLineStylesCount = 0u;
 	uint32_t maxLineStyles = 0u;
 
-	uint32_t inMemClipProjectionDataCount = 0u;
-	uint32_t currentClipProjectionDataCount = 0u;
-	uint32_t maxClipProjectionData = 0u;
-
 	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
+
+	std::stack<ClipProjectionData> clipProjectionStack;
+	uint64_t clipProjectionStackTopAddressInGPU = InvalidClipProjectionAddress;
 };
