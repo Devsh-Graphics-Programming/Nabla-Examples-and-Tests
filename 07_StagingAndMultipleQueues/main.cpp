@@ -250,7 +250,7 @@ private:
 
 			// TODO: this is for basic testing purposes, will be deleted ofc
 			std::string msg = std::string("Image nr ") + std::to_string(imageIdx) + " loaded. Resource idx: " + std::to_string(resourceIdx);
-			std::this_thread::sleep_for(std::chrono::milliseconds(6969));
+			//std::this_thread::sleep_for(std::chrono::milliseconds(6969));
 			m_logger->log(msg);
 		}
 	}
@@ -407,7 +407,7 @@ private:
 			params.image = images[imageToProcessId];
 			params.format = images[imageToProcessId]->getCreationParameters().format;
 			params.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			params.subresourceRange.layerCount = images[resourceIdx]->getCreationParameters().arrayLayers;
+			params.subresourceRange.layerCount = images[imageToProcessId]->getCreationParameters().arrayLayers;
 
 			imgInfo.desc = m_device->createImageView(std::move(params));
 			if (!imgInfo.desc)
@@ -471,6 +471,7 @@ private:
 		for (uint32_t imageHistogramIdx = 0; imageHistogramIdx < IMAGE_CNT; ++imageHistogramIdx)
 		{
 			waitForPreviousStep(m_imagesProcessedSemaphore.get(), imageHistogramIdx + 1);
+			images[imageHistogramIdx] = nullptr;
 
 			const uint32_t resourceIdx = imageHistogramIdx % FRAMES_IN_FLIGHT;
 			uint32_t* histogramBuff = m_histogramBufferMemPtrs[resourceIdx];
