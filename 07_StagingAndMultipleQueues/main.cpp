@@ -442,15 +442,14 @@ private:
 			IQueue::SSubmitInfo submitInfo[1];
 			IQueue::SSubmitInfo::SCommandBufferInfo cmdBuffSubmitInfo[] = { {cmdBuff.get()} };
 			IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphoreSubmitInfo[] = { {.semaphore = m_imagesProcessedSemaphore.get(), .value = imageToProcessId+1, .stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT } };
-			auto a = m_histogramSavedSemaphore->getCounterValue();
-			const uint64_t histogramSaveWaitSemaphoreValue = imageToProcessId >= FRAMES_IN_FLIGHT ? imageToProcessId + 1 - FRAMES_IN_FLIGHT : 0;
+			const uint64_t histogramSaveWaitSemaphoreValue = imageToProcessId + 1 - FRAMES_IN_FLIGHT;
 			IQueue::SSubmitInfo::SSemaphoreInfo waitSemaphoreSubmitInfo[] = { 
 				{.semaphore = m_imagesLoadedSemaphore.get(), .value = imageToProcessId + 1, .stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT},
 				{.semaphore = m_histogramSavedSemaphore.get(), .value = histogramSaveWaitSemaphoreValue, .stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}
 			};
 			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
 			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
-			submitInfo[0].waitSemaphores = waitSemaphoreSubmitInfo;
+			submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo, imageToProcessId < FRAMES_IN_FLIGHT ? 1u : 2u};
 			computeQueue->submit(submitInfo);
 			computeQueue->endCapture();
 			std::string msg = std::string("Image nr ") + std::to_string(imageToProcessId) + " processed. Resource idx: " + std::to_string(resourceIdx);
