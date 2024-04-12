@@ -49,8 +49,6 @@ public:
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 
-	void allocateCustomClipProjectionBuffer(ILogicalDevice* logicalDevice, uint32_t ClipProjectionDataCount);
-
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 

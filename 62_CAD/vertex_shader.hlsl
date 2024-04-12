@@ -30,6 +30,7 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
         ret.projectionToNDC = vk::RawBufferLoad<float64_t3x3>(mainObj.clipProjectionAddress, 8u);
         ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(float64_t3x3), 8u);
         ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(float64_t3x3) + sizeof(float32_t2), 8u);
+        return ret;
     }
     else
     {
@@ -136,9 +137,9 @@ PSInput main(uint vertexID : SV_VertexID)
             double2 points[3u];
             points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
             points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
-            points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u)
+            points[2u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2u, 8u);
 
-                const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u, 8u);
             const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
