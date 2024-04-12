@@ -137,7 +137,7 @@ protected:
 
 	// Gets the current clip projection data (the top of stack) gpu addreess inside the geometryBuffer
 	// If it's been invalidated then it will request to upload again with a possible auto-submit on low geometry buffer memory.
-	uint64_t getCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
+	uint64_t acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit);
 	
 	uint64_t addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -176,7 +176,9 @@ protected:
 		inMemGeometryBufferSize = 0u;
 		currentGeometryBufferSize = 0u;
 
-		clipProjectionStackTopAddressInGPU = InvalidClipProjectionAddress;
+		// Invalidate all the clip projection addresses because geometry buffer got reset
+		for (auto& clipProjAddr : clipProjectionAddresses)
+			clipProjAddr = InvalidClipProjectionAddress;
 	}
 
 	void resetLineStyleCounters()
@@ -214,6 +216,6 @@ protected:
 
 	uint64_t geometryBufferAddress = 0u; // Actual BDA offset 0 of the gpu buffer
 
-	std::stack<ClipProjectionData> clipProjectionStack;
-	uint64_t clipProjectionStackTopAddressInGPU = InvalidClipProjectionAddress;
+	std::stack<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
+	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
 };

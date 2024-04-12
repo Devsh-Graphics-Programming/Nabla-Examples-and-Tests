@@ -40,7 +40,7 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -250,17 +250,20 @@ public:
 	
 	void allocateResources(uint32_t maxObjects)
 	{
+
 		drawBuffer = DrawBuffersFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
 
+		// TODO: move individual allocations to DrawBuffersFiller::allocateResources(memory)
+		// Issue warning error, if we can't store our largest geomm struct + clip proj data inside geometry buffer along linestyle and mainObject 
 		uint32_t maxIndices = maxObjects * 6u * 2u;
 		drawBuffer.allocateIndexBuffer(m_device.get(), maxIndices);
 		drawBuffer.allocateMainObjectsBuffer(m_device.get(), maxObjects);
 		drawBuffer.allocateDrawObjectsBuffer(m_device.get(), maxObjects * 5u);
 		drawBuffer.allocateStylesBuffer(m_device.get(), 32u);
-		drawBuffer.allocateCustomClipProjectionBuffer(m_device.get(), 128u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3;
+		// + 128 ClipProjDaa
+		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawBuffer.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
 
 		{
@@ -495,13 +498,6 @@ public:
 					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
 					.count = 1u,
 				},
-				{
-					.binding = 4u,
-					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX,
-					.count = 1u,
-				},
 			};
 			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
 			if (!descriptorSetLayout0)
@@ -533,7 +529,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCount = 6u;
+				constexpr uint32_t DescriptorCount = 5u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfos[DescriptorCount] = {};
 
 				// Descriptors For Set 0:
@@ -544,25 +540,21 @@ public:
 				descriptorInfos[1u].info.buffer.offset = 0u;
 				descriptorInfos[1u].info.buffer.size = drawBuffer.gpuDrawBuffers.drawObjectsBuffer->getCreationParams().size;
 				descriptorInfos[1u].desc = drawBuffer.gpuDrawBuffers.drawObjectsBuffer;
-
+				
 				descriptorInfos[2u].info.buffer.offset = 0u;
-				descriptorInfos[2u].info.buffer.size = drawBuffer.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
-				descriptorInfos[2u].desc = drawBuffer.gpuDrawBuffers.lineStylesBuffer;
+				descriptorInfos[2u].info.buffer.size = drawBuffer.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
+				descriptorInfos[2u].desc = drawBuffer.gpuDrawBuffers.mainObjectsBuffer;
 
 				descriptorInfos[3u].info.buffer.offset = 0u;
-				descriptorInfos[3u].info.buffer.size = drawBuffer.gpuDrawBuffers.mainObjectsBuffer->getCreationParams().size;
-				descriptorInfos[3u].desc = drawBuffer.gpuDrawBuffers.mainObjectsBuffer;
+				descriptorInfos[3u].info.buffer.size = drawBuffer.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
+				descriptorInfos[3u].desc = drawBuffer.gpuDrawBuffers.lineStylesBuffer;
 
-				descriptorInfos[4u].info.buffer.offset = 0u;
-				descriptorInfos[4u].info.buffer.size = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer->getCreationParams().size;
-				descriptorInfos[4u].desc = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer;
-				
 				// Descriptors For Set 1:
-				descriptorInfos[5u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				descriptorInfos[5u].info.image.sampler = nullptr;
-				descriptorInfos[5u].desc = pseudoStencilImageView;
+				descriptorInfos[4u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+				descriptorInfos[4u].info.image.sampler = nullptr;
+				descriptorInfos[4u].desc = pseudoStencilImageView;
 
-				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[6u] = {};
+				video::IGPUDescriptorSet::SWriteDescriptorSet descriptorUpdates[5u] = {};
 				
 				// Set 0 Updates:
 				descriptorUpdates[0u].dstSet = descriptorSet0.get();
@@ -589,18 +581,12 @@ public:
 				descriptorUpdates[3u].count = 1u;
 				descriptorUpdates[3u].info = &descriptorInfos[3u];
 
-				descriptorUpdates[4u].dstSet = descriptorSet0.get();
-				descriptorUpdates[4u].binding = 4u;
+				// Set 1 Updates:
+				descriptorUpdates[4u].dstSet = descriptorSet1.get();
+				descriptorUpdates[4u].binding = 0u;
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfos[4u];
-
-				// Set 1 Updates:
-				descriptorUpdates[5u].dstSet = descriptorSet1.get();
-				descriptorUpdates[5u].binding = 0u;
-				descriptorUpdates[5u].arrayElement = 0u;
-				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfos[5u];
 
 
 				m_device->updateDescriptorSets(DescriptorCount, descriptorUpdates, 0u, nullptr);
@@ -1058,20 +1044,6 @@ public:
 					.buffer = drawBuffer.gpuDrawBuffers.lineStylesBuffer,
 				};
 			}
-			if (drawBuffer.getCurrentCustomClipProjectionBufferSize() > 0u)
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = drawBuffer.getCurrentCustomClipProjectionBufferSize(),
-					.buffer = drawBuffer.gpuDrawBuffers.customClipProjectionBuffer,
-				};
-			}
 			cb->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .bufBarriers = {bufferBarriers, bufferBarriersCount}, .imgBarriers = imageBarriers });
 		}
 
@@ -1209,7 +1181,7 @@ protected:
 
 		if constexpr (mode == ExampleMode::CASE_0)
 		{
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -1222,28 +1194,28 @@ protected:
 				polyline.addLinePoints(linePoints);
 			}
 
-			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_1)
 		{
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 0.8f;
 			style.color = float32_t4(0.619f, 0.325f, 0.709f, 0.2f);
 
-			CPULineStyle style2 = {};
+			LineStyleInfo style2 = {};
 			style2.screenSpaceLineWidth = 0.0f;
 			style2.worldSpaceLineWidth = 0.8f;
 			style2.color = float32_t4(0.119f, 0.825f, 0.709f, 0.5f);
 
-			// drawBuffer.drawPolyline(bigPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
-			// drawBuffer.drawPolyline(bigPolyline2, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			// drawBuffer.drawPolyline(bigPolyline, style, intendedNextSubmit);
+			// drawBuffer.drawPolyline(bigPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_2)
 		{
-			auto debug = [&](CPolyline polyline, CPULineStyle lineStyle)
+			auto debug = [&](CPolyline polyline, LineStyleInfo lineStyle)
 			{
-				drawBuffer.drawPolyline(polyline, lineStyle, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 			};
 			
 			int32_t hatchDebugStep = m_hatchDebugStep;
@@ -1253,11 +1225,11 @@ protected:
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
 				{
-					CPULineStyle lineStyle = {};
+					LineStyleInfo lineStyle = {};
 					lineStyle.screenSpaceLineWidth = 5.0;
 					lineStyle.color = float32_t4(float(i) / float(polylines.size()), 1.0 - (float(i) / float(polylines.size())), 0.0, 0.2);
 					// assert(polylines[i].checkSectionsContunuity());
-					//drawBuffer.drawPolyline(polylines[i], lineStyle, UseDefaultClipProjectionIdx, intendedNextSubmit);
+					//drawBuffer.drawPolyline(polylines[i], lineStyle, intendedNextSubmit);
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
@@ -1274,7 +1246,7 @@ protected:
 				//	"Intersection amounts: 10%%: {}, 25%%: {}, 50%%: {}, 75%%: {}, 90%%: {}, 100%% (max): {}\n",
 				//	percentile(0.1), percentile(0.25), percentile(0.5), percentile(0.75), percentile(0.9), hatch.intersectionAmounts[hatch.intersectionAmounts.size() - 1]
 				//).c_str());
-				drawBuffer.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -1318,7 +1290,7 @@ protected:
 				}
 
 				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
-				drawBuffer.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -1351,7 +1323,7 @@ protected:
 				circleThing(float64_t2(0, 500));
 
 				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
-				drawBuffer.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
 
 			if (hatchDebugStep > 0)
@@ -1505,7 +1477,7 @@ protected:
 					polylines.push_back(polyline);
 				}
 				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
-				drawBuffer.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
 			
 			if (hatchDebugStep > 0)
@@ -1544,7 +1516,7 @@ protected:
 				polyline.addQuadBeziers(beziers);
 
 				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
-				drawBuffer.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
 			
 			if (hatchDebugStep > 0)
@@ -1562,17 +1534,17 @@ protected:
 				polyline.addQuadBeziers(beziers);
 			
 				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
-				drawBuffer.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), intendedNextSubmit);
 			}
 		}
 		else if (mode == ExampleMode::CASE_3)
 		{
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
-			CPULineStyle style2 = {};
+			LineStyleInfo style2 = {};
 			style2.screenSpaceLineWidth = 2.0f;
 			style2.worldSpaceLineWidth = 0.0f;
 			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 1.0f);
@@ -1670,24 +1642,34 @@ protected:
 				}
 			}
 
-			drawBuffer.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(originalPolyline, style, intendedNextSubmit);
 			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
 			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			drawBuffer.drawPolyline(offsettedPolyline, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
-			drawBuffer.drawPolyline(offsettedPolyline2, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
+			drawBuffer.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
+			ClipProjectionData newClipProj = {};
+			newClipProj.projectionToNDC = m_Camera.constructViewProjection();
+			newClipProj.minClipNDC = float32_t2(0.0, -1.0);
+			newClipProj.maxClipNDC = float32_t2(+1.0, +1.0);
+			drawBuffer.pushClipProjectionData(newClipProj);
+			drawBuffer.pushClipProjectionData(newClipProj);
+			newClipProj.minClipNDC = float32_t2(-1.0, -1.0);
+			newClipProj.maxClipNDC = float32_t2(+1.0, +0.5);
+			drawBuffer.pushClipProjectionData(newClipProj);
+
 			constexpr uint32_t CURVE_CNT = 16u;
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
-			CPULineStyle cpuLineStyle = {};
-			cpuLineStyle.screenSpaceLineWidth = 7.0f;
-			cpuLineStyle.worldSpaceLineWidth = 0.0f;
-			cpuLineStyle.color = float32_t4(0.7f, 0.3f, 0.7f, 0.8f);
-			cpuLineStyle.isRoadStyleFlag = false;
+			LineStyleInfo lineStyleInfo = {};
+			lineStyleInfo.screenSpaceLineWidth = 7.0f;
+			lineStyleInfo.worldSpaceLineWidth = 0.0f;
+			lineStyleInfo.color = float32_t4(0.7f, 0.3f, 0.7f, 0.8f);
+			lineStyleInfo.isRoadStyleFlag = false;
 
-			std::vector<CPULineStyle> cpuLineStyles(CURVE_CNT, cpuLineStyle);
+			std::vector<LineStyleInfo> lineStyleInfos(CURVE_CNT, lineStyleInfo);
 			std::vector<CPolyline> polylines(CURVE_CNT);
 
 			{
@@ -1722,7 +1704,7 @@ protected:
 					quadratics[curveIdx].P0 = float64_t2(-100, lineY);
 					quadratics[curveIdx].P1 = float64_t2(0, lineY);
 					quadratics[curveIdx].P2 = float64_t2(100, lineY);
-					cpuLineStyles[curveIdx].color = float64_t4(0.7f, 0.3f, 0.1f, 0.5f);
+					lineStyleInfos[curveIdx].color = float64_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 					// special case 1 (line, not evenly spaced points)
 					lineY -= 10.0;
@@ -1751,7 +1733,7 @@ protected:
 					quadratics[curveIdx].P0 = float64_t2(0.0, 0.0);
 					quadratics[curveIdx].P1 = float64_t2(3.0, 4.14);
 					quadratics[curveIdx].P2 = float64_t2(6.0, 4.0);
-					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+					lineStyleInfos[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
 						// make sure A.x == 0
 					float64_t2 A = quadratics[curveIdx].P0 - 2.0 * quadratics[curveIdx].P1 + quadratics[curveIdx].P2;
@@ -1762,7 +1744,7 @@ protected:
 					quadratics[curveIdx].P0 = float64_t2(-150.0, 1.0);
 					quadratics[curveIdx].P1 = float64_t2(2000.0, 0.0);
 					quadratics[curveIdx].P2 = float64_t2(-150.0, -1.0);
-					cpuLineStyles[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
+					lineStyleInfos[curveIdx].color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 				}
 
 				std::array<core::vector<double>, CURVE_CNT> stipplePatterns;
@@ -1805,8 +1787,8 @@ protected:
 				std::vector<uint32_t> activIdx = { 10 };
 				for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				{
-					cpuLineStyles[i].setStipplePatternData(stipplePatterns[i]);
-					cpuLineStyles[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
+					lineStyleInfos[i].setStipplePatternData(stipplePatterns[i]);
+					lineStyleInfos[i].phaseShift += abs(cos(m_timeElapsed * 0.0003));
 					polylines[i].addQuadBeziers({ &quadratics[i], &quadratics[i] + 1u });
 
 					float64_t2 linePoints[2u] = {};
@@ -1816,14 +1798,16 @@ protected:
 
 					activIdx.push_back(i);
 					if (std::find(activIdx.begin(), activIdx.end(), i) == activIdx.end())
-						cpuLineStyles[i].stipplePatternSize = -1;
+						lineStyleInfos[i].stipplePatternSize = -1;
 
-					polylines[i].preprocessPolylineWithStyle(cpuLineStyles[i]);
+					polylines[i].preprocessPolylineWithStyle(lineStyleInfos[i]);
 				}
 			}
 
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
-				drawBuffer.drawPolyline(polylines[i], cpuLineStyles[i], UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polylines[i], lineStyleInfos[i], intendedNextSubmit);
+
+			drawBuffer.popClipProjectionData();
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
@@ -1836,7 +1820,7 @@ protected:
 //#define CASE_5_POLYLINE_7 // wide non solid lines
 
 #if defined(CASE_5_POLYLINE_1)
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -1897,11 +1881,11 @@ protected:
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
-			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 
 #elif defined(CASE_5_POLYLINE_2)
 
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 2.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -1970,10 +1954,10 @@ protected:
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
-			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 
 #elif defined(CASE_5_POLYLINE_3)
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -2001,10 +1985,10 @@ protected:
 				polyline.preprocessPolylineWithStyle(style);
 			}
 
-			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 
 #elif defined(CASE_5_POLYLINE_4)
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -2043,10 +2027,10 @@ protected:
 				polyline2.preprocessPolylineWithStyle(style);
 			}
 
-			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
-			//drawBuffer.drawPolyline(polyline2, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
+			//drawBuffer.drawPolyline(polyline2, style, intendedNextSubmit);
 #elif defined(CASE_5_POLYLINE_5)
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 0.0f;
 			style.worldSpaceLineWidth = 5.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
@@ -2104,15 +2088,15 @@ protected:
 				polyline.preprocessPolylineWithStyle(style);*/
 			}
 
-			drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 #elif defined(CASE_5_POLYLINE_6)
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 3.0f;
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.85f, 0.1f, 0.1f, 0.5f);
 			style.isRoadStyleFlag = false;
 
-			CPULineStyle shapeStyle = style;
+			LineStyleInfo shapeStyle = style;
 			CPolyline shapesPolyline;
 
 			// double linesLength = 20.0;
@@ -2124,7 +2108,7 @@ protected:
 				linePoints.push_back({ -50.0 + linesLength, 58.0 });
 				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
 			// std::array<double, 4u> stipplePattern = { 0.0f, -5.0f, 5.0f, -2.5f };
@@ -2159,7 +2143,7 @@ protected:
 				linePoints.push_back({ -50.0 + linesLength, 54.0 });
 				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 
 			{
@@ -2169,7 +2153,7 @@ protected:
 				linePoints.push_back({ -50.0 + linesLength, 52.0 });
 				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
 			style.setStipplePatternData(stipplePattern, 7.5, true, false);
@@ -2180,7 +2164,7 @@ protected:
 				linePoints.push_back({ -50.0 + linesLength, 50.0 });
 				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
 			style.setStipplePatternData(stipplePattern, 7.5, true, true);
@@ -2191,7 +2175,7 @@ protected:
 				linePoints.push_back({ -50.0 + linesLength, 48.0 });
 				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
 			std::array<double, 3u> stipplePattern2 = { 2.5f, -5.0f, 2.5f };
@@ -2203,7 +2187,7 @@ protected:
 				linePoints.push_back({ -50.0 + linesLength, 46.0 });
 				polyline.addLinePoints(linePoints);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
 			style.setStipplePatternData(stipplePattern, 7.5, true, false);
@@ -2230,7 +2214,7 @@ protected:
 				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
 				polyline.addQuadBeziers(quadBeziers);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 			
 			style.setStipplePatternData(stipplePattern, 7.5, true, true);
@@ -2258,17 +2242,17 @@ protected:
 				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
 				polyline.addQuadBeziers(quadBeziers);
 				polyline.preprocessPolylineWithStyle(style, addShapesFunction);
-				drawBuffer.drawPolyline(polyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+				drawBuffer.drawPolyline(polyline, style, intendedNextSubmit);
 			}
 
-			drawBuffer.drawPolyline(shapesPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			drawBuffer.drawPolyline(shapesPolyline, style, intendedNextSubmit);
 #elif defined(CASE_5_POLYLINE_7)
-			CPULineStyle style = {};
+			LineStyleInfo style = {};
 			style.screenSpaceLineWidth = 4.0f;
 			style.worldSpaceLineWidth = 0.0f;
 			style.color = float32_t4(0.7f, 0.3f, 0.1f, 0.5f);
 
-			CPULineStyle style2 = {};
+			LineStyleInfo style2 = {};
 			style2.screenSpaceLineWidth = 2.0f;
 			style2.worldSpaceLineWidth = 0.0f;
 			style2.color = float32_t4(0.2f, 0.6f, 0.2f, 1.0f);
@@ -2366,7 +2350,7 @@ protected:
 				}
 			}
 
-			// drawBuffer.drawPolyline(originalPolyline, style, UseDefaultClipProjectionIdx, intendedNextSubmit);
+			// drawBuffer.drawPolyline(originalPolyline, style, intendedNextSubmit);
 
 			std::array<double, 2u> stipplePattern = { 2, -1 };
 			style.setStipplePatternData(stipplePattern);
@@ -2376,9 +2360,9 @@ protected:
 			originalPolyline.stippleBreakDown(style, [&](const CPolyline& smallPoly)
 				{
 					smallPoly.makeWideWhole(offsetPolyline1, offsetPolyline2, 0.1f, 1e-3);
-					drawBuffer.drawPolyline(smallPoly, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
-					drawBuffer.drawPolyline(offsetPolyline1, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
-					drawBuffer.drawPolyline(offsetPolyline2, style2, UseDefaultClipProjectionIdx, intendedNextSubmit);
+					drawBuffer.drawPolyline(smallPoly, style2, intendedNextSubmit);
+					drawBuffer.drawPolyline(offsetPolyline1, style2, intendedNextSubmit);
+					drawBuffer.drawPolyline(offsetPolyline2, style2, intendedNextSubmit);
 				});
 
 #endif

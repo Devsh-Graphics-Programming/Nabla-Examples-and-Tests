@@ -178,7 +178,13 @@ void DrawBuffersFiller::drawHatch(
 		/* something that gets you the texture id */
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
+	// TODO[Optimization Idea]: don't draw hatch twice if both colors are visible: instead do the msdf inside the alpha resolve by detecting mainObj being a hatch
+	// https://discord.com/channels/593902898015109131/856835291712716820/1228337893366300743
+	// TODO: Come back to this idea when doing color resolve for ecws (they don't have mainObj/style Index, instead they have uv into a texture
+	
+	// if backgroundColor is visible
 	drawHatch(hatch, backgroundColor /* , invalid texture id to get solid fill */, intendedNextSubmit);
+	// if foregroundColor is visible
 	// drawHatch(hatch, foregroundColor, /* valid texture id to get foreground pattern msdf fill */, intendedNextSubmit);
 }
 
@@ -240,7 +246,7 @@ uint32_t DrawBuffersFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SInt
 {
 	MainObject mainObject = {};
 	mainObject.styleIdx = styleIdx;
-	mainObject.clipProjectionAddress = getCurrentClipProjectionAddress(intendedNextSubmit);
+	mainObject.clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
 	uint32_t outMainObjectIdx = addMainObject_Internal(mainObject);
 	if (outMainObjectIdx == InvalidMainObjectIdx)
 	{
@@ -251,8 +257,9 @@ uint32_t DrawBuffersFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SInt
 		resetGeometryCounters();
 		// mainObjects needs to be reset because we submitted every previous main object
 		resetMainObjectCounters();
-		// getCurrentClipProjectionAddress again here because clip projection exists in the geometry buffer, and reseting geometry counters will invalidate the current clip proj and requires repush
-		mainObject.clipProjectionAddress = getCurrentClipProjectionAddress(intendedNextSubmit);
+		
+		// acquireCurrentClipProjectionAddress again here because clip projection should exist in the geometry buffer, and reseting geometry counters will invalidate the current clip proj and requires repush
+		mainObject.clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
 		outMainObjectIdx = addMainObject_Internal(mainObject);
 		assert(outMainObjectIdx != InvalidMainObjectIdx);
 	}
@@ -262,12 +269,14 @@ uint32_t DrawBuffersFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SInt
 
 void DrawBuffersFiller::pushClipProjectionData(const ClipProjectionData& clipProjectionData)
 {
-	clipProjectionStack.push(clipProjectionData);
+	clipProjections.push(clipProjectionData);
+	clipProjectionAddresses.push_back(InvalidClipProjectionAddress);
 }
 
 void DrawBuffersFiller::popClipProjectionData()
 {
-	clipProjectionStack.pop();
+	clipProjections.pop();
+	clipProjectionAddresses.pop_back();
 }
 
 void DrawBuffersFiller::finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -320,13 +329,13 @@ void DrawBuffersFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intend
 	// We don't reset counters for styles because we will be reusing them
 	resetGeometryCounters();
 
-	uint32_t newClipProjectionAddress = getCurrentClipProjectionAddress(intendedNextSubmit);
+	uint32_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
 	// If there clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data)
 	if (newClipProjectionAddress != InvalidClipProjectionAddress)
 	{
 		// then modify the mainObject data
 		getMainObject(mainObjectIndex)->clipProjectionAddress = newClipProjectionAddress;
-		// we need to modify inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
+		// we need to rewind back inMemMainObjectCount to this mainObjIndex so it re-uploads the current mainObject (because we modified it)
 		inMemMainObjectCount = min(inMemMainObjectCount, mainObjectIndex);
 	}
 }
@@ -365,11 +374,15 @@ uint32_t DrawBuffersFiller::addLineStyle_Internal(const LineStyleInfo& lineStyle
 	return currentLineStylesCount++;
 }
 
-inline uint64_t DrawBuffersFiller::getCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
+inline uint64_t DrawBuffersFiller::acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	if (clipProjectionStackTopAddressInGPU == InvalidClipProjectionAddress && !clipProjectionStack.empty())
-		clipProjectionStackTopAddressInGPU = addClipProjectionData_SubmitIfNeeded(clipProjectionStack.top(), intendedNextSubmit);
-	return clipProjectionStackTopAddressInGPU;
+	if (clipProjectionAddresses.empty())
+		return InvalidClipProjectionAddress;
+
+	if (clipProjectionAddresses.back() == InvalidClipProjectionAddress)
+		clipProjectionAddresses.back() = addClipProjectionData_SubmitIfNeeded(clipProjections.top(), intendedNextSubmit);
+	
+	return clipProjectionAddresses.back();
 }
 
 uint64_t DrawBuffersFiller::addClipProjectionData_SubmitIfNeeded(const ClipProjectionData& clipProjectionData, SIntendedSubmitInfo& intendedNextSubmit)
