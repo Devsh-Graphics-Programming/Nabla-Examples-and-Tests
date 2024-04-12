@@ -90,6 +90,7 @@ protected:
 private:
 	smart_refctd_ptr<ISemaphore> m_imagesLoadedSemaphore, m_imagesProcessedSemaphore, m_histogramSavedSemaphore;
 	std::atomic<uint32_t> m_imagesLoadedCnt, m_imagesProcessedCnt, m_imagesDownloadedCnt, m_imagesSavedCnt;
+	std::atomic<uint32_t> imageHandlesCreated = 0u;
 	std::array<core::smart_refctd_ptr<IGPUImage>, IMAGE_CNT> images;
 
 	static constexpr uint32_t FRAMES_IN_FLIGHT = 3u;
@@ -119,13 +120,28 @@ private:
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
 		}
 
+		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
+		IQueue::SSubmitInfo::SSemaphoreInfo imgFillSemaphoreInfo[] =
+		{
+			{
+				.semaphore = imgFillSemaphore.get(),
+				.value = 1,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			},
+			{
+				.semaphore = m_imagesLoadedSemaphore.get(),
+				.value = 0xdeadbeef,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			}
+		};
+
 		for (uint32_t imageIdx = 0; imageIdx < IMAGE_CNT; ++imageIdx)
 		{
 			cpuImages[imageIdx] = loadFistAssetInBundle<ICPUImage>(imagesToLoad[imageIdx]);
 
 			const size_t resourceIdx = imageIdx % FRAMES_IN_FLIGHT;
 			const auto& imageToLoad = imagesToLoad[imageIdx];
-			auto& cmdBuff = commandBuffers[resourceIdx]; 
+			auto& cmdBuff = commandBuffers[resourceIdx];
 
 			auto isResourceReused = waitForResourceAvailability(m_imagesLoadedSemaphore.get(), imageIdx);
 			if(isResourceReused)
@@ -154,11 +170,11 @@ private:
 
 			images[imageIdx] = m_device->createImage(std::move(imgParams));
 			auto imageAllocation = m_device->allocate(images[imageIdx]->getMemoryReqs(), images[imageIdx].get(), IDeviceMemoryAllocation::EMAF_NONE);
+			imageHandlesCreated++;
+			imageHandlesCreated.notify_one();
 
 			if (!imageAllocation.isValid())
 				logFailAndTerminate("Failed to allocate Device Memory compatible with our image!\n");
-
-			core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
 
 			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier0;
 			IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imageLayoutTransitionBarrier1;
@@ -170,9 +186,9 @@ private:
 				imgSubresourceRange.levelCount = 1;
 				imgSubresourceRange.layerCount = 1u;
 
-				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::NONE;
+				imageLayoutTransitionBarrier0.barrier.dep.srcAccessMask = ACCESS_FLAGS::ALL_COMMANDS_BITS;
 				imageLayoutTransitionBarrier0.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::NONE;
+				imageLayoutTransitionBarrier0.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
 				imageLayoutTransitionBarrier0.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				imageLayoutTransitionBarrier0.oldLayout = asset::IImage::LAYOUT::UNDEFINED;
 				imageLayoutTransitionBarrier0.newLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
@@ -180,9 +196,9 @@ private:
 				imageLayoutTransitionBarrier0.subresourceRange = imgSubresourceRange;
 
 				imageLayoutTransitionBarrier1.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS; 
-				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::NONE;
+				imageLayoutTransitionBarrier1.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				imageLayoutTransitionBarrier1.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::NONE; // NONE because the semaphore singnal comes right after
+				imageLayoutTransitionBarrier1.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS; // NONE because the semaphore singnal comes right after
 				imageLayoutTransitionBarrier1.oldLayout = asset::IImage::LAYOUT::TRANSFER_DST_OPTIMAL;
 				imageLayoutTransitionBarrier1.newLayout = asset::IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				imageLayoutTransitionBarrier1.image = images[imageIdx].get();
@@ -190,17 +206,15 @@ private:
 			}
 			
 			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = { cmdBuff.get() };
+			
+			imgFillSemaphoreInfo[1].value = imageIdx + 1u;
 
-			IQueue::SSubmitInfo::SSemaphoreInfo imgFillSemaphoreInfo =
-			{
-				.semaphore = imgFillSemaphore.get(),
-				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			};
-			 
+
 			SIntendedSubmitInfo intendedSubmit = {
-				.frontHalf = {.queue = transferUpQueue, .waitSemaphores = {}, .commandBuffers = {&imgFillCmdBuffInfo, 1}}, .signalSemaphores = {&imgFillSemaphoreInfo, 1}
+				.frontHalf = {.queue = transferUpQueue, .waitSemaphores = {}, .commandBuffers = {&imgFillCmdBuffInfo, 1}}, .signalSemaphores = imgFillSemaphoreInfo
 			};
+
+			static_cast<IQueue::SSubmitInfo>(intendedSubmit);
 			
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
@@ -209,13 +223,18 @@ private:
 			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
 				logFailAndTerminate("Failed to issue barrier!\n");
 
+
 			transferUpQueue->startCapture();
+			uint64_t oldCntr = imgFillSemaphoreInfo[0].value;
 			const bool uploadCommendRecorded = m_utils->updateImageViaStagingBuffer(
 				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
 				images[imageIdx].get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, cpuImages[imageIdx]->getRegions()
 			);
 			if (!uploadCommendRecorded)
 				logFailAndTerminate("Couldn't update image data.\n");
+
+			if(imgFillSemaphoreInfo[0].value != oldCntr)
+				m_logger->log("%d overflows when uploading image %d!\n", ILogger::ELL_PERFORMANCE, imgFillSemaphoreInfo[0].value - oldCntr, imageIdx);
 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo1;
 			pplnBarrierDepInfo1.imgBarriers = { &imageLayoutTransitionBarrier1, 1 };
@@ -225,17 +244,16 @@ private:
 
 			cmdBuff->end();
 
-			IQueue::SSubmitInfo submitInfo[1];
-			IQueue::SSubmitInfo::SCommandBufferInfo cmdBuffSubmitInfo[] = { {cmdBuff.get()} };
-			IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphoreSubmitInfo[] = { { .semaphore = m_imagesLoadedSemaphore.get(), .value = imageIdx+1, .stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS } };
-			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
-			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
+			intendedSubmit.advanceScratchSemaphoreValue();
+			IQueue::SSubmitInfo submitInfo[1] = { intendedSubmit };
 			getTransferUpQueue()->submit(submitInfo);
 			transferUpQueue->endCapture();
+
 
 			// TODO: this is for basic testing purposes, will be deleted ofc
 			std::string msg = std::string("Image nr ") + std::to_string(imageIdx) + " loaded. Resource idx: " + std::to_string(resourceIdx);
 			m_logger->log(msg);
+			std::this_thread::sleep_for(std::chrono::milliseconds(6969));
 		}
 	}
 
@@ -372,9 +390,6 @@ private:
 		// PROCESS IMAGES
 		for (uint32_t imageToProcessId = 0; imageToProcessId < IMAGE_CNT; imageToProcessId++)
 		{
-			// TODO: wait for atomic instead? will it be even valid to do? we need to wait for gpu to finish anyway..
-			waitForPreviousStep(m_imagesLoadedSemaphore.get(), imageToProcessId + 1);
-
 			const auto resourceIdx = imageToProcessId % FRAMES_IN_FLIGHT;
 			auto& cmdBuff = commandBuffers[resourceIdx];
 			auto& commandPool = commandPools[resourceIdx];
@@ -387,6 +402,10 @@ private:
 			IGPUDescriptorSet::SDescriptorInfo imgInfo;
 			IGPUImageView::SCreationParams params{};
 			params.viewType = IImageView<IGPUImage>::ET_2D;
+
+			for (auto old = imageHandlesCreated.load(); old <= imageToProcessId; old = imageHandlesCreated.load())
+				imageHandlesCreated.wait(old);
+
 			params.image = images[imageToProcessId];
 			params.format = images[imageToProcessId]->getCreationParameters().format;
 			params.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
