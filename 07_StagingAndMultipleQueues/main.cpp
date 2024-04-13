@@ -482,6 +482,8 @@ private:
 			auto& file = files[imageHistogramIdx];
 			for (uint32_t i = 0u; i < CHANEL_CNT; ++i)
 			{
+				constexpr const char* channelNames[] = {"RED","GREEN","BLUE"};
+				file << channelNames[i] << ',';
 				for (uint32_t j = 0u; j < VAL_PER_CHANEL_CNT; ++j)
 				{
 					file << histogramBuff[offset] << ',';
