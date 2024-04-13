@@ -38,9 +38,10 @@ enum class ExampleMode
 	CASE_3, // CURVES AND LINES
 	CASE_4, // STIPPLE PATTERN
 	CASE_5, // Advanced Styling
+	CASE_6, // Custom Clip Projections
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_6;
 
 class Camera2D
 {
@@ -1091,15 +1092,13 @@ public:
 		if (!inBetweenSubmit)
 			cb->endDebugMarker();
 
-		cb->end();
-
 		if (inBetweenSubmit)
 		{
 			intendedSubmitInfo.overflowSubmit();
-			drawBuffer.reset();
 		}
 		else
 		{
+			cb->end();
 			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
 			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
 			{
@@ -1650,16 +1649,6 @@ protected:
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
-			ClipProjectionData newClipProj = {};
-			newClipProj.projectionToNDC = m_Camera.constructViewProjection();
-			newClipProj.minClipNDC = float32_t2(0.0, -1.0);
-			newClipProj.maxClipNDC = float32_t2(+1.0, +1.0);
-			drawBuffer.pushClipProjectionData(newClipProj);
-			drawBuffer.pushClipProjectionData(newClipProj);
-			newClipProj.minClipNDC = float32_t2(-1.0, -1.0);
-			newClipProj.maxClipNDC = float32_t2(+1.0, +0.5);
-			drawBuffer.pushClipProjectionData(newClipProj);
-
 			constexpr uint32_t CURVE_CNT = 16u;
 			constexpr uint32_t SPECIAL_CASE_CNT = 6u;
 
@@ -1806,8 +1795,6 @@ protected:
 
 			for (uint32_t i = 0u; i < CURVE_CNT; i++)
 				drawBuffer.drawPolyline(polylines[i], lineStyleInfos[i], intendedNextSubmit);
-
-			drawBuffer.popClipProjectionData();
 		}
 		else if (mode == ExampleMode::CASE_5)
 		{
@@ -2367,6 +2354,103 @@ protected:
 
 #endif
 
+		}
+		else if (mode == ExampleMode::CASE_6)
+		{
+			// left half of screen should be red and right half should be green
+			const auto& cameraProj = m_Camera.constructViewProjection();
+			ClipProjectionData showLeft = {};
+			showLeft.projectionToNDC = cameraProj;
+			showLeft.minClipNDC = float32_t2(-1.0, -1.0);
+			showLeft.maxClipNDC = float32_t2(0.0, +1.0);
+			ClipProjectionData showRight = {};
+			showRight.projectionToNDC = cameraProj;
+			showRight.minClipNDC = float32_t2(0.0, -1.0);
+			showRight.maxClipNDC = float32_t2(+1.0, +1.0);
+
+			LineStyleInfo leftLineStyle = {};
+			leftLineStyle.screenSpaceLineWidth = 3.0f;
+			leftLineStyle.worldSpaceLineWidth = 0.0f;
+			leftLineStyle.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f);
+			leftLineStyle.isRoadStyleFlag = false;
+			LineStyleInfo rightLineStyle = {};
+			rightLineStyle.screenSpaceLineWidth = 6.0f;
+			rightLineStyle.worldSpaceLineWidth = 0.0f;
+			rightLineStyle.color = float32_t4(0.1f, 1.0f, 0.1f, 0.9f);
+			rightLineStyle.isRoadStyleFlag = false;
+			
+			CPolyline polyline3;
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -20.0, 20.0 });
+				linePoints.push_back({ 20.0, 70.0 });
+				linePoints.push_back({ 20.0, -40.0 });
+				polyline3.addLinePoints(linePoints);
+			}
+			CPolyline polyline1;
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ -20.0, 0.0 });
+				linePoints.push_back({ -20.0, 50.0 });
+				linePoints.push_back({ 20.0, 0.0 });
+				linePoints.push_back({ 20.0, 50.0 });
+				polyline1.addLinePoints(linePoints);
+			}
+			CPolyline polyline2;
+			{
+
+				std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+				curves::EllipticalArcInfo myCurve;
+				{
+					myCurve.majorAxis = { 20.0, 0.0 };
+					myCurve.center = { 0.0, -25.0 };
+					myCurve.angleBounds = {
+						nbl::core::PI<double>() * 0.0,
+						nbl::core::PI<double>() * 2.0
+					};
+					myCurve.eccentricity = 1.0;
+				}
+
+				curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+					{
+						quadBeziers.push_back(info);
+					};
+
+				curves::Subdivision::adaptive(myCurve, 1e-3, addToBezier, 10u);
+				polyline2.addQuadBeziers(quadBeziers);
+			}
+
+			// we do redundant and nested push/pops to test
+			drawBuffer.pushClipProjectionData(showLeft);
+			{
+				drawBuffer.drawPolyline(polyline1, leftLineStyle, intendedNextSubmit);
+
+				drawBuffer.pushClipProjectionData(showRight);
+				{
+					drawBuffer.drawPolyline(polyline1, rightLineStyle, intendedNextSubmit);
+					drawBuffer.drawPolyline(polyline2, rightLineStyle, intendedNextSubmit);
+				}
+				drawBuffer.popClipProjectionData();
+				
+				drawBuffer.drawPolyline(polyline2, leftLineStyle, intendedNextSubmit);
+
+				drawBuffer.pushClipProjectionData(showRight);
+				{
+					drawBuffer.drawPolyline(polyline3, rightLineStyle, intendedNextSubmit);
+					drawBuffer.drawPolyline(polyline2, rightLineStyle, intendedNextSubmit);
+					
+					drawBuffer.pushClipProjectionData(showLeft);
+					{
+					drawBuffer.drawPolyline(polyline1, leftLineStyle, intendedNextSubmit);
+					}
+					drawBuffer.popClipProjectionData();
+				}
+				drawBuffer.popClipProjectionData();
+
+				drawBuffer.drawPolyline(polyline2, leftLineStyle, intendedNextSubmit);
+			}
+			drawBuffer.popClipProjectionData();
+			
 		}
 
 		drawBuffer.finalizeAllCopiesToGPU(intendedNextSubmit);

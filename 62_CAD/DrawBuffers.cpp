@@ -45,7 +45,7 @@ void DrawBuffersFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uint3
 void DrawBuffersFiller::allocateMainObjectsBuffer(ILogicalDevice* logicalDevice, uint32_t mainObjects)
 {
 	maxMainObjects = mainObjects;
-	size_t mainObjectsBufferSize = mainObjects * sizeof(MainObject);
+	size_t mainObjectsBufferSize = maxMainObjects * sizeof(MainObject);
 
 	IGPUBuffer::SCreationParams mainObjectsCreationParams = {};
 	mainObjectsCreationParams.size = mainObjectsBufferSize;
@@ -257,6 +257,8 @@ uint32_t DrawBuffersFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SInt
 		resetGeometryCounters();
 		// mainObjects needs to be reset because we submitted every previous main object
 		resetMainObjectCounters();
+		// we shouldn't reset linestyles and clip projections here because it was possibly requested to push to mem before addMainObjects
+		// but clip projections are reset due to geometry/bda buffer being reset so we need to push again
 		
 		// acquireCurrentClipProjectionAddress again here because clip projection should exist in the geometry buffer, and reseting geometry counters will invalidate the current clip proj and requires repush
 		mainObject.clipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
@@ -275,6 +277,9 @@ void DrawBuffersFiller::pushClipProjectionData(const ClipProjectionData& clipPro
 
 void DrawBuffersFiller::popClipProjectionData()
 {
+	if (clipProjections.empty())
+		return;
+
 	clipProjections.pop();
 	clipProjectionAddresses.pop_back();
 }
@@ -343,7 +348,10 @@ void DrawBuffersFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intend
 uint32_t DrawBuffersFiller::addMainObject_Internal(const MainObject& mainObject)
 {
 	MainObject* mainObjsArray = reinterpret_cast<MainObject*>(cpuDrawBuffers.mainObjectsBuffer->getPointer());
+	
 	if (currentMainObjectCount >= MaxIndexableMainObjects)
+		return InvalidMainObjectIdx;
+	if (currentMainObjectCount >= maxMainObjects)
 		return InvalidMainObjectIdx;
 
 	void* dst = mainObjsArray + currentMainObjectCount;
