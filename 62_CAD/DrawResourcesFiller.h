@@ -23,16 +23,21 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
 };
 
-// ! this is just a buffers filler with autosubmission features used for convenience to how you feed our CAD renderer
-struct DrawBuffersFiller
+// ! DrawResourcesFiller
+// ! This class provides important functionality to manage resources needed for a draw.
+// ! Drawing new objects (polylines, hatches, etc.) should go through this function.
+// ! Contains all the scene resources (buffers and images)
+// ! In the case of overflow (i.e. not enough remaining v-ram) will auto-submit/render everything recorded so far,
+//   and additionally makes sure relavant data needed for those draw calls are present in memory
+struct DrawResourcesFiller
 {
 public:
 
 	typedef uint32_t index_buffer_type;
 
-	DrawBuffersFiller() {}
+	DrawResourcesFiller() {}
 
-	DrawBuffersFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
+	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 
@@ -48,25 +53,40 @@ public:
 	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
+	
+	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
 	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	// !drawSolid
+	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
 		const float32_t4& backgroundColor,
-		/* something that gets you the texture id */
+		const uint32_t msdfTextureIdx,
 		SIntendedSubmitInfo& intendedNextSubmit);
-
+	
+	// ! Hatch with MSDF Pattern
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		/* something that gets you the texture id */
+		const uint32_t msdfTextureIdx,
 		SIntendedSubmitInfo& intendedNextSubmit);
+
+	// ! Solid Fill Hacth
+	void drawHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		SIntendedSubmitInfo& intendedNextSubmit);
+	
+	using texture_hash = uint64_t;
+	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
+
+	// ! return index to be used later in hatch fill style or text glyph object
+	uint32_t addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash = InvalidTextureHash);
 
 	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -114,7 +134,16 @@ public:
 	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
 	void popClipProjectionData();
 
+	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
+
 protected:
+	
+	struct TextureCopy
+	{
+		ICPUBuffer const* srcBuffer;
+		const asset::IImage::SBufferCopy& region;
+		uint32_t index;
+	};
 
 	SubmitFunc submitDraws;
 	static constexpr uint32_t InvalidStyleIdx = ~0u;
@@ -127,6 +156,8 @@ protected:
 	
 	void finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
+	void finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+
 	// A hatch and a polyline are considered a "Main Object" which consists of smaller geometries such as beziers, lines, connectors, hatchBoxes
 	// If the whole polyline can't fit into memory for draw, then we submit the render of smaller geometries midway and continue
 	void submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
@@ -218,4 +249,8 @@ protected:
 
 	std::stack<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
+
+	smart_refctd_ptr<IGPUImageView>		msdfTextureArray;
+	std::vector<TextureCopy>			textureCopies;
+	std::unordered_map<texture_hash, uint32_t/*index*/> textureIdToIndexMap;
 };
