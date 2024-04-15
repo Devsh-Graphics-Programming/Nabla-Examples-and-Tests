@@ -2,7 +2,7 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#include "../common/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
 
 // TODO: these should come from <nabla.h> and nbl/asset/asset.h find out why they don't
 #include "nbl/asset/filters/CRegionBlockFunctorFilter.h"
@@ -51,9 +51,9 @@ static inline video::IGPUImageView::E_TYPE getImageViewTypeFromImageType_GPU(con
 }
 
 // TODO: inherit from BasicMultiQueue app
-class BlitFilterTestApp final : public virtual examples::MonoDeviceApplication
+class BlitFilterTestApp final : public virtual application_templates::MonoDeviceApplication
 {
-	using base_t = nbl::examples::MonoDeviceApplication;
+	using base_t = nbl::application_templates::MonoDeviceApplication;
 
 	constexpr static uint32_t SC_IMG_COUNT = 3u;
 

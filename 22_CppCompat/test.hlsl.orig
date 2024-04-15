@@ -16,6 +16,7 @@
     } while(!con); \
 } 
 
+#include <nbl/builtin/hlsl/cmath.hlsl>
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/type_traits.hlsl>
@@ -46,8 +47,7 @@ PushConstants u_pushConstants;
 [[vk::binding(0, 0)]] Texture2D<float4> inImage;
 [[vk::binding(1, 0)]] RWTexture2D<float4> outImage;
 [[vk::binding(2, 0)]] Buffer<float4> inBuffer;
-[[vk::binding(3, 0)]] RWStructuredBuffer<float4> outBuffer;
-
+[[vk::binding(3, 0)]] RWStructuredBuffer<float4[1920]> outBuffer;
 
 template<int A>
 struct Spec
@@ -75,14 +75,14 @@ struct array
 
 void fill(uint3 invocationID, float val)
 {
-    outImage[invocationID.xy] = float4(val,val,val,val);
-    outBuffer[invocationID.x * invocationID.y] = float4(val,val,val,val);
+    outImage[invocationID.xy] = float4(val, val, val, val);
+    outBuffer[invocationID.y][invocationID.x] = float4(val, val, val, val);
 }
 
 void fill(uint3 invocationID, float4 val)
 {
     outImage[invocationID.xy] = val;
-    outBuffer[invocationID.x * invocationID.y] = val;
+    outBuffer[invocationID.y][invocationID.x] = val;
 }
 
 
@@ -260,5 +260,25 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 
     fill(invocationID, 10);
 
+    {
+        #define TEST_FN(idx, fn, ...) \
+        { \
+            decltype(fn(__VA_ARGS__)) lhs = nbl::hlsl::fn(__VA_ARGS__); \
+            decltype(lhs) rhs = fn(__VA_ARGS__); \
+            fill(invocationID, float4(idx, lhs, rhs)); \
+            SHADER_CRASHING_ASSERT(abs(lhs - rhs) < nbl::hlsl::numeric_limits<decltype(lhs)>::epsilon) \
+        }
+        TEST_FN(float2(10, 1), cos,  1.44f)
+        TEST_FN(float2(10, 2), sin,  1.44f)
+        TEST_FN(float2(10, 3), tan,  1.44f)
+        TEST_FN(float2(10, 4), acos,  0.2f)
+        TEST_FN(float2(10, 5), asin,  -0.4f)
+        TEST_FN(float2(10, 6), atan, 1.44f)
+        TEST_FN(float2(10, 7), atan2, 3.f, 5.f)
+
+        TEST_FN(float2(10, 8), cosh, 0.5f)
+        TEST_FN(float2(10, 9), sinh, 0.5f)
+        TEST_FN(float2(10, 10), tanh, 0.5f)
+    }
     fill(invocationID, -1);
 }

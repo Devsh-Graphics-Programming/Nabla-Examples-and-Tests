@@ -1,11 +1,11 @@
-// Copyright (C) 2018-2023 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/MonoDeviceApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 
 using namespace nbl;
@@ -20,10 +20,10 @@ using namespace video;
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-		using device_base_t = examples::MonoDeviceApplication;
-		using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+		using device_base_t = application_templates::MonoDeviceApplication;
+		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 		// This is the first example that submits multiple workloads in-flight. 
 		// What the shader does is it computes the minimum distance of each point against K other random input points.
@@ -85,7 +85,7 @@ class StreamingAndBufferDeviceAddressApp final : public examples::MonoDeviceAppl
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
 			// Remember to call the base class initialization!
-			if (!device_base_t::onAppInitialized(std::move(system)))
+			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
