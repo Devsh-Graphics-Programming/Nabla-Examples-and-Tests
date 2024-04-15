@@ -3,8 +3,8 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 // I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-#include "../common/MonoDeviceApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -18,10 +18,10 @@ using namespace video;
 #include "app_resources/common.hlsl"
 
 // This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
-class DeviceSelectionAndSharedSourcesApp final : public examples::MonoDeviceApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::MonoDeviceApplication;
-	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = application_templates::MonoDeviceApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	DeviceSelectionAndSharedSourcesApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
