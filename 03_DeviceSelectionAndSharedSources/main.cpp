@@ -42,13 +42,56 @@ public:
 		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
 			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
 
+#if 0
 		// flexible test
 		{
 			m_logger->log("------- test.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 			CSPIRVIntrospector introspector;
 			auto sourceIntrospectionPair = this->compileShaderAndTestIntrospection("app_resources/test.hlsl", introspector);
-			CSPIRVIntrospector::CPipelineIntrospectionData pplnIntroData;
-			pplnIntroData.merge(sourceIntrospectionPair.second.get());
+			auto pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
+			pplnIntroData->merge(sourceIntrospectionPair.second.get());
+		}
+#endif
+		// testing creation of compute pipeline layouts compatible for multiple shaders
+		{
+			constexpr uint32_t MERGE_TEST_SHADERS_CNT = 3u;
+
+
+			std::array mergeTestShadersPaths = {
+				"app_resources/pplnLayoutMergeTest/shader_1.comp.hlsl",
+				"app_resources/pplnLayoutMergeTest/shader_2.comp.hlsl",
+				"app_resources/pplnLayoutMergeTest/shader_3.comp.hlsl"
+			};
+
+			auto confirmExpectedOutput = [this](bool value, bool expectedValue)
+				{
+					if (value != expectedValue)
+					{
+						m_logger->log("\"CSPIRVIntrospector::CPipelineIntrospectionData::merge\" function FAIL, incorrect output.",
+							ILogger::E_LOG_LEVEL::ELL_ERROR);
+					}
+					else
+					{
+						m_logger->log("\"CSPIRVIntrospector::CPipelineIntrospectionData::merge\" function SUCCESS, correct output.",
+							ILogger::E_LOG_LEVEL::ELL_PERFORMANCE);
+					}
+				};
+
+			CSPIRVIntrospector introspector[MERGE_TEST_SHADERS_CNT];
+			smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspections[MERGE_TEST_SHADERS_CNT];
+
+			for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
+			{
+				m_logger->log("------- %s INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING, mergeTestShadersPaths[i]);
+				auto sourceIntrospectionPair = this->compileShaderAndTestIntrospection(mergeTestShadersPaths[i], introspector[i]);
+				introspections[i] = sourceIntrospectionPair.second;
+			}
+			
+			core::smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData> pplnIntroData;
+			pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
+			confirmExpectedOutput(pplnIntroData->merge(introspections[0].get()), true);
+			confirmExpectedOutput(pplnIntroData->merge(introspections[1].get()), true);
+			confirmExpectedOutput(pplnIntroData->merge(introspections[2].get()), false);
 		}
 
 		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
