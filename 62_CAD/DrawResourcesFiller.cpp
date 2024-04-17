@@ -492,6 +492,9 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			barrierInfo);
 	}
+
+	// done copying textures
+	textureCopies.clear();
 }
 
 void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)

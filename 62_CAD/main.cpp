@@ -380,8 +380,8 @@ public:
 
 		uint32_t shapeBoundsW = shapeBounds.r - shapeBounds.l;
 		uint32_t shapeBoundsH = shapeBounds.t - shapeBounds.b;
-		uint32_t glyphW = shapeBoundsW * pixelSizes;
-		uint32_t glyphH = shapeBoundsH * pixelSizes;
+		uint32_t glyphW = 32;// shapeBoundsW* pixelSizes;
+		uint32_t glyphH = 32;// shapeBoundsH* pixelSizes;
 
 		uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
 		uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
