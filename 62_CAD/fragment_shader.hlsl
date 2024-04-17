@@ -565,5 +565,9 @@ float4 main(PSInput input) : SV_TARGET
     if (localAlpha <= 0)
         discard;
 
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
+    float4 finalColor = calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
+    float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(fragCoord.xy % 8) / 8.0, 0.0));
+    finalColor.rgb = msdfSample.rgb;
+
+    return finalColor;
 }
