@@ -183,7 +183,7 @@ public:
 		}
 
 		// Nabla hardcodes the maximum descriptor set count to 4
-		constexpr uint32_t MaxDescriptorSets = 4;
+		constexpr uint32_t MaxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
 		const std::array<IGPUDescriptorSetLayout*, MaxDescriptorSets> dscLayoutPtrs = { nullptr, dsLayout1.get(), nullptr, dsLayout3.get() };
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>, MaxDescriptorSets> ds;
 		auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
