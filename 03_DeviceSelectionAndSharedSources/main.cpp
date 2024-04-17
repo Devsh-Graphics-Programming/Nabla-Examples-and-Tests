@@ -54,14 +54,13 @@ public:
 #endif
 		// testing creation of compute pipeline layouts compatible for multiple shaders
 		{
-			constexpr uint32_t MERGE_TEST_SHADERS_CNT = 3u;
-
-
-			std::array mergeTestShadersPaths = {
+			constexpr std::array mergeTestShadersPaths = {
 				"app_resources/pplnLayoutMergeTest/shader_1.comp.hlsl",
 				"app_resources/pplnLayoutMergeTest/shader_2.comp.hlsl",
-				"app_resources/pplnLayoutMergeTest/shader_3.comp.hlsl"
+				"app_resources/pplnLayoutMergeTest/shader_3.comp.hlsl",
+				"app_resources/pplnLayoutMergeTest/shader_4.comp.hlsl"
 			};
+			constexpr uint32_t MERGE_TEST_SHADERS_CNT = mergeTestShadersPaths.size();
 
 			auto confirmExpectedOutput = [this](bool value, bool expectedValue)
 				{
@@ -89,9 +88,19 @@ public:
 			
 			core::smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData> pplnIntroData;
 			pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
+
+				// should merge successfully since shader is not messed up and it is the first merge
 			confirmExpectedOutput(pplnIntroData->merge(introspections[0].get()), true);
+				// should merge successfully since pipeline layout of "shader_2.comp.hlsl" is compatible with "shader_1.comp.hlsl"
 			confirmExpectedOutput(pplnIntroData->merge(introspections[1].get()), true);
+				// should not merge since pipeline layout of "shader_3.comp.hlsl" is not compatible with "shader_1.comp.hlsl"
 			confirmExpectedOutput(pplnIntroData->merge(introspections[2].get()), false);
+
+			core::smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData> pplnIntroData2;
+			pplnIntroData2 = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
+
+				// should not merge since run-time sized destriptor of "shader_4.comp.hlsl" is not last
+			confirmExpectedOutput(pplnIntroData2->merge(introspections[3].get()), false);
 		}
 
 		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
