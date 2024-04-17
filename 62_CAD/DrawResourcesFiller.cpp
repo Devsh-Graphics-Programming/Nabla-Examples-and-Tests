@@ -118,7 +118,7 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
 {
-	asset::E_FORMAT msdfFormat = asset::EF_R8G8B8A8_UNORM; // @Lucas change the format to what MSDFs use
+	asset::E_FORMAT msdfFormat = MsdfTextureFormat;
 	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
 
@@ -412,65 +412,86 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	auto msdfImage = msdfTextureArray->getCreationParameters().image;
 
 	// preparing images for copy
-	// @Lucas TODO: add a vector<image_barrier_t> push_back a barrier like below for each of the indices in `textureCopies`
-	IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barriersBeforeCopy[] =
+	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+	std::vector<image_barrier_t> barriers;
+	barriers.reserve(textureCopies.size());
 	{
+		for (uint32_t i = 0; i < textureCopies.size(); i++)
 		{
-			.barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-					.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, 
-					.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-				}
-				// .ownershipOp. No queueFam ownership transfer
-			},
-			.image = msdfImage.get(),
-			.subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				// .baseMipLevel = id, @Lucas TODO
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u,
-			},
-			.oldLayout = IImage::LAYOUT::UNDEFINED,
-			.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+			auto& textureCopy = textureCopies[i];
+			barriers.push_back({
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = msdfImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = textureCopy.index,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				});
 		}
-	};
-	// TODO: Do All Barriers At Once
+		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
+		cmdBuff->pipelineBarrier(
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			barrierInfo);
+	}
 
-	// @Lucas
-	// for (each record):
-	// m_utilities->updateImageViaStagingBuffer(intendedNextSubmit, record[i].srcBuffer, SRC_FORMAT, msdfImage, DST_FORMAT, record[i].region);
+	for (uint32_t i = 0; i < textureCopies.size(); i++)
+	{
+		auto& textureCopy = textureCopies[i];
+		auto region = textureCopy.region;
+		m_utilities->updateImageViaStagingBuffer(
+			intendedNextSubmit, 
+			textureCopy.srcBuffer, asset::E_FORMAT::EF_R8G8B8_UNORM, 
+			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
+			{ &region, &region + 1 });
+	}
 
 		
 	// preparing images for use
-	// @Lucas TODO: add a vector<image_barrier_t> push_back a barrier like below for each of the indices in `textureCopies`
-	IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barriersAfterCopy[] =
 	{
+		barriers.clear();
+		for (uint32_t i = 0; i < textureCopies.size(); i++)
 		{
-			.barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-					.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
-					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-				}
-				// .ownershipOp. No queueFam ownership transfer
-			},
-			.image = msdfImage.get(),
-			.subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				// .baseMipLevel = id, @Lucas TODO
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u,
-			},
-			.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-			.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+			auto& textureCopy = textureCopies[i];
+			barriers.push_back({
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = msdfImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = textureCopy.index,
+						.levelCount = 1u,
+						.baseArrayLayer = 0u,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+				});
 		}
-	};
-	// TODO: Do All Barriers At Once
+		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
+		cmdBuff->pipelineBarrier(
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			barrierInfo);
+	}
 }
 
 void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)

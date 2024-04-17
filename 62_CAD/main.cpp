@@ -42,7 +42,7 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_6;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -343,6 +343,84 @@ public:
 		samplerParams.MinLod = -1000.f;
 		samplerParams.MaxLod = 1000.f;
 		msdfTextureSampler = m_device->createSampler(samplerParams);
+	}
+
+	struct MsdfTexture
+	{
+		core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
+		asset::IImage::SBufferCopy region;
+	};
+
+	MsdfTexture generateMsdfForShape(std::span<CPolyline> polylines)
+	{
+		// MSDF gen test
+		msdfgen::Shape glyph;
+		nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(glyph);
+		for (uint32_t polylineIdx = 0; polylineIdx < polylines.size(); polylineIdx++)
+		{
+			auto& polyline = polylines[polylineIdx];
+			for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+			{
+				auto& section = polyline.getSectionInfoAt(sectorIdx);
+				if (section.type == ObjectType::LINE)
+				{
+					if (section.count == 0u) continue;
+
+					glyphShapeBuilder.moveTo(polyline.getLinePointAt(section.index).p);
+					for (uint32_t i = section.index + 1; i < section.index + section.count + 1; i++)
+						glyphShapeBuilder.lineTo(polyline.getLinePointAt(i).p);
+				}
+			}
+		}
+		glyphShapeBuilder.finish();
+		glyph.normalize();
+
+		auto shapeBounds = glyph.getBounds();
+		uint32_t pixelSizes = 2;
+
+		uint32_t shapeBoundsW = shapeBounds.r - shapeBounds.l;
+		uint32_t shapeBoundsH = shapeBounds.t - shapeBounds.b;
+		uint32_t glyphW = shapeBoundsW * pixelSizes;
+		uint32_t glyphH = shapeBoundsH * pixelSizes;
+
+		uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
+		uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
+		msdfgen::edgeColoringSimple(glyph, 3.0); // TODO figure out what this is
+		msdfgen::Bitmap<float, 3> msdfMap(glyphW, glyphH);
+
+		float scaleX = (1.0 / float(shapeBoundsWidth)) * glyphW;
+		float scaleY = (1.0 / float(shapeBoundsHeight)) * glyphH;
+		msdfgen::generateMSDF(msdfMap, glyph, 4.0, { scaleX, scaleY }, msdfgen::Vector2(-shapeBounds.l, -shapeBounds.b));
+
+		// TODO: Optimizet his
+		auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * 4);
+		uint8_t* data = reinterpret_cast<uint8_t*>(cpuBuf->getPointer());
+		for (int y = 0; y < msdfMap.height(); ++y)
+		{
+			for (int x = 0; x < msdfMap.width(); ++x)
+			{
+				auto pixel = msdfMap(x, glyphH - 1 - y);
+				data[(x + y * glyphW) * 4 + 0] = msdfgen::pixelFloatToByte(pixel[0]);
+				data[(x + y * glyphW) * 4 + 1] = msdfgen::pixelFloatToByte(pixel[1]);
+				data[(x + y * glyphW) * 4 + 2] = msdfgen::pixelFloatToByte(pixel[2]);
+				data[(x + y * glyphW) * 4 + 3] = 255;
+			}
+		}
+
+		asset::IImage::SBufferCopy region;
+		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = 0u;
+		region.imageSubresource.layerCount = 1u;
+		region.bufferOffset = 0u;
+		region.bufferRowLength = glyphW;
+		region.bufferImageHeight = 0u;
+		region.imageExtent = { glyphW, glyphH, 1 };
+
+		return {
+			.cpuBuffer = std::move(cpuBuf),
+			.region = region
+		};
 	}
 	
 	smart_refctd_ptr<IGPURenderpass> createRenderpass(
@@ -756,6 +834,84 @@ public:
 
 		m_timeElapsed = 0.0;
 		
+		// Loading font stuff
+		std::string fontFilename = "C:\\Windows\\Fonts\\comic.ttf";
+
+		FT_Library library;
+		FT_Face face;
+
+		auto error = FT_Init_FreeType(&library);
+		assert(!error);
+
+		error = FT_New_Face(library, fontFilename.c_str(), 0, &face);
+		assert(!error);
+
+		// For each represented character
+		for (uint32_t characterIdx = FirstGeneratedCharacter; characterIdx <= LastGeneratedCharacter; characterIdx ++)
+		{
+			char k = char(characterIdx);
+			wchar_t unicode = wchar_t(k);
+			uint32_t glyphIndex = FT_Get_Char_Index(face, unicode);
+
+			// special case for space as it seems to break msdfgen
+			if (glyphIndex != 0 || k != ' ')
+			{
+				error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE);
+				assert(!error);
+
+				FreetypeHatchBuilder builder;
+				FT_Outline_Funcs ftFunctions;
+				ftFunctions.move_to = &ftMoveTo;
+				ftFunctions.line_to = &ftLineTo;
+				ftFunctions.conic_to = &ftConicTo;
+				ftFunctions.cubic_to = &ftCubicTo;
+				ftFunctions.shift = 0;
+				ftFunctions.delta = 0;
+				FT_Error error = FT_Outline_Decompose(&face->glyph->outline, &ftFunctions, &builder);
+				assert(!error);
+				builder.finish();
+
+				m_glyphPolylines[characterIdx - uint32_t(FirstGeneratedCharacter)] = std::move(builder.polylines);
+			}
+		}
+
+		m_glyphLibrary = library;
+		m_glyphFace = face;
+
+		// Hatch fill MSDF
+		{
+			std::vector<CPolyline> polylines;
+			// Diamonds
+			{
+				// Outer
+				std::vector<float64_t2> points = {
+					float64_t2(3.5, 8.0),
+					float64_t2(7.0, 4.5),
+					float64_t2(3.5, 1.0),
+					float64_t2(0.0, 4.5),
+					float64_t2(3.5, 8.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+			{
+				// Inner 
+				std::vector<float64_t2> points = {
+					float64_t2(3.5, 6.5),
+					float64_t2(5.5, 4.5),
+					float64_t2(3.5, 2.5),
+					float64_t2(1.5, 4.5),
+					float64_t2(3.5, 6.5)
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+
+			m_testMsdfTexture = generateMsdfForShape(polylines);
+		}
+
 		return true;
 	}
 
@@ -837,50 +993,6 @@ public:
 		addObjects(intendedNextSubmit);
 		
 		endFrameRender(intendedNextSubmit);
-
-		// Loading font stuff
-		std::string fontFilename = "C:\\Windows\\Fonts\\arialbd.ttf";
-
-		FT_Library library;
-		FT_Face face;
-
-		auto error = FT_Init_FreeType(&library);
-		assert(!error);
-
-		error = FT_New_Face(library, fontFilename.c_str(), 0, &face);
-		assert(!error);
-
-		// For each represented character
-		for (uint32_t characterIdx = FirstGeneratedCharacter; characterIdx <= LastGeneratedCharacter; characterIdx ++)
-		{
-			char k = char(characterIdx);
-			wchar_t unicode = wchar_t(k);
-			uint32_t glyphIndex = FT_Get_Char_Index(face, unicode);
-
-			// special case for space as it seems to break msdfgen
-			if (glyphIndex != 0 || k != ' ')
-			{
-				error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE);
-				assert(!error);
-
-				FreetypeHatchBuilder builder;
-				FT_Outline_Funcs ftFunctions;
-				ftFunctions.move_to = &ftMoveTo;
-				ftFunctions.line_to = &ftLineTo;
-				ftFunctions.conic_to = &ftConicTo;
-				ftFunctions.cubic_to = &ftCubicTo;
-				ftFunctions.shift = 0;
-				ftFunctions.delta = 0;
-				FT_Error error = FT_Outline_Decompose(&face->glyph->outline, &ftFunctions, &builder);
-				assert(!error);
-				builder.finish();
-
-				m_glyphPolylines[characterIdx - uint32_t(FirstGeneratedCharacter)] = std::move(builder.polylines);
-			}
-		}
-
-		m_glyphLibrary = library;
-		m_glyphFace = face;
 	}
 	
 	bool beginFrameRender()
@@ -1403,6 +1515,8 @@ protected:
 			{
 				drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 			};
+
+			drawResourcesFiller.addMSDFTexture(m_testMsdfTexture.cpuBuffer.get(), m_testMsdfTexture.region, 0);
 			
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
@@ -3364,6 +3478,7 @@ protected:
 	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
 	FT_Library m_glyphLibrary;
 	FT_Face m_glyphFace;
+	MsdfTexture m_testMsdfTexture;
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

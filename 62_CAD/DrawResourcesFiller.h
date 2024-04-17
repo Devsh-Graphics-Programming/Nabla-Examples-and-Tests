@@ -250,7 +250,9 @@ protected:
 	std::stack<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
 
+	// MSDF Stuff
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray;
 	std::vector<TextureCopy>			textureCopies;
 	std::unordered_map<texture_hash, uint32_t/*index*/> textureIdToIndexMap;
+	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
 };
