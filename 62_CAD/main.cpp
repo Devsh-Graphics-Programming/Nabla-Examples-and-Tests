@@ -376,23 +376,22 @@ public:
 		glyph.normalize();
 
 		auto shapeBounds = glyph.getBounds();
-		uint32_t pixelSizes = 2;
 
 		uint32_t shapeBoundsW = shapeBounds.r - shapeBounds.l;
 		uint32_t shapeBoundsH = shapeBounds.t - shapeBounds.b;
-		uint32_t glyphW = 32;// shapeBoundsW* pixelSizes;
-		uint32_t glyphH = 32;// shapeBoundsH* pixelSizes;
+		uint32_t glyphW = 32;
+		uint32_t glyphH = 32;
 
 		uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
 		uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
 		msdfgen::edgeColoringSimple(glyph, 3.0); // TODO figure out what this is
 		msdfgen::Bitmap<float, 3> msdfMap(glyphW, glyphH);
 
-		float scaleX = (1.0 / float(shapeBoundsWidth)) * glyphW;
-		float scaleY = (1.0 / float(shapeBoundsHeight)) * glyphH;
-		msdfgen::generateMSDF(msdfMap, glyph, 4.0, { scaleX, scaleY }, msdfgen::Vector2(-shapeBounds.l, -shapeBounds.b));
+		float scaleX = (1.0 / float(8.0)) * glyphW;
+		float scaleY = (1.0 / float(8.0)) * glyphH;
+		msdfgen::generateMSDF(msdfMap, glyph, 4.0, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
 
-		// TODO: Optimizet his
+		// TODO: Optimize this
 		auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * 4);
 		uint8_t* data = reinterpret_cast<uint8_t*>(cpuBuf->getPointer());
 		for (int y = 0; y < msdfMap.height(); ++y)

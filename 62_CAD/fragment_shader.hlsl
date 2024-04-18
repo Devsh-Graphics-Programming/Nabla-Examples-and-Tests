@@ -336,17 +336,17 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 // We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
 // because there is no `if constexpr` in hlsl
 template<bool FragmentShaderPixelInterlock>
-float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx);
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const ObjectType objType, const uint32_t currentMainObjectIdx);
 
 template<>
-float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const ObjectType objType, const uint32_t currentMainObjectIdx)
 {
-    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
+    float32_t4 col = getObjectBaseColor(fragCoord, objType, currentMainObjectIdx);
     col.w *= localAlpha;
     return float4(col);
 }
 template<>
-float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const ObjectType objType, const uint32_t currentMainObjectIdx)
 {
     nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
@@ -367,7 +367,7 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
         discard;
 
     // draw with previous geometry's style's color :kek:
-    float32_t4 col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
+    float32_t4 col = getObjectBaseColor(fragCoord, objType, mainObjectIdx);
     col.w *= float(quantizedAlpha) / 255.f;
     return col;
 }
@@ -564,10 +564,6 @@ float4 main(PSInput input) : SV_TARGET
     
     if (localAlpha <= 0)
         discard;
-
-    float4 finalColor = calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
-    float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(fragCoord.xy % 8) / 8.0, 0.0));
-    finalColor.rgb = msdfSample.rgb;
-
-    return finalColor;
+    
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, objType, currentMainObjectIdx);
 }

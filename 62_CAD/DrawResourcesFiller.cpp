@@ -453,7 +453,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 		auto region = textureCopy.region;
 		m_utilities->updateImageViaStagingBuffer(
 			intendedNextSubmit, 
-			textureCopy.srcBuffer, asset::E_FORMAT::EF_R8G8B8_UNORM, 
+			textureCopy.srcBuffer, asset::E_FORMAT::EF_R8G8B8A8_UNORM, 
 			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 			{ &region, &region + 1 });
 	}
