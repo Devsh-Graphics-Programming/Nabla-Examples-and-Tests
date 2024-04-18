@@ -389,7 +389,7 @@ public:
 
 		float scaleX = (1.0 / float(8.0)) * glyphW;
 		float scaleY = (1.0 / float(8.0)) * glyphH;
-		msdfgen::generateMSDF(msdfMap, glyph, 4.0, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
+		msdfgen::generateMSDF(msdfMap, glyph, MsdfPixelRange, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
 
 		// TODO: Optimize this
 		auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * 4);

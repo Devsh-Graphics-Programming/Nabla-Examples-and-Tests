@@ -197,6 +197,7 @@ NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
+NBL_CONSTEXPR float MsdfPixelRange = 4.0;
 
 #ifdef __HLSL_VERSION
 
@@ -448,8 +449,9 @@ float median(float r, float g, float b) {
 }
 
 float screenPxRange(float2 uv) {
-	float pxRange = 4.0;
-    float2 unitRange = pxRange / float2(globals.resolution);
+    float2 unitRange = MsdfPixelRange / float2(globals.resolution);
+    // This could also be done using the resolution, but this way we supposedly
+    // get better support for rotations and other transformations with the text
     float2 screenTexSize = 1.0 / fwidth(uv);
     return max(0.5*dot(unitRange, screenTexSize), 1.0);
 }
@@ -465,9 +467,8 @@ float msdfOpacity(float3 msd, float2 uv) {
 float32_t4 getObjectBaseColor(const uint2 fragCoord, const ObjectType objType, const uint32_t currentMainObjectIdx)
 {
     float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
-    float2 msdfUv = float2(fragCoord.xy) / 8.0;
-    float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(msdfUv, 0.0)).xyz;
-    float msdf = msdfOpacity(msdfSample, msdfUv);
+    float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(fragCoord.xy) / 8.0, 0.0)).xyz;
+    float msdf = msdfOpacity(msdfSample, float2(fragCoord.xy) / float2(globals.resolution));
     col.rgb = lerp(col.rgb, float3(0.8, 0.1, 0.0), msdf);
 
     return col;
