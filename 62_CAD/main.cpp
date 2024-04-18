@@ -25,6 +25,7 @@ using namespace video;
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/core/containers/LRUCache.h"
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;

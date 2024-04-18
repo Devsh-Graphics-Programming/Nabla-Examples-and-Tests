@@ -1,10 +1,14 @@
 #include "DrawResourcesFiller.h"
 
-DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue)
-{
-	m_utilities = utils;
-	m_copyQueue = copyQueue;
-}
+DrawResourcesFiller::DrawResourcesFiller() :
+	textureLRUCache(1024u)
+{}
+
+DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue) :
+	textureLRUCache(1024u),
+	m_utilities(utils),
+	m_copyQueue(copyQueue)
+{}
 
 // function is called when buffer is filled and we should submit draws and clear the buffers and continue filling
 
@@ -118,6 +122,10 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
 {
+	// TODO[Erfan]: Fix resize TextureLRUCache 
+	// assert(maxMSDFs == textureLRUCache.capacity);
+	// textureLRUCache = TextureLRUCache(maxMSDFs);
+
 	asset::E_FORMAT msdfFormat = asset::EF_R8G8B8A8_UNORM; // @Lucas change the format to what MSDFs use
 	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
@@ -221,7 +229,7 @@ void DrawResourcesFiller::drawHatch(
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
 		const float32_t4& backgroundColor,
-		const uint32_t msdfTextureIdx,
+		const texture_hash msdfTexture,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TODO[Optimization Idea]: don't draw hatch twice if both colors are visible: instead do the msdf inside the alpha resolve by detecting mainObj being a hatch
@@ -237,12 +245,23 @@ void DrawResourcesFiller::drawHatch(
 void DrawResourcesFiller::drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		const uint32_t msdfTextureIdx,
+		const texture_hash msdfTexture,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
+	uint32_t textureIdx = InvalidTextureIdx;
+	if (msdfTexture != InvalidTextureHash)
+	{
+		TextureReference* tRef = textureLRUCache.get(msdfTexture);
+		if (tRef)
+		{
+			textureIdx = tRef->alloc_idx;
+			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getScratchSemaphoreNextWait().value; // update this because the texture will get used on the next submit
+		}
+	}
+
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
-	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(msdfTextureIdx);
+	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
 	// @Lucas we use LineStyle struct for hatches too but we aliased a member with textureId, So you need to do asuint(lineStyle.screenSpaceLineWidth) to get you the index into msdfTextureArray
 
 	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
@@ -264,38 +283,50 @@ void DrawResourcesFiller::drawHatch(
 
 void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	drawHatch(hatch, color, InvalidTextureIdx, intendedNextSubmit);
+	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash)
+void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	uint32_t ret = InvalidTextureIdx;
+	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
+	// Every single submit increases this value by 1
+	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
+	uint64_t nextSemaValue = intendedNextSubmit.getScratchSemaphoreNextWait().value;
+	const auto* signalSema = intendedNextSubmit.getScratchSemaphoreNextWait().semaphore;
 
-	// @Lucas TODO: Here should rely the main logic for allocating an index from our allocator and evicting based on LRU Cache if we failed
-	/*
-	*	look into `textureIdToIndexMap` if we already have the `texture_hash` in the texture array slices (skip if hash is InvalidTextureHash)
-	*	If we found a match we return that index;
-	*	Else:
-	*	LRUIndexAllocator try allocate
-	*		Failure to Alloc Index (Auto-Submission logic): 
-				1. evict something from LRU cache + remove entry from lookup unordered_map ->
-				2. dealloc with deferred (based on next submit signal val) ->
-				3. resetGeometryCounters(); (because geometries using previous glyphs are done rendering and should be invalidated)
-				4. ret = try alloc again (+ assert it should succeed because we evicted and dealloced) 
-	*		Success to Alloc Index: ret = index; add entry to lookup unordered_map
-	*/
+	auto evictionCallback = [&](const TextureReference& evicted)
+		{
+			// @Lucas TODO:
+			
+			// Dealloc:
+			//allocator.multi_deallocate(1u,&evicted.alloc_idx,{signalSema,evicted.lastUsedSemaphoreValue});
+			
+			// Overflow Handling:
+			//finalizeAllCopiesToGPU(intendedNextSubmit);
+			//submitDraws(intendedNextSubmit);
+			//resetGeometryCounters();
+			//resetMainObjectCounters();
+		};
+	
+	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
+	TextureReference* inserted = textureLRUCache.insert(hash, nextSemaValue, evictionCallback);
+	
+	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
+	if (inserted->alloc_idx == InvalidTextureIdx)
+	{
+		// New insertion == cache miss happened and insertion was successfull
+		// allocator.multi_allocate(1u,&inserted->alloc_idx);
+		inserted->alloc_idx = 0u; // temp
+		
+		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
+		textureCopies.push_back({
+			.srcBuffer = srcBuffer,
+			.region = region,
+			.index = inserted->alloc_idx,
+		});
+	}
 
-	// asuming allocator gave us 0 as index
-	ret = 0u;
-
-	// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-	textureCopies.push_back({
-		.srcBuffer = srcBuffer,
-		.region = region,
-		.index = ret,
-	});
-
-	return ret;
+	assert(inserted->alloc_idx != InvalidTextureIdx);
 }
 
 void DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
