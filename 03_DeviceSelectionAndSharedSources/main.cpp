@@ -32,7 +32,7 @@ public:
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		// Remember to call the base class initialization!
-		if (!device_base_t::onAppInitialized(std::move(system)))
+		if (!device_base_t::onAppInitialized(core::smart_refctd_ptr(system)))
 			return false;
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
@@ -52,29 +52,32 @@ public:
 			pplnIntroData->merge(sourceIntrospectionPair.second.get());
 		}
 #endif
+		auto confirmExpectedOutput = [this](bool value, bool expectedValue)
+			{
+				if (value != expectedValue)
+				{
+					m_logger->log("\"CSPIRVIntrospector::CPipelineIntrospectionData::merge\" function FAIL, incorrect output.",
+						ILogger::E_LOG_LEVEL::ELL_ERROR);
+				}
+				else
+				{
+					m_logger->log("\"CSPIRVIntrospector::CPipelineIntrospectionData::merge\" function SUCCESS, correct output.",
+						ILogger::E_LOG_LEVEL::ELL_PERFORMANCE);
+				}
+			};
+
+		// TODO: if these are to stay, then i should avoid code multiplication
 		// testing creation of compute pipeline layouts compatible for multiple shaders
 		{
 			constexpr std::array mergeTestShadersPaths = {
+				"app_resources/pplnLayoutMergeTest/shader_0.comp.hlsl",
 				"app_resources/pplnLayoutMergeTest/shader_1.comp.hlsl",
 				"app_resources/pplnLayoutMergeTest/shader_2.comp.hlsl",
 				"app_resources/pplnLayoutMergeTest/shader_3.comp.hlsl",
-				"app_resources/pplnLayoutMergeTest/shader_4.comp.hlsl"
+				"app_resources/pplnLayoutMergeTest/shader_4.comp.hlsl",
+				"app_resources/pplnLayoutMergeTest/shader_5.comp.hlsl"
 			};
 			constexpr uint32_t MERGE_TEST_SHADERS_CNT = mergeTestShadersPaths.size();
-
-			auto confirmExpectedOutput = [this](bool value, bool expectedValue)
-				{
-					if (value != expectedValue)
-					{
-						m_logger->log("\"CSPIRVIntrospector::CPipelineIntrospectionData::merge\" function FAIL, incorrect output.",
-							ILogger::E_LOG_LEVEL::ELL_ERROR);
-					}
-					else
-					{
-						m_logger->log("\"CSPIRVIntrospector::CPipelineIntrospectionData::merge\" function SUCCESS, correct output.",
-							ILogger::E_LOG_LEVEL::ELL_PERFORMANCE);
-					}
-				};
 
 			CSPIRVIntrospector introspector[MERGE_TEST_SHADERS_CNT];
 			smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspections[MERGE_TEST_SHADERS_CNT];
@@ -95,12 +98,156 @@ public:
 			confirmExpectedOutput(pplnIntroData->merge(introspections[1].get()), true);
 				// should not merge since pipeline layout of "shader_3.comp.hlsl" is not compatible with "shader_1.comp.hlsl"
 			confirmExpectedOutput(pplnIntroData->merge(introspections[2].get()), false);
+				// should not merge since pipeline layout of "shader_3.comp.hlsl" is not compatible with "shader_1.comp.hlsl"
 
-			core::smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData> pplnIntroData2;
-			pplnIntroData2 = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
+			pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
 
 				// should not merge since run-time sized destriptor of "shader_4.comp.hlsl" is not last
-			confirmExpectedOutput(pplnIntroData2->merge(introspections[3].get()), false);
+			confirmExpectedOutput(pplnIntroData->merge(introspections[3].get()), false);
+
+			pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
+
+				// should merge successfully since shader is not messed up and it is the first merge
+			confirmExpectedOutput(pplnIntroData->merge(introspections[4].get()), true);
+				// TODO: idk what should happen when last binding in introspection is fixed-length sized array and last binding in introspection to merge is run-time sized array
+			confirmExpectedOutput(pplnIntroData->merge(introspections[5].get()), false);
+		}
+
+		// testing pre-defined layout compatibility
+		{
+			constexpr std::array mergeTestShadersPaths = {
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_0.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_1.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_2.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_3.comp.hlsl"
+			};
+			constexpr uint32_t MERGE_TEST_SHADERS_CNT = mergeTestShadersPaths.size();
+
+			CSPIRVIntrospector introspector[MERGE_TEST_SHADERS_CNT];
+			smart_refctd_ptr<ICPUShader> sources[MERGE_TEST_SHADERS_CNT];
+
+			for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
+			{
+				m_logger->log("------- %s INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING, mergeTestShadersPaths[i]);
+				auto sourceIntrospectionPair = this->compileShaderAndTestIntrospection(mergeTestShadersPaths[i], introspector[i]);
+				// TODO: disctinct functions for shader compilation and introspection
+				sources[i] = sourceIntrospectionPair.first;
+			}
+
+			constexpr uint32_t BINDINGS_DS_0_CNT = 2u;
+			const ICPUDescriptorSetLayout::SBinding bindingsDS0[BINDINGS_DS_0_CNT] = {
+				{
+					.binding = 0,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
+					.stageFlags = ICPUShader::ESS_COMPUTE,
+					.count = 1,
+					.samplers = nullptr // irrelevant for a buffer
+				},
+				{
+					.binding = 1,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
+					.stageFlags = IGPUShader::ESS_COMPUTE,
+					.count = 2,
+					.samplers = nullptr // irrelevant for a buffer
+				}
+			};
+
+			constexpr uint32_t BINDINGS_DS_1_CNT = 1u;
+			const ICPUDescriptorSetLayout::SBinding bindingsDS1[BINDINGS_DS_1_CNT] = {
+					{
+						.binding = 6,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+						.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = ICPUShader::ESS_COMPUTE,
+						.count = 1,
+						.samplers = nullptr // irrelevant for a buffer
+					},
+			};
+
+			core::smart_refctd_ptr<ICPUDescriptorSetLayout> dsLayout0 = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindingsDS0, bindingsDS0 + BINDINGS_DS_0_CNT);
+			core::smart_refctd_ptr<ICPUDescriptorSetLayout> dsLayout1 = core::make_smart_refctd_ptr<ICPUDescriptorSetLayout>(bindingsDS1, bindingsDS1 + BINDINGS_DS_1_CNT);
+
+			if (!dsLayout0 || !dsLayout1)
+				return logFail("Failed to create a Descriptor Layout!\n");
+
+			smart_refctd_ptr<ICPUPipelineLayout> predefinedPplnLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>(), std::move(dsLayout0), std::move(dsLayout1), nullptr, nullptr);
+			if (!predefinedPplnLayout)
+				return logFail("Failed to create a Pipeline Layout!\n");
+
+			bool pplnCreationSuccess[MERGE_TEST_SHADERS_CNT];
+			for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
+			{
+				ICPUShader::SSpecInfo specInfo;
+				specInfo.entryPoint = "main";
+				specInfo.shader = sources[i].get();
+				pplnCreationSuccess[i] = static_cast<bool>(introspector[i].createApproximateComputePipelineFromIntrospection(specInfo, core::smart_refctd_ptr<ICPUPipelineLayout>(predefinedPplnLayout)));
+			}
+
+			assert(MERGE_TEST_SHADERS_CNT <= 4u);
+				// DESCRIPTOR VALIDATION TESTS
+			// layout from introspection is a subset of pre-defined layout, hence ppln creation should SUCCEED
+			confirmExpectedOutput(pplnCreationSuccess[0], true);
+			// layout from introspection is NOT a subset (too many bindings in descriptor set 0) of pre-defined layout, hence ppln creation should FAIL
+			confirmExpectedOutput(pplnCreationSuccess[1], false);
+			// layout from introspection is NOT a subset (pre-defined layout doesn't have descriptor set 2) of pre-defined layout, hence ppln creation should FAIL
+			confirmExpectedOutput(pplnCreationSuccess[2], false);
+			// layout from introspection is NOT a subset (same bindings, different type of one of the bindings) of pre-defined layout, hence ppln creation should FAIL
+			confirmExpectedOutput(pplnCreationSuccess[3], false);
+				// PUSH CONSTANTS VALIDATION TESTS
+			// layout from introspection is a subset of pre-defined layout (Push constant size declared in shader are compatible), hence ppln creation should SUCCEED
+			// TODO
+			// layout from introspection is NOT a subset of pre-defined layout (Push constant size declared in shader are NOT compatible), hence ppln creation should FAIL
+			// TODO
+		}
+
+		// testing what will happen when last binding in introspection is fixed-length sized array and last binding in introspection to merge is run-time sized array
+		{
+			CSPIRVIntrospector introspector;
+			auto source = this->compileShaderAndTestIntrospection("app_resources/lastBindingCompatibilityTest.comp.hlsl", introspector).first;
+
+			ICPUShader::SSpecInfo specInfo;
+			specInfo.entryPoint = "main";
+			specInfo.shader = source.get();
+
+			m_logger->log("------- shader.comp.hlsl PIPELINE CREATION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
+			smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
+
+			smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
+
+			nbl::video::IGPUDescriptorSetLayout::SBinding bindingsDS0[1] = {
+					{
+						.binding = 0,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT,
+						.stageFlags = IGPUShader::ESS_COMPUTE,
+						.count = 0,
+						.samplers = nullptr
+					},
+			};
+
+			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout0 = m_device->createDescriptorSetLayout(bindingsDS0);
+			if (!dsLayout0)
+				return logFail("Failed to create a Descriptor Layout!\n");
+
+			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
+			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({}, smart_refctd_ptr(dsLayout0), nullptr, nullptr, nullptr);
+			if (!pplnLayout)
+				return logFail("Failed to create a Pipeline Layout!\n");
+
+			// We use strong typing on the pipelines (Compute, Graphics, Mesh, RT), since there's no reason to polymorphically switch between different pipelines
+			smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+			{
+				IGPUComputePipeline::SCreationParams params = {};
+				params.layout = pplnLayout.get();
+				// Theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one (and glslang used to require it be called "main")
+				params.shader.entryPoint = "main";
+				params.shader.shader = shader.get();
+				// we'll cover the specialization constant API in another example
+				if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+					return logFail("Failed to create pipelines (compile & link shaders)!\n");
+			}
 		}
 
 		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
