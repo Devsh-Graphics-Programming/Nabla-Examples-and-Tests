@@ -25,6 +25,9 @@ using namespace video;
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include <chrono>
+
+#define BENCHMARK_TILL_FIRST_FRAME
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
@@ -836,6 +839,16 @@ public:
 		addObjects(intendedNextSubmit);
 		
 		endFrameRender(intendedNextSubmit);
+
+#ifdef BENCHMARK_TILL_FIRST_FRAME
+		if (!stopBenchamrkFlag)
+		{
+			const std::chrono::steady_clock::time_point stopBenchmark = std::chrono::high_resolution_clock::now();
+			auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopBenchmark - startBenchmark);
+			std::cout << "Time taken till first render pass: " << duration.count() << " milliseconds" << std::endl;
+			stopBenchamrkFlag = true;
+		}
+#endif
 	}
 	
 	bool beginFrameRender()
@@ -2555,6 +2568,11 @@ protected:
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+
+	#ifdef BENCHMARK_TILL_FIRST_FRAME
+	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
+	bool stopBenchamrkFlag = false;
+	#endif
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)
