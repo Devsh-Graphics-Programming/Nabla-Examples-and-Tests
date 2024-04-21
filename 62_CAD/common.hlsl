@@ -24,15 +24,14 @@ enum class MajorAxis : uint32_t
 // Consists of multiple DrawObjects
 struct MainObject
 {
-    // TODO[Erfan]: probably have objectType here as well?
     uint32_t styleIdx;
-    uint32_t clipProjectionIdx;
+    uint32_t pad; // do I even need this?
+    uint64_t clipProjectionAddress;
 };
 
 struct DrawObject
 {
-    // TODO: use struct bitfields in after DXC update and see if the invalid spirv bug still exists
-    uint32_t type_subsectionIdx; // packed to uint16 into uint32
+    uint32_t type_subsectionIdx; // packed two uint16 into uint32
     uint32_t mainObjIndex;
     uint64_t geometryAddress;
 };
@@ -193,8 +192,8 @@ NBL_CONSTEXPR uint32_t MainObjectIdxBits = 24u; // It will be packed next to alp
 NBL_CONSTEXPR uint32_t AlphaBits = 32u - MainObjectIdxBits;
 NBL_CONSTEXPR uint32_t MaxIndexableMainObjects = (1u << MainObjectIdxBits) - 1u;
 NBL_CONSTEXPR uint32_t InvalidMainObjectIdx = MaxIndexableMainObjects;
-NBL_CONSTEXPR uint32_t InvalidClipProjectionIdx = 0xffffffff;
-NBL_CONSTEXPR uint32_t UseDefaultClipProjectionIdx = InvalidClipProjectionIdx;
+NBL_CONSTEXPR uint64_t InvalidClipProjectionAddress = nbl::hlsl::numeric_limits<uint64_t>::max;
+NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::max;
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
@@ -435,9 +434,10 @@ struct PSInput
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
 [[vk::binding(0, 0)]] ConstantBuffer<Globals> globals : register(b0);
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
-[[vk::binding(2, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t1);
-[[vk::binding(3, 0)]] StructuredBuffer<MainObject> mainObjects : register(t2);
-[[vk::binding(4, 0)]] StructuredBuffer<ClipProjectionData> customClipProjections : register(t3);
+[[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
+[[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
+[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float4> msdfTextures : register(t3); // @Lucas, change `<float4>` to the number of components used in msdf texture
+[[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
