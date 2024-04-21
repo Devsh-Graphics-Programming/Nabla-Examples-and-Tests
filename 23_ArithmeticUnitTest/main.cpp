@@ -1,5 +1,5 @@
-#include "../common/BasicMultiQueueApplication.hpp"
-#include "../common/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "nbl/application_templates/BasicMultiQueueApplication.hpp"
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "app_resources/common.hlsl"
 
 using namespace nbl;
@@ -45,10 +45,10 @@ struct emulatedScanExclusive
 	static inline constexpr const char* name = "exclusive_scan";
 };
 
-class ArithmeticUnitTestApp final : public examples::BasicMultiQueueApplication, public examples::MonoAssetManagerAndBuiltinResourceApplication
+class ArithmeticUnitTestApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = examples::BasicMultiQueueApplication;
-	using asset_base_t = examples::MonoAssetManagerAndBuiltinResourceApplication;
+	using device_base_t = application_templates::BasicMultiQueueApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 public:
 	ArithmeticUnitTestApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -78,14 +78,14 @@ public:
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
 			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 			gpuinputDataBuffer = m_utils->createFilledDeviceLocalBufferOnDedMem(
-				getTransferUpQueue(),
+				{.queue=getTransferUpQueue()},
 				std::move(inputDataBufferCreationParams),
 				inputData
 			);
 		}
 
 		// create 8 buffers for 8 operations
-		for (auto i = 0u; i < OutputBufferCount; i++)
+		for (auto i=0u; i<OutputBufferCount; i++)
 		{
 			IGPUBuffer::SCreationParams params = {};
 			params.size = sizeof(uint32_t) + gpuinputDataBuffer->getSize();
@@ -109,14 +109,14 @@ public:
 				for (uint32_t i = 0u; i < 2; i++)
 					binding[i] = { i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER, IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, IShader::ESS_COMPUTE, 1u, nullptr };
 				binding[1].count = OutputBufferCount;
-				dsLayout = m_device->createDescriptorSetLayout(binding, binding + 2);
+				dsLayout = m_device->createDescriptorSetLayout(binding);
 			}
 
 			// set and transient pool
-			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, &dsLayout.get(), &dsLayout.get() + 1u);
+			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,{&dsLayout.get(),1});
 			descriptorSet = descPool->createDescriptorSet(smart_refctd_ptr(dsLayout));
 			{
-				IGPUDescriptorSet::SDescriptorInfo infos[1 + OutputBufferCount];
+				IGPUDescriptorSet::SDescriptorInfo infos[1+OutputBufferCount];
 				infos[0].desc = gpuinputDataBuffer;
 				infos[0].info.buffer = { 0u,gpuinputDataBuffer->getSize() };
 				for (uint32_t i = 1u; i <= OutputBufferCount; i++)
@@ -128,14 +128,47 @@ public:
 				}
 
 				IGPUDescriptorSet::SWriteDescriptorSet writes[2];
-				for (uint32_t i = 0u; i < 2; i++)
-					writes[i] = { descriptorSet.get(),i,0u,1u,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,infos + i };
+				for (uint32_t i=0u; i<2; i++)
+					writes[i] = {descriptorSet.get(),i,0u,1u,infos+i};
 				writes[1].count = OutputBufferCount;
 
 				m_device->updateDescriptorSets(2, writes, 0u, nullptr);
 			}
 
-			pipelineLayout = m_device->createPipelineLayout(nullptr, nullptr, std::move(dsLayout));
+			pipelineLayout = m_device->createPipelineLayout({},std::move(dsLayout));
+		}
+
+		const auto spirv_isa_cache_path = localOutputCWD/"spirv_isa_cache.bin";
+		// enclose to make sure file goes out of scope and we can reopen it
+		{
+			smart_refctd_ptr<const IFile> spirv_isa_cache_input;
+			// try to load SPIR-V to ISA cache
+			{
+				ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
+				m_system->createFile(fileCreate,spirv_isa_cache_path,IFile::ECF_READ|IFile::ECF_MAPPABLE|IFile::ECF_COHERENT);
+				if (auto lock=fileCreate.acquire())
+					spirv_isa_cache_input = *lock;
+			}
+			// create the cache
+			{
+				std::span<const uint8_t> spirv_isa_cache_data = {};
+				if (spirv_isa_cache_input)
+					spirv_isa_cache_data = {reinterpret_cast<const uint8_t*>(spirv_isa_cache_input->getMappedPointer()),spirv_isa_cache_input->getSize()};
+				else
+					m_logger->log("Failed to load SPIR-V 2 ISA cache!",ILogger::ELL_PERFORMANCE);
+				// Normally we'd deserialize a `ICPUPipelineCache` properly and pass that instead
+				m_spirv_isa_cache = m_device->createPipelineCache(spirv_isa_cache_data);
+			}
+		}
+		{
+			// TODO: rename `deleteDirectory` to just `delete`? and a `IFile::setSize()` ?
+			m_system->deleteDirectory(spirv_isa_cache_path);
+			ISystem::future_t<smart_refctd_ptr<IFile>> fileCreate;
+			m_system->createFile(fileCreate,spirv_isa_cache_path,IFile::ECF_WRITE);
+			// I can be relatively sure I'll succeed to acquire the future, the pointer to created file might be null though.
+			m_spirv_isa_cache_output=*fileCreate.acquire();
+			if (!m_spirv_isa_cache_output)
+				logFail("Failed to Create SPIR-V to ISA cache file.");
 		}
 
 		// load shader source from file
@@ -145,23 +178,23 @@ public:
 			lparams.logger = m_logger.get();
 			lparams.workingDirectory = "";
 			auto bundle = m_assetMgr->getAsset(filePath, lparams);
-			if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SPECIALIZED_SHADER)
+			if (bundle.getContents().empty() || bundle.getAssetType()!=IAsset::ET_SHADER)
 			{
 				m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
 				exit(-1);
 			}
 			auto firstAssetInBundle = bundle.getContents()[0];
-			return smart_refctd_ptr<ICPUShader>(smart_refctd_ptr_static_cast<ICPUSpecializedShader>(firstAssetInBundle)->getUnspecialized());
+			return smart_refctd_ptr_static_cast<ICPUShader>(firstAssetInBundle);
 		};
 
 		auto subgroupTestSource = getShaderSource("app_resources/testSubgroup.comp.hlsl");
 		auto workgroupTestSource = getShaderSource("app_resources/testWorkgroup.comp.hlsl");
 		// now create or retrieve final resources to run our tests
-		fence = m_device->createFence(IGPUFence::ECF_UNSIGNALED);
+		sema = m_device->createSemaphore(timelineValue);
 		resultsBuffer = make_smart_refctd_ptr<ICPUBuffer>(outputBuffers[0]->getSize());
 		{
-			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::ECF_RESET_COMMAND_BUFFER_BIT);
-			if (!m_device->createCommandBuffers(cmdpool.get(), IGPUCommandBuffer::EL_PRIMARY, 1u, &cmdbuf))
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{&cmdbuf,1}))
 			{
 				logFail("Failed to create Command Buffers!\n");
 				return false;
@@ -169,54 +202,51 @@ public:
 		}
 
 		const auto MaxWorkgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
-		// TODO: redo the test with all subgroup sizes
 		const auto MinSubgroupSize = m_physicalDevice->getLimits().minSubgroupSize;
 		const auto MaxSubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-		for (auto subgroupSize =/*see TODO*/MaxSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
+		for (auto subgroupSize=MinSubgroupSize; subgroupSize <= MaxSubgroupSize; subgroupSize *= 2u)
 		{
+			const uint8_t subgroupSizeLog2 = hlsl::findMSB(subgroupSize);
 			for (uint32_t workgroupSize = subgroupSize; workgroupSize <= MaxWorkgroupSize; workgroupSize += subgroupSize)
 			{
 				// make sure renderdoc captures everything for debugging
 				computeQueue->startCapture();
-				m_logger->log("Testing Workgroup Size %u", ILogger::ELL_INFO, workgroupSize);
+				m_logger->log("Testing Workgroup Size %u with Subgroup Size %u", ILogger::ELL_INFO, workgroupSize, subgroupSize);
 
 				bool passed = true;
 				// TODO async the testing
-				passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, workgroupSize) && passed;
+				passed = runTest<emulatedReduction, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
 				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, workgroupSize) && passed;
+				passed = runTest<emulatedScanInclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
 				logTestOutcome(passed, workgroupSize);
-				passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, workgroupSize) && passed;
+				passed = runTest<emulatedScanExclusive, false>(subgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize) && passed;
 				logTestOutcome(passed, workgroupSize);
 				for (uint32_t itemsPerWG = workgroupSize; itemsPerWG > workgroupSize - subgroupSize; itemsPerWG--)
 				{
 					m_logger->log("Testing Item Count %u", ILogger::ELL_INFO, itemsPerWG);
-					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, workgroupSize, itemsPerWG) && passed;
+					passed = runTest<emulatedReduction, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, workgroupSize, itemsPerWG) && passed;
+					passed = runTest<emulatedScanInclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 					logTestOutcome(passed, itemsPerWG);
-					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, workgroupSize, itemsPerWG) && passed;
+					passed = runTest<emulatedScanExclusive, true>(workgroupTestSource, elementCount, subgroupSizeLog2, workgroupSize, itemsPerWG) && passed;
 					logTestOutcome(passed, itemsPerWG);
 				}
 				computeQueue->endCapture();
+
+				// save cache every now and then	
+				{
+					auto cpu = m_spirv_isa_cache->convertToCPUCache();
+					// Normally we'd beautifully JSON serialize the thing, allow multiple devices & drivers + metadata
+					auto bin = cpu->getEntries().begin()->second.bin;
+					IFile::success_t success;
+					m_spirv_isa_cache_output->write(success,bin->data(),0ull,bin->size());
+					if (!success)
+						logFail("Could not write Create SPIR-V to ISA cache to disk!");
+				}
 			}
 		}
 
 		return true;
-	}
-
-	virtual video::SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
-	{
-		video::SPhysicalDeviceFeatures retval = {};
-
-		retval.bufferDeviceAddress = true;
-		retval.subgroupBroadcastDynamicId = true;
-		retval.shaderSubgroupExtendedTypes = true;
-		// TODO: actually need to implement this and set it on the pipelines
-		retval.computeFullSubgroups = true;
-		retval.subgroupSizeControl = true;
-
-		return retval;
 	}
 
 	virtual bool onAppTerminated() override
@@ -246,11 +276,22 @@ private:
 	}
 
 	// create pipeline (specialized every test) [TODO: turn into a future/async]
-	smart_refctd_ptr<IGPUComputePipeline> createPipeline(smart_refctd_ptr<ICPUShader>&& overridenUnspecialized)
+	smart_refctd_ptr<IGPUComputePipeline> createPipeline(const ICPUShader* overridenUnspecialized, const uint8_t subgroupSizeLog2)
 	{
-		auto shader = m_device->createShader(std::move(overridenUnspecialized));
-		auto specialized = m_device->createSpecializedShader(shader.get(), ISpecializedShader::SInfo(nullptr, nullptr, "main"));
-		return m_device->createComputePipeline(nullptr, smart_refctd_ptr(pipelineLayout), std::move(specialized));
+		auto shader = m_device->createShader(overridenUnspecialized);
+		IGPUComputePipeline::SCreationParams params = {};
+		params.layout = pipelineLayout.get();
+		params.shader = {
+			.entryPoint = "main",
+			.shader = shader.get(),
+			.entries = nullptr,
+			.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(subgroupSizeLog2),
+			.requireFullSubgroups = true
+		};
+		core::smart_refctd_ptr<IGPUComputePipeline> pipeline;
+		if (!m_device->createComputePipelines(m_spirv_isa_cache.get(),{&params,1},&pipeline))
+			return nullptr;
+		return pipeline;
 	}
 
 	/*template<template<class> class Arithmetic, bool WorkgroupTest>
@@ -260,7 +301,7 @@ private:
 	}*/
 
 	template<template<class> class Arithmetic, bool WorkgroupTest>
-	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
+	bool runTest(const smart_refctd_ptr<const ICPUShader>& source, const uint32_t elementCount, const uint8_t subgroupSizeLog2, const uint32_t workgroupSize, uint32_t itemsPerWG = ~0u)
 	{
 		std::string arith_name = Arithmetic<bit_xor<float>>::name;
 
@@ -280,40 +321,42 @@ private:
 				(("subgroup::") + arith_name).c_str(), workgroupSize
 			);
 		}
-		auto pipeline = createPipeline(std::move(overridenUnspecialized));
+		auto pipeline = createPipeline(overridenUnspecialized.get(),subgroupSizeLog2);
 
 		// TODO: overlap dispatches with memory readbacks (requires multiple copies of `buffers`)
 		const uint32_t workgroupCount = elementCount / itemsPerWG;
-		cmdbuf->begin(IGPUCommandBuffer::EU_NONE);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
 		cmdbuf->bindComputePipeline(pipeline.get());
 		cmdbuf->bindDescriptorSets(EPBP_COMPUTE, pipeline->getLayout(), 0u, 1u, &descriptorSet.get());
 		cmdbuf->dispatch(workgroupCount, 1, 1);
 		{
-			IGPUCommandBuffer::SBufferMemoryBarrier memoryBarrier[OutputBufferCount];
-			// in theory we don't need the HOST BITS cause we block on a fence but might as well add them
-			for (auto i = 0u; i < OutputBufferCount; i++)
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t memoryBarrier[OutputBufferCount];
+			for (auto i=0u; i<OutputBufferCount; i++)
 			{
-				memoryBarrier[i].barrier.srcAccessMask = EAF_SHADER_WRITE_BIT;
-				memoryBarrier[i].barrier.dstAccessMask = EAF_SHADER_WRITE_BIT | EAF_HOST_READ_BIT;
-				memoryBarrier[i].srcQueueFamilyIndex = cmdbuf->getQueueFamilyIndex();
-				memoryBarrier[i].dstQueueFamilyIndex = cmdbuf->getQueueFamilyIndex();
-				memoryBarrier[i].buffer = outputBuffers[i];
-				memoryBarrier[i].offset = 0u;
-				memoryBarrier[i].size = outputBuffers[i]->getSize();
+				memoryBarrier[i] = {
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+							.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+							// in theory we don't need the HOST BITS cause we block on a semaphore but might as well add them
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT|PIPELINE_STAGE_FLAGS::HOST_BIT,
+							.dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS|ACCESS_FLAGS::HOST_READ_BIT
+						}
+					},
+					.range = {0ull,outputBuffers[i]->getSize(),outputBuffers[i]}
+				};
 			}
-			cmdbuf->pipelineBarrier(
-				EPSF_COMPUTE_SHADER_BIT, EPSF_COMPUTE_SHADER_BIT | EPSF_HOST_BIT, EDF_NONE,
-				0u, nullptr, OutputBufferCount, memoryBarrier, 0u, nullptr
-			);
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo info = {.memBarriers={},.bufBarriers=memoryBarrier};
+			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS::EDF_NONE,info);
 		}
 		cmdbuf->end();
 
-		IGPUQueue::SSubmitInfo submit = {};
-		submit.commandBufferCount = 1u;
-		submit.commandBuffers = &cmdbuf.get();
-		computeQueue->submit(1u, &submit, fence.get());
-		m_device->blockForFences(1u, &fence.get());
-		m_device->resetFences(1u, &fence.get());
+		const IQueue::SSubmitInfo::SSemaphoreInfo signal[1] = {{.semaphore=sema.get(),.value=++timelineValue}};
+		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1] = {{.cmdbuf=cmdbuf.get()}};
+		const IQueue::SSubmitInfo submits[1] = {{.commandBuffers=cmdbufs,.signalSemaphores=signal}};
+		computeQueue->submit(submits);
+		const ISemaphore::SWaitInfo wait[1] = {{.semaphore=sema.get(),.value=timelineValue}};
+		m_device->blockForSemaphores(wait);
 
 		// check results
 		bool passed = validateResults<Arithmetic, bit_and<uint32_t>, WorkgroupTest>(itemsPerWG, workgroupCount);
@@ -336,8 +379,8 @@ private:
 		bool success = true;
 
 		// download data
-		SBufferRange<IGPUBuffer> bufferRange = { 0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex] };
-		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(bufferRange, resultsBuffer->getPointer(), transferDownQueue);
+		const SBufferRange<IGPUBuffer> bufferRange = {0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex]};
+		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit({.queue=transferDownQueue},bufferRange,resultsBuffer->getPointer());
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
@@ -397,8 +440,10 @@ private:
 		return success;
 	}
 
-	IGPUQueue* transferDownQueue;
-	IGPUQueue* computeQueue;
+	IQueue* transferDownQueue;
+	IQueue* computeQueue;
+	smart_refctd_ptr<IGPUPipelineCache> m_spirv_isa_cache;
+	smart_refctd_ptr<IFile> m_spirv_isa_cache_output;
 
 	uint32_t* inputData = nullptr;
 	constexpr static inline uint32_t OutputBufferCount = 8u;
@@ -406,7 +451,8 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
 	smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout;
 
-	smart_refctd_ptr<IGPUFence> fence;
+	smart_refctd_ptr<ISemaphore> sema;
+	uint64_t timelineValue = 0;
 	smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
