@@ -1,11 +1,9 @@
 #include "DrawResourcesFiller.h"
 
-DrawResourcesFiller::DrawResourcesFiller() :
-	textureLRUCache(1024u)
+DrawResourcesFiller::DrawResourcesFiller()
 {}
 
 DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue) :
-	textureLRUCache(1024u),
 	m_utilities(utils),
 	m_copyQueue(copyQueue)
 {}
@@ -122,9 +120,7 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
 {
-	// TODO[Erfan]: Fix resize TextureLRUCache 
-	// assert(maxMSDFs == textureLRUCache.capacity);
-	// textureLRUCache = TextureLRUCache(maxMSDFs);
+	textureLRUCache = TextureLRUCache(maxMSDFs);
 
 	asset::E_FORMAT msdfFormat = asset::EF_R8G8B8A8_UNORM; // @Lucas change the format to what MSDFs use
 	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
