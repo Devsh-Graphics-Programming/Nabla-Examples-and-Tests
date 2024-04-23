@@ -1,0 +1,14 @@
+{
+  "directories": [
+    "../media/mitsuba/ies/packages/leomoon-dot-com_ies-lights-pack/ies-lights-pack"
+  ],
+  "files": [
+    "../media/mitsuba/ies/ISOTROPIC/007cfb11e343e2f42e3b476be4ab684e.ies",
+	"../media/mitsuba/ies/ANIISOTROPIC/QUAD_SYMMETRY/0275171fb664c1b3f024d1e442a68d22.ies",
+	"../media/mitsuba/ies/ANIISOTROPIC/HALF_SYMMETRY/1392a1ba55b67d3e0ae7fd63527f3e78.ies",
+	"../media/mitsuba/ies/ANIISOTROPIC/OTHER_HALF_SYMMETRY/028e97564391140b1476695ae7a46fa4.ies",
+	"../media/mitsuba/ies/NO_LATERAL_SYMMET/4b88bf886b39cfa63094e70e1afa680e.ies"
+  ],
+  "gui": true,
+  "writeAssets": false
+}

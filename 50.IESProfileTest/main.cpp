@@ -2,14 +2,37 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
+#define BENCHMARK_TILL_FIRST_FRAME
+
 #include <nabla.h>
 #include <chrono>
 #include <filesystem>
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "compute/common.h"
+#include <stdio.h>
+
+// small hack to compile with the json library
+namespace std 
+{
+    int sprintf_s(char* buffer, size_t size, const char* format, ...) {
+        va_list args;
+        va_start(args, format);
+        int result = ::sprintf_s(buffer, size, format, args);
+        va_end(args);
+        return result;
+    }
+}
+
+#include "nlohmann/json.hpp"
 
 using namespace nbl;
 using namespace core;
+using json = nlohmann::json;
+
+#ifdef BENCHMARK_TILL_FIRST_FRAME
+const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
+bool stopBenchamrkFlag = false;
+#endif
 
 class IESCompute
 {
@@ -91,6 +114,16 @@ class IESCompute
         {
             driver->blitRenderTargets(fbo, nullptr, false, false);
             driver->endScene();
+
+            #ifdef BENCHMARK_TILL_FIRST_FRAME
+            if (!stopBenchamrkFlag)
+            {
+                const std::chrono::steady_clock::time_point stopBenchmark = std::chrono::high_resolution_clock::now();
+                auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopBenchmark - startBenchmark);
+                std::cout << "Time taken till first render pass: " << duration.count() << " milliseconds" << std::endl;
+                stopBenchamrkFlag = true;
+            }
+            #endif
         }
 
         void updateZDegree(const asset::CIESProfile::IES_STORAGE_FORMAT& degreeOffset)
@@ -544,37 +577,148 @@ int main()
 
     asset::IAssetLoader::SAssetLoadParams lparams;
     lparams.loaderFlags;
-   
-    constexpr auto IES_INPUTS = std::array
-    { 
-        std::string_view("../../media/mitsuba/ies/ISOTROPIC/007cfb11e343e2f42e3b476be4ab684e.ies"),
-        std::string_view("../../media/mitsuba/ies/ANIISOTROPIC/QUAD_SYMMETRY/0275171fb664c1b3f024d1e442a68d22.ies"),
-        std::string_view("../../media/mitsuba/ies/ANIISOTROPIC/HALF_SYMMETRY/1392a1ba55b67d3e0ae7fd63527f3e78.ies"),
-        std::string_view("../../media/mitsuba/ies/ANIISOTROPIC/OTHER_HALF_SYMMETRY/028e97564391140b1476695ae7a46fa4.ies"),
-        std::string_view("../../media/mitsuba/ies/NO_LATERAL_SYMMET/4b88bf886b39cfa63094e70e1afa680e.ies"),
+
+    auto readJSON = [](const std::string& filePath)
+    {
+        std::ifstream file(filePath.data());
+        if (!file.is_open()) {
+            printf("Invalid input json \"%s\" file! Aborting..", filePath.data());
+            exit(0x45);
+        }
+
+        std::stringstream buffer;
+        buffer << file.rdbuf();
+
+        return buffer.str();
     };
 
+    const auto INPUT_JSON_FILE_PATH_FS = std::filesystem::absolute("../inputs.json");
+    const auto INPUT_JSON_FILE_PATH = INPUT_JSON_FILE_PATH_FS.string();
+    const auto jsonBuffer = readJSON(INPUT_JSON_FILE_PATH);
+    if (jsonBuffer.empty()) {
+        printf("Read input json \"%s\" file is empty! Aborting..\n", INPUT_JSON_FILE_PATH.c_str());
+        exit(0x45);
+    }
+
+    const auto jsonMap = json::parse(jsonBuffer.c_str());
+    
+    if (!jsonMap["directories"].is_array())
+    {
+        printf("Input json \"%s\" file's field \"directories\" is not an array! Aborting..\n", INPUT_JSON_FILE_PATH.c_str());
+        exit(0x45);
+    }
+
+    if (!jsonMap["files"].is_array())
+    {
+        printf("Input json \"%s\" file's field \"files\" is not an array! Aborting..\n", INPUT_JSON_FILE_PATH.c_str());
+        exit(0x45);
+    }
+
+    if (!jsonMap["writeAssets"].is_boolean())
+    {
+        printf("Input json \"%s\" file's field \"writeAssets\" is not a boolean! Aborting..\n", INPUT_JSON_FILE_PATH.c_str());
+        exit(0x45);
+    }
+
+    const auto&& IES_INPUTS = [&]()
+    {
+        std::vector<std::string> inputFilePaths;
+
+        auto addFile = [&inputFilePaths, &INPUT_JSON_FILE_PATH_FS](const std::string_view filePath) -> void
+        {
+            auto path = std::filesystem::path(filePath);
+
+            if (!path.is_absolute())
+                path = std::filesystem::absolute(INPUT_JSON_FILE_PATH_FS.parent_path() / path);
+
+            if (std::filesystem::exists(path) && std::filesystem::is_regular_file(path) && path.extension() == ".ies")
+                inputFilePaths.push_back(path.string());
+            else
+            {
+                printf("Invalid input path \"%s\"! Aborting..\n", path.string().c_str());
+                exit(0x45);
+            }
+        };
+
+        auto addFiles = [&inputFilePaths, &INPUT_JSON_FILE_PATH_FS, &addFile](const std::string_view directoryPath) -> void
+        {
+            auto directory(std::filesystem::absolute(INPUT_JSON_FILE_PATH_FS.parent_path() / directoryPath));
+            if (!std::filesystem::exists(directory) || !std::filesystem::is_directory(directory)) {
+                printf("Invalid input directory \"%s\"! Aborting..\n", directoryPath.data());
+                exit(0x45);
+            }
+
+            for (const auto& entry : std::filesystem::directory_iterator(directory))
+                addFile(entry.path().string().c_str());
+        };
+
+        // parse json
+        {
+            std::vector<std::string_view> jDirectories;
+            jsonMap["directories"].get_to(jDirectories);
+
+            for (const auto& it : jDirectories)
+                addFiles(it);
+
+            std::vector<std::string_view> jFiles;
+            jsonMap["files"].get_to(jFiles);
+
+            for (const auto& it : jFiles)
+                addFile(it);
+        }
+
+        return std::move(inputFilePaths);
+    }();
+
+    const bool GUI = [&]()
+    {
+        bool b = false;
+        jsonMap["gui"].get_to(b);
+
+        return b;
+    }();
+
+    const bool WRITE_ASSETS = [&]()
+    {
+        bool b = false;
+        jsonMap["writeAssets"].get_to(b);
+
+        return b;
+    }();
+   
     const auto ASSETS = [&]()
     {
+        size_t loaded = {}, total = IES_INPUTS.size();
         std::vector<asset::SAssetBundle> assets;
         std::vector<std::string> outStems;
             
-        for (size_t i = 0; i < IES_INPUTS.size(); ++i)
+        for (size_t i = 0; i < total; ++i)
         {
-            auto asset = device->getAssetManager()->getAsset(IES_INPUTS[i].data(), lparams);
-            const auto stem = std::filesystem::path(IES_INPUTS[i].data()).stem().string();
+            auto asset = device->getAssetManager()->getAsset(IES_INPUTS[i].c_str(), lparams);
+            const auto* path = IES_INPUTS[i].c_str();
+            const auto stem = std::filesystem::path(IES_INPUTS[i].c_str()).stem().string();
 
             if (asset.getMetadata())
             {
                 assets.emplace_back(std::move(asset));
                 outStems.push_back(stem);
+                ++loaded;
             }
             else
-                printf("Could not load metadata from \"%s\" asset! Skipping..", stem.c_str());
+                printf("Could not load metadata from \"%s\" asset! Skipping..\n", path);
         }
+        printf("Loaded [%s/%s] assets! Status: %s\n", std::to_string(loaded).c_str(), std::to_string(total).c_str(), loaded == total ? "PASSING" : "FAILING");
 
         return std::make_pair(assets, outStems);
     }();
+
+    if (GUI)
+        printf("GUI Mode: ON\n");
+    else
+    {
+        printf("GUI Mode: OFF\nExiting...");
+        exit(0);
+    }
 
     IESCompute iesComputeEnvironment(driver, am, ASSETS.first);    
     IESExampleEventReceiver receiver;
@@ -640,22 +784,23 @@ int main()
         receiver.reset();
     }
 
-    for (size_t i = 0; i < ASSETS.first.size(); ++i)
-    {
-        const auto& bundle = ASSETS.first[i];
-        const auto& stem = ASSETS.second[i];
+    if(WRITE_ASSETS)
+        for (size_t i = 0; i < ASSETS.first.size(); ++i)
+        {
+            const auto& bundle = ASSETS.first[i];
+            const auto& stem = ASSETS.second[i];
 
-        const auto& profile = bundle.getMetadata()->selfCast<const asset::CIESProfileMetadata>()->profile;
-        // const std::string out = std::filesystem::absolute("out/cpu/" + std::string(getProfileRS(profile)) + "/" + stem + ".png").string(); TODO (?): why its not working?
-        const std::string out = std::filesystem::absolute(std::string(getProfileRS(profile)) + "_" + stem + ".png").string();
+            const auto& profile = bundle.getMetadata()->selfCast<const asset::CIESProfileMetadata>()->profile;
+            // const std::string out = std::filesystem::absolute("out/cpu/" + std::string(getProfileRS(profile)) + "/" + stem + ".png").string(); TODO (?): why its not working? ah touch required probably first
+            const std::string out = std::filesystem::absolute(std::string(getProfileRS(profile)) + "_" + stem + ".png").string();
 
-        asset::IAssetWriter::SAssetWriteParams wparams(bundle.getContents().begin()->get());
+            asset::IAssetWriter::SAssetWriteParams wparams(bundle.getContents().begin()->get());
 
-        if (am->writeAsset(out.c_str(), wparams))
-            printf("Saved \"%s\"\n", out.c_str());
-        else
-            printf("Could not write \"%s\"\n", out.c_str());
-    }
+            if (am->writeAsset(out.c_str(), wparams))
+                printf("Saved \"%s\"\n", out.c_str());
+            else
+                printf("Could not write \"%s\"\n", out.c_str());
+        }
 
     return 0;
 }
