@@ -220,11 +220,11 @@ public:
         IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t layoutTransBarriers[2] = { {
             .barrier = {
                 .dep = {
-                    .srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+                    .srcStageMask = PIPELINE_STAGE_FLAGS::HOST_BIT,
+                    .srcAccessMask = ACCESS_FLAGS::HOST_WRITE_BIT,
+                    .dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
                     .dstAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS
-                },
-                .ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
-                .otherQueueFamilyIndex = ~0u
+                }
             },
             .image = m_images[0].get(),
             .subresourceRange = {
@@ -235,14 +235,13 @@ public:
                 .layerCount = 1u,
             },
             .oldLayout = IImage::LAYOUT::UNDEFINED,
-            .newLayout = IImage::LAYOUT::GENERAL,
+            .newLayout = IImage::LAYOUT::GENERAL
         } };
-
         layoutTransBarriers[1] = layoutTransBarriers[0];
         layoutTransBarriers[1].image = m_images[1].get();
 
         const IGPUCommandBuffer::SPipelineBarrierDependencyInfo depInfo = { .imgBarriers = layoutTransBarriers };
-
+        m_cmdbuf->pipelineBarrier(EDF_NONE, depInfo);
         
 
         const uint32_t pushConstants[2] = { 1920, 1080 };
@@ -252,11 +251,11 @@ public:
         m_cmdbuf->dispatch(240, 135, 1u);
         for (int i = 0; i < 2; ++i)
         {
-            layoutTransBarriers[i].barrier.dep.srcAccessMask = layoutTransBarriers[i].barrier.dep.dstAccessMask;
-            layoutTransBarriers[i].barrier.dep.dstAccessMask = ACCESS_FLAGS::TRANSFER_READ_BIT;
+            layoutTransBarriers[i].barrier.dep = layoutTransBarriers[i].barrier.dep.nextBarrier(PIPELINE_STAGE_FLAGS::COPY_BIT,ACCESS_FLAGS::TRANSFER_READ_BIT);
             layoutTransBarriers[i].oldLayout = layoutTransBarriers[i].newLayout;
             layoutTransBarriers[i].newLayout = IImage::LAYOUT::TRANSFER_SRC_OPTIMAL;
         }
+        m_cmdbuf->pipelineBarrier(EDF_NONE,depInfo);
 
         //{
         //    constexpr auto FinishedValue1 = 42;
