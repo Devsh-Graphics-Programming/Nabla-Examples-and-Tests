@@ -9,8 +9,8 @@ set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/Polyline.h"
-  "${CMAKE_CURRENT_SOURCE_DIR}/DrawBuffers.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/DrawBuffers.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
 )
 set(EXAMPLE_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/boost/superproject/libs/math/include")
