@@ -446,7 +446,7 @@ public:
 			return logFail("Failed to Create Semaphores!");
 
 		m_overflowSubmitsScratchSemaphoreInfo.semaphore = m_overflowSubmitScratchSemaphore.get();
-		m_overflowSubmitsScratchSemaphoreInfo.value = 1ull;
+		m_overflowSubmitsScratchSemaphoreInfo.value = 0ull;
 
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
@@ -777,21 +777,15 @@ public:
 			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 		};
 
-		const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
-			.semaphore = m_renderSemaphore.get(),
-			.value = m_realFrameIx + 1u,
-			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-		};
-
 		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
-		IQueue::SSubmitInfo::SSemaphoreInfo singalSems[2u] = { m_overflowSubmitsScratchSemaphoreInfo, thisFrameRendered };
 
-		SIntendedSubmitInfo intendedNextSubmit;
-		intendedNextSubmit.frontHalf.queue = getGraphicsQueue();
-		intendedNextSubmit.frontHalf.commandBuffers = cmdbufs;
-		intendedNextSubmit.frontHalf.waitSemaphores = waitSems;
-		intendedNextSubmit.signalSemaphores = singalSems;
+		SIntendedSubmitInfo intendedNextSubmit = {
+			.queue = getGraphicsQueue(),
+			.waitSemaphores = waitSems,
+			.commandBuffers = cmdbufs,
+			.scratchSemaphore = m_overflowSubmitsScratchSemaphoreInfo
+		};
 
 		addObjects(intendedNextSubmit);
 		
@@ -919,7 +913,7 @@ public:
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto* cb = intendedSubmitInfo.frontHalf.getScratchCommandBuffer();
+		auto* cb = intendedSubmitInfo.getScratchCommandBuffer();
 		auto&r = drawBuffer;
 		
 		asset::SViewport vp =
@@ -1099,23 +1093,26 @@ public:
 		else
 		{
 			cb->end();
-			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
-			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
+			
+			const auto nextFrameIx = m_realFrameIx+1u;
+			const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
+				.semaphore = m_renderSemaphore.get(),
+				.value = nextFrameIx,
+				.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			};
+			if (getGraphicsQueue()->submit(intendedSubmitInfo.popSubmit({&thisFrameRendered,1})) == IQueue::RESULT::SUCCESS)
 			{
-				m_realFrameIx++;
-				intendedSubmitInfo.advanceScratchSemaphoreValue(); // last submits needs to also advance scratch sema value like overflowSubmit() does
+				m_realFrameIx = nextFrameIx;
 				
-				IQueue::SSubmitInfo::SSemaphoreInfo renderFinished =
-				{
-					.semaphore = m_renderSemaphore.get(),
-					.value = m_realFrameIx,
-					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-				};
-				m_surface->present(m_currentImageAcquire.imageIndex, { &renderFinished, 1u });
+				IQueue::SSubmitInfo::SSemaphoreInfo presentWait = thisFrameRendered;
+				// the stages for a wait semaphore operation are about what stage you WAIT in, not what stage you wait for
+				presentWait.stageMask = PIPELINE_STAGE_FLAGS::NONE; // top of pipe, there's no explicit presentation engine stage
+				m_surface->present(m_currentImageAcquire.imageIndex,{&presentWait,1});
 			}
 		}
 
-		m_overflowSubmitsScratchSemaphoreInfo.value = intendedSubmitInfo.getScratchSemaphoreNextWait().value; // because we need this info consistent within frames
+		// NOTE: one can just make `m_overflowSubmitsScratchSemaphoreInfo` a reference tied to `intendedSubmitInfo.scratchSemaphore
+		m_overflowSubmitsScratchSemaphoreInfo.value = intendedSubmitInfo.scratchSemaphore.value; // because we need this info consistent within frames
 	}
 
 	void endFrameRender(SIntendedSubmitInfo& intendedSubmitInfo)
@@ -1163,7 +1160,7 @@ protected:
 		}
 
 		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto* cmdbuf = intendedNextSubmit.frontHalf.getScratchCommandBuffer();
+		auto* cmdbuf = intendedNextSubmit.getScratchCommandBuffer();
 
 		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
 		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));

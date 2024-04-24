@@ -121,17 +121,14 @@ private:
 		}
 
 		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
-		IQueue::SSubmitInfo::SSemaphoreInfo imgFillSemaphoreInfo[] =
-		{
-			{
+		SIntendedSubmitInfo intendedSubmit = {
+			.queue = transferUpQueue,
+			.waitSemaphores = {},
+			.commandBuffers = {}, // fill later
+			.scratchSemaphore = {
 				.semaphore = imgFillSemaphore.get(),
-				.value = 1,
+				.value = 0,
 				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			},
-			{
-				.semaphore = m_imagesLoadedSemaphore.get(),
-				.value = 0xdeadbeef,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			}
 		};
 
@@ -206,13 +203,7 @@ private:
 			}
 			
 			IQueue::SSubmitInfo::SCommandBufferInfo imgFillCmdBuffInfo = { cmdBuff.get() };
-			
-			imgFillSemaphoreInfo[1].value = imageIdx + 1u;
-
-
-			SIntendedSubmitInfo intendedSubmit = {
-				.frontHalf = {.queue = transferUpQueue, .waitSemaphores = {}, .commandBuffers = {&imgFillCmdBuffInfo, 1}}, .signalSemaphores = imgFillSemaphoreInfo
-			};
+			intendedSubmit.commandBuffers = {&imgFillCmdBuffInfo,1};
 			
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
@@ -221,9 +212,8 @@ private:
 			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
 				logFailAndTerminate("Failed to issue barrier!\n");
 
-
 			transferUpQueue->startCapture();
-			uint64_t oldCntr = imgFillSemaphoreInfo[0].value;
+			const uint64_t oldCntr = intendedSubmit.scratchSemaphore.value;
 			const bool uploadCommendRecorded = m_utils->updateImageViaStagingBuffer(
 				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
 				images[imageIdx].get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, cpuImages[imageIdx]->getRegions()
@@ -231,8 +221,9 @@ private:
 			if (!uploadCommendRecorded)
 				logFailAndTerminate("Couldn't update image data.\n");
 
-			if(imgFillSemaphoreInfo[0].value != oldCntr)
-				m_logger->log("%d overflows when uploading image %d!\n", ILogger::ELL_PERFORMANCE, imgFillSemaphoreInfo[0].value - oldCntr, imageIdx);
+			const auto newCntr = intendedSubmit.scratchSemaphore.value;
+			if (newCntr!=oldCntr)
+				m_logger->log("%d overflows when uploading image %d!\n", ILogger::ELL_PERFORMANCE, newCntr-oldCntr, imageIdx);
 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pplnBarrierDepInfo1;
 			pplnBarrierDepInfo1.imgBarriers = { &imageLayoutTransitionBarrier1, 1 };
@@ -242,9 +233,8 @@ private:
 
 			cmdBuff->end();
 
-			intendedSubmit.advanceScratchSemaphoreValue();
-			IQueue::SSubmitInfo submitInfo[1] = { intendedSubmit };
-			getTransferUpQueue()->submit(submitInfo);
+			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {.semaphore=m_imagesLoadedSemaphore.get(),.value=imageIdx+1u,.stageMask=PIPELINE_STAGE_FLAGS::COPY_BIT};
+			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
 			transferUpQueue->endCapture();
 
 

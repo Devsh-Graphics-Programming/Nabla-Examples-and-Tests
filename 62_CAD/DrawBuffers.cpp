@@ -31,14 +31,12 @@ void DrawBuffersFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uint3
 		indices[i * 6 + 4u] = objIndex * 4u + 2u;
 		indices[i * 6 + 5u] = objIndex * 4u + 3u;
 	}
-	
+
 	IGPUBuffer::SCreationParams indexBufferCreationParams = {};
 	indexBufferCreationParams.size = indexBufferSize;
 	indexBufferCreationParams.usage = IGPUBuffer::EUF_INDEX_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 
-	SIntendedSubmitInfo::SFrontHalf intendedNextSubmit; 
-	intendedNextSubmit.queue = m_copyQueue;
-	gpuDrawBuffers.indexBuffer = m_utilities->createFilledDeviceLocalBufferOnDedMem(intendedNextSubmit, std::move(indexBufferCreationParams), indices);
+	m_utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=m_copyQueue}, std::move(indexBufferCreationParams), indices).move_into(gpuDrawBuffers.indexBuffer);
 	gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
 }
 
