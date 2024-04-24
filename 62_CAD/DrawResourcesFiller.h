@@ -1,6 +1,7 @@
 #include "Polyline.h"
 #include "Hatch.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
+#include <nbl/core/containers/LRUCache.h>
 
 using namespace nbl;
 using namespace nbl::video;

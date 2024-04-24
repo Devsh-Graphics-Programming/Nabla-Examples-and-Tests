@@ -1,5 +1,5 @@
 
-#include "curves.h"
+#include "Curves.h"
 #include <nbl/builtin/hlsl/math/quadrature/gauss_legendre/gauss_legendre.hlsl>
 #include <nbl/builtin/hlsl/shapes/util.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>

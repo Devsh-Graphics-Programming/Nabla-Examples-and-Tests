@@ -18,14 +18,13 @@ using namespace video;
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include "curves.h"
+#include "Curves.h"
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
-#include "nbl/core/containers/LRUCache.h"
 
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
