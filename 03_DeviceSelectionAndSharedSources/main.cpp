@@ -67,7 +67,7 @@ public:
 			};
 
 		// testing creation of compute pipeline layouts compatible for multiple shaders
-#if 0
+#if 1
 		// TODO: if these are to stay, then i should avoid code multiplication
 		{
 			constexpr std::array mergeTestShadersPaths = {
@@ -120,7 +120,9 @@ public:
 				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_0.comp.hlsl",
 				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_1.comp.hlsl",
 				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_2.comp.hlsl",
-				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_3.comp.hlsl"
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_3.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_4.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_5.comp.hlsl"
 			};
 			constexpr uint32_t MERGE_TEST_SHADERS_CNT = mergeTestShadersPaths.size();
 
@@ -173,7 +175,12 @@ public:
 			if (!dsLayout0 || !dsLayout1)
 				return logFail("Failed to create a Descriptor Layout!\n");
 
-			smart_refctd_ptr<ICPUPipelineLayout> predefinedPplnLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>(), std::move(dsLayout0), std::move(dsLayout1), nullptr, nullptr);
+			SPushConstantRange pc;
+			pc.offset = 0u;
+			pc.size = 5 * sizeof(uint32_t);
+			pc.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
+
+			smart_refctd_ptr<ICPUPipelineLayout> predefinedPplnLayout = core::make_smart_refctd_ptr<ICPUPipelineLayout>(std::span<const asset::SPushConstantRange>({ pc }), std::move(dsLayout0), std::move(dsLayout1), nullptr, nullptr);
 			if (!predefinedPplnLayout)
 				return logFail("Failed to create a Pipeline Layout!\n");
 
@@ -195,11 +202,12 @@ public:
 			confirmExpectedOutput(pplnCreationSuccess[2], false);
 			// layout from introspection is NOT a subset (same bindings, different type of one of the bindings) of pre-defined layout, hence ppln creation should FAIL
 			confirmExpectedOutput(pplnCreationSuccess[3], false);
+
 				// PUSH CONSTANTS VALIDATION TESTS
 			// layout from introspection is a subset of pre-defined layout (Push constant size declared in shader are compatible), hence ppln creation should SUCCEED
-			// TODO
+			confirmExpectedOutput(pplnCreationSuccess[4], true);
 			// layout from introspection is NOT a subset of pre-defined layout (Push constant size declared in shader are NOT compatible), hence ppln creation should FAIL
-			// TODO
+			confirmExpectedOutput(pplnCreationSuccess[5], false);
 		}
 
 		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
