@@ -4,7 +4,7 @@
 [[vk::binding(0,0)]] RWStructuredBuffer<SomeType> asdf;
 [[vk::binding(0,1)]] RWByteAddressBuffer output;
 [[vk::binding(0,2)]] RWByteAddressBuffer output2[2];
-[[vk::binding(1,2)]] RWByteAddressBuffer output3[];
+[[vk::binding(1,0)]] RWByteAddressBuffer output3[];
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

@@ -117,10 +117,10 @@ public:
 		// testing pre-defined layout compatibility
 		{
 			constexpr std::array mergeTestShadersPaths = {
-				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_0.comp.hlsl"
-				//"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_1.comp.hlsl",
-				//"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_2.comp.hlsl",
-				//"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_3.comp.hlsl"
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_0.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_1.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_2.comp.hlsl",
+				"app_resources/pplnLayoutCreationWithPredefinedLayoutTest/shader_3.comp.hlsl"
 			};
 			constexpr uint32_t MERGE_TEST_SHADERS_CNT = mergeTestShadersPaths.size();
 
@@ -129,13 +129,13 @@ public:
 
 			for (uint32_t i = 0u; i < MERGE_TEST_SHADERS_CNT; ++i)
 			{
-				m_logger->log("------- %s INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING, mergeTestShadersPaths[i]);
+				m_logger->log("------- LOADING %s -------", ILogger::E_LOG_LEVEL::ELL_WARNING, mergeTestShadersPaths[i]);
 				auto sourceIntrospectionPair = this->compileShaderAndTestIntrospection(mergeTestShadersPaths[i], introspector[i]);
 				// TODO: disctinct functions for shader compilation and introspection
 				sources[i] = sourceIntrospectionPair.first;
 			}
 
-			constexpr uint32_t BINDINGS_DS_0_CNT = 2u;
+			constexpr uint32_t BINDINGS_DS_0_CNT = 1u;
 			const ICPUDescriptorSetLayout::SBinding bindingsDS0[BINDINGS_DS_0_CNT] = {
 				{
 					.binding = 0,
@@ -143,14 +143,6 @@ public:
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = ICPUShader::ESS_COMPUTE,
 					.count = 1,
-					.samplers = nullptr
-				},
-				{
-					.binding = 1,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IGPUShader::ESS_COMPUTE,
-					.count = 3,
 					.samplers = nullptr
 				}
 			};
@@ -170,7 +162,7 @@ public:
 						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 						.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 						.stageFlags = ICPUShader::ESS_COMPUTE,
-						.count = 5,
+						.count = 2,
 						.samplers = nullptr
 					}
 			};
@@ -194,16 +186,15 @@ public:
 				pplnCreationSuccess[i] = static_cast<bool>(introspector[i].createApproximateComputePipelineFromIntrospection(specInfo, core::smart_refctd_ptr<ICPUPipelineLayout>(predefinedPplnLayout)));
 			}
 
-			//assert(MERGE_TEST_SHADERS_CNT <= 4u);
 				// DESCRIPTOR VALIDATION TESTS
 			// layout from introspection is a subset of pre-defined layout, hence ppln creation should SUCCEED
 			confirmExpectedOutput(pplnCreationSuccess[0], true);
 			// layout from introspection is NOT a subset (too many bindings in descriptor set 0) of pre-defined layout, hence ppln creation should FAIL
-			//confirmExpectedOutput(pplnCreationSuccess[1], false);
+			confirmExpectedOutput(pplnCreationSuccess[1], false);
 			// layout from introspection is NOT a subset (pre-defined layout doesn't have descriptor set 2) of pre-defined layout, hence ppln creation should FAIL
-			//confirmExpectedOutput(pplnCreationSuccess[2], false);
+			confirmExpectedOutput(pplnCreationSuccess[2], false);
 			// layout from introspection is NOT a subset (same bindings, different type of one of the bindings) of pre-defined layout, hence ppln creation should FAIL
-			//confirmExpectedOutput(pplnCreationSuccess[3], false);
+			confirmExpectedOutput(pplnCreationSuccess[3], false);
 				// PUSH CONSTANTS VALIDATION TESTS
 			// layout from introspection is a subset of pre-defined layout (Push constant size declared in shader are compatible), hence ppln creation should SUCCEED
 			// TODO
@@ -216,7 +207,7 @@ public:
 		auto mainShader = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
 		auto source = mainShader.first;
 		auto mainShaderIntrospection = mainShader.second;
-		mainShaderIntrospection->debugPrint(m_logger.get());
+		//mainShaderIntrospection->debugPrint(m_logger.get());
 		// auto source2 = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector); // to make sure caching works
 
 
