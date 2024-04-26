@@ -224,11 +224,11 @@ bool isWithinSCDomain(vec2 point)
 
 void main()
 {
-	const float VERTICAL_INVERSE = 1.0f / TEXTURE_SIZE;
-	const float HORIZONTAL_INVERSE = 1.0f / TEXTURE_SIZE;
-
-	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
 	const ivec2 destinationSize = imageSize(outIESCandelaImage);
+	const ivec2 pixelCoordinates = ivec2(gl_GlobalInvocationID.xy);
+	
+	const float VERTICAL_INVERSE = 1.0f / float(destinationSize.x);
+	const float HORIZONTAL_INVERSE = 1.0f / float(destinationSize.y);
 	
 	if (all(lessThan(pixelCoordinates, destinationSize)))
 	{

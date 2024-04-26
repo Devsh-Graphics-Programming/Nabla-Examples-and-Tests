@@ -8,7 +8,6 @@
 #define M_HALF_PI M_PI/2.0f // would be cool if we have this define somewhere or GLSL do
 #define QUANT_ERROR_ADMISSIBLE 1/1024
 
-#define TEXTURE_SIZE 1024u
 #define WORKGROUP_SIZE 256u
 #define WORKGROUP_DIMENSION 16u
 

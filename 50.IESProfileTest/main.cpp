@@ -94,7 +94,7 @@ class IESCompute
             driver->bindDescriptorSets(EPBP_COMPUTE, gpue.cPipeline->getLayout(), 0u, 1u, &gpue.cDescriptorSet.get(), nullptr);
             driver->pushConstants(gpue.cPipeline->getLayout(), asset::ISpecializedShader::ESS_COMPUTE, 0u, sizeof(PushConstant), &pushConstant);
 
-            _NBL_STATIC_INLINE_CONSTEXPR auto xGroups = (TEXTURE_SIZE - 1u) / WORKGROUP_DIMENSION + 1u;
+            const auto xGroups = (getActiveProfile().getOptimalIESResolution().x - 1u) / WORKGROUP_DIMENSION + 1u;
             driver->dispatch(xGroups, xGroups, 1u);
 
             COpenGLExtensionHandler::extGlMemoryBarrier(GL_TEXTURE_FETCH_BARRIER_BIT | GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
@@ -142,8 +142,11 @@ class IESCompute
                 generalPurposeOffset = newOffset;
 
                 // not elegant way to do it here but lets leave it as it is
-                updateCDescriptorSets();
-                pushConstant.maxIValueReciprocal = (float)getActiveProfile().getMaxCandelaValue();
+                updateCDescriptorSets(); // flush descriptor set
+                updateGDescriptorSets(); // flush descriptor set
+
+                const auto& profile = getActiveProfile();
+                pushConstant.maxIValue = (float)profile.getMaxCandelaValue();
             }
         }
 
@@ -176,18 +179,12 @@ class IESCompute
             };
 
             auto& gpue = m_gpue;
-
-            gpue.dImageIESC = std::move(createGPUImageView<asset::EF_R16_UNORM>(TEXTURE_SIZE, TEXTURE_SIZE));
-            gpue.dImageS = std::move(createGPUImageView<asset::EF_R32G32_SFLOAT>(TEXTURE_SIZE, TEXTURE_SIZE));
-            gpue.dImageD = std::move(createGPUImageView<asset::EF_R32G32B32A32_SFLOAT>(TEXTURE_SIZE, TEXTURE_SIZE));
-            gpue.dImageTMask = std::move(createGPUImageView<asset::EF_R8G8_UNORM>(TEXTURE_SIZE, TEXTURE_SIZE));
-
-            createSSBOBuffers();
+            createGPUDescriptors();
+            const auto initIdx = generalPurposeOffset;
 
             // Compute
             {
                 const std::vector<IGPUDescriptorSetLayout::SBinding> bindings = getCBindings();
-
                 {
                     auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
                     asset::SPushConstantRange range = { asset::ISpecializedShader::ESS_COMPUTE, 0u, sizeof(PushConstant) };
@@ -197,22 +194,6 @@ class IESCompute
                 }
 
                 {
-                    {
-                        {
-                            gpue.cinfos[EB_IMAGE_IES_C].desc = core::smart_refctd_ptr(gpue.dImageIESC);
-                            gpue.cinfos[EB_IMAGE_IES_C].image = { nullptr, asset::EIL_GENERAL };
-
-                            gpue.cinfos[EB_IMAGE_S].desc = core::smart_refctd_ptr(gpue.dImageS);
-                            gpue.cinfos[EB_IMAGE_S].image = { nullptr, asset::EIL_GENERAL };
-
-                            gpue.cinfos[EB_IMAGE_D].desc = core::smart_refctd_ptr(gpue.dImageD);
-                            gpue.cinfos[EB_IMAGE_D].image = { nullptr, asset::EIL_GENERAL };
-
-                            gpue.cinfos[EB_IMAGE_T_MASK].desc = core::smart_refctd_ptr(gpue.dImageTMask);
-                            gpue.cinfos[EB_IMAGE_T_MASK].image = { nullptr, asset::EIL_GENERAL };
-                        }
-                    }
-
                     for (auto i = 0; i < EB_SIZE; i++)
                     {
                         gpue.cwrites[i].dstSet = gpue.cDescriptorSet.get();
@@ -236,14 +217,7 @@ class IESCompute
 
             // Graphics
             {
-                const std::vector<IGPUDescriptorSetLayout::SBinding> bindings =
-                {
-                    { EB_IMAGE_IES_C, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
-                    { EB_IMAGE_S, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
-                    { EB_IMAGE_D, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
-                    { EB_IMAGE_T_MASK, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr }
-                };
-
+                const std::vector<IGPUDescriptorSetLayout::SBinding> bindings = getGBindings();
                 {
                     auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
 
@@ -271,39 +245,23 @@ class IESCompute
                     return driver->createGPUSampler({ asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETC_CLAMP_TO_EDGE,asset::ISampler::ETBC_FLOAT_OPAQUE_BLACK,asset::ISampler::ETF_LINEAR,asset::ISampler::ETF_LINEAR,asset::ISampler::ESMM_LINEAR,0u,false,asset::ECO_ALWAYS });
                 };
 
-                _NBL_STATIC_INLINE_CONSTEXPR uint8_t NBL_D_IMAGES_AMOUNT = 4u;
+                gpue.sampler = createSampler();
 
-                IGPUDescriptorSet::SDescriptorInfo infos[NBL_D_IMAGES_AMOUNT];
+                for (auto i = 0; i < gpue.NBL_D_IMAGES_AMOUNT; i++)
                 {
-                    infos[EB_IMAGE_IES_C].desc = core::smart_refctd_ptr(gpue.dImageIESC);
-                    infos[EB_IMAGE_IES_C].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL};
-
-                    infos[EB_IMAGE_S].desc = core::smart_refctd_ptr(gpue.dImageS);
-                    infos[EB_IMAGE_S].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
-
-                    infos[EB_IMAGE_D].desc = core::smart_refctd_ptr(gpue.dImageD);
-                    infos[EB_IMAGE_D].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
-
-                    infos[EB_IMAGE_T_MASK].desc = core::smart_refctd_ptr(gpue.dImageTMask);
-                    infos[EB_IMAGE_T_MASK].image = { createSampler(),asset::EIL_SHADER_READ_ONLY_OPTIMAL };
+                    gpue.gwrites[i].dstSet = gpue.gDescriptorSet.get();
+                    gpue.gwrites[i].binding = i;
+                    gpue.gwrites[i].count = 1u;
+                    gpue.gwrites[i].arrayElement = 0u;
+                    gpue.gwrites[i].descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
+                    gpue.gwrites[i].info = gpue.ginfos + i;
                 }
 
-                video::IGPUDescriptorSet::SWriteDescriptorSet writes[NBL_D_IMAGES_AMOUNT];
-                for (auto i = 0; i < NBL_D_IMAGES_AMOUNT; i++)
-                {
-                    writes[i].dstSet = gpue.gDescriptorSet.get();
-                    writes[i].binding = i;
-                    writes[i].count = 1u;
-                    writes[i].arrayElement = 0u;
-                    writes[i].descriptorType = asset::EDT_COMBINED_IMAGE_SAMPLER;
-                    writes[i].info = &infos[i];
-                }
-
-                driver->updateDescriptorSets(NBL_D_IMAGES_AMOUNT, writes, 0u, nullptr);
+                updateGDescriptorSets();
             }
         }
 
-        void createSSBOBuffers()
+        void createGPUDescriptors()
         {
             auto createCPUBuffer = [&](const auto& pInput)
             {
@@ -326,21 +284,26 @@ class IESCompute
                 cssbod.hAngles = createGPUBuffer(createCPUBuffer(profile.getHoriAngles()));
                 cssbod.vAngles = createGPUBuffer(createCPUBuffer(profile.getVertAngles()));
                 cssbod.data = createGPUBuffer(createCPUBuffer(profile.getData()));
+
+                const auto optimalResolution = profile.getOptimalIESResolution();
+
+                cssbod.dImageIESC = std::move(createGPUImageView<asset::EF_R16_UNORM>(optimalResolution.x, optimalResolution.y));
+                cssbod.dImageS = std::move(createGPUImageView<asset::EF_R32G32_SFLOAT>(optimalResolution.x, optimalResolution.y));
+                cssbod.dImageD = std::move(createGPUImageView<asset::EF_R32G32B32A32_SFLOAT>(optimalResolution.x, optimalResolution.y));
+                cssbod.dImageTMask = std::move(createGPUImageView<asset::EF_R8G8_UNORM>(optimalResolution.x, optimalResolution.y));
             }
         }
 
         void updateCDescriptorSets()
         {
+            fillImageDescriptorInfo<EB_IMAGE_IES_C>(generalPurposeOffset, m_gpue.cinfos[EB_IMAGE_IES_C]);
+            fillImageDescriptorInfo<EB_IMAGE_S>(generalPurposeOffset, m_gpue.cinfos[EB_IMAGE_S]);
+            fillImageDescriptorInfo<EB_IMAGE_D>(generalPurposeOffset, m_gpue.cinfos[EB_IMAGE_D]);
+            fillImageDescriptorInfo<EB_IMAGE_T_MASK>(generalPurposeOffset, m_gpue.cinfos[EB_IMAGE_T_MASK]);
+
             fillSSBODescriptorInfo<EB_SSBO_HA>(generalPurposeOffset, m_gpue.cinfos[EB_SSBO_HA]);
             fillSSBODescriptorInfo<EB_SSBO_VA>(generalPurposeOffset, m_gpue.cinfos[EB_SSBO_VA]);
             fillSSBODescriptorInfo<EB_SSBO_D>(generalPurposeOffset, m_gpue.cinfos[EB_SSBO_D]);
-
-            const std::vector<IGPUDescriptorSetLayout::SBinding> bindings = getCBindings();
-            {
-                auto descriptorSetLayout = driver->createGPUDescriptorSetLayout(bindings.data(), bindings.data() + bindings.size());
-                asset::SPushConstantRange range = { asset::ISpecializedShader::ESS_COMPUTE, 0u, sizeof(PushConstant) };
-                m_gpue.cDescriptorSet = driver->createGPUDescriptorSet(std::move(descriptorSetLayout)); // I guess it can be done better
-            }
 
             const core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout> proxy(m_gpue.cPipeline->getLayout()->getDescriptorSetLayout(0));
             m_gpue.cDescriptorSet = core::smart_refctd_ptr(driver->createGPUDescriptorSet(core::smart_refctd_ptr(proxy)));
@@ -349,6 +312,22 @@ class IESCompute
                 m_gpue.cwrites[i].dstSet = m_gpue.cDescriptorSet.get();
 
             driver->updateDescriptorSets(EB_SIZE, m_gpue.cwrites, 0u, nullptr);
+        }
+
+        void updateGDescriptorSets()
+        {
+            fillImageDescriptorInfo<EB_IMAGE_IES_C>(generalPurposeOffset, m_gpue.ginfos[EB_IMAGE_IES_C]);
+            fillImageDescriptorInfo<EB_IMAGE_S>(generalPurposeOffset, m_gpue.ginfos[EB_IMAGE_S]);
+            fillImageDescriptorInfo<EB_IMAGE_D>(generalPurposeOffset, m_gpue.ginfos[EB_IMAGE_D]);
+            fillImageDescriptorInfo<EB_IMAGE_T_MASK>(generalPurposeOffset, m_gpue.ginfos[EB_IMAGE_T_MASK]);
+
+            const core::smart_refctd_ptr<const video::IGPUDescriptorSetLayout> proxy(m_gpue.gPipeline->getLayout()->getDescriptorSetLayout(3));
+            m_gpue.gDescriptorSet = core::smart_refctd_ptr(driver->createGPUDescriptorSet(core::smart_refctd_ptr(proxy)));
+
+            for (auto i = 0; i < m_gpue.NBL_D_IMAGES_AMOUNT; i++)
+                m_gpue.gwrites[i].dstSet = m_gpue.gDescriptorSet.get();
+
+            driver->updateDescriptorSets(m_gpue.NBL_D_IMAGES_AMOUNT, m_gpue.gwrites, 0u, nullptr);
         }
 
         template<E_BINDINGS binding>
@@ -370,6 +349,29 @@ class IESCompute
 
             info.desc = core::smart_refctd_ptr(proxy);
             info.buffer = { 0, proxy->getSize() };
+        }
+
+        template<E_BINDINGS binding>
+        void fillImageDescriptorInfo(const size_t assetIndex, IGPUDescriptorSet::SDescriptorInfo& info)
+        {
+            static_assert(binding == EB_IMAGE_IES_C || binding == EB_IMAGE_S || binding == EB_IMAGE_D || binding == EB_IMAGE_T_MASK);
+
+            const auto& profile = getProfile(assetIndex);
+            auto& cssbod = m_gpue.CSSBOD[assetIndex];
+
+            core::smart_refctd_ptr<video::IGPUImageView> proxy;
+
+            if constexpr (binding == EB_IMAGE_IES_C)
+                proxy = core::smart_refctd_ptr(cssbod.dImageIESC);
+            else if (binding == EB_IMAGE_S)
+                proxy = core::smart_refctd_ptr(cssbod.dImageS);
+            else if (binding == EB_IMAGE_D)
+                proxy = core::smart_refctd_ptr(cssbod.dImageD);
+            else
+                proxy = core::smart_refctd_ptr(cssbod.dImageTMask);
+
+            info.desc = core::smart_refctd_ptr(proxy);
+            info.image = { core::smart_refctd_ptr(m_gpue.sampler), asset::EIL_SHADER_READ_ONLY_OPTIMAL };
         }
 
         template<asset::E_FORMAT format>
@@ -418,6 +420,19 @@ class IESCompute
             return bindings;
         }
 
+        std::vector<IGPUDescriptorSetLayout::SBinding> getGBindings()
+        {
+            const std::vector<IGPUDescriptorSetLayout::SBinding> bindings =
+            {
+                { EB_IMAGE_IES_C, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
+                { EB_IMAGE_S, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
+                { EB_IMAGE_D, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr },
+                { EB_IMAGE_T_MASK, asset::EDT_COMBINED_IMAGE_SAMPLER, 1, asset::ISpecializedShader::ESS_FRAGMENT, nullptr }
+            };
+
+            return bindings;
+        }
+
         template<asset::E_FORMAT format>
         video::IFrameBuffer* createFBO(const size_t& width, const size_t& height)
         {
@@ -434,6 +449,8 @@ class IESCompute
 
         struct GPUE
         {
+            _NBL_STATIC_INLINE_CONSTEXPR uint8_t NBL_D_IMAGES_AMOUNT = 4u;
+
             // Compute
             core::smart_refctd_ptr<video::IGPUComputePipeline> cPipeline;
             core::smart_refctd_ptr<video::IGPUDescriptorSet> cDescriptorSet;
@@ -444,6 +461,7 @@ class IESCompute
             struct CSSBODescriptor
             {
                 core::smart_refctd_ptr<video::IGPUBuffer> vAngles, hAngles, data;
+                core::smart_refctd_ptr<video::IGPUImageView> dImageIESC, dImageS, dImageD, dImageTMask;
             };
 
             std::vector<CSSBODescriptor> CSSBOD;
@@ -453,20 +471,19 @@ class IESCompute
             core::smart_refctd_ptr<video::IGPUDescriptorSet> gDescriptorSet;
             core::smart_refctd_ptr<video::IGPUMeshBuffer> mBuffer;
 
+            IGPUDescriptorSet::SDescriptorInfo ginfos[NBL_D_IMAGES_AMOUNT];
+            IGPUDescriptorSet::SWriteDescriptorSet gwrites[NBL_D_IMAGES_AMOUNT];
+
             // Shared data
-            core::smart_refctd_ptr<video::IGPUImageView> dImageIESC;
-            core::smart_refctd_ptr<video::IGPUImageView> dImageS;
-            core::smart_refctd_ptr<video::IGPUImageView> dImageD;
-            core::smart_refctd_ptr<video::IGPUImageView> dImageTMask;
+            core::smart_refctd_ptr<video::IGPUSampler> sampler;
         } m_gpue;
 
         #include "nbl/nblpack.h"
         struct PushConstant
         {
-            float maxIValueReciprocal;
+            float maxIValue;
             float zAngleDegreeRotation;
             IESCompute::E_MODE mode = IESCompute::EM_CDC;
-            uint32_t dummy;
         } PACK_STRUCT;
         #include "nbl/nblunpack.h"
         
