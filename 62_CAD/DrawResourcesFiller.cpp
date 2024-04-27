@@ -33,14 +33,12 @@ void DrawResourcesFiller::allocateIndexBuffer(ILogicalDevice* logicalDevice, uin
 		indices[i * 6 + 4u] = objIndex * 4u + 2u;
 		indices[i * 6 + 5u] = objIndex * 4u + 3u;
 	}
-	
+
 	IGPUBuffer::SCreationParams indexBufferCreationParams = {};
 	indexBufferCreationParams.size = indexBufferSize;
 	indexBufferCreationParams.usage = IGPUBuffer::EUF_INDEX_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 
-	SIntendedSubmitInfo::SFrontHalf intendedNextSubmit; 
-	intendedNextSubmit.queue = m_copyQueue;
-	gpuDrawBuffers.indexBuffer = m_utilities->createFilledDeviceLocalBufferOnDedMem(intendedNextSubmit, std::move(indexBufferCreationParams), indices);
+	m_utilities->createFilledDeviceLocalBufferOnDedMem(SIntendedSubmitInfo{.queue=m_copyQueue}, std::move(indexBufferCreationParams), indices).move_into(gpuDrawBuffers.indexBuffer);
 	gpuDrawBuffers.indexBuffer->setObjectDebugName("indexBuffer");
 }
 
@@ -251,7 +249,7 @@ void DrawResourcesFiller::drawHatch(
 		if (tRef)
 		{
 			textureIdx = tRef->alloc_idx;
-			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getScratchSemaphoreNextWait().value; // update this because the texture will get used on the next submit
+			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
 		}
 	}
 
@@ -287,8 +285,7 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
 	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
-	uint64_t nextSemaValue = intendedNextSubmit.getScratchSemaphoreNextWait().value;
-	const auto* signalSema = intendedNextSubmit.getScratchSemaphoreNextWait().semaphore;
+	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
 
 	auto evictionCallback = [&](const TextureReference& evicted)
 		{
@@ -305,7 +302,7 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 		};
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	TextureReference* inserted = textureLRUCache.insert(hash, nextSemaValue, evictionCallback);
+	TextureReference* inserted = textureLRUCache.insert(hash, nextSemaSignal.value, evictionCallback);
 	
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
@@ -434,7 +431,7 @@ void DrawResourcesFiller::finalizeLineStyleCopiesToGPU(SIntendedSubmitInfo& inte
 
 void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit)
 {
-	auto cmdBuff = intendedNextSubmit.frontHalf.getScratchCommandBuffer();
+	auto cmdBuff = intendedNextSubmit.getScratchCommandBuffer();
 
 	auto msdfImage = msdfTextureArray->getCreationParameters().image;
 

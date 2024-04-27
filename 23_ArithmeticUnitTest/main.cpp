@@ -77,11 +77,11 @@ public:
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(Output<>::data[0]) * elementCount;
 			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			gpuinputDataBuffer = m_utils->createFilledDeviceLocalBufferOnDedMem(
-				{.queue=getTransferUpQueue()},
+			m_utils->createFilledDeviceLocalBufferOnDedMem(
+				SIntendedSubmitInfo{.queue=getTransferUpQueue()},
 				std::move(inputDataBufferCreationParams),
 				inputData
-			);
+			).move_into(gpuinputDataBuffer);
 		}
 
 		// create 8 buffers for 8 operations
@@ -380,7 +380,7 @@ private:
 
 		// download data
 		const SBufferRange<IGPUBuffer> bufferRange = {0u, resultsBuffer->getSize(), outputBuffers[Binop::BindingIndex]};
-		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit({.queue=transferDownQueue},bufferRange,resultsBuffer->getPointer());
+		m_utils->downloadBufferRangeViaStagingBufferAutoSubmit(SIntendedSubmitInfo{.queue=transferDownQueue},bufferRange,resultsBuffer->getPointer());
 
 		using type_t = typename Binop::type_t;
 		const auto dataFromBuffer = reinterpret_cast<const uint32_t*>(resultsBuffer->getPointer());
