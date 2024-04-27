@@ -7,7 +7,7 @@ nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
-	set(RESOURCE_DIR "app_resources")
+	set(RESOURCE_DIR "app_resources") 
 
 	get_filename_component(_SEARCH_DIRECTORIES_ "${CMAKE_CURRENT_SOURCE_DIR}" ABSOLUTE)
 	get_filename_component(_OUTPUT_DIRECTORY_SOURCE_ "${CMAKE_CURRENT_BINARY_DIR}/src" ABSOLUTE)
