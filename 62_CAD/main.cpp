@@ -251,7 +251,7 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t WindowHeightRequest = 900u;
 	constexpr static uint32_t MaxFramesInFlight = 8u;
 public:
-	
+
 	void allocateResources(uint32_t maxObjects)
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
@@ -467,9 +467,13 @@ public:
 		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
 		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
 			return logFail("Failed to Create Semaphores!");
-
-		m_overflowSubmitsScratchSemaphoreInfo.semaphore = m_overflowSubmitScratchSemaphore.get();
-		m_overflowSubmitsScratchSemaphoreInfo.value = 0ull;
+		
+		// Set Queue and ScratchSemaInfo -> wait semaphores and command buffers will be modified by workLoop each frame
+		m_intendedNextSubmit.queue = getGraphicsQueue();
+		m_intendedNextSubmit.scratchSemaphore = {
+				.semaphore = m_overflowSubmitScratchSemaphore.get(),
+				.value = 0ull,
+		};
 
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
@@ -823,16 +827,12 @@ public:
 		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
 
-		SIntendedSubmitInfo intendedNextSubmit = {
-			.queue = getGraphicsQueue(),
-			.waitSemaphores = waitSems,
-			.commandBuffers = cmdbufs,
-			.scratchSemaphore = m_overflowSubmitsScratchSemaphoreInfo
-		};
-
-		addObjects(intendedNextSubmit);
+		m_intendedNextSubmit.waitSemaphores = waitSems;
+		m_intendedNextSubmit.commandBuffers = cmdbufs;
 		
-		endFrameRender(intendedNextSubmit);
+		addObjects(m_intendedNextSubmit);
+		
+		endFrameRender(m_intendedNextSubmit);
 
 #ifdef BENCHMARK_TILL_FIRST_FRAME
 		if (!stopBenchamrkFlag)
@@ -1041,7 +1041,7 @@ public:
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
 				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
 				bufferBarrier.range =
 				{
@@ -1078,12 +1078,26 @@ public:
 					.buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer,
 				};
 			}
+			if (drawResourcesFiller.getCurrentMainObjectsBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawResourcesFiller.getCurrentMainObjectsBufferSize(),
+					.buffer = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer,
+				};
+			}
 			if (drawResourcesFiller.getCurrentLineStylesBufferSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
 				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 				bufferBarrier.range =
 				{
@@ -1163,9 +1177,6 @@ public:
 				m_surface->present(m_currentImageAcquire.imageIndex,{&presentWait,1});
 			}
 		}
-
-		// NOTE: one can just make `m_overflowSubmitsScratchSemaphoreInfo` a reference tied to `intendedSubmitInfo.scratchSemaphore
-		m_overflowSubmitsScratchSemaphoreInfo.value = intendedSubmitInfo.scratchSemaphore.value; // because we need this info consistent within frames
 	}
 
 	void endFrameRender(SIntendedSubmitInfo& intendedSubmitInfo)
@@ -2543,8 +2554,7 @@ protected:
 	
 	// timeline semaphore used for overflows (they need to be on their own timeline to count overflows)
 	smart_refctd_ptr<ISemaphore> m_overflowSubmitScratchSemaphore; 
-	// this is the semaphore info the overflows update the value for (the semaphore is set to the overflow semaphore above, and the value get's updated by SIntendedSubmitInfo)
-	IQueue::SSubmitInfo::SSemaphoreInfo m_overflowSubmitsScratchSemaphoreInfo;
+	SIntendedSubmitInfo m_intendedNextSubmit;
 	
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
