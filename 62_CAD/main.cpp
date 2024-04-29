@@ -31,7 +31,7 @@ using namespace video;
 
 // Shader cache tests. Only define one of these, or none for no use of the Cache
 //#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
-#define SHADER_CACHE_TEST_CACHE_RETRIEVE
+//#define SHADER_CACHE_TEST_CACHE_RETRIEVE
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
