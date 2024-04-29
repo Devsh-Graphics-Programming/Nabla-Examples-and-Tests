@@ -104,6 +104,10 @@ private:
 
 	void loadImages()
 	{
+		const core::set<uint32_t> uniqueFamilyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
+		const std::vector<uint32_t> familyIndices(uniqueFamilyIndices.begin(),uniqueFamilyIndices.end());
+		const bool multipleQueueFamilies = familyIndices.size()>1;
+
 		IAssetLoader::SAssetLoadParams lp;
 		lp.logger = m_logger.get();
 
@@ -161,10 +165,11 @@ private:
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
 			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT; 
-			// constexpr uint32_t FAMILY_INDICES_CNT = 3; // TODO: test on intel integrated GPU (which allows only one queue family)
-			std::array familyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
-			imgParams.queueFamilyIndexCount = familyIndices.size();
-			imgParams.queueFamilyIndices = familyIndices.data();
+			if (multipleQueueFamilies)
+			{
+				imgParams.queueFamilyIndexCount = familyIndices.size();
+				imgParams.queueFamilyIndices = familyIndices.data();
+			}
 			imgParams.preinitialized = false;
 
 			images[imageIdx] = m_device->createImage(std::move(imgParams));
