@@ -108,7 +108,6 @@ private:
 		lp.logger = m_logger.get();
 
 		auto transferUpQueue = getTransferUpQueue();
-		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
 		std::fill(commandPools.begin(), commandPools.end(), nullptr);
@@ -116,11 +115,14 @@ private:
 		core::smart_refctd_ptr<ICPUImage> cpuImages[IMAGE_CNT];
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
+			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT;
 			commandPools[i] = m_device->createCommandPool(transferUpQueue->getFamilyIndex(), commandPoolFlags);
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
+			commandBuffers[i]->setObjectDebugName(("Upload Command Buffer #"+std::to_string(i)).c_str());
 		}
 
 		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
+		imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
 		SIntendedSubmitInfo intendedSubmit = {
 			.queue = transferUpQueue,
 			.waitSemaphores = {},
@@ -166,6 +168,7 @@ private:
 			imgParams.preinitialized = false;
 
 			images[imageIdx] = m_device->createImage(std::move(imgParams));
+			images[imageIdx]->setObjectDebugName(("Image #"+std::to_string(imageIdx)).c_str());
 			auto imageAllocation = m_device->allocate(images[imageIdx]->getMemoryReqs(), images[imageIdx].get(), IDeviceMemoryAllocation::EMAF_NONE);
 			imageHandlesCreated++;
 			imageHandlesCreated.notify_one();
@@ -232,7 +235,12 @@ private:
 
 			cmdBuff->end();
 
-			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {.semaphore=m_imagesLoadedSemaphore.get(),.value=imageIdx+1u,.stageMask=PIPELINE_STAGE_FLAGS::COPY_BIT};
+			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
+				.semaphore=m_imagesLoadedSemaphore.get(),
+				.value=imageIdx+1u,
+				// cannot signal from COPY stage because there's a layout transition we need to wait for right after and it doesn't have an explicit stage
+				.stageMask=PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			};
 			transferUpQueue->startCapture();
 			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
 			transferUpQueue->endCapture();
@@ -249,44 +257,48 @@ private:
 	{
 		// INITIALIZE COMMON DATA
 		auto computeQueue = getComputeQueue();
-		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::NONE);
+
+		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
+		core::smart_refctd_ptr<IGPUDescriptorSet> descSets[FRAMES_IN_FLIGHT];
+		{
+			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
+				{
+					.binding = 0,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, // TODO: just an image descriptor type when separable samplers arrive
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+					.samplers = nullptr
+				},
+				{
+					.binding = 1,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+					.samplers = nullptr
+				}
+			};
+
+			dsLayout = m_device->createDescriptorSetLayout(bindings);
+			if (!dsLayout)
+				logFailAndTerminate("Failed to create a Descriptor Layout!\n");
+			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 }, &FRAMES_IN_FLIGHT);
+			for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				descSets[i] = descPool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
+				descSets[i]->setObjectDebugName(("Descriptor Set #" + std::to_string(i)).c_str());
+			}
+		}
+
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
-		core::smart_refctd_ptr<IGPUDescriptorSet> descSets[FRAMES_IN_FLIGHT];
-		std::fill(commandPools.begin(), commandPools.end(), nullptr);
-		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
-			{
-				.binding = 0,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count = 1,
-				.samplers = nullptr
-			},
-			{
-				.binding = 1,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count = 1,
-				.samplers = nullptr
-			}
-		};
-		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout[1] = { m_device->createDescriptorSetLayout(bindings) };
-		if (!dsLayout[0])
-			logFailAndTerminate("Failed to create a Descriptor Layout!\n");
-		smart_refctd_ptr<nbl::video::IDescriptorPool> descPools[FRAMES_IN_FLIGHT] = { // TODO: only one desc pool?
-			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, {&dsLayout[0].get(), 1}),
-			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, {&dsLayout[0].get(), 1}),
-			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, {&dsLayout[0].get(), 1})
-		};
-
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
+			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::NONE;
 			commandPools[i] = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), commandPoolFlags);
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
-			
-			descSets[i] = descPools[i]->createDescriptorSet(core::smart_refctd_ptr(dsLayout[0]));
+			commandBuffers[i]->setObjectDebugName(("Histogram Command Buffer #" + std::to_string(i)).c_str());
 		}
 
 		// LOAD SHADER FROM FILE
@@ -310,7 +322,7 @@ private:
 		pc[0].size = sizeof(PushConstants);
 
 		smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
-		smart_refctd_ptr<IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(pc, smart_refctd_ptr(dsLayout[0]));
+		smart_refctd_ptr<IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(pc,std::move(dsLayout));
 		{
 			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
 			if (!pplnLayout)
@@ -359,6 +371,7 @@ private:
 			m_histogramBufferMemPtrs[2] = m_histogramBufferMemPtrs[1] + HISTOGRAM_SIZE;
 		}
 
+		// TODO: will no longer be necessary after separable samplers and images
 		IGPUSampler::SParams samplerParams;
 		samplerParams.AnisotropicFilter = false;
 		core::smart_refctd_ptr<IGPUSampler> sampler = m_device->createSampler(samplerParams);
@@ -399,9 +412,11 @@ private:
 			params.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 			params.subresourceRange.layerCount = images[imageToProcessId]->getCreationParameters().arrayLayers;
 
-			imgInfo.desc = m_device->createImageView(std::move(params));
-			if (!imgInfo.desc)
+			auto view = m_device->createImageView(std::move(params));
+			if (!view)
 				logFailAndTerminate("Couldn't create descriptor.");
+			view->setObjectDebugName(("Image View #"+std::to_string(imageToProcessId)).c_str());
+			imgInfo.desc = std::move(view);
 			imgInfo.info.image = { .sampler = sampler, .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
 
 			IGPUDescriptorSet::SWriteDescriptorSet write[1] = {
