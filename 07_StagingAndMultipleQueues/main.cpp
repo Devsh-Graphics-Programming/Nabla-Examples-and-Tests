@@ -89,8 +89,8 @@ protected:
 
 private:
 	smart_refctd_ptr<ISemaphore> m_imagesLoadedSemaphore, m_imagesProcessedSemaphore, m_histogramSavedSemaphore;
-	std::atomic<uint32_t> m_imagesLoadedCnt, m_imagesProcessedCnt, m_imagesDownloadedCnt, m_imagesSavedCnt;
 	std::atomic<uint32_t> imageHandlesCreated = 0u;
+	std::atomic<uint32_t> transfersSubmitted = 0u;
 	std::array<core::smart_refctd_ptr<IGPUImage>, IMAGE_CNT> images;
 
 	static constexpr uint32_t FRAMES_IN_FLIGHT = 3u;
@@ -243,6 +243,8 @@ private:
 			};
 			transferUpQueue->startCapture();
 			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
+			transfersSubmitted++;
+			transfersSubmitted.notify_one();
 			transferUpQueue->endCapture();
 
 
@@ -454,6 +456,12 @@ private:
 			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
 			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
 			submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo, imageToProcessId < FRAMES_IN_FLIGHT ? 1u : 2u};
+			// Some Devices like all of the Intel GPUs do not have enough queues for us to allocate different queues to compute and transfers,
+			// so our `BasicMultiQueueApplication` will "alias" a single queue to both usages. Normally you don't need to care, but here we're
+			// attempting to do "out-of-order" "submit-before-signal" so we need to "hold back" submissions if the queues are aliased!
+			if (getTransferUpQueue()==computeQueue)
+			for (auto old = transfersSubmitted.load(); old <= imageToProcessId; old = transfersSubmitted.load())
+				transfersSubmitted.wait(old);
 			computeQueue->startCapture();
 			computeQueue->submit(submitInfo);
 			computeQueue->endCapture();
