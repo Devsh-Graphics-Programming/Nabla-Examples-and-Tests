@@ -21,6 +21,7 @@ class StagingAndMultipleQueuesApp final : public application_templates::BasicMul
 	using device_base_t = application_templates::BasicMultiQueueApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
+	// TODO: would be cool if we used `system::ISystem::listItemsInDirectory(sharedInputCWD/"GLI")` as our dataset
 	static constexpr std::array imagesToLoad = {
 		"../app_resources/test0.png",
 		"../app_resources/test1.png",
@@ -54,7 +55,6 @@ public:
 		m_histogramSavedSemaphore = m_device->createSemaphore(TIMELINE_SEMAPHORE_STARTING_VALUE);
 
 		// TODO: create/initialize array of atomic pointers to IGPUImage* and IGPUBuffer* to hold results
-		// no need i think
 
 		std::thread loadImagesThread(&StagingAndMultipleQueuesApp::loadImages, this);
 		std::thread saveHistogramsThread(&StagingAndMultipleQueuesApp::saveHistograms, this);
@@ -212,7 +212,6 @@ private:
 			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
 				logFailAndTerminate("Failed to issue barrier!\n");
 
-			transferUpQueue->startCapture();
 			const uint64_t oldCntr = intendedSubmit.scratchSemaphore.value;
 			const bool uploadCommendRecorded = m_utils->updateImageViaStagingBuffer(
 				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
@@ -234,6 +233,7 @@ private:
 			cmdBuff->end();
 
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {.semaphore=m_imagesLoadedSemaphore.get(),.value=imageIdx+1u,.stageMask=PIPELINE_STAGE_FLAGS::COPY_BIT};
+			transferUpQueue->startCapture();
 			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
 			transferUpQueue->endCapture();
 
@@ -409,7 +409,6 @@ private:
 			};
 			m_device->updateDescriptorSets(1, write, 0u, nullptr);
 
-			computeQueue->startCapture();
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::NONE);
 			cmdBuff->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 			cmdBuff->bindComputePipeline(pipeline.get());
@@ -440,6 +439,7 @@ private:
 			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
 			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
 			submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo, imageToProcessId < FRAMES_IN_FLIGHT ? 1u : 2u};
+			computeQueue->startCapture();
 			computeQueue->submit(submitInfo);
 			computeQueue->endCapture();
 			std::string msg = std::string("Image nr ") + std::to_string(imageToProcessId) + " processed. Resource idx: " + std::to_string(resourceIdx);
