@@ -676,7 +676,7 @@ public:
 					if (!cpuShader)
 						return nullptr;
 
-					return m_device->createShader({ cpuShader.get(), nullptr, cache.get() });
+					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
 				};
 			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
@@ -740,7 +740,7 @@ public:
 					if (!cpuShader)
 						return nullptr;
 
-					return m_device->createShader({ cpuShader.get(), nullptr, cache.get() });
+					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
 				};
 			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
