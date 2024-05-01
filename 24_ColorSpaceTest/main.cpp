@@ -11,10 +11,13 @@
 
 using namespace nbl;
 using namespace core;
+using namespace hlsl;
 using namespace system;
 using namespace asset;
 using namespace ui;
 using namespace video;
+
+#include "app_resources/push_constants.hlsl"
 
 
 class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -175,18 +178,24 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 			// Now create the pipeline
 			{
+				const asset::SPushConstantRange range = {
+					.stageFlags = IShader::ESS_FRAGMENT,
+					.offset = 0,
+					.size = sizeof(push_constants_t)
+				};
+				auto layout = m_device->createPipelineLayout({&range,1},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
 				const IGPUShader::SSpecInfo fragSpec = {
 					.entryPoint = "main",
 					.shader = fragmentShader.get()
 				};
-				auto layout = m_device->createPipelineLayout({},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
 				m_pipeline = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),scResources->getRenderpass()/*,default is subpass 0*/);
 				if (!m_pipeline)
 					return logFail("Could not create Graphics Pipeline!");
 			}
 
+			auto queue = getGraphicsQueue();
 			// Let's just use the same queue since there's no need for async present
-			if (!m_surface || !m_surface->init(getGraphicsQueue(),std::move(scResources),swapchainParams.sharedParams))
+			if (!m_surface || !m_surface->init(queue,std::move(scResources),swapchainParams.sharedParams))
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
@@ -204,20 +213,44 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						return logFail("Could not create Descriptor Set!");
 				}
 			}
-
-			// create the commandbuffers and pools, this time properly 1 pool per FIF
+			
+			// need resetttable commandbuffers for the upload utility
+			m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			// create the commandbuffers
 			for (auto i=0u; i<m_maxFramesInFlight; i++)
 			{
-				// non-individually-resettable commandbuffers have an advantage over invidually-resettable
-				// mainly that the pool can use a "cheaper", faster allocator internally
-				m_cmdPools[i] = m_device->createCommandPool(getGraphicsQueue()->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::NONE);
-				if (!m_cmdPools[i])
+				if (!m_cmdPool)
 					return logFail("Couldn't create Command Pool!");
-				if (!m_cmdPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
+				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
 					return logFail("Couldn't create Command Buffer!");
 			}
 
-			getGraphicsQueue()->startCapture();
+			// things for IUtilities
+			m_scratchSemaphore = m_device->createSemaphore(0);
+			if (!m_scratchSemaphore)
+				return logFail("Could not create Scratch Semaphore");
+			m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
+			// we don't want to overcomplicate the example with multi-queue
+			m_intendedSubmit.queue = queue;
+			// wait for nothing before upload
+			m_intendedSubmit.waitSemaphores = {};
+			// fill later
+			m_intendedSubmit.commandBuffers = {};
+			m_intendedSubmit.scratchSemaphore = {
+				.semaphore = m_scratchSemaphore.get(),
+				.value = 0,
+				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+			};
+
+			// Allocate and Leave 1/4 for image uploads, to test image copy with small memory remaining 
+			{
+				uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
+				uint32_t maxFreeBlock = m_utils->getDefaultUpStreamingBuffer()->max_size();
+				const uint32_t allocationAlignment = 64u;
+				const uint32_t allocationSize = (maxFreeBlock/4)*3;
+				m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
+			}
+
 			return true;
 		}
 
@@ -249,6 +282,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					{
 						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
 						const auto format = image->getCreationParameters().format;
+						if (!isBlockCompressionFormat(format))
+							return;
 
 						ICPUImageView::SCreationParams viewParams = {
 							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
@@ -258,9 +293,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							.subresourceRange = {
 								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
 								.baseMipLevel = 0u,
-								.levelCount = 1u,
+								.levelCount = ICPUImageView::remaining_mip_levels,
 								.baseArrayLayer = 0u,
-								.layerCount = 1u
+								.layerCount = ICPUImageView::remaining_array_layers
 							}
 						};
 
@@ -289,17 +324,96 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					return;
 			}
 			const auto resourceIx = m_submitIx%m_maxFramesInFlight;
-			if (!m_cmdPools[resourceIx]->reset())
-				return;
 
-			// write to descriptor set
+			// we don't want to overcomplicate the example with multi-queue
+			auto queue = getGraphicsQueue();
+			auto cmdbuf = m_cmdBufs[resourceIx].get();
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {cmdbuf};
+			m_intendedSubmit.commandBuffers = {&cmdbufInfo,1};
+			
+			// there's no previous operation to wait for
+			const SMemoryBarrier toTransferBarrier = {
+				.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+				.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+			};
+
+			// upload image and write to descriptor set
+			queue->startCapture();
+			smart_refctd_ptr<IGPUImage> gpuImg;
 			auto ds = m_descriptorSets[resourceIx].get();
+			{
+				IGPUDescriptorSet::SDescriptorInfo info = {};
+				info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				{
+					const auto& origParams = cpuImgView->getCreationParameters();
+					const auto origImage = origParams.image;
+
+					// create matching size image
+					IGPUImage::SCreationParams imageParams = {};
+					imageParams = origImage->getCreationParameters();
+					imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT|IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
+					// promote format because RGB8 and friends don't actually exist in HW
+					{
+						const IPhysicalDevice::SImageFormatPromotionRequest request = {
+							.originalFormat = imageParams.format,
+							.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
+						};
+						imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
+					}
+					if (imageParams.type==IGPUImage::ET_3D)
+						imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
+					gpuImg = m_device->createImage(std::move(imageParams));
+					if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
+						return;
+
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					// change the layout of the image
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
+						.barrier = {
+							.dep = toTransferBarrier
+							// no ownership transfers
+						},
+						.image = gpuImg.get(),
+						// transition the whole view
+						.subresourceRange = origParams.subresourceRange,
+						// a wiping transition
+						.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+					}};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
+					// upload contents and submit right away
+					m_utils->updateImageViaStagingBufferAutoSubmit(m_intendedSubmit,origImage->getBuffer(),origImage->getCreationParameters().format,gpuImg.get(),IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,origImage->getRegions());
+
+					IGPUImageView::SCreationParams viewParams = {
+						.image = gpuImg,
+						.viewType = IGPUImageView::ET_2D_ARRAY,
+						.format = gpuImg->getCreationParameters().format
+					};
+					info.desc = m_device->createImageView(std::move(viewParams));
+				}
+
+				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
+					.dstSet = ds,
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info
+				}};
+				m_device->updateDescriptorSets(writes,{});
+			}
 
 			// now we can sleep till we're ready for next render
 			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
 			m_lastImageEnqueued = clock_t::now();
 
-			const auto newWindowResolution = cpuImgView->getCreationParameters().image->getCreationParameters().extent;
+			const auto& params = gpuImg->getCreationParameters();
+			const auto imageExtent = params.extent;
+			push_constants_t pc;
+			{
+				const float realLayers = core::max(params.arrayLayers,imageExtent.depth);
+				pc.grid.x = ceil(sqrt(realLayers));
+				pc.grid.y = ceil(realLayers/float(pc.grid.x));
+			}
+			const VkExtent2D newWindowResolution = {imageExtent.width*pc.grid.x,imageExtent.height*pc.grid.y};
 			if (newWindowResolution.width!=m_window->getWidth() || newWindowResolution.height!=m_window->getHeight())
 			{
 				// Resize the window
@@ -317,10 +431,21 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				return;
 
 			// Render to the Image
-			auto cmdbuf = m_cmdBufs[resourceIx].get();
 			{
 				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-				
+
+				// need a pipeline barrier to transition layout
+				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
+					.barrier = {
+						.dep = toTransferBarrier.nextBarrier(PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT)
+					},
+					.image = gpuImg.get(),
+					.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
+					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+				}};
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
+
 				const VkRect2D currentRenderArea =
 				{
 					.offset = {0,0},
@@ -350,9 +475,11 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 				}
 				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+				cmdbuf->pushConstants(m_pipeline->getLayout(),IGPUShader::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
 				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
 				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 				cmdbuf->endRenderPass();
+
 				cmdbuf->end();
 			}
 
@@ -368,6 +495,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
 						.cmdbuf = cmdbuf
 					}};
+					// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
 					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
 						.semaphore = acquire.semaphore,
 						.value = acquire.acquireCount,
@@ -379,13 +507,10 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						.signalSemaphores = rendered
 					}};
 					// we won't signal the sema if no success
-					if (getGraphicsQueue()->submit(infos)!=IQueue::RESULT::SUCCESS)
+					if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
 						m_submitIx--;
 				}
 			}
-
-			// Present
-			m_surface->present(acquire.imageIndex,rendered);
 			
 			// Set the Caption
 			std::string viewTypeStr;
@@ -405,6 +530,10 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			};
 			m_window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
 
+			// Present
+			m_surface->present(acquire.imageIndex, rendered);
+			getGraphicsQueue()->endCapture();
+
 			// Now do a write to disk in the meantime
 			{
 				const std::string assetPath = "imageAsset_" + filename.string() + extension.string();
@@ -422,7 +551,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						m_logger->log("Failed to write %s to disk!",ILogger::ELL_ERROR,assetPath.c_str());
 			}
 
-			// Block so we can reuse the resources without frames in flight (cmon we do like one swap every 900ms)
+			// TODO: reuse the resources without frames in flight (cmon we block and do like one swap every 900ms)
 		}
 
 		inline bool keepRunning() override
@@ -440,7 +569,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool onAppTerminated() override
 		{
-			getGraphicsQueue()->endCapture();
 			return device_base_t::onAppTerminated();
 		}
 
@@ -457,25 +585,21 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 		// We can't use the same semaphore for acquire and present, because that would disable "Frames in Flight" by syncing previous present against next acquire.
 		smart_refctd_ptr<ISemaphore> m_semaphore;
+		smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
+		// for image uploads
+		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
+		SIntendedSubmitInfo m_intendedSubmit;
 		// Use a separate counter to cycle through our resources for clarity
 		uint64_t m_submitIx : 59 = 0;
 		// Maximum frames which can be simultaneously rendered
 		uint64_t m_maxFramesInFlight : 5;
 		// Enough Command Buffers and other resources for all frames in flight!
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
-		std::array<smart_refctd_ptr<IGPUCommandPool>,ISwapchain::MaxImages> m_cmdPools;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
 };
-#if 0	
-		// Allocate and Leave 8MB for image uploads, to test image copy with small memory remaining 
-		{
-			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
-			uint32_t maxFreeBlock = utilities->getDefaultUpStreamingBuffer()->max_size();
-			const uint32_t allocationAlignment = 64u;
-			const uint32_t allocationSize = maxFreeBlock - (0x00F0000u * 4u);
-			utilities->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
-		}
 
+
+#if 0 // old test code to check region copies
 		// Creates GPUImageViews from Loaded CPUImageViews but this time use IUtilities::updateImageViaStagingBuffer directly and only copy sub-regions for testing purposes.
 		core::vector<core::smart_refctd_ptr<video::IGPUImageView>> weirdGPUImages;
 		{
@@ -606,72 +730,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				logicalDevice->blockForFences(1u, &transferFence.get());
 			}
 		}
-
-
-
-
-		auto presentImageOnTheScreen = [&](core::smart_refctd_ptr<video::IGPUImageView> gpuImageView, const NBL_CAPTION_DATA_TO_DISPLAY& captionData)
-		{
-			// resize
-
-			video::IGPUDescriptorSet::SDescriptorInfo info;
-			{
-				info.desc = gpuImageView;
-				info.info.image.sampler = nullptr;
-				info.info.image.imageLayout = asset::IImage::EL_SHADER_READ_ONLY_OPTIMAL;
-			}
-
-			video::IGPUDescriptorSet::SWriteDescriptorSet write;
-			write.dstSet = ds.get();
-			write.binding = 0u;
-			write.arrayElement = 0u;
-			write.count = 1u;
-			write.descriptorType = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER;
-			write.info = &info;
-
-			logicalDevice->updateDescriptorSets(1u, &write, 0u, nullptr);
-
-
-
-			const std::string writePath = "screenShot_" + captionData.name + ".png";
-
-			return ext::ScreenShot::createScreenShot(
-				logicalDevice.get(),
-				queues[decltype(initOutput)::EQT_TRANSFER_UP],
-				nullptr,
-				gpuSourceImageView.get(),
-				assetManager.get(),
-				writePath,
-				asset::IImage::EL_PRESENT_SRC,
-				asset::EAF_NONE);
-		};
-
-		for (size_t i = 0; i < gpuImageViews->size(); ++i)
-		{
-			auto gpuImageView = (*gpuImageViews)[i];
-			if (gpuImageView)
-			{
-				auto& captionData = captionTexturesData[i];
-		
-				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
-				assert(status);
-			}
-		}
-
-		// Now present weird images (sub-region copies)
-		for (size_t i = 0; i < weirdGPUImages.size(); ++i)
-		{
-			auto gpuImageView = weirdGPUImages[i];
-			if (gpuImageView)
-			{
-				NBL_CAPTION_DATA_TO_DISPLAY captionData = {};
-				captionData.name = "Weird Region";
-				bool status = presentImageOnTheScreen(core::smart_refctd_ptr(gpuImageView), captionData);
-				assert(status);
-			}
-		}
-	}
-};
 #endif
 
 NBL_MAIN_FUNC(ColorSpaceTestSampleApp)

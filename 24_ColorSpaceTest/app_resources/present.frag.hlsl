@@ -10,7 +10,12 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 [[vk::combinedImageSampler]][[vk::binding(0,3)]] Texture2DArray texture;
 [[vk::combinedImageSampler]][[vk::binding(0,3)]] SamplerState samplerState;
 
+#include "push_constants.hlsl"
+[[vk::push_constant]] push_constants_t pc;
+
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vxAttr) : SV_Target0
 {
-    return texture.SampleLevel(samplerState,float32_t3(vxAttr.uv,0.f),0.0);
+    const float32_t2 repeatCoord = vxAttr.uv*float32_t2(pc.grid);
+    const int32_t layer = int32_t(repeatCoord.y)*pc.grid.x+int32_t(repeatCoord.x);
+    return texture.Sample(samplerState,float32_t3(repeatCoord,layer));
 }
