@@ -56,6 +56,8 @@ public:
 
 		// TODO: create/initialize array of atomic pointers to IGPUImage* and IGPUBuffer* to hold results
 
+		// TODO: Change the capture start/end to become methods of IAPIConnection, because our current API is not how renderdoc works
+		getComputeQueue()->startCapture();
 		std::thread loadImagesThread(&StagingAndMultipleQueuesApp::loadImages, this);
 		std::thread saveHistogramsThread(&StagingAndMultipleQueuesApp::saveHistograms, this);
 
@@ -63,6 +65,7 @@ public:
 
 		loadImagesThread.join();
 		saveHistogramsThread.join();
+		getComputeQueue()->endCapture();
 
 		return true;
 	}
@@ -246,11 +249,9 @@ private:
 				// cannot signal from COPY stage because there's a layout transition we need to wait for right after and it doesn't have an explicit stage
 				.stageMask=PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 			};
-			transferUpQueue->startCapture();
 			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
 			transfersSubmitted++;
 			transfersSubmitted.notify_one();
-			transferUpQueue->endCapture();
 
 
 			// TODO: this is for basic testing purposes, will be deleted ofc
@@ -467,9 +468,7 @@ private:
 			if (getTransferUpQueue()==computeQueue)
 			for (auto old = transfersSubmitted.load(); old <= imageToProcessId; old = transfersSubmitted.load())
 				transfersSubmitted.wait(old);
-			computeQueue->startCapture();
 			computeQueue->submit(submitInfo);
-			computeQueue->endCapture();
 			std::string msg = std::string("Image nr ") + std::to_string(imageToProcessId) + " processed. Resource idx: " + std::to_string(resourceIdx);
 			m_logger->log(msg);
 		}
