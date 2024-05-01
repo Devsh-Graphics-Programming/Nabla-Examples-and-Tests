@@ -465,7 +465,8 @@ private:
 			// Some Devices like all of the Intel GPUs do not have enough queues for us to allocate different queues to compute and transfers,
 			// so our `BasicMultiQueueApplication` will "alias" a single queue to both usages. Normally you don't need to care, but here we're
 			// attempting to do "out-of-order" "submit-before-signal" so we need to "hold back" submissions if the queues are aliased!
-			if (getTransferUpQueue()==computeQueue)
+			// TODO: Renderdoc freezes because it starts capturing immediately upon a submit and can't defer a capture till semaphores signal.
+			if (getTransferUpQueue()==computeQueue /*|| m_api->isRunningInRenderdoc()*/)
 			for (auto old = transfersSubmitted.load(); old <= imageToProcessId; old = transfersSubmitted.load())
 				transfersSubmitted.wait(old);
 			computeQueue->submit(submitInfo);
