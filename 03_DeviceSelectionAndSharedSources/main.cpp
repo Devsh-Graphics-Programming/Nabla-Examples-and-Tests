@@ -51,28 +51,25 @@ public:
 			mergeTester.performTests(m_physicalDevice, m_device.get(), m_logger.get(), m_assetMgr.get());
 
 			// testing creation of compute pipeline layouts compatible for multiple shaders
-			PredefinedLayoutTester layoutTester("");
+			PredefinedLayoutTester layoutTester("CPSIRVIntrospector::createApproximateComputePipelineFromIntrospection");
 			layoutTester.performTests(m_physicalDevice, m_device.get(), m_logger.get(), m_assetMgr.get());
 
 			SandboxTester sandboxTester("unknown");
 			sandboxTester.performTests(m_physicalDevice, m_device.get(), m_logger.get(), m_assetMgr.get());
 		}
-		
 
-		m_logger->log("------- shader.comp.hlsl INTROSPECTION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		CSPIRVIntrospector introspector;
 		auto mainShader = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
 		auto source = mainShader.first;
 		auto mainShaderIntrospection = mainShader.second;
+
 		//mainShaderIntrospection->debugPrint(m_logger.get());
-		// auto source2 = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector); // to make sure caching works
 
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
 		ICPUShader::SSpecInfo specInfo;
 		specInfo.entryPoint = "main";
 		specInfo.shader = source.get();
 
-		m_logger->log("------- shader.comp.hlsl PIPELINE CREATION -------", ILogger::E_LOG_LEVEL::ELL_WARNING);
 		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
 
 		smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());

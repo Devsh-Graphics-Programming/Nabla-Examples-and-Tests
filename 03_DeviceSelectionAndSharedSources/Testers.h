@@ -178,8 +178,8 @@ public:
 		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[0].get()), true);
 		// should merge successfully since pipeline layout of "shader_1.comp.hlsl" is compatible with "shader_0.comp.hlsl"
 		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[1].get()), true);
-		// should not merge since pipeline layout of "shader_2.comp.hlsl" is not compatible with "shader_0.comp.hlsl"
-		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[2].get()), false);
+		// should merge since pipeline layout of "shader_2.comp.hlsl" is not compatible with "shader_0.comp.hlsl"
+		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[2].get()), true);
 
 		pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
 
@@ -190,8 +190,8 @@ public:
 
 		// should merge successfully since shader is not messed up and it is the first merge
 		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[4].get()), true);
-		// TODO: idk what should happen when last binding in introspection is fixed-length sized array and last binding in introspection to merge is run-time sized array
-		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[5].get()), false);
+		// TODO: should merge successfully since shader 5 is compatible with shader 4, it is allowed for last binding in one shader to be run-time sized and statically sized in the other
+		confirmExpectedOutput(logger, pplnIntroData->merge(introspections[5].get()), true);
 	}
 };
 
