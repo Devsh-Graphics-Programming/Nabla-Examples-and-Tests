@@ -282,8 +282,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					{
 						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
 						const auto format = image->getCreationParameters().format;
-						if (!isBlockCompressionFormat(format))
-							return;
 
 						ICPUImageView::SCreationParams viewParams = {
 							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
@@ -365,6 +363,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					gpuImg = m_device->createImage(std::move(imageParams));
 					if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
 						return;
+					gpuImg->setObjectDebugName(m_nextPath.c_str());
 
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 					// change the layout of the image
