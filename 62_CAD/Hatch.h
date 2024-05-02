@@ -7,7 +7,7 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/vector.hlsl>
-#include "curves.h"
+#include "Curves.h"
 #include "Polyline.h"
 
 #include <nbl/builtin/hlsl/math/equations/cubic.hlsl>

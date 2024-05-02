@@ -1,6 +1,7 @@
 #include "Polyline.h"
 #include "Hatch.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
+#include <nbl/core/containers/LRUCache.h>
 
 using namespace nbl;
 using namespace nbl::video;
@@ -23,16 +24,21 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
 };
 
-// ! this is just a buffers filler with autosubmission features used for convenience to how you feed our CAD renderer
-struct DrawBuffersFiller
+// ! DrawResourcesFiller
+// ! This class provides important functionality to manage resources needed for a draw.
+// ! Drawing new objects (polylines, hatches, etc.) should go through this function.
+// ! Contains all the scene resources (buffers and images)
+// ! In the case of overflow (i.e. not enough remaining v-ram) will auto-submit/render everything recorded so far,
+//   and additionally makes sure relavant data needed for those draw calls are present in memory
+struct DrawResourcesFiller
 {
 public:
 
 	typedef uint32_t index_buffer_type;
 
-	DrawBuffersFiller() {}
+	DrawResourcesFiller();
 
-	DrawBuffersFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
+	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
 
@@ -48,26 +54,41 @@ public:
 	void allocateGeometryBuffer(ILogicalDevice* logicalDevice, size_t size);
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
+	
+	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
+	
+	using texture_hash = uint64_t;
+	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
+	
+	// ! return index to be used later in hatch fill style or text glyph object
+	void addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
 
 	void drawPolyline(const CPolylineBase& polyline, uint32_t polylineMainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
 	
-	// !drawSolid
+	// ! Convinience function for Hatch with MSDF Pattern and a solid background
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
 		const float32_t4& backgroundColor,
-		/* something that gets you the texture id */
+		const texture_hash msdfTexture,
 		SIntendedSubmitInfo& intendedNextSubmit);
-
+	
+	// ! Hatch with MSDF Pattern
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		/* something that gets you the texture id */
+		const texture_hash msdfTexture,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
+	// ! Solid Fill Hacth
+	void drawHatch(
+		const Hatch& hatch,
+		const float32_t4& color,
+		SIntendedSubmitInfo& intendedNextSubmit);
+	
 	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
@@ -114,7 +135,16 @@ public:
 	void pushClipProjectionData(const ClipProjectionData& clipProjectionData);
 	void popClipProjectionData();
 
+	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
+
 protected:
+	
+	struct TextureCopy
+	{
+		ICPUBuffer const* srcBuffer;
+		const asset::IImage::SBufferCopy& region;
+		uint32_t index;
+	};
 
 	SubmitFunc submitDraws;
 	static constexpr uint32_t InvalidStyleIdx = ~0u;
@@ -127,6 +157,8 @@ protected:
 	
 	void finalizeCustomClipProjectionCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 	
+	void finalizeTextureCopies(SIntendedSubmitInfo& intendedNextSubmit);
+
 	// A hatch and a polyline are considered a "Main Object" which consists of smaller geometries such as beziers, lines, connectors, hatchBoxes
 	// If the whole polyline can't fit into memory for draw, then we submit the render of smaller geometries midway and continue
 	void submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex);
@@ -218,4 +250,23 @@ protected:
 
 	std::stack<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
+	
+	struct TextureReference
+	{
+		uint32_t alloc_idx;
+		uint64_t lastUsedSemaphoreValue;
+
+		TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
+		TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
+		TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
+
+		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
+		inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+	};
+
+	using TextureLRUCache = core::LRUCache<texture_hash, TextureReference>;
+
+	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
+	std::vector<TextureCopy>			textureCopies; // queued up texture copies, @Lucas change to deque if possible
+	TextureLRUCache						textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 };
