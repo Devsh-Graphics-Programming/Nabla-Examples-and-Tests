@@ -525,6 +525,15 @@ public:
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
 
+	struct BoundingBox
+	{
+		float64_t2 topLeft;
+		float64_t2 dirU;
+		float64_t2 dirV;
+	};
+	static constexpr const char* TestString = "The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+	std::vector<BoundingBox> textBBoxes;
+
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
@@ -876,6 +885,36 @@ public:
 
 		m_glyphLibrary = library;
 		m_glyphFace = face;
+
+		// Construct BBoxes
+		auto slot = m_glyphFace->glyph;
+		
+		float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
+		float64_t scale = 1.0 / 64.0;
+
+		for (uint32_t i = 0; i < strlen(TestString); i++)
+		{
+			char k = TestString[i];
+			auto unicode = wchar_t(k);
+			auto glyphIndex = FT_Get_Char_Index(m_glyphFace, unicode);
+			error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE);
+			const float64_t2 advanceVec = float64_t2(slot->advance.x, 0.0) * scale;
+
+			BoundingBox newBBox = {};
+			if (glyphIndex != 0 || k != ' ')
+			{
+				const float64_t2 bearingVec = float64_t2(slot->metrics.horiBearingX, slot->metrics.horiBearingY) * scale;
+				const float64_t2 glyphSize = float64_t2(slot->metrics.width, slot->metrics.height) * scale;
+				newBBox.topLeft = currentBaselineStart + bearingVec;
+				newBBox.dirU = float64_t2(glyphSize.x, 0.0);
+				newBBox.dirV = float64_t2(0.0, -glyphSize.y);
+				textBBoxes.push_back(newBBox);
+			}
+
+			currentBaselineStart += advanceVec;
+
+			assert(!error);
+		}
 
 		// Hatch fill MSDF
 		{
@@ -1519,7 +1558,7 @@ protected:
 			
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector<std::vector<CPolyline>> shapes;
 				std::vector<CPolyline> polylines;
@@ -2086,29 +2125,59 @@ protected:
 				}
 			}
 
-			if (hatchDebugStep > 0)
+			if (true)
 			{
-				constexpr auto TestString = "The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+				LineStyleInfo bboxStyle = {};
+				bboxStyle.screenSpaceLineWidth = 1.0f;
+				bboxStyle.worldSpaceLineWidth = 0.0f;
+				bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+				
+				// Draw Text Boxes
+				for (auto& bbox : textBBoxes)
+				{
+					CPolyline newPoly = {};
+					std::vector<float64_t2> points;
+					points.push_back(bbox.topLeft);
+					points.push_back(bbox.topLeft + bbox.dirU);
+					points.push_back(bbox.topLeft + bbox.dirU + bbox.dirV);
+					points.push_back(bbox.topLeft + bbox.dirV);
+					points.push_back(bbox.topLeft);
+					newPoly.addLinePoints(points);
+					drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
+				}
+
+				LineStyleInfo baselineStyle = {};
+				baselineStyle.screenSpaceLineWidth = 1.0f;
+				baselineStyle.worldSpaceLineWidth = 0.0f;
+				baselineStyle.color = float32_t4(0.619f, 0.625f, 0.209f, 0.1f);
+
+				// Draw Baseline
+				{
+					CPolyline newPoly = {};
+					std::vector<float64_t2> points;
+					points.push_back({0.0, 0.0});
+					points.push_back({500.0, 0.0});
+					newPoly.addLinePoints(points);
+					drawResourcesFiller.drawPolyline(newPoly, baselineStyle, intendedNextSubmit);
+				}
 
 				auto slot = m_glyphFace->glyph;
-				auto penX = -100.0;
-				auto penY = -500.0;
+				auto penX = 0.0;
+				auto penY = 0.0;
 				auto previous = 0;
 
 				for (uint32_t i = 0; i < strlen(TestString); i++)
 				{
-					if (hatchDebugStep == 0) break;
-					hatchDebugStep--; 
-
 					char k = TestString[i];
 					auto unicode = wchar_t(k);
 					auto glyphIndex = FT_Get_Char_Index(m_glyphFace, unicode);
 
 					if (glyphIndex)
 					{
-						FT_Vector delta;
-						FT_Get_Kerning(m_glyphFace, previous, glyphIndex, FT_KERNING_DEFAULT, &delta);
-						penX += delta.x >> 6;
+						// We don't want kerning with text placement, conscious choice
+						// FT_Vector delta;
+						// FT_Get_Kerning(m_glyphFace, previous, glyphIndex, FT_KERNING_DEFAULT, &delta);
+						// penX += delta.x >> 6;
 					}
 
 					auto error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
@@ -2116,13 +2185,14 @@ protected:
 
 					auto offsetX = double(slot->metrics.horiBearingX >> 6);
 					auto offsetY = double(slot->metrics.horiBearingY >> 6);
-					auto drawX = penX - offsetX;
-					auto drawY = penY;
+					auto drawX = penX + offsetX;
+					auto drawY = penY;// + offsetY; adding nothing everything starts from the baselineY -> it should be  drawY = penY - height + offsetY but what is height?!
 
-					penX += slot->advance.x >> 6;
+					penX += double(slot->advance.x >> 6);
+					penY += double(slot->advance.y >> 6);
 					previous = glyphIndex;
 
-					if (k >= FirstGeneratedCharacter && k <= LastGeneratedCharacter)
+					if (true)
 					{
 						auto shapePolylines = m_glyphPolylines[uint32_t(k) - uint32_t(FirstGeneratedCharacter)];
 
@@ -2173,7 +2243,8 @@ protected:
 					}
 				}
 			}
-			if (hatchDebugStep > 0)
+
+			if (false)
 			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
@@ -2202,7 +2273,7 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.6, 0.6, 0.1, 1.0f), intendedNextSubmit);
 			}
 
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -2246,7 +2317,7 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
 
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto circleThing = [&](float64_t2 offset)
@@ -2279,7 +2350,7 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
 
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				auto line = [&](float64_t2 begin, float64_t2 end) {
@@ -2318,7 +2389,7 @@ protected:
 				}
 			}
 
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector <CPolyline> polylines;
 				{
@@ -2433,7 +2504,7 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
 			
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				std::vector<float64_t2> points;
 				double sqrt3 = sqrt(3.0);
@@ -2472,7 +2543,7 @@ protected:
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
 			
-			if (hatchDebugStep > 0)
+			if (false)
 			{
 				CPolyline polyline;
 				std::vector<shapes::QuadraticBezier<double>> beziers;
