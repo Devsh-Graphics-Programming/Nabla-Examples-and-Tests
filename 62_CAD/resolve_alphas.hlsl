@@ -26,7 +26,7 @@ float32_t4 calculateColor<true>(const uint2 fragCoord)
     const uint quantizedAlpha = bitfieldExtract(packedData,0,AlphaBits);
     const uint mainObjectIdx = bitfieldExtract(packedData,AlphaBits,MainObjectIdxBits);
     // draw with previous geometry's style :kek:
-    float4 color = getObjectBaseColor(fragCoord, ObjectType::CURVE_BOX, mainObjectIdx);
+    float4 color = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     color.a *= float(quantizedAlpha)/255.f;
     return color;
 }

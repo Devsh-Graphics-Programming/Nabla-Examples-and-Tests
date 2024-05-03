@@ -385,11 +385,11 @@ public:
 		uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
 		uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
 		msdfgen::edgeColoringSimple(glyph, 3.0); // TODO figure out what this is
-		msdfgen::Bitmap<float, 3> msdfMap(glyphW, glyphH);
+		msdfgen::Bitmap<float, 4> msdfMap(glyphW, glyphH);
 
 		float scaleX = (1.0 / float(8.0)) * glyphW;
 		float scaleY = (1.0 / float(8.0)) * glyphH;
-		msdfgen::generateMSDF(msdfMap, glyph, MsdfPixelRange, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
+		msdfgen::generateMTSDF(msdfMap, glyph, MsdfPixelRange, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
 
 		// TODO: Optimize this
 		auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * 4);
@@ -402,7 +402,7 @@ public:
 				data[(x + y * glyphW) * 4 + 0] = msdfgen::pixelFloatToByte(pixel[0]);
 				data[(x + y * glyphW) * 4 + 1] = msdfgen::pixelFloatToByte(pixel[1]);
 				data[(x + y * glyphW) * 4 + 2] = msdfgen::pixelFloatToByte(pixel[2]);
-				data[(x + y * glyphW) * 4 + 3] = 255;
+				data[(x + y * glyphW) * 4 + 3] = msdfgen::pixelFloatToByte(pixel[3]);
 			}
 		}
 

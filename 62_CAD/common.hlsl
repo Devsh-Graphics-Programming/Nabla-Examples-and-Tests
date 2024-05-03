@@ -443,37 +443,6 @@ struct PSInput
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
 
-// TODO: place this MSDF code elsewhere
-float median(float r, float g, float b) {
-    return max(min(r, g), min(max(r, g), b));
-}
-
-float screenPxRange(float2 uv) {
-    float2 unitRange = MsdfPixelRange / float2(globals.resolution);
-    // This could also be done using the resolution, but this way we supposedly
-    // get better support for rotations and other transformations with the text
-    float2 screenTexSize = 1.0 / fwidth(uv);
-    return max(0.5*dot(unitRange, screenTexSize), 1.0);
-}
-
-float msdfOpacity(float3 msd, float2 uv) {
-    float sd = median(msd.r, msd.g, msd.b);
-    float screenPxDistance = screenPxRange(uv) * (sd - 0.5);
-    float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-	return opacity;
-}
-
-// Gets object base color based on line style and fill pattern for hatches
-float32_t4 getObjectBaseColor(const uint2 fragCoord, const ObjectType objType, const uint32_t currentMainObjectIdx)
-{
-    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
-    float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(fragCoord.xy) / 8.0, 0.0)).xyz;
-    float msdf = msdfOpacity(msdfSample, float2(fragCoord.xy) / float2(globals.resolution));
-    col.rgb = lerp(col.rgb, float3(0.8, 0.1, 0.0), msdf);
-
-    return col;
-}
-
 #endif
 
 #endif

@@ -336,17 +336,17 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 // We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
 // because there is no `if constexpr` in hlsl
 template<bool FragmentShaderPixelInterlock>
-float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const ObjectType objType, const uint32_t currentMainObjectIdx);
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx);
 
 template<>
-float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const ObjectType objType, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
 {
-    float32_t4 col = getObjectBaseColor(fragCoord, objType, currentMainObjectIdx);
+    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
     col.w *= localAlpha;
     return float4(col);
 }
 template<>
-float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const ObjectType objType, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
 {
     nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
@@ -367,9 +367,29 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
         discard;
 
     // draw with previous geometry's style's color :kek:
-    float32_t4 col = getObjectBaseColor(fragCoord, objType, mainObjectIdx);
+    float32_t4 col = lineStyles[mainObjects[mainObjectIdx].styleIdx].color;
     col.w *= float(quantizedAlpha) / 255.f;
     return col;
+}
+
+// TODO: place this MSDF code elsewhere
+float median(float r, float g, float b) {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+float screenPxRange(float2 uv) {
+    float2 unitRange = MsdfPixelRange / float2(globals.resolution);
+    // This could also be done using the resolution, but this way we supposedly
+    // get better support for rotations and other transformations with the text
+    float2 screenTexSize = 1.0 / fwidth(uv);
+    return max(0.5*dot(unitRange, screenTexSize), 1.0);
+}
+
+float msdfOpacity(float3 msd, float2 uv) {
+    float sd = median(msd.r, msd.g, msd.b);
+    float screenPxDistance = screenPxRange(uv) * (sd - 0.5);
+    float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
+	return opacity;
 }
 
 float4 main(PSInput input) : SV_TARGET
@@ -557,6 +577,14 @@ float4 main(PSInput input) : SV_TARGET
 
             const float dist = sqrt(closestDistanceSquared);
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
+            
+        }
+
+        // if (msdf)
+        {
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(input.position.xy / 8.0, 0.0)).xyz;
+            float msdf = msdfOpacity(msdfSample, input.position.xy / float2(globals.resolution));
+            localAlpha *= msdf;
         }
     }
 
@@ -565,5 +593,5 @@ float4 main(PSInput input) : SV_TARGET
     if (localAlpha <= 0)
         discard;
     
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, objType, currentMainObjectIdx);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
 }
