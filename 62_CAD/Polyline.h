@@ -5,7 +5,7 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
 #include <nbl/builtin/hlsl/shapes/util.hlsl>
-#include "curves.h"
+#include "Curves.h"
 
 // holds values for `LineStyle` struct and caculates stipple pattern re values, cant think of better name
 struct LineStyleInfo

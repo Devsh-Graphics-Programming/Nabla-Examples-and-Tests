@@ -2,8 +2,7 @@
 
 #include "../app_resources/common.hlsl"
 
-[[vk::combinedImageSampler]][[vk::binding(0,0)]] Texture2D texture;
-[[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
+[[vk::binding(0,0)]] Texture2D texture;
 [[vk::binding(1,0)]] RWStructuredBuffer<uint32_t> histogram;
 
 [[vk::push_constant]]
@@ -18,7 +17,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	if(ID.x >= width || ID.y >= height)
 		return;
 
-    const float32_t4 texel = texture.SampleLevel(samplerState, ID.xy, 0.0);
+    const float32_t4 texel = texture.Load(int32_t3(ID.xy,/*miplevel*/0));
 
     const uint32_t redVal = uint32_t(texel.r * 255.f + 0.5f);
     const uint32_t greenVal = uint32_t(texel.g * 255.f + 0.5f);

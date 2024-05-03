@@ -84,14 +84,16 @@ PSInput main(uint vertexID : SV_VertexID)
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
+
+        // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
         const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio);
-        const float antiAliasedLineWidth = screenSpaceLineWidth + globals.antiAliasingFactor * 2.0f;
+        const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
+        const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
+        outV.setLineThickness(sdfLineThickness);
+        outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0] * globals.resolution.x)));
 
         if (objType == ObjectType::LINE)
         {
-            outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-            outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0] * globals.resolution.x)));
-
             double2 points[2u];
             points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
             points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
@@ -114,15 +116,15 @@ PSInput main(uint vertexID : SV_VertexID)
             {
                 // work in screen space coordinates because of fixed pixel size
                 outV.position.xy = transformedPoints[0u]
-                    + normalToLine * (((float)vertexIdx - 0.5f) * antiAliasedLineWidth)
-                    - lineVector * antiAliasedLineWidth * 0.5f;
+                    + normalToLine * (((float)vertexIdx - 0.5f) * 2.0f * antiAliasedLineThickness)
+                    - lineVector * antiAliasedLineThickness;
             }
             else // if (vertexIdx == 2u || vertexIdx == 3u)
             {
                 // work in screen space coordinates because of fixed pixel size
                 outV.position.xy = transformedPoints[1u]
-                    + normalToLine * (((float)vertexIdx - 2.5f) * antiAliasedLineWidth)
-                    + lineVector * antiAliasedLineWidth * 0.5f;
+                    + normalToLine * (((float)vertexIdx - 2.5f) * 2.0f * antiAliasedLineThickness)
+                    + lineVector * antiAliasedLineThickness;
             }
 
             outV.setLineStart(transformedPoints[0u]);
@@ -132,8 +134,6 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
-            outV.setLineThickness(screenSpaceLineWidth / 2.0f);
-
             double2 points[3u];
             points[0u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
             points[1u] = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
@@ -143,7 +143,6 @@ PSInput main(uint vertexID : SV_VertexID)
             const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) * 3u + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
-            outV.setCurrentWorldToScreenRatio((float)(2.0 / (clipProjectionData.projectionToNDC[0][0] * globals.resolution.x)));
 
             // transform these points into screen space and pass to fragment
             float2 transformedPoints[3u];
@@ -174,7 +173,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
             // We only do this adaptive thing when "MinRadiusOfOsculatingCircle = RadiusOfMaxCurvature < screenSpaceLineWidth/4" OR "MaxCurvature > 4/screenSpaceLineWidth";
             //  which means there is a self intersection because of large lineWidth relative to the curvature (in screenspace)
-            //  the reason for division by 4.0f is 1. screenSpaceLineWidth is expanded on both sides and the fact that diameter/2=radius, 
+            //  the reason for division by 4.0f is 1. screenSpaceLineWidth is expanded on both sides and 2. the fact that diameter/2=radius, 
             const bool noCurvature = abs(dot(normalize(vectorAB), normalize(vectorAC)) - 1.0f) < exp2(-10.0f);
             if (MaxCurvature * screenSpaceLineWidth > 4.0f || noCurvature)
             {
@@ -183,7 +182,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 obbV1;
                 float2 obbV2;
                 float2 obbV3;
-                quadraticBezier.computeOBB(screenSpaceLineWidth / 2.0f, obbV0, obbV1, obbV2, obbV3);
+                quadraticBezier.computeOBB(antiAliasedLineThickness, obbV0, obbV1, obbV2, obbV3);
                 if (subsectionIdx == 0)
                 {
                     if (vertexIdx == 0u)
@@ -233,41 +232,41 @@ PSInput main(uint vertexID : SV_VertexID)
                 float2 interior0;
                 float2 interior1;
 
-                float2 middleExteriorPoint = midPos - midNormal * screenSpaceLineWidth / 2.0f;
+                float2 middleExteriorPoint = midPos - midNormal * antiAliasedLineThickness;
 
 
                 float2 leftTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT));
                 float2 leftNormal = normalize(float2(-leftTangent.y, leftTangent.x)) * flip;
-                float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * screenSpaceLineWidth / 2.0f;
+                float2 leftExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], optimalT) - leftNormal * antiAliasedLineThickness;
                 float2 exterior0 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, leftExteriorPoint, leftTangent);
 
                 float2 rightTangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT));
                 float2 rightNormal = normalize(float2(-rightTangent.y, rightTangent.x)) * flip;
-                float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT) - rightNormal * screenSpaceLineWidth / 2.0f;
+                float2 rightExteriorPoint = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 1.0f - optimalT) - rightNormal * antiAliasedLineThickness;
                 float2 exterior1 = nbl::hlsl::shapes::util::LineLineIntersection<float>(middleExteriorPoint, midTangent, rightExteriorPoint, rightTangent);
 
                 // Interiors
                 {
                     float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286f));
                     float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
-                    interior0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286) + normal * screenSpaceLineWidth / 2.0f;
+                    interior0 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.286) + normal * antiAliasedLineThickness;
                 }
                 {
                     float2 tangent = normalize(BezierTangent(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f));
                     float2 normal = normalize(float2(-tangent.y, tangent.x)) * flip;
-                    interior1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f) + normal * screenSpaceLineWidth / 2.0f;
+                    interior1 = QuadraticBezier(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u], 0.714f) + normal * antiAliasedLineThickness;
                 }
 
                 if (subsectionIdx == 0u)
                 {
                     float2 endPointTangent = normalize(transformedPoints[1u] - transformedPoints[0u]);
                     float2 endPointNormal = float2(-endPointTangent.y, endPointTangent.x) * flip;
-                    float2 endPointExterior = transformedPoints[0u] - endPointTangent * screenSpaceLineWidth / 2.0f;
+                    float2 endPointExterior = transformedPoints[0u] - endPointTangent * antiAliasedLineThickness;
 
                     if (vertexIdx == 0u)
                         outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(leftExteriorPoint, leftTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                     else if (vertexIdx == 1u)
-                        outV.position = float4(transformedPoints[0u] + endPointNormal * screenSpaceLineWidth / 2.0f - endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
+                        outV.position = float4(transformedPoints[0u] + endPointNormal * antiAliasedLineThickness - endPointTangent * antiAliasedLineThickness, 0.0, 1.0f);
                     else if (vertexIdx == 2u)
                         outV.position = float4(exterior0, 0.0, 1.0f);
                     else if (vertexIdx == 3u)
@@ -288,12 +287,12 @@ PSInput main(uint vertexID : SV_VertexID)
                 {
                     float2 endPointTangent = normalize(transformedPoints[2u] - transformedPoints[1u]);
                     float2 endPointNormal = float2(-endPointTangent.y, endPointTangent.x) * flip;
-                    float2 endPointExterior = transformedPoints[2u] + endPointTangent * screenSpaceLineWidth / 2.0f;
+                    float2 endPointExterior = transformedPoints[2u] + endPointTangent * antiAliasedLineThickness;
 
                     if (vertexIdx == 0u)
                         outV.position = float4(nbl::hlsl::shapes::util::LineLineIntersection<float>(rightExteriorPoint, rightTangent, endPointExterior, endPointNormal), 0.0, 1.0f);
                     else if (vertexIdx == 1u)
-                        outV.position = float4(transformedPoints[2u] + endPointNormal * screenSpaceLineWidth / 2.0f + endPointTangent * screenSpaceLineWidth / 2.0f, 0.0, 1.0f);
+                        outV.position = float4(transformedPoints[2u] + endPointNormal * antiAliasedLineThickness + endPointTangent * antiAliasedLineThickness, 0.0, 1.0f);
                     else if (vertexIdx == 2u)
                         outV.position = float4(exterior1, 0.0, 1.0f);
                     else if (vertexIdx == 3u)
@@ -310,9 +309,6 @@ PSInput main(uint vertexID : SV_VertexID)
 
             if (lineStyle.isRoadStyleFlag)
             {
-                const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
-                outV.setLineThickness(sdfLineThickness);
-                
                 const double2 circleCenter = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
                 const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(double2), 8u);
                 const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 8u);
@@ -342,7 +338,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
                 if (vertexIdx == 0u)
                 {
-                    const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineWidth;
+                    const float2 V1 = normalize(mul(v, rotationMatrix)) * antiAliasedLineThickness * 2.0f;
                     const float2 screenSpaceV1 = circleCenterScreenSpace + V1;
                     outV.position = float4(screenSpaceV1, 0.0f, 1.0f);   
                 }
@@ -353,13 +349,13 @@ PSInput main(uint vertexID : SV_VertexID)
                 else if (vertexIdx == 2u)
                 {
                     // find intersection point vertex
-                    float2 intersectionPoint = v * antiAliasedLineWidth;
+                    float2 intersectionPoint = v * antiAliasedLineThickness * 2.0f;
                     intersectionPoint += circleCenterScreenSpace;
                     outV.position = float4(intersectionPoint, 0.0f, 1.0f);
                 }
                 else if (vertexIdx == 3u)
                 {
-                    const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineWidth;
+                    const float2 V2 = normalize(mul(rotationMatrix, v)) * antiAliasedLineThickness * 2.0f;
                     const float2 screenSpaceV2 = circleCenterScreenSpace + V2;
                     outV.position = float4(screenSpaceV2, 0.0f, 1.0f);
                 }

@@ -19,13 +19,20 @@ using namespace video;
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
-#include "curves.h"
+#include "Curves.h"
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
+#include <chrono>
+#define BENCHMARK_TILL_FIRST_FRAME
+
+// Shader cache tests. Only define one of these, or none for no use of the Cache
+//#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
+//#define SHADER_CACHE_TEST_CACHE_RETRIEVE
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
@@ -249,7 +256,7 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t WindowHeightRequest = 900u;
 	constexpr static uint32_t MaxFramesInFlight = 8u;
 public:
-	
+
 	void allocateResources(uint32_t maxObjects)
 	{
 		drawResourcesFiller = DrawResourcesFiller(core::smart_refctd_ptr(m_utils), getGraphicsQueue());
@@ -542,9 +549,13 @@ public:
 		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
 		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
 			return logFail("Failed to Create Semaphores!");
-
-		m_overflowSubmitsScratchSemaphoreInfo.semaphore = m_overflowSubmitScratchSemaphore.get();
-		m_overflowSubmitsScratchSemaphoreInfo.value = 1ull;
+		
+		// Set Queue and ScratchSemaInfo -> wait semaphores and command buffers will be modified by workLoop each frame
+		m_intendedNextSubmit.queue = getGraphicsQueue();
+		m_intendedNextSubmit.scratchSemaphore = {
+				.semaphore = m_overflowSubmitScratchSemaphore.get(),
+				.value = 0ull,
+		};
 
 		// Let's just use the same queue since there's no need for async present
 		if (!m_surface)
@@ -721,30 +732,124 @@ public:
 			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
 			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
 			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
+#if defined(SHADER_CACHE_TEST_COMPILATION_CACHE_STORE)
 			
+
+			auto cache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+
 			// Load Custom Shader
 			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
-			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset(relPath,lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return nullptr;
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-				cpuShader->setShaderStage(stage);
-				if (!cpuShader)
-					return nullptr;
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+					cpuShader->setShaderStage(stage);
+					if (!cpuShader)
+						return nullptr;
 
-				return m_device->createShader(cpuShader.get());
-			};
+					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
+				};
 			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
 			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
 			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+
+			auto serializedCache = cache->serialize();
+			auto savePath = localOutputCWD / "cache.bin";
+			core::smart_refctd_ptr<system::IFile> f;
+			{
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_WRITE);
+				if (!future.wait())
+					return {};
+				future.acquire().move_into(f);
+			}
+			if (!f)
+			return {};
+			system::IFile::success_t succ;
+			f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+			const bool success = bool(succ);
+			assert(success);
+#elif defined(SHADER_CACHE_TEST_CACHE_RETRIEVE)
+
+			auto savePath = localOutputCWD / "cache.bin";
+
+			core::smart_refctd_ptr<system::IFile> f;
+			{
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_READ);
+				if (!future.wait())
+					return {};
+				future.acquire().move_into(f);
+			}
+			if (!f)
+				return {};
+			const size_t size = f->getSize();
+
+			std::vector<uint8_t> contents(size);
+			system::IFile::success_t succ;
+			f->read(succ, contents.data(), 0, size);
+			const bool success = bool(succ);
+			assert(success);
+
+			auto cache = IShaderCompiler::CCache::deserialize(contents);
+
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
+
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+					cpuShader->setShaderStage(stage);
+					if (!cpuShader)
+						return nullptr;
+
+					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
+				};
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+#else
+
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
+
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+					cpuShader->setShaderStage(stage);
+					if (!cpuShader)
+						return nullptr;
+
+					return m_device->createShader(cpuShader.get());
+				};
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+#endif
 		}
 
 		// Shared Blend Params between pipelines
@@ -973,25 +1078,25 @@ public:
 			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
 		};
 
-		const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
-			.semaphore = m_renderSemaphore.get(),
-			.value = m_realFrameIx + 1u,
-			.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
-		};
-
 		IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[1u] = { {.cmdbuf = m_commandBuffers[resourceIx].get() } };
 		IQueue::SSubmitInfo::SSemaphoreInfo waitSems[2u] = { acquired, prevFrameRendered };
-		IQueue::SSubmitInfo::SSemaphoreInfo singalSems[2u] = { m_overflowSubmitsScratchSemaphoreInfo, thisFrameRendered };
 
-		SIntendedSubmitInfo intendedNextSubmit;
-		intendedNextSubmit.frontHalf.queue = getGraphicsQueue();
-		intendedNextSubmit.frontHalf.commandBuffers = cmdbufs;
-		intendedNextSubmit.frontHalf.waitSemaphores = waitSems;
-		intendedNextSubmit.signalSemaphores = singalSems;
-
-		addObjects(intendedNextSubmit);
+		m_intendedNextSubmit.waitSemaphores = waitSems;
+		m_intendedNextSubmit.commandBuffers = cmdbufs;
 		
-		endFrameRender(intendedNextSubmit);
+		addObjects(m_intendedNextSubmit);
+		
+		endFrameRender(m_intendedNextSubmit);
+
+#ifdef BENCHMARK_TILL_FIRST_FRAME
+		if (!stopBenchamrkFlag)
+		{
+			const std::chrono::steady_clock::time_point stopBenchmark = std::chrono::high_resolution_clock::now();
+			auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(stopBenchmark - startBenchmark);
+			std::cout << "Time taken till first render pass: " << duration.count() << " milliseconds" << std::endl;
+			stopBenchamrkFlag = true;
+		}
+#endif
 	}
 	
 	bool beginFrameRender()
@@ -1115,7 +1220,7 @@ public:
 	void submitDraws(SIntendedSubmitInfo& intendedSubmitInfo, bool inBetweenSubmit)
 	{
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
-		auto* cb = intendedSubmitInfo.frontHalf.getScratchCommandBuffer();
+		auto* cb = intendedSubmitInfo.getScratchCommandBuffer();
 		auto&r = drawResourcesFiller;
 		
 		asset::SViewport vp =
@@ -1190,7 +1295,7 @@ public:
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
 				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
 				bufferBarrier.range =
 				{
@@ -1227,12 +1332,26 @@ public:
 					.buffer = drawResourcesFiller.gpuDrawBuffers.geometryBuffer,
 				};
 			}
+			if (drawResourcesFiller.getCurrentMainObjectsBufferSize() > 0u)
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = drawResourcesFiller.getCurrentMainObjectsBufferSize(),
+					.buffer = drawResourcesFiller.gpuDrawBuffers.mainObjectsBuffer,
+				};
+			}
 			if (drawResourcesFiller.getCurrentLineStylesBufferSize() > 0u)
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
 				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
 				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT;
 				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
 				bufferBarrier.range =
 				{
@@ -1295,23 +1414,23 @@ public:
 		else
 		{
 			cb->end();
-			IQueue::SSubmitInfo submitInfo = static_cast<IQueue::SSubmitInfo>(intendedSubmitInfo);
-			if (getGraphicsQueue()->submit({ &submitInfo, 1u }) == IQueue::RESULT::SUCCESS)
+			
+			const auto nextFrameIx = m_realFrameIx+1u;
+			const IQueue::SSubmitInfo::SSemaphoreInfo thisFrameRendered = {
+				.semaphore = m_renderSemaphore.get(),
+				.value = nextFrameIx,
+				.stageMask = asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			};
+			if (getGraphicsQueue()->submit(intendedSubmitInfo.popSubmit({&thisFrameRendered,1})) == IQueue::RESULT::SUCCESS)
 			{
-				m_realFrameIx++;
-				intendedSubmitInfo.advanceScratchSemaphoreValue(); // last submits needs to also advance scratch sema value like overflowSubmit() does
+				m_realFrameIx = nextFrameIx;
 				
-				IQueue::SSubmitInfo::SSemaphoreInfo renderFinished =
-				{
-					.semaphore = m_renderSemaphore.get(),
-					.value = m_realFrameIx,
-					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-				};
-				m_surface->present(m_currentImageAcquire.imageIndex, { &renderFinished, 1u });
+				IQueue::SSubmitInfo::SSemaphoreInfo presentWait = thisFrameRendered;
+				// the stages for a wait semaphore operation are about what stage you WAIT in, not what stage you wait for
+				presentWait.stageMask = PIPELINE_STAGE_FLAGS::NONE; // top of pipe, there's no explicit presentation engine stage
+				m_surface->present(m_currentImageAcquire.imageIndex,{&presentWait,1});
 			}
 		}
-
-		m_overflowSubmitsScratchSemaphoreInfo.value = intendedSubmitInfo.getScratchSemaphoreNextWait().value; // because we need this info consistent within frames
 	}
 
 	class FreetypeHatchBuilder
@@ -1461,7 +1580,7 @@ protected:
 		}
 
 		// Use the last command buffer in intendedNextSubmit, it should be in recording state
-		auto* cmdbuf = intendedNextSubmit.frontHalf.getScratchCommandBuffer();
+		auto* cmdbuf = intendedNextSubmit.getScratchCommandBuffer();
 
 		assert(cmdbuf->getState() == video::IGPUCommandBuffer::STATE::RECORDING && cmdbuf->isResettable());
 		assert(cmdbuf->getRecordingFlags().hasFlags(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT));
@@ -3447,8 +3566,7 @@ protected:
 	
 	// timeline semaphore used for overflows (they need to be on their own timeline to count overflows)
 	smart_refctd_ptr<ISemaphore> m_overflowSubmitScratchSemaphore; 
-	// this is the semaphore info the overflows update the value for (the semaphore is set to the overflow semaphore above, and the value get's updated by SIntendedSubmitInfo)
-	IQueue::SSubmitInfo::SSemaphoreInfo m_overflowSubmitsScratchSemaphoreInfo;
+	SIntendedSubmitInfo m_intendedNextSubmit;
 	
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
@@ -3478,6 +3596,11 @@ protected:
 	FT_Library m_glyphLibrary;
 	FT_Face m_glyphFace;
 	MsdfTexture m_testMsdfTexture;
+
+	#ifdef BENCHMARK_TILL_FIRST_FRAME
+	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
+	bool stopBenchamrkFlag = false;
+	#endif
 };
 
 NBL_MAIN_FUNC(ComputerAidedDesign)

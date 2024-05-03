@@ -4,8 +4,8 @@ if(NOT RES)
 endif()
 
 set(EXAMPLE_SOURCES
-  "${CMAKE_CURRENT_SOURCE_DIR}/curves.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/curves.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Curves.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/Curves.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/Hatch.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/Polyline.h"
