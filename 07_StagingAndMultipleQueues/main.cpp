@@ -269,10 +269,10 @@ private:
 		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 		core::smart_refctd_ptr<IGPUDescriptorSet> descSets[FRAMES_IN_FLIGHT];
 		{
-			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
+			const nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
 				{
 					.binding = 0,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, // TODO: just an image descriptor type when separable samplers arrive
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE, // TODO: just an image descriptor type when separable samplers arrive
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
@@ -379,10 +379,10 @@ private:
 			m_histogramBufferMemPtrs[2] = m_histogramBufferMemPtrs[1] + HISTOGRAM_SIZE;
 		}
 
-		// TODO: will no longer be necessary after separable samplers and images
-		IGPUSampler::SParams samplerParams;
+		// TODO: Remove commented stuff below
+		/*IGPUSampler::SParams samplerParams;
 		samplerParams.AnisotropicFilter = false;
-		core::smart_refctd_ptr<IGPUSampler> sampler = m_device->createSampler(samplerParams);
+		core::smart_refctd_ptr<IGPUSampler> sampler = m_device->createSampler(samplerParams);*/
 
 		IGPUDescriptorSet::SDescriptorInfo bufInfo;
 		bufInfo.desc = smart_refctd_ptr(histogramBuffer);
@@ -425,7 +425,7 @@ private:
 				logFailAndTerminate("Couldn't create descriptor.");
 			view->setObjectDebugName(("Image View #"+std::to_string(imageToProcessId)).c_str());
 			imgInfo.desc = std::move(view);
-			imgInfo.info.image = { .sampler = sampler, .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
+			imgInfo.info.image = { .sampler = nullptr, .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
 
 			IGPUDescriptorSet::SWriteDescriptorSet write[1] = {
 				{.dstSet = descSets[resourceIdx].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &imgInfo }
