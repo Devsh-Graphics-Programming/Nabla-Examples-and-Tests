@@ -30,7 +30,7 @@ public:
 
 		// Create (an almost) 128MB input buffer
 		constexpr auto in_size = 128u << 5u;
-		constexpr auto in_count = 1418;//in_size / sizeof(uint32_t) - 23u;
+		constexpr auto in_count = in_size / sizeof(uint32_t) - 23u;
 
 		m_logger->log("Input element count: %d", ILogger::ELL_PERFORMANCE, in_count);
 
@@ -49,16 +49,35 @@ public:
 		assert(((end * sizeof(uint32_t)) & (minSSBOAlign - 1u)) == 0u);
 		constexpr auto elementCount = end - begin;
 
+		// Set Semaphores to control GPU synchronization
+		core::smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+		IQueue::SSubmitInfo::SSemaphoreInfo semInfo[1] = { {
+			.semaphore = semaphore.get(),
+			.value = 1,
+			.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+		} };
+
 		smart_refctd_ptr<IGPUBuffer> gpuinputDataBuffer;
 		{
 			IGPUBuffer::SCreationParams inputDataBufferCreationParams = {};
 			inputDataBufferCreationParams.size = sizeof(uint32_t) * in_count; // TODO Declare the element data type in the shader?
 			inputDataBufferCreationParams.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_SRC_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			gpuinputDataBuffer = m_utils->createFilledDeviceLocalBufferOnDedMem(
-				{ .queue = getTransferUpQueue() },
+			auto temp = m_utils->createFilledDeviceLocalBufferOnDedMem(
+				SIntendedSubmitInfo{ .queue = getTransferUpQueue() },
 				std::move(inputDataBufferCreationParams),
-				inputData
+				inputData,
+				{ semInfo, 1 }
 			);
+
+			const ISemaphore::SWaitInfo semWaitInfo[] = { {
+				.semaphore = semaphore.get(),
+				.value = 1
+			} };
+			if (m_device->blockForSemaphores(semWaitInfo) != ISemaphore::WAIT_RESULT::SUCCESS) {
+				m_logger->log("Blocking for operation semaphore failed during input data buffer creation", ILogger::ELL_ERROR);
+				return false;
+			}
+			gpuinputDataBuffer = *temp.get();
 		}
 		SBufferRange<IGPUBuffer> in_gpu_range = { begin * sizeof(uint32_t), elementCount * sizeof(uint32_t), gpuinputDataBuffer };
 
@@ -77,7 +96,7 @@ public:
 			auto scratchMem = m_device->allocate(memReqs, scratch_gpu_range.buffer.get());
 		}
 
-		auto scan_pipeline = scanner->getDefaultPipeline(scanType, CScanner::EDT_UINT, CScanner::EO_ADD, scan_push_constants.scanParams.getScratchSize());
+		auto scan_pipeline = scanner->getDefaultPipeline(scanType, CScanner::EDT_UINT, CScanner::EO_ADD, params.size);
 		auto dsLayout = scanner->getDefaultDescriptorSetLayout();
 		auto dsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout, 1 });
 		auto ds = dsPool->createDescriptorSet(core::smart_refctd_ptr<IGPUDescriptorSetLayout>(dsLayout));
@@ -100,15 +119,9 @@ public:
 		scanner->dispatchHelper(cmdbuf.get(), pipeline_layout, scan_push_constants, scan_dispatch_info, 0u, nullptr, 0u, nullptr);
 		cmdbuf->end();
 
-		core::smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
-		// submit
-		IQueue::SSubmitInfo::SSemaphoreInfo semInfo[1] = { {
-			.semaphore = semaphore.get(),
-			.value = 1,
-			// just as we've outputted all pixels, signal
-			.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-		} };
 		{
+			semInfo[0].value = 2;
+			semInfo[0].stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
 				.cmdbuf = cmdbuf.get()
 			} };
@@ -150,7 +163,7 @@ public:
 		// wait for the gpu impl to complete
 		const ISemaphore::SWaitInfo cmdbufDonePending[] = {{
 			.semaphore = semaphore.get(),
-			.value = 1
+			.value = 2
 		}};
 		if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS) {
 			m_logger->log("Blocking for operation semaphore failed", ILogger::ELL_ERROR);
@@ -186,7 +199,7 @@ public:
 						.cmdbuf = cmdbuf.get()
 					} };
 
-					semInfo[0].value = 2;
+					semInfo[0].value = 3;
 					const IQueue::SSubmitInfo infos[1] = { {
 						.commandBuffers = commandBuffers,
 						.signalSemaphores = semInfo
@@ -198,7 +211,7 @@ public:
 
 					const ISemaphore::SWaitInfo cmdbufDonePending[] = { {
 						.semaphore = semaphore.get(),
-						.value = 2
+						.value = 3
 					} };
 					if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS) {
 						m_logger->log("Blocking for download semaphore failed", ILogger::ELL_ERROR);
