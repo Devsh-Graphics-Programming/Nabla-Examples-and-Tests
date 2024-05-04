@@ -29,6 +29,10 @@ using namespace video;
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
+// Shader cache tests. Only define one of these, or none for no use of the Cache
+//#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
+//#define SHADER_CACHE_TEST_CACHE_RETRIEVE
+
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = true;
@@ -650,30 +654,124 @@ public:
 			constexpr auto fragmentShaderPath = "../fragment_shader.hlsl";
 			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
 			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
+#if defined(SHADER_CACHE_TEST_COMPILATION_CACHE_STORE)
 			
+
+			auto cache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
+
 			// Load Custom Shader
 			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
-			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset(relPath,lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return nullptr;
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
-				cpuShader->setShaderStage(stage);
-				if (!cpuShader)
-					return nullptr;
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+					cpuShader->setShaderStage(stage);
+					if (!cpuShader)
+						return nullptr;
 
-				return m_device->createShader(cpuShader.get());
-			};
+					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
+				};
 			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
 			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
 			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+
+			auto serializedCache = cache->serialize();
+			auto savePath = localOutputCWD / "cache.bin";
+			core::smart_refctd_ptr<system::IFile> f;
+			{
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_WRITE);
+				if (!future.wait())
+					return {};
+				future.acquire().move_into(f);
+			}
+			if (!f)
+			return {};
+			system::IFile::success_t succ;
+			f->write(succ, serializedCache->getPointer(), 0, serializedCache->getSize());
+			const bool success = bool(succ);
+			assert(success);
+#elif defined(SHADER_CACHE_TEST_CACHE_RETRIEVE)
+
+			auto savePath = localOutputCWD / "cache.bin";
+
+			core::smart_refctd_ptr<system::IFile> f;
+			{
+				system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+				m_system->createFile(future, savePath.c_str(), system::IFile::ECF_READ);
+				if (!future.wait())
+					return {};
+				future.acquire().move_into(f);
+			}
+			if (!f)
+				return {};
+			const size_t size = f->getSize();
+
+			std::vector<uint8_t> contents(size);
+			system::IFile::success_t succ;
+			f->read(succ, contents.data(), 0, size);
+			const bool success = bool(succ);
+			assert(success);
+
+			auto cache = IShaderCompiler::CCache::deserialize(contents);
+
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
+
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+					cpuShader->setShaderStage(stage);
+					if (!cpuShader)
+						return nullptr;
+
+					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
+				};
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+#else
+
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
+
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto cpuShader = IAsset::castDown<ICPUShader>(assets[0]);
+					cpuShader->setShaderStage(stage);
+					if (!cpuShader)
+						return nullptr;
+
+					return m_device->createShader(cpuShader.get());
+				};
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+#endif
 		}
 
 		// Shared Blend Params between pipelines

@@ -21,6 +21,7 @@ class StagingAndMultipleQueuesApp final : public application_templates::BasicMul
 	using device_base_t = application_templates::BasicMultiQueueApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
+	// TODO: would be cool if we used `system::ISystem::listItemsInDirectory(sharedInputCWD/"GLI")` as our dataset
 	static constexpr std::array imagesToLoad = {
 		"../app_resources/test0.png",
 		"../app_resources/test1.png",
@@ -54,8 +55,9 @@ public:
 		m_histogramSavedSemaphore = m_device->createSemaphore(TIMELINE_SEMAPHORE_STARTING_VALUE);
 
 		// TODO: create/initialize array of atomic pointers to IGPUImage* and IGPUBuffer* to hold results
-		// no need i think
 
+		// TODO: Change the capture start/end to become methods of IAPIConnection, because our current API is not how renderdoc works
+		getComputeQueue()->startCapture();
 		std::thread loadImagesThread(&StagingAndMultipleQueuesApp::loadImages, this);
 		std::thread saveHistogramsThread(&StagingAndMultipleQueuesApp::saveHistograms, this);
 
@@ -63,6 +65,7 @@ public:
 
 		loadImagesThread.join();
 		saveHistogramsThread.join();
+		getComputeQueue()->endCapture();
 
 		return true;
 	}
@@ -89,8 +92,8 @@ protected:
 
 private:
 	smart_refctd_ptr<ISemaphore> m_imagesLoadedSemaphore, m_imagesProcessedSemaphore, m_histogramSavedSemaphore;
-	std::atomic<uint32_t> m_imagesLoadedCnt, m_imagesProcessedCnt, m_imagesDownloadedCnt, m_imagesSavedCnt;
 	std::atomic<uint32_t> imageHandlesCreated = 0u;
+	std::atomic<uint32_t> transfersSubmitted = 0u;
 	std::array<core::smart_refctd_ptr<IGPUImage>, IMAGE_CNT> images;
 
 	static constexpr uint32_t FRAMES_IN_FLIGHT = 3u;
@@ -104,11 +107,14 @@ private:
 
 	void loadImages()
 	{
+		const core::set<uint32_t> uniqueFamilyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
+		const std::vector<uint32_t> familyIndices(uniqueFamilyIndices.begin(),uniqueFamilyIndices.end());
+		const bool multipleQueueFamilies = familyIndices.size()>1;
+
 		IAssetLoader::SAssetLoadParams lp;
 		lp.logger = m_logger.get();
 
 		auto transferUpQueue = getTransferUpQueue();
-		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
 		std::fill(commandPools.begin(), commandPools.end(), nullptr);
@@ -116,11 +122,14 @@ private:
 		core::smart_refctd_ptr<ICPUImage> cpuImages[IMAGE_CNT];
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
+			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT;
 			commandPools[i] = m_device->createCommandPool(transferUpQueue->getFamilyIndex(), commandPoolFlags);
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
+			commandBuffers[i]->setObjectDebugName(("Upload Command Buffer #"+std::to_string(i)).c_str());
 		}
 
 		core::smart_refctd_ptr<ISemaphore> imgFillSemaphore = m_device->createSemaphore(0);
+		imgFillSemaphore->setObjectDebugName("Image Fill Semaphore");
 		SIntendedSubmitInfo intendedSubmit = {
 			.queue = transferUpQueue,
 			.waitSemaphores = {},
@@ -159,13 +168,15 @@ private:
 			imgParams.arrayLayers = 1u;
 			imgParams.samples = IImage::E_SAMPLE_COUNT_FLAGS::ESCF_1_BIT;
 			imgParams.usage = asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT; 
-			// constexpr uint32_t FAMILY_INDICES_CNT = 3; // TODO: test on intel integrated GPU (which allows only one queue family)
-			std::array familyIndices = { getTransferUpQueue()->getFamilyIndex(), getComputeQueue()->getFamilyIndex() };
-			imgParams.queueFamilyIndexCount = familyIndices.size();
-			imgParams.queueFamilyIndices = familyIndices.data();
+			if (multipleQueueFamilies)
+			{
+				imgParams.queueFamilyIndexCount = familyIndices.size();
+				imgParams.queueFamilyIndices = familyIndices.data();
+			}
 			imgParams.preinitialized = false;
 
 			images[imageIdx] = m_device->createImage(std::move(imgParams));
+			images[imageIdx]->setObjectDebugName(("Image #"+std::to_string(imageIdx)).c_str());
 			auto imageAllocation = m_device->allocate(images[imageIdx]->getMemoryReqs(), images[imageIdx].get(), IDeviceMemoryAllocation::EMAF_NONE);
 			imageHandlesCreated++;
 			imageHandlesCreated.notify_one();
@@ -212,7 +223,6 @@ private:
 			if (!cmdBuff->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, pplnBarrierDepInfo0))
 				logFailAndTerminate("Failed to issue barrier!\n");
 
-			transferUpQueue->startCapture();
 			const uint64_t oldCntr = intendedSubmit.scratchSemaphore.value;
 			const bool uploadCommendRecorded = m_utils->updateImageViaStagingBuffer(
 				intendedSubmit, cpuImages[imageIdx]->getBuffer(), cpuImages[imageIdx]->getCreationParameters().format,
@@ -233,9 +243,15 @@ private:
 
 			cmdBuff->end();
 
-			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {.semaphore=m_imagesLoadedSemaphore.get(),.value=imageIdx+1u,.stageMask=PIPELINE_STAGE_FLAGS::COPY_BIT};
+			const IQueue::SSubmitInfo::SSemaphoreInfo signalSemaphore = {
+				.semaphore=m_imagesLoadedSemaphore.get(),
+				.value=imageIdx+1u,
+				// cannot signal from COPY stage because there's a layout transition we need to wait for right after and it doesn't have an explicit stage
+				.stageMask=PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS
+			};
 			getTransferUpQueue()->submit(intendedSubmit.popSubmit({&signalSemaphore,1}));
-			transferUpQueue->endCapture();
+			transfersSubmitted++;
+			transfersSubmitted.notify_one();
 
 
 			// TODO: this is for basic testing purposes, will be deleted ofc
@@ -249,44 +265,48 @@ private:
 	{
 		// INITIALIZE COMMON DATA
 		auto computeQueue = getComputeQueue();
-		const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = static_cast<IGPUCommandPool::CREATE_FLAGS>(IGPUCommandPool::CREATE_FLAGS::NONE);
+
+		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
+		core::smart_refctd_ptr<IGPUDescriptorSet> descSets[FRAMES_IN_FLIGHT];
+		{
+			nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
+				{
+					.binding = 0,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER, // TODO: just an image descriptor type when separable samplers arrive
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+					.samplers = nullptr
+				},
+				{
+					.binding = 1,
+					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+					.samplers = nullptr
+				}
+			};
+
+			dsLayout = m_device->createDescriptorSetLayout(bindings);
+			if (!dsLayout)
+				logFailAndTerminate("Failed to create a Descriptor Layout!\n");
+			auto descPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 }, &FRAMES_IN_FLIGHT);
+			for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
+			{
+				descSets[i] = descPool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
+				descSets[i]->setObjectDebugName(("Descriptor Set #" + std::to_string(i)).c_str());
+			}
+		}
+
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, FRAMES_IN_FLIGHT> commandPools;
 		std::array<core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer>, FRAMES_IN_FLIGHT> commandBuffers;
-		core::smart_refctd_ptr<IGPUDescriptorSet> descSets[FRAMES_IN_FLIGHT];
-		std::fill(commandPools.begin(), commandPools.end(), nullptr);
-		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
-			{
-				.binding = 0,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count = 1,
-				.samplers = nullptr
-			},
-			{
-				.binding = 1,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-				.count = 1,
-				.samplers = nullptr
-			}
-		};
-		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout[1] = { m_device->createDescriptorSetLayout(bindings) };
-		if (!dsLayout[0])
-			logFailAndTerminate("Failed to create a Descriptor Layout!\n");
-		smart_refctd_ptr<nbl::video::IDescriptorPool> descPools[FRAMES_IN_FLIGHT] = { // TODO: only one desc pool?
-			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, {&dsLayout[0].get(), 1}),
-			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, {&dsLayout[0].get(), 1}),
-			m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, {&dsLayout[0].get(), 1})
-		};
-
 		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; ++i)
 		{
+			const core::bitflag<IGPUCommandPool::CREATE_FLAGS> commandPoolFlags = IGPUCommandPool::CREATE_FLAGS::NONE;
 			commandPools[i] = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), commandPoolFlags);
 			commandPools[i]->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, {commandBuffers.data() + i, 1}, core::smart_refctd_ptr(m_logger));
-			
-			descSets[i] = descPools[i]->createDescriptorSet(core::smart_refctd_ptr(dsLayout[0]));
+			commandBuffers[i]->setObjectDebugName(("Histogram Command Buffer #" + std::to_string(i)).c_str());
 		}
 
 		// LOAD SHADER FROM FILE
@@ -310,7 +330,7 @@ private:
 		pc[0].size = sizeof(PushConstants);
 
 		smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
-		smart_refctd_ptr<IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(pc, smart_refctd_ptr(dsLayout[0]));
+		smart_refctd_ptr<IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(pc,std::move(dsLayout));
 		{
 			// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
 			if (!pplnLayout)
@@ -359,6 +379,7 @@ private:
 			m_histogramBufferMemPtrs[2] = m_histogramBufferMemPtrs[1] + HISTOGRAM_SIZE;
 		}
 
+		// TODO: will no longer be necessary after separable samplers and images
 		IGPUSampler::SParams samplerParams;
 		samplerParams.AnisotropicFilter = false;
 		core::smart_refctd_ptr<IGPUSampler> sampler = m_device->createSampler(samplerParams);
@@ -399,9 +420,11 @@ private:
 			params.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 			params.subresourceRange.layerCount = images[imageToProcessId]->getCreationParameters().arrayLayers;
 
-			imgInfo.desc = m_device->createImageView(std::move(params));
-			if (!imgInfo.desc)
+			auto view = m_device->createImageView(std::move(params));
+			if (!view)
 				logFailAndTerminate("Couldn't create descriptor.");
+			view->setObjectDebugName(("Image View #"+std::to_string(imageToProcessId)).c_str());
+			imgInfo.desc = std::move(view);
 			imgInfo.info.image = { .sampler = sampler, .imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL };
 
 			IGPUDescriptorSet::SWriteDescriptorSet write[1] = {
@@ -409,7 +432,6 @@ private:
 			};
 			m_device->updateDescriptorSets(1, write, 0u, nullptr);
 
-			computeQueue->startCapture();
 			cmdBuff->begin(IGPUCommandBuffer::USAGE::NONE);
 			cmdBuff->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 			cmdBuff->bindComputePipeline(pipeline.get());
@@ -440,8 +462,14 @@ private:
 			submitInfo[0].commandBuffers = cmdBuffSubmitInfo;
 			submitInfo[0].signalSemaphores = signalSemaphoreSubmitInfo;
 			submitInfo[0].waitSemaphores = {waitSemaphoreSubmitInfo, imageToProcessId < FRAMES_IN_FLIGHT ? 1u : 2u};
+			// Some Devices like all of the Intel GPUs do not have enough queues for us to allocate different queues to compute and transfers,
+			// so our `BasicMultiQueueApplication` will "alias" a single queue to both usages. Normally you don't need to care, but here we're
+			// attempting to do "out-of-order" "submit-before-signal" so we need to "hold back" submissions if the queues are aliased!
+			// TODO: Renderdoc freezes because it starts capturing immediately upon a submit and can't defer a capture till semaphores signal.
+			if (getTransferUpQueue()==computeQueue /*|| m_api->isRunningInRenderdoc()*/)
+			for (auto old = transfersSubmitted.load(); old <= imageToProcessId; old = transfersSubmitted.load())
+				transfersSubmitted.wait(old);
 			computeQueue->submit(submitInfo);
-			computeQueue->endCapture();
 			std::string msg = std::string("Image nr ") + std::to_string(imageToProcessId) + " processed. Resource idx: " + std::to_string(resourceIdx);
 			m_logger->log(msg);
 		}
