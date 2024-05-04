@@ -120,7 +120,7 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 
 					// Yes we know workgroup sizes can come from specialization constants, however DXC has a problem with that https://github.com/microsoft/DirectXShaderCompiler/issues/3092
 					const string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
-					const IShaderCompiler::SPreprocessorOptions::SMacroDefinition WorkgroupSizeDefine = {"WORKGROUP_SIZE",WorkgroupSizeAsStr};
+					const IShaderCompiler::SMacroDefinition WorkgroupSizeDefine = {"WORKGROUP_SIZE",WorkgroupSizeAsStr};
 
 					CHLSLCompiler::SOptions options = {};
 					// really we should set it to `ESS_COMPUTE` since we know, but we'll test the `#pragma` handling fur teh lulz
