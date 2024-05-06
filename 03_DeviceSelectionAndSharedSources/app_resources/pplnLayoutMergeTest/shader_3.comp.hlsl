@@ -1,6 +1,7 @@
 #pragma wave shader_stage(compute)
 #include "common.hlsl"
 
+// breaking this shader for testing purpose, only last binding in descriptor set may be run-time sized
 [[vk::binding(0,0)]] RWByteAddressBuffer output[];
 [[vk::binding(1,0)]] RWStructuredBuffer<SomeType> asdf;
 

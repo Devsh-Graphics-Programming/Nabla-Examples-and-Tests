@@ -40,7 +40,6 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		// TODO: run-time sized buffers are not supporten in hlsl.. do it when testing glsl
 		// Just a check that out specialization info will match
 		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
 			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
@@ -59,11 +58,11 @@ public:
 		}
 
 		CSPIRVIntrospector introspector;
-		auto mainShader = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
-		auto source = mainShader.first;
-		auto mainShaderIntrospection = mainShader.second;
+		auto compiledShader = this->compileShaderAndTestIntrospection("app_resources/shader.comp.hlsl", introspector);
+		auto source = compiledShader.first;
+		auto shaderIntrospection = compiledShader.second;
 
-		//mainShaderIntrospection->debugPrint(m_logger.get());
+		//shaderIntrospection->debugPrint(m_logger.get());
 
 		// We've now skipped the manual creation of a descriptor set layout, pipeline layout
 		ICPUShader::SSpecInfo specInfo;
@@ -314,6 +313,8 @@ public:
 			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspctParams = { .entryPoint = "main", .shader = spirvUnspecialized };
 
 			introspection = introspector.introspect(inspctParams);
+			introspection->debugPrint(m_logger.get());
+
 			if (!introspection)
 			{
 				logFail("SPIR-V Introspection failed, probably the required SPIR-V compilation failed first!");
