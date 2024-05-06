@@ -177,13 +177,13 @@ public:
 
 		auto bufferData = new uint32_t[2][element_count];
 		for (uint32_t i = 0; i < element_count; i++) {
-			bufferData[0][i] = i;
+			bufferData[0][i] = minimum + g() % range;
 		}
 
 		memcpy(mapped_memory[0], bufferData[0], sizeof(uint32_t) * element_count);
 
 		for (uint32_t i = 0; i < element_count; i++) {
-			bufferData[1][i] = minimum + g() % range;
+			bufferData[1][i] = g() % std::numeric_limits<uint32_t>::max();
 		}
 
 		memcpy(mapped_memory[1], bufferData[1], sizeof(uint32_t) * element_count);
