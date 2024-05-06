@@ -57,7 +57,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
 	add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
-	#add_subdirectory(61_UI EXCLUDE_FROM_ALL)
+	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
