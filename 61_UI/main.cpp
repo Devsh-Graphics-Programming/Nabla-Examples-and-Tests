@@ -20,6 +20,48 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+class CEventCallback : public ISimpleManagedSurface::ICallback
+{
+public:
+	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}
+	CEventCallback() {}
+
+	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
+	{
+		m_logger = logger;
+	}
+	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	{
+		m_inputSystem = std::move(m_inputSystem);
+	}
+private:
+
+	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
+	{
+		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_mouse, std::move(mch));
+	}
+	void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
+	{
+		m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse, mch);
+	}
+	void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
+	{
+		m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard, std::move(kbch));
+	}
+	void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
+	{
+		m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard, kbch);
+	}
+
+private:
+	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
+};
+
 class UISampleApp final : public examples::SimpleWindowedApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -39,14 +81,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (!m_surface)
 			{
 				{
+					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 					IWindow::SCreationParams params = {};
 					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
-					params.width = 256;
-					params.height = 256;
+					params.width = WIN_W;
+					params.height = WIN_H;
 					params.x = 32;
 					params.y = 32;
 					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
 					params.windowCaption = "UISampleApp";
+					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
 
@@ -62,6 +106,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
+			m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
 			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 				return false;
 
@@ -99,7 +145,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			};
 
 			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
-			if (!scResources->getRenderpass())
+			auto* renderpass = scResources->getRenderpass();
+			
+			if (!renderpass)
 				return logFail("Failed to create Renderpass!");
 
 			auto gQueue = getGraphicsQueue();
@@ -123,7 +171,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
-			ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, scResources->getRenderpass(), nullptr, smart_refctd_ptr(m_window));
+			ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
 			ui->Register([this]() -> void 
 				{
 					ui->BeginWindow("Test window");
@@ -134,6 +182,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ui->EndWindow();
 				}
 			);
+
+			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
+			m_surface->recreateSwapchain();
+			m_winMgr->show(m_window.get());
 
 			return true;
 		}
@@ -243,9 +295,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			static std::chrono::microseconds previousEventTimestamp{};
-			std::vector<SMouseEvent> validEvents{};
 
-			mouse.consumeEvents([&validEvents](const IMouseEventChannel::range_t& events) -> void 
+			struct
+			{
+				std::vector<SMouseEvent> mouse{};
+			} capturedEvents;
+
+			m_inputSystem->getDefaultMouse(&mouse);
+			m_inputSystem->getDefaultKeyboard(&keyboard);
+
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 			{
 				for (auto event : events)
 				{
@@ -253,14 +312,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						continue;
 
 					previousEventTimestamp = event.timeStamp;
-
-					validEvents.push_back(event);
+					capturedEvents.mouse.push_back(event);
 				}
-			});
+			}, m_logger.get());
 
-			auto const mousePosition = m_window->getCursorControl()->getPosition();
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			{
+				// TOOD
+			}, m_logger.get());
 
-			ui->Update(deltaTimeInSec, static_cast<float>(mousePosition.x), static_cast<float>(mousePosition.y), validEvents.size(), validEvents.data());
+			const auto mousePosition = m_window->getCursorControl()->getPosition();
+			ui->Update(deltaTimeInSec, static_cast<float>(mousePosition.x), static_cast<float>(mousePosition.y), capturedEvents.mouse.size(), capturedEvents.mouse.data());
 		}
 
 		inline bool keepRunning() override
