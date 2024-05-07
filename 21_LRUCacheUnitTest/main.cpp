@@ -19,6 +19,22 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 	public:
 		using base_t::base_t;
 
+		constexpr static uint32_t InvalidTextureIdx = 41234;
+		struct TextureReference
+		{
+			uint32_t alloc_idx;
+			uint64_t lastUsedSemaphoreValue;
+
+			TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
+			TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
+			TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
+
+			// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
+			inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+		};
+
+		using TextureLRUCache = core::LRUCache<uint32_t, TextureReference>;
+
 		// we stuff all our work here because its a "single shot" app
 		bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
@@ -108,6 +124,24 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			cache2.print(m_logger);
 			cache2.insert(++i, "key is 112");
 
+			m_textureLRUCache = TextureLRUCache(1024u);
+			{
+				SIntendedSubmitInfo intendedNextSubmit = {};
+				auto evictionCallback = [&](const TextureReference& evicted)
+					{
+					};
+				const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
+				TextureReference* inserted = m_textureLRUCache.insert(69420, nextSemaSignal.value, evictionCallback);
+			}
+			{
+				SIntendedSubmitInfo intendedNextSubmit = {};
+				auto evictionCallback = [&](const TextureReference& evicted)
+					{
+					};
+				const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
+				TextureReference* inserted = m_textureLRUCache.insert(69420, nextSemaSignal.value, evictionCallback);
+			}
+
 		#ifdef _NBL_DEBUG
 			cache2.print(m_logger);
 		#endif
@@ -153,6 +187,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			return true;
 		}
+		TextureLRUCache m_textureLRUCache;
 
 		void workLoopBody() override {}
 

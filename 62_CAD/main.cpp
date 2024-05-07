@@ -1194,6 +1194,8 @@ public:
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 		{
 			const VkRect2D currentRenderArea =
 			{
@@ -1201,8 +1203,6 @@ public:
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
 
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
