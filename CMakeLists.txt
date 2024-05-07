@@ -26,6 +26,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
 	# showcase the set-up of a swapchain and picking of a matching device
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
+	# showcase the use of a depth buffer and rudimentary camera
+	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)

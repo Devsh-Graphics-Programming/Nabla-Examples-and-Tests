@@ -1,20 +1,5 @@
-// Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
-// This file is part of the "Nabla Engine".
-// For conditions of distribution and use, see copyright notice in nabla.h
-
-#define _NBL_STATIC_LIB_
-#include <iostream>
-#include <cstdio>
-#include <nabla.h>
 
 #include "../common/Camera.hpp"
-#include "../common/CommonAPI.h"
-
-//#include "nbl/ext/ScreenShot/ScreenShot.h"
-
-
-using namespace nbl;
-using namespace core;
 
 
 #include "nbl/nblpack.h"
@@ -63,31 +48,6 @@ class GPUMesh : public ApplicationBase
 {
 
 public:
-	constexpr static uint32_t WIN_W = 1280;
-	constexpr static uint32_t WIN_H = 720;
-	constexpr static uint32_t SC_IMG_COUNT = 3u;
-	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
-	constexpr static uint64_t MAX_TIMEOUT = 99999999999999ull;
-	constexpr static size_t NBL_FRAMES_TO_AVERAGE = 100ull;
-	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
-
-	nbl::core::smart_refctd_ptr<nbl::ui::IWindowManager> windowManager;
-	nbl::core::smart_refctd_ptr<nbl::ui::IWindow> window;
-	nbl::core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	nbl::core::smart_refctd_ptr<nbl::video::IAPIConnection> apiConnection;
-	nbl::core::smart_refctd_ptr<nbl::video::ISurface> surface;
-	nbl::core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-	nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
-	nbl::video::IPhysicalDevice* physicalDevice;
-	std::array<nbl::video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues = { nullptr, nullptr, nullptr, nullptr };
-	nbl::core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbo;
-	nbl::core::smart_refctd_ptr<nbl::system::ISystem> system;
-	nbl::core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
-	nbl::video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	nbl::core::smart_refctd_ptr<nbl::system::ILogger> logger;
-	nbl::core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
 
 	nbl::core::smart_refctd_ptr<video::IGPUFence> gpuTransferFence;
 	nbl::core::smart_refctd_ptr<video::IGPUFence> gpuComputeFence;
@@ -112,94 +72,11 @@ public:
 
 	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
 
-	void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
-	{
-		window = std::move(wnd);
-	}
-	void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& s) override
-	{
-		system = std::move(s);
-	}
-	nbl::ui::IWindow* getWindow() override
-	{
-		return window.get();
-	}
-	video::IAPIConnection* getAPIConnection() override
-	{
-		return apiConnection.get();
-	}
-	video::ILogicalDevice* getLogicalDevice()  override
-	{
-		return logicalDevice.get();
-	}
-	video::IGPURenderpass* getRenderpass() override
-	{
-		return renderpass.get();
-	}
-	void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
-	{
-		surface = std::move(s);
-	}
-	void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
-	{
-		for (int i = 0; i < f.size(); i++)
-		{
-			fbo->begin()[i] = core::smart_refctd_ptr(f[i]);
-		}
-	}
-	void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
-	{
-		swapchain = std::move(s);
-	}
-	uint32_t getSwapchainImageCount() override
-	{
-		return swapchain->getImageCount();
-	}
-	virtual nbl::asset::E_FORMAT getDepthFormat() override
-	{
-		return nbl::asset::EF_D32_SFLOAT;
-	}
 
-	APP_CONSTRUCTOR(GPUMesh)
+
 
 	void onAppInitialized_impl() override
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT);
-		CommonAPI::InitParams initParams;
-		initParams.window = core::smart_refctd_ptr(window);
-		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { "03.GPUMesh" };
-		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = WIN_W;
-		initParams.windowHeight = WIN_H;
-		initParams.swapchainImageCount = SC_IMG_COUNT;
-		initParams.swapchainImageUsage = swapchainImageUsage;
-		initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
-		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-
-		window = std::move(initParams.window);
-		windowCb = std::move(initParams.windowCb);
-		apiConnection = std::move(initOutput.apiConnection);
-		surface = std::move(initOutput.surface);
-		utilities = std::move(initOutput.utilities);
-		logicalDevice = std::move(initOutput.logicalDevice);
-		physicalDevice = initOutput.physicalDevice;
-		queues = std::move(initOutput.queues);
-		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
-		system = std::move(initOutput.system);
-		assetManager = std::move(initOutput.assetManager);
-		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-		logger = std::move(initOutput.logger);
-		inputSystem = std::move(initOutput.inputSystem);
-		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
-
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
-		assert(swapchain);
-		fbo = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
-			logicalDevice, swapchain, renderpass,
-			nbl::asset::EF_D32_SFLOAT
-		);
 
 		for (size_t i = 0ull; i < NBL_FRAMES_TO_AVERAGE; ++i)
 			dtList[i] = 0.0;
@@ -216,12 +93,6 @@ public:
 			imageAcquire[i] = logicalDevice->createSemaphore();
 			renderFinished[i] = logicalDevice->createSemaphore();
 		}
-	}
-
-	void onAppTerminated_impl() override
-	{
-		core::rect<uint32_t> sourceRect(0, 0, WIN_W, WIN_H);
-		//ext::ScreenShot::dirtyCPUStallingScreenshot(device, "screenshot.png", sourceRect, asset::EF_R8G8B8_SRGB);
 	}
 
 	void workLoopBody() override
@@ -405,11 +276,4 @@ public:
 			//driver->endScene();
 		}
 	}
-
-	bool keepRunning() override
-	{
-		return windowCb->isWindowOpen();
-	}
 };
-
-NBL_COMMON_API_MAIN(GPUMesh)
