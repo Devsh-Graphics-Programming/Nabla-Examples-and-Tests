@@ -57,7 +57,7 @@ public:
 	
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
 	
-	using texture_hash = uint64_t;
+	using texture_hash = uint32_t;
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
 	// ! return index to be used later in hatch fill style or text glyph object

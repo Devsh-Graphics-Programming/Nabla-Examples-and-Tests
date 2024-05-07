@@ -535,6 +535,9 @@ public:
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+			LRUCache<int, char> hugeCache(50000000u);
+			hugeCache.insert(0, '0');
+
 
 		// Remember to call the base class initialization!
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -1634,7 +1637,7 @@ protected:
 				drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 			};
 
-			drawResourcesFiller.addMSDFTexture(m_testMsdfTexture.cpuBuffer.get(), m_testMsdfTexture.region, 0);
+			drawResourcesFiller.addMSDFTexture(m_testMsdfTexture.cpuBuffer.get(), m_testMsdfTexture.region, 69420, intendedNextSubmit);
 			
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
