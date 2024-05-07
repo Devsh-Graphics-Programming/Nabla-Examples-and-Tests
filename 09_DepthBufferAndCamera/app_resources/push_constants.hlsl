@@ -4,5 +4,5 @@
 
 struct push_constants_t
 {
-	uint16_t2 grid;
+	float32_t4x4 mvp;
 };

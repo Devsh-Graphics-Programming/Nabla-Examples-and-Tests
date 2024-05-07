@@ -4,9 +4,11 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
 
+// TODO: move back to Nabla
+#include "CAssetConverter.h"
+
 //
 #include "nbl/video/surface/CSurfaceVulkan.h"
-
 
 using namespace nbl;
 using namespace core;
@@ -16,7 +18,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-//#include "app_resources/push_constants.hlsl"
+#include "app_resources/push_constants.hlsl"
 
 // Why not have multiple Frame In Flight depth buffers? Drawing two frames in parallel **on the GPU** is wasteful and could actually increase latency.
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
@@ -144,6 +146,10 @@ class DepthBufferAndCameraSampleApp final : public examples::SimpleWindowedAppli
 				return false;
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
+
+			// Test Asset Converter
+
+
 #if 0
 			// Load Custom Shader
 			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
@@ -354,7 +360,12 @@ class DepthBufferAndCameraSampleApp final : public examples::SimpleWindowedAppli
 					};
 					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::SECONDARY_COMMAND_BUFFERS);
 				}
+
 #if 0
+				const push_constants_t pc = { .mvp = () };
+				cmdbuf->pushConstants(m_pipeline->getLayout(), IGPUShader::ESS_VERTEX, 0, sizeof(pc), &pc);
+
+				// TODO: secondary commandbuffer
 				const VkRect2D currentRenderArea =
 				{
 					.offset = {0,0},
@@ -436,12 +447,8 @@ class DepthBufferAndCameraSampleApp final : public examples::SimpleWindowedAppli
 		uint64_t m_submitIx : 59 = 0;
 		// Maximum frames which can be simultaneously rendered
 		uint64_t m_maxFramesInFlight : 5;
-#if 0
-		// pipeline for the mesh
+		// pipeline for the draw
 		smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
-		// Enough Command Buffers and other resources for all frames in flight!
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
-#endif
 		// Use the One Pool Per Frame Paradigm to have most efficient pool usage
 		std::array<smart_refctd_ptr<IGPUCommandPool>,ISwapchain::MaxImages> m_cmdPools;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
