@@ -5,7 +5,7 @@
 
 struct SomeType
 {
-    uint32_t a;
+    float4x4 a;
 	uint32_t b[5];
 	uint32_t c[10];
 };
@@ -20,8 +20,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     const uint32_t index = ID.x;
 	const uint32_t byteOffset = sizeof(uint32_t)*index;
 
-    output[0].Store<uint32_t>(byteOffset, asdf[index].a + asdf[index].b[2] + asdf[index].c[3] * SPEC_CONSTANT_VALUE);
-    output[1].Store<uint32_t>(byteOffset, asdf[index].a + asdf[index].b[2] + asdf[index].c[3]);
-    output[2].Store<uint32_t>(byteOffset, asdf[index].a + asdf[index].b[2] + asdf[index].c[3]);
-    output2[1].Store<uint32_t>(byteOffset, asdf[index].a + asdf[index].b[2] - asdf[index].c[3]);
+    output[0].Store<uint32_t>(byteOffset, asdf[index].a[0][0] + asdf[index].b[2] + asdf[index].c[3] * SPEC_CONSTANT_VALUE);
+    output[1].Store<uint32_t>(byteOffset, asdf[index].a[0][0] + asdf[index].b[2] + asdf[index].c[3]);
+    output[2].Store<uint32_t>(byteOffset, asdf[index].a[0][0] + asdf[index].b[2] + asdf[index].c[3]);
+    output2[1].Store<uint32_t>(byteOffset, asdf[index].a[0][0] + asdf[index].b[2] - asdf[index].c[3]);
 }

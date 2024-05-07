@@ -114,34 +114,6 @@ protected:
 		logger->log(msg, system::ILogger::ELL_ERROR, std::forward<Args>(args)...);
 		return false;
 	}
-
-	// requires two compute shaders for simplicity of the example
-	//core::smart_refctd_ptr<ICPUComputePipeline> createComputePipelinesWithCompatibleLayout(std::span<core::smart_refctd_ptr<ICPUShader>> spirvShaders)
-	//{
-	//	CSPIRVIntrospector introspector;
-	//	auto pplnIntroData = CSPIRVIntrospector::CPipelineIntrospectionData();
-
-	//	for (auto it = spirvShaders.begin(); it != spirvShaders.end(); ++it)
-	//	{
-	//		CSPIRVIntrospector::CStageIntrospectionData::SParams params;
-	//		params.entryPoint = "main"; //whatever
-	//		params.shader = *it;
-
-	//		auto stageIntroData = introspector.introspect(params);
-	//		const bool hasMerged = pplnIntroData.merge(stageIntroData.get());
-
-	//		if (!hasMerged)
-	//		{
-	//			m_logger->log("Unable to create a compatible layout.", ILogger::ELL_PERFORMANCE);
-	//			return nullptr;
-	//		}
-	//	}
-
-	//	// TODO: create ppln from `pplnIntroData`..
-	//	//return core::make_smart_refctd_ptr<ICPUComputePipeline>();
-	//	return nullptr;
-	//}
-
 };
 
 class MergeTester final : public IntrospectionTesterBase
@@ -315,6 +287,8 @@ public:
 		auto sourceIntrospectionPair = compileHLSLShaderAndTestIntrospection(physicalDevice, device, logger, assetMgr, "app_resources/test.hlsl", introspector);
 		auto pplnIntroData = core::make_smart_refctd_ptr<CSPIRVIntrospector::CPipelineIntrospectionData>();
 		confirmExpectedOutput(logger, pplnIntroData->merge(sourceIntrospectionPair.second.get()), true);
+
+		sourceIntrospectionPair.second->debugPrint(logger);
 
 		// TODO
 		/*CSPIRVIntrospector introspector_test1;

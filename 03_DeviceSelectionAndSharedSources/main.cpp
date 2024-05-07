@@ -2,8 +2,6 @@
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-// I've moved out a tiny part of this example into a shared header for reuse, please open and read it.
-
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
@@ -69,39 +67,45 @@ public:
 		specInfo.entryPoint = "main";
 		specInfo.shader = source.get();
 
+		// TODO: cast to IGPUComputePipeline
 		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
 
 		smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
 
-		nbl::video::IGPUDescriptorSetLayout::SBinding bindingsDS1[1] = {
-				{
-					.binding = 2,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
-					.stageFlags = IGPUShader::ESS_COMPUTE,
-					.count = 4, // TODO: check what will happen with: .count = 5
-					.samplers = nullptr // irrelevant for a buffer
-				},
-		};
+		std::array<std::vector<IGPUDescriptorSetLayout::SBinding>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> bindings;
+		for (uint32_t i = 0u; i < IGPUPipelineLayout::DESCRIPTOR_SET_COUNT; ++i)
+		{
+			const auto& introspectionBindings = shaderIntrospection->getDescriptorSetInfo(i);
+			bindings[i].resize(introspectionBindings.size());
 
-		nbl::video::IGPUDescriptorSetLayout::SBinding bindingsDS3[1] = {
-				{
-					.binding = 6,
-					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IGPUShader::ESS_COMPUTE,
-					.count = 1,
-					.samplers = nullptr // irrelevant for a buffer
-				},
+			for (const auto& introspectionBinding : introspectionBindings)
+			{
+				auto& binding = bindings[i].emplace_back();
+
+				binding.binding = introspectionBinding.binding;
+				binding.type = introspectionBinding.type;
+				binding.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
+				binding.stageFlags = IGPUShader::ESS_COMPUTE;
+				assert(introspectionBinding.count.countMode == CSPIRVIntrospector::CIntrospectionData::SDescriptorArrayInfo::DESCRIPTOR_COUNT::STATIC);
+				binding.count = introspectionBinding.count.count;
+			}
+		}
+
+		const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayouts = { 
+			bindings[0].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[0]),
+			bindings[1].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[1]),
+			bindings[2].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[2]),
+			bindings[3].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[3])
 		};
-		
-		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout1 = m_device->createDescriptorSetLayout(bindingsDS1);
-		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout3 = m_device->createDescriptorSetLayout(bindingsDS3);
-		if (!dsLayout1 || !dsLayout3)
-			return logFail("Failed to create a Descriptor Layout!\n");
 
 		// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
-		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(dsLayout1), nullptr,  smart_refctd_ptr(dsLayout3));
+		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(
+			{},
+			core::smart_refctd_ptr(dsLayouts[0]),
+			core::smart_refctd_ptr(dsLayouts[1]),
+			core::smart_refctd_ptr(dsLayouts[2]),
+			core::smart_refctd_ptr(dsLayouts[3])
+		);
 		if (!pplnLayout)
 			return logFail("Failed to create a Pipeline Layout!\n");
 
@@ -120,7 +124,12 @@ public:
 
 		// Nabla hardcodes the maximum descriptor set count to 4
 		constexpr uint32_t MaxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
-		const std::array<IGPUDescriptorSetLayout*, MaxDescriptorSets> dscLayoutPtrs = { nullptr, dsLayout1.get(), nullptr, dsLayout3.get() };
+		const std::array<IGPUDescriptorSetLayout*, MaxDescriptorSets> dscLayoutPtrs = { 
+			!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
+			!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
+			!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
+			!dsLayouts[3] ? nullptr : dsLayouts[3].get()
+		};
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>, MaxDescriptorSets> ds;
 		auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
 		pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), ds.data());
@@ -190,7 +199,6 @@ public:
 			}
 		}
 
-#ifndef USE_INTROSPECTOR
 		{
 			IGPUDescriptorSet::SDescriptorInfo inputBuffersInfo[2];
 			inputBuffersInfo[0].desc = smart_refctd_ptr(inputBuff[0].first);
@@ -209,7 +217,6 @@ public:
 
 			m_device->updateDescriptorSets(std::span(writes, 2), {});
 		}
-#endif
 
 		// create, record, submit and await commandbuffers
 		constexpr auto StartedValue = 0;
@@ -339,33 +346,6 @@ public:
 		}
 
 		return std::pair(source, introspection);
-	}
-
-	// requires two compute shaders for simplicity of the example
-	core::smart_refctd_ptr<ICPUComputePipeline> createComputePipelinesWithCompatibleLayout(std::span<core::smart_refctd_ptr<ICPUShader>> spirvShaders)
-	{
-		CSPIRVIntrospector introspector;
-		auto pplnIntroData = CSPIRVIntrospector::CPipelineIntrospectionData();
-		
-		for (auto it = spirvShaders.begin(); it != spirvShaders.end(); ++it)
-		{
-			CSPIRVIntrospector::CStageIntrospectionData::SParams params;
-			params.entryPoint = "main"; //whatever
-			params.shader = *it;
-
-			auto stageIntroData = introspector.introspect(params);
-			const bool hasMerged = pplnIntroData.merge(stageIntroData.get());
-
-			if (!hasMerged)
-			{
-				m_logger->log("Unable to create a compatible layout.", ILogger::ELL_PERFORMANCE);
-				return nullptr;
-			}
-		}
-
-		// TODO: create ppln from `pplnIntroData`..
-		//return core::make_smart_refctd_ptr<ICPUComputePipeline>();
-		return nullptr;
 	}
 };
 
