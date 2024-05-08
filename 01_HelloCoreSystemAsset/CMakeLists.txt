@@ -26,3 +26,11 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif()
+
+# temporary
+option(NBL_BLAKE_EX_01_TEST "Test native blake3 with 01 example" OFF)
+
+if(NBL_BLAKE_EX_01_TEST)
+	target_link_libraries(${EXECUTABLE_NAME} PUBLIC blake3)
+	target_compile_definitions(${EXECUTABLE_NAME} PUBLIC NBL_ENABLE_BLAKE_TEST)
+endif()
