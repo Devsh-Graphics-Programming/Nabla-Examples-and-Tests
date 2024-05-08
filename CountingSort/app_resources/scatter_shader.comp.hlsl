@@ -68,10 +68,13 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     nbl::hlsl::sort::counting <DoublePtrAccessor, DoublePtrAccessor, PtrAccessor> counter;
+    DoublePtrAccessor key_accessor = DoublePtrAccessor::createAccessor(pushData.inputKeyAddress, pushData.outputKeyAddress);
+    DoublePtrAccessor value_accessor = DoublePtrAccessor::createAccessor(pushData.inputValueAddress, pushData.outputValueAddress);
+    PtrAccessor scratch_accessor = PtrAccessor::createAccessor(pushData.scratchAddress);
     counter.scatter(
-        DoublePtrAccessor::createAccessor(pushData.inputKeyAddress, pushData.outputKeyAddress),
-        DoublePtrAccessor::createAccessor(pushData.inputValueAddress, pushData.outputValueAddress),
-        PtrAccessor::createAccessor(pushData.scratchAddress),
+        key_accessor,
+        value_accessor,
+        scratch_accessor,
         pushData
     );
 }

@@ -43,9 +43,11 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     nbl::hlsl::sort::counting <PtrAccessor, PtrAccessor, PtrAccessor> counter;
+    PtrAccessor input_accessor = PtrAccessor::createAccessor(pushData.inputKeyAddress);
+    PtrAccessor scratch_accessor = PtrAccessor::createAccessor(pushData.scratchAddress);
     counter.histogram(
-        PtrAccessor::createAccessor(pushData.inputKeyAddress),
-        PtrAccessor::createAccessor(pushData.scratchAddress),
+        input_accessor,
+        scratch_accessor,
         pushData
     );
 }
