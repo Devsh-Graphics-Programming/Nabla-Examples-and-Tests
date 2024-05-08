@@ -25,10 +25,10 @@ struct PtrAccessor
         deref().store(value);
     }
 
-    uint32_t atomicAdd(uint64_t index, uint32_t value)
+    bda::__spv_ptr_t<uint32_t> get_ptr(uint64_t index)
     {
         return bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
-        deref().atomicAdd(value);
+        deref().get_ptr();
     }
 
     uint64_t addr;
