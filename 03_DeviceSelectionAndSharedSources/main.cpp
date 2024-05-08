@@ -17,7 +17,7 @@ using namespace video;
 #include "app_resources/common.hlsl"
 #include "Testers.h"
 
-constexpr bool ENABLE_TESTS = false;
+constexpr bool ENABLE_TESTS = true;
 
 // This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
 class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
