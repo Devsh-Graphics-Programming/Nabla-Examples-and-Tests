@@ -5,99 +5,135 @@
 
 namespace nbl::video
 {
-
-
-struct dep_gather_hash
-{
-	template<asset::Asset AssetType>
-	inline size_t operator()(const CAssetConverter::root_t<AssetType>& in) const
-	{
-		return std::hash<const void*>{}(in.asset)^(in.unique ? (~0x0ull):0x0ull);
-	}
-};
-template<asset::Asset AssetType>
-using dep_gather_cache_t = core::unordered_multimap<CAssetConverter::root_t<AssetType>,typename asset_traits<AssetType>::patch_t,dep_gather_hash>;
+using namespace nbl::core;
+using namespace nbl::asset;
 
 auto CAssetConverter::reserve(const SInput& input) -> SResults
 {
 	SResults retval = {};
-	if (input.readCache->m_params.device!=m_params.device)
+	if (input.readCache && input.readCache->m_params.device!=m_params.device)
 		return retval;
 
-	core::tuple_transform_t<dep_gather_cache_t,supported_asset_types> dep_gather_caches;
-	// gather all dependencies (DFS graph search) and patch
+	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
-		core::stack<const asset::IAsset*> dfsStack;
-		auto push = [&]<asset::Asset AssetType>(const CAssetConverter::input_t<AssetType>& in)->void
+		core::stack<const IAsset*> dfsStack;
+		// returns true if new element was inserted
+		auto cache = [&]<Asset AssetType>(const CAssetConverter::SInput::input_t<AssetType>& in)->bool
 		{
-			using cache_t = dep_gather_cache_t<AssetType>;
-			auto& cache = std::get<cache_t>(dep_gather_caches);
-			auto found = cache.equal_range(in);
+			if (!in.key.asset)
+				return false;
+
+			using cache_t = SResults::dag_cache_t<AssetType>;
+			auto& cache = std::get<cache_t>(retval.m_typedDagNodes);
+			auto found = cache.equal_range(in.key);
 			if (found.first!=found.second)
 			{
 #if 0
 				// found the thing, combine patches
 				const auto& cachedPatch = found->patch;
 				if (auto combined=in.patch; combined)
+				{
 					const_cast<asset_traits<AssetType>::patch_t&>(cachedPatch) = combined;
+					return false;
+				}
 #endif
+				// check whether the item is creatable after patching, else duplicate/de-alias
 			}
 			// insert a new entry
-			cache.insert(found.first,{in,{}/*in.patch*/});
+			cache.insert(found.first,{in.key,{.patch=in.patch}});
+			return true;
 		};
-		core::visit([&push]<asset::Asset AssetType>(const SInput::span_t<AssetType> assets)->void{
-			for (auto& asset : assets)
-				push(asset);
+		// initialize stacks
+		core::visit([&]<Asset AssetType>(const SInput::span_t<AssetType> inputs)->void{
+			for (auto& in : inputs)
+			if (cache(in) && AssetType::HasDependents)
+				dfsStack.push(in.key.asset);
 		},input.assets);
-/*
-		auto pushAll = [&push]()->void
-		{
-		};
+		// everything that's not explicit has `!unique` and default patch params
 		while (!dfsStack.empty())
 		{
 			const auto* asset = dfsStack.top();
 			dfsStack.pop();
-
-			auto found = std::get<dep_gather_cache_t<asset::ICPUShader>>(dep_gather_caches).find(asset);
-			if (!=end())
+			// everything we popped, has already been cached, now time to go over dependents
+			switch (asset->getAssetType())
 			{
+#if 0
+				case ICPUPipelineLayout::AssetType:
+				{
+					auto pplnLayout = static_cast<const ICPUPipelineLayout*>(asset);
+					for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+					if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
+					if (cache({/*TODO*/}))
+						dfsStack.push(layout);
+					break;
+				}
+				case ICPUDescriptorSetLayout::AssetType:
+				{
+					auto layout = static_cast<const ICPUDescriptorSetLayout*>(asset);
+					for (const auto& sampler : layout->getImmutableSamplers())
+						cache({/*TODO*/});
+					break;
+				}
+#endif
+				case ICPUDescriptorSet::AssetType:
+				{
+					_NBL_TODO();
+					break;
+				}
+				case ICPUImageView::AssetType:
+				{
+					_NBL_TODO();
+					break;
+				}
+				case ICPUBufferView::AssetType:
+				{
+					_NBL_TODO();
+					break;
+				}
+				// these assets have no dependants, should have never been pushed on the stack
+				default:
+					assert(false);
+					break;
 			}
 		}
-*/
 	}
+	// now we have a set of implicit gpu creation parameters we want to create resources with
+	// and a mapping from (Asset,Patch) -> UniqueAsset
 
-		// check whether the item is creatable after patching, else duplicate/de-alias
-
-	// now we have a list of gpu creation parameters we want to create resources with
-
-#if 0
-	auto stuff = [&]<typename AssetType>(const input_t<AssetType>& key)->void
+	auto dedup = [&]<Asset AssetType>()->void
 	{
-		//
-		CCache::search_t<AssetType> s = key;
-		if (!s.patch.has_value())
-			s.patch = asset_traits<AssetType>::defaultPatch(key.asset);
-		const size_t hash = CCache::Hash{}(s);
-
-		// search by the {asset+patch} in read cache
-		if (auto found=input.readCache->find(s,hash); found!=input.readCache->end<AssetType>())
+		using cache_t = SResults::dag_cache_t<AssetType>;
+		core::unordered_set<typename cache_t::value_type*/*TODO: Hash,Equals*/> conser;
+		for (auto& asset : std::get<cache_t>(retval.m_typedDagNodes))
 		{
-			//
+			auto [it, inserted] = conser.insert(&asset);
+			if (inserted)
+			{
+				if (input.readCache)
+					continue; // TODO: below
+//				if (auto found=input.readCache->find(); found!=input.readCache->end())
+//					asset.second.result = found->result;
+			}
+			else
+			{
+				assert(!asset.second.canonical);
+				asset.second.canonical = &(*it)->second;
+			}
 		}
-
-		// reserve in write cache
 	};
-#endif
-	
-	// if read cache
-		// find deps in read cache
-		// mark deps as ready/found
-	// if not ready/found
-		// find dep in transient cache
-		// if not found, insert and recurse
-
-	// see what can be patched/combined
+	// Lets see if we can collapse any of the (Asset Content) into the same thing,
+	// to correctly de-dup we need to go bottom-up!!!
+	dedup.operator()<ICPUShader>();
+// Shader, DSLayout, PipelineLayout, Compute Pipeline
+// Renderpass, Graphics Pipeline
+// Buffer, BufferView, Sampler, Image, Image View, Bottom Level AS, Top Level AS, Descriptor Set, Framebuffer  
+// Buffer -> SRange, patched usage, owner(s)
+// BufferView -> SRange, promoted format
+// Sampler -> Clamped Params (only aniso, really)
+// Image -> this, patched usage, promoted format
+// Image View -> ref to patched Image, patched usage, promoted format
+// Descriptor Set -> unique layout, 
 
 	return retval;
 }
@@ -140,9 +176,13 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 			.writeCache = m_params.compilerCache.get()
 		};
 
+		for (auto& shader : std::get<SResults::dag_cache_t<ICPUShader>>(reservations.m_typedDagNodes))
+		if (!shader.second.canonical)
 		{
-			params.cpushader = nullptr; // TODO
-			reservations.get<asset::ICPUShader>().emplace_back(device->createShader(params));
+			assert(!shader.second.result);
+			// custom code start
+			params.cpushader = shader.first.asset;
+			shader.second.result = device->createShader(params);
 		}
 	}
 

@@ -47,40 +47,35 @@ namespace nbl::video
 */
 class CAssetConverter : public core::IReferenceCounted
 {
-    public:
-        struct SCreationParams
-        {
-            inline bool valid() const
-            {
-                if (!device)
-                    return false;
+	public:
+		struct SCreationParams
+		{
+			inline bool valid() const
+			{
+				if (!device)
+					return false;
 
-                if (pipelineCache && pipelineCache->getOriginDevice()!=device) 
-                    return false;
+				if (pipelineCache && pipelineCache->getOriginDevice()!=device) 
+					return false;
 
-                return true;
-            }
+				return true;
+			}
 
-            // required not null
-            ILogicalDevice* device = nullptr;
-            // optional
+			// required not null
+			ILogicalDevice* device = nullptr;
+			// optional
 			core::smart_refctd_ptr<const asset::ISPIRVOptimizer> optimizer = {};
 			core::smart_refctd_ptr<asset::IShaderCompiler::CCache> compilerCache = {};
 			core::smart_refctd_ptr<IGPUPipelineCache> pipelineCache = {};
-        };
-        static inline core::smart_refctd_ptr<CAssetConverter> create(SCreationParams&& params)
-        {
-            if (!params.valid())
-                return nullptr;
-            return core::smart_refctd_ptr<CAssetConverter>(new CAssetConverter(std::move(params)),core::dont_grab);
-        }
+		};
+		static inline core::smart_refctd_ptr<CAssetConverter> create(SCreationParams&& params)
+		{
+			if (!params.valid())
+				return nullptr;
+			return core::smart_refctd_ptr<CAssetConverter>(new CAssetConverter(std::move(params)),core::dont_grab);
+		}
 
-        // meta tuple
-        using supported_asset_types = std::tuple<
-            asset::ICPUShader/*,
-            asset::ICPUDescriptorSetLayout,
-            asset::ICPUPipelineLayout*/
-        >;
+#if 0
         //
         class CCache final
         {
@@ -131,11 +126,9 @@ class CAssetConverter : public core::IReferenceCounted
             public:
 				inline void merge(const CCache& other)
 				{
-#if 0
 					std::apply([&](auto&... caches)->void{
 						(..., caches.merge(std::get<decltype(caches)>(other.m_caches)));
 					},m_caches);
-#endif
 				}
 
 				template<asset::Asset AssetType>
@@ -156,11 +149,12 @@ class CAssetConverter : public core::IReferenceCounted
 				//
                 caches_t m_caches;
         };
-		//a root asset we use for `SInput`
+#endif
+		// This is the object we're trying to de-duplicate and hash-cons
 		template<asset::Asset AssetType>
-		struct root_t
+		struct key_t
 		{
-			inline bool operator==(const root_t<AssetType>& rhs) const
+			inline bool operator==(const key_t<AssetType>& rhs) const
 			{
 				return asset==rhs.asset && unique==rhs.unique;
 			}
@@ -171,12 +165,43 @@ class CAssetConverter : public core::IReferenceCounted
 		};
 		// when getting dependents, these will be produced
 		template<asset::Asset AssetType>
-		struct input_t : root_t<AssetType>
+		struct patch_t;
+		template<>
+		struct patch_t<asset::ICPUShader>
 		{
-			std::optional<typename asset_traits<AssetType>::patch_t> patch = {};
+			inline patch_t(const asset::ICPUShader* shader=nullptr) {}
 		};
+		template<>
+		struct patch_t<asset::ICPUDescriptorSetLayout>
+		{
+			inline patch_t(const asset::ICPUDescriptorSetLayout* layout=nullptr) {}
+		};
+		template<>
+		struct patch_t<asset::ICPUPipelineLayout>
+		{
+			inline patch_t(const asset::ICPUPipelineLayout* pplnLayout=nullptr)
+			{
+			}
+
+			// TODO: unique form of push constant ranges
+		};
+		// meta tuple
+		using supported_asset_types = std::tuple<
+			asset::ICPUShader/*,
+			asset::ICPUDescriptorSetLayout,
+			asset::ICPUPipelineLayout*/
+		>;
         struct SInput
         {
+			template<asset::Asset AssetType>
+			struct input_t
+			{
+				inline input_t(const key_t<AssetType>& _key, const patch_t<AssetType>& _patch) : key(_key), patch(_patch) {}
+				inline input_t(const key_t<AssetType>& _key) : key(_key), patch(key) {}
+
+				key_t<AssetType> key;
+				patch_t<AssetType> patch;
+			};
             template<asset::Asset AssetType>
             using span_t = std::span<const input_t<AssetType>>;
 #if 0
@@ -193,40 +218,54 @@ class CAssetConverter : public core::IReferenceCounted
         };
         struct SResults
         {
-				template<asset::Asset AssetType>
-				using result_t = core::vector<typename asset_traits<AssetType>::video_t>;
-
 			public:
 				inline ~SResults() = default;
 
-				// TODO
-				inline bool reserveSuccess() const {return true;}
+				//
+				inline bool reserveSuccess() const {return m_success;}
 
 				//
 				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
 
-				template<asset::Asset AssetType>
-				inline std::span<const typename asset_traits<AssetType>::video_t> get() const
-				{
-					return std::get<result_t<AssetType>>(m_videoObjects)[0x45];
-				}
 
 			protected:
-				friend class CAssetConverter;
 				inline SResults() = default;
 
-			private:
-				template<asset::Asset AssetType>
-				inline auto& get()
-				{
-					return std::get<result_t<AssetType>>(m_videoObjects);
-				}
 
-				// There's a 1:1 mapping between the `SInput::assets` and `videoObjects`
-				// After returning from `reserve` and before entering `convert`
-				core::tuple_transform_t<result_t,supported_asset_types> m_videoObjects = {};
+			private:
+				friend class CAssetConverter;
+
+				template<asset::Asset AssetType>
+				struct result_t
+				{
+					inline const auto& get() const
+					{
+						if (canonical)
+							return canonical->result;
+						return result;
+					}
+
+					patch_t<AssetType> patch = {};
+					const result_t<AssetType>* canonical = nullptr;
+					asset_traits<AssetType>::video_t result = {};
+				};
+				//
+				struct key_hash
+				{
+					template<asset::Asset AssetType>
+					inline size_t operator()(const key_t<AssetType>& in) const
+					{
+						return std::hash<const void*>{}(in.asset)^(in.unique ? (~0x0ull):0x0ull);
+					}
+				};
+				template<asset::Asset AssetType>
+				using dag_cache_t = core::unordered_multimap<key_t<AssetType>,result_t<AssetType>,key_hash>;
+				
+				core::tuple_transform_t<dag_cache_t,supported_asset_types> m_typedDagNodes = {};
 				//
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
+				//
+				bool m_success = true;
         };
 #define NBL_API
 		NBL_API SResults reserve(const SInput& input);

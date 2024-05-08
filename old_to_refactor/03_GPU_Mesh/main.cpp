@@ -83,31 +83,10 @@ public:
 
 		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 1000);
 		camera = Camera(core::vectorSIMDf(-4, 0, 0), core::vectorSIMDf(0, 0, 0), projectionMatrix);
-
-		auto commandPools = std::move(initOutput.commandPools);
-		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-		{
-			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, commandBuffers + i);
-			imageAcquire[i] = logicalDevice->createSemaphore();
-			renderFinished[i] = logicalDevice->createSemaphore();
-		}
 	}
 
 	void workLoopBody() override
 	{
-		++resourceIx;
-		if (resourceIx >= FRAMES_IN_FLIGHT)
-			resourceIx = 0;
-
-		auto& commandBuffer = commandBuffers[resourceIx];
-		auto& fence = frameComplete[resourceIx];
-
-		if (fence)
-			while (logicalDevice->waitForFences(1u, &fence.get(), false, MAX_TIMEOUT) == video::IGPUFence::ES_TIMEOUT) {}
-		else
-			fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
 
 		auto renderStart = std::chrono::system_clock::now();
 		const auto renderDt = std::chrono::duration_cast<std::chrono::milliseconds>(renderStart - lastTime).count();
@@ -144,8 +123,12 @@ public:
 
 		const auto& mvp = camera.getConcatenatedMatrix();
 
-		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
+
+
+
+
+
+
 
 		asset::SViewport viewport;
 		viewport.minDepth = 1.f;
@@ -156,28 +139,10 @@ public:
 		viewport.height = WIN_H;
 		commandBuffer->setViewport(0u, 1u, &viewport);
 
-		swapchain->acquireNextImage(MAX_TIMEOUT, imageAcquire[resourceIx].get(), nullptr, &acquiredNextFBO);
 
-		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
-		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
-			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 1.f;
-			clear[0].color.float32[1] = 1.f;
-			clear[0].color.float32[2] = 1.f;
-			clear[0].color.float32[3] = 1.f;
-			clear[1].depthStencil.depth = 0.f;
 
-			beginInfo.clearValueCount = 2u;
-			beginInfo.framebuffer = fbo->begin()[acquiredNextFBO];
-			beginInfo.renderpass = renderpass;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = clear;
-		}
 
-		commandBuffer->beginRenderPass(&beginInfo, nbl::asset::ESC_INLINE);
+
 
 		//! Stress test for memleaks aside from demo how to create meshes that live on the GPU RAM
 		{
