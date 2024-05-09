@@ -124,14 +124,14 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 			cache2.print(m_logger);
 			cache2.insert(++i, "key is 112");
 
-			m_textureLRUCache = TextureLRUCache(1024u);
+			m_textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(1024u));
 			{
 				SIntendedSubmitInfo intendedNextSubmit = {};
 				auto evictionCallback = [&](const TextureReference& evicted)
 					{
 					};
 				const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
-				TextureReference* inserted = m_textureLRUCache.insert(69420, nextSemaSignal.value, evictionCallback);
+				TextureReference* inserted = m_textureLRUCache->insert(69420, nextSemaSignal.value, evictionCallback);
 			}
 			{
 				SIntendedSubmitInfo intendedNextSubmit = {};
@@ -139,7 +139,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 					{
 					};
 				const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
-				TextureReference* inserted = m_textureLRUCache.insert(69420, nextSemaSignal.value, evictionCallback);
+				TextureReference* inserted = m_textureLRUCache->insert(69420, nextSemaSignal.value, evictionCallback);
 			}
 
 		#ifdef _NBL_DEBUG
@@ -187,7 +187,7 @@ class LRUCacheTestApp final : public nbl::application_templates::MonoSystemMonoL
 
 			return true;
 		}
-		TextureLRUCache m_textureLRUCache;
+		std::unique_ptr<TextureLRUCache> m_textureLRUCache;
 
 		void workLoopBody() override {}
 
