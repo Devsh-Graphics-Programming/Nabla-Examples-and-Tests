@@ -107,19 +107,21 @@ auto CAssetConverter::reserve(const SInput& input) -> SResults
 		core::unordered_set<typename cache_t::value_type*/*TODO: Hash,Equals*/> conser;
 		for (auto& asset : std::get<cache_t>(retval.m_typedDagNodes))
 		{
+			assert(!asset.second.canonical);
+			//assert(!asset.second.result);
 			auto [it, inserted] = conser.insert(&asset);
 			if (inserted)
 			{
 				if (input.readCache)
 					continue; // TODO: below
 //				if (auto found=input.readCache->find(); found!=input.readCache->end())
-//					asset.second.result = found->result;
+// 				{
+// 				   TODO: insert to our own cache
+//					asset.second.result = &((*it)->second.result = found->result);
+//				}
 			}
 			else
-			{
-				assert(!asset.second.canonical);
 				asset.second.canonical = &(*it)->second;
-			}
 		}
 	};
 	// Lets see if we can collapse any of the (Asset Content) into the same thing,
