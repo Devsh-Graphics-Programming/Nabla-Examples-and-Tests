@@ -118,7 +118,7 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
 {
-	textureLRUCache = TextureLRUCache(maxMSDFs);
+	textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(maxMSDFs));
 
 	asset::E_FORMAT msdfFormat = MsdfTextureFormat;
 	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
@@ -245,7 +245,7 @@ void DrawResourcesFiller::drawHatch(
 	uint32_t textureIdx = InvalidTextureIdx;
 	if (msdfTexture != InvalidTextureHash)
 	{
-		TextureReference* tRef = textureLRUCache.get(msdfTexture);
+		TextureReference* tRef = textureLRUCache->get(msdfTexture);
 		if (tRef)
 		{
 			textureIdx = tRef->alloc_idx;
@@ -302,7 +302,7 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 		};
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	TextureReference* inserted = textureLRUCache.insert(hash, nextSemaSignal.value, evictionCallback);
+	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
 	
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
