@@ -1,5 +1,6 @@
 #include "Polyline.h"
 #include "Hatch.h"
+#include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>
 
@@ -268,6 +269,7 @@ protected:
 
 	// MSDF stuff
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
+	smart_refctd_ptr<IndexAllocator>     msdfTextureArrayIndexAllocator;
 	std::vector<TextureCopy>			textureCopies; // queued up texture copies, @Lucas change to deque if possible
 	std::unique_ptr<TextureLRUCache>    textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_UNORM;

@@ -119,6 +119,7 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
 {
 	textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(maxMSDFs));
+	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 
 	asset::E_FORMAT msdfFormat = MsdfTextureFormat;
 	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
@@ -288,18 +289,16 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
 
 	auto evictionCallback = [&](const TextureReference& evicted)
-		{
-			// @Lucas TODO:
-			
-			// Dealloc:
-			//allocator.multi_deallocate(1u,&evicted.alloc_idx,{signalSema,evicted.lastUsedSemaphoreValue});
-			
-			// Overflow Handling:
-			//finalizeAllCopiesToGPU(intendedNextSubmit);
-			//submitDraws(intendedNextSubmit);
-			//resetGeometryCounters();
-			//resetMainObjectCounters();
-		};
+	{
+		// Dealloc:
+		msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
+		
+		// Overflow Handling:
+		finalizeAllCopiesToGPU(intendedNextSubmit);
+		submitDraws(intendedNextSubmit);
+		resetGeometryCounters();
+		resetMainObjectCounters();
+	};
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
 	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
@@ -308,7 +307,7 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
 		// New insertion == cache miss happened and insertion was successfull
-		// allocator.multi_allocate(1u,&inserted->alloc_idx);
+		msdfTextureArrayIndexAllocator->multi_allocate(1u,&inserted->alloc_idx);
 		inserted->alloc_idx = 0u; // temp
 		
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem

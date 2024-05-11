@@ -9,7 +9,10 @@
 #include <type_traits>
 #include <map>
 
+using namespace nbl;
 using namespace nbl::video;
+using namespace nbl::core;
+using namespace nbl::asset;
 
 
 class IndexAllocator : public core::IReferenceCounted 
@@ -106,7 +109,7 @@ public:
 	{
 		m_reservedSize = AddressAllocator::reserved_size(MaxDescriptorSetAllocationAlignment, static_cast<size_type>(size), MinDescriptorSetAllocationSize);
 		m_reservedAllocator = std::unique_ptr<ReservedAllocator>(new ReservedAllocator());
-		auto addressAllocator = std::unique_ptr<AddressAllocator>(new AddressAllocator(
+		m_addressAllocator = std::unique_ptr<AddressAllocator>(new AddressAllocator(
 			m_reservedAllocator->allocate(m_reservedSize, _NBL_SIMD_ALIGNMENT),
 			static_cast<size_type>(0), 0u, MaxDescriptorSetAllocationAlignment, static_cast<size_type>(size),
 			MinDescriptorSetAllocationSize
@@ -124,8 +127,9 @@ public:
 
 		assert(m_eventHandler->getTimelines().size() == 0);
 		auto ptr = reinterpret_cast<const uint8_t*>(core::address_allocator_traits<AddressAllocator>::getReservedSpacePtr(*m_addressAllocator));
+		if (ptr)
+			m_reservedAllocator->deallocate(const_cast<uint8_t*>(ptr), m_reservedSize);
 		m_addressAllocator = nullptr;
-		m_reservedAllocator->deallocate(const_cast<uint8_t*>(ptr), m_reservedSize);
 	}
 
 	// main methods

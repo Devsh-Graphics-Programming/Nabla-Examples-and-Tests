@@ -580,9 +580,11 @@ float4 main(PSInput input) : SV_TARGET
             
         }
 
-        // if (msdf)
+        LineStyle style = lineStyles[mainObjects[currentMainObjectIdx].styleIdx];
+        uint32_t textureId = asuint(style.screenSpaceLineWidth);
+        if (textureId != InvalidTextureIdx)
         {
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(input.position.xy / 8.0, 0.0)).xyz;
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(input.position.xy / 8.0, float(textureId))).xyz;
             float msdf = msdfOpacity(msdfSample, input.position.xy / float2(globals.resolution));
             localAlpha *= msdf;
         }
