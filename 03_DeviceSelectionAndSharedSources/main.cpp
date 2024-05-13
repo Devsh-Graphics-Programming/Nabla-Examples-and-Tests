@@ -4,8 +4,7 @@
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
-#include "emulated_float64.hlsl"
+#include "nbl/builtin/hlsl/emulated_float64_t.hlsl"
 
 using namespace nbl;
 using namespace core;

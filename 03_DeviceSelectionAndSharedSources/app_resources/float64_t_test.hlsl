@@ -1,6 +1,6 @@
 #pragma wave shader_stage(compute)
 #include "common.hlsl"
-#include "../emulated_float64.hlsl"
+#include <nbl/builtin/hlsl/emulated_float64_t.hlsl>
 
 [numthreads(256,1,1)]
 void main() 
