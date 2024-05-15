@@ -4,7 +4,6 @@
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-#include "nbl/builtin/hlsl/emulated_float64_t.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -39,116 +38,6 @@ public:
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		// test emulated::float64_t struct
-#define EMULATED_FLOAT64
-#ifdef EMULATED_FLOAT64
-
-		core::smart_refctd_ptr<IGPUShader> shader;
-		if(false)
-		{
-			IAssetLoader::SAssetLoadParams lp = {};
-			lp.logger = m_logger.get();
-			lp.workingDirectory = ""; // virtual root
-			// this time we load a shader directly from a file
-			auto assetBundle = m_assetMgr->getAsset("app_resources/float64_t_test.hlsl", lp);
-			const auto assets = assetBundle.getContents();
-			if (assets.empty())
-			{
-				logFail("Could not load shader!");
-				assert(0);
-			}
-
-			// It would be super weird if loading a shader from a file produced more than 1 asset
-			assert(assets.size() == 1);
-			smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
-
-			// The Asset Manager has a Default Compiler Set which contains all built-in compilers (so it can try them all)
-			auto* compilerSet = m_assetMgr->getCompilerSet();
-
-			// This time we use a more "generic" option struct which works with all compilers
-			nbl::asset::IShaderCompiler::SCompilerOptions options = {};
-			// The Shader Asset Loaders deduce the stage from the file extension,
-			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
-			// But it can still be overriden from within the source with a `#pragma shader_stage` 
-			options.stage = source->getStage() == IShader::ESS_COMPUTE ? source->getStage() : IShader::ESS_VERTEX; // TODO: do smth with it
-			options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
-			options.spirvOptimizer = nullptr;
-			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-			// The nice thing is that when you load a shader from file, it has a correctly set `filePathHint`
-			// so it plays nicely with the preprocessor, and finds `#include`s without intervention.
-			options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-			options.preprocessorOptions.logger = m_logger.get();
-			options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
-
-			auto spirv = compilerSet->compileToSPIRV(source.get(), options);
-
-			ILogicalDevice::SShaderCreationParameters params{};
-			params.cpushader = spirv.get();
-			shader = m_device->createShader(params);
-		}
-
-		
-		// "constructor" test
-		{
-			std::cout << "-------------------------------------------------------------------\n";
-			std::array values = {
-				emulated::emulated_float64_t::create(24),
-				emulated::emulated_float64_t::create(24u),
-				emulated::emulated_float64_t::create(24ull),
-				emulated::emulated_float64_t::create(1.2f),
-				emulated::emulated_float64_t::create(1.2),
-				emulated::emulated_float64_t::create(uint16_t(2))
-			};
-
-			for (auto val : values)
-				std::cout << val.data << std::endl;
-			std::cout << std::endl;
-
-		}
-
-		// operator test
-		{
-			emulated::emulated_float64_t a;
-			emulated::emulated_float64_t b;
-			a.data = 20.0f;
-			b.data = 10.0f;
-
-			std::array arithmeticValues = {
-				a + b, // 30
-				a - b, // 10
-				a * b, // 200
-				a / b  // 2
-			};
-
-			std::array<emulated::emulated_float64_t, 3u> assignValues;
-			assignValues.fill(a);
-			assignValues[0] += b;
-			assignValues[0] -= b;
-			assignValues[0] *= b;
-			assignValues[0] /= b;
-
-			std::array logicValues = {
-				a && b, // true
-				a || b, // true
-				!a      // false
-			};
-
-			for (auto val : arithmeticValues)
-				std::cout << val.data << std::endl;
-			std::cout << std::endl;
-
-			for (auto val : arithmeticValues)
-				std::cout << val.data << std::endl;
-			std::cout << std::endl;
-
-			for (auto val : logicValues)
-				std::cout << std::boolalpha << val << std::endl;
-			std::cout << "-------------------------------------------------------------------\n";
-		}
-
-#endif
-#if 0
 		// Just a check that out specialization info will match
 		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
 			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
@@ -377,8 +266,6 @@ public:
 			if (outputData[i] != DWORDCount)
 				return logFail("DWORD at position %d doesn't match!\n", i);
 		outputBuff.second.memory->unmap();
-
-#endif
 
 		return true;
 	}

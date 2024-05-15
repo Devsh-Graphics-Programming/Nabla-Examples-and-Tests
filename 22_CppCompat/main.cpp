@@ -10,6 +10,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
+#include "app_resources/emulated_float64_t_test/common.hlsl"
 
 
 using namespace nbl::core;
@@ -341,6 +342,8 @@ public:
             std::cout << "Shader tests failed\n";
         }
 
+        validateEmulatedFloat64();
+
         m_keepRunning = false;
     }
 
@@ -366,6 +369,272 @@ private:
     constexpr static inline uint64_t MaxIterations = 200;
 
     bool m_keepRunning = true;
+    
+    bool validateEmulatedFloat64()
+    {
+        constexpr auto FinishedValue = 45;
+        smart_refctd_ptr<ISemaphore> progress;
+
+        nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
+
+        // This scope is kinda silly but it demonstrated that in Nabla we refcount all Vulkan resources and keep the ones used in sumbits (semaphores and commandbuffers) alive till the submit is no longer pending
+        {
+            // You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
+            smart_refctd_ptr<nbl::video::CVulkanConnection> api;
+            {
+                nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
+                apiFeaturesToEnable.validations = true;
+                apiFeaturesToEnable.synchronizationValidation = true;
+                apiFeaturesToEnable.debugUtils = true;
+                if (!(api = CVulkanConnection::create(smart_refctd_ptr(m_system), 0, _NBL_APP_NAME_, smart_refctd_ptr(m_logger), apiFeaturesToEnable)))
+                    return logFail("Failed to crate an IAPIConnection!");
+            }
+
+            smart_refctd_ptr<IGPUShader> shader;
+            {
+                IAssetLoader::SAssetLoadParams lp = {};
+                lp.logger = m_logger.get();
+                lp.workingDirectory = ""; // virtual root
+                // this time we load a shader directly from a file
+                auto assetBundle = m_assetMgr->getAsset("app_resources/emulated_float64_t_test/test.comp.hlsl", lp);
+                const auto assets = assetBundle.getContents();
+                if (assets.empty())
+                {
+                    logFail("Could not load shader!");
+                    assert(0);
+                }
+
+                // It would be super weird if loading a shader from a file produced more than 1 asset
+                assert(assets.size() == 1);
+                smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+
+                auto* compilerSet = m_assetMgr->getCompilerSet();
+
+                nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+                options.stage = source->getStage();
+                options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                options.spirvOptimizer = nullptr;
+                options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+                options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+                options.preprocessorOptions.logger = m_logger.get();
+                options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+
+                auto spirv = compilerSet->compileToSPIRV(source.get(), options);
+
+                ILogicalDevice::SShaderCreationParameters params{};
+                params.cpushader = spirv.get();
+                shader = m_device->createShader(params);
+            }
+
+            if (!shader)
+                return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+
+            nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+                {
+                    .binding = 0,
+                    .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+                    .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+                    .stageFlags = IGPUShader::ESS_COMPUTE,
+                    .count = 1,
+                    .samplers = nullptr
+                }
+            };
+            smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+            if (!dsLayout)
+                return logFail("Failed to create a Descriptor Layout!\n");
+
+            smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({}, smart_refctd_ptr(dsLayout));
+            if (!pplnLayout)
+                return logFail("Failed to create a Pipeline Layout!\n");
+
+            smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+            {
+                IGPUComputePipeline::SCreationParams params = {};
+                params.layout = pplnLayout.get();
+                params.shader.entryPoint = "main";
+                params.shader.shader = shader.get();
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+                    return logFail("Failed to create pipelines (compile & link shaders)!\n");
+            }
+
+            smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
+
+            // Allocate the memory
+            {
+                constexpr size_t BufferSize = sizeof(TestValues);
+
+                // Always default the creation parameters, there's a lot of extra stuff for DirectX/CUDA interop and slotting into external engines you don't usually care about. 
+                nbl::video::IGPUBuffer::SCreationParams params = {};
+                params.size = BufferSize;
+                // While the usages on `ICPUBuffers` are mere hints to our automated CPU-to-GPU conversion systems which need to be patched up anyway,
+                // the usages on an `IGPUBuffer` are crucial to specify correctly.
+                params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                smart_refctd_ptr<IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
+                if (!outputBuff)
+                    return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+                // Naming objects is cool because not only errors (such as Vulkan Validation Layers) will show their names, but RenderDoc captures too.
+                outputBuff->setObjectDebugName("My Output Buffer");
+
+                nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
+                reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+                allocation = m_device->allocate(reqs, outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                if (!allocation.isValid())
+                    return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+                assert(outputBuff->getBoundMemory().memory == allocation.memory.get());
+                smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+                ds = pool->createDescriptorSet(std::move(dsLayout));
+                {
+                    IGPUDescriptorSet::SDescriptorInfo info[1];
+                    info[0].desc = smart_refctd_ptr(outputBuff);
+                    info[0].info.buffer = { .offset = 0,.size = BufferSize };
+                    IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                        {.dstSet = ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+                    };
+                    m_device->updateDescriptorSets(writes, {});
+                }
+            }
+
+            if (!allocation.memory->map({ 0ull,allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+                return logFail("Failed to map the Device Memory!\n");
+
+            uint32_t queueFamily = getComputeQueue()->getFamilyIndex();
+            // Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
+            smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+            {
+
+                smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+                if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+                    return logFail("Failed to create Command Buffers!\n");
+            }
+
+            cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            // If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
+            cmdbuf->beginDebugMarker("My Compute Dispatch", vectorSIMDf(0, 1, 0, 1));
+            // you want to bind the pipeline first to avoid accidental unbind of descriptor sets due to compatibility matching
+            cmdbuf->bindComputePipeline(pipeline.get());
+            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
+            cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
+            cmdbuf->endDebugMarker();
+            // Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
+            // however signalling a timeline semaphore with the COMPUTE stage mask and waiting for it on the Host makes all Device writes visible.
+            cmdbuf->end();
+
+            // Create the Semaphore
+            constexpr auto StartedValue = 0;
+            static_assert(StartedValue < FinishedValue);
+            progress = m_device->createSemaphore(StartedValue);
+            {
+                // queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
+                IQueue* queue = m_device->getQueue(queueFamily, 0);
+
+                // Default, we have no semaphores to wait on before we can start our workload
+                IQueue::SSubmitInfo submitInfos[1] = {};
+                // The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
+                // So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
+                const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
+                submitInfos[0].commandBuffers = cmdbufs;
+                // But we do need to signal completion by incrementing the Timeline Semaphore counter as soon as the compute shader is done
+                const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+                submitInfos[0].signalSemaphores = signals;
+
+                // We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
+                // This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
+                queue->startCapture();
+                queue->submit(submitInfos);
+                queue->endCapture();
+            }
+        }
+
+        // As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
+        const ISemaphore::SWaitInfo waitInfos[] = { {
+            .semaphore = progress.get(),
+            .value = FinishedValue
+        } };
+        m_device->blockForSemaphores(waitInfos);
+
+        // if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
+        const ILogicalDevice::MappedMemoryRange memoryRange(allocation.memory.get(), 0ull, allocation.memory->getAllocationSize());
+        if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+            m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+
+        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
+        constexpr TestValues expectedTestValues = {
+            .intCreateVal = 24,
+            .uintCreateVal = 24u,
+            .uint64CreateVal = 24ull,
+            .floatCreateVal = 1.2f,
+            .doubleCreateVal = 1.2,
+            .additionVal = 30.0f,
+            .substractionVal = 10.0f,
+            .multiplicationVal = 200.0f,
+            .divisionVal = 2.0f,
+            .lessOrEqualVal = false,
+            .greaterOrEqualVal = true,
+            .equalVal = false,
+            .notEqualVal = true,
+            .lessVal = false,
+            .greaterVal = true,
+            .convertionToBoolVal = true,
+            .convertionToIntVal = 20,
+            .convertionToUint32Val = 20u,
+            .convertionToUint64Val = 20ull,
+            .convertionToFloatVal = 20.0f,
+            .convertionToDoubleVal = 20.0,
+            //.convertionToHalfVal = 20;
+        };
+
+        void* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
+        if (std::memcmp(&expectedTestValues, gpuTestValues, sizeof(TestValues)) != 0)
+            logFail("GPU determinated values don't match");
+
+        emulated::emulated_float64_t a = _static_cast(10);
+        emulated::emulated_float64_t b = _static_cast(20);
+
+        TestValues cpuTestValues = {
+            .intCreateVal = emulated::emulated_float64_t::create(24),
+            .uintCreateVal = emulated::emulated_float64_t::create(24u),
+            .uint64CreateVal = emulated::emulated_float64_t::create(24ull),
+            .floatCreateVal = emulated::emulated_float64_t::create(1.2f),
+            .doubleCreateVal = emulated::emulated_float64_t::create(1.2),
+            .additionVal = (a + b).data,
+            .substractionVal = (a - b).data,
+            .multiplicationVal = (a * b).data,
+            .divisionVal = (a / b).data,
+            .lessOrEqualVal = a <= b,
+            .greaterOrEqualVal = a >= b,
+            .equalVal = a == b,
+            .notEqualVal = a != b,
+            .lessVal = a < b,
+            .greaterVal = a > b,
+            .convertionToBoolVal = bool(a),
+            .convertionToIntVal = int(a),
+            .convertionToUint32Val = uint32_t(a),
+            .convertionToUint64Val = uint64_t(a),
+            .convertionToFloatVal = float(a),
+            .convertionToDoubleVal = double(a),
+            //.convertionToHalfVal = 
+        };
+
+        if (std::memcmp(&expectedTestValues, &cpuTestValues, sizeof(TestValues)) != 0)
+            logFail("CPU determinated values don't match");
+
+        // There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
+        // The tracking causes circular references from the resource back to the device, so unless we poll at the end of the application, they resources used by last submit will leak.
+        // We could of-course make a very lazy thread that wakes up every second or so and runs this GC on the queues, but we think this is enough book-keeping for the users.
+        m_device->waitIdle();
+        allocation.memory->unmap();
+    }
+    
+    template<typename... Args>
+    inline bool logFail(const char* msg, Args&&... args)
+    {
+        m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
+        return false;
+    }
 };
 
 template<class T>
