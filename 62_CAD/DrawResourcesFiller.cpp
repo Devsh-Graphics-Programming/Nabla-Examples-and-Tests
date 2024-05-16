@@ -257,8 +257,6 @@ void DrawResourcesFiller::drawHatch(
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
 	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
-	// @Lucas we use LineStyle struct for hatches too but we aliased a member with textureId, So you need to do asuint(lineStyle.screenSpaceLineWidth) to get you the index into msdfTextureArray
-
 	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
 	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
@@ -302,13 +300,14 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
 	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
+	printf("addMSDFTexture hash = %d textureLRUCache->insert = %d (had to allocate and push texture copy: %s)\n", hash, inserted->alloc_idx, inserted->alloc_idx == InvalidTextureIdx ? "true" : "false");
 	
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
 		// New insertion == cache miss happened and insertion was successfull
+		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
 		msdfTextureArrayIndexAllocator->multi_allocate(1u,&inserted->alloc_idx);
-		inserted->alloc_idx = 0u; // temp
 		
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({

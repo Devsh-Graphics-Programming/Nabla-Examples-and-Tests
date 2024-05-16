@@ -49,6 +49,23 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 };
 
+enum E_MSDF_FILLS
+{
+	EMF_CHECKERED,
+	EMF_DIAMONDS,
+	EMF_CROSS_HATCH,
+	EMF_HATCH,
+	EMF_HORIZONTAL,
+	EMF_VERTICAL,
+	EMF_INTERWOVEN,
+	EMF_REVERSE_HATCH,
+	EMF_SQUARES,
+	EMF_CIRCLE,
+	EMF_LIGHT_SHADED,
+	EMF_SHADED,
+	EMF_COUNT
+};
+
 constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
@@ -985,9 +1002,49 @@ public:
 		m_glyphLibrary = library;
 		m_glyphFace = face;
 
-		// Hatch fill MSDF
+		createHatchFillMsdfTextures();
+
+		return true;
+	}
+
+	void createHatchFillMsdfTextures() {
+		std::vector<std::vector<CPolyline>> shapes;
+		std::vector<CPolyline> polylines;
+		auto line = [&](float64_t2 begin, float64_t2 end) {
+			std::vector<float64_t2> points = {
+				begin, end
+			};
+			CPolyline polyline;
+			polyline.addLinePoints(points);
+			polylines.push_back(polyline);
+		};
+		auto square = [&](float64_t2 position) {
+			std::vector<float64_t2> points = {
+				float64_t2(position.x, position.y),
+				float64_t2(position.x + 1, position.y),
+				float64_t2(position.x + 1, position.y + 1),
+				float64_t2(position.x, position.y + 1),
+				float64_t2(position.x, position.y)
+			};
+			CPolyline polyline;
+			polyline.addLinePoints(points);
+			polylines.push_back(polyline);
+		};
 		{
-			std::vector<CPolyline> polylines;
+			// Checkered
+			line(float64_t2(4.0, 0.0), float64_t2(0.0, 0.0));
+			line(float64_t2(0.0, 0.0), float64_t2(0.0, 4.0));
+			line(float64_t2(8.0, 4.0), float64_t2(8.0, 8.0));
+			line(float64_t2(8.0, 8.0), float64_t2(4.0, 8.0));
+
+			line(float64_t2(8.0, 4.0), float64_t2(0.0, 4.0));
+			line(float64_t2(4.0, 0.0), float64_t2(4.0, 8.0));
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_CHECKERED] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
 			// Diamonds
 			{
 				// Outer
@@ -1016,10 +1073,322 @@ public:
 				polylines.push_back(polyline);
 			}
 
-			m_testMsdfTexture = generateMsdfForShape(polylines);
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_DIAMONDS] = generateMsdfForShape(polylines);
+			polylines.clear();
 		}
+		{
+			// Cross Hatch 
+			{
+				// Outer
+				std::vector<float64_t2> points = {
+					float64_t2(3.0, 0.0),
+					float64_t2(0.0, 3.0),
+					float64_t2(0.0, 5.0),
+					float64_t2(3.0, 8.0),
+					float64_t2(5.0, 8.0),
+					float64_t2(8.0, 5.0),
+					float64_t2(8.0, 3.0),
+					float64_t2(5.0, 0.0),
+					float64_t2(3.0, 0.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+			{
+				// Inner 
+				std::vector<float64_t2> points = {
+					float64_t2(4.0, 1.0),
+					float64_t2(1.0, 4.0),
+					float64_t2(4.0, 7.0),
+					float64_t2(7.0, 4.0),
+					float64_t2(4.0, 1.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
 
-		return true;
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_CROSS_HATCH] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Hatch
+			{
+				CPolyline polyline;
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(1.0, 0.0),
+						float64_t2(8.0, 7.0),
+						float64_t2(8.0, 8.0),
+						float64_t2(7.0, 8.0),
+						float64_t2(0.0, 1.0),
+						float64_t2(0.0, 0.0),
+						float64_t2(1.0, 0.0),
+					};
+					polyline.addLinePoints(points);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(0.0, 8.0),
+						float64_t2(1.0, 8.0),
+						float64_t2(0.0, 7.0),
+						float64_t2(0.0, 8.0),
+					};
+					polyline.addLinePoints(points);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(8.0, 0.0),
+						float64_t2(7.0, 0.0),
+						float64_t2(8.0, 1.0),
+						float64_t2(8.0, 0.0),
+					};
+					polyline.addLinePoints(points);
+				}
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_HATCH] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Horizontal 
+			{
+				std::vector<float64_t2> points = {
+					float64_t2(0.0, 3.0),
+					float64_t2(8.0, 3.0),
+					float64_t2(8.0, 4.0),
+					float64_t2(0.0, 4.0),
+					float64_t2(0.0, 3.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+			{
+				std::vector<float64_t2> points = {
+					float64_t2(0.0, 7.0),
+					float64_t2(8.0, 7.0),
+					float64_t2(8.0, 8.0),
+					float64_t2(0.0, 8.0),
+					float64_t2(0.0, 7.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_HORIZONTAL] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Vertical 
+			{
+				std::vector<float64_t2> points = {
+					float64_t2(0.0, 0.0),
+					float64_t2(0.0, 8.0),
+					float64_t2(1.0, 8.0),
+					float64_t2(1.0, 0.0),
+					float64_t2(0.0, 0.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+			{
+				std::vector<float64_t2> points = {
+					float64_t2(4.0, 0.0),
+					float64_t2(4.0, 8.0),
+					float64_t2(5.0, 8.0),
+					float64_t2(5.0, 0.0),
+					float64_t2(4.0, 0.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_VERTICAL] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Interwoven 
+			{
+				std::vector<float64_t2> points = {
+					float64_t2(4.0, 0.0),
+					float64_t2(5.0, 0.0),
+					float64_t2(8.0, 3.0),
+					float64_t2(8.0, 4.0),
+					float64_t2(7.0, 4.0),
+					float64_t2(4.0, 1.0),
+					float64_t2(4.0, 0.0),
+				};
+				CPolyline polyline;
+				polyline.addLinePoints(points);
+				polylines.push_back(polyline);
+			}
+			{
+				std::vector<float64_t2> points = {
+					float64_t2(3.0, 4.0),
+					float64_t2(4.0, 4.0),
+					float64_t2(4.0, 5.0),
+					float64_t2(1.0, 8.0),
+					float64_t2(0.0, 8.0),
+					float64_t2(0.0, 7.0),
+					float64_t2(3.0, 4.0),
+				};
+				CPolyline polyline;
+				m_shapeMsdfTextures[EMF_INTERWOVEN] = generateMsdfForShape(polylines);
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			shapes.push_back(polylines);
+			polylines.clear();
+		}
+		{
+			// Reverse Hatch 
+			{
+				CPolyline polyline;
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(7.0, 0.0),
+						float64_t2(0.0, 7.0),
+						float64_t2(0.0, 8.0),
+						float64_t2(1.0, 8.0),
+						float64_t2(8.0, 1.0),
+						float64_t2(8.0, 0.0),
+						float64_t2(7.0, 0.0),
+					};
+					polyline.addLinePoints(points);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(8.0, 8.0),
+						float64_t2(7.0, 8.0),
+						float64_t2(8.0, 7.0),
+						float64_t2(8.0, 8.0),
+					};
+					polyline.addLinePoints(points);
+				}
+				{
+					std::vector<float64_t2> points = {
+						float64_t2(0.0, 0.0),
+						float64_t2(1.0, 0.0),
+						float64_t2(0.0, 1.0),
+						float64_t2(0.0, 0.0),
+					};
+					polyline.addLinePoints(points);
+				}
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_REVERSE_HATCH] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Squares
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> outerSquare = {
+					float64_t2(1.0, 1.0),
+					float64_t2(7.0, 1.0),
+					float64_t2(7.0, 7.0),
+					float64_t2(1.0, 7.0),
+					float64_t2(1.0, 1.0),
+				};
+				polyline.addLinePoints(outerSquare);
+				std::vector<float64_t2> innerSquare = {
+					float64_t2(2.0, 2.0),
+					float64_t2(6.0, 2.0),
+					float64_t2(6.0, 6.0),
+					float64_t2(2.0, 6.0),
+					float64_t2(2.0, 2.0),
+				};
+				polyline.addLinePoints(innerSquare);
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_SQUARES] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Circle
+			// TODO: should this be an actual circle?
+			{
+				CPolyline polyline;
+				std::vector<float64_t2> outerSquare = {
+					float64_t2(2.0, 1.0),
+					float64_t2(1.0, 2.0),
+					float64_t2(1.0, 6.0),
+					float64_t2(2.0, 7.0),
+					float64_t2(6.0, 7.0),
+					float64_t2(7.0, 6.0),
+					float64_t2(7.0, 2.0),
+					float64_t2(6.0, 1.0),
+					float64_t2(2.0, 1.0)
+				};
+				polyline.addLinePoints(outerSquare);
+				std::vector<float64_t2> innerSquare = {
+					float64_t2(2.5, 2.0),
+					float64_t2(2.0, 2.5),
+					float64_t2(2.0, 5.5),
+					float64_t2(2.5, 6.0),
+					float64_t2(5.5, 6.0),
+					float64_t2(6.0, 5.5),
+					float64_t2(6.0, 2.5),
+					float64_t2(5.5, 2.0),
+					float64_t2(2.5, 2.0),
+				};
+				polyline.addLinePoints(innerSquare);
+				polylines.push_back(polyline);
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_CIRCLE] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Light shaded
+			square(float64_t2(0.0, 3.0));
+			square(float64_t2(0.0, 7.0));
+
+			square(float64_t2(2.0, 1.0));
+			square(float64_t2(2.0, 5.0));
+
+			square(float64_t2(4.0, 3.0));
+			square(float64_t2(4.0, 7.0));
+
+			square(float64_t2(6.0, 1.0));
+			square(float64_t2(6.0, 5.0));
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_LIGHT_SHADED] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
+		{
+			// Shaded
+			for (uint32_t x = 0; x < 8; x++)
+			{
+				for (uint32_t y = 0; y < 8; y++)
+				{
+					if (x % 2 != y % 2)
+						square(float64_t2((double)x, (double)y));
+				}
+			}
+
+			std::vector<CPolyline> polylinesClone(polylines);
+			m_shapeMsdfTextures[EMF_SHADED] = generateMsdfForShape(polylines);
+			polylines.clear();
+		}
 	}
 
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
@@ -1637,8 +2006,6 @@ protected:
 				drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 			};
 
-			drawResourcesFiller.addMSDFTexture(m_testMsdfTexture.cpuBuffer.get(), m_testMsdfTexture.region, 69420, intendedNextSubmit);
-			
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
 			if (hatchDebugStep > 0)
@@ -2031,6 +2398,14 @@ protected:
 				if (hatchDebugStep < shapes.size())
 				{
 					const auto& shapePolylines = shapes[hatchDebugStep];
+					const DrawResourcesFiller::texture_hash msdfHash = hatchDebugStep;
+					drawResourcesFiller.addMSDFTexture(
+						m_shapeMsdfTextures[hatchDebugStep].cpuBuffer.get(), 
+						m_shapeMsdfTextures[hatchDebugStep].region, 
+						msdfHash, 
+						intendedNextSubmit
+					);
+			
 					for (int x = -3; x <= 3; x++)
 					{
 						for (int y = -3; y <= 3; y++)
@@ -2067,7 +2442,7 @@ protected:
 							}
 
 							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-							drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), intendedNextSubmit);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
 						}
 					}
 				}
@@ -2203,6 +2578,34 @@ protected:
 
 					Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
 					drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), intendedNextSubmit);
+
+					CPolyline squareBelow;
+					{
+						std::vector<float64_t2> points;
+						auto addPt = [&](float64_t2 p)
+						{
+							auto point = p / 8.0;
+							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+						};
+						addPt(float64_t2(0.0, 0.0));
+						addPt(float64_t2(8.0, 0.0));
+						addPt(float64_t2(8.0, 8.0));
+						addPt(float64_t2(0.0, 8.0));
+						addPt(float64_t2(0.0, 0.0));
+						squareBelow.addLinePoints(points);
+					}
+					Hatch filledHatch(
+						std::span<CPolyline, 1>{std::addressof(squareBelow), 1}, 
+						SelectedMajorAxis, hatchDebugStep, debug
+					);
+					const DrawResourcesFiller::texture_hash msdfHash = hatchFillShapeIdx;
+					drawResourcesFiller.addMSDFTexture(
+						m_shapeMsdfTextures[hatchFillShapeIdx].cpuBuffer.get(), 
+						m_shapeMsdfTextures[hatchFillShapeIdx].region, 
+						msdfHash, 
+						intendedNextSubmit
+					);
+					drawResourcesFiller.drawHatch(filledHatch, float32_t4(float(hatchFillShapeIdx) / float(shapes.size()), 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
 
 					hatchDebugStep--;
 				}
@@ -3595,10 +3998,11 @@ protected:
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';
+
 	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
 	FT_Library m_glyphLibrary;
 	FT_Face m_glyphFace;
-	MsdfTexture m_testMsdfTexture;
+	MsdfTexture m_shapeMsdfTextures[EMF_COUNT];
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
