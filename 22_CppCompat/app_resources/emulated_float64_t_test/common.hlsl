@@ -5,14 +5,7 @@
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/emulated_float64_t.hlsl>
 
-NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 256;
-
-emulated::emulated_float64_t _static_cast(const float val)
-{
-    emulated::emulated_float64_t retval;
-    retval.data = val; // TODO: manually upgrade the `val` IEEE754 32bit pattern to 64bit
-    return retval;
-}
+NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
 
 struct TestValues
 {

@@ -377,19 +377,7 @@ private:
 
         nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
 
-        // This scope is kinda silly but it demonstrated that in Nabla we refcount all Vulkan resources and keep the ones used in sumbits (semaphores and commandbuffers) alive till the submit is no longer pending
         {
-            // You should already know Vulkan and come here to save on the boilerplate, if you don't know what instances and instance extensions are, then find out.
-            smart_refctd_ptr<nbl::video::CVulkanConnection> api;
-            {
-                nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
-                apiFeaturesToEnable.validations = true;
-                apiFeaturesToEnable.synchronizationValidation = true;
-                apiFeaturesToEnable.debugUtils = true;
-                if (!(api = CVulkanConnection::create(smart_refctd_ptr(m_system), 0, _NBL_APP_NAME_, smart_refctd_ptr(m_logger), apiFeaturesToEnable)))
-                    return logFail("Failed to crate an IAPIConnection!");
-            }
-
             smart_refctd_ptr<IGPUShader> shader;
             {
                 IAssetLoader::SAssetLoadParams lp = {};
@@ -463,18 +451,14 @@ private:
             {
                 constexpr size_t BufferSize = sizeof(TestValues);
 
-                // Always default the creation parameters, there's a lot of extra stuff for DirectX/CUDA interop and slotting into external engines you don't usually care about. 
                 nbl::video::IGPUBuffer::SCreationParams params = {};
                 params.size = BufferSize;
-                // While the usages on `ICPUBuffers` are mere hints to our automated CPU-to-GPU conversion systems which need to be patched up anyway,
-                // the usages on an `IGPUBuffer` are crucial to specify correctly.
                 params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
                 smart_refctd_ptr<IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
                 if (!outputBuff)
                     return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
-                // Naming objects is cool because not only errors (such as Vulkan Validation Layers) will show their names, but RenderDoc captures too.
-                outputBuff->setObjectDebugName("My Output Buffer");
+                outputBuff->setObjectDebugName("emulated_float64_t output buffer");
 
                 nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
                 reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
@@ -502,7 +486,6 @@ private:
                 return logFail("Failed to map the Device Memory!\n");
 
             uint32_t queueFamily = getComputeQueue()->getFamilyIndex();
-            // Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
             smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
             {
 
@@ -512,15 +495,11 @@ private:
             }
 
             cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-            // If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
-            cmdbuf->beginDebugMarker("My Compute Dispatch", vectorSIMDf(0, 1, 0, 1));
-            // you want to bind the pipeline first to avoid accidental unbind of descriptor sets due to compatibility matching
+            cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
             cmdbuf->bindComputePipeline(pipeline.get());
             cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
             cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
             cmdbuf->endDebugMarker();
-            // Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
-            // however signalling a timeline semaphore with the COMPUTE stage mask and waiting for it on the Host makes all Device writes visible.
             cmdbuf->end();
 
             // Create the Semaphore
@@ -528,21 +507,14 @@ private:
             static_assert(StartedValue < FinishedValue);
             progress = m_device->createSemaphore(StartedValue);
             {
-                // queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
                 IQueue* queue = m_device->getQueue(queueFamily, 0);
 
-                // Default, we have no semaphores to wait on before we can start our workload
                 IQueue::SSubmitInfo submitInfos[1] = {};
-                // The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
-                // So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
                 const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
                 submitInfos[0].commandBuffers = cmdbufs;
-                // But we do need to signal completion by incrementing the Timeline Semaphore counter as soon as the compute shader is done
                 const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
                 submitInfos[0].signalSemaphores = signals;
 
-                // We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
-                // This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
                 queue->startCapture();
                 queue->submit(submitInfos);
                 queue->endCapture();
@@ -587,12 +559,122 @@ private:
             //.convertionToHalfVal = 20;
         };
 
-        void* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
-        if (std::memcmp(&expectedTestValues, gpuTestValues, sizeof(TestValues)) != 0)
-            logFail("GPU determinated values don't match");
+        auto compareValues = [this](const TestValues& lhs, const TestValues& rhs) -> bool
+            {
+                bool success = true;
 
-        emulated::emulated_float64_t a = _static_cast(10);
-        emulated::emulated_float64_t b = _static_cast(20);
+                if (lhs.intCreateVal != rhs.intCreateVal)
+                {
+                    m_logger->log("intCreateVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.intCreateVal, rhs.intCreateVal);
+                    success = false;
+                }
+                if (lhs.uintCreateVal != rhs.uintCreateVal)
+                {
+                    m_logger->log("uintCreateVal not equal, expected value: %u     test value: %u", ILogger::ELL_DEBUG, lhs.uintCreateVal, rhs.uintCreateVal);
+                    success = false;
+                }
+                if (lhs.uint64CreateVal != rhs.uint64CreateVal)
+                {
+                    m_logger->log("uint64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uint64CreateVal, rhs.uint64CreateVal);
+                    success = false;
+                }
+                if (lhs.floatCreateVal != rhs.floatCreateVal)
+                {
+                    m_logger->log("floatCreateVal not equal, expected value: %f     test value: %f", ILogger::ELL_DEBUG, lhs.floatCreateVal, rhs.floatCreateVal);
+                    success = false;
+                }
+                if (lhs.doubleCreateVal != rhs.doubleCreateVal)
+                {
+                    m_logger->log("doubleCreateVal not equal, expected value: %lf     test value: %lf", ILogger::ELL_DEBUG, lhs.doubleCreateVal, rhs.doubleCreateVal);
+                    success = false;
+                }
+                if (lhs.additionVal != rhs.additionVal)
+                {
+                    m_logger->log("additionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.additionVal, rhs.additionVal);
+                    success = false;
+                }
+                if (lhs.substractionVal != rhs.substractionVal)
+                {
+                    m_logger->log("substractionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.substractionVal, rhs.substractionVal);
+                    success = false;
+                }
+                if (lhs.multiplicationVal != rhs.multiplicationVal)
+                {
+                    m_logger->log("multiplicationVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.multiplicationVal, rhs.multiplicationVal);
+                    success = false;
+                }
+                if (lhs.divisionVal != rhs.divisionVal)
+                {
+                    m_logger->log("divisionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.divisionVal, rhs.divisionVal);
+                    success = false;
+                }
+                if (lhs.lessOrEqualVal != rhs.lessOrEqualVal)
+                {
+                    m_logger->log("lessOrEqualVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.lessOrEqualVal, rhs.lessOrEqualVal);
+                    success = false;
+                }
+                if (lhs.greaterOrEqualVal != rhs.greaterOrEqualVal)
+                {
+                    m_logger->log("greaterOrEqualVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.greaterOrEqualVal, rhs.greaterOrEqualVal);
+                    success = false;
+                }
+                if (lhs.equalVal != rhs.equalVal)
+                {
+                    m_logger->log("equalVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.equalVal, rhs.equalVal);
+                    success = false;
+                }
+                if (lhs.notEqualVal != rhs.notEqualVal)
+                {
+                    m_logger->log("notEqualVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.notEqualVal, rhs.notEqualVal);
+                    success = false;
+                }
+                if (lhs.lessVal != rhs.lessVal)
+                {
+                    m_logger->log("lessVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.lessVal, rhs.lessVal);
+                    success = false;
+                }
+                if (lhs.greaterVal != rhs.greaterVal)
+                {
+                    m_logger->log("greaterVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
+                    success = false;
+                }
+                if (lhs.convertionToBoolVal != rhs.convertionToBoolVal)
+                {
+                    m_logger->log("convertionToBoolVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.convertionToBoolVal, rhs.convertionToBoolVal);
+                    success = false;
+                }
+                if (lhs.convertionToIntVal != rhs.convertionToIntVal)
+                {
+                    m_logger->log("convertionToIntVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.convertionToIntVal, rhs.convertionToIntVal);
+                    success = false;
+                }
+                if (lhs.convertionToUint32Val != rhs.convertionToUint32Val)
+                {
+                    m_logger->log("convertionToUint32Val not equal, expected value: %u     test value: %u", ILogger::ELL_DEBUG, lhs.convertionToUint32Val, rhs.convertionToUint32Val);
+                    success = false;
+                }
+                if (lhs.convertionToUint64Val != rhs.convertionToUint64Val)
+                {
+                    m_logger->log("convertionToUint64Val not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToUint64Val, rhs.convertionToUint64Val);
+                    success = false;
+                }
+                if (lhs.convertionToFloatVal != rhs.convertionToFloatVal)
+                {
+                    m_logger->log("convertionToFloatVal not equal, expected value: %f     test value: %f", ILogger::ELL_DEBUG, lhs.convertionToFloatVal, rhs.convertionToFloatVal);
+                    success = false;
+                }
+                if (lhs.convertionToDoubleVal != rhs.convertionToDoubleVal)
+                {
+                    m_logger->log("convertionToDoubleVal not equal, expected value: %lf     test value: %lf", ILogger::ELL_DEBUG, lhs.convertionToDoubleVal, rhs.convertionToDoubleVal);
+                    success = false;
+                }
+
+
+                return success;
+            };
+
+        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0f);
+        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0f);
 
         TestValues cpuTestValues = {
             .intCreateVal = emulated::emulated_float64_t::create(24),
@@ -619,13 +701,18 @@ private:
             //.convertionToHalfVal = 
         };
 
-        if (std::memcmp(&expectedTestValues, &cpuTestValues, sizeof(TestValues)) != 0)
-            logFail("CPU determinated values don't match");
-
-        // There's just one caveat, the Queues tracking what resources get used in a submit do it via an event queue that needs to be polled to clear.
-        // The tracking causes circular references from the resource back to the device, so unless we poll at the end of the application, they resources used by last submit will leak.
-        // We could of-course make a very lazy thread that wakes up every second or so and runs this GC on the queues, but we think this is enough book-keeping for the users.
         m_device->waitIdle();
+        TestValues* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
+        if (!compareValues(expectedTestValues, *gpuTestValues))
+            logFail("Incorrect GPU determinated values!");
+        else
+            m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
+
+        if (!compareValues(expectedTestValues, cpuTestValues))
+            logFail("Incorrect CPU determinated values!");
+        else
+            m_logger->log("Correct CPU determinated values!", ILogger::ELL_PERFORMANCE);
+        
         allocation.memory->unmap();
     }
     
