@@ -359,7 +359,8 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 							
 							struct CombinedNormalUV
 							{
-								uint32_t normal, u, v;
+								uint32_t normal;
+								float u, v;
 							};
 							static_assert(sizeof(CombinedNormalUV) == sizeof(float) * 3u);
 

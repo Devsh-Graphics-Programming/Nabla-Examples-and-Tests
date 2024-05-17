@@ -34,9 +34,8 @@ vec3 nbl_glsl_fetchVtxNormal(in uint vtxID, in nbl_glsl_ext_Mitsuba_Loader_insta
 vec2 nbl_glsl_fetchVtxUV(in uint vtxID, in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData)
 {
     nbl_glsl_VG_VirtualAttributePacked_t va = batchInstanceData.determinantSignBit;
-    const vec2 codedUV = nbl_glsl_VG_attribFetch3u(va,vtxID).yz;
-
-    return codedUV;
+    const uvec2 codedUV = nbl_glsl_VG_attribFetch3u(va,vtxID).yz;
+    return vec2(uintBitsToFloat(codedUV.x), uintBitsToFloat(codedUV.y));
 }
 
 
