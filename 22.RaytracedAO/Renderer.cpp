@@ -318,7 +318,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 				IMeshPackerV2Base::SupportedFormatsContainer formats;
 				formats.insert(EF_R32G32B32_SFLOAT);
-				formats.insert(EF_R32G32_UINT);
+				formats.insert(EF_R32G32B32_UINT);
 				auto cpump = core::make_smart_refctd_ptr<CCPUMeshPackerV2<>>(allocParams,formats,minTrisBatch,maxTrisBatch);
 				uint32_t mdiBoundMax=0u,batchInstanceBoundTotal=0u;
 				core::vector<CPUMeshPacker::ReservedAllocationMeshBuffers> allocData;
