@@ -318,7 +318,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 				IMeshPackerV2Base::SupportedFormatsContainer formats;
 				formats.insert(EF_R32G32B32_SFLOAT);
-				formats.insert(EF_R32G32_UINT);
+				formats.insert(EF_R32G32B32_UINT);
 				auto cpump = core::make_smart_refctd_ptr<CCPUMeshPackerV2<>>(allocParams,formats,minTrisBatch,maxTrisBatch);
 				uint32_t mdiBoundMax=0u,batchInstanceBoundTotal=0u;
 				core::vector<CPUMeshPacker::ReservedAllocationMeshBuffers> allocData;
@@ -347,20 +347,23 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 							assert(meshBuffer->getInstanceCount()==instanceCount);
 							// We'll disable certain attributes to ensure we only copy position, normal and uv attribute
 							SVertexInputParams& vertexInput = meshBuffer->getPipeline()->getVertexInputParams();
-							// but we'll pack normals and UVs together to save one SSBO binding (and quantize UVs to half floats)
+							// but we'll pack normals and UVs together to save one SSBO binding, but no quantization of UVs to keep accurate floating point precision for baricentrics
 							constexpr auto freeBinding = 15u;
 							vertexInput.attributes[combinedNormalUVAttributeIx].binding = freeBinding;
-							vertexInput.attributes[combinedNormalUVAttributeIx].format = EF_R32G32_UINT;
+							vertexInput.attributes[combinedNormalUVAttributeIx].format = EF_R32G32B32_UINT;
 							vertexInput.attributes[combinedNormalUVAttributeIx].relativeOffset = 0u;
 							vertexInput.enabledBindingFlags |= 0x1u<<freeBinding;
 							vertexInput.bindings[freeBinding].inputRate = EVIR_PER_VERTEX;
 							vertexInput.bindings[freeBinding].stride = 0u;
 							const auto approxVxCount = IMeshManipulator::upperBoundVertexID(meshBuffer)+meshBuffer->getBaseVertex();
+							
 							struct CombinedNormalUV
 							{
-								uint32_t nml;
-								uint16_t u,v;
+								uint32_t normal;
+								float u, v;
 							};
+							static_assert(sizeof(CombinedNormalUV) == sizeof(float) * 3u);
+
 							auto newBuff = core::make_smart_refctd_ptr<ICPUBuffer>(sizeof(CombinedNormalUV)*approxVxCount);
 							auto* dst = reinterpret_cast<CombinedNormalUV*>(newBuff->getPointer())+meshBuffer->getBaseVertex();
 							meshBuffer->setVertexBufferBinding({0u,newBuff},freeBinding);
@@ -369,11 +372,11 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 							vertexInput.attributes[normalAttr].format = EF_R32_UINT;
 							for (auto i=0u; i<approxVxCount; i++)
 							{
-								meshBuffer->getAttribute(&dst[i].nml,normalAttr,i);
+								meshBuffer->getAttribute(&dst[i].normal,normalAttr,i);
 								core::vectorSIMDf uv;
 								meshBuffer->getAttribute(uv,2u,i);
-								dst[i].u = core::Float16Compressor::compress(uv.x);
-								dst[i].v = core::Float16Compressor::compress(uv.y);
+								dst[i].u = uv.x;
+								dst[i].v = uv.y;
 							}
 						}
 

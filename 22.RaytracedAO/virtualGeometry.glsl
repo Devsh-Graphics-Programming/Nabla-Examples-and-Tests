@@ -27,15 +27,15 @@ vec3 nbl_glsl_fetchVtxPos(in uint vtxID, in nbl_glsl_ext_Mitsuba_Loader_instance
 vec3 nbl_glsl_fetchVtxNormal(in uint vtxID, in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData)
 {
     nbl_glsl_VG_VirtualAttributePacked_t va = batchInstanceData.determinantSignBit;
-    const uint codedNormal = nbl_glsl_VG_attribFetch2u(va,vtxID)[0];
+    const uint codedNormal = nbl_glsl_VG_attribFetch3u(va,vtxID)[0];
     return normalize(nbl_glsl_decodeRGB10A2_SNORM(codedNormal).xyz);
 }
 
 vec2 nbl_glsl_fetchVtxUV(in uint vtxID, in nbl_glsl_ext_Mitsuba_Loader_instance_data_t batchInstanceData)
 {
     nbl_glsl_VG_VirtualAttributePacked_t va = batchInstanceData.determinantSignBit;
-    const uint codedUV = nbl_glsl_VG_attribFetch2u(va,vtxID)[1];
-    return unpackHalf2x16(codedUV).xy;
+    const uvec2 codedUV = nbl_glsl_VG_attribFetch3u(va,vtxID).yz;
+    return vec2(uintBitsToFloat(codedUV.x), uintBitsToFloat(codedUV.y));
 }
 
 
