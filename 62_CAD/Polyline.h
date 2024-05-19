@@ -199,7 +199,7 @@ struct LineStyleInfo
 	}
 
 	// If it's all draw or all gap
-	bool isSingleSegment() const
+	inline bool isSingleSegment() const
 	{
 		const bool allDraw = stipplePattern[0] == 1.0f && stipplePatternSize == 1u;
 		const bool allGap = !isVisible();
@@ -325,6 +325,11 @@ struct LineStyleInfo
 	inline bool hasShape() const { return shapeNormalizedPlaceInPattern != InvalidNormalizedShapeOffset; }
 
 	inline bool isVisible() const { return stipplePatternSize != InvalidStipplePatternSize; }
+
+	inline bool skipPreprocess() const 
+	{
+		return isSingleSegment() && !hasShape() && !isRoadStyleFlag;
+	}
 };
 
 class CPolylineBase
@@ -491,8 +496,8 @@ public:
 
 	void preprocessPolylineWithStyle(const LineStyleInfo& lineStyle, const AddShapeFunc& addShape = {})
 	{
-		//if (!lineStyle.isVisible())
-		//	return;
+		if (lineStyle.skipPreprocess())
+			return;
 		// DISCONNECTION DETECTED, will break styling and offsetting the polyline, if you don't care about those then ignore discontinuity.
 		// _NBL_DEBUG_BREAK_IF(!checkSectionsContinuity());
 		PolylineConnectorBuilder connectorBuilder;
