@@ -15,19 +15,19 @@ struct PtrAccessor
 
     uint32_t get(uint64_t index)
     {
-        return bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
+        return nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
         deref().load();
     }
 
     void set(uint64_t index, uint32_t value)
     {
-        bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
+        nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
         deref().store(value);
     }
 
-    bda::__spv_ptr_t<uint32_t> get_ptr(uint64_t index)
+    nbl::hlsl::bda::__spv_ptr_t<uint32_t> get_ptr(uint64_t index)
     {
-        return bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
+        return nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
         deref().get_ptr();
     }
 
