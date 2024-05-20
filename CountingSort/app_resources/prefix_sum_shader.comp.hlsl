@@ -6,7 +6,7 @@
 
 struct PtrAccessor
 {
-    static PtrAccessor createAccessor(uint64_t addr)
+    static PtrAccessor create(uint64_t addr)
     {
         PtrAccessor ptr;
         ptr.addr = addr;
@@ -43,8 +43,8 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     nbl::hlsl::sort::counting <PtrAccessor, PtrAccessor, PtrAccessor> counter;
-    PtrAccessor input_accessor = PtrAccessor::createAccessor(pushData.inputKeyAddress);
-    PtrAccessor scratch_accessor = PtrAccessor::createAccessor(pushData.scratchAddress);
+    PtrAccessor input_accessor = PtrAccessor::create(pushData.inputKeyAddress);
+    PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
     counter.histogram(
         input_accessor,
         scratch_accessor,

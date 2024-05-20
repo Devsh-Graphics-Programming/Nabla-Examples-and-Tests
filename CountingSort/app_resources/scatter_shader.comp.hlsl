@@ -6,7 +6,7 @@
 
 struct PtrAccessor
 {
-    static PtrAccessor createAccessor(uint64_t addr)
+    static PtrAccessor create(uint64_t addr)
     {
         PtrAccessor ptr;
         ptr.addr = addr;
@@ -36,7 +36,7 @@ struct PtrAccessor
 
 struct DoublePtrAccessor
 {
-    static DoublePtrAccessor createAccessor(uint64_t in_addr, uint64_t out_addr)
+    static DoublePtrAccessor create(uint64_t in_addr, uint64_t out_addr)
     {
         DoublePtrAccessor ptr;
         ptr.in_addr = in_addr;
@@ -68,9 +68,9 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     nbl::hlsl::sort::counting <DoublePtrAccessor, DoublePtrAccessor, PtrAccessor> counter;
-    DoublePtrAccessor key_accessor = DoublePtrAccessor::createAccessor(pushData.inputKeyAddress, pushData.outputKeyAddress);
-    DoublePtrAccessor value_accessor = DoublePtrAccessor::createAccessor(pushData.inputValueAddress, pushData.outputValueAddress);
-    PtrAccessor scratch_accessor = PtrAccessor::createAccessor(pushData.scratchAddress);
+    DoublePtrAccessor key_accessor = DoublePtrAccessor::create(pushData.inputKeyAddress, pushData.outputKeyAddress);
+    DoublePtrAccessor value_accessor = DoublePtrAccessor::create(pushData.inputValueAddress, pushData.outputValueAddress);
+    PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
     counter.scatter(
         key_accessor,
         value_accessor,
