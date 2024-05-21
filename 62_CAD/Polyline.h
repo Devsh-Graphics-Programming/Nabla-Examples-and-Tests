@@ -356,6 +356,12 @@ public:
 class CPolyline : public CPolylineBase
 {
 public:
+	CPolyline() :
+		m_Min(float64_t2(nbl::hlsl::numeric_limits<float64_t>::max, nbl::hlsl::numeric_limits<float64_t>::max)),
+		m_Max(float64_t2(nbl::hlsl::numeric_limits<float64_t>::min, nbl::hlsl::numeric_limits<float64_t>::min)),
+		m_closedPolygon(false)
+	{}
+
 	size_t getSectionsCount() const override { return m_sections.size(); }
 
 	const SectionInfo& getSectionInfoAt(const uint32_t idx) const override
@@ -423,6 +429,7 @@ public:
 			m_linePoints[oldLinePointSize + i].p = linePoints[i];
 			m_linePoints[oldLinePointSize + i].phaseShift = 0.0;
 			m_linePoints[oldLinePointSize + i].stretchValue = 1.0;
+			addExtremum(linePoints[i]);
 		}
 
 		SectionInfo newSection = {};
@@ -463,6 +470,10 @@ public:
 			m_quadBeziers[currBezierIdx].shape = quadBeziers[i];
 			m_quadBeziers[currBezierIdx].phaseShift = 0.0;
 			m_quadBeziers[currBezierIdx].stretchValue = 1.0;
+			
+			addExtremum(quadBeziers[i].P0);
+			addExtremum(quadBeziers[i].P1); // Currently We add the control point instead of actual extremum to avoid computing a quadratic formula for each bezier we add
+			addExtremum(quadBeziers[i].P2);
 		}
 				
 		const bool unifiedSection = (m_sections.size() > lastSectionsSize && m_sections.back().type == ObjectType::QUAD_BEZIER);
@@ -1184,12 +1195,28 @@ public:
 		m_closedPolygon = closed;
 	}
 
+	float64_t2 getMin() const { return m_Min; }
+	float64_t2 getMax() const { return m_Max; }
+
 protected:
 	std::vector<PolylineConnector> m_polylineConnector;
 	std::vector<SectionInfo> m_sections;
 	std::vector<LinePointInfo> m_linePoints;
 	std::vector<QuadraticBezierInfo> m_quadBeziers;
 	uint32_t lastSectionsSize = std::numeric_limits<uint32_t>::max();
+	// important for miter and parallel generation
+	bool m_closedPolygon = false;
+
+	inline void addExtremum(const float64_t2& point) 
+	{
+		m_Min.x = nbl::hlsl::min(m_Min.x, point.x);
+		m_Min.y = nbl::hlsl::min(m_Min.y, point.y);
+		m_Max.x = nbl::hlsl::max(m_Max.x, point.x);
+		m_Max.y = nbl::hlsl::max(m_Max.y, point.y);
+	}
+
+	float64_t2 m_Min; // min coordinate of the whole polyline
+	float64_t2 m_Max; // max coordinate of the whole polyline
 
 	// Next 3 are protected member functions to modify current lines and bezier sections used in polyline offsetting:
 
@@ -1751,7 +1778,4 @@ private:
 		nbl::core::vector<PolylineConnectorNormalHelperInfo> connectorNormalInfos;
 		float phaseShiftAtEndOfPolyline = 0.0f;
 	};
-
-	// important for miter and parallel generation
-	bool m_closedPolygon = false;
 };
