@@ -24,15 +24,15 @@ struct TestValues
     emulated::emulated_float64_t::storage_t divisionVal;
 
     // relational
-    bool lessOrEqualVal;
-    bool greaterOrEqualVal;
-    bool equalVal;
-    bool notEqualVal;
-    bool lessVal;
-    bool greaterVal;
+    int lessOrEqualVal;
+    int greaterOrEqualVal;
+    int equalVal;
+    int notEqualVal;
+    int lessVal;
+    int greaterVal;
 
     // conversion
-    bool convertionToBoolVal;
+    int convertionToBoolVal;
     int convertionToIntVal;
     uint32_t convertionToUint32Val;
     uint64_t convertionToUint64Val;

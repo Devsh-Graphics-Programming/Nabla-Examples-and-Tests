@@ -534,16 +534,16 @@ private:
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
         assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
-        constexpr TestValues expectedTestValues = {
-            .intCreateVal = 24,
-            .uintCreateVal = 24u,
-            .uint64CreateVal = 24ull,
-            .floatCreateVal = 1.2f,
-            .doubleCreateVal = 1.2,
-            .additionVal = 30.0f,
-            .substractionVal = 10.0f,
-            .multiplicationVal = 200.0f,
-            .divisionVal = 2.0f,
+        TestValues expectedTestValues = {
+            .intCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24),
+            .uintCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24u),
+            .uint64CreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24ull),
+            .floatCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2f),
+            .doubleCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2),
+            .additionVal = static_cast<emulated::emulated_float64_t::storage_t>(30.0),
+            .substractionVal = static_cast<emulated::emulated_float64_t::storage_t>(10.0),
+            .multiplicationVal = static_cast<emulated::emulated_float64_t::storage_t>(200.0),
+            .divisionVal = static_cast<emulated::emulated_float64_t::storage_t>(2.0),
             .lessOrEqualVal = false,
             .greaterOrEqualVal = true,
             .equalVal = false,
@@ -559,7 +559,7 @@ private:
             //.convertionToHalfVal = 20;
         };
 
-        auto compareValues = [this](const TestValues& lhs, const TestValues& rhs) -> bool
+        auto compareValues = [this](TestValues& lhs, TestValues& rhs) -> bool
             {
                 bool success = true;
 
@@ -598,7 +598,7 @@ private:
                     m_logger->log("substractionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.substractionVal, rhs.substractionVal);
                     success = false;
                 }
-                if (lhs.multiplicationVal != rhs.multiplicationVal)
+                if (reinterpret_cast<double&>(lhs.multiplicationVal) != reinterpret_cast<double&>(rhs.multiplicationVal))
                 {
                     m_logger->log("multiplicationVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.multiplicationVal, rhs.multiplicationVal);
                     success = false;
@@ -676,6 +676,12 @@ private:
         emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0f);
         emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0f);
 
+        double aa = 20.0;
+        double bb = 10.0;
+
+        std::memcpy(&a.data, &aa, sizeof(double));
+        std::memcpy(&b.data, &bb, sizeof(double));
+
         TestValues cpuTestValues = {
             .intCreateVal = emulated::emulated_float64_t::create(24),
             .uintCreateVal = emulated::emulated_float64_t::create(24u),
@@ -700,6 +706,20 @@ private:
             .convertionToDoubleVal = double(a),
             //.convertionToHalfVal = 
         };
+
+        auto c = a * b;
+        auto adsf = reinterpret_cast<double&>(c);
+
+        std::cout << reinterpret_cast<double&>(a) << std::endl;
+        std::cout << reinterpret_cast<double&>(b) << std::endl;
+        std::cout << reinterpret_cast<double&>(c) << std::endl;
+
+        uint64_t lhs = 9876543210987654321ULL;
+        uint64_t rhs = 1234567890123456789ULL;
+
+        //auto asdfffdsa = emulated::impl::mul64(lhs, rhs);
+
+        //std::cout << std::bitset<64>(asdfffdsa.x) << std::bitset<64>(asdfffdsa.y) << std::endl;
 
         m_device->waitIdle();
         TestValues* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
