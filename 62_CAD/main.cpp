@@ -290,7 +290,7 @@ public:
 		// + 128 ClipProjDaa
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 1024u);
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 8u);
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -1386,6 +1386,7 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+		printf("render frame\n");
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
 
 		auto now = std::chrono::high_resolution_clock::now();

@@ -288,14 +288,20 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t b
 
 	auto evictionCallback = [&](const TextureReference& evicted)
 	{
-		// Dealloc:
-		msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
-		
-		// Overflow Handling:
-		finalizeAllCopiesToGPU(intendedNextSubmit);
-		submitDraws(intendedNextSubmit);
-		resetGeometryCounters();
-		resetMainObjectCounters();
+		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
+		{
+			// Dealloc once submission is finished
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
+
+			// Submit
+			finalizeAllCopiesToGPU(intendedNextSubmit);
+			submitDraws(intendedNextSubmit);
+			resetGeometryCounters();
+			resetMainObjectCounters();
+		} else {
+			// We didn't use it this frame, so it's safe to dealloc now
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
+		}
 	};
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
@@ -316,6 +322,7 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t b
 			.index = inserted->alloc_idx,
 		});
 	}
+	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
 }
@@ -432,6 +439,8 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	auto cmdBuff = intendedNextSubmit.getScratchCommandBuffer();
 
 	auto msdfImage = msdfTextureArray->getCreationParameters().image;
+
+	msdfTextureArrayIndicesUsed.clear();
 
 	if (!textureCopies.size())
 		return;
