@@ -372,7 +372,8 @@ public:
 	struct MsdfTexture
 	{
 		core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
-		asset::IImage::SBufferCopy region;
+		uint64_t bufferOffset;
+		uint32_t3 imageExtent;
 	};
 
 	MsdfTexture generateMsdfForShape(std::span<CPolyline> polylines)
@@ -430,19 +431,10 @@ public:
 			}
 		}
 
-		asset::IImage::SBufferCopy region;
-		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0u;
-		region.imageSubresource.baseArrayLayer = 0u;
-		region.imageSubresource.layerCount = 1u;
-		region.bufferOffset = 0u;
-		region.bufferRowLength = glyphW;
-		region.bufferImageHeight = 0u;
-		region.imageExtent = { glyphW, glyphH, 1 };
-
 		return {
 			.cpuBuffer = std::move(cpuBuf),
-			.region = region
+			.bufferOffset = 0ull,
+			.imageExtent = { glyphW, glyphH, 1 },
 		};
 	}
 	
@@ -1736,15 +1728,15 @@ public:
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		VkRect2D currentRenderArea;
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 		{
-			const VkRect2D currentRenderArea =
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			currentRenderArea =
 			{
 				.offset = {0,0},
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
-
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
@@ -2401,7 +2393,8 @@ protected:
 					const DrawResourcesFiller::texture_hash msdfHash = hatchDebugStep;
 					drawResourcesFiller.addMSDFTexture(
 						m_shapeMsdfTextures[hatchDebugStep].cpuBuffer.get(), 
-						m_shapeMsdfTextures[hatchDebugStep].region, 
+						m_shapeMsdfTextures[hatchDebugStep].bufferOffset, 
+						m_shapeMsdfTextures[hatchDebugStep].imageExtent, 
 						msdfHash, 
 						intendedNextSubmit
 					);
@@ -2601,7 +2594,8 @@ protected:
 					const DrawResourcesFiller::texture_hash msdfHash = hatchFillShapeIdx;
 					drawResourcesFiller.addMSDFTexture(
 						m_shapeMsdfTextures[hatchFillShapeIdx].cpuBuffer.get(), 
-						m_shapeMsdfTextures[hatchFillShapeIdx].region, 
+						m_shapeMsdfTextures[hatchFillShapeIdx].bufferOffset, 
+						m_shapeMsdfTextures[hatchFillShapeIdx].imageExtent, 
 						msdfHash, 
 						intendedNextSubmit
 					);

@@ -62,7 +62,7 @@ public:
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
 	// ! return index to be used later in hatch fill style or text glyph object
-	void addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	void addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t bufferOffset, uint32_t3 imageExtent, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
@@ -143,7 +143,8 @@ protected:
 	struct TextureCopy
 	{
 		ICPUBuffer const* srcBuffer;
-		const asset::IImage::SBufferCopy& region;
+		uint64_t bufferOffset;
+		uint32_t3 imageExtent;
 		uint32_t index;
 	};
 
@@ -270,7 +271,7 @@ protected:
 	// MSDF stuff
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
 	smart_refctd_ptr<IndexAllocator>     msdfTextureArrayIndexAllocator;
-	std::vector<TextureCopy>			textureCopies; // queued up texture copies, @Lucas change to deque if possible
+	std::vector<TextureCopy>			textureCopies = {}; // queued up texture copies, @Lucas change to deque if possible
 	std::unique_ptr<TextureLRUCache>    textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
 };

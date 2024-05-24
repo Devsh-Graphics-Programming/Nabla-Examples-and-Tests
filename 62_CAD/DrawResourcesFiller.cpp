@@ -279,7 +279,7 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
-void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t bufferOffset, uint32_t3 imageExtent, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -300,19 +300,19 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
 	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
-	printf("addMSDFTexture hash = %d textureLRUCache->insert = %d (had to allocate and push texture copy: %s)\n", hash, inserted->alloc_idx, inserted->alloc_idx == InvalidTextureIdx ? "true" : "false");
 	
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
 		// New insertion == cache miss happened and insertion was successfull
 		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
-		msdfTextureArrayIndexAllocator->multi_allocate(1u,&inserted->alloc_idx);
-		
+		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({
 			.srcBuffer = srcBuffer,
-			.region = region,
+			.bufferOffset = bufferOffset,
+			.imageExtent = imageExtent,
 			.index = inserted->alloc_idx,
 		});
 	}
@@ -433,6 +433,9 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 	auto msdfImage = msdfTextureArray->getCreationParameters().image;
 
+	if (!textureCopies.size())
+		return;
+
 	// preparing images for copy
 	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
 	std::vector<image_barrier_t> barriers;
@@ -454,9 +457,9 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 					.image = msdfImage.get(),
 					.subresourceRange = {
 						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = textureCopy.index,
+						.baseMipLevel = 0u,
 						.levelCount = 1u,
-						.baseArrayLayer = 0u,
+						.baseArrayLayer = textureCopy.index,
 						.layerCount = 1u,
 					},
 					.oldLayout = IImage::LAYOUT::UNDEFINED,
@@ -472,7 +475,17 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
 	{
 		auto& textureCopy = textureCopies[i];
-		auto region = textureCopy.region;
+		asset::IImage::SBufferCopy region = {};
+		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = textureCopy.index;
+		region.imageSubresource.layerCount = 1u;
+		region.bufferOffset = 0u;
+		region.bufferRowLength = textureCopy.imageExtent.x;
+		region.bufferImageHeight = 0u;
+		region.imageExtent = { textureCopy.imageExtent.x, textureCopy.imageExtent.y, textureCopy.imageExtent.z };
+		region.imageOffset = { 0u, 0u, 0u };
+
 		m_utilities->updateImageViaStagingBuffer(
 			intendedNextSubmit, 
 			textureCopy.srcBuffer, asset::E_FORMAT::EF_R8G8B8A8_UNORM, 
@@ -500,9 +513,9 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 					.image = msdfImage.get(),
 					.subresourceRange = {
 						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = textureCopy.index,
+						.baseMipLevel = 0u,
 						.levelCount = 1u,
-						.baseArrayLayer = 0u,
+						.baseArrayLayer = textureCopy.index,
 						.layerCount = 1u,
 					},
 					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
