@@ -1,8 +1,8 @@
 #include "nbl/builtin/hlsl/bda/__ptr.hlsl"
 #include "nbl/builtin/hlsl/sort/counting.hlsl"
-#include "nbl/builtin/hlsl/sort/common.hlsl"
+#include "app_resources/common.hlsl"
 
-[[vk::push_constant]] nbl::hlsl::sort::CountingPushData pushData;
+[[vk::push_constant]] CountingPushData pushData;
 
 struct PtrAccessor
 {
@@ -42,12 +42,12 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
-    nbl::hlsl::sort::counting <PtrAccessor, PtrAccessor, PtrAccessor> counter;
+    nbl::hlsl::sort::counting <uint32_t, PtrAccessor, PtrAccessor, PtrAccessor> counter;
     PtrAccessor input_accessor = PtrAccessor::create(pushData.inputKeyAddress);
     PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
-    counter.histogram(
+    /*counter.histogram(
         input_accessor,
         scratch_accessor,
         pushData
-    );
+    );*/
 }

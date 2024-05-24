@@ -7,7 +7,7 @@ using namespace system;
 using namespace asset;
 using namespace video;
 
-#include "nbl/builtin/hlsl/sort/common.hlsl"
+#include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
 
 class CountingSortApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -89,7 +89,7 @@ public:
 		}
 
 		// People love Reflection but I prefer Shader Sources instead!
-		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(nbl::hlsl::sort::CountingPushData) };
+		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(CountingPushData) };
 
 		// This time we'll have no Descriptor Sets or Layouts because our workload has a widely varying size
 		// and using traditional SSBO bindings would force us to update the Descriptor Set every frame.
@@ -171,6 +171,7 @@ public:
 
 		// Generate random data
 		constexpr uint32_t minimum = 0;
+		constexpr uint32_t maximum = 10000;
 		const uint32_t range = bucket_count;
 		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 		std::mt19937 g(seed);
@@ -202,15 +203,16 @@ public:
 		outBuffer.append("\n");
 		m_logger->log("Your input array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
 
-		auto pc = nbl::hlsl::sort::CountingPushData {
+		auto pc = CountingPushData {
 			.inputKeyAddress = buffer_device_address[0],
 			.inputValueAddress = buffer_device_address[1],
 			.scratchAddress = buffer_device_address[2],
 			.outputKeyAddress = buffer_device_address[3],
 			.outputValueAddress = buffer_device_address[4],
 			.dataElementCount = element_count,
+			.elementsPerWT = elements_per_thread,
 			.minimum = minimum,
-			.elementsPerWT = elements_per_thread
+			.maximum = maximum,
 		};
 
 		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdBuf;
