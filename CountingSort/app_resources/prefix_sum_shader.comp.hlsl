@@ -42,12 +42,18 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
+    nbl::hlsl::sort::CountingParameters < uint32_t > params;
+    params.dataElementCount = pushData.dataElementCount;
+    params.elementsPerWT = pushData.elementsPerWT;
+    params.minimum = pushData.minimum;
+    params.maximum = pushData.maximum;
+
     nbl::hlsl::sort::counting <uint32_t, PtrAccessor, PtrAccessor, PtrAccessor> counter;
     PtrAccessor input_accessor = PtrAccessor::create(pushData.inputKeyAddress);
     PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
-    /*counter.histogram(
+    counter.histogram(
         input_accessor,
         scratch_accessor,
-        pushData
-    );*/
+        params
+    );
 }

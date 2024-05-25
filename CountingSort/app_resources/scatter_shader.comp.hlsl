@@ -67,14 +67,20 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
+    nbl::hlsl::sort::CountingParameters < uint32_t > params;
+    params.dataElementCount = pushData.dataElementCount;
+    params.elementsPerWT = pushData.elementsPerWT;
+    params.minimum = pushData.minimum;
+    params.maximum = pushData.maximum;
+
     nbl::hlsl::sort::counting <uint32_t, DoublePtrAccessor, DoublePtrAccessor, PtrAccessor> counter;
     DoublePtrAccessor key_accessor = DoublePtrAccessor::create(pushData.inputKeyAddress, pushData.outputKeyAddress);
     DoublePtrAccessor value_accessor = DoublePtrAccessor::create(pushData.inputValueAddress, pushData.outputValueAddress);
     PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
-    /*counter.scatter(
+    counter.scatter(
         key_accessor,
         value_accessor,
         scratch_accessor,
-        pushData
-    );*/
+        params
+    );
 }

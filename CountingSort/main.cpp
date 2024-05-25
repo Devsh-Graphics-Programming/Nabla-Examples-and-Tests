@@ -32,8 +32,8 @@ public:
 		auto limits = m_physicalDevice->getLimits();
 		const uint32_t WorkgroupSize = limits.maxComputeWorkGroupInvocations;
 		const uint32_t MaxBucketCount = (limits.maxComputeSharedMemorySize / sizeof(uint32_t)) / 2;
-		constexpr size_t element_count = 100000;
-		const size_t bucket_count = std::min((uint32_t)3000, MaxBucketCount);
+		constexpr uint32_t element_count = 100000;
+		const uint32_t bucket_count = std::min((uint32_t)3000, MaxBucketCount);
 		const uint32_t elements_per_thread = ceil((float)ceil((float)element_count / limits.computeUnits) / WorkgroupSize);
 
 		// this time we load a shader directly from a file
@@ -171,7 +171,6 @@ public:
 
 		// Generate random data
 		constexpr uint32_t minimum = 0;
-		constexpr uint32_t maximum = 10000;
 		const uint32_t range = bucket_count;
 		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 		std::mt19937 g(seed);
@@ -212,7 +211,7 @@ public:
 			.dataElementCount = element_count,
 			.elementsPerWT = elements_per_thread,
 			.minimum = minimum,
-			.maximum = maximum,
+			.maximum = minimum + bucket_count - 1,
 		};
 
 		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdBuf;
