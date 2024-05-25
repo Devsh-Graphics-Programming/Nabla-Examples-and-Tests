@@ -25,10 +25,12 @@ struct PtrAccessor
         deref().store(value);
     }
 
-    nbl::hlsl::bda::__spv_ptr_t<uint32_t> get_ptr(uint64_t index)
+    uint32_t atomicAdd(uint64_t index, uint32_t value)
     {
-        return nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
+        nbl::hlsl::bda::__spv_ptr_t < uint32_t > ptr = nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
         deref().get_ptr();
+
+        return nbl::hlsl::glsl::atomicAdd(ptr, value);
     }
 
     uint64_t addr;
