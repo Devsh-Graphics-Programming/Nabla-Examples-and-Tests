@@ -98,8 +98,6 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
     nbl::hlsl::sort::CountingParameters < uint32_t > params;
-    params.workgroupSize = WorkgroupSize;
-    params.bucketCount = BucketCount;
     params.dataElementCount = pushData.dataElementCount;
     params.elementsPerWT = pushData.elementsPerWT;
     params.minimum = pushData.minimum;
