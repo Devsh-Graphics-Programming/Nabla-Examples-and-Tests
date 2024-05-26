@@ -33,6 +33,11 @@ struct PtrAccessor
         return nbl::hlsl::glsl::atomicAdd(ptr, value);
     }
 
+    uint32_t atomicSub(const uint64_t index, const uint32_t value)
+    {
+        return atomicAdd(index, (uint32_t) (-1 * value));
+    }
+
     uint64_t addr;
 };
 
