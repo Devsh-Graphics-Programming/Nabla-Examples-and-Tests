@@ -1,48 +1,10 @@
-#include "nbl/builtin/hlsl/bda/__ptr.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
 #include "nbl/builtin/hlsl/sort/counting.hlsl"
 #include "app_resources/common.hlsl"
 
 [[vk::push_constant]] CountingPushData pushData;
 
-struct PtrAccessor
-{
-    static PtrAccessor create(const uint64_t addr)
-    {
-        PtrAccessor ptr;
-        ptr.addr = addr;
-        return ptr;
-    }
-
-    uint32_t get(const uint64_t index)
-    {
-        return nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
-
-        deref().load();
-    }
-
-    void set(const uint64_t index, const uint32_t value)
-    {
-        nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
-
-        deref().store(value);
-    }
-
-    uint32_t atomicAdd(const uint64_t index, const uint32_t value)
-    {
-        nbl::hlsl::bda::__spv_ptr_t < uint32_t > ptr = nbl::hlsl::bda::__ptr < uint32_t > (addr + sizeof(uint32_t) * index).template
-
-        deref().get_ptr();
-
-        return nbl::hlsl::glsl::atomicAdd(ptr, value);
-    }
-
-    uint32_t atomicSub(const uint64_t index, const uint32_t value)
-    {
-        return atomicAdd(index, (uint32_t) (-1 * value));
-    }
-
-    uint64_t addr;
-};
+using PtrAccessor = nbl::hlsl::bda::BdaAccessor < uint32_t >;
 
 groupshared uint32_t sdata[BucketCount];
 
@@ -71,27 +33,25 @@ struct SharedAccessor
 
 struct DoublePtrAccessor
 {
-    static DoublePtrAccessor create(const uint64_t in_addr, const uint64_t out_addr)
+    static DoublePtrAccessor create(const PtrAccessor input, const PtrAccessor output)
     {
-        DoublePtrAccessor ptr;
-        ptr.in_addr = in_addr;
-        ptr.out_addr = out_addr;
-        return ptr;
+        DoublePtrAccessor accessor;
+        accessor.input = input;
+        accessor.output = output;
+        return accessor;
     }
 
     uint32_t get(const uint64_t index)
     {
-        return nbl::hlsl::bda::__ptr < uint32_t > (in_addr + sizeof(uint32_t) * index).template
-        deref().load();
+        return input.get(index);
     }
 
     void set(const uint64_t index, const uint32_t value)
     {
-        nbl::hlsl::bda::__ptr < uint32_t > (out_addr + sizeof(uint32_t) * index).template
-        deref().store(value);
+        output.set(index, value);
     }
 
-    uint64_t in_addr, out_addr;
+    PtrAccessor input, output;
 };
 
 uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
@@ -109,8 +69,14 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     params.maximum = pushData.maximum;
 
     nbl::hlsl::sort::counting <WorkgroupSize, BucketCount, uint32_t, DoublePtrAccessor, DoublePtrAccessor, PtrAccessor, SharedAccessor > counter;
-    DoublePtrAccessor key_accessor = DoublePtrAccessor::create(pushData.inputKeyAddress, pushData.outputKeyAddress);
-    DoublePtrAccessor value_accessor = DoublePtrAccessor::create(pushData.inputValueAddress, pushData.outputValueAddress);
+    DoublePtrAccessor key_accessor = DoublePtrAccessor::create(
+        PtrAccessor::create(pushData.inputKeyAddress),
+        PtrAccessor::create(pushData.outputKeyAddress)
+    );
+    DoublePtrAccessor value_accessor = DoublePtrAccessor::create(
+        PtrAccessor::create(pushData.inputValueAddress),
+        PtrAccessor::create(pushData.outputValueAddress)
+    );
     PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
     SharedAccessor shared_accessor;
     counter.scatter(
