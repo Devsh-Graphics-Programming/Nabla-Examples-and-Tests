@@ -9,7 +9,7 @@ struct CountingPushData
 {
     uint64_t inputKeyAddress;
     uint64_t inputValueAddress;
-    uint64_t scratchAddress;
+    uint64_t histogramAddress;
     uint64_t outputKeyAddress;
     uint64_t outputValueAddress;
     uint32_t dataElementCount;

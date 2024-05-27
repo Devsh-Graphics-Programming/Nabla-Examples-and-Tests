@@ -77,12 +77,12 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
         PtrAccessor::create(pushData.inputValueAddress),
         PtrAccessor::create(pushData.outputValueAddress)
     );
-    PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
+    PtrAccessor histogram_accessor = PtrAccessor::create(pushData.histogramAddress);
     SharedAccessor shared_accessor;
     counter.scatter(
         key_accessor,
         value_accessor,
-        scratch_accessor,
+        histogram_accessor,
         shared_accessor,
         params
     );

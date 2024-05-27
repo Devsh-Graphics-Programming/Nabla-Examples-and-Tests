@@ -205,7 +205,7 @@ public:
 		auto pc = CountingPushData {
 			.inputKeyAddress = buffer_device_address[0],
 			.inputValueAddress = buffer_device_address[1],
-			.scratchAddress = buffer_device_address[2],
+			.histogramAddress = buffer_device_address[2],
 			.outputKeyAddress = buffer_device_address[3],
 			.outputValueAddress = buffer_device_address[4],
 			.dataElementCount = element_count,

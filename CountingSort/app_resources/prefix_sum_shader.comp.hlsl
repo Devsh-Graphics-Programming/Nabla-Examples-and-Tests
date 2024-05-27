@@ -47,11 +47,11 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     nbl::hlsl::sort::counting <WorkgroupSize, BucketCount, uint32_t, PtrAccessor, PtrAccessor, PtrAccessor, SharedAccessor> counter;
     PtrAccessor input_accessor = PtrAccessor::create(pushData.inputKeyAddress);
-    PtrAccessor scratch_accessor = PtrAccessor::create(pushData.scratchAddress);
+    PtrAccessor histogram_accessor = PtrAccessor::create(pushData.histogramAddress);
     SharedAccessor shared_accessor;
     counter.histogram(
         input_accessor,
-        scratch_accessor,
+        histogram_accessor,
         shared_accessor,
         params
     );
