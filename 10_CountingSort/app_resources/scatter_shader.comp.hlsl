@@ -79,10 +79,10 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     DoublePtrAccessor key_accessor = DoublePtrAccessor::create(
         PtrAccessor::create(input_key_ptr),
-        PtrAccessor::create(input_value_ptr)
+        PtrAccessor::create(output_key_ptr)
     );
     DoublePtrAccessor value_accessor = DoublePtrAccessor::create(
-        PtrAccessor::create(output_key_ptr),
+        PtrAccessor::create(input_value_ptr),
         PtrAccessor::create(output_value_ptr)
     );
     PtrAccessor histogram_accessor = PtrAccessor::create(histogram_ptr);
