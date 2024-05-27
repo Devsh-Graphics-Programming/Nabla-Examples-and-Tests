@@ -61,7 +61,25 @@ public:
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
-        
+
+        // TODO: remove
+        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
+        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
+
+        auto c = a * b;
+        auto adsf = reinterpret_cast<double&>(c);
+
+        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl;
+        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(c) << std::endl << std::endl;
+
+        a = emulated::emulated_float64_t::create(9876543210987654321.0);
+        b = emulated::emulated_float64_t::create(1234567890123456789.0);
+        c = a * b;
+
+        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl;
+        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(c) << std::endl << std::endl;
 
         smart_refctd_ptr<IGPUShader> shader;
         {
