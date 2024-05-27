@@ -71,11 +71,11 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     nbl::hlsl::sort::counting <WorkgroupSize, BucketCount, uint32_t, DoublePtrAccessor, DoublePtrAccessor, PtrAccessor, SharedAccessor > counter;
 
-    Ptr input_key_ptr = Ptr::create(pushData.inputKeyAddress);
-    Ptr input_value_ptr = Ptr::create(pushData.inputValueAddress);
-    Ptr histogram_ptr = Ptr::create(pushData.histogramAddress);
-    Ptr output_key_ptr = Ptr::create(pushData.outputKeyAddress);
-    Ptr output_value_ptr = Ptr::create(pushData.outputValueAddress);
+    const Ptr input_key_ptr = Ptr::create(pushData.inputKeyAddress);
+    const Ptr input_value_ptr = Ptr::create(pushData.inputValueAddress);
+    const Ptr histogram_ptr = Ptr::create(pushData.histogramAddress);
+    const Ptr output_key_ptr = Ptr::create(pushData.outputKeyAddress);
+    const Ptr output_value_ptr = Ptr::create(pushData.outputValueAddress);
 
     DoublePtrAccessor key_accessor = DoublePtrAccessor::create(
         PtrAccessor::create(input_key_ptr),
