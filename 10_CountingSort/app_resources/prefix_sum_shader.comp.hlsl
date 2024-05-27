@@ -4,6 +4,7 @@
 
 [[vk::push_constant]] CountingPushData pushData;
 
+using Ptr = nbl::hlsl::bda::__ptr < uint32_t >;
 using PtrAccessor = nbl::hlsl::BdaAccessor < uint32_t >;
 
 groupshared uint32_t sdata[BucketCount];
@@ -47,8 +48,8 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 
     nbl::hlsl::sort::counting <WorkgroupSize, BucketCount, uint32_t, PtrAccessor, PtrAccessor, PtrAccessor, SharedAccessor> counter;
 
-    const nbl::hlsl::bda::__ptr< uint32_t >  input_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.inputKeyAddress);
-    const nbl::hlsl::bda::__ptr< uint32_t > histogram_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.histogramAddress);
+    const Ptr input_ptr = Ptr::create(pushData.inputKeyAddress);
+    const Ptr histogram_ptr = Ptr::create(pushData.histogramAddress);
 
     PtrAccessor input_accessor = PtrAccessor::create(input_ptr);
     PtrAccessor histogram_accessor = PtrAccessor::create(histogram_ptr);
