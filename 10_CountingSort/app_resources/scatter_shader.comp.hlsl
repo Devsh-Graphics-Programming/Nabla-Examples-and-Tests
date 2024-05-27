@@ -4,7 +4,7 @@
 
 [[vk::push_constant]] CountingPushData pushData;
 
-using PtrAccessor = nbl::hlsl::bda::BdaAccessor < uint32_t >;
+using PtrAccessor = nbl::hlsl::BdaAccessor < uint32_t >;
 
 groupshared uint32_t sdata[BucketCount];
 
@@ -69,15 +69,22 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     params.maximum = pushData.maximum;
 
     nbl::hlsl::sort::counting <WorkgroupSize, BucketCount, uint32_t, DoublePtrAccessor, DoublePtrAccessor, PtrAccessor, SharedAccessor > counter;
+
+    const nbl::hlsl::bda::__ptr< uint32_t > input_key_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.inputKeyAddress);
+    const nbl::hlsl::bda::__ptr< uint32_t > input_value_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.inputValueAddress);
+    const nbl::hlsl::bda::__ptr< uint32_t > histogram_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.histogramAddress);
+    const nbl::hlsl::bda::__ptr< uint32_t > output_key_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.outputKeyAddress);
+    const nbl::hlsl::bda::__ptr< uint32_t > output_value_ptr = nbl::hlsl::bda::__ptr < uint32_t > (pushData.outputValueAddress);
+
     DoublePtrAccessor key_accessor = DoublePtrAccessor::create(
-        PtrAccessor::create(pushData.inputKeyAddress),
-        PtrAccessor::create(pushData.outputKeyAddress)
+        PtrAccessor::create(input_key_ptr),
+        PtrAccessor::create(input_value_ptr)
     );
     DoublePtrAccessor value_accessor = DoublePtrAccessor::create(
-        PtrAccessor::create(pushData.inputValueAddress),
-        PtrAccessor::create(pushData.outputValueAddress)
+        PtrAccessor::create(output_key_ptr),
+        PtrAccessor::create(output_value_ptr)
     );
-    PtrAccessor histogram_accessor = PtrAccessor::create(pushData.histogramAddress);
+    PtrAccessor histogram_accessor = PtrAccessor::create(histogram_ptr);
     SharedAccessor shared_accessor;
     counter.scatter(
         key_accessor,
