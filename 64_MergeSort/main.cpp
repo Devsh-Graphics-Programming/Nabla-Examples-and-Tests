@@ -95,10 +95,17 @@ public:
 						[[vk::binding(0,0)]] RWStructuredBuffer<int32_t> output_buffer;
 						[[vk::binding(1,0)]] RWStructuredBuffer<int32_t> input_buffer;
 
+						struct SortingPhaseData
+						{
+							uint current_sorting_phase;
+						};
+
+						[[vk::push_constant]] SortingPhaseData phase_data;
+
 						[numthreads(WORKGROUP_SIZE,1,1)]
 						void main(uint32_t3 ID : SV_DispatchThreadID)
 						{
-							output_buffer[ID.x] = input_buffer[ID.x];
+							output_buffer[ID.x] = input_buffer[ID.x] * phase_data.current_sorting_phase;
 						}
 					)===";
 
@@ -145,7 +152,11 @@ public:
 			if (!dsLayout)
 				return logFail("Failed to create a Descriptor Layout!\n");
 
-			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout({}, smart_refctd_ptr(dsLayout));
+			const nbl::asset::SPushConstantRange pushConstantRange = nbl::asset::SPushConstantRange{
+				.stageFlags = nbl::asset::IShader::ESS_COMPUTE, .offset = 0, .size = sizeof(uint32_t),
+			};
+
+			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout({ &pushConstantRange, 1 }, smart_refctd_ptr(dsLayout));
 			if (!pplnLayout)
 				return logFail("Failed to create a Pipeline Layout!\n");
 
@@ -233,9 +244,13 @@ public:
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
 			cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
-			// you want to bind the pipeline first to avoid accidental unbind of descriptor sets due to compatibility matching
 			cmdbuf->bindComputePipeline(pipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &descriptorSet.get());
+
+			// Merge sort occurs in log(X) - 1 passes (where X = number of elements).
+			// In each pass, we take 2 SORTED arrays, inputBuffer[i]..inputBuffer[i * pass_index] and inputBuffer[i * pass_index + 1]..inputBuffer[i* pass_index * 2 and 
+			uint32_t pushConstantData = 0;
+			cmdbuf->pushConstants(pplnLayout.get(), nbl::asset::IShader::ESS_COMPUTE, 0u, sizeof(uint32_t), &pushConstantData);
 			cmdbuf->dispatch(WorkgroupCount, 1, 1);
 			cmdbuf->endDebugMarker();
 			// Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
@@ -278,10 +293,10 @@ public:
 
 
 		// Perform merge sort on the CPU to test whether GPU compute version computed the result correctly.
-
-		// a simple test to check we got the right thing back
 		auto outputBuffData = reinterpret_cast<const int32_t*>(outputBufferAllocation.memory->getMappedPointer());
-		auto inputBuffData = reinterpret_cast<const int32_t*>(inputBufferAllocation.memory->getMappedPointer());
+
+		// Sorted input (which should match the output buffer).
+		std::sort(inputBufferData.begin(), inputBufferData.end());
 
 		for (auto i = 0; i < WorkgroupSize * WorkgroupCount; i++)
 			if (outputBuffData[i] != inputBufferData[i])
