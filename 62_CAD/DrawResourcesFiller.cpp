@@ -234,7 +234,7 @@ void DrawResourcesFiller::drawHatch(
 	// if backgroundColor is visible
 	drawHatch(hatch, backgroundColor, intendedNextSubmit);
 	// if foregroundColor is visible
-	// drawHatch(hatch, foregroundColor, textureIdx, intendedNextSubmit);
+	drawHatch(hatch, foregroundColor, msdfTexture, intendedNextSubmit);
 }
 
 void DrawResourcesFiller::drawHatch(
