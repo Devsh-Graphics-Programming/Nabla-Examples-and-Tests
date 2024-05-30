@@ -63,18 +63,6 @@ enum E_MSDF_FILLS
 	EMF_CIRCLE,
 	EMF_LIGHT_SHADED,
 	EMF_SHADED,
-	EMF_REVERSED_CHECKERED,
-	EMF_REVERSED_DIAMONDS,
-	EMF_REVERSED_CROSS_HATCH,
-	EMF_REVERSED_HATCH,
-	EMF_REVERSED_HORIZONTAL,
-	EMF_REVERSED_VERTICAL,
-	EMF_REVERSED_INTERWOVEN,
-	EMF_REVERSED_REVERSE_HATCH,
-	EMF_REVERSED_SQUARES,
-	EMF_REVERSED_CIRCLE,
-	EMF_REVERSED_LIGHT_SHADED,
-	EMF_REVERSED_SHADED,
 	EMF_COUNT
 };
 
@@ -388,19 +376,11 @@ public:
 		uint32_t3 imageExtent;
 	};
 
-	MsdfTexture generateMsdfForShape(std::span<CPolyline> polylines, bool reversed = false)
+	MsdfTexture generateMsdfForShape(std::span<CPolyline> polylines)
 	{
 		// MSDF gen test
 		msdfgen::Shape glyph;
 		nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(glyph);
-		if (reversed)
-		{
-			glyphShapeBuilder.moveTo({ 0.0, 0.0 });
-			glyphShapeBuilder.lineTo({ 8.0, 0.0 });
-			glyphShapeBuilder.lineTo({ 8.0, 8.0 });
-			glyphShapeBuilder.lineTo({ 0.0, 8.0 });
-			glyphShapeBuilder.lineTo({ 0.0, 0.0 });
-		}
 		for (uint32_t polylineIdx = 0; polylineIdx < polylines.size(); polylineIdx++)
 		{
 			auto& polyline = polylines[polylineIdx];
@@ -1052,7 +1032,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_CHECKERED] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_CHECKERED] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1087,7 +1066,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_DIAMONDS] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_DIAMONDS] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1125,20 +1103,27 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_CROSS_HATCH] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_CROSS_HATCH] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
 			// Hatch
 			{
 				CPolyline polyline;
+
+				float64_t2 basePt0 = float64_t2(-1.0, -1.0);
+				float64_t2 basePt1 = float64_t2(9.0, 9.0);
+				float64_t lineDiameter = 1.5;
+				float64_t lineRadius = lineDiameter / 2.0;
+
 				{
+					float64_t2 radiusOffsetTL = float64_t2(-lineRadius / 2.0, +lineRadius / 2.0);
+					float64_t2 radiusOffsetBL = float64_t2(+lineRadius / 2.0, -lineRadius / 2.0);
 					std::vector<float64_t2> points = {
-						float64_t2(-2.0, -1.0),
-						float64_t2(8.5, 9.0),
-						float64_t2(9.5, 9.0),
-						float64_t2(-0.5, -1.0),
-						float64_t2(-2.0, -1.0)
+						basePt0 + radiusOffsetTL,
+						basePt1 + radiusOffsetTL, // 2
+						basePt1 + radiusOffsetBL, // 1
+						basePt0 + radiusOffsetBL, // 0
+						basePt0 + radiusOffsetTL
 					};
 					polyline.addLinePoints(points);
 				}
@@ -1147,7 +1132,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_HATCH] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_HATCH] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1179,7 +1163,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_HORIZONTAL] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_HORIZONTAL] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1211,7 +1194,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_VERTICAL] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_VERTICAL] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1245,7 +1227,6 @@ public:
 				polylines.push_back(polyline);
 
 				m_shapeMsdfTextures[EMF_INTERWOVEN] = generateMsdfForShape(polylines);
-				m_shapeMsdfTextures[EMF_REVERSED_INTERWOVEN] = generateMsdfForShape(polylines, true);
 				polylines.push_back(polyline);
 			}
 
@@ -1257,13 +1238,21 @@ public:
 			// Reverse Hatch 
 			{
 				CPolyline polyline;
+
+				float64_t2 basePt0 = float64_t2(9.0, -1.0);
+				float64_t2 basePt1 = float64_t2(-1.0, 9.0);
+				float64_t lineDiameter = 1.5;
+				float64_t lineRadius = lineDiameter / 2.0;
+
 				{
+					float64_t2 radiusOffsetTL = float64_t2(+lineRadius / 2.0, +lineRadius / 2.0);
+					float64_t2 radiusOffsetBL = float64_t2(-lineRadius / 2.0, -lineRadius / 2.0);
 					std::vector<float64_t2> points = {
-						float64_t2(9.0, -1.0),
-						float64_t2(-1.5, 9.0),
-						float64_t2(-0.5, 9.0),
-						float64_t2(9.5, -1.0),
-						float64_t2(9.0, -1.0)
+						basePt0 + radiusOffsetTL,
+						basePt0 + radiusOffsetBL, // 0
+						basePt1 + radiusOffsetBL, // 1
+						basePt1 + radiusOffsetTL, // 2
+						basePt0 + radiusOffsetTL
 					};
 					polyline.addLinePoints(points);
 				}
@@ -1272,7 +1261,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_REVERSE_HATCH] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_REVERSE_HATCH] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1300,7 +1288,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_SQUARES] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_SQUARES] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1337,7 +1324,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_CIRCLE] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_CIRCLE] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1356,7 +1342,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_LIGHT_SHADED] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_LIGHT_SHADED] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 		{
@@ -1372,7 +1357,6 @@ public:
 
 			std::vector<CPolyline> polylinesClone(polylines);
 			m_shapeMsdfTextures[EMF_SHADED] = generateMsdfForShape(polylines);
-			m_shapeMsdfTextures[EMF_REVERSED_SHADED] = generateMsdfForShape(polylines, true);
 			polylines.clear();
 		}
 	}
@@ -2109,33 +2093,21 @@ protected:
 					// Hatch
 					{
 						CPolyline polyline;
+
+						float64_t2 basePt0 = float64_t2(-1.0, -1.0);
+						float64_t2 basePt1 = float64_t2(9.0, 9.0);
+						float64_t lineDiameter = 1.5;
+						float64_t lineRadius = lineDiameter / 2.0;
+
 						{
+							float64_t2 radiusOffsetTL = float64_t2(-lineRadius / 2.0, +lineRadius / 2.0);
+							float64_t2 radiusOffsetBL = float64_t2(+lineRadius / 2.0, -lineRadius / 2.0);
 							std::vector<float64_t2> points = {
-								float64_t2(1.0, 0.0),
-								float64_t2(0.0, 0.0),
-								float64_t2(0.0, 1.0),
-								float64_t2(7.0, 8.0),
-								float64_t2(8.0, 8.0),
-								float64_t2(8.0, 7.0),
-								float64_t2(1.0, 0.0),
-							};
-							polyline.addLinePoints(points);
-						}
-						{
-							std::vector<float64_t2> points = {
-								float64_t2(0.0, 8.0),
-								float64_t2(0.0, 7.0),
-								float64_t2(1.0, 8.0),
-								float64_t2(0.0, 8.0),
-							};
-							polyline.addLinePoints(points);
-						}
-						{
-							std::vector<float64_t2> points = {
-								float64_t2(8.0, 0.0),
-								float64_t2(8.0, 1.0),
-								float64_t2(7.0, 0.0),
-								float64_t2(8.0, 0.0),
+								basePt0 + radiusOffsetTL,
+								basePt1 + radiusOffsetTL, // 2
+								basePt1 + radiusOffsetBL, // 1
+								basePt0 + radiusOffsetBL, // 0
+								basePt0 + radiusOffsetTL
 							};
 							polyline.addLinePoints(points);
 						}
@@ -2247,33 +2219,21 @@ protected:
 					// Reverse Hatch 
 					{
 						CPolyline polyline;
+
+						float64_t2 basePt0 = float64_t2(9.0, -1.0);
+						float64_t2 basePt1 = float64_t2(-1.0, 9.0);
+						float64_t lineDiameter = 1.5;
+						float64_t lineRadius = lineDiameter / 2.0;
+
 						{
+							float64_t2 radiusOffsetTL = float64_t2(+lineRadius / 2.0, +lineRadius / 2.0);
+							float64_t2 radiusOffsetBL = float64_t2(-lineRadius / 2.0, -lineRadius / 2.0);
 							std::vector<float64_t2> points = {
-								float64_t2(7.0, 0.0),
-								float64_t2(0.0, 7.0),
-								float64_t2(0.0, 8.0),
-								float64_t2(1.0, 8.0),
-								float64_t2(8.0, 1.0),
-								float64_t2(8.0, 0.0),
-								float64_t2(7.0, 0.0),
-							};
-							polyline.addLinePoints(points);
-						}
-						{
-							std::vector<float64_t2> points = {
-								float64_t2(8.0, 8.0),
-								float64_t2(7.0, 8.0),
-								float64_t2(8.0, 7.0),
-								float64_t2(8.0, 8.0),
-							};
-							polyline.addLinePoints(points);
-						}
-						{
-							std::vector<float64_t2> points = {
-								float64_t2(0.0, 0.0),
-								float64_t2(1.0, 0.0),
-								float64_t2(0.0, 1.0),
-								float64_t2(0.0, 0.0),
+								basePt0 + radiusOffsetTL,
+								basePt0 + radiusOffsetBL, // 0
+								basePt1 + radiusOffsetBL, // 1
+								basePt1 + radiusOffsetTL, // 2
+								basePt0 + radiusOffsetTL
 							};
 							polyline.addLinePoints(points);
 						}
@@ -2616,10 +2576,10 @@ protected:
 							m_shapeMsdfTextures[hatchFillShapeIdx].cpuBuffer.get(),
 							m_shapeMsdfTextures[hatchFillShapeIdx].bufferOffset,
 							m_shapeMsdfTextures[hatchFillShapeIdx].imageExtent,
-							msdfHash,
+							hatchFillShapeIdx,
 							intendedNextSubmit
 						);
-						drawResourcesFiller.drawHatch(filledHatch, float32_t4(float(hatchFillShapeIdx) / float(shapes.size()), 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
+						drawResourcesFiller.drawHatch(filledHatch, float32_t4(0.75, 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
 					}
 
 					hatchDebugStep--;
