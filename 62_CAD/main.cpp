@@ -2516,7 +2516,7 @@ protected:
 					*/
 
 					double totalShapesWidth = hatchFillShapeSize * double(shapes.size()) + hatchFillShapePadding * double(shapes.size() - 1);
-					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(nbl::core::max(hatchFillShapeIdx, 1) - 1);
+					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
 					// Center it
 					offset -= totalShapesWidth / 2.0;
 
@@ -2548,6 +2548,7 @@ protected:
 						transformedPolylines.push_back(transformedPolyline);
 					}
 
+					// Draws a hatch that represents the fill pattern polyline
 					Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
 					drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), intendedNextSubmit);
 
@@ -2567,6 +2568,7 @@ protected:
 							addPt(float64_t2(0.0, 0.0));
 							squareBelow.addLinePoints(points);
 						}
+
 						Hatch filledHatch(
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
@@ -2579,7 +2581,15 @@ protected:
 							hatchFillShapeIdx,
 							intendedNextSubmit
 						);
-						drawResourcesFiller.drawHatch(filledHatch, float32_t4(0.75, 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
+
+						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
+						drawResourcesFiller.drawHatch(
+							filledHatch, 
+							float32_t4(0.0, 0.0, 0.0, 1.0f), 
+							float32_t4(1.0, 1.0, 1.0, 1.0f), 
+							msdfHash, 
+							intendedNextSubmit
+						);
 					}
 
 					hatchDebugStep--;
