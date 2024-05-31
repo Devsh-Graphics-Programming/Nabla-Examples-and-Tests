@@ -63,23 +63,52 @@ public:
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
 
         // TODO: remove
-        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
-        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
+        {
+            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
+            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
 
-        auto c = a * b;
-        auto adsf = reinterpret_cast<double&>(c);
+            auto add = a + b;
+            auto sub = a - b;
+            auto mul = a * b;
+            auto div = a / b;
+            std::cout << "a: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+            std::cout << "b: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl << std::endl;;
+            std::cout << "add: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(add) << std::endl << std::endl;
+            std::cout << "sub: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(sub) << std::endl << std::endl;
+            std::cout << "mul: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(mul) << std::endl << std::endl;
+            std::cout << "div: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(div) << std::endl << std::endl << std::endl;
+        }
 
-        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
-        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl;
-        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(c) << std::endl << std::endl;
+        {
+            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(-123.321);
+            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
+            emulated::emulated_float64_t c = emulated::emulated_float64_t::create(123ull);
 
-        a = emulated::emulated_float64_t::create(9876543210987654321.0);
-        b = emulated::emulated_float64_t::create(1234567890123456789.0);
-        c = a * b;
-
-        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
-        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl;
-        std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(c) << std::endl << std::endl;
+            auto add = a + b;
+            auto sub = a - b;
+            auto mul = a * b;
+            auto div = a / b;
+            std::cout << "a: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+            std::cout << "b: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl << std::endl;;
+            std::cout << "c: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(c) << std::endl << std::endl;;
+            std::cout << "add: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(add) << std::endl << std::endl;
+            std::cout << "sub: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(sub) << std::endl << std::endl;
+            std::cout << "mul: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(mul) << std::endl << std::endl;
+            std::cout << "div: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(div) << std::endl << std::endl;
+        }
 
         smart_refctd_ptr<IGPUShader> shader;
         {
@@ -551,6 +580,7 @@ private:
         if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
+        double multiplicationExpectedValue = 200.0;
         assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
         TestValues expectedTestValues = {
             .intCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24),
@@ -558,10 +588,10 @@ private:
             .uint64CreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24ull),
             .floatCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2f),
             .doubleCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2),
-            .additionVal = static_cast<emulated::emulated_float64_t::storage_t>(30.0),
-            .substractionVal = static_cast<emulated::emulated_float64_t::storage_t>(10.0),
-            .multiplicationVal = static_cast<emulated::emulated_float64_t::storage_t>(200.0),
-            .divisionVal = static_cast<emulated::emulated_float64_t::storage_t>(2.0),
+            .additionVal = emulated::emulated_float64_t::create(30.0),
+            .substractionVal = emulated::emulated_float64_t::create(10.0),
+            .multiplicationVal = reinterpret_cast<uint64_t&>(multiplicationExpectedValue),
+            .divisionVal = emulated::emulated_float64_t::create(2.0),
             .lessOrEqualVal = false,
             .greaterOrEqualVal = true,
             .equalVal = false,
@@ -691,15 +721,8 @@ private:
                 return success;
             };
 
-        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0f);
-        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0f);
-
-        double aa = 20.0;
-        double bb = 10.0;
-
-        std::memcpy(&a.data, &aa, sizeof(double));
-        std::memcpy(&b.data, &bb, sizeof(double));
-
+        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0);
+        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0);
         TestValues cpuTestValues = {
             .intCreateVal = emulated::emulated_float64_t::create(24),
             .uintCreateVal = emulated::emulated_float64_t::create(24u),
@@ -724,20 +747,6 @@ private:
             .convertionToDoubleVal = double(a),
             //.convertionToHalfVal = 
         };
-
-        auto c = a * b;
-        auto adsf = reinterpret_cast<double&>(c);
-
-        std::cout << reinterpret_cast<double&>(a) << std::endl;
-        std::cout << reinterpret_cast<double&>(b) << std::endl;
-        std::cout << reinterpret_cast<double&>(c) << std::endl;
-
-        uint64_t lhs = 9876543210987654321ULL;
-        uint64_t rhs = 1234567890123456789ULL;
-
-        //auto asdfffdsa = emulated::impl::mul64(lhs, rhs);
-
-        //std::cout << std::bitset<64>(asdfffdsa.x) << std::bitset<64>(asdfffdsa.y) << std::endl;
 
         m_device->waitIdle();
         TestValues* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
