@@ -66,11 +66,11 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     nbl::hlsl::sort::CountingParameters < uint32_t > params;
     params.dataElementCount = pushData.dataElementCount;
     params.elementsPerWT = pushData.elementsPerWT;
-    params.workGroupIndex = nbl::hlsl::glsl::gl_WorkGroupID().x;
     params.minimum = pushData.minimum;
     params.maximum = pushData.maximum;
 
-    nbl::hlsl::sort::counting <WorkgroupSize, BucketCount, uint32_t, DoublePtrAccessor, DoublePtrAccessor, PtrAccessor, SharedAccessor > counter;
+    using Counter = nbl::hlsl::sort::counting < WorkgroupSize, BucketCount, DoublePtrAccessor, DoublePtrAccessor, PtrAccessor, SharedAccessor>;
+    Counter counter = Counter::create(nbl::hlsl::glsl::gl_WorkGroupID().x);
 
     const Ptr input_key_ptr = Ptr::create(pushData.inputKeyAddress);
     const Ptr input_value_ptr = Ptr::create(pushData.inputValueAddress);
