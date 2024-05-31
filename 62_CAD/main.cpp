@@ -49,23 +49,6 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 };
 
-enum E_MSDF_FILLS
-{
-	EMF_CHECKERED,
-	EMF_DIAMONDS,
-	EMF_CROSS_HATCH,
-	EMF_HATCH,
-	EMF_HORIZONTAL,
-	EMF_VERTICAL,
-	EMF_INTERWOVEN,
-	EMF_REVERSE_HATCH,
-	EMF_SQUARES,
-	EMF_CIRCLE,
-	EMF_LIGHT_SHADED,
-	EMF_SHADED,
-	EMF_COUNT
-};
-
 constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
@@ -374,6 +357,7 @@ public:
 		core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
 		uint64_t bufferOffset;
 		uint32_t3 imageExtent;
+		std::vector<CPolyline> polylines; // polylines that make up the msdf fill pattern
 	};
 
 	MsdfTexture generateMsdfForShape(std::span<CPolyline> polylines)
@@ -1031,7 +1015,7 @@ public:
 			line(float64_t2(4.0, 8.0), float64_t2(4.0, 4.0));
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_CHECKERED] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::CHECKERED)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1065,7 +1049,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_DIAMONDS] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::DIAMONDS)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1102,7 +1086,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_CROSS_HATCH] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::CROSS_HATCH)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1131,7 +1115,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_HATCH] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::HATCH)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1162,7 +1146,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_HORIZONTAL] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::HORIZONTAL)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1193,7 +1177,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_VERTICAL] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::VERTICAL)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1226,7 +1210,7 @@ public:
 				polyline.addLinePoints(points);
 				polylines.push_back(polyline);
 
-				m_shapeMsdfTextures[EMF_INTERWOVEN] = generateMsdfForShape(polylines);
+				m_shapeMsdfTextures[uint32_t(MsdfFillPattern::INTERWOVEN)] = generateMsdfForShape(polylines);
 				polylines.push_back(polyline);
 			}
 
@@ -1260,7 +1244,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_REVERSE_HATCH] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::REVERSE_HATCH)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1287,7 +1271,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_SQUARES] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::SQUARES)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1323,7 +1307,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_CIRCLE] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::CIRCLE)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1341,7 +1325,7 @@ public:
 			square(float64_t2(6.0, 5.0));
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_LIGHT_SHADED] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::LIGHT_SHADED)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 		{
@@ -1356,7 +1340,7 @@ public:
 			}
 
 			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[EMF_SHADED] = generateMsdfForShape(polylines);
+			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::SHADED)] = generateMsdfForShape(polylines);
 			polylines.clear();
 		}
 	}
@@ -2347,7 +2331,10 @@ protected:
 				if (hatchDebugStep < shapes.size())
 				{
 					const auto& shapePolylines = shapes[hatchDebugStep];
-					const DrawResourcesFiller::texture_hash msdfHash = hatchDebugStep;
+					const DrawResourcesFiller::texture_hash msdfHash = std::hash<DrawResourcesFiller::MsdfTextureHash>{}({
+						.textureType = DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN,
+						.fillPattern = MsdfFillPattern(hatchDebugStep),
+					});
 					drawResourcesFiller.addMSDFTexture(
 						m_shapeMsdfTextures[hatchDebugStep].cpuBuffer.get(), 
 						m_shapeMsdfTextures[hatchDebugStep].bufferOffset, 
@@ -2573,12 +2560,15 @@ protected:
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
 						);
-						const DrawResourcesFiller::texture_hash msdfHash = hatchFillShapeIdx;
+						const DrawResourcesFiller::texture_hash msdfHash = std::hash<DrawResourcesFiller::MsdfTextureHash>{}({
+							.textureType = DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN,
+							.fillPattern = MsdfFillPattern(hatchFillShapeIdx),
+						});
 						drawResourcesFiller.addMSDFTexture(
 							m_shapeMsdfTextures[hatchFillShapeIdx].cpuBuffer.get(),
 							m_shapeMsdfTextures[hatchFillShapeIdx].bufferOffset,
 							m_shapeMsdfTextures[hatchFillShapeIdx].imageExtent,
-							hatchFillShapeIdx,
+							msdfHash,
 							intendedNextSubmit
 						);
 
@@ -2679,7 +2669,10 @@ protected:
 
 						if (transformedPolylines.size() == 0) continue;
 						Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-						const DrawResourcesFiller::texture_hash msdfHash = 1;
+						const DrawResourcesFiller::texture_hash msdfHash = std::hash<DrawResourcesFiller::MsdfTextureHash>{}({
+							.textureType = DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN,
+							.fillPattern = MsdfFillPattern(1),
+						});
 						drawResourcesFiller.addMSDFTexture(
 							m_shapeMsdfTextures[1].cpuBuffer.get(),
 							m_shapeMsdfTextures[1].bufferOffset,
@@ -3996,7 +3989,7 @@ protected:
 	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
 	FT_Library m_glyphLibrary;
 	FT_Face m_glyphFace;
-	MsdfTexture m_shapeMsdfTextures[EMF_COUNT];
+	MsdfTexture m_shapeMsdfTextures[uint32_t(MsdfFillPattern::COUNT)];
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();

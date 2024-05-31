@@ -25,6 +25,24 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
 };
 
+// TODO: Better place for this
+enum class MsdfFillPattern: uint32_t
+{
+	CHECKERED,
+	DIAMONDS,
+	CROSS_HATCH,
+	HATCH,
+	HORIZONTAL,
+	VERTICAL,
+	INTERWOVEN,
+	REVERSE_HATCH,
+	SQUARES,
+	CIRCLE,
+	LIGHT_SHADED,
+	SHADED,
+	COUNT
+};
+
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
@@ -57,8 +75,23 @@ public:
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 	
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
+
+	enum class MsdfTextureType: uint32_t
+	{
+		HATCH_FILL_PATTERN,
+		FONT_GLYPH,
+	};
 	
-	using texture_hash = uint32_t;
+	struct MsdfTextureHash 
+	{
+		MsdfTextureType textureType;
+		union {
+			MsdfFillPattern fillPattern;
+			uint32_t glyphIndex; // Result of FT_Get_Char_Index from FreeType
+		};
+	};
+
+	using texture_hash = std::size_t;
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
 	// ! return index to be used later in hatch fill style or text glyph object
@@ -277,3 +310,26 @@ protected:
 	std::unique_ptr<TextureLRUCache>    textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
 };
+
+template<>
+struct std::hash<DrawResourcesFiller::MsdfTextureHash>
+{
+    std::size_t operator()(const DrawResourcesFiller::MsdfTextureHash& s) const noexcept
+    {
+		std::size_t textureTypeHash = std::hash<uint32_t>{}(uint32_t(s.textureType));
+		std::size_t textureHash;
+
+		switch (s.textureType) 
+		{
+		case DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN:
+			textureHash = std::hash<uint32_t>{}(uint32_t(s.fillPattern));
+			break;
+		case DrawResourcesFiller::MsdfTextureType::FONT_GLYPH:
+			textureHash = std::hash<uint32_t>{}(s.glyphIndex);
+			break;
+		}
+
+		return textureTypeHash ^ (textureHash << 1);
+    }
+};
+ 
