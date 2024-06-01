@@ -102,30 +102,26 @@ public:
 		{
 			IAssetLoader::SAssetLoadParams assetLoadParams = {};
 			assetLoadParams.logger = m_logger.get();
-			assetLoadParams.workingDirectory = "";
+			assetLoadParams.workingDirectory = ""; // virutal root.
 
-			const auto shaderAsset = m_assetMgr->getAsset("app_resources/merge_sort.hlsl", assetLoadParams);
+			auto shaderAsset = m_assetMgr->getAsset("app_resources/merge_sort.hlsl", assetLoadParams);
 			const auto shaderAssetContents = shaderAsset.getContents();
 			if (shaderAssetContents.empty())
 			{
 				return logFail("Failed to load shader asset with file name app_resources/merge_sort.hlsl");
 			}
 
-			const auto cpuShaderAsset = IAsset::castDown<ICPUShader>(shaderAssetContents[0]);
+			auto cpuShaderAsset = IAsset::castDown<ICPUShader>(shaderAssetContents[0]);
+			cpuShaderAsset->setShaderStage(IShader::ESS_COMPUTE);
 
 			// Asset to ensure downcasting did not fail.
 			assert(cpuShaderAsset);
 
 			// Now, compile the shader.
 			// During compilation, replace the value of WORKGROUP_SIZE in the shader source.
-			smart_refctd_ptr<nbl::asset::IShaderCompiler> compiler = make_smart_refctd_ptr<nbl::asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
-
-			// Yes we know workgroup sizes can come from specialization constants, however DXC has a problem with that https://github.com/microsoft/DirectXShaderCompiler/issues/3092
-			const string WorkgroupSizeAsStr = std::to_string(WorkgroupSize);
-			const IShaderCompiler::SMacroDefinition WorkgroupSizeDefine = { "WORKGROUP_SIZE",WorkgroupSizeAsStr };
 
 			const auto overridenSource = CHLSLCompiler::createOverridenCopy(
-				cpuShaderAsset.get(), "WORKGROUP_SIZE",
+				cpuShaderAsset.get(), "#define WORKGROUP_SIZE %d\n",
 				WorkgroupSize
 			);
 
@@ -280,7 +276,9 @@ public:
 			{
 				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(m_computeQueueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
 				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+				{
 					return logFail("Failed to create Command Buffers!\n");
+				}
 			}
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -399,7 +397,7 @@ public:
 
 private:
 	smart_refctd_ptr<nbl::video::ILogicalDevice> m_device{};
-	uint32_t m_computeQueueFamily;
+	uint32_t m_computeQueueFamily{};
 
 	// Note : In this implementation of merge sort, the buffers are 'swapped' at the end of each phase (i.e input / output buffer of previous phase becomes the output / input of current phase).
 	// The names reflect the fact that initially the input data is present in m_inputBuffer.
