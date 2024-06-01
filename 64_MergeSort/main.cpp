@@ -23,6 +23,9 @@ public:
 
 		smart_refctd_ptr<nbl::video::ILogicalDevice> device;
 
+		smart_refctd_ptr<IGPUBuffer> outputBuff;
+		smart_refctd_ptr<IGPUBuffer> inputBuff;
+
 		constexpr auto FinishedValue = 45;
 		smart_refctd_ptr<ISemaphore> progress;
 
@@ -43,9 +46,10 @@ public:
 
 		std::vector<int32_t> inputBufferData(WorkgroupSize * WorkgroupCount);
 
+		auto x = 0;
 		for (auto& elem : inputBufferData)
 		{
-			elem = randomNumberGenerator();
+			elem = inputBufferData.size() - x++;
 		}
 
 		{
@@ -96,42 +100,55 @@ public:
 
 						struct SortingPhaseData
 						{
-							uint current_sorting_phase;
+							uint num_elements_per_array;
+							uint buffer_length;
 						};
 
 
 						[[vk::push_constant]] SortingPhaseData phase_data;
 
-						// This shader will be invoked in log(X) phases (x = number of elements in input buffer). In each phase, number of threads launched is 
-						// X / (phase_index * 2). Each of these threads map to the arrays thread index.x * phase_index * 2, and this thread will sort
-						// the elements ????? some index ?????
 						[numthreads(WORKGROUP_SIZE,1,1)]
-						void main(uint32_t3 ID : SV_DispatchThreadID)
+						void main(uint32_t threadIdx: SV_DispatchThreadID)
 						{
-							const uint mapped_thread_index = ID.x * phase_data.current_sorting_phase * 2;
+							uint left_array_start = threadIdx * phase_data.num_elements_per_array* 2;
+							uint right_array_start = left_array_start + phase_data.num_elements_per_array;
 
-							uint left = ID.x * phase_data.current_sorting_phase * 2;
-							uint right = left + phase_data.current_sorting_phase;
-							uint end = left + phase_data.current_sorting_phase * 2 - 1;
-
-							// Copy to output buffer.
-							for (uint i = left; i < end ; i++) output_buffer[i] = input_buffer[i];
-
-							// Sort the buffers.
-							uint index = left;
-							while (left <= right && right <= end)
+							uint left_array_end = left_array_start + phase_data.num_elements_per_array - 1;
+							if (left_array_end >= phase_data.buffer_length)
 							{
-								if (input_buffer[left] < input_buffer[right])
-								{
-									output_buffer[index++] = input_buffer[left];
-									++left;
-								}	
-								else 
-								{
-									output_buffer[index++] = input_buffer[right];
-									++right;
-								}	
+								left_array_end = phase_data.buffer_length - 1;
 							}
+
+							uint right_array_end = right_array_start + phase_data.num_elements_per_array - 1;
+							if (right_array_end >= phase_data.buffer_length)
+							{
+								right_array_end = phase_data.buffer_length - 1;
+							}
+
+							uint index = left_array_start;
+
+							while (left_array_start <= left_array_end && right_array_start <= right_array_end)
+							{
+								if (input_buffer[left_array_start] < input_buffer[right_array_start])
+								{
+									output_buffer[index++] = input_buffer[left_array_start++];
+								}
+								else
+								{
+									output_buffer[index++] = input_buffer[right_array_start++];
+								}
+							}
+
+							while (left_array_start <= left_array_end)
+							{
+								output_buffer[index++] = input_buffer[left_array_start++];
+							}
+
+							while (right_array_start<= left_array_end)
+							{
+								output_buffer[index++] = input_buffer[right_array_start++];
+							}
+
 						}
 					)===";
 
@@ -179,7 +196,7 @@ public:
 				return logFail("Failed to create a Descriptor Layout!\n");
 
 			const nbl::asset::SPushConstantRange pushConstantRange = nbl::asset::SPushConstantRange{
-				.stageFlags = nbl::asset::IShader::ESS_COMPUTE, .offset = 0, .size = sizeof(uint32_t),
+				.stageFlags = nbl::asset::IShader::ESS_COMPUTE, .offset = 0, .size = sizeof(uint32_t) * 2,
 			};
 
 			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = device->createPipelineLayout({ &pushConstantRange, 1 }, smart_refctd_ptr(dsLayout));
@@ -196,7 +213,8 @@ public:
 					return logFail("Failed to create pipelines (compile & link shaders)!\n");
 			}
 
-			smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet;
+			smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet1;
+			smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet2;
 
 			// Allocate the memory for output and input buffer.
 			{
@@ -208,7 +226,7 @@ public:
 				params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
 				// Create the output buffer.
-				smart_refctd_ptr<IGPUBuffer> outputBuff = device->createBuffer(std::move(params));
+				outputBuff = device->createBuffer(std::move(params));
 				if (!outputBuff)
 					return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
@@ -221,7 +239,7 @@ public:
 				if (!outputBufferAllocation.isValid())
 					return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
-				smart_refctd_ptr<IGPUBuffer> inputBuff = device->createBuffer(std::move(params));
+				inputBuff = device->createBuffer(std::move(params));
 				if (!inputBuff)
 					return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 
@@ -231,9 +249,11 @@ public:
 				if (!inputBufferAllocation.isValid())
 					return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
-				smart_refctd_ptr<nbl::video::IDescriptorPool> pool = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+				smart_refctd_ptr<nbl::video::IDescriptorPool> pool1 = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+				smart_refctd_ptr<nbl::video::IDescriptorPool> pool2 = device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
 
-				descriptorSet = pool->createDescriptorSet(std::move(dsLayout));
+				descriptorSet1 = pool1->createDescriptorSet(dsLayout);
+				descriptorSet2 = pool2->createDescriptorSet(dsLayout);
 
 				{
 					IGPUDescriptorSet::SDescriptorInfo info[2];
@@ -242,7 +262,19 @@ public:
 					info[1].desc = smart_refctd_ptr(inputBuff);
 					info[1].info.buffer = { .offset = 0,.size = BufferSize };
 					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-						{.dstSet = descriptorSet.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
+						{.dstSet = descriptorSet1.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
+					};
+					device->updateDescriptorSets(writes, {});
+				}
+
+				{
+					IGPUDescriptorSet::SDescriptorInfo info[2];
+					info[1].desc = smart_refctd_ptr(outputBuff);
+					info[1].info.buffer = { .offset = 0,.size = BufferSize };
+					info[0].desc = smart_refctd_ptr(inputBuff);
+					info[0].info.buffer = { .offset = 0,.size = BufferSize };
+					IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+						{.dstSet = descriptorSet2.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
 					};
 					device->updateDescriptorSets(writes, {});
 				}
@@ -259,64 +291,87 @@ public:
 			const int32_t* inputBufferMappedPointer = reinterpret_cast<const int32_t*>(inputBufferAllocation.memory->getMappedPointer());
 			memcpy((void*)inputBufferMappedPointer, inputBufferData.data(), sizeof(int32_t) * inputBufferData.size());
 
-			// Our commandbuffers are cool because they refcount the resources used by each command you record into them, so you can rely a commandbuffer on keeping them alive.
-			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
-			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(queueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
-					return logFail("Failed to create Command Buffers!\n");
-			}
-
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			// If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
-			cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
-			cmdbuf->bindComputePipeline(pipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &descriptorSet.get());
 
 			// Merge sort occurs in log(X) - 1 passes (where X = number of elements).
 			// Each thread index maps to index (ID.x * (phase_index * 2)) and sorts 2 inplace subararys, which start from ID.x * (phase_index * 2) and 
 			// ID.x * (phase_index * 2) and ID.x * (phase_index * 2) + phase_index;
+			// Swap output and input buffer at end of every frame.
+
+			constexpr size_t BufferSize = sizeof(int32_t) * WorkgroupSize * WorkgroupCount;
 
 			const size_t numberOfPhases = (size_t)log2(WorkgroupCount * WorkgroupSize);
 			constexpr size_t numberOfElements = WorkgroupCount * WorkgroupSize;
 			for (size_t phaseIndex = 1; phaseIndex <= numberOfPhases; phaseIndex++)
 			{
-				const uint32_t pushConstantData = phaseIndex;
-				cmdbuf->pushConstants(pplnLayout.get(), nbl::asset::IShader::ESS_COMPUTE, 0u, sizeof(uint32_t), &pushConstantData);
+				smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+				{
+					smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = device->createCommandPool(queueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+					if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+						return logFail("Failed to create Command Buffers!\n");
+				}
 
-				cmdbuf->dispatch(numberOfElements / (phaseIndex * 2), 1, 1);
+				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+				// If you enable the `debugUtils` API Connection feature on a supported backend as we've done, you'll get these pretty debug sections in RenderDoc
+				cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
+				cmdbuf->bindComputePipeline(pipeline.get());
+				if (phaseIndex % 2 == 1)
+				{
+					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &descriptorSet1.get());
+				}
+				else
+				{
+					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &descriptorSet2.get());
+				}
+
+				struct SortingPhaseData
+				{
+					uint32_t numElementsPerArray;
+					uint32_t bufferLength;
+				};
+
+				const SortingPhaseData pushConstantData = {
+					.numElementsPerArray = (uint32_t)pow(2, phaseIndex - 1),
+					.bufferLength = numberOfElements,
+				};
+
+				cmdbuf->pushConstants(pplnLayout.get(), nbl::asset::IShader::ESS_COMPUTE, 0u, sizeof(pushConstantData), &pushConstantData);
+
+				cmdbuf->dispatch(numberOfElements / (uint32_t)ceilf(numberOfElements / powf(2, phaseIndex)), 1, 1);
+				cmdbuf->endDebugMarker();
+
+				// Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
+				// however signalling a timeline semaphore with the COMPUTE stage mask and waiting for it on the Host makes all Device writes visible.
+				cmdbuf->end();
+
+				// Create the Semaphore
+				const auto StartedValue = phaseIndex;
+				progress = device->createSemaphore(StartedValue);
+				{
+					// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
+					IQueue* queue = device->getQueue(queueFamily, 0);
+
+					// Default, we have no semaphores to wait on before we can start our workload
+					IQueue::SSubmitInfo submitInfos[1] = {};
+					// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
+					// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
+					const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
+					submitInfos[0].commandBuffers = cmdbufs;
+					// But we do need to signal completion by incrementing the Timeline Semaphore counter as soon as the compute shader is done
+					const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+					submitInfos[0].signalSemaphores = signals;
+
+					const ISemaphore::SWaitInfo wait_infos[] = { {
+				.semaphore = progress.get(),
+				.value = phaseIndex,
+			} };
+					queue->startCapture();
+					queue->submit(submitInfos);
+					queue->endCapture();
+
+					device->blockForSemaphores(wait_infos);
+				}
 			}
 
-			cmdbuf->endDebugMarker();
-
-			// Normally you'd want to perform a memory barrier when using the output of a compute shader or renderpass,
-			// however signalling a timeline semaphore with the COMPUTE stage mask and waiting for it on the Host makes all Device writes visible.
-			cmdbuf->end();
-
-			// Create the Semaphore
-			constexpr auto StartedValue = 0;
-			static_assert(StartedValue < FinishedValue);
-			progress = device->createSemaphore(StartedValue);
-			{
-				// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
-				IQueue* queue = device->getQueue(queueFamily, 0);
-
-				// Default, we have no semaphores to wait on before we can start our workload
-				IQueue::SSubmitInfo submitInfos[1] = {};
-				// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
-				// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
-				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
-				submitInfos[0].commandBuffers = cmdbufs;
-				// But we do need to signal completion by incrementing the Timeline Semaphore counter as soon as the compute shader is done
-				const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
-				submitInfos[0].signalSemaphores = signals;
-
-				// We have a cool integration with RenderDoc that allows you to start and end captures programmatically.
-				// This is super useful for debugging multi-queue workloads and by default RenderDoc delimits captures only by Swapchain presents.
-				queue->startCapture();
-				queue->submit(submitInfos);
-				queue->endCapture();
-			}
 		}
 
 
@@ -329,17 +384,25 @@ public:
 
 
 		// Perform merge sort on the CPU to test whether GPU compute version computed the result correctly.
+		const size_t numberOfPhases = (size_t)log2(WorkgroupCount * WorkgroupSize);
 		auto outputBuffData = reinterpret_cast<const int32_t*>(outputBufferAllocation.memory->getMappedPointer());
 
+		if (numberOfPhases % 2 == 0)
+		{
+			outputBuffData = reinterpret_cast<const int32_t*>(inputBufferAllocation.memory->getMappedPointer());
+		}
+
 		// Sorted input (which should match the output buffer).
-		//std::sort(inputBufferData.begin(), inputBufferData.end());
+		std::sort(inputBufferData.begin(), inputBufferData.end());
 
 		for (auto i = 0; i < WorkgroupSize * WorkgroupCount; i++)
 		{
-			printf("%d != %d\n", outputBuffData[i], inputBufferData[i]);
-			//if (outputBuffData[i] != inputBufferData[i])
-				//return logFail("%d != %d\n", outputBuffData[i], inputBufferData[i]);
+			printf("%d %d\n", outputBuffData[i], inputBufferData[i]);
+			if (outputBuffData[i] != inputBufferData[i])
+				return logFail("%d != %d\n", outputBuffData[i], inputBufferData[i]);
 		}
+
+		printf("Merge sort succesfull!");
 
 		// This allocation would unmap itself in the dtor anyway, but lets showcase the API usage
 		outputBufferAllocation.memory->unmap();
