@@ -455,6 +455,20 @@ PSInput main(uint vertexID : SV_VertexID)
         //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
         //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
+    else if (objType == ObjectType::FONT_GLYPH)
+    {
+        float64_t2 aabbMin = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        float64_t2 aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) * 2, 4u);
+
+        float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        const double2 cornerWorldSpace = aabbMin * (1.0 - corner) + aabbMax * corner;
+        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, cornerWorldSpace));
+
+        outV.position = float4(coord, 0.f, 1.f);
+        outV.setFontGlyphUv(corner);
+        outV.setFontGlyphTextureId(textureId);
+    }
     
     
 // Make the cage fullscreen for testing: 

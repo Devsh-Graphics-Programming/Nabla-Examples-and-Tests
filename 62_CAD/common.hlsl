@@ -12,7 +12,8 @@ enum class ObjectType : uint32_t
     LINE = 0u,
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
-    POLYLINE_CONNECTOR = 3u
+    POLYLINE_CONNECTOR = 3u,
+    FONT_GLYPH = 4u
 };
 
 enum class MajorAxis : uint32_t
@@ -49,6 +50,14 @@ struct QuadraticBezierInfo
     float32_t phaseShift;
     float32_t stretchValue;
 };
+
+struct FontGlyphInfo
+{
+    float64_t2 aabbMin;
+    float64_t2 aabbMax;
+    uint32_t textureId;
+};
+
 #ifndef __HLSL_VERSION
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 #endif
@@ -316,6 +325,14 @@ struct PSInput
     
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
+
+    // Texture glyph UVs
+    // data2    
+    float2 getFontGlyphUv() { return interp_data5.xy; }
+    uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
+    
+    void setFontGlyphUv(float2 uv) { interp_data5.xy = uv; }
+    void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
     
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,

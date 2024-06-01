@@ -243,16 +243,7 @@ void DrawResourcesFiller::drawHatch(
 		const texture_hash msdfTexture,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
-	uint32_t textureIdx = InvalidTextureIdx;
-	if (msdfTexture != InvalidTextureHash)
-	{
-		TextureReference* tRef = textureLRUCache->get(msdfTexture);
-		if (tRef)
-		{
-			textureIdx = tRef->alloc_idx;
-			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
-		}
-	}
+	uint32_t textureIdx = getTextureIndexFromHash(msdfTexture, intendedNextSubmit);
 
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
@@ -795,6 +786,41 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 		DrawObject drawObj = {};
 		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::CURVE_BOX) | (0 << 16));
 		drawObj.mainObjIndex = mainObjIndex;
+		drawObj.geometryAddress = hatchBoxAddress;
+		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
+		memcpy(dst, &drawObj, sizeof(DrawObject));
+	}
+
+	// Add Indices
+	currentDrawObjectCount += uploadableObjects;
+	currentObjectInSection += uploadableObjects;
+}
+
+void DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
+{
+	const auto totalObjects = 1u;
+	const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(FontGlyphInfo);
+	
+	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferHatchBoxes);
+
+	uint32_t remainingObjects = totalObjects - currentObjectInSection;
+	uploadableObjects = min(uploadableObjects, remainingObjects);
+
+	for (uint32_t i = 0; i < uploadableObjects; i++)
+	{
+		uint64_t hatchBoxAddress;
+		{			
+			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			memcpy(dst, &fontGlyph, sizeof(FontGlyphInfo));
+			hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
+			currentGeometryBufferSize += sizeof(FontGlyphInfo);
+		}
+
+		DrawObject drawObj = {};
+		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
+		drawObj.mainObjIndex = mainObjIdx;
 		drawObj.geometryAddress = hatchBoxAddress;
 		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
 		memcpy(dst, &drawObj, sizeof(DrawObject));

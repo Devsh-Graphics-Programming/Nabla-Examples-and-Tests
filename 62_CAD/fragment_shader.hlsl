@@ -589,6 +589,18 @@ float4 main(PSInput input) : SV_TARGET
             localAlpha *= msdf;
         }
     }
+    else if (objType == ObjectType::FONT_GLYPH) 
+    {
+        const float2 uv = input.getFontGlyphUv();
+        const uint32_t textureId = input.getFontGlyphTextureId();
+
+        if (textureId != InvalidTextureIdx)
+        {
+            float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, 1.0 - uv.y), float(textureId)));
+            float msdf = msdfOpacity(msdfSample, input.position.xy / float2(globals.resolution));
+            localAlpha = msdf;
+        }
+    }
 
     uint2 fragCoord = uint2(input.position.xy);
     

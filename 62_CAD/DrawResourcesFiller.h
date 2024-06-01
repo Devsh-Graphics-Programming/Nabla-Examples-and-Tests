@@ -92,6 +92,7 @@ public:
 	};
 
 	using texture_hash = std::size_t;
+
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
 	// ! return index to be used later in hatch fill style or text glyph object
@@ -122,6 +123,8 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
+
+	void addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 	
 	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -156,6 +159,23 @@ public:
 		resetGeometryCounters();
 		resetMainObjectCounters();
 		resetLineStyleCounters();
+	}
+
+	// TODO this should be protected
+	uint32_t getTextureIndexFromHash(const texture_hash msdfTexture, SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		uint32_t textureIdx = InvalidTextureIdx;
+		if (msdfTexture != InvalidTextureHash)
+		{
+			TextureReference* tRef = textureLRUCache->get(msdfTexture);
+			if (tRef)
+			{
+				textureIdx = tRef->alloc_idx;
+				tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+			}
+		}
+
+		return textureIdx;
 	}
 
 	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
