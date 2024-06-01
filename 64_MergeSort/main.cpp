@@ -13,7 +13,7 @@ using namespace video;
 // Each of these 'lists' will have thier number of elements roughly doubled in each phase (after the merge step of previous phase).
 class MergeSortApp final : public nbl::application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using device_base_t = application_templates::MonoSystemMonoLoggerApplication;
+	using device_base_t = application_templates::MonoDeviceApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 public:
@@ -27,22 +27,19 @@ public:
 		{
 			return false;
 		}
-		if (!asset_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!asset_base_t::onAppInitialized(std::move(system)))
 		{
-
 			return false;
 		}
 
-		IPhysicalDevice* physicalDevice{};
-
 		// Compute and input related constants.
 		static constexpr uint32_t WorkgroupSize = 64;
-		static constexpr uint32_t NumberOfElementsToSort = 64 * 64 * 64;
+		static constexpr uint32_t NumberOfElementsToSort = 10777u;
 		static const uint32_t WorkgroupCount = (uint32_t)ceil(NumberOfElementsToSort / (float)WorkgroupSize);
 
-		const size_t BufferSize = sizeof(int32_t) * WorkgroupSize * WorkgroupCount;
+		const size_t bufferSize = sizeof(int32_t) * NumberOfElementsToSort;
 
-		std::vector<int32_t> inputBufferData(WorkgroupSize * WorkgroupCount);
+		std::vector<int32_t> inputBufferData(NumberOfElementsToSort);
 		{
 			// Setup the input data (random) that is to be sorted.
 			const auto seed = std::chrono::system_clock::now().time_since_epoch().count();
@@ -53,48 +50,6 @@ public:
 			for (auto& elem : inputBufferData)
 			{
 				elem = randomNumberGenerator();
-			}
-		}
-
-		// Setup API connection, select appropriate physical device and create logical device. 
-		{
-			smart_refctd_ptr<nbl::video::CVulkanConnection> api;
-			{
-				nbl::video::IAPIConnection::SFeatures apiFeaturesToEnable = {};
-				apiFeaturesToEnable.validations = true;
-				apiFeaturesToEnable.synchronizationValidation = true;
-				apiFeaturesToEnable.debugUtils = true;
-
-				if (!(api = CVulkanConnection::create(smart_refctd_ptr(m_system), 0, _NBL_APP_NAME_, smart_refctd_ptr(device_base_t::m_logger), apiFeaturesToEnable)))
-					return logFail("Failed to crate an IAPIConnection!");
-			}
-
-			ILogicalDevice::SCreationParams params = {};
-			for (auto physDevIt = api->getPhysicalDevices().begin(); physDevIt != api->getPhysicalDevices().end(); physDevIt++)
-			{
-				const auto familyProps = (*physDevIt)->getQueueFamilyProperties();
-				for (auto i = 0; i < familyProps.size(); i++)
-				{
-					if (familyProps[i].queueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
-					{
-						physicalDevice = *physDevIt;
-						m_computeQueueFamily = i;
-						params.queueParams[m_computeQueueFamily].count = 1;
-						break;
-					}
-				}
-			}
-
-			if (!physicalDevice)
-			{
-				return logFail("Failed to find any Physical Devices with Compute capable Queue Families!");
-			}
-
-			// logical devices need to be created form physical devices which will actually let us create vulkan objects and use the physical device
-			m_device = physicalDevice->createLogicalDevice(std::move(params));
-			if (!m_device)
-			{
-				return logFail("Failed to create a Logical Device!");
 			}
 		}
 
@@ -183,7 +138,7 @@ public:
 		{
 			// Always default the creation parameters, there's a lot of extra stuff for DirectX/CUDA interop and slotting into external engines you don't usually care about. 
 			nbl::video::IGPUBuffer::SCreationParams params = {};
-			params.size = BufferSize;
+			params.size = bufferSize;
 			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 
 			// Create the output buffer.
@@ -196,7 +151,7 @@ public:
 			m_outputBuffer->setObjectDebugName("My Output Buffer");
 
 			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_outputBuffer->getMemoryReqs();
-			reqs.memoryTypeBits &= physicalDevice->getHostVisibleMemoryTypeBits();
+			reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
 
 			m_outputBufferAllocation = m_device->allocate(reqs, m_outputBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
 			if (!m_outputBufferAllocation.isValid())
@@ -230,9 +185,9 @@ public:
 			{
 				IGPUDescriptorSet::SDescriptorInfo info[2];
 				info[0].desc = smart_refctd_ptr(m_outputBuffer);
-				info[0].info.buffer = { .offset = 0,.size = BufferSize };
+				info[0].info.buffer = { .offset = 0,.size = bufferSize };
 				info[1].desc = smart_refctd_ptr(m_inputBuffer);
-				info[1].info.buffer = { .offset = 0,.size = BufferSize };
+				info[1].info.buffer = { .offset = 0,.size = bufferSize };
 				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
 					{.dstSet = m_descriptorSet1.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
 				};
@@ -242,9 +197,9 @@ public:
 			{
 				IGPUDescriptorSet::SDescriptorInfo info[2];
 				info[1].desc = smart_refctd_ptr(m_outputBuffer);
-				info[1].info.buffer = { .offset = 0,.size = BufferSize };
+				info[1].info.buffer = { .offset = 0,.size = bufferSize };
 				info[0].desc = smart_refctd_ptr(m_inputBuffer);
-				info[0].info.buffer = { .offset = 0,.size = BufferSize };
+				info[0].info.buffer = { .offset = 0,.size = bufferSize };
 				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
 					{.dstSet = m_descriptorSet2.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
 				};
@@ -267,8 +222,12 @@ public:
 		memcpy((void*)inputBufferMappedPointer, inputBufferData.data(), sizeof(int32_t) * inputBufferData.size());
 
 		// Start of the merge sort algorithm.
-		const size_t numberOfPhases = (size_t)log2(WorkgroupCount * WorkgroupSize);
-		const size_t numberOfElements = static_cast<size_t>(WorkgroupCount) * WorkgroupSize;
+		const size_t numberOfPhases = (size_t)ceil(log2(NumberOfElementsToSort));
+
+		// A monotonically increasing counter value (for use by timeline semaphore).
+		uint64_t monotonicallyIncreasingCounter = 0u;
+		// Create the Semaphore (required since to start execution of phase X, phase X - 1 must complete execution on the GPU.
+		m_phaseSemaphore = m_device->createSemaphore(monotonicallyIncreasingCounter);
 
 		for (size_t phaseIndex = 1; phaseIndex <= numberOfPhases; phaseIndex++)
 		{
@@ -304,19 +263,16 @@ public:
 
 			const SortingPhaseData pushConstantData = {
 				.numElementsPerArray = (uint32_t)pow(2, phaseIndex - 1),
-				.bufferLength = static_cast<uint32_t>(numberOfElements),
+				.bufferLength = static_cast<uint32_t>(NumberOfElementsToSort),
 			};
 
 			cmdbuf->pushConstants(m_pipelineLayout.get(), nbl::asset::IShader::ESS_COMPUTE, 0u, sizeof(pushConstantData), &pushConstantData);
 
-			cmdbuf->dispatch(numberOfElements / (uint32_t)ceilf(numberOfElements / powf(2, phaseIndex)), 1, 1);
+			cmdbuf->dispatch((uint32_t)ceilf(NumberOfElementsToSort / powf(2.0f, phaseIndex)), 1, 1);
 			cmdbuf->endDebugMarker();
 
 			cmdbuf->end();
 
-			// Create the Semaphore (required since to start execution of phase X, phase X - 1 must complete execution on the GPU.
-			const auto SemaphoreValue = phaseIndex;
-			m_currentPhaseSemaphore = m_device->createSemaphore(SemaphoreValue);
 			{
 				// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
 				IQueue* queue = m_device->getQueue(m_computeQueueFamily, 0);
@@ -327,39 +283,21 @@ public:
 				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
 				submitInfos[0].commandBuffers = cmdbufs;
 
-				const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_currentPhaseSemaphore.get(),.value = phaseIndex,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+				const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_phaseSemaphore.get(),.value = ++monotonicallyIncreasingCounter,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
 				submitInfos[0].signalSemaphores = signals;
 
 				queue->startCapture();
 				queue->submit(submitInfos);
 				queue->endCapture();
 
-				if (m_previousPhaseSemaphore)
-				{
-					const ISemaphore::SWaitInfo wait_infos[] = { {
-				.semaphore = m_previousPhaseSemaphore.get(),
-				.value = phaseIndex - 1,
-			} };
-
-					m_device->blockForSemaphores(wait_infos);
-				}
-
-				// Swap the semaphores.
-				std::swap(m_previousPhaseSemaphore, m_currentPhaseSemaphore);
 			}
+			const ISemaphore::SWaitInfo wait_infos[] = { {
+		.semaphore = m_phaseSemaphore.get(),
+		.value = monotonicallyIncreasingCounter,
+	}, };
+
+			m_device->blockForSemaphores(wait_infos);
 		}
-
-
-		// For the both semaphores to complete execution.
-		const ISemaphore::SWaitInfo waitInfos[] = { {
-			.semaphore = m_currentPhaseSemaphore.get(),
-			.value = numberOfPhases,
-		}, {
-			.semaphore = m_previousPhaseSemaphore.get(),
-			.value = numberOfPhases - 1,
-		} };
-
-		m_device->blockForSemaphores(waitInfos);
 
 		// Now, get the current pointer to output buffer (the output may be in either input or output buffer).
 		// Perform merge sort on the CPU to test whether GPU compute version computed the result correctly.
@@ -373,19 +311,18 @@ public:
 		// Sorted input (which should match the output buffer).
 		std::sort(inputBufferData.begin(), inputBufferData.end());
 
-		for (auto i = 0; i < WorkgroupSize * WorkgroupCount; i++)
+		for (auto i = 0; i < NumberOfElementsToSort; i++)
 		{
-			printf("%d %d\n", outputBufferData[i], inputBufferData[i]);
+			//printf("output buffer -> %d input buffer -> %d\n", outputBufferData[i], inputBufferData[i]);
 			if (outputBufferData[i] != inputBufferData[i])
 			{
 				return logFail("%d != %d\n", outputBufferData[i], inputBufferData[i]);
 			}
 		}
 
-		printf("Merge sort succesfull!");
+		printf("Merge sort succesfull!\n");
 
 		m_device->waitIdle();
-
 		return true;
 	}
 
@@ -396,7 +333,6 @@ public:
 	bool keepRunning() override { return false; }
 
 private:
-	smart_refctd_ptr<nbl::video::ILogicalDevice> m_device{};
 	uint32_t m_computeQueueFamily{};
 
 	// Note : In this implementation of merge sort, the buffers are 'swapped' at the end of each phase (i.e input / output buffer of previous phase becomes the output / input of current phase).
@@ -405,22 +341,21 @@ private:
 	smart_refctd_ptr<IGPUBuffer> m_inputBuffer{};
 
 	// Allocator is a interface to anything that can dish out free memory range to bind to a buffer or image.
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_outputBufferAllocation = {};
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_inputBufferAllocation = {};
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_outputBufferAllocation{};
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_inputBufferAllocation{};
 
 	// Semaphore is used because before completion of merge sort phase X, phase X + 1 cannot start.
-	smart_refctd_ptr<ISemaphore> m_currentPhaseSemaphore{};
-	smart_refctd_ptr<ISemaphore> m_previousPhaseSemaphore{};
+	smart_refctd_ptr<ISemaphore> m_phaseSemaphore{};
 
-	smart_refctd_ptr<IGPUDescriptorSetLayout> m_descriptorSetLayout;
+	smart_refctd_ptr<IGPUDescriptorSetLayout> m_descriptorSetLayout{};
 
 	// There are 2 descriptor sets for merge sort. One has input buffer / output buffer at binding 0, 1, and one has the inverse.
 	// This is because in each merge sort phase, the inputs and output buffers are *swapped*.
-	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet1;
-	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet2;
+	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet1{};
+	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet2{};
 
-	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout;
-	smart_refctd_ptr<IGPUComputePipeline> m_computePipeline;
+	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout{};
+	smart_refctd_ptr<IGPUComputePipeline> m_computePipeline{};
 
 	smart_refctd_ptr<IGPUShader> m_mergeSortShader{};
 };

@@ -1,7 +1,7 @@
 #pragma wave shader_stage(compute)
 
-[[vk::binding(0,0)]] RWStructuredBuffer<int32_t> output_buffer;
-[[vk::binding(1,0)]] RWStructuredBuffer<int32_t> input_buffer;
+[[vk::binding(0,0)]] RWStructuredBuffer<int> output_buffer;
+[[vk::binding(1,0)]] RWStructuredBuffer<int> input_buffer;
 
 struct SortingPhaseData
 {
@@ -13,7 +13,7 @@ struct SortingPhaseData
 [[vk::push_constant]] SortingPhaseData phase_data;
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
-						void main(uint32_t threadIdx : SV_DispatchThreadID)
+void main(uint threadIdx : SV_DispatchThreadID)
 {
     uint left_array_start = threadIdx * phase_data.num_elements_per_array * 2;
     uint right_array_start = left_array_start + phase_data.num_elements_per_array;
@@ -34,7 +34,7 @@ struct SortingPhaseData
 
     while (left_array_start <= left_array_end && right_array_start <= right_array_end)
     {
-        if (input_buffer[left_array_start] < input_buffer[right_array_start])
+        if (input_buffer[left_array_start] <= input_buffer[right_array_start])
         {
             output_buffer[index++] = input_buffer[left_array_start++];
         }
@@ -49,7 +49,7 @@ struct SortingPhaseData
         output_buffer[index++] = input_buffer[left_array_start++];
     }
 
-    while (right_array_start <= left_array_end)
+    while (right_array_start <= right_array_end)
     {
         output_buffer[index++] = input_buffer[right_array_start++];
     }
