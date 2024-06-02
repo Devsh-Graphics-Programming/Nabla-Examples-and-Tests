@@ -3,12 +3,23 @@
 #ifndef _NBL_VIDEO_C_ASSET_CONVERTER_INCLUDED_
 #define _NBL_VIDEO_C_ASSET_CONVERTER_INCLUDED_
 
+#if 1
+#include "nabla.h"
+#else
 #include "nbl/video/utilities/IUtilities.h"
 #include "nbl/video/asset_traits.h"
-
+#endif
+#include "blake3.h"
 
 namespace nbl::core
 {
+struct blake3_hash_t
+{
+	inline bool operator==(const blake3_hash_t&) const = default;
+
+	uint8_t data[BLAKE3_OUT_LEN];
+};
+
 // I only thought if I could, not if I should
 template<template<class> class X, typename Tuple>
 struct tuple_transform
@@ -31,6 +42,22 @@ constexpr void visit(_Callable&& _Obj, _Tuple& _Tpl) noexcept
 }
 }
 
+namespace std
+{
+template<>
+struct hash<nbl::core::blake3_hash_t>
+{
+	inline size_t operator()(const nbl::core::blake3_hash_t& blake3) const
+	{
+		auto* as_p_uint64_t = reinterpret_cast<const size_t*>(blake3.data);
+		size_t retval = as_p_uint64_t[0];
+		for (auto i=1; i<BLAKE3_OUT_LEN; i++)
+			retval ^= as_p_uint64_t[i] + 0x9e3779b97f4a7c15ull + (retval << 6) + (retval >> 2);
+		return retval;
+	}
+};
+}
+
 namespace nbl::video
 {
 /*
@@ -48,6 +75,13 @@ namespace nbl::video
 class CAssetConverter : public core::IReferenceCounted
 {
 	public:
+		// meta tuple
+		using supported_asset_types = std::tuple<
+			asset::ICPUShader/*,
+			asset::ICPUDescriptorSetLayout,
+			asset::ICPUPipelineLayout*/
+		>;
+
 		struct SCreationParams
 		{
 			inline bool valid() const
@@ -75,55 +109,126 @@ class CAssetConverter : public core::IReferenceCounted
 			return core::smart_refctd_ptr<CAssetConverter>(new CAssetConverter(std::move(params)),core::dont_grab);
 		}
 
-#if 0
+		// This is the object we're trying to de-duplicate and hash-cons
+		template<asset::Asset AssetType>
+		struct asset_t
+		{
+			inline bool operator==(const asset_t<AssetType>& rhs) const = default;
+
+			inline size_t hash() const
+			{
+				return ptrdiff_t(asset)^ptrdiff_t(uniqueCopyForUser);
+			}
+
+			inline bool valid() const
+			{
+				return asset;
+			}
+
+			const typename asset_traits<AssetType>::asset_t* asset = {};
+			// Normally all references to the same IAsset* would spawn the same IBackendObject*, set this to non-null to override that behavior
+			const asset::IAsset* uniqueCopyForUser = nullptr; // NOTE: this may have to move a bit farther down
+		};
+		// when getting dependents, these will be produced and patched appropriately
+		template<asset::Asset AssetType>
+		struct patch_t;
+		template<>
+		struct patch_t<asset::ICPUShader>
+		{
+			using this_t = patch_t<asset::ICPUShader>;
+
+			inline patch_t() = default;
+			inline patch_t(const asset::ICPUShader* shader) : stage(shader->getStage()) {}
+
+			inline bool valid() const {return stage!=IGPUShader::ESS_UNKNOWN && stage!=IGPUShader::ESS_ALL_GRAPHICS;}
+
+			inline this_t combine(const this_t& other) const
+			{
+				if (stage!=other.stage)
+				{
+					if (stage==IGPUShader::ESS_UNKNOWN)
+						return other; // return the other whether valid or not
+					else if (other.stage!=IGPUShader::ESS_UNKNOWN)
+						return {}; // invalid
+					// other is UNKNOWN so fallthrough and return us whether valid or not
+				}
+				return *this;
+			}
+
+			IGPUShader::E_SHADER_STAGE stage = IGPUShader::ESS_UNKNOWN;
+		};
+		template<>
+		struct patch_t<asset::ICPUDescriptorSetLayout>
+		{
+			using this_t = patch_t<asset::ICPUDescriptorSetLayout>;
+
+			inline patch_t() = default;
+			inline patch_t(const asset::ICPUDescriptorSetLayout* layout) {}
+
+			inline bool valid() const {return true;}
+
+			inline this_t combine(const this_t& other) const
+			{
+				return *this;
+			}
+		};
+		template<>
+		struct patch_t<asset::ICPUPipelineLayout>
+		{
+			using this_t = patch_t<asset::ICPUPipelineLayout>;
+
+			inline patch_t() = default;
+			inline patch_t(const asset::ICPUPipelineLayout* pplnLayout)
+			{
+				const auto pc = pplnLayout->getPushConstantRanges();
+				for (auto it=pc.begin(); it!=pc.end(); it++)
+				for (auto byte=it->offset; byte<it->offset+it->size; byte++)
+					pushConstantBytes[byte] = it->stageFlags;
+			}
+
+			inline bool valid() const {return true;}
+
+			inline this_t combine(const this_t& other) const
+			{
+				this_t retval = *this;
+				for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
+					retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
+				return retval;
+			}
+
+			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
+		};
         //
-        class CCache final
+        class CCache final : core::Uncopyable
         {
-			private:
-                template<asset::Asset AssetType>
-                struct search_t
-                {
-					const typename asset_traits<AssetType>::asset_t* asset = nullptr;
-					std::optional<typename asset_traits<AssetType>::patch_t> patch = {};
-                };
+			public:
+				inline CCache() = default;
+				inline CCache(CCache&&) = default;
+				inline ~CCache() = default;
+
+				inline CCache& operator=(CCache&&) = default;
+
+				// Typed Input (for a particular AssetType)
 				template<asset::Asset AssetType>
 				struct key_t
 				{
-					asset_traits<AssetType>::content_t content = {};
-					asset_traits<AssetType>::patch_t patch = {};
+					// constructor for when you want to override the creation parameters for the GPU Object while keeping the asset const
+					inline key_t(const asset_t<AssetType>& _asset, const patch_t<AssetType>& _patch) : asset(_asset), patch(_patch) {}
+					// the default constructor that deducts the patch params from a const asset which we don't want to change (so far)
+					inline key_t(const asset_t<AssetType>& _asset) : asset(_asset), patch(asset.asset) {}
+
+					inline bool operator==(const key_t<AssetType>&) const = default;
+
+					inline bool valid() const
+					{
+						return asset.valid() && patch.valid();
+					}
+
+					asset_t<AssetType> asset;
+					patch_t<AssetType> patch;
 				};
 
-			public:
-				struct Hash
-				{
-					template<asset::Asset AssetType>
-					inline size_t operator()(const key_t<AssetType>& key) const
-					{
-						return 0x45; // TODO
-					}
-					template<asset::Asset AssetType>
-					inline size_t operator()(const search_t<AssetType>& key) const
-					{
-						return 0x45; // TODO
-					}
-				};
-				struct Equal
-				{
-					template<asset::Asset AssetType>
-					inline bool operator()(const key_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
-					{
-						return true; // TODO
-					}
-					template<asset::Asset AssetType>
-					inline bool operator()(const key_t<AssetType>& lhs, const search_t<AssetType>& rhs) const
-					{
-						return true; // TODO
-					}
-				};
-				template<asset::Asset AssetType>
-				using cache_t = core::unordered_map<key_t<AssetType>,typename asset_traits<AssetType>::video_t,Hash,Equal>;
-
-            public:
+#if 0
 				inline void merge(const CCache& other)
 				{
 					std::apply([&](auto&... caches)->void{
@@ -136,156 +241,153 @@ class CAssetConverter : public core::IReferenceCounted
 				{
 					return std::get<cache_t<AssetType>>(m_caches).end();
 				}
+#endif
 
                 template<asset::Asset AssetType>
-                inline auto find(const search_t<AssetType>& key, const size_t hashval) const
+                inline auto find(const key_t<AssetType>& key) const
                 {
-                    return std::get<cache_t<AssetType>>(m_caches).find(key,hashval);
+					core::blake3_hash_t hash;
+					{
+						blake3_hasher hasher;
+						blake3_hasher_init(&hasher);
+						blake3_hasher_update(hasher,&key.asset.uniqueCopyForUser,sizeof(key.asset.uniqueCopyForUser));
+						fill_hash(&hasher,key.asset.asset);
+						blake3_hasher_finalize(&hasher,hash.data,sizeof(hash));
+					}
+                    return find<AssetType>(hash);
+                }
+				// fastest lookup
+                template<asset::Asset AssetType>
+                inline typename asset_traits<AssetType>::video_t find(const core::blake3_hash_t& hash) const
+                {
+                    return std::get<cache_t<AssetType>>(m_caches).find(hash)->second.get();
                 }
 
             private:
+				//
+				template<asset::Asset AssetType>
+				struct cached
+				{
+					private:
+						using video_t = typename asset_traits<AssetType>::video_t;
+						constexpr static inline bool RefCtd = core::ReferenceCounted<video_t>;
+
+					public:
+						inline cached() = default;
+						inline cached(const cached<AssetType>& other) : cached() {operator=(other);}
+						inline cached(cached<AssetType>&&) = default;
+
+						// special wrapping to make smart_refctd_ptr copyable
+						inline cached<AssetType>& operator=(const cached<AssetType>& rhs)
+						{
+							if constexpr (RefCtd)
+								value = core::smart_refctd_ptr<video_t>(rhs.value.get());
+							else
+								value = rhs;
+							return *this;
+						}
+						inline cached<AssetType>& operator=(cached<AssetType>&&) = default;
+
+						inline auto get() const
+						{
+							if constexpr (RefCtd)
+								return value.get();
+							else
+								return value;
+						}
+
+						using type = std::conditional_t<RefCtd,core::smart_refctd_ptr<video_t>,video_t>;
+						type value = {};
+				};
+				// The blake3 hash is quite fat (256bit), so we don't actually store a full asset ref for comparison.
+				// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
+				// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
+				template<asset::Asset AssetType>
+				using cache_t = std::unordered_map<core::blake3_hash_t,cached<AssetType>>;
+				//
 				using caches_t = core::tuple_transform_t<cache_t,supported_asset_types>;
 
+				template<asset::Asset AssetType>
+				static void fill_hash(blake3_hasher* hasher, const AssetType* asset, const patch_t<AssetType>& patch);
+
 				//
-                caches_t m_caches;
+ //               caches_t m_caches;
+				cache_t<asset::ICPUShader> m_test;
         };
-#endif
-		// This is the object we're trying to de-duplicate and hash-cons
-		template<asset::Asset AssetType>
-		struct key_t
-		{
-			inline bool operator==(const key_t<AssetType>& rhs) const
-			{
-				return asset==rhs.asset && unique==rhs.unique;
-			}
 
-			const typename asset_traits<AssetType>::asset_t* asset = {};
-			// whether to NOT compare equal with dedup hash later on
-			bool unique = false;
-		};
-		// when getting dependents, these will be produced
-		template<asset::Asset AssetType>
-		struct patch_t;
-		template<>
-		struct patch_t<asset::ICPUShader>
-		{
-			inline patch_t(const asset::ICPUShader* shader=nullptr) {}
-		};
-		template<>
-		struct patch_t<asset::ICPUDescriptorSetLayout>
-		{
-			inline patch_t(const asset::ICPUDescriptorSetLayout* layout=nullptr) {}
-		};
-		template<>
-		struct patch_t<asset::ICPUPipelineLayout>
-		{
-			inline patch_t(const asset::ICPUPipelineLayout* pplnLayout=nullptr)
-			{
-			}
-
-			// TODO: unique form of push constant ranges
-		};
-		// meta tuple
-		using supported_asset_types = std::tuple<
-			asset::ICPUShader/*,
-			asset::ICPUDescriptorSetLayout,
-			asset::ICPUPipelineLayout*/
-		>;
-        struct SInput
+		// A meta class to encompass all the Assets you might want to convert at once
+        struct SInputs
         {
-			template<asset::Asset AssetType>
-			struct input_t
-			{
-				inline input_t(const key_t<AssetType>& _key, const patch_t<AssetType>& _patch) : key(_key), patch(_patch) {}
-				inline input_t(const key_t<AssetType>& _key) : key(_key), patch(key) {}
-
-				key_t<AssetType> key;
-				patch_t<AssetType> patch;
-			};
+			// Typed Range of Inputs of the same type
             template<asset::Asset AssetType>
-            using span_t = std::span<const input_t<AssetType>>;
-#if 0
-			// we convert to dummy by default
-			virtual inline void wipeAsset(IAsset* _asset)
-			{
-				_asset->convertToDummyObject();
-			}
-#endif
+            using span_t = std::span<const CCache::key_t<AssetType>>;
+
 			// can be `nullptr` and even equal to `this`
 			CAssetConverter* readCache = nullptr;
 
+			// A type-sorted non-polymorphic list of "root assets"
 			core::tuple_transform_t<span_t,supported_asset_types> assets = {};
         };
         struct SResults
         {
 			public:
+				inline SResults(SResults&&) = default;
+				inline SResults(const SResults&) = delete;
 				inline ~SResults() = default;
+				inline SResults& operator=(const SResults&) = delete;
+				inline SResults& operator=(SResults&&) = default;
 
 				//
 				inline bool reserveSuccess() const {return m_success;}
 
-				//
+				// What queues you'll need to run the submit
 				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
 
+				// for every entry in the input array, we 
+				template<asset::Asset AssetType>
+				using result_t = asset_traits<AssetType>::video_t;
 
-			protected:
-				inline SResults() = default;
-
+#if 0
+				// we convert to dummy by default
+				virtual inline void wipeAsset(IAsset* _asset)
+				{
+					_asset->convertToDummyObject();
+				}
+#endif
 
 			private:
 				friend class CAssetConverter;
 
-				template<asset::Asset AssetType>
-				struct result_t
-				{
-					inline const auto& get() const
-					{
-						if (canonical)
-							return canonical->result;
-						return result;
-					}
+				inline SResults() = default;
 
-					patch_t<AssetType> patch = {};
-					const result_t<AssetType>* canonical = nullptr;
-					asset_traits<AssetType>::video_t result = {};
-				};
 				//
-				struct key_hash
-				{
-					template<asset::Asset AssetType>
-					inline size_t operator()(const key_t<AssetType>& in) const
-					{
-						return std::hash<const void*>{}(in.asset)^(in.unique ? (~0x0ull):0x0ull);
-					}
-				};
-				template<asset::Asset AssetType>
-				using dag_cache_t = core::unordered_multimap<key_t<AssetType>,result_t<AssetType>,key_hash>;
-				
-				core::tuple_transform_t<dag_cache_t,supported_asset_types> m_typedDagNodes = {};
+//				core::smart_refctd_ptr<> ; 
 				//
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
 				//
 				bool m_success = true;
         };
 #define NBL_API
-		NBL_API SResults reserve(const SInput& input);
+		// First Pass: Explore the DAG of Assets and "gather" patch infos for creating/retrieving equivalent GPU Objects.
+		NBL_API SResults reserve(const SInputs& inputs);
+
+		//
 		struct SConvertParams
 		{
-			// by default the compute queue will own everything
+			// by default the compute queue will own everything after all transfer operations are complete
 			virtual inline SIntendedSubmitInfo& getFinalOwnerSubmit(IDeviceMemoryBacked* imageOrBuffer)
 			{
 				return compute;
 			}
 
 			// submits the buffered up cals 
-			virtual inline ISemaphore::future_t<bool> autoSubmit()
-			{
-			}
+			NBL_API ISemaphore::future_t<bool> autoSubmit();
 
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			IUtilities* utilities = nullptr;
 		};
+		// Second Pass: Actually create the GPU Objects
 		NBL_API bool convert(SResults& reservations, SConvertParams& params);
 #undef NBL_API
 

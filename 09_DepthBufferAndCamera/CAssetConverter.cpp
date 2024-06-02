@@ -2,55 +2,80 @@
 // This file is part of the "Nabla Engine".
 #include "CAssetConverter.h"
 
-
-namespace nbl::video
-{
 using namespace nbl::core;
 using namespace nbl::asset;
 
-auto CAssetConverter::reserve(const SInput& input) -> SResults
+namespace nbl::video
+{
+//
+template<asset::Asset AssetType>
+struct dep_cache_hasher
+{
+	inline size_t operator()(const CAssetConverter::asset_t<AssetType>& asset) const
+	{
+		return asset.hash();
+	}
+};
+template<asset::Asset AssetType>
+using dep_cache_t = std::unordered_multimap<CAssetConverter::asset_t<AssetType>,CAssetConverter::patch_t<AssetType>,dep_cache_hasher<AssetType>>;
+
+//
+template<>
+void CAssetConverter::CCache::fill_hash(blake3_hasher* hasher, const asset::ICPUShader* asset, const patch_t<asset::ICPUShader>& patch)
+{
+	blake3_hasher_update(hasher,&patch.stage,sizeof(patch.stage));
+	// TODO: now the rest!
+}
+
+//
+auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
 	SResults retval = {};
-	if (input.readCache && input.readCache->m_params.device!=m_params.device)
+	if (inputs.readCache && inputs.readCache->m_params.device!=m_params.device)
 		return retval;
 
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
-		core::stack<const IAsset*> dfsStack;
+		std::stack<const IAsset*> dfsStack;
+		// This cache stops us adding an asset more than once
+		core::tuple_transform_t<dep_cache_t,supported_asset_types> depCache = {};
 		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const CAssetConverter::SInput::input_t<AssetType>& in)->bool
+		auto cache = [&]<Asset AssetType>(const CCache::key_t<AssetType>& in)->bool
 		{
-			if (!in.key.asset)
+			// skip invalid inputs silently
+			if (!in.valid())
 				return false;
-
-			using cache_t = SResults::dag_cache_t<AssetType>;
-			auto& cache = std::get<cache_t>(retval.m_typedDagNodes);
-			auto found = cache.equal_range(in.key);
-			if (found.first!=found.second)
+			
+			using cache_t = dep_cache_t<AssetType>;
+			auto& cache = std::get<cache_t>(depCache);
+			auto found = cache.equal_range(in.asset);
+			for (auto it=found.first; it!=found.second; it++)
 			{
-#if 0
-				// found the thing, combine patches
-				const auto& cachedPatch = found->patch;
-				if (auto combined=in.patch; combined)
+				auto& cachedPatch = it->second;
+				// found a thing, try-combine the patches
+				auto combined = cachedPatch.combine(in.patch);
+				// check whether the item is creatable after patching
+				if (combined.valid())
 				{
-					const_cast<asset_traits<AssetType>::patch_t&>(cachedPatch) = combined;
+					cachedPatch = std::move(combined);
 					return false;
 				}
-#endif
-				// check whether the item is creatable after patching, else duplicate/de-alias
+				// else duplicate/de-alias
 			}
 			// insert a new entry
-			cache.insert(found.first,{in.key,{.patch=in.patch}});
+			cache.insert(found.first,{in.asset,in.patch});
+			if (AssetType::HasDependents)
+				dfsStack.push(in.asset.asset);
 			return true;
 		};
 		// initialize stacks
-		core::visit([&]<Asset AssetType>(const SInput::span_t<AssetType> inputs)->void{
+		core::visit([&]<Asset AssetType>(const SInputs::span_t<AssetType> inputs)->void{
+			// dedup the inputs so they API is more forgiving to use
 			for (auto& in : inputs)
-			if (cache(in) && AssetType::HasDependents)
-				dfsStack.push(in.key.asset);
-		},input.assets);
-		// everything that's not explicit has `!unique` and default patch params
+				cache(in);
+		},inputs.assets);
+		// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
 		while (!dfsStack.empty())
 		{
 			const auto* asset = dfsStack.top();
@@ -98,9 +123,10 @@ auto CAssetConverter::reserve(const SInput& input) -> SResults
 			}
 		}
 	}
-	// now we have a set of implicit gpu creation parameters we want to create resources with
+	// now we have a set of implicit gpu creation parameters we want to create resources with,
 	// and a mapping from (Asset,Patch) -> UniqueAsset
-
+	// If there's a readCache we need to look for an item there first.
+#if 0
 	auto dedup = [&]<Asset AssetType>()->void
 	{
 		using cache_t = SResults::dag_cache_t<AssetType>;
@@ -127,6 +153,7 @@ auto CAssetConverter::reserve(const SInput& input) -> SResults
 	// Lets see if we can collapse any of the (Asset Content) into the same thing,
 	// to correctly de-dup we need to go bottom-up!!!
 	dedup.operator()<ICPUShader>();
+#endif
 // Shader, DSLayout, PipelineLayout, Compute Pipeline
 // Renderpass, Graphics Pipeline
 // Buffer, BufferView, Sampler, Image, Image View, Bottom Level AS, Top Level AS, Descriptor Set, Framebuffer  
@@ -140,26 +167,51 @@ auto CAssetConverter::reserve(const SInput& input) -> SResults
 	return retval;
 }
 
+// read[key,patch,blake3] -> look up GPU Object based on hash
+// We can't look up "near misses" (supersets) because they'd have different hashes
+// can't afford to split hairs like finding overlapping buffer ranges, etc.
+// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
+
+// reservation<type>[key,patch,blake3] -> reserve GPU Object (how?) based on hash
+
+// afterwards
+// iterate over reservation<type>, create the GPU objects and insert into write cache
+
+// now I need to find the GPU objects for my inputs
+// but I don't know how the inputs have been patched, also don't want to re-hash, so lets just store the values per input element?
+
+//
 bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 {
 	if (!reservations.reserveSuccess())
 		return false;
 
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
-	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT|IQueue::FAMILY_FLAGS::COMPUTE_BIT) && !params.utilities)
+	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT | IQueue::FAMILY_FLAGS::COMPUTE_BIT) && !params.utilities)
 		return false;
 
-	auto invalidQueue = [reqQueueFlags](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+	auto device = m_params.device;
+	if (!device)
+		return false;
+
+	auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
 	{
 		if (!reqQueueFlags.hasFlags(flag))
 			return false;
-		if (!queue || queue->getFamilyIndex())
+		if (!params.utilities || params.utilities->getLogicalDevice()!=device)
+			return true;
+		if (!queue || queue->getOriginDevice()!=device)
+			return true;
+		const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
+		if (!qFamProps[queue->getFamilyIndex()].queueFlags.hasFlags(flag))
 			return true;
 		return false;
 	};
-	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.transfer.queue || params.transfer.queue->getFamilyIndex() || !params.utilities))
+	// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
+	if (invalidQueue(IQueue::FAMILY_FLAGS::TRANSFER_BIT,params.transfer.queue))
 		return false;
-	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && (!params.compute.queue || !params.utilities))
+	// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
+	if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
 		return false;
 
 	const core::string debugPrefix = "Created by Converter "+std::to_string(ptrdiff_t(this))+" with hash ";
@@ -169,7 +221,6 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 			obj->setObjectDebugName((debugPrefix+std::to_string(hashval)).c_str());
 	};
 
-	auto device = m_params.device;
 	// create shaders
 	{
 		ILogicalDevice::SShaderCreationParameters params = {
@@ -177,7 +228,7 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 			.readCache = m_params.compilerCache.get(),
 			.writeCache = m_params.compilerCache.get()
 		};
-
+#if 0
 		for (auto& shader : std::get<SResults::dag_cache_t<ICPUShader>>(reservations.m_typedDagNodes))
 		if (!shader.second.canonical)
 		{
@@ -186,9 +237,16 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 			params.cpushader = shader.first.asset;
 			shader.second.result = device->createShader(params);
 		}
+#endif
 	}
 
 	return true;
+}
+
+ISemaphore::future_t<bool> CAssetConverter::SConvertParams::autoSubmit()
+{
+	// TODO: transfer first, then compute
+	return {};
 }
 
 }
