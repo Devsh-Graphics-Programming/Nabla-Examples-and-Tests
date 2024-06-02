@@ -34,7 +34,7 @@ public:
 
 		// Compute and input related constants.
 		static constexpr uint32_t WorkgroupSize = 64;
-		static constexpr uint32_t NumberOfElementsToSort = 10777u;
+		static constexpr uint32_t NumberOfElementsToSort = 10337u;
 		static const uint32_t WorkgroupCount = (uint32_t)ceil(NumberOfElementsToSort / (float)WorkgroupSize);
 
 		const size_t bufferSize = sizeof(int32_t) * NumberOfElementsToSort;
@@ -76,8 +76,8 @@ public:
 			// During compilation, replace the value of WORKGROUP_SIZE in the shader source.
 
 			const auto overridenSource = CHLSLCompiler::createOverridenCopy(
-				cpuShaderAsset.get(), "#define WORKGROUP_SIZE %d\n",
-				WorkgroupSize
+				cpuShaderAsset.get(), "#define WORKGROUP_SIZE %d\n#define MaxNumberOfArrayElements %d\n",
+				WorkgroupSize, NumberOfElementsToSort
 			);
 
 			m_mergeSortShader = m_device->createShader(overridenSource.get());
