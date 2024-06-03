@@ -32,9 +32,14 @@ public:
 			return false;
 		}
 
+		// Get the maxinum bytes of shared memory we can use.
+		// In case the number of elements shared memory array can hold exceeds the limit, then switch to fetching data from global memory directly (for as few memory elements as possible).
+		const auto physicalDeviceLimits = m_device->getPhysicalDevice()->getLimits();
+		const uint32_t maxNumberOfArrayElementsSharedMemoryCanHold = physicalDeviceLimits.maxComputeSharedMemorySize / sizeof(int);
+
 		// Compute and input related constants.
 		static constexpr uint32_t WorkgroupSize = 64;
-		static constexpr uint32_t NumberOfElementsToSort = 10337u;
+		static constexpr uint32_t NumberOfElementsToSort = 1024 * 633u;
 		static const uint32_t WorkgroupCount = (uint32_t)ceil(NumberOfElementsToSort / (float)WorkgroupSize);
 
 		const size_t bufferSize = sizeof(int32_t) * NumberOfElementsToSort;
@@ -76,8 +81,8 @@ public:
 			// During compilation, replace the value of WORKGROUP_SIZE in the shader source.
 
 			const auto overridenSource = CHLSLCompiler::createOverridenCopy(
-				cpuShaderAsset.get(), "#define WORKGROUP_SIZE %d\n#define MaxNumberOfArrayElements %d\n",
-				WorkgroupSize, NumberOfElementsToSort
+				cpuShaderAsset.get(), "#define WORKGROUP_SIZE %d\n#define MaxNumberOfArrayElementsSharedMemoryCanHold %d\n",
+				WorkgroupSize, std::min(maxNumberOfArrayElementsSharedMemoryCanHold, NumberOfElementsToSort)
 			);
 
 			m_mergeSortShader = m_device->createShader(overridenSource.get());
@@ -313,7 +318,7 @@ public:
 
 		for (auto i = 0; i < NumberOfElementsToSort; i++)
 		{
-			//printf("output buffer -> %d input buffer -> %d\n", outputBufferData[i], inputBufferData[i]);
+			printf("output buffer -> %d input buffer -> %d\n", outputBufferData[i], inputBufferData[i]);
 			if (outputBufferData[i] != inputBufferData[i])
 			{
 				return logFail("%d != %d\n", outputBufferData[i], inputBufferData[i]);
