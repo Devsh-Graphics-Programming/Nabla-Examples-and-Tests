@@ -29,19 +29,7 @@ DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPol
 	msdfgen::generateMTSDF(msdfMap, glyph, MsdfPixelRange, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
 
 	auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * sizeof(float) * 4);
-	float* data = reinterpret_cast<float*>(cpuBuf->getPointer());
-	// TODO: Optimize this: negative values aren't being handled properly by the updateImageViaStagingBuffer function
-	for (int y = 0; y < msdfMap.height(); ++y)
-	{
-		for (int x = 0; x < msdfMap.width(); ++x)
-		{
-			auto pixel = msdfMap(x, glyphH - 1 - y);
-			data[(x + y * glyphW) * 4 + 0] = max(pixel[0], 0.0);
-			data[(x + y * glyphW) * 4 + 1] = max(pixel[1], 0.0);
-			data[(x + y * glyphW) * 4 + 2] = max(pixel[2], 0.0);
-			data[(x + y * glyphW) * 4 + 3] = max(pixel[3], 0.0);
-		}
-	}
+	memcpy(reinterpret_cast<void*>(cpuBuf->getPointer()), reinterpret_cast<void*>(msdfMap(0, 0)), glyphW * glyphH * sizeof(float) * 4);
 
 	return {
 		.cpuBuffer = std::move(cpuBuf),
@@ -159,19 +147,19 @@ void hatch(std::vector<CPolyline>& polylines)
 {
 	CPolyline polyline;
 
-	float64_t2 basePt0 = float64_t2(-1.0, -1.0);
-	float64_t2 basePt1 = float64_t2(9.0, 9.0);
+	float64_t2 basePt0 = float64_t2(9.0, -1.0);
+	float64_t2 basePt1 = float64_t2(-1.0, 9.0);
 	float64_t lineDiameter = 1.5;
 	float64_t lineRadius = lineDiameter / 2.0;
 
 	{
-		float64_t2 radiusOffsetTL = float64_t2(-lineRadius / 2.0, +lineRadius / 2.0);
-		float64_t2 radiusOffsetBL = float64_t2(+lineRadius / 2.0, -lineRadius / 2.0);
+		float64_t2 radiusOffsetTL = float64_t2(+lineRadius / 2.0, +lineRadius / 2.0);
+		float64_t2 radiusOffsetBL = float64_t2(-lineRadius / 2.0, -lineRadius / 2.0);
 		std::vector<float64_t2> points = {
 			basePt0 + radiusOffsetTL,
-			basePt1 + radiusOffsetTL, // 2
-			basePt1 + radiusOffsetBL, // 1
 			basePt0 + radiusOffsetBL, // 0
+			basePt1 + radiusOffsetBL, // 1
+			basePt1 + radiusOffsetTL, // 2
 			basePt0 + radiusOffsetTL
 		};
 		polyline.addLinePoints(points);
@@ -271,19 +259,19 @@ void reverseHatch(std::vector<CPolyline>& polylines)
 {
 	CPolyline polyline;
 
-	float64_t2 basePt0 = float64_t2(9.0, -1.0);
-	float64_t2 basePt1 = float64_t2(-1.0, 9.0);
+	float64_t2 basePt0 = float64_t2(-1.0, -1.0);
+	float64_t2 basePt1 = float64_t2(9.0, 9.0);
 	float64_t lineDiameter = 1.5;
 	float64_t lineRadius = lineDiameter / 2.0;
 
 	{
-		float64_t2 radiusOffsetTL = float64_t2(+lineRadius / 2.0, +lineRadius / 2.0);
-		float64_t2 radiusOffsetBL = float64_t2(-lineRadius / 2.0, -lineRadius / 2.0);
+		float64_t2 radiusOffsetTL = float64_t2(-lineRadius / 2.0, +lineRadius / 2.0);
+		float64_t2 radiusOffsetBL = float64_t2(+lineRadius / 2.0, -lineRadius / 2.0);
 		std::vector<float64_t2> points = {
 			basePt0 + radiusOffsetTL,
-			basePt0 + radiusOffsetBL, // 0
-			basePt1 + radiusOffsetBL, // 1
 			basePt1 + radiusOffsetTL, // 2
+			basePt1 + radiusOffsetBL, // 1
+			basePt0 + radiusOffsetBL, // 0
 			basePt0 + radiusOffsetTL
 		};
 		polyline.addLinePoints(points);

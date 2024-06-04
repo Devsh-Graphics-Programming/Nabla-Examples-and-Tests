@@ -32,7 +32,7 @@ struct MsdfTextureHash
 	MsdfTextureType textureType;
 	union {
 		MsdfFillPattern fillPattern;
-		uint32_t glyphIndex; // Result of FT_Get_Char_Index from FreeType
+		std::size_t glyphHash;
 	};
 };
 
@@ -41,7 +41,7 @@ struct std::hash<MsdfTextureHash>
 {
     std::size_t operator()(const MsdfTextureHash& s) const noexcept
     {
-		std::size_t textureTypeHash = std::hash<uint32_t>{}(uint32_t(s.textureType));
+		std::size_t finalHash = std::hash<uint32_t>{}(uint32_t(s.textureType));
 		std::size_t textureHash;
 
 		switch (s.textureType) 
@@ -50,11 +50,12 @@ struct std::hash<MsdfTextureHash>
 			textureHash = std::hash<uint32_t>{}(uint32_t(s.fillPattern));
 			break;
 		case MsdfTextureType::FONT_GLYPH:
-			textureHash = std::hash<uint32_t>{}(s.glyphIndex);
+			textureHash = s.glyphHash;
 			break;
 		}
 
-		return textureTypeHash ^ (textureHash << 1);
+		nbl::core::hash_combine(finalHash, textureHash);
+		return finalHash;
     }
 };
  

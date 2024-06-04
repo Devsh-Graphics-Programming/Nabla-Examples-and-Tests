@@ -288,6 +288,6 @@ protected:
 	std::set<uint32_t>		msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame 
 	std::vector<TextureCopy>			textureCopies = {}; // queued up texture copies, @Lucas change to deque if possible
 	std::unique_ptr<TextureLRUCache>    textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
-	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
+	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 };
 
