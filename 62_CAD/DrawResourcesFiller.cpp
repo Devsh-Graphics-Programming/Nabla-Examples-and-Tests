@@ -116,13 +116,13 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 	}
 }
 
-void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
+void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
 	textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(maxMSDFs));
 	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 
 	asset::E_FORMAT msdfFormat = MsdfTextureFormat;
-	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
+	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
 
 	IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
@@ -270,7 +270,14 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
-void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t bufferOffset, uint32_t3 imageExtent, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
+{
+	auto ptr = textureLRUCache->get(hash);
+	if (ptr) return ptr->alloc_idx;
+	else return InvalidTextureHash;
+}
+
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -301,21 +308,24 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t b
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
+		auto textureUploadInfo = createResourceIfEmpty();
+
 		// New insertion == cache miss happened and insertion was successfull
 		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
 		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
 
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({
-			.srcBuffer = srcBuffer,
-			.bufferOffset = bufferOffset,
-			.imageExtent = imageExtent,
+			.srcBuffer = textureUploadInfo.cpuBuffer,
+			.bufferOffset = textureUploadInfo.bufferOffset,
+			.imageExtent = textureUploadInfo.imageExtent,
 			.index = inserted->alloc_idx,
 		});
 	}
 	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
+	return inserted->alloc_idx;
 }
 
 void DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -459,13 +469,16 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
-				.oldLayout = IImage::LAYOUT::UNDEFINED,
+				.oldLayout = m_hasInitializedMsdfTextureArrays ? IImage::LAYOUT::READ_ONLY_OPTIMAL : IImage::LAYOUT::UNDEFINED,
 				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 			});
 		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
 		cmdBuff->pipelineBarrier(
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			barrierInfo);
+
+		if (!m_hasInitializedMsdfTextureArrays)
+			m_hasInitializedMsdfTextureArrays = true;
 	}
 
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
@@ -484,7 +497,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 		m_utilities->updateImageViaStagingBuffer(
 			intendedNextSubmit, 
-			textureCopy.srcBuffer, asset::E_FORMAT::EF_R8G8B8A8_UNORM, 
+			textureCopy.srcBuffer->getPointer(), asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
 			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 			{ &region, &region + 1 });
 	}
