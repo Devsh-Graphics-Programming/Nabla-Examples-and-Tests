@@ -80,7 +80,7 @@ public:
 			[textureUploadInfo] { return textureUploadInfo; },
 			hash,
 			intendedNextSubmit
-		)
+		);
 	}
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
@@ -300,5 +300,7 @@ protected:
 	std::vector<TextureCopy>			textureCopies = {}; // queued up texture copies, @Lucas change to deque if possible
 	std::unique_ptr<TextureLRUCache>    textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
 	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
+
+	bool m_hasInitializedMsdfTextureArrays = false;
 };
 

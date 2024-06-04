@@ -460,34 +460,34 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	std::vector<image_barrier_t> barriers;
 	barriers.reserve(textureCopies.size());
 	{
-		for (uint32_t i = 0; i < textureCopies.size(); i++)
-		{
-			barriers.push_back({
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-							.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-						}
-						// .ownershipOp. No queueFam ownership transfer
-					},
-					.image = msdfImage.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = textureCopies[i].index,
-						.layerCount = 1u,
-					},
-					.oldLayout = IImage::LAYOUT::UNDEFINED,
-					.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-				});
-		}
+		barriers.push_back({
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+						.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+					}
+					// .ownershipOp. No queueFam ownership transfer
+				},
+				.image = msdfImage.get(),
+				.subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
+				},
+				.oldLayout = m_hasInitializedMsdfTextureArrays ? IImage::LAYOUT::READ_ONLY_OPTIMAL : IImage::LAYOUT::UNDEFINED,
+				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+			});
 		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
 		cmdBuff->pipelineBarrier(
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			barrierInfo);
+
+		if (!m_hasInitializedMsdfTextureArrays)
+			m_hasInitializedMsdfTextureArrays = true;
 	}
 
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
@@ -515,30 +515,27 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	// preparing images for use
 	{
 		barriers.clear();
-		for (uint32_t i = 0; i < textureCopies.size(); i++)
-		{
-			barriers.push_back({
-					.barrier = {
-						.dep = {
-							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-							.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
-							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-						}
-						// .ownershipOp. No queueFam ownership transfer
-					},
-					.image = msdfImage.get(),
-					.subresourceRange = {
-						.aspectMask = IImage::EAF_COLOR_BIT,
-						.baseMipLevel = 0u,
-						.levelCount = 1u,
-						.baseArrayLayer = textureCopies[i].index,
-						.layerCount = 1u,
-					},
-					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-				});
-		}
+		barriers.push_back({
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+					}
+					// .ownershipOp. No queueFam ownership transfer
+				},
+				.image = msdfImage.get(),
+				.subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
+				},
+				.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+			});
 		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
 		cmdBuff->pipelineBarrier(
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
