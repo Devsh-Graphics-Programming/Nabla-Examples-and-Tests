@@ -23,6 +23,7 @@ using namespace video;
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
+#include "MSDFs.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -255,6 +256,7 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t WindowWidthRequest = 1600u;
 	constexpr static uint32_t WindowHeightRequest = 900u;
 	constexpr static uint32_t MaxFramesInFlight = 8u;
+	constexpr static uint32_t2 MsdfSize = uint32_t2(32, 32);
 public:
 
 	void allocateResources(uint32_t maxObjects)
@@ -273,7 +275,7 @@ public:
 		// + 128 ClipProjDaa
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 64u);
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 64u, MsdfSize);
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -525,9 +527,6 @@ public:
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
-			LRUCache<int, char> hugeCache(50000000u);
-			hugeCache.insert(0, '0');
-
 
 		// Remember to call the base class initialization!
 		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -1346,7 +1345,6 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-		printf("render frame\n");
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
 
 		auto now = std::chrono::high_resolution_clock::now();
@@ -1969,17 +1967,7 @@ protected:
 				if (hatchDebugStep < uint32_t(MsdfFillPattern::COUNT))
 				{
 					const auto& shapePolylines = m_shapeMsdfTextures[hatchDebugStep].polylines;
-					const DrawResourcesFiller::texture_hash msdfHash = std::hash<DrawResourcesFiller::MsdfTextureHash>{}({
-						.textureType = DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN,
-						.fillPattern = MsdfFillPattern(hatchDebugStep),
-					});
-					drawResourcesFiller.addMSDFTexture(
-						m_shapeMsdfTextures[hatchDebugStep].cpuBuffer.get(), 
-						m_shapeMsdfTextures[hatchDebugStep].bufferOffset, 
-						m_shapeMsdfTextures[hatchDebugStep].imageExtent, 
-						msdfHash, 
-						intendedNextSubmit
-					);
+					DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(hatchDebugStep), intendedNextSubmit);
 			
 					for (int x = -3; x <= 3; x++)
 					{
@@ -2094,10 +2082,10 @@ protected:
 						{
 							std::vector<float64_t2> points;
 							auto addPt = [&](float64_t2 p)
-								{
-									auto point = p / 8.0;
-									points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
-								};
+							{
+								auto point = p / 8.0;
+								points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+							};
 							addPt(float64_t2(0.0, 0.0));
 							addPt(float64_t2(8.0, 0.0));
 							addPt(float64_t2(8.0, 8.0));
@@ -2110,17 +2098,7 @@ protected:
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
 						);
-						const DrawResourcesFiller::texture_hash msdfHash = std::hash<DrawResourcesFiller::MsdfTextureHash>{}({
-							.textureType = DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN,
-							.fillPattern = MsdfFillPattern(hatchFillShapeIdx),
-						});
-						drawResourcesFiller.addMSDFTexture(
-							m_shapeMsdfTextures[hatchFillShapeIdx].cpuBuffer.get(),
-							m_shapeMsdfTextures[hatchFillShapeIdx].bufferOffset,
-							m_shapeMsdfTextures[hatchFillShapeIdx].imageExtent,
-							msdfHash,
-							intendedNextSubmit
-						);
+						DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(hatchFillShapeIdx), intendedNextSubmit);
 
 						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
 						drawResourcesFiller.drawHatch(
@@ -2219,17 +2197,7 @@ protected:
 
 						if (transformedPolylines.size() == 0) continue;
 						Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-						const DrawResourcesFiller::texture_hash msdfHash = std::hash<DrawResourcesFiller::MsdfTextureHash>{}({
-							.textureType = DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN,
-							.fillPattern = MsdfFillPattern(1),
-						});
-						drawResourcesFiller.addMSDFTexture(
-							m_shapeMsdfTextures[1].cpuBuffer.get(),
-							m_shapeMsdfTextures[1].bufferOffset,
-							m_shapeMsdfTextures[1].imageExtent,
-							msdfHash,
-							intendedNextSubmit
-						);
+						DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(1), intendedNextSubmit);
 						//drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 0.0, 1.0f), float32_t4(1.0, 1.0, 1.0, 1.0f),  msdfHash, intendedNextSubmit);
 						drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
 					}

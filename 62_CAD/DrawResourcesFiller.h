@@ -25,24 +25,6 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
 };
 
-// TODO: Better place for this
-enum class MsdfFillPattern: uint32_t
-{
-	CHECKERED,
-	DIAMONDS,
-	CROSS_HATCH,
-	HATCH,
-	HORIZONTAL,
-	VERTICAL,
-	INTERWOVEN,
-	REVERSE_HATCH,
-	SQUARES,
-	CIRCLE,
-	LIGHT_SHADED,
-	SHADED,
-	COUNT
-};
-
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
@@ -74,28 +56,21 @@ public:
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 	
-	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
-
-	enum class MsdfTextureType: uint32_t
-	{
-		HATCH_FILL_PATTERN,
-		FONT_GLYPH,
-	};
-	
-	struct MsdfTextureHash 
-	{
-		MsdfTextureType textureType;
-		union {
-			MsdfFillPattern fillPattern;
-			uint32_t glyphIndex; // Result of FT_Get_Char_Index from FreeType
-		};
-	};
+	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
 	using texture_hash = std::size_t;
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
 	// ! return index to be used later in hatch fill style or text glyph object
-	void addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t bufferOffset, uint32_t3 imageExtent, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	struct MsdfTextureUploadInfo 
+	{
+		core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
+		uint64_t bufferOffset;
+		uint32_t3 imageExtent;
+		std::vector<CPolyline> polylines;
+	};
+	void addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	void addMSDFTexture(MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
@@ -171,11 +146,16 @@ public:
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
+	uint32_t2 getMSDFResolution() {
+		auto extents = msdfTextureArray->getCreationParameters().image->getCreationParameters().extent;
+		return uint32_t2(extents.width, extents.height);
+	}
+
 protected:
 	
 	struct TextureCopy
 	{
-		ICPUBuffer const* srcBuffer;
+		core::smart_refctd_ptr<ICPUBuffer> srcBuffer;
 		uint64_t bufferOffset;
 		uint32_t3 imageExtent;
 		uint32_t index;
@@ -311,25 +291,3 @@ protected:
 	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_UNORM;
 };
 
-template<>
-struct std::hash<DrawResourcesFiller::MsdfTextureHash>
-{
-    std::size_t operator()(const DrawResourcesFiller::MsdfTextureHash& s) const noexcept
-    {
-		std::size_t textureTypeHash = std::hash<uint32_t>{}(uint32_t(s.textureType));
-		std::size_t textureHash;
-
-		switch (s.textureType) 
-		{
-		case DrawResourcesFiller::MsdfTextureType::HATCH_FILL_PATTERN:
-			textureHash = std::hash<uint32_t>{}(uint32_t(s.fillPattern));
-			break;
-		case DrawResourcesFiller::MsdfTextureType::FONT_GLYPH:
-			textureHash = std::hash<uint32_t>{}(s.glyphIndex);
-			break;
-		}
-
-		return textureTypeHash ^ (textureHash << 1);
-    }
-};
- 

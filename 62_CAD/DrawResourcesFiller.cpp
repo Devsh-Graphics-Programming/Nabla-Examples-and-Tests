@@ -116,13 +116,13 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 	}
 }
 
-void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
+void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
 	textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(maxMSDFs));
 	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 
 	asset::E_FORMAT msdfFormat = MsdfTextureFormat;
-	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
+	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
 
 	IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
@@ -279,8 +279,62 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
-void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, uint64_t bufferOffset, uint32_t3 imageExtent, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+void DrawResourcesFiller::addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
+	// Every single submit increases this value by 1
+	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
+	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
+
+	auto evictionCallback = [&](const TextureReference& evicted)
+	{
+		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
+		{
+			// Dealloc once submission is finished
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
+
+			// Submit
+			finalizeAllCopiesToGPU(intendedNextSubmit);
+			submitDraws(intendedNextSubmit);
+			resetGeometryCounters();
+			resetMainObjectCounters();
+		} else {
+			// We didn't use it this frame, so it's safe to dealloc now
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
+		}
+	};
+	
+	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
+	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
+	
+	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
+	if (inserted->alloc_idx == InvalidTextureIdx)
+	{
+		auto textureUploadInfo = createResourceIfEmpty();
+
+		// New insertion == cache miss happened and insertion was successfull
+		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
+		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+
+		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
+		textureCopies.push_back({
+			.srcBuffer = textureUploadInfo.cpuBuffer,
+			.bufferOffset = textureUploadInfo.bufferOffset,
+			.imageExtent = textureUploadInfo.imageExtent,
+			.index = inserted->alloc_idx,
+		});
+	}
+	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
+
+	assert(inserted->alloc_idx != InvalidTextureIdx);
+}
+
+void DrawResourcesFiller::addMSDFTexture(MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	auto srcBuffer = textureUploadInfo.cpuBuffer;
+	uint64_t bufferOffset = textureUploadInfo.bufferOffset;
+	uint32_t3 imageExtent = textureUploadInfo.imageExtent;
+
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
 	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
@@ -450,27 +504,30 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	std::vector<image_barrier_t> barriers;
 	barriers.reserve(textureCopies.size());
 	{
-		barriers.push_back({
-				.barrier = {
-					.dep = {
-						.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-						.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-						.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-						.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-					}
-					// .ownershipOp. No queueFam ownership transfer
-				},
-				.image = msdfImage.get(),
-				.subresourceRange = {
-					.aspectMask = IImage::EAF_COLOR_BIT,
-					.baseMipLevel = 0u,
-					.levelCount = 1u,
-					.baseArrayLayer = 0u,
-					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
-				},
-				.oldLayout = IImage::LAYOUT::UNDEFINED,
-				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-			});
+		for (uint32_t i = 0; i < textureCopies.size(); i++)
+		{
+			barriers.push_back({
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = msdfImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = textureCopies[i].index,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::UNDEFINED,
+					.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				});
+		}
 		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
 		cmdBuff->pipelineBarrier(
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
@@ -493,7 +550,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 		m_utilities->updateImageViaStagingBuffer(
 			intendedNextSubmit, 
-			textureCopy.srcBuffer, asset::E_FORMAT::EF_R8G8B8A8_UNORM, 
+			textureCopy.srcBuffer.get(), asset::E_FORMAT::EF_R8G8B8A8_UNORM,
 			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 			{ &region, &region + 1 });
 	}
@@ -502,27 +559,30 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	// preparing images for use
 	{
 		barriers.clear();
-		barriers.push_back({
-				.barrier = {
-					.dep = {
-						.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-						.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-						.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
-						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-					}
-					// .ownershipOp. No queueFam ownership transfer
-				},
-				.image = msdfImage.get(),
-				.subresourceRange = {
-					.aspectMask = IImage::EAF_COLOR_BIT,
-					.baseMipLevel = 0u,
-					.levelCount = 1u,
-					.baseArrayLayer = 0u,
-					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
-				},
-				.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-				.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-			});
+		for (uint32_t i = 0; i < textureCopies.size(); i++)
+		{
+			barriers.push_back({
+					.barrier = {
+						.dep = {
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+							.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
+							.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+						}
+						// .ownershipOp. No queueFam ownership transfer
+					},
+					.image = msdfImage.get(),
+					.subresourceRange = {
+						.aspectMask = IImage::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = 1u,
+						.baseArrayLayer = textureCopies[i].index,
+						.layerCount = 1u,
+					},
+					.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+				});
+		}
 		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
 		cmdBuff->pipelineBarrier(
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),

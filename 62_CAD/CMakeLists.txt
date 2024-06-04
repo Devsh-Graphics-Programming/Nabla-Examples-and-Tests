@@ -11,6 +11,8 @@ set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/Polyline.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
+  "${CMAKE_CURRENT_SOURCE_DIR}/MSDFs.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/MSDFs.h"
   "../../src/nbl/ext/TextRendering/TextRendering.cpp"
 )
 set(EXAMPLE_INCLUDES
