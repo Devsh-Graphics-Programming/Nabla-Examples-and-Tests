@@ -3,6 +3,7 @@
 #include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>  
+#include "nbl/ext/TextRendering/TextRendering.h"
 
 enum class MsdfFillPattern: uint32_t
 {
@@ -59,6 +60,8 @@ struct std::hash<MsdfTextureHash>
     }
 };
  
+DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPolyline>&& polylines, msdfgen::Shape glyph, uint32_t2 msdfExtents, uint32_t2 glyphExtents);
+
 DrawResourcesFiller::MsdfTextureUploadInfo generateHatchFillPatternMsdf(MsdfFillPattern fillPattern, uint32_t2 msdfExtents);
 
 DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit);

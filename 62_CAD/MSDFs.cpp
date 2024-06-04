@@ -1,6 +1,5 @@
 #include "DrawResourcesFiller.h"
 #include "MSDFs.h"
-#include "nbl/ext/TextRendering/TextRendering.h"
 
 // extents is the size of the MSDF that is generated (probably 32x32)
 // glyphExtents is the area of the "image" that msdf will consider (used as resizing, for fill patterns should be 8x8)

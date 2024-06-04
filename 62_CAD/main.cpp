@@ -353,92 +353,6 @@ public:
 		samplerParams.MaxLod = 1000.f;
 		msdfTextureSampler = m_device->createSampler(samplerParams);
 	}
-
-	struct MsdfTexture
-	{
-		core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
-		uint64_t bufferOffset;
-		uint32_t3 imageExtent;
-		std::vector<CPolyline> polylines; // polylines that make up the msdf fill pattern
-	};
-
-	MsdfTexture generateMsdfForShape(std::vector<CPolyline>&& polylines)
-	{
-		// MSDF gen test
-		msdfgen::Shape glyph;
-		nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(glyph);
-		for (uint32_t polylineIdx = 0; polylineIdx < polylines.size(); polylineIdx++)
-		{
-			auto& polyline = polylines[polylineIdx];
-			for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-			{
-				auto& section = polyline.getSectionInfoAt(sectorIdx);
-				if (section.type == ObjectType::LINE)
-				{
-					if (section.count == 0u) continue;
-
-					glyphShapeBuilder.moveTo(polyline.getLinePointAt(section.index).p);
-					for (uint32_t i = section.index + 1; i < section.index + section.count + 1; i++)
-						glyphShapeBuilder.lineTo(polyline.getLinePointAt(i).p);
-				}
-			}
-		}
-		glyphShapeBuilder.finish();
-		glyph.normalize();
-
-		const auto imageExtents = uint32_t2(32, 32);
-		auto cpuBuffer = copyGlyphShapeToImage(imageExtents, glyph);
-
-		return {
-			.cpuBuffer = std::move(cpuBuffer),
-			.bufferOffset = 0ull,
-			.imageExtent = { imageExtents.x, imageExtents.y, 1 },
-			.polylines = std::move(polylines),
-		};
-	}
-
-	core::smart_refctd_ptr<ICPUBuffer> copyGlyphShapeToImage(
-		uint32_t2 msdfImageExtents, msdfgen::Shape glyph, bool glyphExtents = false
-	)
-	{
-		if (glyph.contours.empty())
-		{
-			return nullptr;
-		}
-		auto shapeBounds = glyph.getBounds();
-
-		uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
-		uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
-
-		uint32_t glyphW = msdfImageExtents.x;
-		uint32_t glyphH = msdfImageExtents.y;
-
-		msdfgen::edgeColoringSimple(glyph, 3.0); // TODO figure out what this is
-		msdfgen::Bitmap<float, 4> msdfMap(glyphW, glyphH);
-
-		msdfgen::Vector2 renderExtents = glyphExtents 
-			? msdfgen::Vector2((1.0 / float(shapeBoundsWidth)) * glyphW, (1.0 / float(shapeBoundsHeight)) * glyphH) 
-			: msdfgen::Vector2((1.0 / float(8.0)) * glyphW, (1.0 / float(8.0)) * glyphH);
-		msdfgen::generateMTSDF(msdfMap, glyph, MsdfPixelRange, renderExtents, msdfgen::Vector2(0.0, 0.0));
-
-		// TODO: Optimize this
-		auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * 4);
-		uint8_t* data = reinterpret_cast<uint8_t*>(cpuBuf->getPointer());
-		for (int y = 0; y < msdfMap.height(); ++y)
-		{
-			for (int x = 0; x < msdfMap.width(); ++x)
-			{
-				auto pixel = msdfMap(x, glyphH - 1 - y);
-				data[(x + y * glyphW) * 4 + 0] = msdfgen::pixelFloatToByte(pixel[0]);
-				data[(x + y * glyphW) * 4 + 1] = msdfgen::pixelFloatToByte(pixel[1]);
-				data[(x + y * glyphW) * 4 + 2] = msdfgen::pixelFloatToByte(pixel[2]);
-				data[(x + y * glyphW) * 4 + 3] = msdfgen::pixelFloatToByte(pixel[3]);
-			}
-		}
-
-		return cpuBuf;
-	}
-
 	
 	smart_refctd_ptr<IGPURenderpass> createRenderpass(
 		E_FORMAT colorAttachmentFormat,
@@ -542,6 +456,13 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
+
+	struct TextGlyphBoundingBox
+	{
+		float64_t2 topLeft;
+		float64_t2 dirU;
+		float64_t2 dirV;
+	};
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -961,420 +882,10 @@ public:
 		error = FT_New_Face(library, fontFilename.c_str(), 0, &face);
 		assert(!error);
 
-		// For each represented character
-		for (uint32_t characterIdx = FirstGeneratedCharacter; characterIdx <= LastGeneratedCharacter; characterIdx ++)
-		{
-			char k = char(characterIdx);
-			wchar_t unicode = wchar_t(k);
-			uint32_t glyphIndex = FT_Get_Char_Index(face, unicode);
-
-			// special case for space as it seems to break msdfgen
-			if (glyphIndex != 0 || k != ' ')
-			{
-				error = FT_Load_Glyph(face, glyphIndex, FT_LOAD_NO_SCALE);
-				assert(!error);
-
-				FreetypeHatchBuilder hatchBuilder;
-				{
-					FT_Outline_Funcs ftFunctions;
-					ftFunctions.move_to = &ftMoveTo;
-					ftFunctions.line_to = &ftLineTo;
-					ftFunctions.conic_to = &ftConicTo;
-					ftFunctions.cubic_to = &ftCubicTo;
-					ftFunctions.shift = 0;
-					ftFunctions.delta = 0;
-					error = FT_Outline_Decompose(&face->glyph->outline, &ftFunctions, &hatchBuilder);
-					assert(!error);
-					hatchBuilder.finish();
-				}
-
-				msdfgen::Shape shape;
-				bool loadedGlyph = drawFreetypeGlyph(shape, library, face);
-				assert(loadedGlyph);
-
-				const auto imageExtents = uint32_t2(32, 32);
-				auto cpuBuffer = copyGlyphShapeToImage(imageExtents, shape, true);
-
-				MsdfTexture msdf = {
-					.cpuBuffer = std::move(cpuBuffer),
-					.bufferOffset = 0ull,
-					.imageExtent = { imageExtents.x, imageExtents.y, 1 },
-					.polylines = std::move(hatchBuilder.polylines),
-				};
-
-				m_glyphMsdfTextures[characterIdx - uint32_t(FirstGeneratedCharacter)] = msdf;
-			}
-		}
-
 		m_glyphLibrary = library;
 		m_glyphFace = face;
 
-		createHatchFillMsdfTextures();
-
 		return true;
-	}
-
-	void createHatchFillMsdfTextures() {
-		std::vector<std::vector<CPolyline>> shapes;
-		std::vector<CPolyline> polylines;
-		auto line = [&](float64_t2 begin, float64_t2 end) {
-			std::vector<float64_t2> points = {
-				begin, end
-			};
-			CPolyline polyline;
-			polyline.addLinePoints(points);
-			polylines.push_back(polyline);
-		};
-		auto square = [&](float64_t2 position) {
-			std::vector<float64_t2> points = {
-				float64_t2(position.x, position.y),
-				float64_t2(position.x, position.y + 1),
-				float64_t2(position.x + 1, position.y + 1),
-				float64_t2(position.x + 1, position.y),
-				float64_t2(position.x, position.y)
-			};
-			CPolyline polyline;
-			polyline.addLinePoints(points);
-			polylines.push_back(polyline);
-		};
-		{
-			// Checkered
-			line(float64_t2(0.0, 0.0), float64_t2(4.0, 0.0));
-			line(float64_t2(4.0, 0.0), float64_t2(4.0, 4.0));
-			line(float64_t2(4.0, 4.0), float64_t2(0.0, 4.0));
-			line(float64_t2(0.0, 4.0), float64_t2(0.0, 0.0));
-
-			line(float64_t2(4.0, 4.0), float64_t2(8.0, 4.0));
-			line(float64_t2(8.0, 4.0), float64_t2(8.0, 8.0));
-			line(float64_t2(8.0, 8.0), float64_t2(4.0, 8.0));
-			line(float64_t2(4.0, 8.0), float64_t2(4.0, 4.0));
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::CHECKERED)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Diamonds
-			{
-				// Outer
-				std::vector<float64_t2> points = {
-					float64_t2(3.5, 8.0),
-					float64_t2(7.0, 4.5),
-					float64_t2(3.5, 1.0),
-					float64_t2(0.0, 4.5),
-					float64_t2(3.5, 8.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-			{
-				// Inner 
-				std::vector<float64_t2> points = {
-					float64_t2(3.5, 6.5),
-					float64_t2(1.5, 4.5),
-					float64_t2(3.5, 2.5),
-					float64_t2(5.5, 4.5),
-					float64_t2(3.5, 6.5)
-				};
-
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::DIAMONDS)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Cross Hatch 
-			{
-				// Outer
-				std::vector<float64_t2> points = {
-					float64_t2(3.0, 0.0),
-					float64_t2(0.0, 3.0),
-					float64_t2(0.0, 5.0),
-					float64_t2(3.0, 8.0),
-					float64_t2(5.0, 8.0),
-					float64_t2(8.0, 5.0),
-					float64_t2(8.0, 3.0),
-					float64_t2(5.0, 0.0),
-					float64_t2(3.0, 0.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-			{
-				// Inner 
-				std::vector<float64_t2> points = {
-					float64_t2(4.0, 1.0),
-					float64_t2(7.0, 4.0),
-					float64_t2(4.0, 7.0),
-					float64_t2(1.0, 4.0),
-					float64_t2(4.0, 1.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::CROSS_HATCH)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Hatch
-			{
-				CPolyline polyline;
-
-				float64_t2 basePt0 = float64_t2(-1.0, -1.0);
-				float64_t2 basePt1 = float64_t2(9.0, 9.0);
-				float64_t lineDiameter = 1.5;
-				float64_t lineRadius = lineDiameter / 2.0;
-
-				{
-					float64_t2 radiusOffsetTL = float64_t2(-lineRadius / 2.0, +lineRadius / 2.0);
-					float64_t2 radiusOffsetBL = float64_t2(+lineRadius / 2.0, -lineRadius / 2.0);
-					std::vector<float64_t2> points = {
-						basePt0 + radiusOffsetTL,
-						basePt1 + radiusOffsetTL, // 2
-						basePt1 + radiusOffsetBL, // 1
-						basePt0 + radiusOffsetBL, // 0
-						basePt0 + radiusOffsetTL
-					};
-					polyline.addLinePoints(points);
-				}
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::HATCH)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Horizontal 
-			{
-				std::vector<float64_t2> points = {
-					float64_t2(0.0, 3.0),
-					float64_t2(0.0, 4.0),
-					float64_t2(8.0, 4.0),
-					float64_t2(8.0, 3.0),
-					float64_t2(0.0, 3.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-			{
-				std::vector<float64_t2> points = {
-					float64_t2(0.0, 7.0),
-					float64_t2(0.0, 8.0),
-					float64_t2(8.0, 8.0),
-					float64_t2(8.0, 7.0),
-					float64_t2(0.0, 7.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::HORIZONTAL)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Vertical 
-			{
-				std::vector<float64_t2> points = {
-					float64_t2(0.0, 0.0),
-					float64_t2(0.0, 8.0),
-					float64_t2(1.0, 8.0),
-					float64_t2(1.0, 0.0),
-					float64_t2(0.0, 0.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-			{
-				std::vector<float64_t2> points = {
-					float64_t2(4.0, 0.0),
-					float64_t2(4.0, 8.0),
-					float64_t2(5.0, 8.0),
-					float64_t2(5.0, 0.0),
-					float64_t2(4.0, 0.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::VERTICAL)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Interwoven 
-			{
-				std::vector<float64_t2> points = {
-					float64_t2(4.0, 0.0),
-					float64_t2(4.0, 1.0), // 0
-					float64_t2(7.0, 4.0), // 1
-					float64_t2(8.0, 4.0), // 2
-					float64_t2(8.0, 3.0), // 3
-					float64_t2(5.0, 0.0), // 4
-					float64_t2(4.0, 0.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-			{
-				std::vector<float64_t2> points = {
-					float64_t2(3.0, 4.0),
-					float64_t2(0.0, 7.0), // 0
-					float64_t2(0.0, 8.0), // 1
-					float64_t2(1.0, 8.0), // 2
-					float64_t2(4.0, 5.0), // 3
-					float64_t2(4.0, 4.0), // 4
-					float64_t2(3.0, 4.0),
-				};
-				CPolyline polyline;
-				polyline.addLinePoints(points);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::INTERWOVEN)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Reverse Hatch 
-			{
-				CPolyline polyline;
-
-				float64_t2 basePt0 = float64_t2(9.0, -1.0);
-				float64_t2 basePt1 = float64_t2(-1.0, 9.0);
-				float64_t lineDiameter = 1.5;
-				float64_t lineRadius = lineDiameter / 2.0;
-
-				{
-					float64_t2 radiusOffsetTL = float64_t2(+lineRadius / 2.0, +lineRadius / 2.0);
-					float64_t2 radiusOffsetBL = float64_t2(-lineRadius / 2.0, -lineRadius / 2.0);
-					std::vector<float64_t2> points = {
-						basePt0 + radiusOffsetTL,
-						basePt0 + radiusOffsetBL, // 0
-						basePt1 + radiusOffsetBL, // 1
-						basePt1 + radiusOffsetTL, // 2
-						basePt0 + radiusOffsetTL
-					};
-					polyline.addLinePoints(points);
-				}
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::REVERSE_HATCH)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Squares
-			{
-				CPolyline polyline;
-				std::vector<float64_t2> outerSquare = {
-					float64_t2(1.0, 1.0),
-					float64_t2(1.0, 7.0),
-					float64_t2(7.0, 7.0),
-					float64_t2(7.0, 1.0),
-					float64_t2(1.0, 1.0),
-				};
-				polyline.addLinePoints(outerSquare);
-				std::vector<float64_t2> innerSquare = {
-					float64_t2(2.0, 2.0),
-					float64_t2(6.0, 2.0),
-					float64_t2(6.0, 6.0),
-					float64_t2(2.0, 6.0),
-					float64_t2(2.0, 2.0),
-				};
-				polyline.addLinePoints(innerSquare);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::SQUARES)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Circle
-			// TODO: should this be an actual circle?
-			{
-				CPolyline polyline;
-				std::vector<float64_t2> outerSquare = {
-					float64_t2(2.0, 1.0),
-					float64_t2(1.0, 2.0),
-					float64_t2(1.0, 6.0),
-					float64_t2(2.0, 7.0),
-					float64_t2(6.0, 7.0),
-					float64_t2(7.0, 6.0),
-					float64_t2(7.0, 2.0),
-					float64_t2(6.0, 1.0),
-					float64_t2(2.0, 1.0)
-				};
-				polyline.addLinePoints(outerSquare);
-				std::vector<float64_t2> innerSquare = {
-					float64_t2(2.5, 2.0),
-					float64_t2(5.5, 2.0), 
-					float64_t2(6.0, 2.5), 
-					float64_t2(6.0, 5.5), 
-					float64_t2(5.5, 6.0), 
-					float64_t2(2.5, 6.0), 
-					float64_t2(2.0, 5.5), 
-					float64_t2(2.0, 2.5), 
-					float64_t2(2.5, 2.0),
-				};
-				polyline.addLinePoints(innerSquare);
-				polylines.push_back(polyline);
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::CIRCLE)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Light shaded-2
-			square(float64_t2(0.0, 3.0));
-			square(float64_t2(0.0, 7.0));
-
-			square(float64_t2(2.0, 1.0));
-			square(float64_t2(2.0, 5.0));
-
-			square(float64_t2(4.0, 3.0));
-			square(float64_t2(4.0, 7.0));
-
-			square(float64_t2(6.0, 1.0));
-			square(float64_t2(6.0, 5.0));
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::LIGHT_SHADED)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
-		{
-			// Shaded
-			for (uint32_t x = 0; x < 8; x++)
-			{
-				for (uint32_t y = 0; y < 8; y++)
-				{
-					if (x % 2 != y % 2)
-						square(float64_t2((double)x, (double)y));
-				}
-			}
-
-			std::vector<CPolyline> polylinesClone(polylines);
-			m_shapeMsdfTextures[uint32_t(MsdfFillPattern::SHADED)] = generateMsdfForShape(std::move(polylinesClone));
-			polylines.clear();
-		}
 	}
 
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
@@ -2034,7 +1545,8 @@ protected:
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
-			if (hatchDebugStep > 0)
+			/*
+			if (false)
 			{
 				constexpr double hatchFillShapeSize = 10.0;
 				constexpr double hatchFillShapePadding = 1.0;
@@ -2188,6 +1700,7 @@ protected:
 					hatchDebugStep--;
 				}
 			}
+			*/
 
 			if (hatchDebugStep > 0)
 			{
@@ -2207,6 +1720,9 @@ protected:
 					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
 				}
 
+				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
+				float64_t scale = 1.0 / 64.0;
+
 				for (uint32_t i = 0; i < strlen(TestString); i++)
 				{
 					if (hatchDebugStep == 0) break;
@@ -2215,89 +1731,146 @@ protected:
 					char k = TestString[i];
 					auto unicode = wchar_t(k);
 					auto glyphIndex = FT_Get_Char_Index(m_glyphFace, unicode);
-
-					if (glyphIndex)
-					{
-						FT_Vector delta;
-						FT_Get_Kerning(m_glyphFace, previous, glyphIndex, FT_KERNING_DEFAULT, &delta);
-						penX += delta.x >> 6;
-					}
-
 					auto error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
-					if (error) continue;
-
-					auto offsetX = double(slot->metrics.horiBearingX >> 6);
-					auto offsetY = double(slot->metrics.horiBearingY >> 6);
-					auto drawX = penX - offsetX;
-					auto drawY = penY;
-					auto width = double(slot->metrics.width >> 6);
-					auto height = double(slot->metrics.height >> 6);
-
-					penX += slot->advance.x >> 6;
-					previous = glyphIndex;
-
-					if (k >= FirstGeneratedCharacter && k <= LastGeneratedCharacter)
+					const float64_t2 advanceVec = float64_t2(slot->advance.x, 0.0) * scale;
+					
+					TextGlyphBoundingBox glyphBbox = {};
+					if (glyphIndex != 0 || k != ' ')
 					{
-						const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
-						const auto& msdfTexture = m_glyphMsdfTextures[msdfTextureIdx];
-						const auto& shapePolylines = msdfTexture.polylines;
+						const float64_t2 bearingVec = float64_t2(slot->metrics.horiBearingX, slot->metrics.horiBearingY) * scale;
+						const float64_t2 glyphSize = float64_t2(slot->metrics.width, slot->metrics.height) * scale;
+						glyphBbox.topLeft = currentBaselineStart + bearingVec;
+						glyphBbox.dirU = float64_t2(glyphSize.x, 0.0);
+						glyphBbox.dirV = float64_t2(0.0, -glyphSize.y);
 
-						std::vector<CPolyline> transformedPolylines;
-						for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
 						{
-							auto& polyline = shapePolylines[polylineIdx];
-							if (polyline.getSectionsCount() == 0) continue;
-							CPolyline transformedPolyline;
-							for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-							{
-								auto& section = polyline.getSectionInfoAt(sectorIdx);
-								if (section.type == ObjectType::LINE)
-								{
-									if (section.count == 0u) continue;
+							// Draw bounding box of the glyph
+							LineStyleInfo bboxStyle = {};
+							bboxStyle.screenSpaceLineWidth = 1.0f;
+							bboxStyle.worldSpaceLineWidth = 0.0f;
+							bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
 
-									std::vector<float64_t2> points;
-									for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
-									{
-										auto point = polyline.getLinePointAt(i).p;
-										points.push_back(point + float64_t2(drawX, drawY));
-									}
-									transformedPolyline.addLinePoints(points);
-								}
-								else if (section.type == ObjectType::QUAD_BEZIER)
-								{
-									if (section.count == 0u) continue;
-
-									std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
-									for (uint32_t i = section.index; i < section.index + section.count; i++)
-									{
-										QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
-										beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
-											bezier.shape.P0 + float64_t2(drawX, drawY),
-											bezier.shape.P1 + float64_t2(drawX, drawY),
-											bezier.shape.P2 + float64_t2(drawX, drawY)
-										));
-									}
-									transformedPolyline.addQuadBeziers(beziers);
-								}
-							}
-							transformedPolylines.push_back(transformedPolyline);
+							CPolyline newPoly = {};
+							std::vector<float64_t2> points;
+							points.push_back(glyphBbox.topLeft);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft);
+							newPoly.addLinePoints(points);
+							drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
 						}
 
-						if (transformedPolylines.size() == 0) continue;
-						Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-						DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(1), intendedNextSubmit);
-						//drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 0.0, 1.0f), float32_t4(1.0, 1.0, 1.0, 1.0f),  msdfHash, intendedNextSubmit);
-						drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
+						{
+							const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
 
-						const auto textureId = drawResourcesFiller.getTextureIndexFromHash(msdfHash, intendedNextSubmit);
-						FontGlyphInfo glyphInfo = {
-							.aabbMin = float64_t2(drawX, drawY + 100),
-							.aabbMax = float64_t2(drawX + width, drawY + height + 100),
-							.textureId = textureId,
-						};
-						uint32_t currentObjectInSection = 0u;
-						drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+							error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
+							assert(!error);
+
+							FreetypeHatchBuilder hatchBuilder;
+							{
+								FT_Outline_Funcs ftFunctions;
+								ftFunctions.move_to = &ftMoveTo;
+								ftFunctions.line_to = &ftLineTo;
+								ftFunctions.conic_to = &ftConicTo;
+								ftFunctions.cubic_to = &ftCubicTo;
+								ftFunctions.shift = 0;
+								ftFunctions.delta = 0;
+								error = FT_Outline_Decompose(&m_glyphFace->glyph->outline, &ftFunctions, &hatchBuilder);
+								assert(!error);
+								hatchBuilder.finish();
+							}
+
+							auto& shapePolylines = hatchBuilder.polylines;
+							auto polylineOffset = glyphBbox.topLeft - glyphBbox.dirV;
+							std::vector<CPolyline> transformedPolylines;
+							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+							{
+								auto& polyline = shapePolylines[polylineIdx];
+								if (polyline.getSectionsCount() == 0) continue;
+								CPolyline transformedPolyline;
+								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+								{
+									auto& section = polyline.getSectionInfoAt(sectorIdx);
+									if (section.type == ObjectType::LINE)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<float64_t2> points;
+										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+										{
+											auto point = polyline.getLinePointAt(i).p;
+											points.push_back(point + polylineOffset);
+										}
+										transformedPolyline.addLinePoints(points);
+									}
+									else if (section.type == ObjectType::QUAD_BEZIER)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
+										for (uint32_t i = section.index; i < section.index + section.count; i++)
+										{
+											QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
+											beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
+												bezier.shape.P0 + polylineOffset,
+												bezier.shape.P1 + polylineOffset,
+												bezier.shape.P2 + polylineOffset
+											));
+										}
+										transformedPolyline.addQuadBeziers(beziers);
+									}
+								}
+								transformedPolylines.push_back(transformedPolyline);
+							}
+
+							if (transformedPolylines.size() == 0) continue;
+							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
+
+							const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
+								.textureType = MsdfTextureType::FONT_GLYPH,
+								.glyphHash = msdfTextureIdx, // using index as hash for now
+							});
+							drawResourcesFiller.addMSDFTexture(
+								[&]()
+								{
+									msdfgen::Shape shape;
+									bool loadedGlyph = drawFreetypeGlyph(shape, m_glyphLibrary, m_glyphFace);
+									assert(loadedGlyph);
+
+									const auto imageExtents = uint32_t2(32, 32);
+									auto shapeBounds = shape.getBounds();
+
+									uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
+									uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
+
+									DrawResourcesFiller::MsdfTextureUploadInfo uploadInfo = generateMsdfForShape(
+										std::move(hatchBuilder.polylines), 
+										shape, 
+										drawResourcesFiller.getMSDFResolution(), 
+										uint32_t2(shapeBoundsWidth, shapeBoundsHeight));
+
+									return uploadInfo;
+								},
+								msdfHash,
+								intendedNextSubmit
+							);
+
+							const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
+							assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+							FontGlyphInfo glyphInfo = {
+								.aabbMin = glyphBbox.topLeft + float64_t2(0, 100),
+								.aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV + float64_t2(0, 100),
+								.textureId = textureId,
+							};
+							uint32_t currentObjectInSection = 0u;
+							drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+						}
+
 					}
+
+					currentBaselineStart += advanceVec;
 				}
 			}
 			if (hatchDebugStep > 0)
@@ -3602,10 +3175,8 @@ protected:
 	static constexpr char LastGeneratedCharacter = '~';
 
 	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
-	MsdfTexture m_glyphMsdfTextures[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
 	FT_Library m_glyphLibrary;
 	FT_Face m_glyphFace;
-	MsdfTexture m_shapeMsdfTextures[uint32_t(MsdfFillPattern::COUNT)];
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
