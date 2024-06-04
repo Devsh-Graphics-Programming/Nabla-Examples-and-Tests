@@ -69,8 +69,19 @@ public:
 		uint32_t3 imageExtent;
 		std::vector<CPolyline> polylines;
 	};
-	void addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
-	void addMSDFTexture(MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t getMSDFTextureIndex(texture_hash hash);
+
+	uint32_t addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t addMSDFTexture(MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		return addMSDFTexture(
+			[textureUploadInfo] { return textureUploadInfo; },
+			hash,
+			intendedNextSubmit
+		)
+	}
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);

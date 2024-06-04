@@ -279,7 +279,14 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
-void DrawResourcesFiller::addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
+{
+	auto ptr = textureLRUCache->get(hash);
+	if (ptr) return ptr->alloc_idx;
+	else return InvalidTextureHash;
+}
+
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -327,58 +334,7 @@ void DrawResourcesFiller::addMSDFTexture(std::function<MsdfTextureUploadInfo()> 
 	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
-}
-
-void DrawResourcesFiller::addMSDFTexture(MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	auto srcBuffer = textureUploadInfo.cpuBuffer;
-	uint64_t bufferOffset = textureUploadInfo.bufferOffset;
-	uint32_t3 imageExtent = textureUploadInfo.imageExtent;
-
-	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
-	// Every single submit increases this value by 1
-	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
-	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
-
-	auto evictionCallback = [&](const TextureReference& evicted)
-	{
-		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
-		{
-			// Dealloc once submission is finished
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
-
-			// Submit
-			finalizeAllCopiesToGPU(intendedNextSubmit);
-			submitDraws(intendedNextSubmit);
-			resetGeometryCounters();
-			resetMainObjectCounters();
-		} else {
-			// We didn't use it this frame, so it's safe to dealloc now
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
-		}
-	};
-	
-	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
-	
-	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
-	if (inserted->alloc_idx == InvalidTextureIdx)
-	{
-		// New insertion == cache miss happened and insertion was successfull
-		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
-		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
-
-		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-		textureCopies.push_back({
-			.srcBuffer = srcBuffer,
-			.bufferOffset = bufferOffset,
-			.imageExtent = imageExtent,
-			.index = inserted->alloc_idx,
-		});
-	}
-	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
-
-	assert(inserted->alloc_idx != InvalidTextureIdx);
+	return inserted->alloc_idx;
 }
 
 void DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
