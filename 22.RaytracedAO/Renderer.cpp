@@ -293,7 +293,7 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 				// one instance data per instance of a batch
 				core::smart_refctd_ptr<ICPUBuffer> newInstanceDataBuffer;
 
-				constexpr uint16_t minTrisBatch = MAX_TRIANGLES_IN_BATCH>>1u;
+				constexpr uint16_t minTrisBatch = MAX_TRIANGLES_IN_BATCH>>3u; // allow small allocations to fight fragmentation
 				constexpr uint16_t maxTrisBatch = MAX_TRIANGLES_IN_BATCH;
 				constexpr uint8_t minVertexSize = 
 					asset::getTexelOrBlockBytesize<asset::EF_R32G32B32_SFLOAT>()+
@@ -304,8 +304,8 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 				constexpr uint16_t minIndicesBatch = minTrisBatch*kIndicesPerTriangle;
 
 				CPUMeshPacker::AllocationParams allocParams;
-				allocParams.vertexBuffSupportedByteSize = 1u<<31u;
-				allocParams.vertexBufferMinAllocByteSize = minTrisBatch*minVertexSize;
+				allocParams.vertexBuffSupportedByteSize = (1u<<31u)-1; // RTX cards
+				allocParams.vertexBufferMinAllocByteSize = minTrisBatch*minVertexSize; // under max vertex reuse
 				allocParams.indexBuffSupportedCnt = (allocParams.vertexBuffSupportedByteSize/allocParams.vertexBufferMinAllocByteSize)*minIndicesBatch;
 				allocParams.indexBufferMinAllocCnt = minIndicesBatch;
 				allocParams.MDIDataBuffSupportedCnt = allocParams.indexBuffSupportedCnt/minIndicesBatch;
@@ -404,7 +404,11 @@ Renderer::InitializationData Renderer::initSceneObjects(const SAssetBundle& mesh
 
 					allocData.resize(meshBuffersToProcess.size());
 
-					cpump->alloc(allocData.data(),meshBuffersToProcess.begin(),meshBuffersToProcess.end());
+					if (!cpump->alloc(allocData.data(),meshBuffersToProcess.begin(),meshBuffersToProcess.end()))
+					{
+						printf("[ERROR] Failed to Allocate Mesh data in SSBOs, quitting!\n");
+						exit(-42);
+					}
 					cpump->shrinkOutputBuffersSize();
 					cpump->instantiateDataStorage();
 
