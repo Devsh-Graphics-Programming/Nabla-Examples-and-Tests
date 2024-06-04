@@ -550,7 +550,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 		m_utilities->updateImageViaStagingBuffer(
 			intendedNextSubmit, 
-			textureCopy.srcBuffer.get(), asset::E_FORMAT::EF_R8G8B8A8_UNORM,
+			textureCopy.srcBuffer->getPointer(), asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
 			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 			{ &region, &region + 1 });
 	}

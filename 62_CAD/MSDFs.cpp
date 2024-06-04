@@ -28,18 +28,18 @@ DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPol
 	float scaleY = (1.0 / float(glyphExtents.y)) * glyphH;
 	msdfgen::generateMTSDF(msdfMap, glyph, MsdfPixelRange, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
 
-	// TODO: Optimize this
-	auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * 4);
-	uint8_t* data = reinterpret_cast<uint8_t*>(cpuBuf->getPointer());
+	auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * sizeof(float) * 4);
+	float* data = reinterpret_cast<float*>(cpuBuf->getPointer());
+	// TODO: Optimize this: negative values aren't being handled properly by the updateImageViaStagingBuffer function
 	for (int y = 0; y < msdfMap.height(); ++y)
 	{
 		for (int x = 0; x < msdfMap.width(); ++x)
 		{
 			auto pixel = msdfMap(x, glyphH - 1 - y);
-			data[(x + y * glyphW) * 4 + 0] = msdfgen::pixelFloatToByte(pixel[0]);
-			data[(x + y * glyphW) * 4 + 1] = msdfgen::pixelFloatToByte(pixel[1]);
-			data[(x + y * glyphW) * 4 + 2] = msdfgen::pixelFloatToByte(pixel[2]);
-			data[(x + y * glyphW) * 4 + 3] = msdfgen::pixelFloatToByte(pixel[3]);
+			data[(x + y * glyphW) * 4 + 0] = max(pixel[0], 0.0);
+			data[(x + y * glyphW) * 4 + 1] = max(pixel[1], 0.0);
+			data[(x + y * glyphW) * 4 + 2] = max(pixel[2], 0.0);
+			data[(x + y * glyphW) * 4 + 3] = max(pixel[3], 0.0);
 		}
 	}
 
