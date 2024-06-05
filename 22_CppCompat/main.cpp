@@ -10,6 +10,7 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
+#include "app_resources/emulated_float64_t_test/common.hlsl"
 
 
 using namespace nbl::core;
@@ -60,7 +61,54 @@ public:
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
-        
+
+        // TODO: remove
+        {
+            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
+            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
+
+            auto add = a + b;
+            auto sub = a - b;
+            auto mul = a * b;
+            auto div = a / b;
+            std::cout << "a: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+            std::cout << "b: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl << std::endl;;
+            std::cout << "add: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(add) << std::endl << std::endl;
+            std::cout << "sub: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(sub) << std::endl << std::endl;
+            std::cout << "mul: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(mul) << std::endl << std::endl;
+            std::cout << "div: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(div) << std::endl << std::endl << std::endl;
+        }
+
+        {
+            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
+            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(-12233.69);
+            emulated::emulated_float64_t c = emulated::emulated_float64_t::create(123ull);
+
+            auto add = a + b;
+            auto sub = a - b;
+            auto mul = a * b;
+            auto div = a / b;
+            std::cout << "a: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+            std::cout << "b: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl << std::endl;;
+            std::cout << "c: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(c) << std::endl << std::endl;;
+            std::cout << "add: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(add) << std::endl << std::endl;
+            std::cout << "sub: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(sub) << std::endl << std::endl;
+            std::cout << "mul: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(mul) << std::endl << std::endl;
+            std::cout << "div: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(div) << std::endl << std::endl;
+        }
 
         smart_refctd_ptr<IGPUShader> shader;
         {
@@ -341,6 +389,8 @@ public:
             std::cout << "Shader tests failed\n";
         }
 
+        validateEmulatedFloat64();
+
         m_keepRunning = false;
     }
 
@@ -366,6 +416,358 @@ private:
     constexpr static inline uint64_t MaxIterations = 200;
 
     bool m_keepRunning = true;
+    
+    bool validateEmulatedFloat64()
+    {
+        constexpr auto FinishedValue = 45;
+        smart_refctd_ptr<ISemaphore> progress;
+
+        nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
+
+        {
+            smart_refctd_ptr<IGPUShader> shader;
+            {
+                IAssetLoader::SAssetLoadParams lp = {};
+                lp.logger = m_logger.get();
+                lp.workingDirectory = ""; // virtual root
+                // this time we load a shader directly from a file
+                auto assetBundle = m_assetMgr->getAsset("app_resources/emulated_float64_t_test/test.comp.hlsl", lp);
+                const auto assets = assetBundle.getContents();
+                if (assets.empty())
+                {
+                    logFail("Could not load shader!");
+                    assert(0);
+                }
+
+                // It would be super weird if loading a shader from a file produced more than 1 asset
+                assert(assets.size() == 1);
+                smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+
+                auto* compilerSet = m_assetMgr->getCompilerSet();
+
+                nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+                options.stage = source->getStage();
+                options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                options.spirvOptimizer = nullptr;
+                options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+                options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+                options.preprocessorOptions.logger = m_logger.get();
+                options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+
+                auto spirv = compilerSet->compileToSPIRV(source.get(), options);
+
+                ILogicalDevice::SShaderCreationParameters params{};
+                params.cpushader = spirv.get();
+                shader = m_device->createShader(params);
+            }
+
+            if (!shader)
+                return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+
+            nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+                {
+                    .binding = 0,
+                    .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+                    .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+                    .stageFlags = IGPUShader::ESS_COMPUTE,
+                    .count = 1,
+                    .samplers = nullptr
+                }
+            };
+            smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+            if (!dsLayout)
+                return logFail("Failed to create a Descriptor Layout!\n");
+
+            smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({}, smart_refctd_ptr(dsLayout));
+            if (!pplnLayout)
+                return logFail("Failed to create a Pipeline Layout!\n");
+
+            smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+            {
+                IGPUComputePipeline::SCreationParams params = {};
+                params.layout = pplnLayout.get();
+                params.shader.entryPoint = "main";
+                params.shader.shader = shader.get();
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+                    return logFail("Failed to create pipelines (compile & link shaders)!\n");
+            }
+
+            smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
+
+            // Allocate the memory
+            {
+                constexpr size_t BufferSize = sizeof(TestValues);
+
+                nbl::video::IGPUBuffer::SCreationParams params = {};
+                params.size = BufferSize;
+                params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                smart_refctd_ptr<IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
+                if (!outputBuff)
+                    return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+                outputBuff->setObjectDebugName("emulated_float64_t output buffer");
+
+                nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
+                reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+                allocation = m_device->allocate(reqs, outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                if (!allocation.isValid())
+                    return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+                assert(outputBuff->getBoundMemory().memory == allocation.memory.get());
+                smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+                ds = pool->createDescriptorSet(std::move(dsLayout));
+                {
+                    IGPUDescriptorSet::SDescriptorInfo info[1];
+                    info[0].desc = smart_refctd_ptr(outputBuff);
+                    info[0].info.buffer = { .offset = 0,.size = BufferSize };
+                    IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                        {.dstSet = ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+                    };
+                    m_device->updateDescriptorSets(writes, {});
+                }
+            }
+
+            if (!allocation.memory->map({ 0ull,allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+                return logFail("Failed to map the Device Memory!\n");
+
+            uint32_t queueFamily = getComputeQueue()->getFamilyIndex();
+            smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+            {
+
+                smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+                if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+                    return logFail("Failed to create Command Buffers!\n");
+            }
+
+            cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+            cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
+            cmdbuf->bindComputePipeline(pipeline.get());
+            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
+            cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
+            cmdbuf->endDebugMarker();
+            cmdbuf->end();
+
+            // Create the Semaphore
+            constexpr auto StartedValue = 0;
+            static_assert(StartedValue < FinishedValue);
+            progress = m_device->createSemaphore(StartedValue);
+            {
+                IQueue* queue = m_device->getQueue(queueFamily, 0);
+
+                IQueue::SSubmitInfo submitInfos[1] = {};
+                const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
+                submitInfos[0].commandBuffers = cmdbufs;
+                const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = progress.get(),.value = FinishedValue,.stageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
+                submitInfos[0].signalSemaphores = signals;
+
+                queue->startCapture();
+                queue->submit(submitInfos);
+                queue->endCapture();
+            }
+        }
+
+        // As the name implies this function will not progress until the fence signals or repeated waiting returns an error.
+        const ISemaphore::SWaitInfo waitInfos[] = { {
+            .semaphore = progress.get(),
+            .value = FinishedValue
+        } };
+        m_device->blockForSemaphores(waitInfos);
+
+        // if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
+        const ILogicalDevice::MappedMemoryRange memoryRange(allocation.memory.get(), 0ull, allocation.memory->getAllocationSize());
+        if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+            m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+
+        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
+        TestValues expectedTestValues = {
+            .intCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24.0),
+            .uintCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24u),
+            .uint64CreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24ull),
+            .floatCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2f),
+            .doubleCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2),
+            .additionVal = emulated::emulated_float64_t::create(30.0),
+            .substractionVal = emulated::emulated_float64_t::create(10.0),
+            .multiplicationVal = emulated::emulated_float64_t::create(200.0),
+            .divisionVal = emulated::emulated_float64_t::create(2.0),
+            .lessOrEqualVal = false,
+            .greaterOrEqualVal = true,
+            .equalVal = false,
+            .notEqualVal = true,
+            .lessVal = false,
+            .greaterVal = true,
+            .convertionToBoolVal = true,
+            .convertionToIntVal = 20,
+            .convertionToUint32Val = 20u,
+            .convertionToUint64Val = 20ull,
+            .convertionToFloatVal = 20.0f,
+            .convertionToDoubleVal = 20.0,
+            //.convertionToHalfVal = 20;
+        };
+
+        auto compareValues = [this](TestValues& lhs, TestValues& rhs) -> bool
+            {
+                bool success = true;
+
+                if (lhs.intCreateVal != rhs.intCreateVal)
+                {
+                    m_logger->log("intCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.intCreateVal, rhs.intCreateVal);
+                    success = false;
+                }
+                if (lhs.uintCreateVal != rhs.uintCreateVal)
+                {
+                    m_logger->log("uintCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uintCreateVal, rhs.uintCreateVal);
+                    success = false;
+                }
+                if (lhs.uint64CreateVal != rhs.uint64CreateVal)
+                {
+                    m_logger->log("uint64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uint64CreateVal, rhs.uint64CreateVal);
+                    success = false;
+                }
+                if (lhs.floatCreateVal != rhs.floatCreateVal)
+                {
+                    m_logger->log("floatCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.floatCreateVal, rhs.floatCreateVal);
+                    success = false;
+                }
+                if (lhs.doubleCreateVal != rhs.doubleCreateVal)
+                {
+                    m_logger->log("doubleCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.doubleCreateVal, rhs.doubleCreateVal);
+                    success = false;
+                }
+                if (lhs.additionVal != rhs.additionVal)
+                {
+                    m_logger->log("additionVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.additionVal, rhs.additionVal);
+                    success = false;
+                }
+                if (lhs.substractionVal != rhs.substractionVal)
+                {
+                    m_logger->log("substractionVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.substractionVal, rhs.substractionVal);
+                    success = false;
+                }
+                if (reinterpret_cast<double&>(lhs.multiplicationVal) != reinterpret_cast<double&>(rhs.multiplicationVal))
+                {
+                    m_logger->log("multiplicationVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.multiplicationVal, rhs.multiplicationVal);
+                    success = false;
+                }
+                if (lhs.divisionVal != rhs.divisionVal)
+                {
+                    m_logger->log("divisionVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.divisionVal, rhs.divisionVal);
+                    success = false;
+                }
+                if (lhs.lessOrEqualVal != rhs.lessOrEqualVal)
+                {
+                    m_logger->log("lessOrEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.lessOrEqualVal, rhs.lessOrEqualVal);
+                    success = false;
+                }
+                if (lhs.greaterOrEqualVal != rhs.greaterOrEqualVal)
+                {
+                    m_logger->log("greaterOrEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterOrEqualVal, rhs.greaterOrEqualVal);
+                    success = false;
+                }
+                if (lhs.equalVal != rhs.equalVal)
+                {
+                    m_logger->log("equalVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.equalVal, rhs.equalVal);
+                    success = false;
+                }
+                if (lhs.notEqualVal != rhs.notEqualVal)
+                {
+                    m_logger->log("notEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.notEqualVal, rhs.notEqualVal);
+                    success = false;
+                }
+                if (lhs.lessVal != rhs.lessVal)
+                {
+                    m_logger->log("lessVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.lessVal, rhs.lessVal);
+                    success = false;
+                }
+                if (lhs.greaterVal != rhs.greaterVal)
+                {
+                    m_logger->log("greaterVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
+                    success = false;
+                }
+                if (lhs.convertionToBoolVal != rhs.convertionToBoolVal)
+                {
+                    m_logger->log("convertionToBoolVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToBoolVal, rhs.convertionToBoolVal);
+                    success = false;
+                }
+                if (lhs.convertionToIntVal != rhs.convertionToIntVal)
+                {
+                    m_logger->log("convertionToIntVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToIntVal, rhs.convertionToIntVal);
+                    success = false;
+                }
+                if (lhs.convertionToUint32Val != rhs.convertionToUint32Val)
+                {
+                    m_logger->log("convertionToUint32Val not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToUint32Val, rhs.convertionToUint32Val);
+                    success = false;
+                }
+                if (lhs.convertionToUint64Val != rhs.convertionToUint64Val)
+                {
+                    m_logger->log("convertionToUint64Val not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToUint64Val, rhs.convertionToUint64Val);
+                    success = false;
+                }
+                if (lhs.convertionToFloatVal != rhs.convertionToFloatVal)
+                {
+                    m_logger->log("convertionToFloatVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToFloatVal, rhs.convertionToFloatVal);
+                    success = false;
+                }
+                if (lhs.convertionToDoubleVal != rhs.convertionToDoubleVal)
+                {
+                    m_logger->log("convertionToDoubleVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToDoubleVal, rhs.convertionToDoubleVal);
+                    success = false;
+                }
+
+
+                return success;
+            };
+
+        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0);
+        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0);
+        TestValues cpuTestValues = {
+            .intCreateVal = emulated::emulated_float64_t::create(24),
+            .uintCreateVal = emulated::emulated_float64_t::create(24u),
+            .uint64CreateVal = emulated::emulated_float64_t::create(24ull),
+            .floatCreateVal = emulated::emulated_float64_t::create(1.2f),
+            .doubleCreateVal = emulated::emulated_float64_t::create(1.2),
+            .additionVal = (a + b).data,
+            .substractionVal = (a - b).data,
+            .multiplicationVal = (a * b).data,
+            .divisionVal = (a / b).data,
+            .lessOrEqualVal = a <= b,
+            .greaterOrEqualVal = a >= b,
+            .equalVal = a == b,
+            .notEqualVal = a != b,
+            .lessVal = a < b,
+            .greaterVal = a > b,
+            .convertionToBoolVal = bool(a),
+            .convertionToIntVal = int(a),
+            .convertionToUint32Val = uint32_t(a),
+            .convertionToUint64Val = uint64_t(a),
+            .convertionToFloatVal = float(a),
+            .convertionToDoubleVal = double(a),
+            //.convertionToHalfVal = 
+        };
+
+        m_device->waitIdle();
+        TestValues* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
+        if (!compareValues(expectedTestValues, *gpuTestValues))
+            logFail("Incorrect GPU determinated values!");
+        else
+            m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
+
+        if (!compareValues(expectedTestValues, cpuTestValues))
+            logFail("Incorrect CPU determinated values!");
+        else
+            m_logger->log("Correct CPU determinated values!", ILogger::ELL_PERFORMANCE);
+        
+        allocation.memory->unmap();
+    }
+    
+    template<typename... Args>
+    inline bool logFail(const char* msg, Args&&... args)
+    {
+        m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
+        return false;
+    }
 };
 
 template<class T>
