@@ -10,15 +10,15 @@
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-    const emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0f);
-    const emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0f);
+    const emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0);
+    const emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0);
 
     // "constructors"
-    testValuesOutput[0].intCreateVal = emulated::emulated_float64_t::create(24).data;
-    testValuesOutput[0].uintCreateVal = emulated::emulated_float64_t::create(24u).data;
-    testValuesOutput[0].uint64CreateVal = emulated::emulated_float64_t::create(24ull).data;
-    testValuesOutput[0].floatCreateVal = emulated::emulated_float64_t::create(1.2f).data;
-    testValuesOutput[0].doubleCreateVal = emulated::emulated_float64_t::create(1.2).data;
+    //testValuesOutput[0].intCreateVal = emulated::emulated_float64_t::create(24);
+    //testValuesOutput[0].uintCreateVal = emulated::emulated_float64_t::create(24u);
+    //testValuesOutput[0].uint64CreateVal = emulated::emulated_float64_t::create(24ull);
+    //testValuesOutput[0].floatCreateVal = emulated::emulated_float64_t::create(1.2f);
+    //testValuesOutput[0].doubleCreateVal = emulated::emulated_float64_t::create(1.2);
     emulated::emulated_float64_t::create(min16int(2));
 
     // arithmetic operators

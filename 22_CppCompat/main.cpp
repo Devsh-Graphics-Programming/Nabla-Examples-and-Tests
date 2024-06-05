@@ -86,8 +86,8 @@ public:
         }
 
         {
-            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(-123.321);
-            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
+            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
+            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(-12233.69);
             emulated::emulated_float64_t c = emulated::emulated_float64_t::create(123ull);
 
             auto add = a + b;
@@ -580,17 +580,16 @@ private:
         if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-        double multiplicationExpectedValue = 200.0;
         assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
         TestValues expectedTestValues = {
-            .intCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24),
+            .intCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24.0),
             .uintCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24u),
             .uint64CreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24ull),
             .floatCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2f),
             .doubleCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2),
             .additionVal = emulated::emulated_float64_t::create(30.0),
             .substractionVal = emulated::emulated_float64_t::create(10.0),
-            .multiplicationVal = reinterpret_cast<uint64_t&>(multiplicationExpectedValue),
+            .multiplicationVal = emulated::emulated_float64_t::create(200.0),
             .divisionVal = emulated::emulated_float64_t::create(2.0),
             .lessOrEqualVal = false,
             .greaterOrEqualVal = true,
@@ -613,12 +612,12 @@ private:
 
                 if (lhs.intCreateVal != rhs.intCreateVal)
                 {
-                    m_logger->log("intCreateVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.intCreateVal, rhs.intCreateVal);
+                    m_logger->log("intCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.intCreateVal, rhs.intCreateVal);
                     success = false;
                 }
                 if (lhs.uintCreateVal != rhs.uintCreateVal)
                 {
-                    m_logger->log("uintCreateVal not equal, expected value: %u     test value: %u", ILogger::ELL_DEBUG, lhs.uintCreateVal, rhs.uintCreateVal);
+                    m_logger->log("uintCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uintCreateVal, rhs.uintCreateVal);
                     success = false;
                 }
                 if (lhs.uint64CreateVal != rhs.uint64CreateVal)
@@ -628,77 +627,77 @@ private:
                 }
                 if (lhs.floatCreateVal != rhs.floatCreateVal)
                 {
-                    m_logger->log("floatCreateVal not equal, expected value: %f     test value: %f", ILogger::ELL_DEBUG, lhs.floatCreateVal, rhs.floatCreateVal);
+                    m_logger->log("floatCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.floatCreateVal, rhs.floatCreateVal);
                     success = false;
                 }
                 if (lhs.doubleCreateVal != rhs.doubleCreateVal)
                 {
-                    m_logger->log("doubleCreateVal not equal, expected value: %lf     test value: %lf", ILogger::ELL_DEBUG, lhs.doubleCreateVal, rhs.doubleCreateVal);
+                    m_logger->log("doubleCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.doubleCreateVal, rhs.doubleCreateVal);
                     success = false;
                 }
                 if (lhs.additionVal != rhs.additionVal)
                 {
-                    m_logger->log("additionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.additionVal, rhs.additionVal);
+                    m_logger->log("additionVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.additionVal, rhs.additionVal);
                     success = false;
                 }
                 if (lhs.substractionVal != rhs.substractionVal)
                 {
-                    m_logger->log("substractionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.substractionVal, rhs.substractionVal);
+                    m_logger->log("substractionVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.substractionVal, rhs.substractionVal);
                     success = false;
                 }
                 if (reinterpret_cast<double&>(lhs.multiplicationVal) != reinterpret_cast<double&>(rhs.multiplicationVal))
                 {
-                    m_logger->log("multiplicationVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.multiplicationVal, rhs.multiplicationVal);
+                    m_logger->log("multiplicationVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.multiplicationVal, rhs.multiplicationVal);
                     success = false;
                 }
                 if (lhs.divisionVal != rhs.divisionVal)
                 {
-                    m_logger->log("divisionVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.divisionVal, rhs.divisionVal);
+                    m_logger->log("divisionVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.divisionVal, rhs.divisionVal);
                     success = false;
                 }
                 if (lhs.lessOrEqualVal != rhs.lessOrEqualVal)
                 {
-                    m_logger->log("lessOrEqualVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.lessOrEqualVal, rhs.lessOrEqualVal);
+                    m_logger->log("lessOrEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.lessOrEqualVal, rhs.lessOrEqualVal);
                     success = false;
                 }
                 if (lhs.greaterOrEqualVal != rhs.greaterOrEqualVal)
                 {
-                    m_logger->log("greaterOrEqualVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.greaterOrEqualVal, rhs.greaterOrEqualVal);
+                    m_logger->log("greaterOrEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterOrEqualVal, rhs.greaterOrEqualVal);
                     success = false;
                 }
                 if (lhs.equalVal != rhs.equalVal)
                 {
-                    m_logger->log("equalVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.equalVal, rhs.equalVal);
+                    m_logger->log("equalVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.equalVal, rhs.equalVal);
                     success = false;
                 }
                 if (lhs.notEqualVal != rhs.notEqualVal)
                 {
-                    m_logger->log("notEqualVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.notEqualVal, rhs.notEqualVal);
+                    m_logger->log("notEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.notEqualVal, rhs.notEqualVal);
                     success = false;
                 }
                 if (lhs.lessVal != rhs.lessVal)
                 {
-                    m_logger->log("lessVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.lessVal, rhs.lessVal);
+                    m_logger->log("lessVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.lessVal, rhs.lessVal);
                     success = false;
                 }
                 if (lhs.greaterVal != rhs.greaterVal)
                 {
-                    m_logger->log("greaterVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
+                    m_logger->log("greaterVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
                     success = false;
                 }
                 if (lhs.convertionToBoolVal != rhs.convertionToBoolVal)
                 {
-                    m_logger->log("convertionToBoolVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.convertionToBoolVal, rhs.convertionToBoolVal);
+                    m_logger->log("convertionToBoolVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToBoolVal, rhs.convertionToBoolVal);
                     success = false;
                 }
                 if (lhs.convertionToIntVal != rhs.convertionToIntVal)
                 {
-                    m_logger->log("convertionToIntVal not equal, expected value: %d     test value: %d", ILogger::ELL_DEBUG, lhs.convertionToIntVal, rhs.convertionToIntVal);
+                    m_logger->log("convertionToIntVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToIntVal, rhs.convertionToIntVal);
                     success = false;
                 }
                 if (lhs.convertionToUint32Val != rhs.convertionToUint32Val)
                 {
-                    m_logger->log("convertionToUint32Val not equal, expected value: %u     test value: %u", ILogger::ELL_DEBUG, lhs.convertionToUint32Val, rhs.convertionToUint32Val);
+                    m_logger->log("convertionToUint32Val not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToUint32Val, rhs.convertionToUint32Val);
                     success = false;
                 }
                 if (lhs.convertionToUint64Val != rhs.convertionToUint64Val)
@@ -708,12 +707,12 @@ private:
                 }
                 if (lhs.convertionToFloatVal != rhs.convertionToFloatVal)
                 {
-                    m_logger->log("convertionToFloatVal not equal, expected value: %f     test value: %f", ILogger::ELL_DEBUG, lhs.convertionToFloatVal, rhs.convertionToFloatVal);
+                    m_logger->log("convertionToFloatVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToFloatVal, rhs.convertionToFloatVal);
                     success = false;
                 }
                 if (lhs.convertionToDoubleVal != rhs.convertionToDoubleVal)
                 {
-                    m_logger->log("convertionToDoubleVal not equal, expected value: %lf     test value: %lf", ILogger::ELL_DEBUG, lhs.convertionToDoubleVal, rhs.convertionToDoubleVal);
+                    m_logger->log("convertionToDoubleVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToDoubleVal, rhs.convertionToDoubleVal);
                     success = false;
                 }
 
