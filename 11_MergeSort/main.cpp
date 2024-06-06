@@ -7,6 +7,8 @@ using namespace system;
 using namespace asset;
 using namespace video;
 
+#include "app_resources/common.hlsl"
+
 // A high level overview of the algorithm implementation (merge sort).
 // This will be a X pass algorithm, where X is log2(number_of_elements).
 // In each phase, you have to 'merge' 2 sorted list of elements into a single list.
@@ -47,7 +49,7 @@ public:
 		std::vector<int32_t> inputBufferData(NumberOfElementsToSort);
 		{
 			// Setup the input data (random) that is to be sorted.
-			const auto seed = std::chrono::system_clock::now().time_since_epoch().count();
+			const auto seed = 2532344;
 
 			// Setup the random number generator.
 			std::mt19937 randomNumberGenerator(seed);
@@ -92,43 +94,13 @@ public:
 			}
 		}
 
-		// The shader has 2 bindings, both of which are storage buffers.
-		// This is because it is not *guarenteed* which buffer the output is in as the buffers are swapped each phase.
-		const nbl::video::IGPUDescriptorSetLayout::SBinding bindings[2] = {
-			{
-				.binding = 0,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IGPUShader::ESS_COMPUTE,
-				.count = 1,
-				.samplers = nullptr,
-			},
-			{
-				.binding = 1,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IGPUShader::ESS_COMPUTE,
-				.count = 1,
-				.samplers = nullptr,
-			},
-		};
-
-		m_descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
-		if (!m_descriptorSetLayout)
-		{
-			return logFail("Failed to create a Descriptor Layout!\n");
-		}
-
-		// The shader excepts 2 uint32_t's in the push constant. One for the length of array, one for current phase index.
+		// Since BDA is used, the only binding the shader will have is a single push constant from which all buffers and data can be accessed.
 		const nbl::asset::SPushConstantRange pushConstantRange = nbl::asset::SPushConstantRange{
-			.stageFlags = nbl::asset::IShader::ESS_COMPUTE, .offset = 0, .size = sizeof(uint32_t) * 2,
+			.stageFlags = nbl::asset::IShader::ESS_COMPUTE, .offset = 0, .size = sizeof(MergeSortPushData),
 		};
 
-		m_pipelineLayout = m_device->createPipelineLayout({ &pushConstantRange, 1 }, smart_refctd_ptr(m_descriptorSetLayout));
-		if (!m_pipelineLayout)
-		{
-			return logFail("Failed to create a Pipeline Layout!\n");
-		}
+		// Create the pipeline layout.
+		m_pipelineLayout = m_device->createPipelineLayout({ &pushConstantRange, 1 });
 
 		IGPUComputePipeline::SCreationParams params = {};
 		params.layout = m_pipelineLayout.get();
@@ -139,92 +111,62 @@ public:
 			return logFail("Failed to create pipelines (compile & link shaders)!\n");
 		}
 
-		// Allocate the memory for output and input buffer.
+		// Allocate the memory for buffer A and B.
 		{
 			// Always default the creation parameters, there's a lot of extra stuff for DirectX/CUDA interop and slotting into external engines you don't usually care about. 
 			nbl::video::IGPUBuffer::SCreationParams params = {};
 			params.size = bufferSize;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 
-			// Create the output buffer.
-			m_outputBuffer = m_device->createBuffer(std::move(params));
-			if (!m_outputBuffer)
+			// Create the buffer A.
+			m_bufferA = m_device->createBuffer(std::move(params));
+			if (!m_bufferA)
 			{
 				return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 			}
 
-			m_outputBuffer->setObjectDebugName("My Output Buffer");
+			m_bufferA->setObjectDebugName("Buffer A");
+			m_bufferAAddress = m_bufferA->getDeviceAddress();
 
-			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_outputBuffer->getMemoryReqs();
+			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_bufferA->getMemoryReqs();
 			reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
 
-			m_outputBufferAllocation = m_device->allocate(reqs, m_outputBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
-			if (!m_outputBufferAllocation.isValid())
+			m_bufferAAllocation = m_device->allocate(reqs, m_bufferA.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+			if (!m_bufferAAllocation.isValid())
 			{
 				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			}
 
-			// Create the input buffer.
-			m_inputBuffer = m_device->createBuffer(std::move(params));
-			if (!m_inputBuffer)
+			// Create the B buffer.
+			m_bufferB = m_device->createBuffer(std::move(params));
+			if (!m_bufferB)
 			{
 				return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
 			}
 
-			m_inputBuffer->setObjectDebugName("My Input Buffer");
+			m_bufferB->setObjectDebugName("Buffer B");
+			m_bufferBAddress = m_bufferB->getDeviceAddress();
 
-			m_inputBufferAllocation = m_device->allocate(reqs, m_inputBuffer.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
-			if (!m_inputBufferAllocation.isValid())
+			m_bufferBAllocation = m_device->allocate(reqs, m_bufferB.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+			if (!m_bufferBAllocation.isValid())
 			{
 				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			}
 
-			// Create 2 descriptor pools, one for each descriptor set.
-			smart_refctd_ptr<nbl::video::IDescriptorPool> pool1 = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &m_descriptorSetLayout.get(),1 });
-			smart_refctd_ptr<nbl::video::IDescriptorPool> pool2 = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &m_descriptorSetLayout.get(),1 });
-
-			// Create the descriptor sets.
-			m_descriptorSet1 = pool1->createDescriptorSet(m_descriptorSetLayout);
-			m_descriptorSet2 = pool2->createDescriptorSet(m_descriptorSetLayout);
-
-			{
-				IGPUDescriptorSet::SDescriptorInfo info[2];
-				info[0].desc = smart_refctd_ptr(m_outputBuffer);
-				info[0].info.buffer = { .offset = 0,.size = bufferSize };
-				info[1].desc = smart_refctd_ptr(m_inputBuffer);
-				info[1].info.buffer = { .offset = 0,.size = bufferSize };
-				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-					{.dstSet = m_descriptorSet1.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
-				};
-				m_device->updateDescriptorSets(writes, {});
-			}
-
-			{
-				IGPUDescriptorSet::SDescriptorInfo info[2];
-				info[1].desc = smart_refctd_ptr(m_outputBuffer);
-				info[1].info.buffer = { .offset = 0,.size = bufferSize };
-				info[0].desc = smart_refctd_ptr(m_inputBuffer);
-				info[0].info.buffer = { .offset = 0,.size = bufferSize };
-				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-					{.dstSet = m_descriptorSet2.get(),.binding = 0,.arrayElement = 0,.count = 2,.info = info}
-				};
-				m_device->updateDescriptorSets(writes, {});
-			}
-
-			if (!m_outputBufferAllocation.memory->map({ 0ull,m_outputBufferAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+			if (!m_bufferAAllocation.memory->map({ 0ull,m_bufferAAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
 			{
 				return logFail("Failed to map the Device Memory!\n");
 			}
 
-			if (!m_inputBufferAllocation.memory->map({ 0ull,m_inputBufferAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+			if (!m_bufferBAllocation.memory->map({ 0ull,m_bufferBAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
 			{
 				return logFail("Failed to map the Device Memory!\n");
 			}
 		}
 
-		// Copy the random generated array to input buffer.
-		const int32_t* inputBufferMappedPointer = reinterpret_cast<const int32_t*>(m_inputBufferAllocation.memory->getMappedPointer());
-		memcpy((void*)inputBufferMappedPointer, inputBufferData.data(), sizeof(int32_t) * inputBufferData.size());
+		// Copy the random generated array to buffer A.
+		const int32_t* bufferAMappedPointer = reinterpret_cast<const int32_t*>(m_bufferAAllocation.memory->getMappedPointer());
+		memcpy((void*)bufferAMappedPointer, inputBufferData.data(), sizeof(int32_t) * inputBufferData.size());
 
 		// Start of the merge sort algorithm.
 		const size_t numberOfPhases = (size_t)ceil(log2(NumberOfElementsToSort));
@@ -249,26 +191,11 @@ public:
 			cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 			cmdbuf->bindComputePipeline(m_computePipeline.get());
 
-			// If phase index is ODD, the inpt and output buffer are as usual. 
-			// If phase index is EVEN, input buffer is the output buffer of last phase.
-			if (phaseIndex % 2 == 1)
-			{
-				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pipelineLayout.get(), 0, 1, &m_descriptorSet1.get());
-			}
-			else
-			{
-				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pipelineLayout.get(), 0, 1, &m_descriptorSet2.get());
-			}
-
-			struct SortingPhaseData
-			{
-				uint32_t numElementsPerArray;
-				uint32_t bufferLength;
-			};
-
-			const SortingPhaseData pushConstantData = {
-				.numElementsPerArray = (uint32_t)pow(2, phaseIndex - 1),
-				.bufferLength = static_cast<uint32_t>(NumberOfElementsToSort),
+			const MergeSortPushData pushConstantData = {
+				.buffer_a_address = phaseIndex % 2 == 1 ? m_bufferAAddress : m_bufferBAddress,
+				.buffer_b_address = phaseIndex % 2 == 1 ? m_bufferBAddress : m_bufferBAddress,
+				.num_elements_per_array = (uint32_t)pow(2, phaseIndex - 1),
+				.buffer_length = static_cast<uint32_t>(NumberOfElementsToSort),
 			};
 
 			cmdbuf->pushConstants(m_pipelineLayout.get(), nbl::asset::IShader::ESS_COMPUTE, 0u, sizeof(pushConstantData), &pushConstantData);
@@ -304,13 +231,13 @@ public:
 			m_device->blockForSemaphores(wait_infos);
 		}
 
-		// Now, get the current pointer to output buffer (the output may be in either input or output buffer).
+		// Now, get the current pointer to output buffer (the output may be in either buffer A or in B).
 		// Perform merge sort on the CPU to test whether GPU compute version computed the result correctly.
-		auto outputBufferData = reinterpret_cast<const int32_t*>(m_outputBufferAllocation.memory->getMappedPointer());
+		auto outputBufferData = reinterpret_cast<const int32_t*>(m_bufferBAllocation.memory->getMappedPointer());
 
 		if (numberOfPhases % 2 == 0)
 		{
-			outputBufferData = reinterpret_cast<const int32_t*>(m_inputBufferAllocation.memory->getMappedPointer());
+			outputBufferData = reinterpret_cast<const int32_t*>(m_bufferAAllocation.memory->getMappedPointer());
 		}
 
 		// Sorted input (which should match the output buffer).
@@ -340,24 +267,20 @@ public:
 private:
 	uint32_t m_computeQueueFamily{};
 
-	// Note : In this implementation of merge sort, the buffers are 'swapped' at the end of each phase (i.e input / output buffer of previous phase becomes the output / input of current phase).
-	// The names reflect the fact that initially the input data is present in m_inputBuffer.
-	smart_refctd_ptr<IGPUBuffer> m_outputBuffer{};
-	smart_refctd_ptr<IGPUBuffer> m_inputBuffer{};
+	// Note : In this implementation of merge sort, the buffers are 'swapped' at the end of each phase (i.e buffer A / B of previous phase becomes buffer B / A buffer of current phase).
+	// The data to be sorted is initially present in buffer A.
+	smart_refctd_ptr<IGPUBuffer> m_bufferA{};
+	smart_refctd_ptr<IGPUBuffer> m_bufferB{};
+
+	uint64_t m_bufferAAddress{};
+	uint64_t m_bufferBAddress{};
 
 	// Allocator is a interface to anything that can dish out free memory range to bind to a buffer or image.
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_outputBufferAllocation{};
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_inputBufferAllocation{};
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_bufferAAllocation{};
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_bufferBAllocation{};
 
 	// Semaphore is used because before completion of merge sort phase X, phase X + 1 cannot start.
 	smart_refctd_ptr<ISemaphore> m_phaseSemaphore{};
-
-	smart_refctd_ptr<IGPUDescriptorSetLayout> m_descriptorSetLayout{};
-
-	// There are 2 descriptor sets for merge sort. One has input buffer / output buffer at binding 0, 1, and one has the inverse.
-	// This is because in each merge sort phase, the inputs and output buffers are *swapped*.
-	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet1{};
-	smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_descriptorSet2{};
 
 	smart_refctd_ptr<IGPUPipelineLayout> m_pipelineLayout{};
 	smart_refctd_ptr<IGPUComputePipeline> m_computePipeline{};
