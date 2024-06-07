@@ -465,9 +465,15 @@ PSInput main(uint vertexID : SV_VertexID)
         const double2 cornerWorldSpace = aabbMin * (1.0 - corner) + aabbMax * corner;
         const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, cornerWorldSpace));
 
+        // TODO needs to handle rotations as well, probably from curve box code
+        const float2 ndcAxisMin = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, aabbMin));
+        const float2 ndcAxisMax = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, aabbMax));
+        const float2 screenSpaceAabbExtents = abs(ndcAxisMax - ndcAxisMin) * float2(globals.resolution);
+
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUv(corner);
         outV.setFontGlyphTextureId(textureId);
+        outV.setFontGlyphScreenSpaceSize(screenSpaceAabbExtents);
     }
     
     

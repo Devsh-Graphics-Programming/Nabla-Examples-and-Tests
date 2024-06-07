@@ -179,9 +179,12 @@ struct LineStyle
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
+    // Compare bits of the screen space line width values, as they may have been bit cast into integers
+    // for the texture IDs, and can't be compared when that results in a NaN or Infinity float
+    const int comparisonResult = std::memcmp(&lhs.screenSpaceLineWidth, &rhs.screenSpaceLineWidth, sizeof(float));
     const bool areParametersEqual =
         lhs.color == rhs.color &&
-        lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+        comparisonResult == 0 &&
         lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
         lhs.stipplePatternSize == rhs.stipplePatternSize &&
         lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
@@ -207,6 +210,7 @@ NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 NBL_CONSTEXPR float MsdfPixelRange = 4.0;
+NBL_CONSTEXPR float MsdfSize = 32.0; // TODO: Should this be dynamic?
 
 #ifdef __HLSL_VERSION
 
@@ -330,9 +334,11 @@ struct PSInput
     // data2    
     float2 getFontGlyphUv() { return interp_data5.xy; }
     uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
+    float2 getFontGlyphScreenSpaceSize() { return data2.yz; }
     
     void setFontGlyphUv(float2 uv) { interp_data5.xy = uv; }
     void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+    void setFontGlyphScreenSpaceSize(float2 screenSpaceSize) { data2.yz = screenSpaceSize; }
     
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,

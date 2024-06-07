@@ -256,7 +256,6 @@ class ComputerAidedDesign final : public examples::SimpleWindowedApplication, pu
 	constexpr static uint32_t WindowWidthRequest = 1600u;
 	constexpr static uint32_t WindowHeightRequest = 900u;
 	constexpr static uint32_t MaxFramesInFlight = 8u;
-	constexpr static uint32_t2 MsdfSize = uint32_t2(32, 32);
 public:
 
 	void allocateResources(uint32_t maxObjects)
@@ -275,7 +274,7 @@ public:
 		// + 128 ClipProjDaa
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 64u, MsdfSize);
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 64u, uint32_t2(MsdfSize, MsdfSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -338,9 +337,9 @@ public:
 
 		IGPUSampler::SParams samplerParams = {};
 		// @Lucas you might need to modify the sampler
-		samplerParams.TextureWrapU = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_REPEAT;
+		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
 		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
@@ -1733,13 +1732,16 @@ protected:
 					auto glyphIndex = FT_Get_Char_Index(m_glyphFace, unicode);
 					auto error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
 					const float64_t2 advanceVec = float64_t2(slot->advance.x, 0.0) * scale;
+					const float64_t2 baselineStart = currentBaselineStart;
+
+					currentBaselineStart += advanceVec;
 					
 					TextGlyphBoundingBox glyphBbox = {};
 					if (glyphIndex != 0 || k != ' ')
 					{
 						const float64_t2 bearingVec = float64_t2(slot->metrics.horiBearingX, slot->metrics.horiBearingY) * scale;
 						const float64_t2 glyphSize = float64_t2(slot->metrics.width, slot->metrics.height) * scale;
-						glyphBbox.topLeft = currentBaselineStart + bearingVec;
+						glyphBbox.topLeft = baselineStart + bearingVec;
 						glyphBbox.dirU = float64_t2(glyphSize.x, 0.0);
 						glyphBbox.dirV = float64_t2(0.0, -glyphSize.y);
 
@@ -1780,10 +1782,29 @@ protected:
 								assert(!error);
 								hatchBuilder.finish();
 							}
+							msdfgen::Shape glyphShape;
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_glyphLibrary, m_glyphFace);
+							assert(loadedGlyph);
 
 							auto& shapePolylines = hatchBuilder.polylines;
-							auto polylineOffset = glyphBbox.topLeft - glyphBbox.dirV;
 							std::vector<CPolyline> transformedPolylines;
+
+							auto transformPoint = [&](float64_t2 point)
+							{
+								auto shapeBounds = glyphShape.getBounds();
+								float64_t2 scale = float64_t2(
+									shapeBounds.r - shapeBounds.l,
+									shapeBounds.t - shapeBounds.b
+								);
+								float64_t2 translate = float64_t2(-shapeBounds.l, -shapeBounds.b);
+								
+								auto pointIn0To1 = (point + translate) / scale;
+								pointIn0To1.y = 1.0 - pointIn0To1.y; // Honestly not sure why this makes it go upside down
+								auto aabbMin = glyphBbox.topLeft + float64_t2(0, 50);
+								auto aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV + float64_t2(0, 50);
+								return aabbMin + pointIn0To1 * (aabbMax - aabbMin);
+							};
+
 							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
 							{
 								auto& polyline = shapePolylines[polylineIdx];
@@ -1800,7 +1821,7 @@ protected:
 										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
 										{
 											auto point = polyline.getLinePointAt(i).p;
-											points.push_back(point + polylineOffset);
+											points.push_back(transformPoint(point));
 										}
 										transformedPolyline.addLinePoints(points);
 									}
@@ -1813,9 +1834,9 @@ protected:
 										{
 											QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
 											beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
-												bezier.shape.P0 + polylineOffset,
-												bezier.shape.P1 + polylineOffset,
-												bezier.shape.P2 + polylineOffset
+												transformPoint(bezier.shape.P0),
+												transformPoint(bezier.shape.P1),
+												transformPoint(bezier.shape.P2)
 											));
 										}
 										transformedPolyline.addQuadBeziers(beziers);
@@ -1842,14 +1863,17 @@ protected:
 									const auto imageExtents = uint32_t2(32, 32);
 									auto shapeBounds = shape.getBounds();
 
-									uint32_t shapeBoundsWidth = shapeBounds.r - shapeBounds.l;
-									uint32_t shapeBoundsHeight = shapeBounds.t - shapeBounds.b;
+									float32_t2 scale = float32_t2(
+										float(imageExtents.x) / (shapeBounds.r - shapeBounds.l),
+										float(imageExtents.y) / (shapeBounds.t - shapeBounds.b)
+									);
+									float32_t2 translate = float32_t2(-shapeBounds.l, -shapeBounds.b);
 
 									DrawResourcesFiller::MsdfTextureUploadInfo uploadInfo = generateMsdfForShape(
 										std::move(hatchBuilder.polylines), 
 										shape, 
 										drawResourcesFiller.getMSDFResolution(), 
-										uint32_t2(shapeBoundsWidth, shapeBoundsHeight));
+										scale, translate);
 
 									return uploadInfo;
 								},
@@ -1869,8 +1893,6 @@ protected:
 						}
 
 					}
-
-					currentBaselineStart += advanceVec;
 				}
 			}
 			if (hatchDebugStep > 0)

@@ -377,17 +377,13 @@ float median(float r, float g, float b) {
     return max(min(r, g), min(max(r, g), b));
 }
 
-float screenPxRange(float2 uv) {
-    float2 unitRange = MsdfPixelRange / float2(globals.resolution);
-    // This could also be done using the resolution, but this way we supposedly
-    // get better support for rotations and other transformations with the text
-    float2 screenTexSize = 1.0 / fwidth(uv);
-    return max(0.5*dot(unitRange, screenTexSize), 1.0);
+float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels) {
+    return screenSpaceSizePixels / distanceFieldSizePixels * MsdfPixelRange;
 }
 
-float msdfOpacity(float3 msd, float2 uv) {
+float msdfOpacity(float3 msd, float2 screenPxRangeValue) {
     float sd = median(msd.r, msd.g, msd.b);
-    float screenPxDistance = screenPxRange(uv) * (sd - 0.5);
+    float screenPxDistance = screenPxRangeValue * (sd - 0.5);
     float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
 	return opacity;
 }
@@ -584,8 +580,8 @@ float4 main(PSInput input) : SV_TARGET
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(input.position.xy / 8.0, float(textureId))).xyz;
-            float msdf = msdfOpacity(msdfSample, input.position.xy / float2(globals.resolution));
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / 8.0), float(textureId))).xyz;
+            float msdf = msdfOpacity(msdfSample, screenPxRange(float2(8.0, 8.0), float2(MsdfSize, MsdfSize)));
             localAlpha *= msdf;
         }
     }
@@ -596,8 +592,8 @@ float4 main(PSInput input) : SV_TARGET
 
         if (textureId != InvalidTextureIdx)
         {
-            float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, 1.0 - uv.y), float(textureId)));
-            float msdf = msdfOpacity(msdfSample, input.position.xy / float2(globals.resolution));
+            float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
+            float msdf = msdfOpacity(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MsdfSize, MsdfSize)));
             localAlpha = msdf;
         }
     }

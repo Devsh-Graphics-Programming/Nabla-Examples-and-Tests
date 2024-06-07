@@ -60,7 +60,7 @@ struct std::hash<MsdfTextureHash>
     }
 };
  
-DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPolyline>&& polylines, msdfgen::Shape glyph, uint32_t2 msdfExtents, uint32_t2 glyphExtents);
+DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPolyline>&& polylines, msdfgen::Shape glyph, uint32_t2 msdfExtents, float32_t2 scale, float32_t2 translate);
 
 DrawResourcesFiller::MsdfTextureUploadInfo generateHatchFillPatternMsdf(MsdfFillPattern fillPattern, uint32_t2 msdfExtents);
 

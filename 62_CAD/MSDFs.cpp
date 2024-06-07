@@ -3,7 +3,7 @@
 
 // extents is the size of the MSDF that is generated (probably 32x32)
 // glyphExtents is the area of the "image" that msdf will consider (used as resizing, for fill patterns should be 8x8)
-DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPolyline>&& polylines, msdfgen::Shape glyph, uint32_t2 msdfExtents, uint32_t2 glyphExtents)
+DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPolyline>&& polylines, msdfgen::Shape glyph, uint32_t2 msdfExtents, float32_t2 scale, float32_t2 translate)
 {
 	uint32_t glyphW = msdfExtents.x;
 	uint32_t glyphH = msdfExtents.y;
@@ -23,12 +23,22 @@ DrawResourcesFiller::MsdfTextureUploadInfo generateMsdfForShape(std::vector<CPol
 	msdfgen::edgeColoringSimple(glyph, 3.0); // TODO figure out what this is
 	msdfgen::Bitmap<float, 4> msdfMap(glyphW, glyphH);
 
-	float scaleX = (1.0 / float(glyphExtents.x)) * glyphW;
-	float scaleY = (1.0 / float(glyphExtents.y)) * glyphH;
-	msdfgen::generateMTSDF(msdfMap, glyph, MsdfPixelRange, { scaleX, scaleY }, msdfgen::Vector2(0.0, 0.0));
+	msdfgen::generateMTSDF(msdfMap, glyph, MsdfPixelRange, { scale.x, scale.y }, { translate.x, translate.y });
 
 	auto cpuBuf = core::make_smart_refctd_ptr<ICPUBuffer>(glyphW * glyphH * sizeof(float) * 4);
-	memcpy(reinterpret_cast<void*>(cpuBuf->getPointer()), reinterpret_cast<void*>(msdfMap(0, 0)), glyphW * glyphH * sizeof(float) * 4);
+	float* data = reinterpret_cast<float*>(cpuBuf->getPointer());
+	// TODO: Optimize this: negative values aren't being handled properly by the updateImageViaStagingBuffer function
+	for (int y = 0; y < msdfMap.height(); ++y)
+	{
+		for (int x = 0; x < msdfMap.width(); ++x)
+		{
+			auto pixel = msdfMap(x, glyphH - 1 - y);
+			data[(x + y * glyphW) * 4 + 0] = std::clamp(pixel[0], 0.0f, 1.0f);
+			data[(x + y * glyphW) * 4 + 1] = std::clamp(pixel[1], 0.0f, 1.0f);
+			data[(x + y * glyphW) * 4 + 2] = std::clamp(pixel[2], 0.0f, 1.0f);
+			data[(x + y * glyphW) * 4 + 3] = std::clamp(pixel[3], 0.0f, 1.0f);
+		}
+	}
 
 	return {
 		.cpuBuffer = std::move(cpuBuf),
@@ -428,7 +438,9 @@ DrawResourcesFiller::MsdfTextureUploadInfo generateHatchFillPatternMsdf(MsdfFill
 	glyphShapeBuilder.finish();
 	glyph.normalize();
 
-	return generateMsdfForShape(std::move(polylines), glyph, msdfExtents, HatchFillPatternGlyphExtents);
+	float scaleX = (1.0 / float(HatchFillPatternGlyphExtents.x)) * float(msdfExtents.x);
+	float scaleY = (1.0 / float(HatchFillPatternGlyphExtents.y)) * float(msdfExtents.y);
+	return generateMsdfForShape(std::move(polylines), glyph, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
 }
 
 DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit)
