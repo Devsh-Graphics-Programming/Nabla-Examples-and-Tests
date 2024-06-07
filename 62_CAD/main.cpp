@@ -1860,7 +1860,7 @@ protected:
 									bool loadedGlyph = drawFreetypeGlyph(shape, m_glyphLibrary, m_glyphFace);
 									assert(loadedGlyph);
 
-									const auto imageExtents = uint32_t2(32, 32);
+									const auto imageExtents = uint32_t2(MsdfSize, MsdfSize);
 									auto shapeBounds = shape.getBounds();
 
 									float32_t2 scale = float32_t2(
