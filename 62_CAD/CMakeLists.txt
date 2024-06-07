@@ -13,7 +13,7 @@ set(EXAMPLE_SOURCES
   "${CMAKE_CURRENT_SOURCE_DIR}/DrawResourcesFiller.h"
   "${CMAKE_CURRENT_SOURCE_DIR}/MSDFs.cpp"
   "${CMAKE_CURRENT_SOURCE_DIR}/MSDFs.h"
-  "../../src/nbl/ext/TextRendering/TextRendering.cpp"
+  "../../src/nbl/ext/TextRendering/TextRendering.cpp" # TODO: this one will be a part of dedicated Nabla ext called "TextRendering" later on which uses MSDF + Freetype
 )
 set(EXAMPLE_INCLUDES
   "${CMAKE_CURRENT_SOURCE_DIR}/../../3rdparty/boost/superproject/libs/math/include")
@@ -36,3 +36,15 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif()
+
+# Freetype
+add_dependencies(${EXECUTABLE_NAME} freetype)
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE freetype)
+target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:freetype,INCLUDE_DIRECTORIES>)
+
+# msdfgen
+add_dependencies(${EXECUTABLE_NAME} ${NBL_MSDFGEN_TARGETS})
+target_link_libraries(${EXECUTABLE_NAME} PRIVATE ${NBL_MSDFGEN_TARGETS})
+foreach(NBL_TARGET IN LISTS NBL_MSDFGEN_TARGETS)
+	target_include_directories(${EXECUTABLE_NAME} PUBLIC $<TARGET_PROPERTY:${NBL_TARGET},INCLUDE_DIRECTORIES>)
+endforeach()
