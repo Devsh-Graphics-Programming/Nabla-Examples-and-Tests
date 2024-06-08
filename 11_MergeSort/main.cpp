@@ -41,7 +41,7 @@ public:
 
 		// Compute and input related constants.
 		static constexpr uint32_t WorkgroupSize = 64;
-		static constexpr uint32_t NumberOfElementsToSort = 64;
+		static constexpr uint32_t NumberOfElementsToSort = 64 * 64 * 33;
 		static constexpr uint32_t WorkgroupCount = (NumberOfElementsToSort + WorkgroupSize - 1) / WorkgroupSize;
 
 		constexpr size_t bufferSize = sizeof(int32_t) * NumberOfElementsToSort;
@@ -177,21 +177,19 @@ public:
 		// Create the Semaphore (required since to start execution of phase X, phase X - 1 must complete execution on the GPU.
 		m_phaseSemaphore = m_device->createSemaphore(monotonicallyIncreasingCounter);
 
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+		smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(m_computeQueueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+		if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+		{
+			return logFail("Failed to create Command Buffers!\n");
+		}
+
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
+		cmdbuf->bindComputePipeline(m_computePipeline.get());
+
 		for (size_t phaseIndex = 1; phaseIndex <= numberOfPhases; phaseIndex++)
 		{
-			smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
-			{
-				smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(m_computeQueueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-				if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
-				{
-					return logFail("Failed to create Command Buffers!\n");
-				}
-			}
-
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cmdbuf->beginDebugMarker("My Compute Dispatch", core::vectorSIMDf(0, 1, 0, 1));
-			cmdbuf->bindComputePipeline(m_computePipeline.get());
-
 			const MergeSortPushData pushConstantData = {
 				.buffer_a_address = phaseIndex % 2 == 1 ? m_bufferAAddress : m_bufferBAddress,
 				.buffer_b_address = phaseIndex % 2 == 1 ? m_bufferBAddress : m_bufferAAddress,
@@ -203,35 +201,53 @@ public:
 
 			const uint32_t t = std::pow(2, phaseIndex);
 			cmdbuf->dispatch((NumberOfElementsToSort + t - 1) / t, 1, 1);
-			cmdbuf->endDebugMarker();
 
-			cmdbuf->end();
-
-			{
-				// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
-				IQueue* queue = m_device->getQueue(m_computeQueueFamily, 0);
-
-				IQueue::SSubmitInfo submitInfos[1] = {};
-				// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
-				// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
-				const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
-				submitInfos[0].commandBuffers = cmdbufs;
-
-				const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_phaseSemaphore.get(),.value = ++monotonicallyIncreasingCounter,.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT} };
-				submitInfos[0].signalSemaphores = signals;
-
-				queue->startCapture();
-				queue->submit(submitInfos);
-				queue->endCapture();
-
-			}
-			const ISemaphore::SWaitInfo wait_infos[] = { {
-		.semaphore = m_phaseSemaphore.get(),
-		.value = monotonicallyIncreasingCounter,
-	}, };
-
-			m_device->blockForSemaphores(wait_infos);
+			SMemoryBarrier memoryBarrier = {
+.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+			};
+			const nbl::video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo dependencyInfo = {
+				.memBarriers = std::array{
+memoryBarrier,
+						},
+			};
+			cmdbuf->pipelineBarrier(core::bitflag(asset::E_DEPENDENCY_FLAGS::EDF_NONE), dependencyInfo);
 		}
+
+		cmdbuf->endDebugMarker();
+
+		cmdbuf->end();
+
+		// Submit command buffer for execution.
+		// queues are inherent parts of the device, ergo not refcounted (you refcount the device instead)
+		IQueue* queue = m_device->getQueue(m_computeQueueFamily, 0);
+
+		IQueue::SSubmitInfo submitInfos[1] = {};
+		// The IGPUCommandBuffer is the only object whose usage does not get automagically tracked internally, you're responsible for holding onto it as long as the GPU needs it.
+		// So this is why our commandbuffer, even though its transient lives in the scope equal or above the place where we wait for the submission to be signalled as complete.
+		const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdbuf.get()} };
+		submitInfos[0].commandBuffers = cmdbufs;
+
+		const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
+				{
+					.semaphore = m_phaseSemaphore.get(),
+					.value = numberOfPhases,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				}
+		};
+
+		submitInfos[0].signalSemaphores = signals;
+
+		queue->startCapture();
+		queue->submit(submitInfos);
+		queue->endCapture();
+
+		const ISemaphore::SWaitInfo wait_infos[] = { {
+				.semaphore = m_phaseSemaphore.get(),
+				.value = numberOfPhases,
+			} };
+
+		m_device->blockForSemaphores(wait_infos);
 
 		// Now, get the current pointer to output buffer (the output may be in either buffer A or in B).
 		// Perform merge sort on the CPU to test whether GPU compute version computed the result correctly.
