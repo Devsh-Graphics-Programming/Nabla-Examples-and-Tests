@@ -13,19 +13,19 @@ groupshared int shared_memory_input_array[MaxNumberOfArrayElementsSharedMemoryCa
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint threadIdx : SV_DispatchThreadID)
 {
-    uint left_array_start = threadIdx * phase_data.num_elements_per_array * 2;
-    uint right_array_start = left_array_start + phase_data.num_elements_per_array;
+    uint left_array_start = threadIdx * push_data.num_elements_per_array * 2;
+    uint right_array_start = left_array_start + push_data.num_elements_per_array;
 
-    uint left_array_end = left_array_start + phase_data.num_elements_per_array - 1;
-    if (left_array_end >= phase_data.buffer_length)
+    uint left_array_end = left_array_start + push_data.num_elements_per_array - 1;
+    if (left_array_end >= push_data.buffer_length)
     {
-        left_array_end = phase_data.buffer_length - 1;
+        left_array_end = push_data.buffer_length - 1;
     }
 
-    uint right_array_end = right_array_start + phase_data.num_elements_per_array - 1;
-    if (right_array_end >= phase_data.buffer_length)
+    uint right_array_end = right_array_start + push_data.num_elements_per_array - 1;
+    if (right_array_end >= push_data.buffer_length)
     {
-        right_array_end = phase_data.buffer_length - 1;
+        right_array_end = push_data.buffer_length - 1;
     }
 
     // Now that the left and right array bounds are determined, move the data into shared memory.
@@ -41,13 +41,13 @@ void main(uint threadIdx : SV_DispatchThreadID)
 
     while (left_array_start <= left_array_end && right_array_start <= right_array_end)
     {
-        int buffer_a_data = vk::RawBufferLoad<int32_t>(push_data.buffer_a_address + sizeof(int32_t)*left_array_start);
-        int buffer_b_data = vk::RawBufferLoad<int32_t>(push_data.buffer_b_address + sizeof(int32_t)*right_array_start);
+        int left_buffer_data = vk::RawBufferLoad<int32_t>(push_data.buffer_a_address + sizeof(int32_t)*left_array_start);
+        int right_buffer_data = vk::RawBufferLoad<int32_t>(push_data.buffer_a_address + sizeof(int32_t)*right_array_start);
 
-        int left_array_current_element = (left_array_start < MaxNumberOfArrayElementsSharedMemoryCanHold) ? shared_memory_input_array[left_array_start] : buffer_a_data;
-        int right_array_current_element = (right_array_start < MaxNumberOfArrayElementsSharedMemoryCanHold) ? shared_memory_input_array[right_array_start] : buffer_b_data;
+        int left_array_current_element = (left_array_start < MaxNumberOfArrayElementsSharedMemoryCanHold) ? shared_memory_input_array[left_array_start] : left_buffer_data;
+        int right_array_current_element = (right_array_start < MaxNumberOfArrayElementsSharedMemoryCanHold) ? shared_memory_input_array[right_array_start] : right_buffer_data;
 
-        if (buffer_a_data <= buffer_b_data)
+        if (left_array_current_element<= right_array_current_element)
         {
             vk::RawBufferStore<int32_t>(push_data.buffer_b_address+sizeof(int32_t)*index, left_array_current_element);
             ++left_array_start;
@@ -72,9 +72,9 @@ void main(uint threadIdx : SV_DispatchThreadID)
 
     while (right_array_start <= right_array_end)
     {
-        int buffer_b_data = vk::RawBufferLoad<int32_t>(push_data.buffer_b_address + sizeof(int32_t)*right_array_start);
+        int buffer_a_data = vk::RawBufferLoad<int32_t>(push_data.buffer_a_address + sizeof(int32_t)*right_array_start);
 
-        int right_array_current_element = (right_array_start < MaxNumberOfArrayElementsSharedMemoryCanHold) ? shared_memory_input_array[right_array_start] : buffer_b_data;
+        int right_array_current_element = (right_array_start < MaxNumberOfArrayElementsSharedMemoryCanHold) ? shared_memory_input_array[right_array_start] : buffer_a_data;
         vk::RawBufferStore<int32_t>(push_data.buffer_b_address+sizeof(int32_t)*index++, right_array_current_element);
         ++right_array_start;
     }

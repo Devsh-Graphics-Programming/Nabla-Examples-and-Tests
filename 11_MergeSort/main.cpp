@@ -36,20 +36,21 @@ public:
 
 		// Get the maxinum bytes of shared memory we can use.
 		// In case the number of elements shared memory array can hold exceeds the limit, then switch to fetching data from global memory directly (for as few memory elements as possible).
-		const auto physicalDeviceLimits = m_device->getPhysicalDevice()->getLimits();
+		const nbl::video::SPhysicalDeviceLimits physicalDeviceLimits = m_device->getPhysicalDevice()->getLimits();
 		const uint32_t maxNumberOfArrayElementsSharedMemoryCanHold = physicalDeviceLimits.maxComputeSharedMemorySize / sizeof(int);
 
 		// Compute and input related constants.
 		static constexpr uint32_t WorkgroupSize = 64;
-		static constexpr uint32_t NumberOfElementsToSort = 1024 * 633u;
-		static const uint32_t WorkgroupCount = (uint32_t)ceil(NumberOfElementsToSort / (float)WorkgroupSize);
+		static constexpr uint32_t NumberOfElementsToSort = 64;
+		static constexpr uint32_t WorkgroupCount = (NumberOfElementsToSort + WorkgroupSize - 1) / WorkgroupSize;
 
-		const size_t bufferSize = sizeof(int32_t) * NumberOfElementsToSort;
+		constexpr size_t bufferSize = sizeof(int32_t) * NumberOfElementsToSort;
+
+		constexpr auto seed = 2532344;
 
 		std::vector<int32_t> inputBufferData(NumberOfElementsToSort);
 		{
 			// Setup the input data (random) that is to be sorted.
-			const auto seed = 2532344;
 
 			// Setup the random number generator.
 			std::mt19937 randomNumberGenerator(seed);
@@ -126,15 +127,20 @@ public:
 			}
 
 			m_bufferA->setObjectDebugName("Buffer A");
-			m_bufferAAddress = m_bufferA->getDeviceAddress();
 
 			nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = m_bufferA->getMemoryReqs();
 			reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getHostVisibleMemoryTypeBits();
 
-			m_bufferAAllocation = m_device->allocate(reqs, m_bufferA.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+			m_bufferAAllocation = m_device->allocate(reqs, m_bufferA.get(), nbl::video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			if (!m_bufferAAllocation.isValid())
 			{
 				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+			}
+			m_bufferAAddress = m_bufferA->getDeviceAddress();
+
+			if (!m_bufferAAllocation.memory->map({ 0ull,m_bufferAAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+			{
+				return logFail("Failed to map the Device Memory!\n");
 			}
 
 			// Create the B buffer.
@@ -145,18 +151,13 @@ public:
 			}
 
 			m_bufferB->setObjectDebugName("Buffer B");
-			m_bufferBAddress = m_bufferB->getDeviceAddress();
 
-			m_bufferBAllocation = m_device->allocate(reqs, m_bufferB.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+			m_bufferBAllocation = m_device->allocate(reqs, m_bufferB.get(), nbl::video::IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 			if (!m_bufferBAllocation.isValid())
 			{
 				return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 			}
-
-			if (!m_bufferAAllocation.memory->map({ 0ull,m_bufferAAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
-			{
-				return logFail("Failed to map the Device Memory!\n");
-			}
+			m_bufferBAddress = m_bufferB->getDeviceAddress();
 
 			if (!m_bufferBAllocation.memory->map({ 0ull,m_bufferBAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
 			{
@@ -193,14 +194,15 @@ public:
 
 			const MergeSortPushData pushConstantData = {
 				.buffer_a_address = phaseIndex % 2 == 1 ? m_bufferAAddress : m_bufferBAddress,
-				.buffer_b_address = phaseIndex % 2 == 1 ? m_bufferBAddress : m_bufferBAddress,
-				.num_elements_per_array = (uint32_t)pow(2, phaseIndex - 1),
+				.buffer_b_address = phaseIndex % 2 == 1 ? m_bufferBAddress : m_bufferAAddress,
+				.num_elements_per_array = (uint32_t)std::pow(2, phaseIndex - 1),
 				.buffer_length = static_cast<uint32_t>(NumberOfElementsToSort),
 			};
 
 			cmdbuf->pushConstants(m_pipelineLayout.get(), nbl::asset::IShader::ESS_COMPUTE, 0u, sizeof(pushConstantData), &pushConstantData);
 
-			cmdbuf->dispatch((uint32_t)ceilf(NumberOfElementsToSort / powf(2.0f, phaseIndex)), 1, 1);
+			const uint32_t t = std::pow(2, phaseIndex);
+			cmdbuf->dispatch((NumberOfElementsToSort + t - 1) / t, 1, 1);
 			cmdbuf->endDebugMarker();
 
 			cmdbuf->end();
@@ -245,14 +247,14 @@ public:
 
 		for (auto i = 0; i < NumberOfElementsToSort; i++)
 		{
-			printf("output buffer -> %d input buffer -> %d\n", outputBufferData[i], inputBufferData[i]);
+			m_logger->log("output buffer -> " + std::to_string(outputBufferData[i]) + " input buffer -> " + std::to_string(inputBufferData[i]) + "\n", ILogger::ELL_PERFORMANCE);
 			if (outputBufferData[i] != inputBufferData[i])
 			{
 				return logFail("%d != %d\n", outputBufferData[i], inputBufferData[i]);
 			}
 		}
 
-		printf("Merge sort succesfull!\n");
+		m_logger->log("Merge sort succesfull!\n");
 
 		m_device->waitIdle();
 		return true;

@@ -31,7 +31,7 @@ if(NBL_BUILD_EXAMPLES)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 	# showcase how merge sort can be implemented using compute shaders
-	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
+	add_subdirectory(11_MergeSort EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
