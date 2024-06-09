@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CComputeScanBuilder extends IBuilder
+class CComputeReduceBuilder extends IBuilder
 {
-	public CComputeScanBuilder(Agent _agent, _info)
+	public CComputeReduceBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CComputeScanBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CComputeScanBuilder(_agent, _info)
+	return new CComputeReduceBuilder(_agent, _info)
 }
 
 return this

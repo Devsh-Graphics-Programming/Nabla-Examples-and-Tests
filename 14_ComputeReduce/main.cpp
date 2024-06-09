@@ -29,7 +29,7 @@ public:
 		computeQueue = getComputeQueue();
 
 		// Create (an almost) 128MB input buffer
-		constexpr auto in_size = 128u << 5u;
+		constexpr auto in_size = 128u << 10u;
 		constexpr auto in_count = in_size / sizeof(uint32_t) - 23u;
 
 		m_logger->log("Input element count: %d", ILogger::ELL_PERFORMANCE, in_count);
@@ -81,14 +81,13 @@ public:
 		}
 		SBufferRange<IGPUBuffer> in_gpu_range = { begin * sizeof(uint32_t), elementCount * sizeof(uint32_t), gpuinputDataBuffer };
 
-		const auto scanType = video::CScanner::EST_EXCLUSIVE;
-		auto scanner = m_utils->getDefaultScanner();
+		auto reducer = m_utils->getDefaultReducer();
 
-		CScanner::DefaultPushConstants scan_push_constants;
-		CScanner::DispatchInfo scan_dispatch_info;
-		scanner->buildParameters(elementCount, scan_push_constants, scan_dispatch_info);
+		CArithmeticOps::DefaultPushConstants reduce_push_constants;
+		CArithmeticOps::DispatchInfo reduce_dispatch_info;
+		reducer->buildParameters(elementCount, reduce_push_constants, reduce_dispatch_info);
 
-		IGPUBuffer::SCreationParams params = { scan_push_constants.scanParams.getScratchSize(), bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT };
+		IGPUBuffer::SCreationParams params = { reduce_push_constants.scanParams.getScratchSize(), bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT };
 		SBufferRange<IGPUBuffer> scratch_gpu_range = {0u, params.size, m_device->createBuffer(std::move(params)) };
 		{
 			auto memReqs = scratch_gpu_range.buffer->getMemoryReqs();
@@ -96,11 +95,11 @@ public:
 			auto scratchMem = m_device->allocate(memReqs, scratch_gpu_range.buffer.get());
 		}
 
-		auto scan_pipeline = scanner->getDefaultPipeline(scanType, CScanner::EDT_UINT, CScanner::EO_ADD, params.size);
-		auto dsLayout = scanner->getDefaultDescriptorSetLayout();
+		auto reduce_pipeline = reducer->getDefaultPipeline(CArithmeticOps::EDT_UINT, CArithmeticOps::EO_ADD, params.size); // TODO: Update to test all operations
+		auto dsLayout = reducer->getDefaultDescriptorSetLayout();
 		auto dsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout, 1 });
 		auto ds = dsPool->createDescriptorSet(core::smart_refctd_ptr<IGPUDescriptorSetLayout>(dsLayout));
-		scanner->updateDescriptorSet(m_device.get(), ds.get(), in_gpu_range, scratch_gpu_range);
+		reducer->updateDescriptorSet(m_device.get(), ds.get(), in_gpu_range, scratch_gpu_range);
 		
 		{
 			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -113,10 +112,10 @@ public:
 
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::SIMULTANEOUS_USE_BIT); // (REVIEW): not sure about this
 		cmdbuf->fillBuffer(scratch_gpu_range, 0u);
-		cmdbuf->bindComputePipeline(scan_pipeline);
-		auto pipeline_layout = scan_pipeline->getLayout();
+		cmdbuf->bindComputePipeline(reduce_pipeline);
+		auto pipeline_layout = reduce_pipeline->getLayout();
 		cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipeline_layout, 0u, 1u, &ds.get());
-		scanner->dispatchHelper(cmdbuf.get(), pipeline_layout, scan_push_constants, scan_dispatch_info, 0u, nullptr, 0u, nullptr);
+		reducer->dispatchHelper(cmdbuf.get(), pipeline_layout, reduce_push_constants, reduce_dispatch_info, 0u, nullptr, 0u, nullptr);
 		cmdbuf->end();
 
 		{
@@ -138,27 +137,16 @@ public:
 			computeQueue->endCapture();
 		}
 
+		// TODO: Update to support all operations
 		// cpu counterpart
 		auto cpu_begin = inputData + begin;
-		m_logger->log("CPU scan begin", system::ILogger::ELL_PERFORMANCE);
+		m_logger->log("CPU reduce begin", system::ILogger::ELL_PERFORMANCE);
 
 		auto start = std::chrono::high_resolution_clock::now();
-		switch (scanType)
-		{
-		case video::CScanner::EST_INCLUSIVE:
-			std::inclusive_scan(cpu_begin, inputData + end, cpu_begin);
-			break;
-		case video::CScanner::EST_EXCLUSIVE:
-			std::exclusive_scan(cpu_begin, inputData + end, cpu_begin, 0u);
-			break;
-		default:
-			assert(false);
-			exit(0xdeadbeefu);
-			break;
-		}
+		auto result = std::reduce(cpu_begin, inputData + end, 0u);
 		auto stop = std::chrono::high_resolution_clock::now();
 
-		m_logger->log("CPU scan end. Time taken: %d us", system::ILogger::ELL_PERFORMANCE, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count());
+		m_logger->log("CPU reduce end. Time taken: %d us", system::ILogger::ELL_PERFORMANCE, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count());
 
 		// wait for the gpu impl to complete
 		const ISemaphore::SWaitInfo cmdbufDonePending[] = {{
@@ -231,13 +219,10 @@ public:
 				mem->map({ .offset = range.offset, .length = range.length }, video::IDeviceMemoryAllocation::EMCAF_READ);
 			}
 			auto gpu_begin = reinterpret_cast<uint32_t*>(mem->getMappedPointer());
-			for (auto i = 0u; i < elementCount; i++)
-			{
-				if (gpu_begin[i] != cpu_begin[i])
-					_NBL_DEBUG_BREAK_IF(true);
-			}
+			if (gpu_begin[0] != result)
+				_NBL_DEBUG_BREAK_IF(true);
 			m_logger->log("Result Comparison Test Passed", system::ILogger::ELL_PERFORMANCE);
-			scanSuccess = true;
+			operationSuccess = true;
 		}
 
 		delete[] inputData;
@@ -262,7 +247,7 @@ public:
 	virtual bool onAppTerminated() override
 	{
 		m_logger->log("==========Result==========", ILogger::ELL_INFO);
-		m_logger->log("Scan Success: %s", ILogger::ELL_INFO, scanSuccess?"true":"false");
+		m_logger->log("Operation Success: %s", ILogger::ELL_INFO, operationSuccess ?"true":"false");
 		delete[] inputData;
 		return true;
 	}
@@ -290,7 +275,7 @@ private:
 	smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 	smart_refctd_ptr<ICPUBuffer> resultsBuffer;
 
-	bool scanSuccess = false;
+	bool operationSuccess = false;
 };
 
 NBL_MAIN_FUNC(ComputeScanApp)
