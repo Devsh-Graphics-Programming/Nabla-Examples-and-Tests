@@ -457,17 +457,21 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::FONT_GLYPH)
     {
-        float64_t2 aabbMin = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        float64_t2 aabbMax = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
-        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) * 2, 4u);
+        float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        float64_t2 dirU = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
+        float64_t2 dirV = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2, 8u);
+        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) * 3, 4u);
+
+        const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
+        const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
+        const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const double2 cornerWorldSpace = aabbMin * (1.0 - corner) + aabbMax * corner;
-        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, cornerWorldSpace));
+        const float2 coord = screenTopLeft + corner * (screenDirU + screenDirV);
 
         // TODO needs to handle rotations as well, probably from curve box code
-        const float2 ndcAxisMin = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, aabbMin));
-        const float2 ndcAxisMax = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, aabbMax));
+        const float2 ndcAxisMin = screenTopLeft;
+        const float2 ndcAxisMax = screenTopLeft + screenDirU + screenDirV;
         const float2 screenSpaceAabbExtents = abs(ndcAxisMax - ndcAxisMin) * float2(globals.resolution);
 
         outV.position = float4(coord, 0.f, 1.f);

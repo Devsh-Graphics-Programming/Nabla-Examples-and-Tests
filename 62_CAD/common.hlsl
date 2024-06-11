@@ -53,8 +53,10 @@ struct QuadraticBezierInfo
 
 struct FontGlyphInfo
 {
-    float64_t2 aabbMin;
-    float64_t2 aabbMax;
+    float64_t2 topLeft;
+    // TODO: I think these should be fine as float32_t2?
+    float64_t2 dirU;
+    float64_t2 dirV;
     uint32_t textureId;
 };
 

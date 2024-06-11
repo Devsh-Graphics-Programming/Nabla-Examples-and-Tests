@@ -1863,11 +1863,16 @@ protected:
 									const auto imageExtents = uint32_t2(MsdfSize, MsdfSize);
 									auto shapeBounds = shape.getBounds();
 
-									float32_t2 scale = float32_t2(
-										float(imageExtents.x) / (shapeBounds.r - shapeBounds.l),
-										float(imageExtents.y) / (shapeBounds.t - shapeBounds.b)
+									auto expansionAmount = MsdfPixelRange;
+									float32_t2 frameSize = float32_t2(
+										(shapeBounds.r - shapeBounds.l),
+										(shapeBounds.t - shapeBounds.b)
 									);
-									float32_t2 translate = float32_t2(-shapeBounds.l, -shapeBounds.b);
+									float32_t2 scale = float32_t2(
+										float(imageExtents.x) / (frameSize.x + 2.0 * expansionAmount),
+										float(imageExtents.y) / (frameSize.y + 2.0 * expansionAmount)
+									);
+									float32_t2 translate = float32_t2(-shapeBounds.l + expansionAmount, -shapeBounds.b + expansionAmount);
 
 									DrawResourcesFiller::MsdfTextureUploadInfo uploadInfo = generateMsdfForShape(
 										std::move(hatchBuilder.polylines), 
@@ -1883,9 +1888,13 @@ protected:
 
 							const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
 							assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+
+							auto boundingBoxExpandAmount = float64_t2(MsdfPixelRange / MsdfSize, MsdfPixelRange / MsdfSize) * (glyphBbox.dirU + glyphBbox.dirV);
+
 							FontGlyphInfo glyphInfo = {
-								.aabbMin = glyphBbox.topLeft + float64_t2(0, 100),
-								.aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV + float64_t2(0, 100),
+								.topLeft = glyphBbox.topLeft + float64_t2(0, 100) - boundingBoxExpandAmount,
+								.dirU = glyphBbox.dirU + 2.0 * boundingBoxExpandAmount,
+								.dirV = glyphBbox.dirV + 2.0 * boundingBoxExpandAmount,
 								.textureId = textureId,
 							};
 							uint32_t currentObjectInSection = 0u;
