@@ -1544,15 +1544,12 @@ protected:
 
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
-			/*
-			if (false)
+			if (hatchDebugStep > 0)
 			{
-				constexpr double hatchFillShapeSize = 10.0;
-				constexpr double hatchFillShapePadding = 1.0;
 
+				/*
 				if (hatchDebugStep < uint32_t(MsdfFillPattern::COUNT))
 				{
-					const auto& shapePolylines = m_shapeMsdfTextures[hatchDebugStep].polylines;
 					DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(hatchDebugStep), intendedNextSubmit);
 			
 					for (int x = -3; x <= 3; x++)
@@ -1618,50 +1615,20 @@ protected:
 					}
 				}
 				hatchDebugStep -= uint32_t(MsdfFillPattern::COUNT);
+				*/
+				constexpr double hatchFillShapeSize = 10.0;
+				constexpr double hatchFillShapePadding = 1.0;
 
 				// Hatch fill shapes described above
 				// Iterate each one of them, rendering
 				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < uint32_t(MsdfFillPattern::COUNT); hatchFillShapeIdx++)
 				{
 					if (hatchDebugStep == 0) break;
-					const auto& shapePolylines = m_shapeMsdfTextures[hatchFillShapeIdx].polylines;
 
 					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(MsdfFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(MsdfFillPattern::COUNT) - 1);
 					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
 					// Center it
 					offset -= totalShapesWidth / 2.0;
-
-					std::vector<CPolyline> transformedPolylines;
-					for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
-					{
-						auto& polyline = shapePolylines[polylineIdx];
-						CPolyline transformedPolyline;
-						for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-						{
-							auto& section = polyline.getSectionInfoAt(sectorIdx);
-							if (section.type == ObjectType::LINE)
-							{
-								if (section.count == 0u) continue;
-
-								std::vector<float64_t2> points;
-								for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
-								{
-									auto point = polyline.getLinePointAt(i).p / 8.0;
-									points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0));
-								}
-								transformedPolyline.addLinePoints(points);
-							}
-							else if (section.type == ObjectType::QUAD_BEZIER)
-							{
-								// TODO
-							}
-						}
-						transformedPolylines.push_back(transformedPolyline);
-					}
-
-					// Draws a hatch that represents the fill pattern polyline
-					Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-					drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), intendedNextSubmit);
 
 					{
 						CPolyline squareBelow;
@@ -1699,7 +1666,6 @@ protected:
 					hatchDebugStep--;
 				}
 			}
-			*/
 
 			if (hatchDebugStep > 0)
 			{
@@ -1869,10 +1835,10 @@ protected:
 										(shapeBounds.t - shapeBounds.b)
 									);
 									float32_t2 scale = float32_t2(
-										float(imageExtents.x) / (frameSize.x + 2.0 * expansionAmount),
-										float(imageExtents.y) / (frameSize.y + 2.0 * expansionAmount)
+										float(imageExtents.x - 2.0 * expansionAmount) / (frameSize.x),
+										float(imageExtents.y - 2.0 * expansionAmount) / (frameSize.y)
 									);
-									float32_t2 translate = float32_t2(-shapeBounds.l + expansionAmount, -shapeBounds.b + expansionAmount);
+									float32_t2 translate = float32_t2(-shapeBounds.l + expansionAmount / scale.x, -shapeBounds.b + expansionAmount / scale.y);
 
 									DrawResourcesFiller::MsdfTextureUploadInfo uploadInfo = generateMsdfForShape(
 										std::move(hatchBuilder.polylines), 
@@ -1889,14 +1855,19 @@ protected:
 							const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
 							assert(textureId != DrawResourcesFiller::InvalidTextureHash);
 
-							auto boundingBoxExpandAmount = float64_t2(MsdfPixelRange / MsdfSize, MsdfPixelRange / MsdfSize) * (glyphBbox.dirU + glyphBbox.dirV);
+							auto boundingBoxExpandAmount = (MsdfPixelRange / MsdfSize);
 
 							FontGlyphInfo glyphInfo = {
-								.topLeft = glyphBbox.topLeft + float64_t2(0, 100) - boundingBoxExpandAmount,
-								.dirU = glyphBbox.dirU + 2.0 * boundingBoxExpandAmount,
-								.dirV = glyphBbox.dirV + 2.0 * boundingBoxExpandAmount,
+								.topLeft = glyphBbox.topLeft + float64_t2(0, 100.0) - float64_t2(boundingBoxExpandAmount, boundingBoxExpandAmount) * (glyphBbox.dirU + glyphBbox.dirV),
+								.dirU = glyphBbox.dirU * (1.0 + 2.0 * boundingBoxExpandAmount),
+								.dirV = glyphBbox.dirV * (1.0 + 2.0 * boundingBoxExpandAmount),
 								.textureId = textureId,
 							};
+							printf(std::format("Char {} top left ({}, {}) dir U ({}, {}) dir V ({}, {})\n", k, 
+								glyphBbox.topLeft.x, glyphBbox.topLeft.y, 
+								glyphBbox.dirU.x, glyphBbox.dirU.y, 
+								glyphBbox.dirV.x, glyphBbox.dirV.y
+								).c_str());
 							uint32_t currentObjectInSection = 0u;
 							drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
 						}

@@ -378,7 +378,8 @@ float median(float r, float g, float b) {
 }
 
 float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels) {
-    return screenSpaceSizePixels / distanceFieldSizePixels * MsdfPixelRange;
+    float2 unitRange = MsdfPixelRange / distanceFieldSizePixels;
+    return max(0.5 * dot(unitRange, screenSpaceSizePixels), 1.0);
 }
 
 float msdfOpacity(float3 msd, float2 screenPxRangeValue) {
