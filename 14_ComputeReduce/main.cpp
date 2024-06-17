@@ -10,13 +10,13 @@ using namespace asset;
 using namespace system;
 using namespace video;
 
-class ComputeScanApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class ComputeReduceApp final : public application_templates::BasicMultiQueueApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = application_templates::BasicMultiQueueApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
 public:
-	ComputeScanApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+	ComputeReduceApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
@@ -29,8 +29,8 @@ public:
 		computeQueue = getComputeQueue();
 
 		// Create (an almost) 128MB input buffer
-		constexpr auto in_size = 128u << 10u;
-		constexpr auto in_count = in_size / sizeof(uint32_t) - 23u;
+		constexpr auto in_size = 128u << 20u;
+		constexpr auto in_count = in_size / sizeof(uint32_t) - 24u;
 
 		m_logger->log("Input element count: %d", ILogger::ELL_PERFORMANCE, in_count);
 
@@ -40,7 +40,7 @@ public:
 			std::mt19937 generator(random_device());
 			std::uniform_int_distribution<uint32_t> distribution(0u, ~0u);
 			for (auto i = 0u; i < in_count; i++)
-				inputData[i] = distribution(generator) % 100000;
+				inputData[i] = 1u;//distribution(generator) % 128;
 		}
 		auto minSSBOAlign = m_physicalDevice->getLimits().minSSBOAlignment;
 		constexpr auto begin = in_count / 4 + 118;
@@ -147,7 +147,7 @@ public:
 		auto stop = std::chrono::high_resolution_clock::now();
 
 		m_logger->log("CPU reduce end. Time taken: %d us", system::ILogger::ELL_PERFORMANCE, std::chrono::duration_cast<std::chrono::microseconds>(stop - start).count());
-
+		m_logger->log("Host result %d", system::ILogger::ELL_INFO, result);
 		// wait for the gpu impl to complete
 		const ISemaphore::SWaitInfo cmdbufDonePending[] = {{
 			.semaphore = semaphore.get(),
@@ -219,6 +219,7 @@ public:
 				mem->map({ .offset = range.offset, .length = range.length }, video::IDeviceMemoryAllocation::EMCAF_READ);
 			}
 			auto gpu_begin = reinterpret_cast<uint32_t*>(mem->getMappedPointer());
+			m_logger->log("Device result %d", system::ILogger::ELL_INFO, gpu_begin[0]);
 			if (gpu_begin[0] != result)
 				_NBL_DEBUG_BREAK_IF(true);
 			m_logger->log("Result Comparison Test Passed", system::ILogger::ELL_PERFORMANCE);
@@ -278,4 +279,4 @@ private:
 	bool operationSuccess = false;
 };
 
-NBL_MAIN_FUNC(ComputeScanApp)
+NBL_MAIN_FUNC(ComputeReduceApp)
