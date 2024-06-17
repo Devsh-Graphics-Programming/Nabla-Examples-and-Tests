@@ -3,11 +3,13 @@
 #include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>  
+#include "nbl/ext/TextRendering/TextRendering.h"
 
 using namespace nbl;
 using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
+using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 16u);
@@ -62,20 +64,11 @@ public:
 
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
-	// ! return index to be used later in hatch fill style or text glyph object
-	struct MsdfTextureUploadInfo 
-	{
-		core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
-		uint64_t bufferOffset;
-		uint32_t3 imageExtent;
-		std::vector<CPolyline> polylines;
-	};
-
 	uint32_t getMSDFTextureIndex(texture_hash hash);
 
-	uint32_t addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(std::function<TextRenderer::MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
-	uint32_t addMSDFTexture(MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+	uint32_t addMSDFTexture(TextRenderer::MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 	{
 		return addMSDFTexture(
 			[textureUploadInfo] { return textureUploadInfo; },

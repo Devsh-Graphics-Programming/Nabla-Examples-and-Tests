@@ -277,7 +277,7 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
 	else return InvalidTextureHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<TextRenderer::MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1

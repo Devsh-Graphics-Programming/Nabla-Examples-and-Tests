@@ -872,17 +872,10 @@ public:
 		// Loading font stuff
 		std::string fontFilename = "C:\\Windows\\Fonts\\arial.ttf";
 
-		FT_Library library;
-		FT_Face face;
-
-		auto error = FT_Init_FreeType(&library);
+		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MsdfPixelRange);
+		auto error = FT_New_Face(m_textRenderer->getFreetypeLibrary(), fontFilename.c_str(), 0, &m_glyphFace);
 		assert(!error);
 
-		error = FT_New_Face(library, fontFilename.c_str(), 0, &face);
-		assert(!error);
-
-		m_glyphLibrary = library;
-		m_glyphFace = face;
 
 		return true;
 	}
@@ -1651,7 +1644,11 @@ protected:
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
 						);
-						DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(hatchFillShapeIdx), intendedNextSubmit);
+						DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(
+							m_textRenderer.get(), 
+							drawResourcesFiller, 
+							MsdfFillPattern(hatchFillShapeIdx), 
+							intendedNextSubmit);
 
 						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
 						drawResourcesFiller.drawHatch(
@@ -1749,7 +1746,7 @@ protected:
 								hatchBuilder.finish();
 							}
 							msdfgen::Shape glyphShape;
-							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_glyphLibrary, m_glyphFace);
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_glyphFace);
 							assert(loadedGlyph);
 
 							auto& shapePolylines = hatchBuilder.polylines;
@@ -1823,7 +1820,7 @@ protected:
 								[&]()
 								{
 									msdfgen::Shape shape;
-									bool loadedGlyph = drawFreetypeGlyph(shape, m_glyphLibrary, m_glyphFace);
+									bool loadedGlyph = drawFreetypeGlyph(shape, m_textRenderer->getFreetypeLibrary(), m_glyphFace);
 									assert(loadedGlyph);
 
 									const auto imageExtents = uint32_t2(MsdfSize, MsdfSize);
@@ -1840,11 +1837,8 @@ protected:
 									);
 									float32_t2 translate = float32_t2(-shapeBounds.l + expansionAmount / scale.x, -shapeBounds.b + expansionAmount / scale.y);
 
-									DrawResourcesFiller::MsdfTextureUploadInfo uploadInfo = generateMsdfForShape(
-										std::move(hatchBuilder.polylines), 
-										shape, 
-										drawResourcesFiller.getMSDFResolution(), 
-										scale, translate);
+									TextRenderer::MsdfTextureUploadInfo uploadInfo = m_textRenderer->generateMsdfForShape(
+										shape, drawResourcesFiller.getMSDFResolution(), scale, translate);
 
 									return uploadInfo;
 								},
@@ -1863,11 +1857,6 @@ protected:
 								.dirV = glyphBbox.dirV * (1.0 + 2.0 * boundingBoxExpandAmount),
 								.textureId = textureId,
 							};
-							printf(std::format("Char {} top left ({}, {}) dir U ({}, {}) dir V ({}, {})\n", k, 
-								glyphBbox.topLeft.x, glyphBbox.topLeft.y, 
-								glyphBbox.dirU.x, glyphBbox.dirU.y, 
-								glyphBbox.dirV.x, glyphBbox.dirV.y
-								).c_str());
 							uint32_t currentObjectInSection = 0u;
 							drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
 						}
@@ -3170,6 +3159,7 @@ protected:
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+	smart_refctd_ptr<TextRenderer>		m_textRenderer;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
 
@@ -3177,7 +3167,6 @@ protected:
 	static constexpr char LastGeneratedCharacter = '~';
 
 	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
-	FT_Library m_glyphLibrary;
 	FT_Face m_glyphFace;
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
