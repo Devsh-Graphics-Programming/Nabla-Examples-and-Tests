@@ -870,12 +870,8 @@ public:
 		m_timeElapsed = 0.0;
 		
 		// Loading font stuff
-		std::string fontFilename = "C:\\Windows\\Fonts\\arial.ttf";
-
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MsdfPixelRange);
-		auto error = FT_New_Face(m_textRenderer->getFreetypeLibrary(), fontFilename.c_str(), 0, &m_glyphFace);
-		assert(!error);
-
+		m_arialFont = nbl::core::make_smart_refctd_ptr<TextRenderer::Face>(m_textRenderer.get(), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
 		return true;
 	}
@@ -1668,7 +1664,6 @@ protected:
 			{
 				constexpr auto TestString = "The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
 
-				auto slot = m_glyphFace->glyph;
 				auto penX = -100.0;
 				auto penY = -500.0;
 				auto previous = 0;
@@ -1691,22 +1686,18 @@ protected:
 					hatchDebugStep--; 
 
 					char k = TestString[i];
-					auto unicode = wchar_t(k);
-					auto glyphIndex = FT_Get_Char_Index(m_glyphFace, unicode);
-					auto error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
-					const float64_t2 advanceVec = float64_t2(slot->advance.x, 0.0) * scale;
+					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
-					currentBaselineStart += advanceVec;
+					currentBaselineStart += glyphMetrics.advance;
 					
 					TextGlyphBoundingBox glyphBbox = {};
 					if (glyphIndex != 0 || k != ' ')
 					{
-						const float64_t2 bearingVec = float64_t2(slot->metrics.horiBearingX, slot->metrics.horiBearingY) * scale;
-						const float64_t2 glyphSize = float64_t2(slot->metrics.width, slot->metrics.height) * scale;
-						glyphBbox.topLeft = baselineStart + bearingVec;
-						glyphBbox.dirU = float64_t2(glyphSize.x, 0.0);
-						glyphBbox.dirV = float64_t2(0.0, -glyphSize.y);
+						glyphBbox.topLeft = baselineStart + glyphMetrics.horizontalBearing;
+						glyphBbox.dirU = float64_t2(glyphMetrics.size.x, 0.0);
+						glyphBbox.dirV = float64_t2(0.0, -glyphMetrics.size.y);
 
 						{
 							// Draw bounding box of the glyph
@@ -1729,9 +1720,6 @@ protected:
 						{
 							const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
 
-							error = FT_Load_Glyph(m_glyphFace, glyphIndex, FT_LOAD_NO_SCALE);
-							assert(!error);
-
 							FreetypeHatchBuilder hatchBuilder;
 							{
 								FT_Outline_Funcs ftFunctions;
@@ -1741,12 +1729,12 @@ protected:
 								ftFunctions.cubic_to = &ftCubicTo;
 								ftFunctions.shift = 0;
 								ftFunctions.delta = 0;
-								error = FT_Outline_Decompose(&m_glyphFace->glyph->outline, &ftFunctions, &hatchBuilder);
+								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
 								assert(!error);
 								hatchBuilder.finish();
 							}
 							msdfgen::Shape glyphShape;
-							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_glyphFace);
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
 							assert(loadedGlyph);
 
 							auto& shapePolylines = hatchBuilder.polylines;
@@ -1819,28 +1807,7 @@ protected:
 							drawResourcesFiller.addMSDFTexture(
 								[&]()
 								{
-									msdfgen::Shape shape;
-									bool loadedGlyph = drawFreetypeGlyph(shape, m_textRenderer->getFreetypeLibrary(), m_glyphFace);
-									assert(loadedGlyph);
-
-									const auto imageExtents = uint32_t2(MsdfSize, MsdfSize);
-									auto shapeBounds = shape.getBounds();
-
-									auto expansionAmount = MsdfPixelRange;
-									float32_t2 frameSize = float32_t2(
-										(shapeBounds.r - shapeBounds.l),
-										(shapeBounds.t - shapeBounds.b)
-									);
-									float32_t2 scale = float32_t2(
-										float(imageExtents.x - 2.0 * expansionAmount) / (frameSize.x),
-										float(imageExtents.y - 2.0 * expansionAmount) / (frameSize.y)
-									);
-									float32_t2 translate = float32_t2(-shapeBounds.l + expansionAmount / scale.x, -shapeBounds.b + expansionAmount / scale.y);
-
-									TextRenderer::MsdfTextureUploadInfo uploadInfo = m_textRenderer->generateMsdfForShape(
-										shape, drawResourcesFiller.getMSDFResolution(), scale, translate);
-
-									return uploadInfo;
+									return m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MsdfSize, MsdfSize));
 								},
 								msdfHash,
 								intendedNextSubmit
@@ -3160,6 +3127,7 @@ protected:
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
 	smart_refctd_ptr<TextRenderer>		m_textRenderer;
+	smart_refctd_ptr<TextRenderer::Face> m_arialFont;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
 
@@ -3167,7 +3135,6 @@ protected:
 	static constexpr char LastGeneratedCharacter = '~';
 
 	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
-	FT_Face m_glyphFace;
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
