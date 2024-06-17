@@ -873,6 +873,15 @@ public:
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MsdfPixelRange);
 		m_arialFont = nbl::core::make_smart_refctd_ptr<TextRenderer::Face>(m_textRenderer.get(), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
+		const auto str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
+		auto transform = float64_t3x3();
+		transform[0][0] = 1.0;
+		transform[1][1] = 1.0;
+		transform[2][2] = 1.0;
+		singleLineText = std::unique_ptr<TextRenderer::SingleLineText>(new TextRenderer::SingleLineText(
+			core::smart_refctd_ptr<TextRenderer::Face>(m_arialFont), 
+			std::string(str), transform));
+
 		return true;
 	}
 
@@ -1658,6 +1667,45 @@ protected:
 
 					hatchDebugStep--;
 				}
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				auto glyphBoxes = singleLineText->getGlyphBoxes();
+				for (auto glyphBox = glyphBoxes.data(); glyphBox < glyphBoxes.data() + glyphBoxes.size(); glyphBox++)
+				{
+					LineStyleInfo lineStyle = {};
+					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+					auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+
+					const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
+						.textureType = MsdfTextureType::FONT_GLYPH,
+						.glyphHash = glyphBox->glyphIdx, // using index as hash for now
+						});
+					drawResourcesFiller.addMSDFTexture(
+						[&]()
+						{
+							return m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphBox->glyphIdx, uint32_t2(MsdfSize, MsdfSize));
+						},
+						msdfHash,
+						intendedNextSubmit
+					);
+
+					const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
+					assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+
+					FontGlyphInfo glyphInfo = {
+						.topLeft = glyphBox->topLeft,
+						.dirU = glyphBox->dirU,
+						.dirV = glyphBox->dirV,
+						.textureId = textureId,
+					};
+					uint32_t currentObjectInSection = 0u;
+					drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+				}
+				hatchDebugStep--;
 			}
 
 			if (hatchDebugStep > 0)
@@ -3125,9 +3173,10 @@ protected:
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
-	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
-	smart_refctd_ptr<TextRenderer>		m_textRenderer;
+	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
+	smart_refctd_ptr<TextRenderer> m_textRenderer;
 	smart_refctd_ptr<TextRenderer::Face> m_arialFont;
+	std::unique_ptr<TextRenderer::SingleLineText> singleLineText;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
 
