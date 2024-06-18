@@ -4,22 +4,25 @@
 #pragma shader_stage(compute)
 
 #include "app_resources/emulated_float64_t_test/common.hlsl"
+#include <nbl/builtin/hlsl/bit.hlsl>
 
 [[vk::binding(0, 0)]] RWStructuredBuffer<TestValues> testValuesOutput;
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-    const emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0);
-    const emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0);
+    //nbl::hlsl::bit_cast<uint64_t, uint32_t>(2u);
+
+    const nbl::hlsl::emulated_float64_t a = nbl::hlsl::emulated_float64_t::create(float64_t(20.0));
+    const nbl::hlsl::emulated_float64_t b = nbl::hlsl::emulated_float64_t::create(float64_t(10.0));
 
     // "constructors"
-    //testValuesOutput[0].intCreateVal = emulated::emulated_float64_t::create(24);
-    //testValuesOutput[0].uintCreateVal = emulated::emulated_float64_t::create(24u);
-    //testValuesOutput[0].uint64CreateVal = emulated::emulated_float64_t::create(24ull);
-    //testValuesOutput[0].floatCreateVal = emulated::emulated_float64_t::create(1.2f);
-    //testValuesOutput[0].doubleCreateVal = emulated::emulated_float64_t::create(1.2);
-    emulated::emulated_float64_t::create(min16int(2));
+    //testValuesOutput[0].intCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(24);
+    //testValuesOutput[0].uintCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(24u);
+    //testValuesOutput[0].uint64CreateVal = nbl::hlsl::emulated::emulated_float64_t::create(24ull);
+    //testValuesOutput[0].floatCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(1.2f);
+    //testValuesOutput[0].doubleCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(1.2);
+    //nbl::hlsl::emulated_float64_t::create(min16int(2));
 
     // arithmetic operators
     testValuesOutput[0].additionVal = (a+b).data;
@@ -34,13 +37,4 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     testValuesOutput[0].notEqualVal = (a!=b);
     testValuesOutput[0].lessVal = (a<b);
     testValuesOutput[0].greaterVal = (a>b);
-
-    // conversion operators
-    testValuesOutput[0].convertionToBoolVal = bool(a);
-    testValuesOutput[0].convertionToIntVal = int(a);
-    testValuesOutput[0].convertionToUint32Val = uint32_t(a);
-    testValuesOutput[0].convertionToUint64Val = uint64_t(a);
-    testValuesOutput[0].convertionToFloatVal = float(a);
-    testValuesOutput[0].convertionToDoubleVal = float64_t(a);
-    //testValuesOutput[0].convertionToHalfVal = half(a);
 }

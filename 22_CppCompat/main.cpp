@@ -12,6 +12,7 @@
 #include "app_resources/common.hlsl"
 #include "app_resources/emulated_float64_t_test/common.hlsl"
 
+#include "nbl/builtin/hlsl/ieee754.hlsl"
 
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -52,6 +53,83 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        float32_t asdfasdf = 24.5f;
+        emulated_float64_t asdfasdfasdfasdf = emulated_float64_t::create(asdfasdf);
+
+        std::cout << reinterpret_cast<uint32_t&>(asdfasdf) << std::endl;
+        std::cout << reinterpret_cast<float64_t&>(asdfasdfasdfasdf.data) << std::endl;
+        std::cout << asdfasdfasdfasdf.data << std::endl;
+        std::cout << bit_cast<uint64_t, float64_t>(24.5) << std::endl;
+
+        std::cout << std::bitset<64>(bit_cast<uint64_t, float64_t>(24.5)) << std::endl;
+        std::cout << std::bitset<64>(asdfasdfasdfasdf.data) << std::endl;
+
+        // TODO: remove
+        //std::cout << nbl::hlsl::ieee754::getExponentBias<float16_t>() << std::endl;
+        std::cout << nbl::hlsl::ieee754::getExponentBias<float32_t>() << std::endl;
+        std::cout << nbl::hlsl::ieee754::getExponentBias<float64_t>() << std::endl;
+        std::cout << nbl::hlsl::ieee754::getExponentBias<uint16_t>() << std::endl;
+        std::cout << nbl::hlsl::ieee754::getExponentBias<uint32_t>() << std::endl;
+        std::cout << nbl::hlsl::ieee754::getExponentBias<uint64_t>() << std::endl;
+        std::cout << std::endl;
+
+        /*float dot625float = 0.625;
+        float16_t dot625Half = float16_t(dot625float);
+        double dot125double = 0.125f;
+        std::cout << nbl::hlsl::ieee754::extractBiasedExponent(dot625Half) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractBiasedExponent(dot625float) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractBiasedExponent(dot125double) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractBiasedExponent(reinterpret_cast<uint16_t&>(dot625Half)) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractBiasedExponent(reinterpret_cast<uint32_t&>(dot625float)) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractBiasedExponent(reinterpret_cast<uint64_t&>(dot125double)) << std::endl;
+        std::cout << std::endl;
+
+        std::cout << nbl::hlsl::ieee754::extractExponent(dot625Half) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(dot625float) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(dot125double) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(reinterpret_cast<uint16_t&>(dot625Half)) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(reinterpret_cast<uint32_t&>(dot625float)) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(reinterpret_cast<uint64_t&>(dot125double)) << std::endl;
+        std::cout << std::endl;
+
+        std::cout << nbl::hlsl::ieee754::extractExponent(dot625Half) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(dot625float) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(dot125double) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(reinterpret_cast<uint16_t&>(dot625Half)) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(reinterpret_cast<uint32_t&>(dot625float)) << std::endl;
+        std::cout << nbl::hlsl::ieee754::extractExponent(reinterpret_cast<uint64_t&>(dot125double)) << std::endl;
+        std::cout << std::endl;
+
+        std::cout << nbl::hlsl::ieee754::replaceBiasedExponent(dot625Half, nbl::hlsl::ieee754::getExponentBias<float16_t>() + 1) << std::endl;
+        std::cout << nbl::hlsl::ieee754::replaceBiasedExponent(float32_t(dot625float), nbl::hlsl::ieee754::getExponentBias<float32_t>() + 1) << std::endl;
+        std::cout << nbl::hlsl::ieee754::replaceBiasedExponent(float64_t(dot125double), nbl::hlsl::ieee754::getExponentBias<float64_t>() + 1) << std::endl;
+        auto replacedBiasOfUint16 = nbl::hlsl::ieee754::replaceBiasedExponent(reinterpret_cast<float16_t&>(dot625Half), nbl::hlsl::ieee754::getExponentBias<float16_t>() + 1);
+        auto replacedBiasOfUint32 = nbl::hlsl::ieee754::replaceBiasedExponent(reinterpret_cast<float32_t&>(dot625float), nbl::hlsl::ieee754::getExponentBias<float32_t>() + 1);
+        auto replacedBiasOfUint64 = nbl::hlsl::ieee754::replaceBiasedExponent(reinterpret_cast<float64_t&>(dot125double), nbl::hlsl::ieee754::getExponentBias<float64_t>() + 1);
+        std::cout << reinterpret_cast<float16_t&>(replacedBiasOfUint16) << std::endl;
+        std::cout << reinterpret_cast<float32_t&>(replacedBiasOfUint32) << std::endl;
+        std::cout << reinterpret_cast<float64_t&>(replacedBiasOfUint64) << std::endl;
+        std::cout << std::endl;
+
+        std::cout << nbl::hlsl::ieee754::fastMulExp2(dot625Half, 2) << std::endl;
+        std::cout << nbl::hlsl::ieee754::fastMulExp2(dot625float, 2) << std::endl;
+        std::cout << nbl::hlsl::ieee754::fastMulExp2(dot125double, 2) << std::endl;
+        auto fastMulOfUint16 = nbl::hlsl::ieee754::fastMulExp2(reinterpret_cast<uint16_t&>(dot625Half), 2);
+        auto fastMulOfUint32 = nbl::hlsl::ieee754::fastMulExp2(reinterpret_cast<uint32_t&>(dot625float), 2);
+        auto fastMulOfUint64 = nbl::hlsl::ieee754::fastMulExp2(reinterpret_cast<uint64_t&>(dot125double), 2);
+        std::cout << reinterpret_cast<float16_t&>(fastMulOfUint16) << std::endl;
+        std::cout << reinterpret_cast<float32_t&>(fastMulOfUint32) << std::endl;
+        std::cout << reinterpret_cast<float64_t&>(fastMulOfUint64) << std::endl;
+        std::cout << std::endl;
+
+        std::cout << std::bitset<10>(nbl::hlsl::ieee754::extractMantissa(dot625Half)) << std::endl;
+        std::cout << std::bitset<52>(nbl::hlsl::ieee754::extractMantissa(dot125double)) << std::endl;
+        std::cout << std::bitset<23>(nbl::hlsl::ieee754::extractMantissa(dot625float)) << std::endl;
+        std::cout << std::bitset<16>(nbl::hlsl::ieee754::extractMantissa(reinterpret_cast<uint16_t&>(dot625Half))) << std::endl;
+        std::cout << std::bitset<64>(nbl::hlsl::ieee754::extractMantissa(reinterpret_cast<uint64_t&>(dot125double))) << std::endl;
+        std::cout << std::bitset<32>(nbl::hlsl::ieee754::extractMantissa(reinterpret_cast<uint32_t&>(dot625float))) << std::endl;
+        std::cout << std::endl;*/
+
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
@@ -64,8 +142,11 @@ public:
 
         // TODO: remove
         {
-            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
-            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(12233.69);
+            emulated_float64_t a = emulated_float64_t::create(123.321);
+            emulated_float64_t b = emulated_float64_t::create(12233.69);
+
+            std::cout << std::setprecision(20) << reinterpret_cast<float64_t&>(a.data) << std::endl;
+            std::cout << std::setprecision(20) << reinterpret_cast<float64_t&>(b.data) << std::endl;
 
             auto add = a + b;
             auto sub = a - b;
@@ -86,9 +167,9 @@ public:
         }
 
         {
-            emulated::emulated_float64_t a = emulated::emulated_float64_t::create(123.321);
-            emulated::emulated_float64_t b = emulated::emulated_float64_t::create(-12233.69);
-            emulated::emulated_float64_t c = emulated::emulated_float64_t::create(123ull);
+            emulated_float64_t a = emulated_float64_t::create(123.321);
+            emulated_float64_t b = emulated_float64_t::create(-12233.69);
+            emulated_float64_t c = emulated_float64_t::create(123ull);
 
             auto add = a + b;
             auto sub = a - b;
@@ -580,44 +661,44 @@ private:
         if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
+        float16_t testValue16 = 24.5;
+        float32_t testValue32 = 24.5f;
+        float64_t testValue64 = 24.5;
+        float testValueFloat32 = 1.2f;
+        double testValueDouble = 1.2;
+
         assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
         TestValues expectedTestValues = {
-            .intCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24.0),
-            .uintCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24u),
-            .uint64CreateVal = static_cast<emulated::emulated_float64_t::storage_t>(24ull),
-            .floatCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2f),
-            .doubleCreateVal = static_cast<emulated::emulated_float64_t::storage_t>(1.2),
-            .additionVal = emulated::emulated_float64_t::create(30.0),
-            .substractionVal = emulated::emulated_float64_t::create(10.0),
-            .multiplicationVal = emulated::emulated_float64_t::create(200.0),
-            .divisionVal = emulated::emulated_float64_t::create(2.0),
+            .uint16CreateVal = reinterpret_cast<uint64_t&>(testValue64),
+            .uint32CreateVal = reinterpret_cast<uint64_t&>(testValue64),
+            .uint64CreateVal = reinterpret_cast<uint64_t&>(testValue64),
+            .float16CreateVal = reinterpret_cast<uint64_t&>(testValue64),
+            .float32CreateVal = reinterpret_cast<uint64_t&>(testValue64),
+            .float64CreateVal = reinterpret_cast<uint64_t&>(testValue64),
+            .additionVal = emulated_float64_t::create(30.0).data,
+            .substractionVal = emulated_float64_t::create(10.0).data,
+            .multiplicationVal = emulated_float64_t::create(200.0).data,
+            .divisionVal = emulated_float64_t::create(2.0).data,
             .lessOrEqualVal = false,
             .greaterOrEqualVal = true,
             .equalVal = false,
             .notEqualVal = true,
             .lessVal = false,
             .greaterVal = true,
-            .convertionToBoolVal = true,
-            .convertionToIntVal = 20,
-            .convertionToUint32Val = 20u,
-            .convertionToUint64Val = 20ull,
-            .convertionToFloatVal = 20.0f,
-            .convertionToDoubleVal = 20.0,
-            //.convertionToHalfVal = 20;
         };
 
         auto compareValues = [this](TestValues& lhs, TestValues& rhs) -> bool
             {
                 bool success = true;
 
-                if (lhs.intCreateVal != rhs.intCreateVal)
+                if (lhs.uint16CreateVal != rhs.uint16CreateVal)
                 {
-                    m_logger->log("intCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.intCreateVal, rhs.intCreateVal);
+                    m_logger->log("uint16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uint16CreateVal, rhs.uint16CreateVal);
                     success = false;
                 }
-                if (lhs.uintCreateVal != rhs.uintCreateVal)
+                if (lhs.uint32CreateVal != rhs.uint32CreateVal)
                 {
-                    m_logger->log("uintCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uintCreateVal, rhs.uintCreateVal);
+                    m_logger->log("uint32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uint32CreateVal, rhs.uint32CreateVal);
                     success = false;
                 }
                 if (lhs.uint64CreateVal != rhs.uint64CreateVal)
@@ -625,14 +706,19 @@ private:
                     m_logger->log("uint64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.uint64CreateVal, rhs.uint64CreateVal);
                     success = false;
                 }
-                if (lhs.floatCreateVal != rhs.floatCreateVal)
+                if (lhs.float16CreateVal != rhs.float16CreateVal)
                 {
-                    m_logger->log("floatCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.floatCreateVal, rhs.floatCreateVal);
+                    m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.float16CreateVal, rhs.float16CreateVal);
                     success = false;
                 }
-                if (lhs.doubleCreateVal != rhs.doubleCreateVal)
+                if (lhs.float32CreateVal != rhs.float32CreateVal)
                 {
-                    m_logger->log("doubleCreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.doubleCreateVal, rhs.doubleCreateVal);
+                    m_logger->log("float32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.float32CreateVal, rhs.float32CreateVal);
+                    success = false;
+                }
+                if (lhs.float64CreateVal != rhs.float64CreateVal)
+                {
+                    m_logger->log("float64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.float64CreateVal, rhs.float64CreateVal);
                     success = false;
                 }
                 if (lhs.additionVal != rhs.additionVal)
@@ -685,49 +771,20 @@ private:
                     m_logger->log("greaterVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
                     success = false;
                 }
-                if (lhs.convertionToBoolVal != rhs.convertionToBoolVal)
-                {
-                    m_logger->log("convertionToBoolVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToBoolVal, rhs.convertionToBoolVal);
-                    success = false;
-                }
-                if (lhs.convertionToIntVal != rhs.convertionToIntVal)
-                {
-                    m_logger->log("convertionToIntVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToIntVal, rhs.convertionToIntVal);
-                    success = false;
-                }
-                if (lhs.convertionToUint32Val != rhs.convertionToUint32Val)
-                {
-                    m_logger->log("convertionToUint32Val not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToUint32Val, rhs.convertionToUint32Val);
-                    success = false;
-                }
-                if (lhs.convertionToUint64Val != rhs.convertionToUint64Val)
-                {
-                    m_logger->log("convertionToUint64Val not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToUint64Val, rhs.convertionToUint64Val);
-                    success = false;
-                }
-                if (lhs.convertionToFloatVal != rhs.convertionToFloatVal)
-                {
-                    m_logger->log("convertionToFloatVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToFloatVal, rhs.convertionToFloatVal);
-                    success = false;
-                }
-                if (lhs.convertionToDoubleVal != rhs.convertionToDoubleVal)
-                {
-                    m_logger->log("convertionToDoubleVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.convertionToDoubleVal, rhs.convertionToDoubleVal);
-                    success = false;
-                }
-
 
                 return success;
             };
 
-        emulated::emulated_float64_t a = emulated::emulated_float64_t::create(20.0);
-        emulated::emulated_float64_t b = emulated::emulated_float64_t::create(10.0);
+        emulated_float64_t a = emulated_float64_t::create(20.0);
+        emulated_float64_t b = emulated_float64_t::create(10.0);
+
         TestValues cpuTestValues = {
-            .intCreateVal = emulated::emulated_float64_t::create(24),
-            .uintCreateVal = emulated::emulated_float64_t::create(24u),
-            .uint64CreateVal = emulated::emulated_float64_t::create(24ull),
-            .floatCreateVal = emulated::emulated_float64_t::create(1.2f),
-            .doubleCreateVal = emulated::emulated_float64_t::create(1.2),
+            .uint16CreateVal = emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
+            .uint32CreateVal = emulated_float64_t::create(reinterpret_cast<uint32_t&>(testValue32)).data,
+            .uint64CreateVal = emulated_float64_t::create(reinterpret_cast<uint64_t&>(testValue64)).data,
+            .float16CreateVal = emulated_float64_t::create(testValue16).data,
+            .float32CreateVal = emulated_float64_t::create(testValue32).data,
+            .float64CreateVal = emulated_float64_t::create(testValue64).data,
             .additionVal = (a + b).data,
             .substractionVal = (a - b).data,
             .multiplicationVal = (a * b).data,
@@ -738,13 +795,6 @@ private:
             .notEqualVal = a != b,
             .lessVal = a < b,
             .greaterVal = a > b,
-            .convertionToBoolVal = bool(a),
-            .convertionToIntVal = int(a),
-            .convertionToUint32Val = uint32_t(a),
-            .convertionToUint64Val = uint64_t(a),
-            .convertionToFloatVal = float(a),
-            .convertionToDoubleVal = double(a),
-            //.convertionToHalfVal = 
         };
 
         m_device->waitIdle();
@@ -1067,7 +1117,7 @@ void cpu_tests()
 
     // countl_zero test
     mpl::countl_zero<uint32_t, 5>::value;
-    std::countl_zero(5u);
+    auto countlzero = std::countl_zero(5u);
     nbl::hlsl::countl_zero(5u);
 
     // bit.hlsl test

@@ -9,19 +9,19 @@ NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
 
 struct TestValues
 {
-    // "constructors"
-    emulated::emulated_float64_t::storage_t intCreateVal;
-    emulated::emulated_float64_t::storage_t uintCreateVal;
-    emulated::emulated_float64_t::storage_t uint64CreateVal;
-    emulated::emulated_float64_t::storage_t floatCreateVal;
-    emulated::emulated_float64_t::storage_t doubleCreateVal;
-    //emulated::emulated_float64_t::create(min16int(2));
+    // constructors
+    nbl::hlsl::emulated_float64_t::storage_t uint16CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t uint32CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t uint64CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t float16CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t float32CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t float64CreateVal;
 
     // arithmetic
-    emulated::emulated_float64_t::storage_t additionVal;
-    emulated::emulated_float64_t::storage_t substractionVal;
-    emulated::emulated_float64_t::storage_t multiplicationVal;
-    emulated::emulated_float64_t::storage_t divisionVal;
+    nbl::hlsl::emulated_float64_t::storage_t additionVal;
+    nbl::hlsl::emulated_float64_t::storage_t substractionVal;
+    nbl::hlsl::emulated_float64_t::storage_t multiplicationVal;
+    nbl::hlsl::emulated_float64_t::storage_t divisionVal;
 
     // relational
     int lessOrEqualVal;
@@ -30,13 +30,4 @@ struct TestValues
     int notEqualVal;
     int lessVal;
     int greaterVal;
-
-    // conversion
-    int convertionToBoolVal;
-    int convertionToIntVal;
-    uint32_t convertionToUint32Val;
-    uint64_t convertionToUint64Val;
-    float convertionToFloatVal;
-    double convertionToDoubleVal;
-    //bool convertionToHalfVal;
 };
