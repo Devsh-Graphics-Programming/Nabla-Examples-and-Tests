@@ -271,10 +271,10 @@ public:
 		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 32u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		// + 128 ClipProjDaa
+		// + 128 ClipProjData
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 64u, uint32_t2(MsdfSize, MsdfSize));
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MsdfSize, MsdfSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -878,7 +878,7 @@ public:
 		transform[0][0] = 1.0;
 		transform[1][1] = 1.0;
 		transform[2][2] = 1.0;
-		singleLineText = std::unique_ptr<TextRenderer::SingleLineText>(new TextRenderer::SingleLineText(
+		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			core::smart_refctd_ptr<TextRenderer::Face>(m_arialFont), 
 			std::string(str), transform));
 
@@ -1669,42 +1669,9 @@ protected:
 				}
 			}
 
-			if (hatchDebugStep > 0)
+			if (hatchDebugStep > 0 && singleLineText)
 			{
-				auto glyphBoxes = singleLineText->getGlyphBoxes();
-				for (auto glyphBox = glyphBoxes.data(); glyphBox < glyphBoxes.data() + glyphBoxes.size(); glyphBox++)
-				{
-					LineStyleInfo lineStyle = {};
-					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-					auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-
-					const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
-						.textureType = MsdfTextureType::FONT_GLYPH,
-						.glyphHash = glyphBox->glyphIdx, // using index as hash for now
-						});
-					drawResourcesFiller.addMSDFTexture(
-						[&]()
-						{
-							return m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphBox->glyphIdx, uint32_t2(MsdfSize, MsdfSize));
-						},
-						msdfHash,
-						intendedNextSubmit
-					);
-
-					const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
-					assert(textureId != DrawResourcesFiller::InvalidTextureHash);
-
-					FontGlyphInfo glyphInfo = {
-						.topLeft = glyphBox->topLeft,
-						.dirU = glyphBox->dirU,
-						.dirV = glyphBox->dirV,
-						.textureId = textureId,
-					};
-					uint32_t currentObjectInSection = 0u;
-					drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
-				}
+				singleLineText->Draw(m_textRenderer.get(), drawResourcesFiller, intendedNextSubmit);
 				hatchDebugStep--;
 			}
 
@@ -1855,7 +1822,12 @@ protected:
 							drawResourcesFiller.addMSDFTexture(
 								[&]()
 								{
-									return m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MsdfSize, MsdfSize));
+									MSDFTextureUploadInfo textureUploadInfo = {
+										.cpuBuffer = std::move(m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MsdfSize, MsdfSize))),
+										.bufferOffset = 0u,
+										.imageExtent = uint32_t3(MsdfSize, MsdfSize, 1),
+									};
+									return textureUploadInfo;
 								},
 								msdfHash,
 								intendedNextSubmit
@@ -3176,7 +3148,7 @@ protected:
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
 	smart_refctd_ptr<TextRenderer::Face> m_arialFont;
-	std::unique_ptr<TextRenderer::SingleLineText> singleLineText;
+	std::unique_ptr<SingleLineText> singleLineText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
 

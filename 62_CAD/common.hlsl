@@ -212,7 +212,7 @@ NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
 NBL_CONSTEXPR float MsdfPixelRange = 4.0;
-NBL_CONSTEXPR float MsdfSize = 32.0; // TODO: Should this be dynamic?
+NBL_CONSTEXPR float MsdfSize = 32.0; 
 
 #ifdef __HLSL_VERSION
 

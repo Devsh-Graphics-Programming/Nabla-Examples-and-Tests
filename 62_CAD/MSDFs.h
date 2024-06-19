@@ -61,7 +61,7 @@ struct std::hash<MsdfTextureHash>
 };
  
 
-nbl::ext::TextRendering::TextRenderer::MsdfTextureUploadInfo generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents);
+core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents);
 
 DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit);
 

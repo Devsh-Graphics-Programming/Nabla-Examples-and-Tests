@@ -324,7 +324,7 @@ void shaded(std::vector<CPolyline>& polylines)
 
 }
 
-TextRenderer::MsdfTextureUploadInfo generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents)
+core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents)
 {
 	std::vector<CPolyline> polylines;
 	switch (fillPattern)
@@ -405,7 +405,12 @@ DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRe
 	auto msdfResolution = drawResourcesFiller.getMSDFResolution();
 	drawResourcesFiller.addMSDFTexture(
 		[textRenderer, fillPattern, msdfResolution] {
-			return generateHatchFillPatternMsdf(textRenderer, fillPattern, msdfResolution);
+			MSDFTextureUploadInfo textureUploadInfo = {
+				.cpuBuffer = std::move(generateHatchFillPatternMsdf(textRenderer, fillPattern, msdfResolution)),
+				.bufferOffset = 0u,
+				.imageExtent = uint32_t3(msdfResolution.x, msdfResolution.y, 1),
+			};
+			return textureUploadInfo;
 		},
 		msdfHash,
 		intendedNextSubmit

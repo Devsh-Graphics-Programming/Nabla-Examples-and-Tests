@@ -27,6 +27,14 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
 };
 
+// ! return index to be used later in hatch fill style or text glyph object
+struct MSDFTextureUploadInfo 
+{
+	core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
+	uint64_t bufferOffset;
+	uint32_t3 imageExtent;
+};
+
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
@@ -66,9 +74,9 @@ public:
 	
 	uint32_t getMSDFTextureIndex(texture_hash hash);
 
-	uint32_t addMSDFTexture(std::function<TextRenderer::MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
-	uint32_t addMSDFTexture(TextRenderer::MsdfTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+	uint32_t addMSDFTexture(MSDFTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 	{
 		return addMSDFTexture(
 			[textureUploadInfo] { return textureUploadInfo; },
@@ -315,5 +323,25 @@ protected:
 	static constexpr asset::E_FORMAT MsdfTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
 
 	bool m_hasInitializedMsdfTextureArrays = false;
+};
+
+class SingleLineText
+{
+public:
+	// constructs and fills the `glyphBoxes`
+	SingleLineText(core::smart_refctd_ptr<TextRenderer::Face>&& face, std::string text, float64_t3x3 transformation);
+	// SingleLineText(core::smart_refctd_ptr<Face>&& face, std::string text, float64_t2 translation, float64_t2 scale, float64_t rotateAngle = 0);
+
+	// iterates over `glyphBoxes` generates textures msdfs if failed to add to cache (through that lambda you put)
+	// void Draw(DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
+
+	std::span<TextRenderer::GlyphBox> getGlyphBoxes() { return std::span<TextRenderer::GlyphBox>(glyphBoxes);  }
+
+	void Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
+
+protected:
+
+	std::vector<TextRenderer::GlyphBox> glyphBoxes;
+	core::smart_refctd_ptr<TextRenderer::Face> m_face;
 };
 

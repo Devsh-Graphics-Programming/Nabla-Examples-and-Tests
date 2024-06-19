@@ -1,4 +1,5 @@
 #include "DrawResourcesFiller.h"
+#include "MSDFs.h"
 
 DrawResourcesFiller::DrawResourcesFiller()
 {}
@@ -277,7 +278,7 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
 	else return InvalidTextureHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<TextRenderer::MsdfTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -843,3 +844,111 @@ void DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, 
 	currentDrawObjectCount += uploadableObjects;
 	currentObjectInSection += uploadableObjects;
 }
+
+SingleLineText::SingleLineText(core::smart_refctd_ptr<TextRenderer::Face>&& face, std::string text, float64_t3x3 transformation)
+{
+	m_face = std::move(face);
+	glyphBoxes.reserve(text.length());
+
+	auto mulMatrix3 = [](float64_t3x3 transform, float64_t3 vector)
+	{
+		// TODO: Was getting compilation error when doing transform * vector directly, once
+		// we can get that to work use it instead
+		glm::highp_dmat3x3 glmTransform;
+		memcpy(&glmTransform, &transform, sizeof(float64_t3x3));
+		auto result = glmTransform * vector;
+		return float64_t2(result.x, result.y);
+	};
+
+	// Position transform
+	float64_t2 currentBaselineStart = mulMatrix3(transformation, float32_t3(0.0, 0.0, 1.0));
+	for (uint32_t i = 0; i < text.length(); i++)
+	{
+		wchar_t k = wchar_t(text.at(i));
+		auto glyphIndex = m_face->getGlyphIndex(k);
+		const auto glyphMetrics = m_face->getGlyphMetrics(glyphIndex);
+		const float64_t2 baselineStart = currentBaselineStart;
+
+		// Vector transform
+		currentBaselineStart += mulMatrix3(transformation, float32_t3(glyphMetrics.advance, 0.0));
+
+		if (glyphIndex == 0 || (glyphMetrics.size.x == 0.0 && glyphMetrics.size.y == 0.0))
+			continue;
+
+		{
+			msdfgen::Shape shape = m_face->generateGlyphShape(glyphIndex);
+			_NBL_BREAK_IF(shape.contours.empty());
+		}
+
+		TextRenderer::GlyphBox glyphBbox = {
+			.topLeft = baselineStart + mulMatrix3(transformation, float32_t3(glyphMetrics.horizontalBearing.x, glyphMetrics.horizontalBearing.y, 0.0)),
+			.dirU = mulMatrix3(transformation, float64_t3(glyphMetrics.size.x, 0.0, 0.0)),
+			.dirV = mulMatrix3(transformation, float64_t3(0.0, -glyphMetrics.size.y, 0.0)),
+			.glyphIdx = glyphIndex,
+		};
+
+		glyphBoxes.push_back(glyphBbox);
+	}
+}
+
+void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	auto glyphBoxes = getGlyphBoxes();
+	for (auto glyphBox = glyphBoxes.data(); glyphBox < glyphBoxes.data() + glyphBoxes.size(); glyphBox++)
+	{
+		LineStyleInfo lineStyle = {};
+		lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+		const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+		auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+
+		const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
+			.textureType = MsdfTextureType::FONT_GLYPH,
+			.glyphHash = glyphBox->glyphIdx, // using index as hash for now
+		});
+		drawResourcesFiller.addMSDFTexture(
+			[&]()
+			{
+				MSDFTextureUploadInfo textureUploadInfo = {
+					.cpuBuffer = std::move(m_face->generateGlyphUploadInfo(textRenderer, glyphBox->glyphIdx, uint32_t2(MsdfSize, MsdfSize))),
+					.bufferOffset = 0u,
+					.imageExtent = uint32_t3(MsdfSize, MsdfSize, 1),
+				};
+				return textureUploadInfo;
+			},
+			msdfHash,
+			intendedNextSubmit
+		);
+
+		const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
+		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+		{
+			// Draw bounding box of the glyph
+			LineStyleInfo bboxStyle = {};
+			bboxStyle.screenSpaceLineWidth = 1.0f;
+			bboxStyle.worldSpaceLineWidth = 0.0f;
+			bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+
+			CPolyline newPoly = {};
+			std::vector<float64_t2> points;
+			points.push_back(glyphBox->topLeft);
+			points.push_back(glyphBox->topLeft + glyphBox->dirU);
+			points.push_back(glyphBox->topLeft + glyphBox->dirU + glyphBox->dirV);
+			points.push_back(glyphBox->topLeft + glyphBox->dirV);
+			points.push_back(glyphBox->topLeft);
+			newPoly.addLinePoints(points);
+			drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
+		}
+
+		FontGlyphInfo glyphInfo = {
+			.topLeft = glyphBox->topLeft,
+			.dirU = glyphBox->dirU,
+			.dirV = glyphBox->dirV,
+			.textureId = textureId,
+		};
+		uint32_t currentObjectInSection = 0u;
+		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+	}
+
+}
+

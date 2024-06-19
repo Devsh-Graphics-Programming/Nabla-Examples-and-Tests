@@ -467,7 +467,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const float2 coord = screenTopLeft + corner * (screenDirU + screenDirV);
+        const float2 coord = screenTopLeft + corner * screenDirU + corner * screenDirV;
 
         // TODO needs to handle rotations as well, probably from curve box code
         const float2 ndcAxisMin = screenTopLeft;
