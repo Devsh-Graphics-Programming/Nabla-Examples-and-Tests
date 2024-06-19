@@ -398,10 +398,7 @@ core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* te
 
 DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
-		.textureType = MsdfTextureType::HATCH_FILL_PATTERN,
-		.fillPattern = fillPattern,
-		});
+	const auto msdfHash = hashFillPattern(fillPattern);
 	auto msdfResolution = drawResourcesFiller.getMSDFResolution();
 	drawResourcesFiller.addMSDFTexture(
 		[textRenderer, fillPattern, msdfResolution] {
@@ -417,5 +414,20 @@ DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRe
 	);
 
 	return msdfHash;
+}
+
+DrawResourcesFiller::texture_hash hashFillPattern(MsdfFillPattern fillPattern)
+{
+	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MsdfTextureType::HATCH_FILL_PATTERN));
+	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(uint32_t(fillPattern)));
+	return hash;
+}
+
+DrawResourcesFiller::texture_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex)
+{
+	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MsdfTextureType::FONT_GLYPH));
+	nbl::core::hash_combine(hash, std::hash<size_t>{}(fontHash));
+	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(glyphIndex));
+	return hash;
 }
 

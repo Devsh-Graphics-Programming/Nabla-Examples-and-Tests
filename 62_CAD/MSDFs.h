@@ -1,3 +1,6 @@
+#ifndef _NBL_CAD_MSDF_H_INCLUDED_
+#define _NBL_CAD_MSDF_H_INCLUDED_
+
 #include "Polyline.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
@@ -28,40 +31,13 @@ enum class MsdfTextureType: uint32_t
 	FONT_GLYPH,
 };
 
-struct MsdfTextureHash 
-{
-	MsdfTextureType textureType;
-	union {
-		MsdfFillPattern fillPattern;
-		std::size_t glyphHash;
-	};
-};
-
-template<>
-struct std::hash<MsdfTextureHash>
-{
-    std::size_t operator()(const MsdfTextureHash& s) const noexcept
-    {
-		std::size_t finalHash = std::hash<uint32_t>{}(uint32_t(s.textureType));
-		std::size_t textureHash;
-
-		switch (s.textureType) 
-		{
-		case MsdfTextureType::HATCH_FILL_PATTERN:
-			textureHash = std::hash<uint32_t>{}(uint32_t(s.fillPattern));
-			break;
-		case MsdfTextureType::FONT_GLYPH:
-			textureHash = s.glyphHash;
-			break;
-		}
-
-		nbl::core::hash_combine(finalHash, textureHash);
-		return finalHash;
-    }
-};
- 
-
 core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents);
 
 DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit);
+
+DrawResourcesFiller::texture_hash hashFillPattern(MsdfFillPattern fillPattern);
+
+DrawResourcesFiller::texture_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex);
+
+#endif _NBL_CAD_MSDF_H_INCLUDED_
 

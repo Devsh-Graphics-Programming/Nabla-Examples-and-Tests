@@ -902,11 +902,8 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 
 		auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
 
-		const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
-			.textureType = MsdfTextureType::FONT_GLYPH,
-			.glyphHash = glyphBox->glyphIdx, // using index as hash for now
-		});
-		drawResourcesFiller.addMSDFTexture(
+		const auto msdfHash = hashFontGlyph(m_face->getHash(), glyphBox->glyphIdx);
+		const uint32_t textureId = drawResourcesFiller.addMSDFTexture(
 			[&]()
 			{
 				MSDFTextureUploadInfo textureUploadInfo = {
@@ -919,10 +916,19 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 			msdfHash,
 			intendedNextSubmit
 		);
-
-		const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
 		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+
+		FontGlyphInfo glyphInfo = {
+			.topLeft = glyphBox->topLeft,
+			.dirU = glyphBox->dirU,
+			.dirV = glyphBox->dirV,
+			.textureId = textureId,
+		};
+		uint32_t currentObjectInSection = 0u;
+		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+
 		{
+			// TODO: Debug stuff, get rid of this later
 			// Draw bounding box of the glyph
 			LineStyleInfo bboxStyle = {};
 			bboxStyle.screenSpaceLineWidth = 1.0f;
@@ -940,14 +946,6 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 			drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
 		}
 
-		FontGlyphInfo glyphInfo = {
-			.topLeft = glyphBox->topLeft,
-			.dirU = glyphBox->dirU,
-			.dirV = glyphBox->dirV,
-			.textureId = textureId,
-		};
-		uint32_t currentObjectInSection = 0u;
-		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
 	}
 
 }

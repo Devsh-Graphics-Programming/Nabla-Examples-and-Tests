@@ -1815,10 +1815,7 @@ protected:
 							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
 							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
 
-							const DrawResourcesFiller::texture_hash msdfHash = std::hash<MsdfTextureHash>{}({
-								.textureType = MsdfTextureType::FONT_GLYPH,
-								.glyphHash = msdfTextureIdx, // using index as hash for now
-							});
+							const auto msdfHash = hashFontGlyph(m_arialFont->getHash(), glyphIndex);
 							drawResourcesFiller.addMSDFTexture(
 								[&]()
 								{
