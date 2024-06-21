@@ -378,15 +378,13 @@ float median(float r, float g, float b) {
 }
 
 float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels) {
-    float2 unitRange = MsdfPixelRange / distanceFieldSizePixels;
+    float2 unitRange = 1.0 / distanceFieldSizePixels;
     return max(0.5 * dot(unitRange, screenSpaceSizePixels), 1.0);
 }
 
-float msdfOpacity(float3 msd, float2 screenPxRangeValue) {
-    float sd = median(msd.r, msd.g, msd.b);
-    float screenPxDistance = screenPxRangeValue * (sd - 0.5);
-    float opacity = clamp(screenPxDistance + 0.5, 0.0, 1.0);
-	return opacity;
+float msdfDistance(float3 msd, float2 screenPxRangeValue) {
+    float snormSignedDistance = (median(msd.r, msd.g, msd.b) - 0.5) * 2.0;
+    return screenPxRangeValue * MsdfPixelRange * snormSignedDistance;
 }
 
 float4 main(PSInput input) : SV_TARGET
@@ -583,8 +581,8 @@ float4 main(PSInput input) : SV_TARGET
         {
             const float screenSpaceSize = 8.0;
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / screenSpaceSize), float(textureId))).xyz;
-            float msdf = msdfOpacity(msdfSample, MsdfPixelRange);
-            localAlpha *= msdf;
+            float msdf = msdfDistance(msdfSample, MsdfSize / screenSpaceSize);
+            localAlpha *= smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
     else if (objType == ObjectType::FONT_GLYPH) 
@@ -595,8 +593,8 @@ float4 main(PSInput input) : SV_TARGET
         if (textureId != InvalidTextureIdx)
         {
             float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
-            float msdf = msdfOpacity(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MsdfSize, MsdfSize)));
-            localAlpha = msdf;
+            float msdf = msdfDistance(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MsdfSize, MsdfSize)));
+            localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
 
