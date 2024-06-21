@@ -324,45 +324,45 @@ void shaded(std::vector<CPolyline>& polylines)
 
 }
 
-core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents)
+core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMSDF(TextRenderer* textRenderer, MSDFFillPattern fillPattern, uint32_t2 msdfExtents)
 {
 	std::vector<CPolyline> polylines;
 	switch (fillPattern)
 	{
-	case MsdfFillPattern::CHECKERED:
+	case MSDFFillPattern::CHECKERED:
 		checkered(polylines);
 		break;
-	case MsdfFillPattern::DIAMONDS:
+	case MSDFFillPattern::DIAMONDS:
 		diamonds(polylines);
 		break;
-	case MsdfFillPattern::CROSS_HATCH:
+	case MSDFFillPattern::CROSS_HATCH:
 		crossHatch(polylines);
 		break;
-	case MsdfFillPattern::HATCH:
+	case MSDFFillPattern::HATCH:
 		hatch(polylines);
 		break;
-	case MsdfFillPattern::HORIZONTAL:
+	case MSDFFillPattern::HORIZONTAL:
 		horizontal(polylines);
 		break;
-	case MsdfFillPattern::VERTICAL:
+	case MSDFFillPattern::VERTICAL:
 		vertical(polylines);
 		break;
-	case MsdfFillPattern::INTERWOVEN:
+	case MSDFFillPattern::INTERWOVEN:
 		interwoven(polylines);
 		break;
-	case MsdfFillPattern::REVERSE_HATCH:
+	case MSDFFillPattern::REVERSE_HATCH:
 		reverseHatch(polylines);
 		break;
-	case MsdfFillPattern::SQUARES:
+	case MSDFFillPattern::SQUARES:
 		squares(polylines);
 		break;
-	case MsdfFillPattern::CIRCLE:
+	case MSDFFillPattern::CIRCLE:
 		circle(polylines);
 		break;
-	case MsdfFillPattern::LIGHT_SHADED:
+	case MSDFFillPattern::LIGHT_SHADED:
 		lightShaded(polylines);
 		break;
-	case MsdfFillPattern::SHADED:
+	case MSDFFillPattern::SHADED:
 		shaded(polylines);
 		break;
 	default:
@@ -393,17 +393,17 @@ core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* te
 
 	float scaleX = (1.0 / float(HatchFillPatternGlyphExtents.x)) * float(msdfExtents.x);
 	float scaleY = (1.0 / float(HatchFillPatternGlyphExtents.y)) * float(msdfExtents.y);
-	return textRenderer->generateMsdfForShape(glyph, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
+	return textRenderer->generateMSDFForShape(glyph, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
 }
 
-DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit)
+DrawResourcesFiller::texture_hash addMSDFFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MSDFFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	const auto msdfHash = hashFillPattern(fillPattern);
 	auto msdfResolution = drawResourcesFiller.getMSDFResolution();
 	drawResourcesFiller.addMSDFTexture(
 		[textRenderer, fillPattern, msdfResolution] {
 			MSDFTextureUploadInfo textureUploadInfo = {
-				.cpuBuffer = std::move(generateHatchFillPatternMsdf(textRenderer, fillPattern, msdfResolution)),
+				.cpuBuffer = std::move(generateHatchFillPatternMSDF(textRenderer, fillPattern, msdfResolution)),
 				.bufferOffset = 0u,
 				.imageExtent = uint32_t3(msdfResolution.x, msdfResolution.y, 1),
 			};
@@ -416,16 +416,16 @@ DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRe
 	return msdfHash;
 }
 
-DrawResourcesFiller::texture_hash hashFillPattern(MsdfFillPattern fillPattern)
+DrawResourcesFiller::texture_hash hashFillPattern(MSDFFillPattern fillPattern)
 {
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MsdfTextureType::HATCH_FILL_PATTERN));
+	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFTextureType::HATCH_FILL_PATTERN));
 	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(uint32_t(fillPattern)));
 	return hash;
 }
 
 DrawResourcesFiller::texture_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex)
 {
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MsdfTextureType::FONT_GLYPH));
+	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFTextureType::FONT_GLYPH));
 	nbl::core::hash_combine(hash, std::hash<size_t>{}(fontHash));
 	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(glyphIndex));
 	return hash;

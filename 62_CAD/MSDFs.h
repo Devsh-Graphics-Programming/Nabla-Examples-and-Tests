@@ -8,7 +8,7 @@
 #include <nbl/core/containers/LRUCache.h>  
 #include "nbl/ext/TextRendering/TextRendering.h"
 
-enum class MsdfFillPattern: uint32_t
+enum class MSDFFillPattern: uint32_t
 {
 	CHECKERED,
 	DIAMONDS,
@@ -25,17 +25,17 @@ enum class MsdfFillPattern: uint32_t
 	COUNT
 };
 
-enum class MsdfTextureType: uint32_t
+enum class MSDFTextureType: uint32_t
 {
 	HATCH_FILL_PATTERN,
 	FONT_GLYPH,
 };
 
-core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMsdf(TextRenderer* textRenderer, MsdfFillPattern fillPattern, uint32_t2 msdfExtents);
+core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMSDF(TextRenderer* textRenderer, MSDFFillPattern fillPattern, uint32_t2 msdfExtents);
 
-DrawResourcesFiller::texture_hash addMsdfFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MsdfFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit);
+DrawResourcesFiller::texture_hash addMSDFFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MSDFFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit);
 
-DrawResourcesFiller::texture_hash hashFillPattern(MsdfFillPattern fillPattern);
+DrawResourcesFiller::texture_hash hashFillPattern(MSDFFillPattern fillPattern);
 
 DrawResourcesFiller::texture_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex);
 

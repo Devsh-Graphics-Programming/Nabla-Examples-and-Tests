@@ -384,7 +384,7 @@ float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels
 
 float msdfDistance(float3 msd, float2 screenPxRangeValue) {
     float snormSignedDistance = (median(msd.r, msd.g, msd.b) - 0.5) * 2.0;
-    return screenPxRangeValue * MsdfPixelRange * snormSignedDistance;
+    return screenPxRangeValue * MSDFPixelRange * snormSignedDistance;
 }
 
 float4 main(PSInput input) : SV_TARGET
@@ -581,7 +581,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             const float screenSpaceSize = 8.0;
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / screenSpaceSize), float(textureId))).xyz;
-            float msdf = msdfDistance(msdfSample, MsdfSize / screenSpaceSize);
+            float msdf = msdfDistance(msdfSample, MSDFSize / screenSpaceSize);
             localAlpha *= smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
@@ -593,7 +593,7 @@ float4 main(PSInput input) : SV_TARGET
         if (textureId != InvalidTextureIdx)
         {
             float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
-            float msdf = msdfDistance(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MsdfSize, MsdfSize)));
+            float msdf = msdfDistance(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MSDFSize, MSDFSize)));
             localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }

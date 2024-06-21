@@ -122,7 +122,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 	textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(maxMSDFs));
 	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 
-	asset::E_FORMAT msdfFormat = MsdfTextureFormat;
+	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
 	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
 
@@ -470,7 +470,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
-				.oldLayout = m_hasInitializedMsdfTextureArrays ? IImage::LAYOUT::READ_ONLY_OPTIMAL : IImage::LAYOUT::UNDEFINED,
+				.oldLayout = m_hasInitializedMSDFTextureArrays ? IImage::LAYOUT::READ_ONLY_OPTIMAL : IImage::LAYOUT::UNDEFINED,
 				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 			});
 		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
@@ -478,8 +478,8 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
 			barrierInfo);
 
-		if (!m_hasInitializedMsdfTextureArrays)
-			m_hasInitializedMsdfTextureArrays = true;
+		if (!m_hasInitializedMSDFTextureArrays)
+			m_hasInitializedMSDFTextureArrays = true;
 	}
 
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
@@ -907,9 +907,9 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 			[&]()
 			{
 				MSDFTextureUploadInfo textureUploadInfo = {
-					.cpuBuffer = std::move(m_face->generateGlyphUploadInfo(textRenderer, glyphBox->glyphIdx, uint32_t2(MsdfSize, MsdfSize))),
+					.cpuBuffer = std::move(m_face->generateGlyphUploadInfo(textRenderer, glyphBox->glyphIdx, uint32_t2(MSDFSize, MSDFSize))),
 					.bufferOffset = 0u,
-					.imageExtent = uint32_t3(MsdfSize, MsdfSize, 1),
+					.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
 				};
 				return textureUploadInfo;
 			},

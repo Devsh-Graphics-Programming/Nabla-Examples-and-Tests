@@ -274,7 +274,7 @@ public:
 		// + 128 ClipProjData
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MsdfSize, MsdfSize));
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -870,7 +870,7 @@ public:
 		m_timeElapsed = 0.0;
 		
 		// Loading font stuff
-		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MsdfPixelRange);
+		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MSDFPixelRange);
 		m_arialFont = nbl::core::make_smart_refctd_ptr<TextRenderer::Face>(m_textRenderer.get(), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
 		const auto str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
@@ -1401,24 +1401,24 @@ public:
 		return 0;
 	}
 
-	static int ftMoveToMsdf(const FT_Vector* to, void* user) {
+	static int ftMoveToMSDF(const FT_Vector* to, void* user) {
 		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
 		context->moveTo(ftPoint2(*to));
 		return 0;
 	}
-	static int ftLineToMsdf(const FT_Vector* to, void* user) {
+	static int ftLineToMSDF(const FT_Vector* to, void* user) {
 		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
 		context->lineTo(ftPoint2(*to));
 		return 0;
 	}
 
-	static int ftConicToMsdf(const FT_Vector* control, const FT_Vector* to, void* user) {
+	static int ftConicToMSDF(const FT_Vector* control, const FT_Vector* to, void* user) {
 		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
 		context->quadratic(ftPoint2(*control), ftPoint2(*to));
 		return 0;
 	}
 
-	static int ftCubicToMsdf(const FT_Vector* control1, const FT_Vector* control2, const FT_Vector* to, void* user) {
+	static int ftCubicToMSDF(const FT_Vector* control1, const FT_Vector* control2, const FT_Vector* to, void* user) {
 		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
 		context->cubic(ftPoint2(*control1), ftPoint2(*control2), ftPoint2(*to));
 		return 0;
@@ -1428,10 +1428,10 @@ public:
 	{
 		nbl::ext::TextRendering::GlyphShapeBuilder builder(shape);
 		FT_Outline_Funcs ftFunctions;
-		ftFunctions.move_to = &ftMoveToMsdf;
-		ftFunctions.line_to = &ftLineToMsdf;
-		ftFunctions.conic_to = &ftConicToMsdf;
-		ftFunctions.cubic_to = &ftCubicToMsdf;
+		ftFunctions.move_to = &ftMoveToMSDF;
+		ftFunctions.line_to = &ftLineToMSDF;
+		ftFunctions.conic_to = &ftConicToMSDF;
+		ftFunctions.cubic_to = &ftCubicToMSDF;
 		ftFunctions.shift = 0;
 		ftFunctions.delta = 0;
 		FT_Error error = FT_Outline_Decompose(&face->glyph->outline, &ftFunctions, &builder);
@@ -1546,9 +1546,9 @@ protected:
 			{
 
 				/*
-				if (hatchDebugStep < uint32_t(MsdfFillPattern::COUNT))
+				if (hatchDebugStep < uint32_t(MSDFFillPattern::COUNT))
 				{
-					DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(drawResourcesFiller, MsdfFillPattern(hatchDebugStep), intendedNextSubmit);
+					DrawResourcesFiller::texture_hash msdfHash = addMSDFFillPatternTexture(drawResourcesFiller, MSDFFillPattern(hatchDebugStep), intendedNextSubmit);
 			
 					for (int x = -3; x <= 3; x++)
 					{
@@ -1612,18 +1612,18 @@ protected:
 						}
 					}
 				}
-				hatchDebugStep -= uint32_t(MsdfFillPattern::COUNT);
+				hatchDebugStep -= uint32_t(MSDFFillPattern::COUNT);
 				*/
 				constexpr double hatchFillShapeSize = 10.0;
 				constexpr double hatchFillShapePadding = 1.0;
 
 				// Hatch fill shapes described above
 				// Iterate each one of them, rendering
-				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < uint32_t(MsdfFillPattern::COUNT); hatchFillShapeIdx++)
+				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < uint32_t(MSDFFillPattern::COUNT); hatchFillShapeIdx++)
 				{
 					if (hatchDebugStep == 0) break;
 
-					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(MsdfFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(MsdfFillPattern::COUNT) - 1);
+					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(MSDFFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(MSDFFillPattern::COUNT) - 1);
 					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
 					// Center it
 					offset -= totalShapesWidth / 2.0;
@@ -1649,10 +1649,10 @@ protected:
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
 						);
-						DrawResourcesFiller::texture_hash msdfHash = addMsdfFillPatternTexture(
+						DrawResourcesFiller::texture_hash msdfHash = addMSDFFillPatternTexture(
 							m_textRenderer.get(), 
 							drawResourcesFiller, 
-							MsdfFillPattern(hatchFillShapeIdx), 
+							MSDFFillPattern(hatchFillShapeIdx), 
 							intendedNextSubmit);
 
 						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
@@ -1820,9 +1820,9 @@ protected:
 								[&]()
 								{
 									MSDFTextureUploadInfo textureUploadInfo = {
-										.cpuBuffer = std::move(m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MsdfSize, MsdfSize))),
+										.cpuBuffer = std::move(m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MSDFSize, MSDFSize))),
 										.bufferOffset = 0u,
-										.imageExtent = uint32_t3(MsdfSize, MsdfSize, 1),
+										.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
 									};
 									return textureUploadInfo;
 								},
@@ -1833,7 +1833,7 @@ protected:
 							const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
 							assert(textureId != DrawResourcesFiller::InvalidTextureHash);
 
-							auto boundingBoxExpandAmount = (MsdfPixelRange / MsdfSize);
+							auto boundingBoxExpandAmount = (MSDFPixelRange / MSDFSize);
 
 							FontGlyphInfo glyphInfo = {
 								.topLeft = glyphBbox.topLeft + float64_t2(0, 100.0) - float64_t2(boundingBoxExpandAmount, boundingBoxExpandAmount) * (glyphBbox.dirU + glyphBbox.dirV),
@@ -3147,7 +3147,7 @@ protected:
 	smart_refctd_ptr<TextRenderer::Face> m_arialFont;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
 	
-	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMsdfImages = {};
+	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 
 	static constexpr char FirstGeneratedCharacter = ' ';
 	static constexpr char LastGeneratedCharacter = '~';
