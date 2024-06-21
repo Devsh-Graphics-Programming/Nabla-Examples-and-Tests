@@ -581,8 +581,9 @@ float4 main(PSInput input) : SV_TARGET
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / 8.0), float(textureId))).xyz;
-            float msdf = msdfOpacity(msdfSample, screenPxRange(float2(8.0, 8.0), float2(MsdfSize, MsdfSize)));
+            const float screenSpaceSize = 8.0;
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / screenSpaceSize), float(textureId))).xyz;
+            float msdf = msdfOpacity(msdfSample, MsdfPixelRange);
             localAlpha *= msdf;
         }
     }
