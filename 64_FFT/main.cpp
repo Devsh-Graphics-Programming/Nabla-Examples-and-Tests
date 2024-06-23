@@ -25,38 +25,10 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 	using device_base_t = application_templates::MonoDeviceApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 
-	// This is the first example that submits multiple workloads in-flight. 
-	// What the shader does is it computes the minimum distance of each point against K other random input points.
-	// Having the GPU randomly access parts of the buffer requires it to be DEVICE_LOCAL for performance.
-	// Then the CPU downloads the results and finds the median minimum distance via quick-select.
-	// This bizzare synthetic workload was specifically chosen for its unfriendliness towards simple buffer usage.
-	// The fact we have variable sized workloads and run them in a loop means we either have to dynamically
-	// suballocate from a single buffer or have K worst-case sized buffers we round robin for K-workloads in flight.
-	// Creating and destroying buffers at runtime is not an option as those are very expensive operations. 
-	// Also since CPU needs to heapify the outputs, we need to have the GPU write them into RAM not VRAM.
 	smart_refctd_ptr<IGPUComputePipeline> m_pipeline;
 
-	// The Utility class has lots of methods to handle staging without relying on ReBAR or EXT_host_image_copy as well as more complex methods we'll cover later.
-	// Until EXT_host_image_copy becomes ubiquitous across all Nabla Core Profile devices, you need to stage image copies from an IGPUBuffer to an IGPUImage.
-	// Why use Staging for buffers in the age of ReBAR? While GPU workloads overlap the CPU, individual GPU workloads's execution might not overlap each other
-	// but their data might. In this case you want to "precisely" time the data update on the GPU timeline between the end and start of a workload.
-	// For very small updates you could use the commandbuffer updateBuffer method, but it has a size limit and the data enqueued takes up space in the commandpool.
-	// Sometimes it might be unfeasible to either have multiple copies or update references to those copies without a cascade update.
-	// One example is the transformation graph of nodes in a scene, where a copy-on-write of a node would require the update the offset/pointer held by
-	// any other node that refers to it. This quickly turns into a cascade that would force you to basically create a full copy of the entire data structure
-	// after most updates. Whereas with staging you'd "queue up" the much smaller set of updates to apply between each computation step which uses the graph.
-	// Another example are UBO and SSBO bindings, where once you run out of dynamic bindings, you can no longer easily change offsets without introducting extra indirection in shaders.
-	// Actually staging can help you re-use a commandbuffer because you don't need to re-record it if you don't need to change the offsets at which you bind!
-	// Finally ReBAR is a precious resource, my 8GB RTX 3070 only reports a 214MB Heap backing HOST_VISIBLE and DEVICE_LOCAL device local memory type.
 	smart_refctd_ptr<nbl::video::IUtilities> m_utils;
 
-	// We call them downstreaming and upstreaming, simply by how we used them so far.
-	// Meaning that upstreaming is uncached and usually ReBAR (DEVICE_LOCAL), for simple memcpy like sequential writes.
-	// While the downstreaming is CACHED and not DEVICE_LOCAL for fast random acess by the CPU.
-	// However there are cases when you'd want to use a buffer with flags identical to the default downstreaming buffer for uploads,
-	// such cases is when a CPU needs to build a data-structure in-place (due to memory constraints) before GPU accesses it,
-	// one example are Host Acceleration Structure builds (BVH building requires lots of repeated memory accesses).
-	// When choosing the memory properties of a mapped buffer consider which processor (CPU or GPU) needs faster access in event of a cache-miss.
 	nbl::video::StreamingTransientDataBufferMT<>* m_upStreamingBuffer;
 	StreamingTransientDataBufferMT<>* m_downStreamingBuffer;
 
@@ -129,11 +101,6 @@ public:
 		// People love Reflection but I prefer Shader Sources instead!
 		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 
-		// This time we'll have no Descriptor Sets or Layouts because our workload has a widely varying size
-		// and using traditional SSBO bindings would force us to update the Descriptor Set every frame.
-		// I even started writing this sample with the use of Dynamic SSBOs, however the length of the buffer range is not dynamic
-		// only the offset. This means that we'd have to write the "worst case" length into the descriptor set binding.
-		// Then this has a knock-on effect that we couldn't allocate closer to the end of the streaming buffer than the "worst case" size.
 		{
 			auto layout = m_device->createPipelineLayout({ &pcRange,1 });
 			IGPUComputePipeline::SCreationParams params = {};
@@ -176,9 +143,8 @@ public:
 		// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
 		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ m_iteration ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
 
-		// Set to 64 to try a single subgroup's work
 		const auto elementCount = 2 * WorkgroupSize;
-		const uint32_t inputSize = sizeof(input_t) * elementCount;
+		const uint32_t inputSize = 2 * sizeof(input_t) * elementCount;
 
 		// The allocators can do multiple allocations at once for efficiency
 		const uint32_t AllocationCount = 1;
@@ -199,11 +165,26 @@ public:
 			std::cout << "Begin array CPU\n";
 			for (auto j = 0; j < elementCount; j++)
 			{
+				//Random array
+				/*
 				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+				*/
+				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
+				// This one works!
+				
+				float x = j > 0 ? 0.f : 1.f;
+				float y = 0;
+				
+				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
+				// This one works!
+				/*
+				float x = 2.f;
+				float y = 0.f;
+				*/
+
+				inputPtr[j] = x;
+				inputPtr[j + WorkgroupSize] = y;
 				std::cout << "(" << x << ", " << y << "), ";
-				const input_t generated(x, y);
-				// make sure our bitpatterns are in [0,1]^2 as a float
-				inputPtr[j] = generated;
 			}
 			std::cout << "\nEnd array CPU\n";
 			// Always remember to flush!
@@ -299,7 +280,7 @@ public:
 				std::cout << "Begin array GPU\n";
 				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
 				for (auto i = 0u; i < elementCount; i++) {
-					std::cout << "(" << data[2 * i] << ", " << data[2 * i + 1] << "), ";
+					std::cout << "(" << data[i] << ", " << data[i + WorkgroupSize] << "), ";
 				}
 
 				std::cout << "\nEnd array GPU\n";

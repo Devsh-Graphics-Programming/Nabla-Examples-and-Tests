@@ -2,7 +2,7 @@
 
 // Unfortunately not every piece of C++14 metaprogramming syntax is available in HLSL 202x
 // https://github.com/microsoft/DirectXShaderCompiler/issues/5751#issuecomment-1800847954
-typedef nbl::hlsl::float32_t2 input_t;
+typedef nbl::hlsl::float32_t input_t;
 typedef nbl::hlsl::float32_t output_t;
 
 NBL_CONSTEXPR_STATIC_INLINE uint32_t MaxPossibleElementCount = 1 << 20;
@@ -14,8 +14,9 @@ struct PushConstantData
 	uint32_t dataElementCount;
 };
 
-NBL_CONSTEXPR uint32_t WorkgroupSize = 256;
-NBL_CONSTEXPR uint32_t SubgroupSize = 32;
+// TODO: change code to be modified at runtime, picking up subgroupsize from device capabilities
+#define _NBL_HLSL_WORKGROUP_SIZE_ 32
+NBL_CONSTEXPR uint32_t WorkgroupSize = _NBL_HLSL_WORKGROUP_SIZE_;
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
