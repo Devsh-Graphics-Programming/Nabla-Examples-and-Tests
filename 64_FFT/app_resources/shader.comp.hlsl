@@ -44,5 +44,5 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 	Accessor accessor;
 	SharedMemoryAccessor sharedmemAccessor;
 	nbl::hlsl::workgroup::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
-	nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
+	//nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 }

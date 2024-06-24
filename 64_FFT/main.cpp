@@ -171,19 +171,19 @@ public:
 				*/
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
 				// This one works!
-				
+				/*
 				float x = j > 0 ? 0.f : 1.f;
 				float y = 0;
-				
+				*/
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
 				// This one works!
-				/*
+				
 				float x = 2.f;
 				float y = 0.f;
-				*/
+				
 
 				inputPtr[j] = x;
-				inputPtr[j + WorkgroupSize] = y;
+				inputPtr[j + elementCount] = y;
 				std::cout << "(" << x << ", " << y << "), ";
 			}
 			std::cout << "\nEnd array CPU\n";
@@ -204,7 +204,7 @@ public:
 		} while (poolIx == ICommandPoolCache::invalid_index);
 
 		// finally allocate our output range
-		const uint32_t outputSize = sizeof(output_t) * elementCount * 2;
+		const uint32_t outputSize = inputSize;
 
 		auto outputOffset = m_downStreamingBuffer->invalid_value;
 		m_downStreamingBuffer->multi_allocate(waitTill, AllocationCount, &outputOffset, &outputSize, &m_alignment);
@@ -280,7 +280,7 @@ public:
 				std::cout << "Begin array GPU\n";
 				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
 				for (auto i = 0u; i < elementCount; i++) {
-					std::cout << "(" << data[i] << ", " << data[i + WorkgroupSize] << "), ";
+					std::cout << "(" << data[i] << ", " << data[i + elementCount] << "), ";
 				}
 
 				std::cout << "\nEnd array GPU\n";
