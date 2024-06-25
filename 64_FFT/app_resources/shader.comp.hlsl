@@ -38,14 +38,20 @@ struct Accessor {
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
+
+	// Workgroup
+
 	if (nbl::hlsl::workgroup::SubgroupContiguousIndex() >= pushConstants.dataElementCount)
 		return;
 
 	// Subgroup (works fine)
+	
 	/*
 	if (nbl::hlsl::glsl::gl_SubgroupInvocationID() >= pushConstants.dataElementCount)
 		return;
 	*/
+
+	// Workgroup	
 
 	Accessor accessor;
 	SharedMemoryAccessor sharedmemAccessor;
