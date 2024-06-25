@@ -143,7 +143,7 @@ public:
 		// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
 		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ m_iteration ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
 
-		const auto elementCount = 2 * WorkgroupSize;
+		//const auto elementCount = 2 * WorkgroupSize;
 		const uint32_t inputSize = 2 * sizeof(input_t) * elementCount;
 
 		// The allocators can do multiple allocations at once for efficiency

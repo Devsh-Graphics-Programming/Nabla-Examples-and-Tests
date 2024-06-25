@@ -17,6 +17,7 @@ struct PushConstantData
 // TODO: change code to be modified at runtime, picking up subgroupsize from device capabilities
 #define _NBL_HLSL_WORKGROUP_SIZE_ 32
 NBL_CONSTEXPR uint32_t WorkgroupSize = _NBL_HLSL_WORKGROUP_SIZE_;
+NBL_CONSTEXPR uint32_t elementCount = WorkgroupSize << 1;
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
