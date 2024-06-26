@@ -458,11 +458,12 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::FONT_GLYPH)
     {
         float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        float64_t2 dirU = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
-        float64_t2 dirV = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2, 8u);
-        float32_t2 minUV = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 3, 8u);
-        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) * 3 + sizeof(float32_t2), 4u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
+        float32_t2 minUV = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) * 2, 4u);
+        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) * 2 + sizeof(float), 4u);
 
+        const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
         const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
         const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
         const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
@@ -477,6 +478,13 @@ PSInput main(uint vertexID : SV_VertexID)
 
         const float2 maxUV = float2(1.0, 1.0) - minUV;
         const float2 uvs = minUV + corner * (maxUV - minUV);
+
+        outV.topLeft = topLeft; topLeft; topLeft;
+        outV.dirU = dirU;
+        outV.minUV = minUV;
+        outV.aspectRatio = aspectRatio;
+        outV.textureId = textureId;
+        outV.dirV = dirV;
 
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUv(corner);

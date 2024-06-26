@@ -923,8 +923,8 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 		FontGlyphInfo glyphInfo = {
 			.topLeft = glyphBox->topLeft,
 			.dirU = glyphBox->dirU,
-			.dirV = glyphBox->dirV,
 			.minUV = minUV,
+			.aspectRatio = float(glyphBox->dirV.y / -glyphBox->dirU.x),
 			.textureId = textureId,
 		};
 		uint32_t currentObjectInSection = 0u;
