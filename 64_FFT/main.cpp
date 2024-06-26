@@ -31,10 +31,12 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 
 	nbl::video::StreamingTransientDataBufferMT<>* m_upStreamingBuffer;
 	StreamingTransientDataBufferMT<>* m_downStreamingBuffer;
+	smart_refctd_ptr<nbl::video::IGPUBuffer> m_deviceLocalBuffer;
 
 	// These are Buffer Device Addresses
 	uint64_t m_upStreamingBufferAddress;
 	uint64_t m_downStreamingBufferAddress;
+	uint64_t m_deviceLocalBufferAddress;
 
 	// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 	uint32_t m_alignment;
@@ -98,6 +100,29 @@ public:
 		m_upStreamingBufferAddress = m_upStreamingBuffer->getBuffer()->getDeviceAddress();
 		m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
 
+		// Create device-local buffer
+		
+		{
+			const uint32_t scalarElementCount = 2 * complexElementCount;
+			IGPUBuffer::SCreationParams deviceLocalBufferParams = {};
+			
+			IQueue* const queue = getComputeQueue();
+			uint32_t queueFamilyIndex = queue->getFamilyIndex();
+			
+			deviceLocalBufferParams.queueFamilyIndexCount = 1;
+			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
+			deviceLocalBufferParams.size = sizeof(input_t) * scalarElementCount;
+			deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
+			
+			m_deviceLocalBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
+			auto mreqs = m_deviceLocalBuffer->getMemoryReqs();
+			mreqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+			auto gpubufMem = m_device->allocate(mreqs, m_deviceLocalBuffer.get(), IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS::EMAF_DEVICE_ADDRESS_BIT);
+
+			m_deviceLocalBufferAddress = m_deviceLocalBuffer.get()->getDeviceAddress();
+		}
+		
+
 		// People love Reflection but I prefer Shader Sources instead!
 		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 
@@ -106,6 +131,7 @@ public:
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = layout.get();
 			params.shader.shader = shader.get();
+			params.shader.requireFullSubgroups = true;
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
 				return logFail("Failed to create compute pipeline!\n");
 		}
@@ -143,8 +169,8 @@ public:
 		// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
 		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ m_iteration ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
 
-		//const auto elementCount = 2 * WorkgroupSize;
-		const uint32_t inputSize = 2 * sizeof(input_t) * elementCount;
+		const uint32_t scalarElementCount = 2 * complexElementCount;
+		const uint32_t inputSize = sizeof(input_t) * scalarElementCount;
 
 		// The allocators can do multiple allocations at once for efficiency
 		const uint32_t AllocationCount = 1;
@@ -160,30 +186,27 @@ public:
 		m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
 
 		// Generate our data in-place on the allocated staging buffer
-		{
+		{	
 			auto* const inputPtr = reinterpret_cast<input_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
 			std::cout << "Begin array CPU\n";
-			for (auto j = 0; j < elementCount; j++)
+			for (auto j = 0; j < complexElementCount; j++)
 			{
 				//Random array
 				/*
 				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
 				*/
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
-				// This one works!
-				/*
+				
 				float x = j > 0 ? 0.f : 1.f;
 				float y = 0;
-				*/
-				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
-				// This one works!
 				
+				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
+				/*
 				float x = 2.f;
 				float y = 0.f;
-				
-
+				*/
 				inputPtr[j] = x;
-				inputPtr[j + elementCount] = y;
+				inputPtr[j + complexElementCount] = y;
 				std::cout << "(" << x << ", " << y << "), ";
 			}
 			std::cout << "\nEnd array CPU\n";
@@ -217,13 +240,31 @@ public:
 			cmdbuf->bindComputePipeline(m_pipeline.get());
 			// This is the new fun part, pushing constants
 			const PushConstantData pc = {
-				.inputAddress = m_upStreamingBufferAddress + inputOffset,
-				.outputAddress = m_downStreamingBufferAddress + outputOffset,
-				.dataElementCount = elementCount
+				.inputAddress = m_deviceLocalBufferAddress,
+				.outputAddress = m_deviceLocalBufferAddress,
+				.dataElementCount = scalarElementCount
 			};
+			IGPUCommandBuffer::SBufferCopy copyInfo = {};
+			copyInfo.srcOffset = 0;
+			copyInfo.dstOffset = 0;
+			copyInfo.size = m_deviceLocalBuffer->getSize();
+			cmdbuf->copyBuffer(m_upStreamingBuffer->getBuffer(), m_deviceLocalBuffer.get(), 1, &copyInfo);
 			cmdbuf->pushConstants(m_pipeline->getLayout(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
 			// Good old trick to get rounded up divisions, in case you're not familiar
 			cmdbuf->dispatch(1, 1, 1);
+
+			// Pipeline barrier: wait for FFT shader to be done before copying to downstream buffer 
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
+			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {};
+			pipelineBarrierInfo.bufBarriers = {&barrier, 1u};
+
+			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
+			barrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+			barrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS;
+
+			cmdbuf->pipelineBarrier(asset::E_DEPENDENCY_FLAGS(0), pipelineBarrierInfo);
+			cmdbuf->copyBuffer(m_deviceLocalBuffer.get(), m_downStreamingBuffer->getBuffer(), 1, &copyInfo);
 			cmdbuf->end();
 		}
 
@@ -279,8 +320,8 @@ public:
 
 				std::cout << "Begin array GPU\n";
 				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
-				for (auto i = 0u; i < elementCount; i++) {
-					std::cout << "(" << data[i] << ", " << data[i + elementCount] << "), ";
+				for (auto i = 0u; i < complexElementCount; i++) {
+					std::cout << "(" << data[i] << ", " << data[i + complexElementCount] << "), ";
 				}
 
 				std::cout << "\nEnd array GPU\n";

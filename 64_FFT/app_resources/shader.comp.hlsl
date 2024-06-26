@@ -8,11 +8,11 @@
 groupshared output_t sharedmem[2 * WorkgroupSize];
 
 struct SharedMemoryAccessor {
-	void set(uint32_t idx, output_t x) {
+	void set(uint32_t idx, uint x) {
 		sharedmem[idx] = x;
 	}
 	
-	output_t get(uint32_t idx) {
+	uint get(uint32_t idx) {
 		return sharedmem[idx];
 	}
 
@@ -22,12 +22,12 @@ struct SharedMemoryAccessor {
 };
 
 struct Accessor {
-	void set(uint32_t idx, output_t x) {
-		vk::RawBufferStore<output_t>(pushConstants.outputAddress + sizeof(output_t) * idx, x);
+	void set(uint32_t idx, uint x) {
+		vk::RawBufferStore<uint>(pushConstants.outputAddress + sizeof(uint) * idx, x);
 	}
 	
-	input_t get(uint32_t idx) {
-		return vk::RawBufferLoad<input_t>(pushConstants.inputAddress + sizeof(input_t) * idx);
+	uint get(uint32_t idx) {
+		return vk::RawBufferLoad<uint>(pushConstants.inputAddress + sizeof(uint) * idx);
 	}
 
 	void workgroupExecutionAndMemoryBarrier() {
@@ -39,41 +39,13 @@ struct Accessor {
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
 
-	// Workgroup
-
-	if (nbl::hlsl::workgroup::SubgroupContiguousIndex() >= pushConstants.dataElementCount)
-		return;
-
-	// Subgroup (works fine)
-	
-	/*
-	if (nbl::hlsl::glsl::gl_SubgroupInvocationID() >= pushConstants.dataElementCount)
-		return;
-	*/
+	Accessor accessor;
+	SharedMemoryAccessor sharedmemAccessor;
 
 	// Workgroup	
 
-	Accessor accessor;
-	SharedMemoryAccessor sharedmemAccessor;
+	nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	accessor.workgroupExecutionAndMemoryBarrier();
 	nbl::hlsl::workgroup::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
-	//nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
-	
-	// Subgroup (works fine)
-	/*
 
-	nbl::hlsl::complex_t<input_t> lo, hi;
-	lo.real(accessor.get(nbl::hlsl::glsl::gl_SubgroupInvocationID()));
-	hi.real(accessor.get(nbl::hlsl::glsl::gl_SubgroupInvocationID() + _NBL_HLSL_WORKGROUP_SIZE_));
-	lo.imag(accessor.get(nbl::hlsl::glsl::gl_SubgroupInvocationID() + 2 * _NBL_HLSL_WORKGROUP_SIZE_));
-	hi.imag(accessor.get(nbl::hlsl::glsl::gl_SubgroupInvocationID() + 3 * _NBL_HLSL_WORKGROUP_SIZE_));
-	
-	nbl::hlsl::subgroup::FFT<false, input_t>::__call(lo, hi);
-	//nbl::hlsl::subgroup::FFT<true, input_t>::__call(lo, hi);
-
-	accessor.set(nbl::hlsl::glsl::gl_SubgroupInvocationID(), lo.real());
-	accessor.set(nbl::hlsl::glsl::gl_SubgroupInvocationID() + _NBL_HLSL_WORKGROUP_SIZE_, hi.real());
-	accessor.set(nbl::hlsl::glsl::gl_SubgroupInvocationID() + 2 * _NBL_HLSL_WORKGROUP_SIZE_, lo.imag());
-	accessor.set(nbl::hlsl::glsl::gl_SubgroupInvocationID() + 3 * _NBL_HLSL_WORKGROUP_SIZE_, hi.imag());		
-
-	*/
 }
