@@ -918,34 +918,17 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 		);
 		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
 
+		float minUVOffset = textRenderer->GetPixelRange() / MSDFSize;
+		float32_t2 minUV = float32_t2(minUVOffset);
 		FontGlyphInfo glyphInfo = {
 			.topLeft = glyphBox->topLeft,
 			.dirU = glyphBox->dirU,
 			.dirV = glyphBox->dirV,
+			.minUV = minUV,
 			.textureId = textureId,
 		};
 		uint32_t currentObjectInSection = 0u;
 		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
-
-		{
-			// TODO: Debug stuff, get rid of this later
-			// Draw bounding box of the glyph
-			LineStyleInfo bboxStyle = {};
-			bboxStyle.screenSpaceLineWidth = 1.0f;
-			bboxStyle.worldSpaceLineWidth = 0.0f;
-			bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
-
-			CPolyline newPoly = {};
-			std::vector<float64_t2> points;
-			points.push_back(glyphBox->topLeft);
-			points.push_back(glyphBox->topLeft + glyphBox->dirU);
-			points.push_back(glyphBox->topLeft + glyphBox->dirU + glyphBox->dirV);
-			points.push_back(glyphBox->topLeft + glyphBox->dirV);
-			points.push_back(glyphBox->topLeft);
-			newPoly.addLinePoints(points);
-			drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
-		}
-
 	}
 
 }

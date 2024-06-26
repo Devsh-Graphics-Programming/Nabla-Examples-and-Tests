@@ -54,10 +54,20 @@ struct QuadraticBezierInfo
 struct FontGlyphInfo
 {
     float64_t2 topLeft;
-    // TODO: I think these should be fine as float32_t2?
-    float64_t2 dirU;
-    float64_t2 dirV;
-    uint32_t textureId;
+    float64_t2 dirU; // TODO: This could be float32_t2
+    // TODO: This should be replaced with aspectRatio (float)
+    // dirU and dirV are always perpendicular to each other, we can just have one and derive 
+    // the other one based on the aspect ratio of the glyph. 
+    // dirV = float2(dirU.y, -dirU.x) * aspectRatio 
+    // or 
+    // dirV = normalize(float2(dirU.y, -dirU.x)) * lenV
+    float64_t2 dirV; 
+    // TODO: These can be packed
+    // unorm8 minU;
+    // unorm8 minV;
+    // uint16 textureId;
+    float32_t2 minUV; 
+    uint32_t textureId; 
 };
 
 #ifndef __HLSL_VERSION

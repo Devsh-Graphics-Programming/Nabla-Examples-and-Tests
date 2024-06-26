@@ -460,7 +460,8 @@ PSInput main(uint vertexID : SV_VertexID)
         float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
         float64_t2 dirU = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2), 8u);
         float64_t2 dirV = vk::RawBufferLoad<double2>(drawObj.geometryAddress + sizeof(double2) * 2, 8u);
-        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) * 3, 4u);
+        float32_t2 minUV = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 3, 8u);
+        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) * 3 + sizeof(float32_t2), 4u);
 
         const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
         const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
@@ -473,6 +474,9 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 ndcAxisMin = screenTopLeft;
         const float2 ndcAxisMax = screenTopLeft + screenDirU + screenDirV;
         const float2 screenSpaceAabbExtents = abs(ndcAxisMax - ndcAxisMin) * float2(globals.resolution);
+
+        const float2 maxUV = float2(1.0, 1.0) - minUV;
+        const float2 uvs = minUV + corner * (maxUV - minUV);
 
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUv(corner);
