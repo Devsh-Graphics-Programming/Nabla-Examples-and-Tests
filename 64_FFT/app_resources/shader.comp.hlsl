@@ -5,14 +5,14 @@
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
-groupshared output_t sharedmem[2 * WorkgroupSize];
+groupshared uint32_t sharedmem[2 * WorkgroupSize];
 
 struct SharedMemoryAccessor {
-	void set(uint32_t idx, uint x) {
+	void set(uint32_t idx, uint32_t x) {
 		sharedmem[idx] = x;
 	}
 	
-	uint get(uint32_t idx) {
+	uint32_t get(uint32_t idx) {
 		return sharedmem[idx];
 	}
 
@@ -22,12 +22,12 @@ struct SharedMemoryAccessor {
 };
 
 struct Accessor {
-	void set(uint32_t idx, uint x) {
-		vk::RawBufferStore<uint>(pushConstants.outputAddress + sizeof(uint) * idx, x);
+	void set(uint32_t idx, uint32_t x) {
+		vk::RawBufferStore<uint32_t>(pushConstants.outputAddress + sizeof(uint32_t) * idx, x);
 	}
 	
-	uint get(uint32_t idx) {
-		return vk::RawBufferLoad<uint>(pushConstants.inputAddress + sizeof(uint) * idx);
+	uint32_t get(uint32_t idx) {
+		return vk::RawBufferLoad<uint32_t>(pushConstants.inputAddress + sizeof(uint32_t) * idx);
 	}
 
 	void workgroupExecutionAndMemoryBarrier() {
@@ -46,6 +46,6 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 	accessor.workgroupExecutionAndMemoryBarrier();
-	nbl::hlsl::workgroup::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
+	//nbl::hlsl::workgroup::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 
 }
