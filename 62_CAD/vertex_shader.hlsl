@@ -455,6 +455,42 @@ PSInput main(uint vertexID : SV_VertexID)
         //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
         //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
+    else if (objType == ObjectType::FONT_GLYPH)
+    {
+        float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
+        float32_t2 minUV = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) * 2, 4u);
+        uint32_t textureId = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) * 2 + sizeof(float), 4u);
+
+        const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
+        const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
+        const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
+        const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
+
+        float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        const float2 coord = screenTopLeft + corner * screenDirU + corner * screenDirV;
+
+        // TODO needs to handle rotations as well, probably from curve box code
+        const float2 ndcAxisMin = screenTopLeft;
+        const float2 ndcAxisMax = screenTopLeft + screenDirU + screenDirV;
+        const float2 screenSpaceAabbExtents = abs(ndcAxisMax - ndcAxisMin) * float2(globals.resolution);
+
+        const float2 maxUV = float2(1.0, 1.0) - minUV;
+        const float2 uvs = minUV + corner * (maxUV - minUV);
+
+        outV.topLeft = topLeft; topLeft; topLeft;
+        outV.dirU = dirU;
+        outV.minUV = minUV;
+        outV.aspectRatio = aspectRatio;
+        outV.textureId = textureId;
+        outV.dirV = dirV;
+
+        outV.position = float4(coord, 0.f, 1.f);
+        outV.setFontGlyphUv(corner);
+        outV.setFontGlyphTextureId(textureId);
+        outV.setFontGlyphScreenSpaceSize(screenSpaceAabbExtents);
+    }
     
     
 // Make the cage fullscreen for testing: 

@@ -1,12 +1,15 @@
 #include "Polyline.h"
 #include "Hatch.h"
+#include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
-#include <nbl/core/containers/LRUCache.h>
+#include <nbl/core/containers/LRUCache.h>  
+#include "nbl/ext/TextRendering/TextRendering.h"
 
 using namespace nbl;
 using namespace nbl::video;
 using namespace nbl::core;
 using namespace nbl::asset;
+using namespace nbl::ext::TextRendering;
 
 static_assert(sizeof(DrawObject) == 16u);
 static_assert(sizeof(MainObject) == 16u);
@@ -22,6 +25,15 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> drawObjectsBuffer;
 	smart_refctd_ptr<BufferType> geometryBuffer;
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
+};
+
+// ! return index to be used later in hatch fill style or text glyph object
+struct MSDFTextureUploadInfo 
+{
+	core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
+	uint64_t bufferOffset;
+	uint32_t3 imageExtent;
+	float32_t2 shapeSize;
 };
 
 // ! DrawResourcesFiller
@@ -55,13 +67,39 @@ public:
 
 	void allocateStylesBuffer(ILogicalDevice* logicalDevice, uint32_t lineStylesCount);
 	
-	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs);
-	
-	using texture_hash = uint64_t;
+	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
+
+	using texture_hash = std::size_t;
+
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
-	// ! return index to be used later in hatch fill style or text glyph object
-	void addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	struct TextureReference
+	{
+		uint32_t alloc_idx;
+		uint64_t lastUsedSemaphoreValue;
+		// Original MSDF shape size
+		float32_t2 shapeSize;
+
+		TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
+		TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
+		TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
+
+		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
+		inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+	};
+	
+	uint32_t getMSDFTextureIndex(texture_hash hash);
+
+	TextureReference* addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t addMSDFTexture(MSDFTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		return addMSDFTexture(
+			[textureUploadInfo] { return textureUploadInfo; },
+			hash,
+			intendedNextSubmit
+		)->alloc_idx;
+	}
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);
@@ -88,6 +126,8 @@ public:
 		const Hatch& hatch,
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
+
+	void addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 	
 	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
@@ -124,6 +164,23 @@ public:
 		resetLineStyleCounters();
 	}
 
+	// TODO this should be protected
+	uint32_t getTextureIndexFromHash(const texture_hash msdfTexture, SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		uint32_t textureIdx = InvalidTextureIdx;
+		if (msdfTexture != InvalidTextureHash)
+		{
+			TextureReference* tRef = textureLRUCache->get(msdfTexture);
+			if (tRef)
+			{
+				textureIdx = tRef->alloc_idx;
+				tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+			}
+		}
+
+		return textureIdx;
+	}
+
 	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
 
@@ -137,12 +194,18 @@ public:
 
 	smart_refctd_ptr<IGPUImageView> getMSDFsTextureArray() { return msdfTextureArray; }
 
+	uint32_t2 getMSDFResolution() {
+		auto extents = msdfTextureArray->getCreationParameters().image->getCreationParameters().extent;
+		return uint32_t2(extents.width, extents.height);
+	}
+
 protected:
 	
 	struct TextureCopy
 	{
-		ICPUBuffer const* srcBuffer;
-		const asset::IImage::SBufferCopy& region;
+		core::smart_refctd_ptr<ICPUBuffer> srcBuffer;
+		uint64_t bufferOffset;
+		uint32_t3 imageExtent;
 		uint32_t index;
 	};
 
@@ -250,23 +313,38 @@ protected:
 
 	std::deque<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
-	
-	struct TextureReference
-	{
-		uint32_t alloc_idx;
-		uint64_t lastUsedSemaphoreValue;
-
-		TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
-		TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
-
-		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
-		inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
-	};
 
 	using TextureLRUCache = core::LRUCache<texture_hash, TextureReference>;
 
+	// MSDF stuff
 	smart_refctd_ptr<IGPUImageView>		msdfTextureArray; // view to the resource holding all the msdfs in it's layers
-	std::vector<TextureCopy>			textureCopies; // queued up texture copies, @Lucas change to deque if possible
-	TextureLRUCache						textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
+	smart_refctd_ptr<IndexAllocator>    msdfTextureArrayIndexAllocator;
+	// TODO: make this a dynamic bitset
+	std::set<uint32_t>		msdfTextureArrayIndicesUsed = {}; // indices in the msdf texture array allocator that have been used in the current frame 
+	std::vector<TextureCopy>			textureCopies = {}; // queued up texture copies, @Lucas change to deque if possible
+	std::unique_ptr<TextureLRUCache>    textureLRUCache; // LRU Cache to evict Least Recently Used in case of overflow
+	static constexpr asset::E_FORMAT MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8A8_SNORM;
+
+	bool m_hasInitializedMSDFTextureArrays = false;
 };
+
+class SingleLineText
+{
+public:
+	// constructs and fills the `glyphBoxes`
+	SingleLineText(core::smart_refctd_ptr<TextRenderer::Face>&& face, std::string text, float64_t3x3 transformation);
+	// SingleLineText(core::smart_refctd_ptr<Face>&& face, std::string text, float64_t2 translation, float64_t2 scale, float64_t rotateAngle = 0);
+
+	// iterates over `glyphBoxes` generates textures msdfs if failed to add to cache (through that lambda you put)
+	// void Draw(DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
+
+	std::span<TextRenderer::GlyphBox> getGlyphBoxes() { return std::span<TextRenderer::GlyphBox>(glyphBoxes);  }
+
+	void Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
+
+protected:
+
+	std::vector<TextRenderer::GlyphBox> glyphBoxes;
+	core::smart_refctd_ptr<TextRenderer::Face> m_face;
+};
+

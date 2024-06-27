@@ -1,4 +1,5 @@
 #include "DrawResourcesFiller.h"
+#include "MSDFs.h"
 
 DrawResourcesFiller::DrawResourcesFiller()
 {}
@@ -116,12 +117,13 @@ void DrawResourcesFiller::allocateStylesBuffer(ILogicalDevice* logicalDevice, ui
 	}
 }
 
-void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs)
+void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent)
 {
-	textureLRUCache = TextureLRUCache(maxMSDFs);
+	textureLRUCache = std::unique_ptr<TextureLRUCache>(new TextureLRUCache(maxMSDFs));
+	msdfTextureArrayIndexAllocator = core::make_smart_refctd_ptr<IndexAllocator>(core::smart_refctd_ptr<ILogicalDevice>(logicalDevice), maxMSDFs);
 
-	asset::E_FORMAT msdfFormat = asset::EF_R8G8B8A8_UNORM; // @Lucas change the format to what MSDFs use
-	constexpr asset::VkExtent3D MSDFsExtent = { 32u, 32u, 1u }; // 32x32 images, TODO: maybe make this a paramerter
+	asset::E_FORMAT msdfFormat = MSDFTextureFormat;
+	asset::VkExtent3D MSDFsExtent = { msdfsExtent.x, msdfsExtent.y, 1u }; 
 	assert(maxMSDFs <= logicalDevice->getPhysicalDevice()->getLimits().maxImageArrayLayers);
 
 	IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
@@ -233,7 +235,7 @@ void DrawResourcesFiller::drawHatch(
 	// if backgroundColor is visible
 	drawHatch(hatch, backgroundColor, intendedNextSubmit);
 	// if foregroundColor is visible
-	// drawHatch(hatch, foregroundColor, textureIdx, intendedNextSubmit);
+	drawHatch(hatch, foregroundColor, msdfTexture, intendedNextSubmit);
 }
 
 void DrawResourcesFiller::drawHatch(
@@ -242,22 +244,11 @@ void DrawResourcesFiller::drawHatch(
 		const texture_hash msdfTexture,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
-	uint32_t textureIdx = InvalidTextureIdx;
-	if (msdfTexture != InvalidTextureHash)
-	{
-		TextureReference* tRef = textureLRUCache.get(msdfTexture);
-		if (tRef)
-		{
-			textureIdx = tRef->alloc_idx;
-			tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
-		}
-	}
+	uint32_t textureIdx = getTextureIndexFromHash(msdfTexture, intendedNextSubmit);
 
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
 	lineStyle.screenSpaceLineWidth = nbl::hlsl::bit_cast<float, uint32_t>(textureIdx);
-	// @Lucas we use LineStyle struct for hatches too but we aliased a member with textureId, So you need to do asuint(lineStyle.screenSpaceLineWidth) to get you the index into msdfTextureArray
-
 	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
 	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
@@ -280,7 +271,14 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
-void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asset::IImage::SBufferCopy& region, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
+{
+	auto ptr = textureLRUCache->get(hash);
+	if (ptr) return ptr->alloc_idx;
+	else return InvalidTextureHash;
+}
+
+DrawResourcesFiller::TextureReference* DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -288,38 +286,48 @@ void DrawResourcesFiller::addMSDFTexture(ICPUBuffer const* srcBuffer, const asse
 	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
 
 	auto evictionCallback = [&](const TextureReference& evicted)
+	{
+		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
 		{
-			// @Lucas TODO:
-			
-			// Dealloc:
-			//allocator.multi_deallocate(1u,&evicted.alloc_idx,{signalSema,evicted.lastUsedSemaphoreValue});
-			
-			// Overflow Handling:
-			//finalizeAllCopiesToGPU(intendedNextSubmit);
-			//submitDraws(intendedNextSubmit);
-			//resetGeometryCounters();
-			//resetMainObjectCounters();
-		};
+			// Dealloc once submission is finished
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
+
+			// Submit
+			finalizeAllCopiesToGPU(intendedNextSubmit);
+			submitDraws(intendedNextSubmit);
+			resetGeometryCounters();
+			resetMainObjectCounters();
+		} else {
+			// We didn't use it this frame, so it's safe to dealloc now
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
+		}
+	};
 	
 	// We pass nextSemaValue instead of constructing a new TextureReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	TextureReference* inserted = textureLRUCache.insert(hash, nextSemaSignal.value, evictionCallback);
+	TextureReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
 	
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
+		auto textureUploadInfo = createResourceIfEmpty();
+
 		// New insertion == cache miss happened and insertion was successfull
-		// allocator.multi_allocate(1u,&inserted->alloc_idx);
-		inserted->alloc_idx = 0u; // temp
-		
+		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
+		inserted->shapeSize = textureUploadInfo.shapeSize;
+		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({
-			.srcBuffer = srcBuffer,
-			.region = region,
+			.srcBuffer = textureUploadInfo.cpuBuffer,
+			.bufferOffset = textureUploadInfo.bufferOffset,
+			.imageExtent = textureUploadInfo.imageExtent,
 			.index = inserted->alloc_idx,
 		});
 	}
+	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
+	return inserted;
 }
 
 void DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -435,66 +443,100 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 	auto msdfImage = msdfTextureArray->getCreationParameters().image;
 
-	// preparing images for copy
-	// @Lucas TODO: add a vector<image_barrier_t> push_back a barrier like below for each of the indices in `textureCopies`
-	IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barriersBeforeCopy[] =
-	{
-		{
-			.barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
-					.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, 
-					.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-				}
-				// .ownershipOp. No queueFam ownership transfer
-			},
-			.image = msdfImage.get(),
-			.subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				// .baseMipLevel = id, @Lucas TODO
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u,
-			},
-			.oldLayout = IImage::LAYOUT::UNDEFINED,
-			.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-		}
-	};
-	// TODO: Do All Barriers At Once
+	msdfTextureArrayIndicesUsed.clear();
 
-	// @Lucas
-	// for (each record):
-	// m_utilities->updateImageViaStagingBuffer(intendedNextSubmit, record[i].srcBuffer, SRC_FORMAT, msdfImage, DST_FORMAT, record[i].region);
+	if (!textureCopies.size())
+		return;
+
+	// preparing images for copy
+	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
+	std::vector<image_barrier_t> barriers;
+	barriers.reserve(textureCopies.size());
+	{
+		barriers.push_back({
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS,
+						.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.dstAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+					}
+					// .ownershipOp. No queueFam ownership transfer
+				},
+				.image = msdfImage.get(),
+				.subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
+				},
+				.oldLayout = m_hasInitializedMSDFTextureArrays ? IImage::LAYOUT::READ_ONLY_OPTIMAL : IImage::LAYOUT::UNDEFINED,
+				.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+			});
+		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
+		cmdBuff->pipelineBarrier(
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			barrierInfo);
+
+		if (!m_hasInitializedMSDFTextureArrays)
+			m_hasInitializedMSDFTextureArrays = true;
+	}
+
+	for (uint32_t i = 0; i < textureCopies.size(); i++)
+	{
+		auto& textureCopy = textureCopies[i];
+		asset::IImage::SBufferCopy region = {};
+		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = textureCopy.index;
+		region.imageSubresource.layerCount = 1u;
+		region.bufferOffset = 0u;
+		region.bufferRowLength = textureCopy.imageExtent.x;
+		region.bufferImageHeight = 0u;
+		region.imageExtent = { textureCopy.imageExtent.x, textureCopy.imageExtent.y, textureCopy.imageExtent.z };
+		region.imageOffset = { 0u, 0u, 0u };
+
+		m_utilities->updateImageViaStagingBuffer(
+			intendedNextSubmit, 
+			textureCopy.srcBuffer->getPointer(), asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
+			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
+			{ &region, &region + 1 });
+	}
 
 		
 	// preparing images for use
-	// @Lucas TODO: add a vector<image_barrier_t> push_back a barrier like below for each of the indices in `textureCopies`
-	IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t barriersAfterCopy[] =
 	{
-		{
-			.barrier = {
-				.dep = {
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-					.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
-					.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
-					.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
-				}
-				// .ownershipOp. No queueFam ownership transfer
-			},
-			.image = msdfImage.get(),
-			.subresourceRange = {
-				.aspectMask = IImage::EAF_COLOR_BIT,
-				// .baseMipLevel = id, @Lucas TODO
-				.levelCount = 1u,
-				.baseArrayLayer = 0u,
-				.layerCount = 1u,
-			},
-			.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-			.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
-		}
-	};
-	// TODO: Do All Barriers At Once
+		barriers.clear();
+		barriers.push_back({
+				.barrier = {
+					.dep = {
+						.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS,
+						.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT, // we READ/SAMPLE on FRAG_SHADER
+						.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+					}
+					// .ownershipOp. No queueFam ownership transfer
+				},
+				.image = msdfImage.get(),
+				.subresourceRange = {
+					.aspectMask = IImage::EAF_COLOR_BIT,
+					.baseMipLevel = 0u,
+					.levelCount = 1u,
+					.baseArrayLayer = 0u,
+					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
+				},
+				.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+			});
+		video::IGPUCommandBuffer::SPipelineBarrierDependencyInfo barrierInfo = { .imgBarriers = barriers };
+		cmdBuff->pipelineBarrier(
+			static_cast<asset::E_DEPENDENCY_FLAGS>(0u),
+			barrierInfo);
+	}
+
+	// done copying textures
+	textureCopies.clear();
 }
 
 void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& intendedNextSubmit, uint32_t mainObjectIndex)
@@ -768,3 +810,131 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	currentDrawObjectCount += uploadableObjects;
 	currentObjectInSection += uploadableObjects;
 }
+
+void DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
+{
+	const auto totalObjects = 1u;
+	const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(FontGlyphInfo);
+	
+	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferHatchBoxes);
+
+	uint32_t remainingObjects = totalObjects - currentObjectInSection;
+	uploadableObjects = min(uploadableObjects, remainingObjects);
+
+	for (uint32_t i = 0; i < uploadableObjects; i++)
+	{
+		uint64_t hatchBoxAddress;
+		{			
+			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+			memcpy(dst, &fontGlyph, sizeof(FontGlyphInfo));
+			hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
+			currentGeometryBufferSize += sizeof(FontGlyphInfo);
+		}
+
+		DrawObject drawObj = {};
+		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
+		drawObj.mainObjIndex = mainObjIdx;
+		drawObj.geometryAddress = hatchBoxAddress;
+		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
+		memcpy(dst, &drawObj, sizeof(DrawObject));
+	}
+
+	// Add Indices
+	currentDrawObjectCount += uploadableObjects;
+	currentObjectInSection += uploadableObjects;
+}
+
+SingleLineText::SingleLineText(core::smart_refctd_ptr<TextRenderer::Face>&& face, std::string text, float64_t3x3 transformation)
+{
+	m_face = std::move(face);
+	glyphBoxes.reserve(text.length());
+
+	auto mulMatrix3 = [](float64_t3x3 transform, float64_t3 vector)
+	{
+		// TODO: Was getting compilation error when doing transform * vector directly, once
+		// we can get that to work use it instead
+		glm::highp_dmat3x3 glmTransform;
+		memcpy(&glmTransform, &transform, sizeof(float64_t3x3));
+		auto result = glmTransform * vector;
+		return float64_t2(result.x, result.y);
+	};
+
+	// Position transform
+	float64_t2 currentBaselineStart = mulMatrix3(transformation, float32_t3(0.0, 0.0, 1.0));
+	for (uint32_t i = 0; i < text.length(); i++)
+	{
+		wchar_t k = wchar_t(text.at(i));
+		auto glyphIndex = m_face->getGlyphIndex(k);
+		const auto glyphMetrics = m_face->getGlyphMetrics(glyphIndex);
+		const float64_t2 baselineStart = currentBaselineStart;
+
+		// Vector transform
+		currentBaselineStart += mulMatrix3(transformation, float32_t3(glyphMetrics.advance, 0.0));
+
+		if (glyphIndex == 0 || (glyphMetrics.size.x == 0.0 && glyphMetrics.size.y == 0.0))
+			continue;
+
+		{
+			msdfgen::Shape shape = m_face->generateGlyphShape(glyphIndex);
+			_NBL_BREAK_IF(shape.contours.empty());
+		}
+
+		TextRenderer::GlyphBox glyphBbox = {
+			.topLeft = baselineStart + mulMatrix3(transformation, float32_t3(glyphMetrics.horizontalBearing.x, glyphMetrics.horizontalBearing.y, 0.0)),
+			.dirU = mulMatrix3(transformation, float64_t3(glyphMetrics.size.x, 0.0, 0.0)),
+			.dirV = mulMatrix3(transformation, float64_t3(0.0, -glyphMetrics.size.y, 0.0)),
+			.glyphIdx = glyphIndex,
+		};
+
+		glyphBoxes.push_back(glyphBbox);
+	}
+}
+
+void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	auto glyphBoxes = getGlyphBoxes();
+	for (auto glyphBox = glyphBoxes.data(); glyphBox < glyphBoxes.data() + glyphBoxes.size(); glyphBox++)
+	{
+		LineStyleInfo lineStyle = {};
+		lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+		const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+		auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+
+		const auto msdfHash = hashFontGlyph(m_face->getHash(), glyphBox->glyphIdx);
+		DrawResourcesFiller::TextureReference* textureReference = drawResourcesFiller.addMSDFTexture(
+			[&]()
+			{
+				auto shape = m_face->generateGlyphUploadInfo(textRenderer, glyphBox->glyphIdx, uint32_t2(MSDFSize, MSDFSize));
+				MSDFTextureUploadInfo textureUploadInfo = {
+					.cpuBuffer = std::move(shape.msdfBitmap),
+					.bufferOffset = 0u,
+					.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
+					.shapeSize = float32_t2(shape.biggerAxis == 1u ? shape.smallerSizeRatio : 1.0, shape.biggerAxis == 0u ? shape.smallerSizeRatio : 1.0),
+				};
+				return textureUploadInfo;
+			},
+			msdfHash,
+			intendedNextSubmit
+		);
+		const auto textureId = textureReference->alloc_idx;
+		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+
+		float minUVOffset = textRenderer->GetPixelRange() / MSDFSize;
+		float32_t2 aspectRatioUVOffset = (float32_t2(1.0) - textureReference->shapeSize) * float32_t2(0.5) * float32_t2(1.0 - minUVOffset * 2.0);
+		float32_t2 minUV = float32_t2(minUVOffset) + aspectRatioUVOffset;
+		FontGlyphInfo glyphInfo = {
+			.topLeft = glyphBox->topLeft,
+			.dirU = glyphBox->dirU,
+			.minUV = minUV,
+			.aspectRatio = float(glyphBox->dirV.y / -glyphBox->dirU.x),
+			.textureId = textureId,
+		};
+		uint32_t currentObjectInSection = 0u;
+		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+	}
+
+}
+

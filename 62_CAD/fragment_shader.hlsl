@@ -372,6 +372,21 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return col;
 }
 
+// TODO: place this MSDF code elsewhere
+float median(float r, float g, float b) {
+    return max(min(r, g), min(max(r, g), b));
+}
+
+float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels) {
+    float2 unitRange = 1.0 / distanceFieldSizePixels;
+    return max(0.5 * dot(unitRange, screenSpaceSizePixels), 1.0);
+}
+
+float msdfDistance(float3 msd, float2 screenPxRangeValue) {
+    float snormSignedDistance = (median(msd.r, msd.g, msd.b) - 0.5) * 2.0;
+    return screenPxRangeValue * MSDFPixelRange * snormSignedDistance;
+}
+
 float4 main(PSInput input) : SV_TARGET
 {
     ObjectType objType = input.getObjType();
@@ -557,6 +572,29 @@ float4 main(PSInput input) : SV_TARGET
 
             const float dist = sqrt(closestDistanceSquared);
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
+            
+        }
+
+        LineStyle style = lineStyles[mainObjects[currentMainObjectIdx].styleIdx];
+        uint32_t textureId = asuint(style.screenSpaceLineWidth);
+        if (textureId != InvalidTextureIdx)
+        {
+            const float screenSpaceSize = 8.0;
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / screenSpaceSize), float(textureId))).xyz;
+            float msdf = msdfDistance(msdfSample, MSDFSize / screenSpaceSize);
+            localAlpha *= smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
+        }
+    }
+    else if (objType == ObjectType::FONT_GLYPH) 
+    {
+        const float2 uv = input.getFontGlyphUv();
+        const uint32_t textureId = input.getFontGlyphTextureId();
+
+        if (textureId != InvalidTextureIdx)
+        {
+            float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
+            float msdf = msdfDistance(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MSDFSize, MSDFSize)));
+            localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
 
@@ -564,6 +602,6 @@ float4 main(PSInput input) : SV_TARGET
     
     if (localAlpha <= 0)
         discard;
-
+    
     return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
 }

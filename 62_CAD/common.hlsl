@@ -12,7 +12,8 @@ enum class ObjectType : uint32_t
     LINE = 0u,
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
-    POLYLINE_CONNECTOR = 3u
+    POLYLINE_CONNECTOR = 3u,
+    FONT_GLYPH = 4u
 };
 
 enum class MajorAxis : uint32_t
@@ -49,6 +50,28 @@ struct QuadraticBezierInfo
     float32_t phaseShift;
     float32_t stretchValue;
 };
+
+struct FontGlyphInfo
+{
+    // TODO: These can be packed
+    // unorm8 minU;
+    // unorm8 minV;
+    // uint16 textureId;
+
+    float64_t2 topLeft;
+    float32_t2 dirU; 
+    float32_t2 minUV; 
+    // TODO: This should be replaced with aspectRatio (float)
+    // dirU and dirV are always perpendicular to each other, we can just have one and derive 
+    // the other one based on the aspect ratio of the glyph. 
+    // dirV = float2(dirU.y, -dirU.x) * aspectRatio 
+    // or 
+    // dirV = normalize(float2(dirU.y, -dirU.x)) * lenV
+    float32_t aspectRatio;
+    uint32_t textureId; 
+    uint32_t2 padding;
+};
+
 #ifndef __HLSL_VERSION
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 #endif
@@ -170,9 +193,12 @@ struct LineStyle
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
+    // Compare bits of the screen space line width values, as they may have been bit cast into integers
+    // for the texture IDs, and can't be compared when that results in a NaN or Infinity float
+    const int comparisonResult = std::memcmp(&lhs.screenSpaceLineWidth, &rhs.screenSpaceLineWidth, sizeof(float));
     const bool areParametersEqual =
         lhs.color == rhs.color &&
-        lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+        comparisonResult == 0 &&
         lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
         lhs.stipplePatternSize == rhs.stipplePatternSize &&
         lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
@@ -197,6 +223,8 @@ NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
+NBL_CONSTEXPR float MSDFPixelRange = 4.0;
+NBL_CONSTEXPR float MSDFSize = 32.0; 
 
 #ifdef __HLSL_VERSION
 
@@ -293,6 +321,13 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
+
+    [[vk::location(6)]] float64_t2 topLeft : TOP_LEFT;
+    [[vk::location(7)]] float64_t2 dirU : DIR_U;
+    [[vk::location(8)]] float64_t2 minUV : MIN_UV;
+    [[vk::location(9)]] float64_t aspectRatio : ASPECT_RATIO;
+    [[vk::location(10)]] uint32_t textureId : TEXTURE_ID;
+    [[vk::location(11)]] float32_t2 dirV : DIR_V;
     // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader
@@ -315,6 +350,16 @@ struct PSInput
     
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
+
+    // Texture glyph UVs
+    // data2    
+    float2 getFontGlyphUv() { return interp_data5.xy; }
+    uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
+    float2 getFontGlyphScreenSpaceSize() { return data2.yz; }
+    
+    void setFontGlyphUv(float2 uv) { interp_data5.xy = uv; }
+    void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+    void setFontGlyphScreenSpaceSize(float2 screenSpaceSize) { data2.yz = screenSpaceSize; }
     
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
@@ -441,6 +486,7 @@ struct PSInput
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
+
 #endif
 
 #endif

@@ -14,6 +14,7 @@ using namespace video;
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ext/TextRendering/TextRendering.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
@@ -22,6 +23,7 @@ using namespace video;
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
+#include "MSDFs.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -48,7 +50,7 @@ enum class ExampleMode
 	CASE_6, // Custom Clip Projections
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_6;
+constexpr ExampleMode mode = ExampleMode::CASE_2;
 
 class Camera2D
 {
@@ -269,10 +271,10 @@ public:
 		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 32u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		// + 128 ClipProjDaa
+		// + 128 ClipProjData
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 1024u);
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -335,9 +337,9 @@ public:
 
 		IGPUSampler::SParams samplerParams = {};
 		// @Lucas you might need to modify the sampler
-		samplerParams.TextureWrapU = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_REPEAT;
+		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
 		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
@@ -453,6 +455,13 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
+
+	struct TextGlyphBoundingBox
+	{
+		float64_t2 topLeft;
+		float64_t2 dirU;
+		float64_t2 dirV;
+	};
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -860,6 +869,19 @@ public:
 
 		m_timeElapsed = 0.0;
 		
+		// Loading font stuff
+		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MSDFPixelRange);
+		m_arialFont = nbl::core::make_smart_refctd_ptr<TextRenderer::Face>(m_textRenderer.get(), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+
+		const auto str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
+		auto transform = float64_t3x3();
+		transform[0][0] = 1.0;
+		transform[1][1] = 1.0;
+		transform[2][2] = 1.0;
+		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
+			core::smart_refctd_ptr<TextRenderer::Face>(m_arialFont), 
+			std::string(str), transform));
+
 		return true;
 	}
 
@@ -1035,6 +1057,8 @@ public:
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 		{
 			const VkRect2D currentRenderArea =
 			{
@@ -1042,8 +1066,6 @@ public:
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
 
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
@@ -1208,15 +1230,15 @@ public:
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		VkRect2D currentRenderArea;
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 		{
-			const VkRect2D currentRenderArea =
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			currentRenderArea =
 			{
 				.offset = {0,0},
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
-
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
@@ -1275,6 +1297,148 @@ public:
 				m_surface->present(m_currentImageAcquire.imageIndex,{&presentWait,1});
 			}
 		}
+	}
+
+	class FreetypeHatchBuilder
+	{
+	public:
+		// Start a new line from here
+		void moveTo(const float64_t2 to)
+		{
+			lastPosition = to;
+		}
+
+		// Continue the last line started with moveTo (could also use the last 
+		// position from a lineTo)
+		void lineTo(const float64_t2 to)
+		{
+			if (to != lastPosition) {
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back(lastPosition);
+				linePoints.push_back(to);
+				currentPolyline.addLinePoints(linePoints);
+
+				lastPosition = to;
+			}
+		}
+
+		// Continue the last moveTo or lineTo with a quadratic bezier:
+		// [last position, control, end]
+		void quadratic(const float64_t2 control, const float64_t2 to)
+		{
+			shapes::QuadraticBezier<double> bezier = shapes::QuadraticBezier<double>::construct(
+				lastPosition,
+				control,
+				to
+			);
+			currentPolyline.addQuadBeziers({ &bezier, 1 });
+			lastPosition = to;
+		}
+
+		// Continue the last moveTo or lineTo with a cubic bezier:
+		// [last position, control1, control2, end]
+		void cubic(const float64_t2 control1, const float64_t2 control2, const float64_t2 to)
+		{
+			std::vector<shapes::QuadraticBezier<double>> quadBeziers;
+			curves::CubicCurve myCurve(
+				float64_t4(lastPosition.x, lastPosition.y, control1.x, control1.y),
+				float64_t4(control2.x, control2.y, to.x, to.y)
+			);
+
+			curves::Subdivision::AddBezierFunc addToBezier = [&](shapes::QuadraticBezier<double>&& info) -> void
+				{
+					quadBeziers.push_back(info);
+				};
+
+			curves::Subdivision::adaptive(myCurve, 0.0, 1.0, 1e-5, addToBezier, 10u);
+			currentPolyline.addQuadBeziers(quadBeziers);
+
+			lastPosition = to;
+		}
+
+		void finish()
+		{
+			if (currentPolyline.getSectionsCount() > 0)
+				polylines.push_back(currentPolyline);
+		}
+
+		std::vector<CPolyline> polylines;
+		CPolyline currentPolyline = {};
+		// Set with move to and line to
+		float64_t2 lastPosition = float64_t2(0.0);
+	};
+
+	// TODO: Figure out what this is supposed to do
+	static double f26dot6ToDouble(float x)
+	{
+		return (1 / 64. * double(x));
+	}
+
+	static float64_t2 ftPoint2(const FT_Vector& vector) {
+		return float64_t2(f26dot6ToDouble(vector.x), f26dot6ToDouble(vector.y));
+	}
+
+	static int ftMoveTo(const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->moveTo(ftPoint2(*to));
+		return 0;
+	}
+	static int ftLineTo(const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->lineTo(ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftConicTo(const FT_Vector* control, const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->quadratic(ftPoint2(*control), ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftCubicTo(const FT_Vector* control1, const FT_Vector* control2, const FT_Vector* to, void* user) {
+		FreetypeHatchBuilder* context = reinterpret_cast<FreetypeHatchBuilder*>(user);
+		context->cubic(ftPoint2(*control1), ftPoint2(*control2), ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftMoveToMSDF(const FT_Vector* to, void* user) {
+		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
+		context->moveTo(ftPoint2(*to));
+		return 0;
+	}
+	static int ftLineToMSDF(const FT_Vector* to, void* user) {
+		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
+		context->lineTo(ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftConicToMSDF(const FT_Vector* control, const FT_Vector* to, void* user) {
+		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
+		context->quadratic(ftPoint2(*control), ftPoint2(*to));
+		return 0;
+	}
+
+	static int ftCubicToMSDF(const FT_Vector* control1, const FT_Vector* control2, const FT_Vector* to, void* user) {
+		nbl::ext::TextRendering::GlyphShapeBuilder* context = reinterpret_cast<nbl::ext::TextRendering::GlyphShapeBuilder*>(user);
+		context->cubic(ftPoint2(*control1), ftPoint2(*control2), ftPoint2(*to));
+		return 0;
+	}
+
+	bool drawFreetypeGlyph(msdfgen::Shape& shape, FT_Library library, FT_Face face)
+	{
+		nbl::ext::TextRendering::GlyphShapeBuilder builder(shape);
+		FT_Outline_Funcs ftFunctions;
+		ftFunctions.move_to = &ftMoveToMSDF;
+		ftFunctions.line_to = &ftLineToMSDF;
+		ftFunctions.conic_to = &ftConicToMSDF;
+		ftFunctions.cubic_to = &ftCubicToMSDF;
+		ftFunctions.shift = 0;
+		ftFunctions.delta = 0;
+		FT_Error error = FT_Outline_Decompose(&face->glyph->outline, &ftFunctions, &builder);
+		if (error)
+			return false;
+		builder.finish();
+		return true;
 	}
 
 	void endFrameRender(SIntendedSubmitInfo& intendedSubmitInfo)
@@ -1375,9 +1539,316 @@ protected:
 			{
 				drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 			};
-			
+
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
+			if (hatchDebugStep > 0)
+			{
+
+				/*
+				if (hatchDebugStep < uint32_t(MSDFFillPattern::COUNT))
+				{
+					DrawResourcesFiller::texture_hash msdfHash = addMSDFFillPatternTexture(drawResourcesFiller, MSDFFillPattern(hatchDebugStep), intendedNextSubmit);
+			
+					for (int x = -3; x <= 3; x++)
+					{
+						for (int y = -3; y <= 3; y++)
+						{
+							double xx = double(x) * hatchFillShapeSize;
+							double yy = double(y) * hatchFillShapeSize;
+
+							std::vector<CPolyline> transformedPolylines;
+							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+							{
+								auto& polyline = shapePolylines[polylineIdx];
+								CPolyline transformedPolyline;
+								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+								{
+									auto& section = polyline.getSectionInfoAt(sectorIdx);
+									if (section.type == ObjectType::LINE)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<float64_t2> points;
+										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+										{
+											auto point = polyline.getLinePointAt(i).p / 8.0;
+											points.push_back(point * hatchFillShapeSize + float64_t2(xx, yy));
+										}
+										if (section.count + 1 >= 3)
+										{
+											auto a = polyline.getLinePointAt(0).p;
+											auto b = polyline.getLinePointAt(1).p;
+											auto c = polyline.getLinePointAt(2).p;
+
+											auto u = b - a;
+											auto v = c - b;
+
+											auto uvx = u.x * v.y - u.y * v.x;
+
+											bool cw = uvx >= 0.0;
+
+											CPolyline dbgLineDirPolyline;
+											dbgLineDirPolyline.addLinePoints(points);
+
+											LineStyleInfo style = {};
+											style.screenSpaceLineWidth = 4.0f;
+											style.worldSpaceLineWidth = 0.0f;
+											style.color = cw ? float32_t4(0.0, 0.0, 1.0, 1.0) : float32_t4(1.0, 0.0, 0.0, 1.0);
+											drawResourcesFiller.drawPolyline(dbgLineDirPolyline, style, intendedNextSubmit);
+										}
+										transformedPolyline.addLinePoints(points);
+									}
+									else if (section.type == ObjectType::QUAD_BEZIER)
+									{
+										// TODO
+									}
+								}
+								transformedPolylines.push_back(transformedPolyline);
+							}
+
+							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
+						}
+					}
+				}
+				hatchDebugStep -= uint32_t(MSDFFillPattern::COUNT);
+				*/
+				constexpr double hatchFillShapeSize = 10.0;
+				constexpr double hatchFillShapePadding = 1.0;
+
+				// Hatch fill shapes described above
+				// Iterate each one of them, rendering
+				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < uint32_t(MSDFFillPattern::COUNT); hatchFillShapeIdx++)
+				{
+					if (hatchDebugStep == 0) break;
+
+					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(MSDFFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(MSDFFillPattern::COUNT) - 1);
+					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
+					// Center it
+					offset -= totalShapesWidth / 2.0;
+
+					{
+						CPolyline squareBelow;
+						{
+							std::vector<float64_t2> points;
+							auto addPt = [&](float64_t2 p)
+							{
+								auto point = p / 8.0;
+								points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+							};
+							addPt(float64_t2(0.0, 0.0));
+							addPt(float64_t2(8.0, 0.0));
+							addPt(float64_t2(8.0, 8.0));
+							addPt(float64_t2(0.0, 8.0));
+							addPt(float64_t2(0.0, 0.0));
+							squareBelow.addLinePoints(points);
+						}
+
+						Hatch filledHatch(
+							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
+							SelectedMajorAxis, hatchDebugStep, debug
+						);
+						DrawResourcesFiller::texture_hash msdfHash = addMSDFFillPatternTexture(
+							m_textRenderer.get(), 
+							drawResourcesFiller, 
+							MSDFFillPattern(hatchFillShapeIdx), 
+							intendedNextSubmit);
+
+						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
+						drawResourcesFiller.drawHatch(
+							filledHatch, 
+							float32_t4(0.0, 0.0, 0.0, 1.0f), 
+							float32_t4(1.0, 1.0, 1.0, 1.0f), 
+							msdfHash, 
+							intendedNextSubmit
+						);
+					}
+
+					hatchDebugStep--;
+				}
+			}
+
+			if (hatchDebugStep > 0 && singleLineText)
+			{
+				singleLineText->Draw(m_textRenderer.get(), drawResourcesFiller, intendedNextSubmit);
+				hatchDebugStep--;
+			}
+
+			if (hatchDebugStep > 0)
+			{
+				constexpr auto TestString = "The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+
+				auto penX = -100.0;
+				auto penY = -500.0;
+				auto previous = 0;
+
+				uint32_t glyphObjectIdx;
+				{
+					LineStyleInfo lineStyle = {};
+					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+				}
+
+				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
+				float64_t scale = 1.0 / 64.0;
+
+				for (uint32_t i = 0; i < strlen(TestString); i++)
+				{
+					if (hatchDebugStep == 0) break;
+					hatchDebugStep--; 
+
+					char k = TestString[i];
+					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
+					const float64_t2 baselineStart = currentBaselineStart;
+
+					currentBaselineStart += glyphMetrics.advance;
+					
+					TextGlyphBoundingBox glyphBbox = {};
+					if (glyphIndex != 0 || k != ' ')
+					{
+						glyphBbox.topLeft = baselineStart + glyphMetrics.horizontalBearing;
+						glyphBbox.dirU = float64_t2(glyphMetrics.size.x, 0.0);
+						glyphBbox.dirV = float64_t2(0.0, -glyphMetrics.size.y);
+
+						{
+							// Draw bounding box of the glyph
+							LineStyleInfo bboxStyle = {};
+							bboxStyle.screenSpaceLineWidth = 1.0f;
+							bboxStyle.worldSpaceLineWidth = 0.0f;
+							bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+
+							CPolyline newPoly = {};
+							std::vector<float64_t2> points;
+							points.push_back(glyphBbox.topLeft);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft);
+							newPoly.addLinePoints(points);
+							drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
+						}
+
+						{
+							const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
+
+							FreetypeHatchBuilder hatchBuilder;
+							{
+								FT_Outline_Funcs ftFunctions;
+								ftFunctions.move_to = &ftMoveTo;
+								ftFunctions.line_to = &ftLineTo;
+								ftFunctions.conic_to = &ftConicTo;
+								ftFunctions.cubic_to = &ftCubicTo;
+								ftFunctions.shift = 0;
+								ftFunctions.delta = 0;
+								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
+								assert(!error);
+								hatchBuilder.finish();
+							}
+							msdfgen::Shape glyphShape;
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
+							assert(loadedGlyph);
+
+							auto& shapePolylines = hatchBuilder.polylines;
+							std::vector<CPolyline> transformedPolylines;
+
+							auto transformPoint = [&](float64_t2 point)
+							{
+								auto shapeBounds = glyphShape.getBounds();
+								float64_t2 scale = float64_t2(
+									shapeBounds.r - shapeBounds.l,
+									shapeBounds.t - shapeBounds.b
+								);
+								float64_t2 translate = float64_t2(-shapeBounds.l, -shapeBounds.b);
+								
+								auto pointIn0To1 = (point + translate) / scale;
+								pointIn0To1.y = 1.0 - pointIn0To1.y; // Honestly not sure why this makes it go upside down
+								auto aabbMin = glyphBbox.topLeft + float64_t2(0, 50);
+								auto aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV + float64_t2(0, 50);
+								return aabbMin + pointIn0To1 * (aabbMax - aabbMin);
+							};
+
+							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+							{
+								auto& polyline = shapePolylines[polylineIdx];
+								if (polyline.getSectionsCount() == 0) continue;
+								CPolyline transformedPolyline;
+								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+								{
+									auto& section = polyline.getSectionInfoAt(sectorIdx);
+									if (section.type == ObjectType::LINE)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<float64_t2> points;
+										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+										{
+											auto point = polyline.getLinePointAt(i).p;
+											points.push_back(transformPoint(point));
+										}
+										transformedPolyline.addLinePoints(points);
+									}
+									else if (section.type == ObjectType::QUAD_BEZIER)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
+										for (uint32_t i = section.index; i < section.index + section.count; i++)
+										{
+											QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
+											beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
+												transformPoint(bezier.shape.P0),
+												transformPoint(bezier.shape.P1),
+												transformPoint(bezier.shape.P2)
+											));
+										}
+										transformedPolyline.addQuadBeziers(beziers);
+									}
+								}
+								transformedPolylines.push_back(transformedPolyline);
+							}
+
+							if (transformedPolylines.size() == 0) continue;
+							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
+
+							const auto msdfHash = hashFontGlyph(m_arialFont->getHash(), glyphIndex);
+							drawResourcesFiller.addMSDFTexture(
+								[&]()
+								{
+									auto shape = m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MSDFSize, MSDFSize));
+									MSDFTextureUploadInfo textureUploadInfo = {
+										.cpuBuffer = std::move(shape.msdfBitmap),
+										.bufferOffset = 0u,
+										.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
+										.shapeSize = float32_t2(shape.biggerAxis == 0u ? shape.smallerSizeRatio : 1.0, shape.biggerAxis == 1u ? shape.smallerSizeRatio : 1.0),
+									};
+									return textureUploadInfo;
+								},
+								msdfHash,
+								intendedNextSubmit
+							);
+
+							const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
+							assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+
+							auto boundingBoxExpandAmount = (MSDFPixelRange / MSDFSize);
+
+							FontGlyphInfo glyphInfo = {
+								.topLeft = glyphBbox.topLeft + float64_t2(0, 100.0) - float64_t2(boundingBoxExpandAmount, boundingBoxExpandAmount) * (glyphBbox.dirU + glyphBbox.dirV),
+								.dirU = glyphBbox.dirU * (1.0 + 2.0 * boundingBoxExpandAmount),
+								.textureId = textureId,
+							};
+							uint32_t currentObjectInSection = 0u;
+							drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+						}
+
+					}
+				}
+			}
 			if (hatchDebugStep > 0)
 			{
 #include "bike_hatch.h"
@@ -1773,7 +2244,7 @@ protected:
 						myCurve.majorAxis = { -10.0, 5.0 };
 						myCurve.center = { 0, -5.0 };
 						myCurve.angleBounds = {
-							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 2.0,
 							nbl::core::PI<double>() * 0.0
 							};
 						myCurve.eccentricity = 1.0;
@@ -1801,10 +2272,10 @@ protected:
 			}
 
 			drawResourcesFiller.drawPolyline(originalPolyline, style, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
-			drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
+			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
+			//drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
@@ -2672,7 +3143,17 @@ protected:
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
-	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
+	smart_refctd_ptr<TextRenderer> m_textRenderer;
+	smart_refctd_ptr<TextRenderer::Face> m_arialFont;
+	std::unique_ptr<SingleLineText> singleLineText = nullptr;
+	
+	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
+
+	static constexpr char FirstGeneratedCharacter = ' ';
+	static constexpr char LastGeneratedCharacter = '~';
+
+	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
