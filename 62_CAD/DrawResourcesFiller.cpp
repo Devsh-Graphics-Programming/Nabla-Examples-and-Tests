@@ -278,7 +278,7 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
 	else return InvalidTextureHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+DrawResourcesFiller::TextureReference* DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -313,6 +313,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo
 
 		// New insertion == cache miss happened and insertion was successfull
 		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
+		inserted->shapeSize = textureUploadInfo.shapeSize;
 		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
 
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
@@ -326,7 +327,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo
 	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
-	return inserted->alloc_idx;
+	return inserted;
 }
 
 void DrawResourcesFiller::finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit)
@@ -903,23 +904,27 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 		auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
 
 		const auto msdfHash = hashFontGlyph(m_face->getHash(), glyphBox->glyphIdx);
-		const uint32_t textureId = drawResourcesFiller.addMSDFTexture(
+		DrawResourcesFiller::TextureReference* textureReference = drawResourcesFiller.addMSDFTexture(
 			[&]()
 			{
+				auto shape = m_face->generateGlyphUploadInfo(textRenderer, glyphBox->glyphIdx, uint32_t2(MSDFSize, MSDFSize));
 				MSDFTextureUploadInfo textureUploadInfo = {
-					.cpuBuffer = std::move(m_face->generateGlyphUploadInfo(textRenderer, glyphBox->glyphIdx, uint32_t2(MSDFSize, MSDFSize))),
+					.cpuBuffer = std::move(shape.msdfBitmap),
 					.bufferOffset = 0u,
 					.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
+					.shapeSize = float32_t2(shape.biggerAxis == 1u ? shape.smallerSizeRatio : 1.0, shape.biggerAxis == 0u ? shape.smallerSizeRatio : 1.0),
 				};
 				return textureUploadInfo;
 			},
 			msdfHash,
 			intendedNextSubmit
 		);
+		const auto textureId = textureReference->alloc_idx;
 		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
 
 		float minUVOffset = textRenderer->GetPixelRange() / MSDFSize;
-		float32_t2 minUV = float32_t2(minUVOffset);
+		float32_t2 aspectRatioUVOffset = (float32_t2(1.0) - textureReference->shapeSize) * float32_t2(0.5) * float32_t2(1.0 - minUVOffset * 2.0);
+		float32_t2 minUV = float32_t2(minUVOffset) + aspectRatioUVOffset;
 		FontGlyphInfo glyphInfo = {
 			.topLeft = glyphBox->topLeft,
 			.dirU = glyphBox->dirU,

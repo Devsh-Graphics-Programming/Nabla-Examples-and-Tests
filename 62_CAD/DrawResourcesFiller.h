@@ -33,6 +33,7 @@ struct MSDFTextureUploadInfo
 	core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
 	uint64_t bufferOffset;
 	uint32_t3 imageExtent;
+	float32_t2 shapeSize;
 };
 
 // ! DrawResourcesFiller
@@ -72,9 +73,24 @@ public:
 
 	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
 	
+	struct TextureReference
+	{
+		uint32_t alloc_idx;
+		uint64_t lastUsedSemaphoreValue;
+		// Original MSDF shape size
+		float32_t2 shapeSize;
+
+		TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
+		TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
+		TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
+
+		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
+		inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+	};
+	
 	uint32_t getMSDFTextureIndex(texture_hash hash);
 
-	uint32_t addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	TextureReference* addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 	uint32_t addMSDFTexture(MSDFTextureUploadInfo textureUploadInfo, texture_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 	{
@@ -82,7 +98,7 @@ public:
 			[textureUploadInfo] { return textureUploadInfo; },
 			hash,
 			intendedNextSubmit
-		);
+		)->alloc_idx;
 	}
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
@@ -297,19 +313,6 @@ protected:
 
 	std::stack<ClipProjectionData> clipProjections; // stack of clip projectios stored so we can resubmit them if geometry buffer got reset.
 	std::deque<uint64_t> clipProjectionAddresses; // stack of clip projection gpu addresses in geometry buffer. to keep track of them in push/pops
-	
-	struct TextureReference
-	{
-		uint32_t alloc_idx;
-		uint64_t lastUsedSemaphoreValue;
-
-		TextureReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		TextureReference(uint64_t semaphoreVal) : TextureReference(InvalidTextureIdx, semaphoreVal) {}
-		TextureReference() : TextureReference(InvalidTextureIdx, ~0ull) {}
-
-		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to TextureReference without changing `alloc_idx`
-		inline TextureReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
-	};
 
 	using TextureLRUCache = core::LRUCache<texture_hash, TextureReference>;
 

@@ -1819,10 +1819,12 @@ protected:
 							drawResourcesFiller.addMSDFTexture(
 								[&]()
 								{
+									auto shape = m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MSDFSize, MSDFSize));
 									MSDFTextureUploadInfo textureUploadInfo = {
-										.cpuBuffer = std::move(m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MSDFSize, MSDFSize))),
+										.cpuBuffer = std::move(shape.msdfBitmap),
 										.bufferOffset = 0u,
 										.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
+										.shapeSize = float32_t2(shape.biggerAxis == 0u ? shape.smallerSizeRatio : 1.0, shape.biggerAxis == 1u ? shape.smallerSizeRatio : 1.0),
 									};
 									return textureUploadInfo;
 								},
