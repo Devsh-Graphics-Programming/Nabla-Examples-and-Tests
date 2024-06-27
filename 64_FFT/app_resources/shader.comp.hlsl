@@ -1,7 +1,24 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
-//#include "nbl/builtin/hlsl/subgroup/fft.hlsl"
 #include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
+
+// Users must define this function for the FFT to work
+namespace nbl
+{
+namespace hlsl
+{
+namespace glsl 
+{
+
+// Define this method from glsl_compat/core.hlsl 
+uint32_t3 gl_WorkGroupSize() {
+    return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1);
+}
+
+} //namespace glsl
+} //namespace hlsl
+} //namespace nbl
+
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
@@ -44,8 +61,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	// Workgroup	
 
-	nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	nbl::hlsl::workgroup::fft::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 	accessor.workgroupExecutionAndMemoryBarrier();
-	//nbl::hlsl::workgroup::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
+	nbl::hlsl::workgroup::fft::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 
 }

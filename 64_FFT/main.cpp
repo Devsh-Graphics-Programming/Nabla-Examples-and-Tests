@@ -205,8 +205,8 @@ public:
 				float x = 2.f;
 				float y = 0.f;
 				*/
-				inputPtr[j] = x;
-				inputPtr[j + complexElementCount] = y;
+				inputPtr[2 * j] = x;
+				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
 			}
 			std::cout << "\nEnd array CPU\n";
@@ -321,7 +321,7 @@ public:
 				std::cout << "Begin array GPU\n";
 				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
 				for (auto i = 0u; i < complexElementCount; i++) {
-					std::cout << "(" << data[i] << ", " << data[i + complexElementCount] << "), ";
+					std::cout << "(" << data[2 * i] << ", " << data[2 * i + 1] << "), ";
 				}
 
 				std::cout << "\nEnd array GPU\n";
