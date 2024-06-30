@@ -2,6 +2,7 @@
 
 [[vk::push_constant]] struct PushConstants pc;
 
+// set 1, binding 0
 [[vk::binding(0, 1)]]
 cbuffer CameraData
 {

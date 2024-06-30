@@ -11,12 +11,11 @@
 		float4 color    : COLOR0;
 	};
 
-	struct SBasicViewParameters
+	struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
 	{
 		float4x4 MVP;
 		float3x4 MV;
 		float3x3 normalMat;
-		float3 padding; 
 	};
 #else
 	#include "nbl/nblpack.h"
@@ -33,4 +32,6 @@
 struct PushConstants
 {
 	bool withGizmo;
+
+	bool padding[3]; //! size of PushConstants must be multiple of 4
 };

@@ -19,6 +19,88 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
+{
+	using base_t = CDefaultSwapchainFramebuffers;
+
+public:
+	template<typename... Args>
+	inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args) : CDefaultSwapchainFramebuffers(device, std::forward<Args>(args)...)
+	{
+		const IPhysicalDevice::SImageFormatPromotionRequest req = {
+			.originalFormat = _desiredDepthFormat,
+			.usages = {IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
+		};
+		m_depthFormat = m_device->getPhysicalDevice()->promoteImageFormat(req, IGPUImage::TILING::OPTIMAL);
+
+		const static IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
+			{{
+				{
+					.format = m_depthFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+			/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+			/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
+			/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
+			/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
+		}},
+		IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+		};
+		m_params.depthStencilAttachments = depthAttachments;
+
+		static IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+			m_params.subpasses[0],
+			IGPURenderpass::SCreationParams::SubpassesEnd
+		};
+		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
+		m_params.subpasses = subpasses;
+	}
+
+protected:
+	inline bool onCreateSwapchain_impl(const uint8_t qFam) override
+	{
+		auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
+
+		const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
+		const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
+		auto image = device->createImage({ IImage::SCreationParams{
+			.type = IGPUImage::ET_2D,
+			.samples = IGPUImage::ESCF_1_BIT,
+			.format = depthFormat,
+			.extent = {sharedParams.width,sharedParams.height,1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
+		} });
+
+		device->allocate(image->getMemoryReqs(), image.get());
+
+		m_depthBuffer = device->createImageView({
+			.flags = IGPUImageView::ECF_NONE,
+			.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+			.image = std::move(image),
+			.viewType = IGPUImageView::ET_2D,
+			.format = depthFormat,
+			.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
+			});
+
+		const auto retval = base_t::onCreateSwapchain_impl(qFam);
+		m_depthBuffer = nullptr;
+		return retval;
+	}
+
+	inline smart_refctd_ptr<IGPUFramebuffer> createFramebuffer(IGPUFramebuffer::SCreationParams&& params) override
+	{
+		params.depthStencilAttachments = &m_depthBuffer.get();
+		return m_device->createFramebuffer(std::move(params));
+	}
+
+	E_FORMAT m_depthFormat;
+	// only used to pass a parameter from `onCreateSwapchain_impl` to `createFramebuffer`
+	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
+};
+
 class CEventCallback : public ISimpleManagedSurface::ICallback
 {
 public:
@@ -94,7 +176,7 @@ public:
 			}
 
 			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
-			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
 		}
 
 		if (m_surface)
@@ -118,32 +200,41 @@ public:
 		if (!swapchainParams.deduceFormat(m_physicalDevice))
 			return logFail("Could not choose a Surface Format for the Swapchain!");
 
-		const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] =
-		{
+		// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
+		const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+			// wipe-transition of Color to ATTACHMENT_OPTIMAL
 			{
 				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
 				.dstSubpass = 0,
-				.memoryBarrier =
-				{
-					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
-					.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-			},
+				.memoryBarrier = {
+				// last place where the depth can get modified in previous frame
+				.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
+				// only write ops, reads can't be made available
+				.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				// destination needs to wait as early as possible
+				.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+				// because of depth test needing a read and a write
+				.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
+			}
+			// leave view offsets and flags default
+		},
+			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
 			{
 				.srcSubpass = 0,
 				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier =
-				{
-					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-			},
-			IGPURenderpass::SCreationParams::DependenciesEnd
+				.memoryBarrier = {
+				// last place where the depth can get modified
+				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+				// only write ops, reads can't be made available
+				.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+				// spec says nothing is needed when presentation is the destination
+			}
+			// leave view offsets and flags default
+		},
+		IGPURenderpass::SCreationParams::DependenciesEnd
 		};
 
-		auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
+		auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
 		auto* renderpass = scResources->getRenderpass();
 
 		if (!renderpass)
@@ -173,21 +264,6 @@ public:
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 
-		{
-			static constexpr int TotalSetCount = 1;
-			IDescriptorPool::SCreateInfo createInfo = {};
-			createInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)] = TotalSetCount;
-			createInfo.maxSets = 1;
-			createInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_NONE;
-
-			m_descriptorPool = m_device->createDescriptorPool(std::move(createInfo));
-			if (!m_descriptorPool)
-			{
-				m_logger->log("Could not create Descriptor Pool!", system::ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-
 		SPushConstantRange pushConstantRanges[] = {
 			{
 				.stageFlags = IShader::ESS_VERTEX,
@@ -207,10 +283,23 @@ public:
 		};
 
 		auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+		{
+			const video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
+			const uint32_t setCounts[] = { 0u, 1u };
+			m_descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+			if (!m_descriptorPool)
+				return logFail("Failed to Create Descriptor Pool");
+		}
 
 		m_gpuDescriptorSet = m_descriptorPool->createDescriptorSet(descriptorSetLayout);
 
+		if (!m_gpuDescriptorSet)
+			return logFail("Could not create Descriptor Set!");
+
 		auto pipelineLayout = m_device->createPipelineLayout(pushConstantRanges, nullptr, std::move(descriptorSetLayout));
+
+		if (!pipelineLayout)
+			return logFail("Could not create Pipeline Layout!");
 
 		struct
 		{
@@ -271,11 +360,6 @@ public:
 		}
 
 		SRasterizationParams rasterizationParams{};
-		{
-			rasterizationParams.faceCullingMode = EFCM_NONE;
-			rasterizationParams.depthWriteEnable = false;
-			rasterizationParams.depthBoundsTestEnable = false;
-		}
 
 		SPrimitiveAssemblyParams primitiveAssemblyParams{};
 		{
@@ -299,10 +383,7 @@ public:
 			};
 
 			if (!m_device->createGraphicsPipelines(nullptr, params, &pipeline))
-			{
-				m_logger->log("Could not create pipeline!", system::ILogger::ELL_ERROR);
-				assert(false);
-			}
+				return logFail("Could not create pipeline!");
 		}
 
 		auto getRandomColor = []
@@ -327,20 +408,19 @@ public:
 			VSInput{{-1.0f,  1.0f,  1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}  // vertex 7
 		});
 
-		// indices of the cube
 		_NBL_STATIC_INLINE_CONSTEXPR auto indices = std::to_array<uint16_t>(
 		{
-			// Front face
+			// Front face (0, 1, 2, 3)
 			0, 1, 2, 2, 3, 0,
-			// Back face
+			// Back face (4, 5, 6, 7)
 			4, 5, 6, 6, 7, 4,
-			// Left face
+			// Left face (0, 3, 7, 4)
 			0, 3, 7, 7, 4, 0,
-			// Right face
+			// Right face (1, 2, 6, 5)
 			1, 5, 6, 6, 2, 1,
-			// Top face
+			// Top face (3, 2, 6, 7)
 			3, 2, 6, 6, 7, 3,
-			// Bottom face
+			// Bottom face (0, 1, 5, 4)
 			0, 1, 5, 5, 4, 0
 		});
 
@@ -360,21 +440,39 @@ public:
 			}
 
 			{
+				video::IGPUDescriptorSet::SWriteDescriptorSet write;
+				write.dstSet = m_gpuDescriptorSet.get();
+				write.binding = 0;
+				write.arrayElement = 0u;
+				write.count = 1u;
+				video::IGPUDescriptorSet::SDescriptorInfo info;
+				{
+					info.desc = core::smart_refctd_ptr(m_ubo);
+					info.info.buffer.offset = 0ull;
+					info.info.buffer.size = m_ubo->getSize();
+				}
+				write.info = &info;
+				m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
+			}
+
+			{
 				auto vBinding = m_vertexBuffer->getBoundMemory();
 				auto iBinding = m_indexBuffer->getBoundMemory();
 
 				{
 					if (!vBinding.memory->map({ 0ull, vBinding.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
-						m_logger->log("Could not map device memory for vertex buffer data!", system::ILogger::ELL_ERROR);
+						return logFail("Could not map device memory for vertex buffer data!");
 
-					assert(vBinding.memory->isCurrentlyMapped());
+					if(!vBinding.memory->isCurrentlyMapped())
+						return logFail("Vertex Buffer memory is not mapped!");
 				}
 
 				{
 					if (!iBinding.memory->map({ 0ull, iBinding.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
-						m_logger->log("Could not map device memory for index buffer data!", system::ILogger::ELL_ERROR);
+						return logFail("Could not map device memory for index buffer data!");
 
-					assert(iBinding.memory->isCurrentlyMapped());
+					if(!iBinding.memory->isCurrentlyMapped())
+						return logFail("Index Buffer memory is not mapped!");
 				}
 
 				auto* vPointer = static_cast<VSInput*>(vBinding.memory->getMappedPointer());
@@ -390,10 +488,10 @@ public:
 
 		// camera
 		{
-			core::vectorSIMDf cameraPosition(-250.0f, 177.0f, 1.69f);
-			core::vectorSIMDf cameraTarget(50.0f, 125.0f, -3.0f);
+			core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+			core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
 			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 10000);
-			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 10.f, 1.f);
+			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 		}
 
 		m_winMgr->show(m_window.get());
@@ -495,12 +593,13 @@ public:
 			};
 
 			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+			const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
 			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 			const IGPUCommandBuffer::SRenderpassBeginInfo info =
 			{
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
 				.colorClearValues = &clearValue,
-				.depthStencilClearValues = nullptr,
+				.depthStencilClearValues = &depthValue,
 				.renderArea = currentRenderArea
 			};
 
@@ -578,7 +677,7 @@ public:
 
 private:
 	smart_refctd_ptr<IWindow> m_window;
-	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 	smart_refctd_ptr<ISemaphore> m_semaphore;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
