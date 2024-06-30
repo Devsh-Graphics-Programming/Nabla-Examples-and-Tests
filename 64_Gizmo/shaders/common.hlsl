@@ -1,33 +1,5 @@
-#ifdef __HLSL_VERSION
-	struct VSInput
-	{
-		[[vk::location(0)]] float4 position : POSITION;
-		[[vk::location(1)]] float4 color : COLOR0;
-	};
-
-	struct PSInput
-	{
-		float4 position : SV_Position;
-		float4 color    : COLOR0;
-	};
-
-	struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
-	{
-		float4x4 MVP;
-		float3x4 MV;
-		float3x3 normalMat;
-	};
-#else
-	#include "nbl/nblpack.h"
-	struct VSInput
-	{
-		float position[4];
-		float color[4];
-	} PACK_STRUCT;
-	#include "nbl/nblunpack.h"
-
-	static_assert(sizeof(VSInput) == sizeof(float) * 4 * 2);
-#endif // __HLSL_VERSION
+#ifndef _THIS_EXAMPLE_COMMON_HLSL_
+#define _THIS_EXAMPLE_COMMON_HLSL_
 
 struct PushConstants
 {
@@ -35,3 +7,18 @@ struct PushConstants
 
 	bool padding[3]; //! size of PushConstants must be multiple of 4
 };
+
+#ifdef __HLSL_VERSION
+struct SBasicViewParameters //! matches CPU version size & alignment (160, 4)
+{
+	float4x4 MVP;
+	float3x4 MV;
+	float3x3 normalMat;
+};
+#endif // __HLSL_VERSION
+
+#endif
+
+/*
+	do not remove this text, WAVE is so bad that you can get errors if no proper ending xD
+*/

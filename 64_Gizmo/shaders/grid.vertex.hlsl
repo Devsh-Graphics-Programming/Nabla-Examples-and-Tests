@@ -1,4 +1,4 @@
-#include "common.hlsl"
+#include "grid.common.hlsl"
 
 [[vk::push_constant]] struct PushConstants pc;
 
@@ -12,8 +12,8 @@ cbuffer CameraData
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.color = input.color;
-    output.position = mul(params.MVP, input.position);
-
+    output.position = mul(params.MVP, float4(input.position, 1.0));
+    output.uv = (input.uv - float2(0.5, 0.5)) * abs(input.position.xy);
+    
     return output;
 }
