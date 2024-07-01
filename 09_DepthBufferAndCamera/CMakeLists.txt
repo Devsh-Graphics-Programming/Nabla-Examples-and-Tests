@@ -22,3 +22,6 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
 endif() 
+
+# tmp for testing
+target_link_libraries(${EXECUTABLE_NAME} PUBLIC blake3)

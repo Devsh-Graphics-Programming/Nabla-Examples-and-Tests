@@ -11,20 +11,37 @@ namespace nbl::video
 template<asset::Asset AssetType>
 struct dep_cache_hasher
 {
-	inline size_t operator()(const CAssetConverter::asset_t<AssetType>& asset) const
+	inline size_t operator()(const CAssetConverter::input_t<AssetType>& input) const
 	{
-		return asset.hash();
+		return input.hash();
 	}
 };
 template<asset::Asset AssetType>
-using dep_cache_t = std::unordered_multimap<CAssetConverter::asset_t<AssetType>,CAssetConverter::patch_t<AssetType>,dep_cache_hasher<AssetType>>;
+using dep_cache_t = std::unordered_multimap<CAssetConverter::input_t<AssetType>,CAssetConverter::patch_t<AssetType>,dep_cache_hasher<AssetType>>;
 
 //
-template<>
-void CAssetConverter::CCache::fill_hash(blake3_hasher* hasher, const asset::ICPUShader* asset, const patch_t<asset::ICPUShader>& patch)
+void CAssetConverter::CCache<asset::ICPUShader>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
-	blake3_hasher_update(hasher,&patch.stage,sizeof(patch.stage));
-	// TODO: now the rest!
+	blake3_hasher_update(hasher,patch.stage);
+	const auto* asset = input.asset;
+	blake3_hasher_update(hasher,asset->getContentType());
+	const auto* content = asset->getContent();
+	blake3_hasher_update(hasher,content->getPointer(),content->getSize());
+	// TODO: filepath hint?
+}
+void CAssetConverter::CCache<asset::ICPUDescriptorSetLayout>::lookup_t::hash_impl(blake3_hasher* hasher) const
+{
+	// TODO: hash the bindings!
+}
+void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(blake3_hasher* hasher) const
+{
+	blake3_hasher_update(hasher,patch.pushConstantBytes);
+	const auto* asset = input.asset;
+	for (auto i=0; i<asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+	{
+		// TODO: need the hashes of patched descriptor set layouts!!! FIXME
+//		blake3_hasher_update(hasher,asset->getDescriptorSetLayout(i));
+	}
 }
 
 //
@@ -33,7 +50,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	SResults retval = {};
 	if (inputs.readCache && inputs.readCache->m_params.device!=m_params.device)
 		return retval;
-
+#if 0
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
@@ -126,7 +143,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	// now we have a set of implicit gpu creation parameters we want to create resources with,
 	// and a mapping from (Asset,Patch) -> UniqueAsset
 	// If there's a readCache we need to look for an item there first.
-#if 0
+//#if 0
 	auto dedup = [&]<Asset AssetType>()->void
 	{
 		using cache_t = SResults::dag_cache_t<AssetType>;
