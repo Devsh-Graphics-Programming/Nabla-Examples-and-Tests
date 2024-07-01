@@ -4,28 +4,17 @@
 #ifdef __HLSL_VERSION
 	struct VSInput
 	{
-		[[vk::location(0)]] float4 position : POSITION;
-		[[vk::location(1)]] float4 color : COLOR0;
+		[[vk::location(0)]] float3 position : POSITION;
+		[[vk::location(1)]] float4 color : COLOR;
+		[[vk::location(2)]] float2 uv : TEXCOORD;
+		[[vk::location(3)]] float3 normal : NORMAL;
 	};
 
 	struct PSInput
 	{
 		float4 position : SV_Position;
-		float4 color    : COLOR0;
+		float4 color : COLOR0;
 	};
-#else
-	namespace cube
-	{
-		#include "nbl/nblpack.h"
-		struct VSInput
-		{
-			float position[4];
-			float color[4];
-		} PACK_STRUCT;
-		#include "nbl/nblunpack.h"
-	}
-
-	static_assert(sizeof(cube::VSInput) == sizeof(float) * 4 * 2);
 #endif // __HLSL_VERSION
 
 #include "common.hlsl"

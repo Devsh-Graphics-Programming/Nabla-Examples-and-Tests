@@ -3,15 +3,17 @@
 
 #ifdef __HLSL_VERSION
     struct VSInput
-    {
-        [[vk::location(0)]] float3 position : POSITION;
-        [[vk::location(1)]] float2 uv : TEXCOORD0;
-    };
+	{
+		[[vk::location(0)]] float3 position : POSITION;
+		[[vk::location(1)]] float4 color : COLOR;
+		[[vk::location(2)]] float2 uv : TEXCOORD;
+		[[vk::location(3)]] float3 normal : NORMAL;
+	};
 
     struct PSInput
     {
         float4 position : SV_Position;
-        float2 uv       : TEXCOORD0;
+        float2 uv : TEXCOORD0;
     };
 
     float gridTextureGradBox(float2 p, float2 ddx, float2 ddy)
@@ -27,19 +29,6 @@
         // pattern
         return (1.0 - i.x) * (1.0 - i.y);
     }
-#else
-	namespace grid
-	{
-		#include "nbl/nblpack.h"
-		struct VSInput
-		{
-			float position[3];
-			float uv[2];
-		} PACK_STRUCT;
-		#include "nbl/nblunpack.h"
-	}
-
-    static_assert(sizeof(grid::VSInput) == sizeof(float) * (3 + 2));
 #endif // __HLSL_VERSION
 
 #include "common.hlsl"

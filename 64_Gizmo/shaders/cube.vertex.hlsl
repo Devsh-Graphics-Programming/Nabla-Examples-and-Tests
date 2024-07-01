@@ -12,8 +12,9 @@ cbuffer CameraData
 PSInput VSMain(VSInput input)
 {
     PSInput output;
-    output.color = input.color;
-    output.position = mul(params.MVP, input.position);
+
+    output.position = mul(params.MVP, float4(input.position, 1.0));
+    output.color = float4(input.normal * 0.5 + 0.5, 1.0);
 
     return output;
 }

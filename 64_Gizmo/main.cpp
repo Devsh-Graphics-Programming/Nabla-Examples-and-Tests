@@ -3,6 +3,7 @@
 // For conditions of distribution and use, see copyright notice in nabla.h
 
 #include <nabla.h>
+#include "nbl/asset/utils/CGeometryCreator.h"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "../common/SimpleWindowedApplication.hpp"
@@ -12,8 +13,7 @@
 #include "this_example/spirv/builtin/CArchive.h"
 #include "this_example/spirv/builtin/builtinResources.h"
 
-#include "shaders/cube.common.hlsl"
-#include "shaders/grid.common.hlsl"
+#include "shaders/common.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -268,6 +268,9 @@ public:
 		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 		m_surface->recreateSwapchain();
 
+		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+		auto* geometry = assetManager->getGeometryCreator();
+
 		SPushConstantRange pushConstantRanges[] = {
 			{
 				.stageFlags = IShader::ESS_VERTEX,
@@ -305,98 +308,23 @@ public:
 		if (!pipelineLayout)
 			return logFail("Could not create Pipeline Layout!");
 
-		SPrimitiveAssemblyParams primitiveAssemblyParams{};
-		{
-			primitiveAssemblyParams.primitiveType = EPT_TRIANGLE_LIST;
-		}
+		const auto cube = geometry->createCubeMesh(vector3df(1.f, 1.f, 1.f));
+		const auto grid = geometry->createRectangleMesh(vector2df_SIMD(999.f, 999.f));
 
-		SVertexInputParams vertexInputParams{};
-		{
-			vertexInputParams.enabledBindingFlags = 0b1u;
-			vertexInputParams.enabledAttribFlags = 0b11u;
-
-			vertexInputParams.bindings[0].inputRate = asset::SVertexInputBindingParams::EVIR_PER_VERTEX;
-			vertexInputParams.bindings[0].stride = sizeof(cube::VSInput);
-
-			auto& position = vertexInputParams.attributes[0];
-
-			position.format = EF_R32G32B32A32_SFLOAT;
-			position.relativeOffset = offsetof(cube::VSInput, position);
-			position.binding = 0u;
-
-			auto& color = vertexInputParams.attributes[1];
-			color.format = EF_R8G8B8A8_UNORM;
-			color.relativeOffset = offsetof(cube::VSInput, color);
-			color.binding = 0u;
-		}
-
-		if(!createPipeline<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/cube.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/cube.fragment.spv")>(EP_CUBE, vertexInputParams, primitiveAssemblyParams, pipelineLayout.get(), renderpass))
+		if(!createPipeline<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/cube.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/cube.fragment.spv")>(EP_CUBE, cube, pipelineLayout.get(), renderpass))
 			return logFail("Could not create pipeline for cube pass!");
 
-		{
-			vertexInputParams.bindings[0].stride = sizeof(grid::VSInput);
-
-			auto& position = vertexInputParams.attributes[0];
-			position.format = EF_R32G32B32_SFLOAT;
-			position.relativeOffset = offsetof(grid::VSInput, position);
-
-			auto& color = vertexInputParams.attributes[1];
-			color.format = EF_R32G32_SFLOAT;
-			color.relativeOffset = offsetof(grid::VSInput, uv);
-
-			if (!createPipeline<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/grid.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/grid.fragment.spv") > (EP_GRID, vertexInputParams, primitiveAssemblyParams, pipelineLayout.get(), renderpass))
-				return logFail("Could not create pipeline for grid pass!");
-		}
-
-		auto getRandomColor = []()
-		{
-			static std::random_device rd;
-			static std::mt19937 gen(rd());
-			static std::uniform_real_distribution<float> dis(0.0f, 1.0f);
-
-			return dis(gen);
-		};
-
-		// cube
-		const auto cubeVertices = std::to_array(
-		{
-			cube::VSInput{{-1.0f, -1.0f, -1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 0
-			cube::VSInput{{ 1.0f, -1.0f, -1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 1
-			cube::VSInput{{ 1.0f,  1.0f, -1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 2
-			cube::VSInput{{-1.0f,  1.0f, -1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 3
-			cube::VSInput{{-1.0f, -1.0f,  1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 4
-			cube::VSInput{{ 1.0f, -1.0f,  1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 5
-			cube::VSInput{{ 1.0f,  1.0f,  1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}, // vertex 6
-			cube::VSInput{{-1.0f,  1.0f,  1.0f, 1.0f}, {getRandomColor(), getRandomColor(), getRandomColor(), 1.0f}}  // vertex 7
-		});
-
-		const auto cubeIndices = std::to_array<uint16_t>(
-		{
-			// Front face (0, 1, 2, 3)
-			0, 1, 2, 2, 3, 0,
-			// Back face (4, 5, 6, 7)
-			4, 5, 6, 6, 7, 4,
-			// Left face (0, 3, 7, 4)
-			0, 3, 7, 7, 4, 0,
-			// Right face (1, 2, 6, 5)
-			1, 5, 6, 6, 2, 1,
-			// Top face (3, 2, 6, 7)
-			3, 2, 6, 6, 7, 3,
-			// Bottom face (0, 1, 5, 4)
-			0, 1, 5, 5, 4, 0
-		});
-
-		const auto gridVertices = generateGridVertices();
-		const auto gridIndices = generateGridIndices();
+		if (!createPipeline<NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/grid.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("gizmo/spirv/grid.fragment.spv")>(EP_GRID, grid, pipelineLayout.get(), renderpass))
+			return logFail("Could not create pipeline for grid pass!");
 
 		// buffers
 		{
 			const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
 
-			if (!createVIBuffers(EP_CUBE, cubeVertices, cubeIndices, mask))
+			if (!createVIBuffers(EP_CUBE, cube, mask))
 				return false;
 
-			if (!createVIBuffers(EP_GRID, gridVertices, gridIndices, mask))
+			if (!createVIBuffers(EP_GRID, grid, mask))
 				return false;
 
 			m_ubo = m_device->createBuffer({{.size = sizeof(SBasicViewParameters), .usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
@@ -556,10 +484,10 @@ public:
 			cb->pushConstants(rawPipeline->getLayout(), IShader::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
 
 			const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = hook.m_vertexBuffer} };
-			const asset::SBufferBinding<const IGPUBuffer> bIndex = { .offset = 0, .buffer = hook.m_indexBuffer };
+			const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
 
 			cb->bindVertexBuffers(0, 1, bVertices);
-			cb->bindIndexBuffer(bIndex, EIT_16BIT);
+			cb->bindIndexBuffer(bIndices, EIT_16BIT); // geometry creator uses 16 bit for indicies
 			cb->drawIndexed(hook.m_indexBuffer->getSize() / sizeof(uint16_t), 1, 0, 0, 0);
 		};
 
@@ -663,7 +591,7 @@ private:
 	PushConstants m_pc = {.withGizmo = true};
 
 	template<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>
-	bool createPipeline(E_PASS ep, const SVertexInputParams& vip, const SPrimitiveAssemblyParams& pas, const video::IGPUPipelineLayout* pl, const video::IGPURenderpass* rp)
+	bool createPipeline(E_PASS ep, const CGeometryCreator::return_type& oData, const video::IGPUPipelineLayout* pl, const video::IGPURenderpass* rp)
 	{
 		struct
 		{
@@ -678,12 +606,12 @@ private:
 			} spirv;
 
 			auto createShader = [&](const system::SBuiltinFile& in, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUShader>
-				{
-					const auto buffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, core::adopt_memory);
-					const auto shader = make_smart_refctd_ptr<ICPUShader>(core::smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, "");
+			{
+				const auto buffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, core::adopt_memory);
+				const auto shader = make_smart_refctd_ptr<ICPUShader>(core::smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, "");
 
-					return m_device->createShader(shader.get());
-				};
+				return m_device->createShader(shader.get());
+			};
 
 			shaders.vertex = createShader(spirv.vertex, IShader::ESS_VERTEX);
 			shaders.fragment = createShader(spirv.fragment, IShader::ESS_FRAGMENT);
@@ -719,19 +647,21 @@ private:
 				param.layout = pl;
 				param.shaders = specs;
 				param.renderpass = rp;
-				param.cached = { .vertexInput = vip, .primitiveAssembly = pas, .rasterization = rasterizationParams, .blend = blendParams, .subpassIx = 0u };
+				param.cached = { .vertexInput = oData.inputParams, .primitiveAssembly = oData.assemblyParams, .rasterization = rasterizationParams, .blend = blendParams, .subpassIx = 0u };
 			};
 
 			return m_device->createGraphicsPipelines(nullptr, params, &pass[ep].pipeline);
 		}
 	}
 
-	bool createVIBuffers(E_PASS ep, const auto & vBuffer, const auto & iBuffer, auto mask)
+	bool createVIBuffers(E_PASS ep, const CGeometryCreator::return_type& oData, auto mask)
 	{
 		auto& hook = pass[ep];
+		auto vBuffer = core::smart_refctd_ptr(oData.bindings[0].buffer); // no offset
+		auto iBuffer = core::smart_refctd_ptr(oData.indexBuffer.buffer); // no offset
 
-		hook.m_vertexBuffer = m_device->createBuffer({ {.size = sizeof(vBuffer.front()) * vBuffer.size(), .usage = core::bitflag(asset::IBuffer::EUF_VERTEX_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
-		hook.m_indexBuffer = m_device->createBuffer({ {.size = sizeof(iBuffer.front()) * iBuffer.size(), .usage = core::bitflag(asset::IBuffer::EUF_INDEX_BUFFER_BIT) | asset::IBuffer::EUF_VERTEX_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
+		hook.m_vertexBuffer = m_device->createBuffer({ {.size = vBuffer->getSize(), .usage = core::bitflag(asset::IBuffer::EUF_VERTEX_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF}});
+		hook.m_indexBuffer = m_device->createBuffer({ {.size = iBuffer->getSize(), .usage = core::bitflag(asset::IBuffer::EUF_INDEX_BUFFER_BIT) | asset::IBuffer::EUF_VERTEX_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF}});
 
 		for (auto it : { hook.m_vertexBuffer , hook.m_indexBuffer })
 		{
@@ -773,69 +703,17 @@ private:
 				}
 			}
 
-			auto* vPointer = static_cast<cube::VSInput*>(vBinding.memory->getMappedPointer());
-			auto* iPointer = static_cast<uint16_t*>(iBinding.memory->getMappedPointer());
+			auto* vPointer = vBinding.memory->getMappedPointer();
+			auto* iPointer = iBinding.memory->getMappedPointer();
 
-			memcpy(vPointer, vBuffer.data(), hook.m_vertexBuffer->getSize());
-			memcpy(iPointer, iBuffer.data(), hook.m_indexBuffer->getSize());
+			memcpy(vPointer, vBuffer->getPointer(), hook.m_vertexBuffer->getSize());
+			memcpy(iPointer, iBuffer->getPointer(), hook.m_indexBuffer->getSize());
 
 			vBinding.memory->unmap();
 			iBinding.memory->unmap();
 
 			return true;
 		}
-	}
-
-	std::vector<grid::VSInput> generateGridVertices() 
-	{
-		std::vector<grid::VSInput> vertices;
-
-		std::vector<float> corners = 
-		{
-			-999.0f, -999.0f, -0.015f,
-			-999.0f,  999.0f, -0.015f,
-			 999.0f,  999.0f, -0.015f,
-			 999.0f, -999.0f, -0.015f,
-		};
-
-		std::vector<float> uvs = 
-		{
-			1.0f, 0.0f,
-			0.0f, 0.0f,
-			0.0f, 1.0f,
-			1.0f, 1.0f,
-		};
-
-		for (size_t i = 0; i < corners.size(); i += 12) 
-		{
-			for (size_t j = 0; j < 4; ++j) {
-				grid::VSInput vertex;
-				vertex.position[0] = corners[i + j * 3 + 0];
-				vertex.position[1] = corners[i + j * 3 + 1];
-				vertex.position[2] = corners[i + j * 3 + 2];
-				vertex.uv[0] = uvs[j * 2 + 0];
-				vertex.uv[1] = uvs[j * 2 + 1];
-				vertices.push_back(vertex);
-			}
-		}
-
-		return vertices;
-	}
-
-	std::vector<uint16_t> generateGridIndices() 
-	{
-		std::vector<uint16_t> indices;
-
-		for (uint16_t i = 0; i < 4; i += 4) {
-			indices.push_back(i + 0);
-			indices.push_back(i + 1);
-			indices.push_back(i + 2);
-			indices.push_back(i + 2);
-			indices.push_back(i + 3);
-			indices.push_back(i + 0);
-		}
-
-		return indices;
 	}
 };
 
