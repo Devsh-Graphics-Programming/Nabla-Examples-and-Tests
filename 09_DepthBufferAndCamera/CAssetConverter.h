@@ -9,68 +9,22 @@
 #include "nbl/video/utilities/IUtilities.h"
 #include "nbl/video/asset_traits.h"
 #endif
-#include "blake3.h"
+#include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
-namespace nbl::core
-{
-struct blake3_hash_t
-{
-	inline bool operator==(const blake3_hash_t&) const = default;
-
-	uint8_t data[BLAKE3_OUT_LEN];
-};
-
-// I only thought if I could, not if I should
-template<template<class> class X, typename Tuple>
-struct tuple_transform
-{
-	private:
-		template<typename... T>
-		static std::tuple<X<T>...> _impl(const std::tuple<T...>&);
-
-	public:
-		using type = decltype(_impl(std::declval<Tuple>()));
-};
-template<template<class> class X, typename Tuple>
-using tuple_transform_t = tuple_transform<X,Tuple>::type;
-
-//
-template <class _Callable, class _Tuple>
-constexpr void visit(_Callable&& _Obj, _Tuple& _Tpl) noexcept
-{
-	std::apply([&_Obj](auto& ...x){(..., _Obj(x));},_Tpl);
-}
-}
-
-namespace std
-{
-template<>
-struct hash<nbl::core::blake3_hash_t>
-{
-	inline size_t operator()(const nbl::core::blake3_hash_t& blake3) const
-	{
-		auto* as_p_uint64_t = reinterpret_cast<const size_t*>(blake3.data);
-		size_t retval = as_p_uint64_t[0];
-		for (auto i=1; i<BLAKE3_OUT_LEN; i++)
-			retval ^= as_p_uint64_t[i] + 0x9e3779b97f4a7c15ull + (retval << 6) + (retval >> 2);
-		return retval;
-	}
-};
-}
 
 namespace nbl::video
 {
 /*
 * This whole class assumes all assets you are converting will be used in read-only mode by the Device.
-* It's a valid assumption for everything from pipelines to shaders, but not for descriptors (with exception of samplers) and sets.
+* It's a valid assumption for everything from pipelines to shaders, but not for descriptors (with exception of samplers) and their sets.
 * 
 * Only Descriptors (by proxy their backing objects) and their Sets can have their contents changed after creation.
 * 
 * What this converter does is it computes hashes and compares equality based on the contents of an IAsset, not the pointer!
 * With some sane limits, its not going to compare the contents of an ICPUImage or ICPUBuffer.
 * 
-* Therefore if you don't want some resource to be deduplicated you need to "explicitly" add it to `SInputs:assets` span.
-* And if you want multiple references to the same `IAsset*` to convert to different Device Objects, you need to manually `clone()` them.
+* Therefore if you don't want some resource to be deduplicated you need to "explicitly" set `CAssetConverter::asset_t<>::uniqueCopyForUser`
+* such that the "user" is the object that refers to the asset and will receive a unique copy of it.
 */
 class CAssetConverter : public core::IReferenceCounted
 {
@@ -140,7 +94,7 @@ class CAssetConverter : public core::IReferenceCounted
 			inline patch_t() = default;
 			inline patch_t(const asset::ICPUShader* shader) : stage(shader->getStage()) {}
 
-			inline bool valid() const {return stage!=IGPUShader::ESS_UNKNOWN && stage!=IGPUShader::ESS_ALL_GRAPHICS;}
+			inline bool valid() const {return nbl::hlsl::bitCount<uint32_t>(stage)!=1;}
 
 			inline this_t combine(const this_t& other) const
 			{

@@ -70,11 +70,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			return true;
 		};
 		// initialize stacks
-		core::visit([&]<Asset AssetType>(const SInputs::span_t<AssetType> inputs)->void{
+		core::for_each_in_tuple(input.assets,[&]<Asset AssetType>(const SInputs::span_t<AssetType> inputs)->void{
 			// dedup the inputs so they API is more forgiving to use
 			for (auto& in : inputs)
 				cache(in);
-		},inputs.assets);
+		});
 		// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
 		while (!dfsStack.empty())
 		{
