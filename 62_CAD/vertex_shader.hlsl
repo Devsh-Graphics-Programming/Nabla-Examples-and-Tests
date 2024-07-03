@@ -487,7 +487,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.dirV = dirV;
 
         outV.position = float4(coord, 0.f, 1.f);
-        outV.setFontGlyphUv(corner);
+        outV.setFontGlyphUv(uvs);
         outV.setFontGlyphTextureId(textureId);
         outV.setFontGlyphScreenSpaceSize(screenSpaceAabbExtents);
     }

@@ -923,7 +923,8 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
 
 		float minUVOffset = textRenderer->GetPixelRange() / MSDFSize;
-		float32_t2 aspectRatioUVOffset = (float32_t2(1.0) - textureReference->shapeSize) * float32_t2(0.5) * float32_t2(1.0 - minUVOffset * 2.0);
+		float32_t2 aspectRatioUVOffset = ((float32_t2(1.0) - textureReference->shapeSize) * float32_t2(0.5)) 
+			* float32_t2(1.0 - 2.0 * minUVOffset);
 		float32_t2 minUV = float32_t2(minUVOffset) + aspectRatioUVOffset;
 		FontGlyphInfo glyphInfo = {
 			.topLeft = glyphBox->topLeft,
