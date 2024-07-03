@@ -384,7 +384,7 @@ float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels
 
 float msdfDistance(float3 msd, float2 screenPxRangeValue) {
     float snormSignedDistance = (median(msd.r, msd.g, msd.b) - 0.5) * 2.0;
-    return screenPxRangeValue * MSDFPixelRange * snormSignedDistance;
+    return screenPxRangeValue.x * MSDFPixelRange * snormSignedDistance;
 }
 
 float4 main(PSInput input) : SV_TARGET

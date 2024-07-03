@@ -53,22 +53,13 @@ struct QuadraticBezierInfo
 
 struct FontGlyphInfo
 {
-    // TODO: These can be packed
+    float64_t2 topLeft; // 2 * 8 = 16 bytes
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (32)
     // unorm8 minU;
     // unorm8 minV;
     // uint16 textureId;
-
-    float64_t2 topLeft;
-    float32_t2 dirU; 
-    float32_t2 minUV; 
-    // TODO: This should be replaced with aspectRatio (float)
-    // dirU and dirV are always perpendicular to each other, we can just have one and derive 
-    // the other one based on the aspect ratio of the glyph. 
-    // dirV = float2(dirU.y, -dirU.x) * aspectRatio 
-    // or 
-    // dirV = normalize(float2(dirU.y, -dirU.x)) * lenV
-    float32_t aspectRatio;
-    uint32_t textureId; 
+    uint32_t minUVTextureID; // 4 bytes (36)
     uint32_t2 padding;
 };
 
@@ -321,13 +312,6 @@ struct PSInput
     [[vk::location(3)]] nointerpolation float4 data4 : COLOR4;
     // Data segments that need interpolation, mostly for hatches
     [[vk::location(5)]] float2 interp_data5 : COLOR5;
-
-    [[vk::location(6)]] float64_t2 topLeft : TOP_LEFT;
-    [[vk::location(7)]] float64_t2 dirU : DIR_U;
-    [[vk::location(8)]] float64_t2 minUV : MIN_UV;
-    [[vk::location(9)]] float64_t aspectRatio : ASPECT_RATIO;
-    [[vk::location(10)]] uint32_t textureId : TEXTURE_ID;
-    [[vk::location(11)]] float32_t2 dirV : DIR_V;
     // ArcLenCalculator<float>
 
     // Set functions used in vshader, get functions used in fshader

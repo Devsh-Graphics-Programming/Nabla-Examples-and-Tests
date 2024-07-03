@@ -1840,7 +1840,6 @@ protected:
 							FontGlyphInfo glyphInfo = {
 								.topLeft = glyphBbox.topLeft + float64_t2(0, 100.0) - float64_t2(boundingBoxExpandAmount, boundingBoxExpandAmount) * (glyphBbox.dirU + glyphBbox.dirV),
 								.dirU = glyphBbox.dirU * (1.0 + 2.0 * boundingBoxExpandAmount),
-								.textureId = textureId,
 							};
 							uint32_t currentObjectInSection = 0u;
 							drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
