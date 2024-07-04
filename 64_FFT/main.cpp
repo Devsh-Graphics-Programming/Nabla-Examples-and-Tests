@@ -196,15 +196,15 @@ public:
 				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
 				*/
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
-				
+				/*
 				float x = j > 0 ? 0.f : 1.f;
 				float y = 0;
-				
+				*/
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
-				/*
+				
 				float x = 2.f;
 				float y = 0.f;
-				*/
+				
 				inputPtr[2 * j] = x;
 				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
