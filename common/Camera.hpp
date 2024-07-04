@@ -49,7 +49,7 @@ public:
 	inline void setProjectionMatrix(const nbl::core::matrix4SIMD& projection)
 	{
 		projMatrix = projection;
-		leftHanded = nbl::core::determinant(projMatrix) < 0.f;
+		leftHanded = true; // TODO: OK AT THIS POINT I FOUND WE NEED TO REFACTOR THIS CAMERA CLASS TO USE HLSL MATRICES AND UTILITIES FROM THIS NAMESPACE // hlsl::determinant(projMatrix) < 0.f;
 		concatMatrix = nbl::core::matrix4SIMD::concatenateBFollowedByAPrecisely(projMatrix, nbl::core::matrix4SIMD(viewMatrix));
 	}
 	
