@@ -34,29 +34,9 @@ void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(bla
 }
 
 //
-struct dfs_record_t
-{
-	const IAsset* asset;
-	size_t uniqueCopyGroupID;
-};
 template<Asset AssetType>
 using patch_cache_t = core::vector<CAssetConverter::patch_t<AssetType>>;
-}
 
-namespace std
-{
-template<>
-struct hash<nbl::video::dfs_record_t>
-{
-	inline size_t operator()(const nbl::video::dfs_record_t& record) const
-	{
-		return ptrdiff_t(record.asset)^ptrdiff_t(record.uniqueCopyGroupID);
-	}
-};
-}
-
-namespace nbl::video
-{
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
@@ -67,17 +47,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
-		struct dfs_entry_t
-		{
-			const IAsset* asset;
-		};
-		std::stack<dfs_entry_t> dfsStack;
+		std::stack<SInputs::instance_t> dfsStack;
 		// This cache stops us adding an asset more than once.
 		// Note that its not a simple multimap because order of duplicate patches needs to be deterministic for an input.
-		std::unordered_map<dfs_record_t,core::variant_transform_t<patch_cache_t,supported_asset_types>> dfsCache = {};
-//		core::tuple_transform_t<dep_cache_t,supported_asset_types> dfsCache = {};
+		std::unordered_map<SInputs::instance_t,core::variant_transform_t<patch_cache_t,supported_asset_types>> dfsCache = {};
 		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const IAsset* user, const AssetType* asset, const patch_t<AssetType>* pPatch)->bool
+		auto cache = [&]<Asset AssetType>(const SInputs::instance_t& user, const AssetType* asset, const patch_t<AssetType>* pPatch)->bool
 		{
 			// skip invalid inputs silently
 			if (!asset)
@@ -89,10 +64,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				return false;
 
 			// get unique group and see if we visited already
-			dfs_record_t record = {
+			SInputs::instance_t record = {
 				.asset = asset,
 				.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user,asset)
 			};
+#if 0
 			auto found = dfsCache.find(record);
 			if (found!=dfsCache.end())
 			{
@@ -115,9 +91,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 			else // not found, insert new entry
 				dfsCache.emplace(record,patch_cache_t<AssetType>{std::move(patch)});
+#endif
 
 			if (AssetType::HasDependents)
-				dfsStack.push({asset});
+				dfsStack.push(record);
 			return true;
 		};
 		// initialize stacks
@@ -128,7 +105,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(assets.size());
 			for (size_t i=0; i<assets.size(); i++)
 			if (auto asset=assets[i]; asset)
-				cache(nullptr,asset,i<patches.size() ? (patches.data()+i):nullptr);
+				cache({},asset,i<patches.size() ? (patches.data()+i):nullptr);
 		};
 		core::for_each_in_tuple(inputs.assets,initialize);
 		// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
@@ -154,7 +131,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				{
 					auto layout = static_cast<const ICPUDescriptorSetLayout*>(entry.asset);
 					for (const auto& sampler : layout->getImmutableSamplers())
-						cache.operator()<ICPUSampler>(layout,sampler.get(),nullptr);
+						cache.operator()<ICPUSampler>(entry,sampler.get(),nullptr);
 					break;
 				}
 				case ICPUDescriptorSet::AssetType:

@@ -259,9 +259,15 @@ class CAssetConverter : public core::IReferenceCounted
 		// A meta class to encompass all the Assets you might want to convert at once
         struct SInputs
         {
+			struct instance_t
+			{
+				const asset::IAsset* asset = nullptr;
+				size_t uniqueCopyGroupID = 0;
+			};
 			// You need to tell us if an asset needs multiple copies, separate for each user. The return value of this function dictates
-			// what copy of the asset each user gets. Note that we also call it with `user==nullptr` for each entry in `SInputs::assets`.
-			virtual inline size_t getDependantUniqueCopyGroupID(const asset::IAsset* user, const asset::IAsset* dependant) const
+			// what copy of the asset each user gets. Note that we also call it with `user=={nullptr,0}` for each entry in `SInputs::assets`.
+			// NOTE: You might get extra copies within the same group ID due to inability to patch entries
+			virtual inline size_t getDependantUniqueCopyGroupID(const instance_t& user, const asset::IAsset* dependant) const
 			{
 				return 0;
 			}
@@ -365,5 +371,17 @@ class CAssetConverter : public core::IReferenceCounted
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
 };
 
+}
+
+namespace std
+{
+template<>
+struct hash<nbl::video::CAssetConverter::SInputs::instance_t>
+{
+	inline size_t operator()(const nbl::video::CAssetConverter::SInputs::instance_t& record) const noexcept
+	{
+		return ptrdiff_t(record.asset)^ptrdiff_t(record.uniqueCopyGroupID);
+	}
+};
 }
 #endif
