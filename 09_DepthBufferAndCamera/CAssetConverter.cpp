@@ -2,28 +2,18 @@
 // This file is part of the "Nabla Engine".
 #include "CAssetConverter.h"
 
+#include <type_traits>
+
+
 using namespace nbl::core;
 using namespace nbl::asset;
+
 
 namespace nbl::video
 {
 //
-template<asset::Asset AssetType>
-struct dep_cache_hasher
-{
-	inline size_t operator()(const CAssetConverter::input_t<AssetType>& input) const
-	{
-		return input.hash();
-	}
-};
-template<asset::Asset AssetType>
-using dep_cache_t = std::unordered_multimap<CAssetConverter::input_t<AssetType>,CAssetConverter::patch_t<AssetType>,dep_cache_hasher<AssetType>>;
-
-//
 void CAssetConverter::CCache<asset::ICPUShader>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
-	blake3_hasher_update(hasher,patch.stage);
-	const auto* asset = input.asset;
 	blake3_hasher_update(hasher,asset->getContentType());
 	const auto* content = asset->getContent();
 	blake3_hasher_update(hasher,content->getPointer(),content->getSize());
@@ -36,7 +26,6 @@ void CAssetConverter::CCache<asset::ICPUDescriptorSetLayout>::lookup_t::hash_imp
 void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
 	blake3_hasher_update(hasher,patch.pushConstantBytes);
-	const auto* asset = input.asset;
 	for (auto i=0; i<asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 	{
 		// TODO: need the hashes of patched descriptor set layouts!!! FIXME
@@ -45,60 +34,110 @@ void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(bla
 }
 
 //
+struct dfs_record_t
+{
+	const IAsset* asset;
+	size_t uniqueCopyGroupID;
+};
+template<Asset AssetType>
+using patch_cache_t = core::vector<CAssetConverter::patch_t<AssetType>>;
+}
+
+namespace std
+{
+template<>
+struct hash<nbl::video::dfs_record_t>
+{
+	inline size_t operator()(const nbl::video::dfs_record_t& record) const
+	{
+		return ptrdiff_t(record.asset)^ptrdiff_t(record.uniqueCopyGroupID);
+	}
+};
+}
+
+namespace nbl::video
+{
+//
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
 	SResults retval = {};
 	if (inputs.readCache && inputs.readCache->m_params.device!=m_params.device)
 		return retval;
-#if 0
+
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
-		std::stack<const IAsset*> dfsStack;
-		// This cache stops us adding an asset more than once
-		core::tuple_transform_t<dep_cache_t,supported_asset_types> depCache = {};
+		struct dfs_entry_t
+		{
+			const IAsset* asset;
+		};
+		std::stack<dfs_entry_t> dfsStack;
+		// This cache stops us adding an asset more than once.
+		// Note that its not a simple multimap because order of duplicate patches needs to be deterministic for an input.
+		std::unordered_map<dfs_record_t,core::variant_transform_t<patch_cache_t,supported_asset_types>> dfsCache = {};
+//		core::tuple_transform_t<dep_cache_t,supported_asset_types> dfsCache = {};
 		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const CCache::key_t<AssetType>& in)->bool
+		auto cache = [&]<Asset AssetType>(const IAsset* user, const AssetType* asset, const patch_t<AssetType>* pPatch)->bool
 		{
 			// skip invalid inputs silently
-			if (!in.valid())
+			if (!asset)
 				return false;
-			
-			using cache_t = dep_cache_t<AssetType>;
-			auto& cache = std::get<cache_t>(depCache);
-			auto found = cache.equal_range(in.asset);
-			for (auto it=found.first; it!=found.second; it++)
+
+			patch_t<AssetType> patch = pPatch ? (*pPatch):patch_t<AssetType>(asset);
+			// skip invalid inputs silently
+			if (!patch.valid())
+				return false;
+
+			// get unique group and see if we visited already
+			dfs_record_t record = {
+				.asset = asset,
+				.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user,asset)
+			};
+			auto found = dfsCache.find(record);
+			if (found!=dfsCache.end())
 			{
-				auto& cachedPatch = it->second;
-				// found a thing, try-combine the patches
-				auto combined = cachedPatch.combine(in.patch);
-				// check whether the item is creatable after patching
-				if (combined.valid())
+				auto& uniquePatches = std::get<patch_cache_t<AssetType>>(found->second);
+				// iterate over all intended EXTRA copies of an asset
+				for (auto& candidate : uniquePatches)
 				{
-					cachedPatch = std::move(combined);
-					return false;
+					// found a thing, try-combine the patches
+					auto combined = candidate.combine(patch);
+					// check whether the item is creatable after patching
+					if (combined.valid())
+					{
+						candidate = std::move(combined);
+						return false;
+					}
+					// else try the next one
 				}
-				// else duplicate/de-alias
+				// haven't managed to combine with anything, ergo new entry
+				uniquePatches.push_back(std::move(patch));
 			}
-			// insert a new entry
-			cache.insert(found.first,{in.asset,in.patch});
+			else // not found, insert new entry
+				dfsCache.emplace(record,patch_cache_t<AssetType>{std::move(patch)});
+
 			if (AssetType::HasDependents)
-				dfsStack.push(in.asset.asset);
+				dfsStack.push({asset});
 			return true;
 		};
 		// initialize stacks
-		core::for_each_in_tuple(input.assets,[&]<Asset AssetType>(const SInputs::span_t<AssetType> inputs)->void{
-			// dedup the inputs so they API is more forgiving to use
-			for (auto& in : inputs)
-				cache(in);
-		});
+		auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
+		{
+			const auto& patches = std::get<SInputs::patch_span_t<AssetType>>(inputs.patches);
+			// size and fill the result array with nullptr
+			std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(assets.size());
+			for (size_t i=0; i<assets.size(); i++)
+			if (auto asset=assets[i]; asset)
+				cache(nullptr,asset,i<patches.size() ? (patches.data()+i):nullptr);
+		};
+		core::for_each_in_tuple(inputs.assets,initialize);
 		// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
 		while (!dfsStack.empty())
 		{
-			const auto* asset = dfsStack.top();
+			const auto entry = dfsStack.top();
 			dfsStack.pop();
 			// everything we popped, has already been cached, now time to go over dependents
-			switch (asset->getAssetType())
+			switch (entry.asset->getAssetType())
 			{
 #if 0
 				case ICPUPipelineLayout::AssetType:
@@ -110,14 +149,14 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						dfsStack.push(layout);
 					break;
 				}
+#endif
 				case ICPUDescriptorSetLayout::AssetType:
 				{
-					auto layout = static_cast<const ICPUDescriptorSetLayout*>(asset);
+					auto layout = static_cast<const ICPUDescriptorSetLayout*>(entry.asset);
 					for (const auto& sampler : layout->getImmutableSamplers())
-						cache({/*TODO*/});
+						cache.operator()<ICPUSampler>(layout,sampler.get(),nullptr);
 					break;
 				}
-#endif
 				case ICPUDescriptorSet::AssetType:
 				{
 					_NBL_TODO();
@@ -143,7 +182,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	// now we have a set of implicit gpu creation parameters we want to create resources with,
 	// and a mapping from (Asset,Patch) -> UniqueAsset
 	// If there's a readCache we need to look for an item there first.
-//#if 0
+#if 0
 	auto dedup = [&]<Asset AssetType>()->void
 	{
 		using cache_t = SResults::dag_cache_t<AssetType>;

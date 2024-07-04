@@ -23,7 +23,7 @@ namespace nbl::video
 * What this converter does is it computes hashes and compares equality based on the contents of an IAsset, not the pointer!
 * With some sane limits, its not going to compare the contents of an ICPUImage or ICPUBuffer.
 * 
-* Therefore if you don't want some resource to be deduplicated you need to "explicitly" set `CAssetConverter::input_t<>::uniqueCopyGroupID`.
+* Therefore if you don't want some resource to be deduplicated you need to "explicitly" let us know via `SInputs::getDependantUniqueCopyGroupID`.
 */
 class CAssetConverter : public core::IReferenceCounted
 {
@@ -65,63 +65,6 @@ class CAssetConverter : public core::IReferenceCounted
 		// when getting dependents, the creation parameters of GPU objects will be produced and patched appropriately
 		template<asset::Asset AssetType>
 		struct patch_t;
-		// This is the object we're trying to de-duplicate and hash-cons
-		template<asset::Asset AssetType>
-		struct input_t final
-		{
-			inline bool operator==(const input_t<AssetType>& rhs) const = default;
-
-			inline size_t hash() const
-			{
-				return ptrdiff_t(asset)^ptrdiff_t(uniqueCopyGroupID);
-			}
-
-			inline bool valid() const
-			{
-				return asset;
-			}
-
-			const typename asset_traits<AssetType>::asset_t* asset = nullptr;
-			// Normally all references to the same IAsset* would spawn the same IBackendObject*, set this different integers to get more copies.
-			// Each unique integer value "spawns" a new copy, note that the group ID is the same size as a pointer, so you can e.g.
-			// cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
-			size_t uniqueCopyGroupID = 0; // NOTE: this may have to move a bit farther down
-		};
-		// And these are the results of the conversion.
-		template<asset::Asset AssetType>
-		struct cached_t final
-		{
-			private:
-				using video_t = typename asset_traits<AssetType>::video_t;
-				constexpr static inline bool RefCtd = core::ReferenceCounted<video_t>;
-
-			public:
-				inline cached_t() = default;
-				inline cached_t(const cached_t<AssetType>& other) : cached_t() {operator=(other);}
-				inline cached_t(cached_t<AssetType>&&) = default;
-
-				// special wrapping to make smart_refctd_ptr copyable
-				inline cached_t<AssetType>& operator=(const cached_t<AssetType>& rhs)
-				{
-					if constexpr (RefCtd)
-						value = core::smart_refctd_ptr<video_t>(rhs.value.get());
-					else
-						value = rhs;
-					return *this;
-				}
-				inline cached_t<AssetType>& operator=(cached_t<AssetType>&&) = default;
-
-				inline const auto& get() const
-				{
-					if constexpr (RefCtd)
-						return value.get();
-					else
-						return value;
-				}
-
-				using type = std::conditional_t<RefCtd,core::smart_refctd_ptr<video_t>,video_t>;
-				type value = {};
-		};
 		template<>
 		struct patch_t<asset::ICPUShader>
 		{
@@ -188,6 +131,57 @@ class CAssetConverter : public core::IReferenceCounted
 
 			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
 		};
+		template<>
+		struct patch_t<asset::ICPUSampler>
+		{
+			using this_t = patch_t<asset::ICPUSampler>;
+
+			inline patch_t() = default;
+			inline patch_t(const asset::ICPUSampler* sampler) {}
+
+			inline bool valid() const { return true; }
+
+			inline this_t combine(const this_t& other) const
+			{
+				return *this;
+			}
+		};
+		// And these are the results of the conversion.
+		template<asset::Asset AssetType>
+		struct cached_t final
+		{
+			private:
+				using this_t = cached_t<AssetType>;
+				using video_t = typename asset_traits<AssetType>::video_t;
+				constexpr static inline bool RefCtd = core::ReferenceCounted<video_t>;
+
+			public:
+				inline cached_t() = default;
+				inline cached_t(const this_t& other) : cached_t() {operator=(other);}
+				inline cached_t(this_t&&) = default;
+
+				// special wrapping to make smart_refctd_ptr copyable
+				inline this_t& operator=(const this_t& rhs)
+				{
+					if constexpr (RefCtd)
+						value = core::smart_refctd_ptr<video_t>(rhs.value.get());
+					else
+						value = rhs;
+					return *this;
+				}
+				inline this_t& operator=(this_t&&) = default;
+
+				inline const auto& get() const
+				{
+					if constexpr (RefCtd)
+						return value.get();
+					else
+						return value;
+				}
+
+				using type = std::conditional_t<RefCtd,core::smart_refctd_ptr<video_t>,video_t>;
+				type value = {};
+		};
 #define NBL_API
 		// Typed Cache (for a particular AssetType)
 		template<asset::Asset AssetType>
@@ -209,17 +203,7 @@ class CAssetConverter : public core::IReferenceCounted
 				struct lookup_t final
 				{
 					public:
-						// constructor for when you want to override the creation parameters for the GPU Object while keeping the asset const
-						inline lookup_t(const input_t<AssetType>& _input, const patch_t<AssetType>& _patch) : input(_input), patch(_patch) {}
-						// the default constructor that deducts the patch params from a const asset which we don't want to change (so far)
-						inline lookup_t(const input_t<AssetType>& _input) : input(_input), patch(input.asset) {}
-
-						inline bool operator==(const lookup_t&) const = default;
-
-						inline bool valid() const
-						{
-							return input.valid() && patch.valid();
-						}
+						inline bool operator==(const lookup_t& rhs) const = default;
 
 						inline core::blake3_hash_t hash() const
 						{
@@ -227,15 +211,26 @@ class CAssetConverter : public core::IReferenceCounted
 							{
 								blake3_hasher hasher;
 								blake3_hasher_init(&hasher);
-								core::blake3_hasher_update(hasher,input.uniqueCopyGroupID);
+								// We purposefully don't hash asset pointer, we hash the contents instead
+								//core::blake3_hasher_update(hasher,asset);
+								core::blake3_hasher_update(hasher,uniqueCopyGroupID);
 								hash_impl(&hasher);
 								blake3_hasher_finalize(&hasher,retval.data,sizeof(retval));
 							}
 							return retval;
 						}
 
-						input_t<AssetType> input;
-						patch_t<AssetType> patch;
+						inline bool valid() const
+						{
+							return asset && patch.valid();
+						}
+
+						const typename asset_traits<AssetType>::asset_t* asset = nullptr;
+						// Normally all references to the same IAsset* would spawn the same IBackendObject*.
+						// However, each unique integer value "spawns" a new copy, note that the group ID is the same size as a pointer, so you can e.g.
+						// cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
+						size_t uniqueCopyGroupID = 0;
+						patch_t<AssetType> patch = {};
 
 					private:
 						NBL_API void hash_impl(blake3_hasher* hasher) const;
@@ -264,23 +259,26 @@ class CAssetConverter : public core::IReferenceCounted
 		// A meta class to encompass all the Assets you might want to convert at once
         struct SInputs
         {
-			// you need to tell us twice (first time by explicitly listing in `span_t` and having `uniqueCopyGroupID!=0`)
-			// if an asset needs multiple copies (second time here to know who uses which copy)
+			// You need to tell us if an asset needs multiple copies, separate for each user. The return value of this function dictates
+			// what copy of the asset each user gets. Note that we also call it with `user==nullptr` for each entry in `SInputs::assets`.
 			virtual inline size_t getDependantUniqueCopyGroupID(const asset::IAsset* user, const asset::IAsset* dependant) const
 			{
-				//assert(std::find(get<dependant->getAssetType()>(assets),retval)!=::end());
 				return 0;
 			}
 
 			// Typed Range of Inputs of the same type
             template<asset::Asset AssetType>
-            using span_t = std::span<const typename CCache<AssetType>::lookup_t>;
+            using asset_span_t = std::span<const typename asset_traits<AssetType>::asset_t* const>;
+            template<asset::Asset AssetType>
+            using patch_span_t = std::span<const patch_t<AssetType>>;
 
 			// can be `nullptr` and even equal to `this`
 			CAssetConverter* readCache = nullptr;
 
 			// A type-sorted non-polymorphic list of "root assets"
-			core::tuple_transform_t<span_t,supported_asset_types> assets = {};
+			core::tuple_transform_t<asset_span_t,supported_asset_types> assets = {};
+			// Optional: Whatever is not in `patches` will generate a default patch
+			core::tuple_transform_t<patch_span_t,supported_asset_types> patches = {};
         };
         struct SResults
         {
