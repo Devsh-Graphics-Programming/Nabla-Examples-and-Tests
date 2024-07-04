@@ -1,4 +1,4 @@
-#include "grid.common.hlsl"
+#include "template/grid.common.hlsl"
 
 float4 PSMain(PSInput input) : SV_Target0
 {
