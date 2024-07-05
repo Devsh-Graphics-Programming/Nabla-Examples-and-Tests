@@ -11,25 +11,6 @@
 #endif
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
-namespace nbl::core
-{
-template<typename... T>
-struct type_list
-{
-};
-template<template<class...> class ListLikeOutT, template<class> class X, typename ListLike>
-struct type_list_transform
-{
-	private:
-		template<template<class...> class ListLikeInT, typename... T>
-		static ListLikeOutT<X<T>...> _impl(const ListLikeInT<T...>&);
-		
-	public:
-		using type = decltype(_impl(std::declval<ListLike>()));
-};
-template<template<class...> class ListLikeOutT, template<class> class X, typename ListLike>
-using type_list_transform_t = type_list_transform<ListLikeOutT,X,ListLike>::type;
-}
 
 namespace nbl::video
 {
@@ -49,7 +30,7 @@ class CAssetConverter : public core::IReferenceCounted
 	public:
 		// meta tuple
 		// TODO: how to make MSVC shut up about warning C4624 about deleted dtors? Use another container?
-		using supported_asset_types = std::tuple<
+		using supported_asset_types = core::type_list<
 			asset::ICPUShader/*,
 			asset::ICPUDescriptorSetLayout,
 			asset::ICPUPipelineLayout*/,
