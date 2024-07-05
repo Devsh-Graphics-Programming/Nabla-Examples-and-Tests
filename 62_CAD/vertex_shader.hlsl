@@ -472,12 +472,24 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const float2 coord = screenTopLeft + corner * screenDirU + corner * screenDirV;
 
-        // TODO needs to handle rotations as well, probably from curve box code
         const float2 ndcAxisMin = screenTopLeft;
         const float2 ndcAxisMax = screenTopLeft + screenDirU + screenDirV;
-        const float2 screenSpaceAabbExtents = abs(ndcAxisMax - ndcAxisMin) * float2(globals.resolution);
+        const float2 screenSpaceAabbExtents = float2(length(screenDirU), length(screenDirV)) * float2(globals.resolution);
+
+        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
+        const double2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents;
+        const double2 dilatationFactor = 1.0 + 2.0 * dilateRate;
+
+        const float2 undilatedCornerNDC = corner * 2.0 - 1.0;
+        // Dilate the UVs
+        const float2 maxCorner = float2((undilatedCornerNDC * dilatationFactor + 1.0) * 0.5);
+
+        const float2 vx = screenDirU * dilateRate.x;
+        const float2 vy = screenDirV * dilateRate.y;
+        const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
+
+        const float2 coord = screenTopLeft + corner * screenDirU + corner * screenDirV + offsetVec;
 
         const float2 maxUV = float2(1.0, 1.0) - minUV;
         const float2 uvs = minUV + corner * (maxUV - minUV);
