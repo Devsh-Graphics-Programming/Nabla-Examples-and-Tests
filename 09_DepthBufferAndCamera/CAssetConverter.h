@@ -11,6 +11,25 @@
 #endif
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
+namespace nbl::core
+{
+template<typename... T>
+struct type_list
+{
+};
+template<template<class...> class ListLikeOutT, template<class> class X, typename ListLike>
+struct type_list_transform
+{
+	private:
+		template<template<class...> class ListLikeInT, typename... T>
+		static ListLikeOutT<X<T>...> _impl(const ListLikeInT<T...>&);
+		
+	public:
+		using type = decltype(_impl(std::declval<ListLike>()));
+};
+template<template<class...> class ListLikeOutT, template<class> class X, typename ListLike>
+using type_list_transform_t = type_list_transform<ListLikeOutT,X,ListLike>::type;
+}
 
 namespace nbl::video
 {
@@ -29,10 +48,13 @@ class CAssetConverter : public core::IReferenceCounted
 {
 	public:
 		// meta tuple
+		// TODO: how to make MSVC shut up about warning C4624 about deleted dtors? Use another container?
 		using supported_asset_types = std::tuple<
 			asset::ICPUShader/*,
 			asset::ICPUDescriptorSetLayout,
-			asset::ICPUPipelineLayout*/
+			asset::ICPUPipelineLayout*/,
+			asset::ICPUBuffer/*,
+			asset::ICPUBufferView*/
 		>;
 
 		struct SCreationParams
@@ -71,7 +93,7 @@ class CAssetConverter : public core::IReferenceCounted
 			using this_t = patch_t<asset::ICPUShader>;
 
 			inline patch_t() = default;
-			inline patch_t(const asset::ICPUShader* shader) : stage(shader->getStage()) {}
+			inline patch_t(const asset::ICPUShader* shader, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
 
 			inline bool valid() const {return nbl::hlsl::bitCount<uint32_t>(stage)!=1;}
 
@@ -96,7 +118,7 @@ class CAssetConverter : public core::IReferenceCounted
 			using this_t = patch_t<asset::ICPUDescriptorSetLayout>;
 
 			inline patch_t() = default;
-			inline patch_t(const asset::ICPUDescriptorSetLayout* layout) {}
+			inline patch_t(const asset::ICPUDescriptorSetLayout* layout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits) {}
 
 			inline bool valid() const {return true;}
 
@@ -111,18 +133,14 @@ class CAssetConverter : public core::IReferenceCounted
 			using this_t = patch_t<asset::ICPUPipelineLayout>;
 
 			inline patch_t() = default;
-			inline patch_t(const asset::ICPUPipelineLayout* pplnLayout)
-			{
-				const auto pc = pplnLayout->getPushConstantRanges();
-				for (auto it=pc.begin(); it!=pc.end(); it++)
-				for (auto byte=it->offset; byte<it->offset+it->size; byte++)
-					pushConstantBytes[byte] = it->stageFlags;
-			}
+			patch_t(const asset::ICPUPipelineLayout* pplnLayout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
 
-			inline bool valid() const {return true;}
+			inline bool valid() const {return !invalid;}
 
 			inline this_t combine(const this_t& other) const
 			{
+				if (invalid || other.invalid)
+					return {};
 				this_t retval = *this;
 				for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
 					retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
@@ -130,6 +148,26 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 
 			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
+			bool invalid = true;
+		};
+		template<>
+		struct patch_t<asset::ICPUBuffer>
+		{
+			using this_t = patch_t<asset::ICPUBuffer>;
+			using usage_flags_t = asset::IBuffer::E_USAGE_FLAGS;
+
+			inline patch_t() = default;
+			patch_t(const asset::ICPUBuffer* buffer, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
+
+			inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
+
+			inline this_t combine(const this_t& other)
+			{
+				usage |= other.usage;
+				return *this;
+			}
+
+			core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
 		};
 		template<>
 		struct patch_t<asset::ICPUSampler>
@@ -137,14 +175,20 @@ class CAssetConverter : public core::IReferenceCounted
 			using this_t = patch_t<asset::ICPUSampler>;
 
 			inline patch_t() = default;
-			inline patch_t(const asset::ICPUSampler* sampler) {}
+			patch_t(const asset::ICPUSampler* sampler, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
 
-			inline bool valid() const { return true; }
+			inline bool valid() const {return anisotropyLevelLog2>5;}
 
 			inline this_t combine(const this_t& other) const
 			{
+				// The only reason why someone would have a different level to creation parameters is
+				// because the HW doesn't support that level and the level gets clamped. So must be same.
+				if (anisotropyLevelLog2!=other.anisotropyLevelLog2)
+					return {}; // invalid
 				return *this;
 			}
+
+			uint8_t anisotropyLevelLog2 = 6;
 		};
 		// And these are the results of the conversion.
 		template<asset::Asset AssetType>
@@ -166,7 +210,7 @@ class CAssetConverter : public core::IReferenceCounted
 					if constexpr (RefCtd)
 						value = core::smart_refctd_ptr<video_t>(rhs.value.get());
 					else
-						value = rhs;
+						value = video_t(rhs.value);
 					return *this;
 				}
 				inline this_t& operator=(this_t&&) = default;
@@ -343,6 +387,7 @@ class CAssetConverter : public core::IReferenceCounted
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			IUtilities* utilities = nullptr;
+			IGPUPipelineCache* pipelineCache = nullptr;
 		};
 		// Second Pass: Actually create the GPU Objects
 		NBL_API bool convert(SResults& reservations, SConvertParams& params);

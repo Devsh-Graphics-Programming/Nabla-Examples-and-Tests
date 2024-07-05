@@ -11,6 +11,102 @@ using namespace nbl::asset;
 
 namespace nbl::video
 {
+CAssetConverter::patch_t<ICPUShader>::patch_t(
+	const ICPUShader* shader,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+)
+{
+	const auto _stage = shader->getStage();
+	switch (_stage)
+	{
+		// supported always
+		case IGPUShader::E_SHADER_STAGE::ESS_VERTEX:
+		case IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT:
+		case IGPUShader::E_SHADER_STAGE::ESS_COMPUTE:
+			stage = _stage;
+			break;
+		case IGPUShader::E_SHADER_STAGE::ESS_TESSELLATION_CONTROL:
+		case IGPUShader::E_SHADER_STAGE::ESS_TESSELLATION_EVALUATION:
+			if (features.tessellationShader)
+				stage = _stage;
+			break;
+		case IGPUShader::E_SHADER_STAGE::ESS_GEOMETRY:
+			if (features.geometryShader)
+				stage = _stage;
+			break;
+		case IGPUShader::E_SHADER_STAGE::ESS_TASK:
+//			if (features.taskShader)
+//				stage = _stage;
+			break;
+		case IGPUShader::E_SHADER_STAGE::ESS_MESH:
+//			if (features.meshShader)
+//				stage = _stage;
+			break;
+		case IGPUShader::E_SHADER_STAGE::ESS_RAYGEN:
+		case IGPUShader::E_SHADER_STAGE::ESS_ANY_HIT:
+		case IGPUShader::E_SHADER_STAGE::ESS_CLOSEST_HIT:
+		case IGPUShader::E_SHADER_STAGE::ESS_MISS:
+		case IGPUShader::E_SHADER_STAGE::ESS_INTERSECTION:
+		case IGPUShader::E_SHADER_STAGE::ESS_CALLABLE:
+			if (features.rayTracingPipeline)
+				stage = _stage;
+			break;
+		default:
+			break;
+	}
+}
+
+CAssetConverter::patch_t<ICPUPipelineLayout>::patch_t(
+	const ICPUPipelineLayout* pplnLayout,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+) : patch_t()
+{
+	// TODO: some way to do bound checking and indicate validity
+	const auto pc = pplnLayout->getPushConstantRanges();
+	for (auto it=pc.begin(); it!=pc.end(); it++)
+	{
+		if (it->offset>=limits.maxPushConstantsSize)
+			return;
+		const auto end = it->offset+it->size;
+		if (end<it->offset || end>limits.maxPushConstantsSize)
+			return;
+		for (auto byte=it->offset; byte<end; byte++)
+			pushConstantBytes[byte] = it->stageFlags;
+	}
+	invalid = false;
+}
+
+CAssetConverter::patch_t<ICPUBuffer>::patch_t(
+	const ICPUBuffer* buffer,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+)
+{
+	const auto _usage = buffer->getUsageFlags();
+	if (_usage.hasFlags(usage_flags_t::EUF_CONDITIONAL_RENDERING_BIT_EXT) && !features.conditionalRendering)
+		return;
+	if ((_usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT)||_usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT)) && !features.accelerationStructure)
+		return;
+	if (_usage.hasFlags(usage_flags_t::EUF_SHADER_BINDING_TABLE_BIT) && !features.rayTracingPipeline)
+		return;
+	usage = _usage;
+	// good default
+	usage |= usage_flags_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
+}
+
+CAssetConverter::patch_t<ICPUSampler>::patch_t(
+	const ICPUSampler* sampler,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter)
+{
+	if (anisotropyLevelLog2>limits.maxSamplerAnisotropyLog2)
+		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
+}
+
+
 //
 void CAssetConverter::CCache<asset::ICPUShader>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
@@ -52,13 +148,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		// Note that its not a simple multimap because order of duplicate patches needs to be deterministic for an input.
 		std::unordered_map<SInputs::instance_t,core::variant_transform_t<patch_cache_t,supported_asset_types>> dfsCache = {};
 		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const SInputs::instance_t& user, const AssetType* asset, const patch_t<AssetType>* pPatch)->bool
+		auto cache = [&]<Asset AssetType>(const SInputs::instance_t& user, const AssetType* asset, patch_t<AssetType>&& patch)->bool
 		{
-			// skip invalid inputs silently
-			if (!asset)
-				return false;
-
-			patch_t<AssetType> patch = pPatch ? (*pPatch):patch_t<AssetType>(asset);
+			assert(asset);
 			// skip invalid inputs silently
 			if (!patch.valid())
 				return false;
@@ -97,6 +189,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				dfsStack.push(record);
 			return true;
 		};
+		//
+		auto* const device = m_params.device;
+		const auto& features = device->getEnabledFeatures();
+		const auto& limits = device->getPhysicalDevice()->getLimits();
 		// initialize stacks
 		auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
 		{
@@ -105,7 +201,13 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(assets.size());
 			for (size_t i=0; i<assets.size(); i++)
 			if (auto asset=assets[i]; asset)
-				cache({},asset,i<patches.size() ? (patches.data()+i):nullptr);
+			{
+				// skip invalid inputs silently
+				if (!asset)
+					continue;
+				patch_t<AssetType> patch = i<patches.size() ? patches[i]:patch_t<AssetType>(asset,features,limits);
+				cache({},asset,std::move(patch));
+			}
 		};
 		core::for_each_in_tuple(inputs.assets,initialize);
 		// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
@@ -131,7 +233,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				{
 					auto layout = static_cast<const ICPUDescriptorSetLayout*>(entry.asset);
 					for (const auto& sampler : layout->getImmutableSamplers())
-						cache.operator()<ICPUSampler>(entry,sampler.get(),nullptr);
+					if (sampler)
+						cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
 					break;
 				}
 				case ICPUDescriptorSet::AssetType:
@@ -146,7 +249,15 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 				case ICPUBufferView::AssetType:
 				{
-					_NBL_TODO();
+					auto view = static_cast<const ICPUBufferView*>(entry.asset);
+					const auto buffer = view->getUnderlyingBuffer();
+					if (buffer)
+					{
+						patch_t<ICPUBuffer> patch = {buffer,features,limits};
+						// we have no clue how this will be used, so we mark both usages
+						patch.usage = IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+						cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
+					}
 					break;
 				}
 				// these assets have no dependants, should have never been pushed on the stack
