@@ -135,9 +135,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.stageFlags = IShader::ESS_FRAGMENT,
 					.count = 1,
 					#if defined(COMBINED_IMMUTABLE)
-					.samplers = &defaultSampler
+					.immutableSamplers = &defaultSampler
 					#else
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 					#endif
 				}
 				};
@@ -148,7 +148,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::ESS_FRAGMENT,
 					.count = 1,
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 				},
 				{
 					.binding = 1,
@@ -157,9 +157,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.stageFlags = IShader::ESS_FRAGMENT,
 					.count = 1,
 					#if defined(SEPARATED_IMMUTABLE)
-					.samplers = &defaultSampler
+					.immutableSamplers = &defaultSampler
 					#else
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 					#endif
 				}
 				};
