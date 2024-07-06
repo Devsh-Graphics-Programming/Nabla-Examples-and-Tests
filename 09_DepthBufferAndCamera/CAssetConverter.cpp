@@ -394,10 +394,10 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 
 	// create shaders
 	{
-		ILogicalDevice::SShaderCreationParameters params = {
+		ILogicalDevice::SShaderCreationParameters createParams = {
 			.optimizer = m_params.optimizer.get(),
-			.readCache = m_params.compilerCache.get(),
-			.writeCache = m_params.compilerCache.get()
+			.readCache = params.readShaderCache,
+			.writeCache = params.writeShaderCache
 		};
 #if 0
 		for (auto& shader : std::get<SResults::dag_cache_t<ICPUShader>>(reservations.m_typedDagNodes))
