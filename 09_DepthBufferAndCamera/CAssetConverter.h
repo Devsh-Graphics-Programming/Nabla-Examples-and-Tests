@@ -31,10 +31,11 @@ class CAssetConverter : public core::IReferenceCounted
 		// meta tuple
 		// TODO: how to make MSVC shut up about warning C4624 about deleted dtors? Use another container?
 		using supported_asset_types = core::type_list<
-			asset::ICPUShader/*,
+			asset::ICPUShader,
 			asset::ICPUDescriptorSetLayout,
-			asset::ICPUPipelineLayout*/,
-			asset::ICPUBuffer/*,
+//			asset::ICPUPipelineLayout,
+			asset::ICPUBuffer,
+			asset::ICPUSampler/*,
 			asset::ICPUBufferView*/
 		>;
 
@@ -286,6 +287,8 @@ class CAssetConverter : public core::IReferenceCounted
         {
 			struct instance_t
 			{
+				inline bool operator==(const instance_t&) const = default;
+
 				const asset::IAsset* asset = nullptr;
 				size_t uniqueCopyGroupID = 0;
 			};
@@ -305,6 +308,9 @@ class CAssetConverter : public core::IReferenceCounted
 
 			// can be `nullptr` and even equal to `this`
 			CAssetConverter* readCache = nullptr;
+
+			// recommended you set this
+			system::logger_opt_ptr logger = nullptr;
 
 			// A type-sorted non-polymorphic list of "root assets"
 			core::tuple_transform_t<asset_span_t,supported_asset_types> assets = {};
@@ -365,9 +371,14 @@ class CAssetConverter : public core::IReferenceCounted
 
 			// can be `nullptr`, but for most usages should be equal to `this`
 			CAssetConverter* writeCache = nullptr;
+			// recommended you set this
+			system::logger_opt_ptr logger = nullptr;
+			// TODO: documentation
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
+			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
+			// optional, useful for shaders
 			IGPUPipelineCache* pipelineCache = nullptr;
 		};
 		// Second Pass: Actually create the GPU Objects
