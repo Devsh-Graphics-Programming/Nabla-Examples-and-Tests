@@ -579,9 +579,8 @@ float4 main(PSInput input) : SV_TARGET
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
-            const float screenSpaceSize = 8.0;
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / screenSpaceSize), float(textureId))).xyz;
-            float msdf = msdfDistance(msdfSample, MSDFSize / screenSpaceSize);
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
+            float msdf = msdfDistance(msdfSample, HatchFillMSDFSceenSpaceSize / MSDFSize);
             localAlpha *= smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
