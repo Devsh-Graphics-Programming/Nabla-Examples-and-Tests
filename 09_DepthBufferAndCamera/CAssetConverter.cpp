@@ -129,9 +129,11 @@ void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(bla
 	}
 }
 
-//
-template<Asset AssetType>
-using patch_cache_t = core::vector<CAssetConverter::patch_t<AssetType>>;
+// question of propagating changes, image view and buffer view
+// if image view used as STORAGE, or SAMPLED have to change subUsage
+// then need to propagate change of subUsage to usage
+// therefore image is now changed
+// have to pass the patch around
 
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
@@ -143,12 +145,20 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
-		std::stack<SInputs::instance_t> dfsStack;
+		//
+		using patch_variant_t = core::variant_transform_t<patch_t,supported_asset_types>;
+		//
+		struct dfs_entry_t
+		{
+			SInputs::instance_t instance = {};
+			patch_variant_t patch = {};
+		};
+		core::stack<dfs_entry_t> dfsStack;
 		// This cache stops us adding an asset more than once.
 		// Note that its not a simple multimap because order of duplicate patches needs to be deterministic for an input.
-		std::unordered_map<SInputs::instance_t,core::variant_transform_t<patch_cache_t,supported_asset_types>> dfsCache = {};
+		core::unordered_multimap<SInputs::instance_t,patch_variant_t> dfsCache = {};
 		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const SInputs::instance_t& user, const AssetType* asset, patch_t<AssetType>&& patch)->bool
+		auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch)->bool
 		{
 			assert(asset);
 			// skip invalid inputs silently
@@ -158,35 +168,30 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// get unique group and see if we visited already
 			SInputs::instance_t record = {
 				.asset = asset,
-				.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user,asset)
+				.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.instance,asset)
 			};
-#if 0
-			auto found = dfsCache.find(record);
-			if (found!=dfsCache.end())
-			{
-				auto& uniquePatches = std::get<patch_cache_t<AssetType>>(found->second);
-				// iterate over all intended EXTRA copies of an asset
-				for (auto& candidate : uniquePatches)
-				{
-					// found a thing, try-combine the patches
-					auto combined = candidate.combine(patch);
-					// check whether the item is creatable after patching
-					if (combined.valid())
-					{
-						candidate = std::move(combined);
-						return false;
-					}
-					// else try the next one
-				}
-				// haven't managed to combine with anything, ergo new entry
-				uniquePatches.push_back(std::move(patch));
-			}
-			else // not found, insert new entry
-				dfsCache.emplace(record,patch_cache_t<AssetType>{std::move(patch)});
-#endif
 
+			// iterate over all intended EXTRA copies of an asset
+			auto found = dfsCache.equal_range(record);
+			for (auto it=found.first; it!=found.second; it++)
+			{
+				auto& candidate = std::get<patch_t<AssetType>>(it->second);
+				// found a thing, try-combine the patches
+				auto combined = candidate.combine(patch);
+				// check whether the item is creatable after patching
+				if (combined.valid())
+				{
+					candidate = std::move(combined);
+					return false;
+				}
+				// else try the next one
+			}
+			// Either haven't managed to combine with anything or no entry found
+			patch_variant_t poly_patch = std::move(patch);
 			if (AssetType::HasDependents)
-				dfsStack.push(record);
+				dfsStack.emplace(record,poly_patch);
+			dfsCache.emplace(std::move(record),std::move(poly_patch));
+
 			return true;
 		};
 		//
@@ -205,6 +210,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// skip invalid inputs silently
 				if (!asset)
 					continue;
+				// for explicitly given patches we don't try to create implicit patch and merge that with the explicit
+				// we trust the implicit patches are correct/feasible
 				patch_t<AssetType> patch = i<patches.size() ? patches[i]:patch_t<AssetType>(asset,features,limits);
 				cache({},asset,std::move(patch));
 			}
@@ -216,22 +223,20 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			const auto entry = dfsStack.top();
 			dfsStack.pop();
 			// everything we popped, has already been cached, now time to go over dependents
-			switch (entry.asset->getAssetType())
+			const auto* user = entry.instance.asset;
+			switch (user->getAssetType())
 			{
-#if 0
 				case ICPUPipelineLayout::AssetType:
 				{
-					auto pplnLayout = static_cast<const ICPUPipelineLayout*>(asset);
+					auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
 					for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 					if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
-					if (cache({/*TODO*/}))
-						dfsStack.push(layout);
+						cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout,features,limits});
 					break;
 				}
-#endif
 				case ICPUDescriptorSetLayout::AssetType:
 				{
-					auto layout = static_cast<const ICPUDescriptorSetLayout*>(entry.asset);
+					auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
 					for (const auto& sampler : layout->getImmutableSamplers())
 					if (sampler)
 						cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
@@ -249,7 +254,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 				case ICPUBufferView::AssetType:
 				{
-					auto view = static_cast<const ICPUBufferView*>(entry.asset);
+					auto view = static_cast<const ICPUBufferView*>(user);
 					const auto buffer = view->getUnderlyingBuffer();
 					if (buffer)
 					{
