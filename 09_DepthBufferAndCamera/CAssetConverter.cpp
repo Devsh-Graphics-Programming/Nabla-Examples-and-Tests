@@ -57,27 +57,6 @@ CAssetConverter::patch_t<ICPUShader>::patch_t(
 	}
 }
 
-CAssetConverter::patch_t<ICPUPipelineLayout>::patch_t(
-	const ICPUPipelineLayout* pplnLayout,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-) : patch_t()
-{
-	// TODO: some way to do bound checking and indicate validity
-	const auto pc = pplnLayout->getPushConstantRanges();
-	for (auto it=pc.begin(); it!=pc.end(); it++)
-	{
-		if (it->offset>=limits.maxPushConstantsSize)
-			return;
-		const auto end = it->offset+it->size;
-		if (end<it->offset || end>limits.maxPushConstantsSize)
-			return;
-		for (auto byte=it->offset; byte<end; byte++)
-			pushConstantBytes[byte] = it->stageFlags;
-	}
-	invalid = false;
-}
-
 CAssetConverter::patch_t<ICPUBuffer>::patch_t(
 	const ICPUBuffer* buffer,
 	const SPhysicalDeviceFeatures& features,
@@ -106,14 +85,45 @@ CAssetConverter::patch_t<ICPUSampler>::patch_t(
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
 }
 
+CAssetConverter::patch_t<ICPUDescriptorSetLayout>::patch_t(
+	const ICPUDescriptorSetLayout* layout,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+) : patch_t()
+{
+}
+
+CAssetConverter::patch_t<ICPUPipelineLayout>::patch_t(
+	const ICPUPipelineLayout* pplnLayout,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+) : patch_t()
+{
+	// TODO: some way to do bound checking and indicate validity
+	const auto pc = pplnLayout->getPushConstantRanges();
+	for (auto it=pc.begin(); it!=pc.end(); it++)
+	{
+		if (it->offset>=limits.maxPushConstantsSize)
+			return;
+		const auto end = it->offset+it->size;
+		if (end<it->offset || end>limits.maxPushConstantsSize)
+			return;
+		for (auto byte=it->offset; byte<end; byte++)
+			pushConstantBytes[byte] = it->stageFlags;
+	}
+	invalid = false;
+}
+
 
 //
 void CAssetConverter::CCache<asset::ICPUShader>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
+	// TODO: optimizer settings
 	blake3_hasher_update(hasher,asset->getContentType());
+	const auto& pathHint = asset->getFilepathHint();
+	blake3_hasher_update(hasher,pathHint.data(),pathHint.size());
 	const auto* content = asset->getContent();
 	blake3_hasher_update(hasher,content->getPointer(),content->getSize());
-	// TODO: filepath hint?
 }
 void CAssetConverter::CCache<asset::ICPUDescriptorSetLayout>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
@@ -134,6 +144,15 @@ void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(bla
 // then need to propagate change of subUsage to usage
 // therefore image is now changed
 // have to pass the patch around
+
+/*
+// need to map (asset,uniqueGroup,patch) -> blake3_hash to avoid re-hashing
+struct dedup_entry_t
+{
+	core::blake3_hash_t patchedHash;
+	core::blake3_hash_t unpatchedHash;
+};
+*/
 
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
@@ -341,6 +360,9 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 
 	auto device = m_params.device;
 	if (!device)
+		return false;
+
+	if (params.pipelineCache && params.pipelineCache->getOriginDevice()!=device)
 		return false;
 
 	auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool

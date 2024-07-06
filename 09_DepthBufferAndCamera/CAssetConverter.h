@@ -28,15 +28,15 @@ namespace nbl::video
 class CAssetConverter : public core::IReferenceCounted
 {
 	public:
-		// meta tuple
-		// TODO: how to make MSVC shut up about warning C4624 about deleted dtors? Use another container?
 		using supported_asset_types = core::type_list<
 			asset::ICPUShader,
-			asset::ICPUDescriptorSetLayout,
-//			asset::ICPUPipelineLayout,
 			asset::ICPUBuffer,
-			asset::ICPUSampler/*,
-			asset::ICPUBufferView*/
+			asset::ICPUSampler,
+			// image,
+//			asset::ICPUBufferView,
+			// image view
+			asset::ICPUDescriptorSetLayout,
+			asset::ICPUPipelineLayout
 		>;
 
 		struct SCreationParams
@@ -46,9 +46,6 @@ class CAssetConverter : public core::IReferenceCounted
 				if (!device)
 					return false;
 
-				if (pipelineCache && pipelineCache->getOriginDevice()!=device) 
-					return false;
-
 				return true;
 			}
 
@@ -56,8 +53,6 @@ class CAssetConverter : public core::IReferenceCounted
 			ILogicalDevice* device = nullptr;
 			// optional
 			core::smart_refctd_ptr<const asset::ISPIRVOptimizer> optimizer = {};
-			core::smart_refctd_ptr<asset::IShaderCompiler::CCache> compilerCache = {};
-			core::smart_refctd_ptr<IGPUPipelineCache> pipelineCache = {};
 		};
 		static inline core::smart_refctd_ptr<CAssetConverter> create(SCreationParams&& params)
 		{
@@ -95,12 +90,52 @@ class CAssetConverter : public core::IReferenceCounted
 			IGPUShader::E_SHADER_STAGE stage = IGPUShader::ESS_UNKNOWN;
 		};
 		template<>
+		struct patch_t<asset::ICPUBuffer>
+		{
+			using this_t = patch_t<asset::ICPUBuffer>;
+			using usage_flags_t = asset::IBuffer::E_USAGE_FLAGS;
+
+			inline patch_t() = default;
+			patch_t(const asset::ICPUBuffer* buffer, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
+
+			inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
+
+			inline this_t combine(const this_t& other)
+			{
+				usage |= other.usage;
+				return *this;
+			}
+
+			core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
+		};
+		template<>
+		struct patch_t<asset::ICPUSampler>
+		{
+			using this_t = patch_t<asset::ICPUSampler>;
+
+			inline patch_t() = default;
+			patch_t(const asset::ICPUSampler* sampler, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
+
+			inline bool valid() const { return anisotropyLevelLog2 > 5; }
+
+			inline this_t combine(const this_t& other) const
+			{
+				// The only reason why someone would have a different level to creation parameters is
+				// because the HW doesn't support that level and the level gets clamped. So must be same.
+				if (anisotropyLevelLog2 != other.anisotropyLevelLog2)
+					return {}; // invalid
+				return *this;
+			}
+
+			uint8_t anisotropyLevelLog2 = 6;
+		};
+		template<>
 		struct patch_t<asset::ICPUDescriptorSetLayout>
 		{
 			using this_t = patch_t<asset::ICPUDescriptorSetLayout>;
 
 			inline patch_t() = default;
-			inline patch_t(const asset::ICPUDescriptorSetLayout* layout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits) {}
+			patch_t(const asset::ICPUDescriptorSetLayout* layout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
 
 			inline bool valid() const {return true;}
 
@@ -131,46 +166,6 @@ class CAssetConverter : public core::IReferenceCounted
 
 			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
 			bool invalid = true;
-		};
-		template<>
-		struct patch_t<asset::ICPUBuffer>
-		{
-			using this_t = patch_t<asset::ICPUBuffer>;
-			using usage_flags_t = asset::IBuffer::E_USAGE_FLAGS;
-
-			inline patch_t() = default;
-			patch_t(const asset::ICPUBuffer* buffer, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
-
-			inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
-
-			inline this_t combine(const this_t& other)
-			{
-				usage |= other.usage;
-				return *this;
-			}
-
-			core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
-		};
-		template<>
-		struct patch_t<asset::ICPUSampler>
-		{
-			using this_t = patch_t<asset::ICPUSampler>;
-
-			inline patch_t() = default;
-			patch_t(const asset::ICPUSampler* sampler, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
-
-			inline bool valid() const {return anisotropyLevelLog2>5;}
-
-			inline this_t combine(const this_t& other) const
-			{
-				// The only reason why someone would have a different level to creation parameters is
-				// because the HW doesn't support that level and the level gets clamped. So must be same.
-				if (anisotropyLevelLog2!=other.anisotropyLevelLog2)
-					return {}; // invalid
-				return *this;
-			}
-
-			uint8_t anisotropyLevelLog2 = 6;
 		};
 		// And these are the results of the conversion.
 		template<asset::Asset AssetType>
@@ -361,16 +356,18 @@ class CAssetConverter : public core::IReferenceCounted
 		struct SConvertParams
 		{
 			// By default the compute queue will own everything after all transfer operations are complete.
-			virtual inline SIntendedSubmitInfo& getFinalOwnerSubmit(IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
+			virtual inline SIntendedSubmitInfo& getFinalOwnerSubmit(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
 			{
 				return compute;
+			}
+			// By default we always insert into the cache
+			virtual inline bool writeCache(const core::blake3_hash_t& createdFrom)
+			{
 			}
 
 			// submits the buffered up cals 
 			NBL_API ISemaphore::future_t<bool> autoSubmit();
 
-			// can be `nullptr`, but for most usages should be equal to `this`
-			CAssetConverter* writeCache = nullptr;
 			// recommended you set this
 			system::logger_opt_ptr logger = nullptr;
 			// TODO: documentation
@@ -379,6 +376,8 @@ class CAssetConverter : public core::IReferenceCounted
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
 			// optional, useful for shaders
+			asset::IShaderCompiler::CCache* readShaderCache = nullptr;
+			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
 			IGPUPipelineCache* pipelineCache = nullptr;
 		};
 		// Second Pass: Actually create the GPU Objects
