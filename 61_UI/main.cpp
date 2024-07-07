@@ -426,7 +426,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
-			ui->Register([this]() -> void 
+			ui->registerListener([this]() -> void 
 				{
 					/*
 
@@ -586,7 +586,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			// TODO: Use real deltaTime instead
 			float deltaTimeInSec = 0.1f;
-			ui->Render(cb, resourceIx);
+			ui->render(cb, resourceIx);
 			cb->endRenderPass();
 			cb->end();
 			{
@@ -659,7 +659,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}, m_logger.get());
 
 			const auto mousePosition = m_window->getCursorControl()->getPosition();
-			ui->Update(deltaTimeInSec, static_cast<float>(mousePosition.x), static_cast<float>(mousePosition.y), capturedEvents.mouse.size(), capturedEvents.mouse.data());
+			ui->update(deltaTimeInSec, static_cast<float>(mousePosition.x), static_cast<float>(mousePosition.y), capturedEvents.mouse.size(), capturedEvents.mouse.data());
 		}
 
 		inline bool keepRunning() override
