@@ -88,17 +88,18 @@ public:
 		reducer->buildParameters(elementCount, reduce_push_constants, reduce_dispatch_info);
 
 		IGPUBuffer::SCreationParams params = { reduce_push_constants.scanParams.getScratchSize(), bitflag(IGPUBuffer::EUF_STORAGE_BUFFER_BIT) | IGPUBuffer::EUF_TRANSFER_DST_BIT };
-		SBufferRange<IGPUBuffer> scratch_gpu_range = {0u, params.size, m_device->createBuffer(std::move(params)) };
-		{
-			auto memReqs = scratch_gpu_range.buffer->getMemoryReqs();
-			memReqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
-			auto scratchMem = m_device->allocate(memReqs, scratch_gpu_range.buffer.get());
-		}
 
-		auto reduce_pipeline = reducer->getDefaultPipeline(CArithmeticOps::EDT_UINT, CArithmeticOps::EO_ADD, params.size); // TODO: Update to test all operations
+		auto reduce_pipeline = reducer->getDefaultPipeline(CArithmeticOps::EDT_UINT, CArithmeticOps::EO_ADD, params.size / sizeof(uint32_t)); // TODO: Update to test all operations
 		auto dsLayout = reducer->getDefaultDescriptorSetLayout();
 		auto dsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout, 1 });
 		auto ds = dsPool->createDescriptorSet(core::smart_refctd_ptr<IGPUDescriptorSetLayout>(dsLayout));
+
+		SBufferRange<IGPUBuffer> scratch_gpu_range = {0u, params.size, m_device->createBuffer(std::move(params)) };
+		{
+			auto memReqs = scratch_gpu_range.buffer->getMemoryReqs();
+			memReqs.memoryTypeBits &= m_physicalDevice->getDirectVRAMAccessMemoryTypeBits();
+			auto scratchMem = m_device->allocate(memReqs, scratch_gpu_range.buffer.get());
+		}
 		reducer->updateDescriptorSet(m_device.get(), ds.get(), in_gpu_range, scratch_gpu_range);
 		
 		{
@@ -115,7 +116,7 @@ public:
 		cmdbuf->bindComputePipeline(reduce_pipeline);
 		auto pipeline_layout = reduce_pipeline->getLayout();
 		cmdbuf->bindDescriptorSets(asset::EPBP_COMPUTE, pipeline_layout, 0u, 1u, &ds.get());
-		reducer->dispatchHelper(cmdbuf.get(), pipeline_layout, reduce_push_constants, reduce_dispatch_info, 0u, nullptr, 0u, nullptr);
+		reducer->dispatchHelper(cmdbuf.get(), pipeline_layout, reduce_push_constants, reduce_dispatch_info, {});
 		cmdbuf->end();
 
 		{
@@ -159,68 +160,61 @@ public:
 		}
 		
 		{
-			IGPUBuffer::SCreationParams params = {};
-			params.size = in_gpu_range.size;
-			params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
-			// (REVIEW): Check if this new download_buffer is needed or if we can directly read from the gpu_input buffer
-			auto downloaded_buffer = m_device->createBuffer(std::move(params));
-			auto memReqs = downloaded_buffer->getMemoryReqs();
-			memReqs.memoryTypeBits &= m_physicalDevice->getDownStreamingMemoryTypeBits();
-			auto queriesMem = m_device->allocate(memReqs, downloaded_buffer.get());
-			{
-				// (REVIEW): Maybe we can just reset the cmdbuf we already have?
-				core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
-				{
-					auto cmdPool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::NONE);
-					cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf , 1}, core::smart_refctd_ptr(m_logger));
-				}
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
-				IGPUCommandBuffer::SBufferCopy region;
-				region.srcOffset = in_gpu_range.offset;
-				region.dstOffset = 0u;
-				region.size = in_gpu_range.size;
-				cmdbuf->copyBuffer(in_gpu_range.buffer.get(), downloaded_buffer.get(), 1u, &region);
-				cmdbuf->end();
+			//IGPUBuffer::SCreationParams params = {};
+			//params.size = 1u;
+			//params.usage = IGPUBuffer::EUF_TRANSFER_DST_BIT;
+			//// (REVIEW): Check if this new download_buffer is needed or if we can directly read from the gpu_input buffer
+			//auto downloaded_buffer = m_device->createBuffer(std::move(params));
+			//auto memReqs = downloaded_buffer->getMemoryReqs();
+			//memReqs.memoryTypeBits &= m_physicalDevice->getDownStreamingMemoryTypeBits();
+			//auto queriesMem = m_device->allocate(memReqs, downloaded_buffer.get());
+			//{
+			//	// (REVIEW): Maybe we can just reset the cmdbuf we already have?
+			//	core::smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
+			//	{
+			//		auto cmdPool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::NONE);
+			//		cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf , 1}, core::smart_refctd_ptr(m_logger));
+			//	}
+			//	cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);  // TODO: Reset Frame's CommandPool
+			//	IGPUCommandBuffer::SBufferCopy region;
+			//	region.srcOffset = in_gpu_range.offset;
+			//	region.dstOffset = 0u;
+			//	region.size = in_gpu_range.size;
+			//	cmdbuf->copyBuffer(in_gpu_range.buffer.get(), downloaded_buffer.get(), 1u, &region);
+			//	cmdbuf->end();
 
-				{
-					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-						.cmdbuf = cmdbuf.get()
-					} };
+			//	{
+			//		const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
+			//			.cmdbuf = cmdbuf.get()
+			//		} };
 
-					semInfo[0].value = 3;
-					const IQueue::SSubmitInfo infos[1] = { {
-						.commandBuffers = commandBuffers,
-						.signalSemaphores = semInfo
-					} };
+			//		semInfo[0].value = 3;
+			//		const IQueue::SSubmitInfo infos[1] = { {
+			//			.commandBuffers = commandBuffers,
+			//			.signalSemaphores = semInfo
+			//		} };
 
-					if (computeQueue->submit(infos) != IQueue::RESULT::SUCCESS) {
-						m_logger->log("Download submission failure", system::ILogger::ELL_ERROR);
-					}
+			//		if (computeQueue->submit(infos) != IQueue::RESULT::SUCCESS) {
+			//			m_logger->log("Download submission failure", system::ILogger::ELL_ERROR);
+			//		}
 
-					const ISemaphore::SWaitInfo cmdbufDonePending[] = { {
-						.semaphore = semaphore.get(),
-						.value = 3
-					} };
-					if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS) {
-						m_logger->log("Blocking for download semaphore failed", ILogger::ELL_ERROR);
-						return false;
-					}
-				}
-			}
+			//		const ISemaphore::SWaitInfo cmdbufDonePending[] = { {
+			//			.semaphore = semaphore.get(),
+			//			.value = 3
+			//		} };
+			//		if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS) {
+			//			m_logger->log("Blocking for download semaphore failed", ILogger::ELL_ERROR);
+			//			return false;
+			//		}
+			//	}
+			//}
 
-			auto mem = const_cast<video::IDeviceMemoryAllocation*>(downloaded_buffer->getBoundMemory().memory);
-			{
-				ILogicalDevice::MappedMemoryRange range;
-				{
-					range.memory = mem;
-					range.offset = 0u;
-					range.length = in_gpu_range.size;
-				}
-				mem->map({ .offset = range.offset, .length = range.length }, video::IDeviceMemoryAllocation::EMCAF_READ);
-			}
+			auto mem = const_cast<video::IDeviceMemoryAllocation*>(scratch_gpu_range.buffer->getBoundMemory().memory);
+			mem->map({ .offset = 0u, .length = scratch_gpu_range.size }, video::IDeviceMemoryAllocation::EMCAF_READ);
 			auto gpu_begin = reinterpret_cast<uint32_t*>(mem->getMappedPointer());
-			m_logger->log("Device result %d", system::ILogger::ELL_INFO, gpu_begin[0]);
-			if (gpu_begin[0] != result)
+			auto gpu_result = gpu_begin[0u];
+			m_logger->log("Device result %d", system::ILogger::ELL_INFO, gpu_result);
+			if (gpu_result != result)
 				_NBL_DEBUG_BREAK_IF(true);
 			m_logger->log("Result Comparison Test Passed", system::ILogger::ELL_PERFORMANCE);
 			operationSuccess = true;
