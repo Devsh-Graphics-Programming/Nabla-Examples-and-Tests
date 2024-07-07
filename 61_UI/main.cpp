@@ -428,17 +428,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
 			ui->registerListener([this]() -> void 
 				{
-					/*
-
-					ui->BeginWindow("Test window");
-					ui->SetNextItemWidth(100);
-					ui->Text("Hi");
-					ui->SetNextItemWidth(100);
-					ui->Button("Button", []()->void { printf("Button pressed!\n"); });
-					ui->EndWindow();
-
-					*/
-
 					ImGuiIO& io = ImGui::GetIO();
 
 					if (isPerspective)
