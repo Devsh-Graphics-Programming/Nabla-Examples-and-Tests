@@ -7,13 +7,33 @@
 
 NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
 
+using namespace nbl;
+using namespace hlsl;
+
+struct ConstructorTestValues
+{
+    int32_t int32;
+    int64_t int64;
+    uint32_t uint32;
+    uint64_t uint64;
+    float32_t float32;
+    float64_t float64;
+};
+
 struct TestValues
 {
     // constructors
-    nbl::hlsl::emulated_float64_t::storage_t uint16CreateVal;
+    
+    //nbl::hlsl::emulated_float64_t::storage_t int16CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t int32CreateVal;
+    nbl::hlsl::emulated_float64_t::storage_t int64CreateVal;
+    
+    // TODO:
+    //nbl::hlsl::emulated_float64_t::storage_t uint16CreateVal;
     nbl::hlsl::emulated_float64_t::storage_t uint32CreateVal;
     nbl::hlsl::emulated_float64_t::storage_t uint64CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t float16CreateVal;
+    // TODO:
+    //nbl::hlsl::emulated_float64_t::storage_t float16CreateVal;
     nbl::hlsl::emulated_float64_t::storage_t float32CreateVal;
     nbl::hlsl::emulated_float64_t::storage_t float64CreateVal;
 
