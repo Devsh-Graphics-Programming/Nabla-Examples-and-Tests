@@ -167,42 +167,8 @@ class CAssetConverter : public core::IReferenceCounted
 			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
 			bool invalid = true;
 		};
+
 		// And these are the results of the conversion.
-		template<asset::Asset AssetType>
-		struct cached_t final
-		{
-			private:
-				using this_t = cached_t<AssetType>;
-				using video_t = typename asset_traits<AssetType>::video_t;
-				constexpr static inline bool RefCtd = core::ReferenceCounted<video_t>;
-
-			public:
-				inline cached_t() = default;
-				inline cached_t(const this_t& other) : cached_t() {operator=(other);}
-				inline cached_t(this_t&&) = default;
-
-				// special wrapping to make smart_refctd_ptr copyable
-				inline this_t& operator=(const this_t& rhs)
-				{
-					if constexpr (RefCtd)
-						value = core::smart_refctd_ptr<video_t>(rhs.value.get());
-					else
-						value = video_t(rhs.value);
-					return *this;
-				}
-				inline this_t& operator=(this_t&&) = default;
-
-				inline const auto& get() const
-				{
-					if constexpr (RefCtd)
-						return value.get();
-					else
-						return value;
-				}
-
-				using type = std::conditional_t<RefCtd,core::smart_refctd_ptr<video_t>,video_t>;
-				type value = {};
-		};
 #define NBL_API
 		// Typed Cache (for a particular AssetType)
 		template<asset::Asset AssetType>
@@ -216,9 +182,13 @@ class CAssetConverter : public core::IReferenceCounted
 				inline CCache& operator=(CCache&&) = default;
 
 				// fastest lookup
-				inline const auto& find(const core::blake3_hash_t& hash) const
+				inline const auto find(const core::blake3_hash_t& hash) const
 				{
-					return m_container.find(hash)->second.get();
+					return m_forwardMap.find(hash)->second.get();
+				}
+				inline const auto find(const asset_cached_t<AssetType>::type& gpuObject) const
+				{
+					return m_reverseMap.find(gpuObject)->second;
 				}
 
 				struct lookup_t final
@@ -260,21 +230,23 @@ class CAssetConverter : public core::IReferenceCounted
                 inline auto find(const lookup_t& key) const
                 {
 					if (key.valid())
-						return m_container.end();
+						return m_forwardMap.end();
 
                     return find(key.hash());
                 }
 
 				inline void merge(const CCache<AssetType>& other)
 				{
-					m_container.insert(other.m_container.begin(),other.m_container.end());
+					m_forwardMap.insert(other.m_forwardMap.begin(),other.m_forwardMap.end());
+					m_reverseMap.insert(other.m_reverseMap.begin(),other.m_reverseMap.end());
 				}
 
             private:
 				// The blake3 hash is quite fat (256bit), so we don't actually store a full asset ref for comparison.
 				// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
 				// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
-				std::unordered_map<core::blake3_hash_t,cached_t<AssetType>> m_container;
+				core::unordered_map<core::blake3_hash_t,asset_cached_t<AssetType>> m_forwardMap;
+				core::unordered_map<asset_cached_t<AssetType>,core::blake3_hash_t> m_reverseMap;
         };
 
 		// A meta class to encompass all the Assets you might want to convert at once
@@ -329,11 +301,11 @@ class CAssetConverter : public core::IReferenceCounted
 
 				// for every entry in the input array, we have this mapped 1:1
 				template<asset::Asset AssetType>
-				using vector_t = core::vector<cached_t<AssetType>>;
+				using vector_t = core::vector<asset_cached_t<AssetType>>;
 
 				// until `convert` is called, this will only contain valid entries for items already found in `SInput::readCache`
 				template<asset::Asset AssetType>
-				std::span<const cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
+				std::span<const asset_cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
 
 			private:
 				friend class CAssetConverter;
@@ -363,6 +335,7 @@ class CAssetConverter : public core::IReferenceCounted
 			// By default we always insert into the cache
 			virtual inline bool writeCache(const core::blake3_hash_t& createdFrom)
 			{
+				return true;
 			}
 
 			// submits the buffered up cals 

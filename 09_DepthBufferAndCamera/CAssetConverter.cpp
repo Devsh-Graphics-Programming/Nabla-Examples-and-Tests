@@ -152,7 +152,32 @@ struct dedup_entry_t
 	core::blake3_hash_t patchedHash;
 	core::blake3_hash_t unpatchedHash;
 };
+
+
+When to look for assets in the read cache?
+
+Ideally when traversing already because then we can skip DAG subgraph exploration.
+
+But we need to explore the DAG to hash anyway.
+
+
+How to "amortized hash"?
+
+Grab (asset,group,patch) hash the asset params, group and patch, then update with dependents:
+- this requires building or retrieving patches for dependents
+- lookup with (dependent,group,patch)
+- if lookup fails, proceed to compute full hash and insert it into cache
+
+We know pointer, so can actually trim hashes of stale assets (same pointer, different hash) if we do full recompute.
+
 */
+template<Asset AssetType>
+struct to_hash_t
+{
+	const AssetType* asset = nullptr;
+	size_t uniqueCopyGroupID = 0;
+	CAssetConverter::patch_t<AssetType> patch = {};
+};
 
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
@@ -173,8 +198,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			patch_variant_t patch = {};
 		};
 		core::stack<dfs_entry_t> dfsStack;
-		// This cache stops us adding an asset more than once.
-		// Note that its not a simple multimap because order of duplicate patches needs to be deterministic for an input.
+		// This cache stops us traversing an asset with the same user group and patch more than once.
 		core::unordered_multimap<SInputs::instance_t,patch_variant_t> dfsCache = {};
 		// returns true if new element was inserted
 		auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch)->bool
@@ -291,8 +315,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 		}
 	}
-	// now we have a set of implicit gpu creation parameters we want to create resources with,
-	// and a mapping from (Asset,Patch) -> UniqueAsset
+	// now we have a set of implicit gpu creation parameters we want to create resources with
 	// If there's a readCache we need to look for an item there first.
 #if 0
 	auto dedup = [&]<Asset AssetType>()->void
