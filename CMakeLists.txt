@@ -28,12 +28,14 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
 	# showcase the use of a depth buffer and rudimentary camera
 	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
+  # demonstrate the counting sort utility
+	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
 	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
-	#add_subdirectory(35_GeometryCreator EXCLUDE_FROM_ALL)
+	add_subdirectory(35_GeometryCreator EXCLUDE_FROM_ALL)
 
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)

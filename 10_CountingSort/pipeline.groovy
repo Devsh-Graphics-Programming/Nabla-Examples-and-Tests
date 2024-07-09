@@ -2,9 +2,9 @@ import org.DevshGraphicsProgramming.Agent
 import org.DevshGraphicsProgramming.BuilderInfo
 import org.DevshGraphicsProgramming.IBuilder
 
-class CGeometryCreatorBuilder extends IBuilder
+class CCountingSortBuilder extends IBuilder
 {
-	public CGeometryCreatorBuilder(Agent _agent, _info)
+	public CCountingSortBuilder(Agent _agent, _info)
 	{
 		super(_agent, _info)
 	}
@@ -44,7 +44,7 @@ class CGeometryCreatorBuilder extends IBuilder
 
 def create(Agent _agent, _info)
 {
-	return new CGeometryCreatorBuilder(_agent, _info)
+	return new CStreamingAndBufferDeviceAddressBuilder(_agent, _info)
 }
 
 return this
