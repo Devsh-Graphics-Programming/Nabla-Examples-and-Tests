@@ -167,9 +167,111 @@ class CAssetConverter : public core::IReferenceCounted
 			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
 			bool invalid = true;
 		};
-
-		// And these are the results of the conversion.
 #define NBL_API
+		// A class to accelerate our hash computations
+		class CHasher final : core::IReferenceCounted
+		{
+			public:
+				//
+				template<asset::Asset AssetType>
+				struct lookup_t
+				{
+					inline bool valid() const
+					{
+						return asset && patch && patch->valid();
+					}
+
+					const AssetType* asset = nullptr;
+					// Normally all references to the same IAsset* would spawn the same IBackendObject*.
+					// However, each unique integer value "spawns" a new copy, note that the group ID is the same size as a pointer, so you can e.g.
+					// cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
+					size_t uniqueCopyGroupID = 0;
+					const patch_t<AssetType>* patch = {};
+					// how deep from `asset` do we start trusting the cache to contain correct non stale hashes
+					uint32_t hashTrustLevel = 0;
+				};
+
+			private:
+				//
+				template<asset::Asset AssetType>
+				struct key_t
+				{
+					inline bool operator==(const key_t<AssetType>& other) const
+					{
+						return asset.get()==other.asset && uniqueCopyGroupID==other.uniqueCopyGroupID && patch==other.patch;
+					}
+					inline bool operator==(const lookup_t<AssetType>& other) const
+					{
+						assert(other.valid());
+						return asset.get()==other.asset && uniqueCopyGroupID==other.uniqueCopyGroupID && patch==*other.patch;
+					}
+
+					core::smart_refctd_ptr<const AssetType> asset = {};
+					size_t uniqueCopyGroupID = 0;
+					patch_t<AssetType> patch = {};
+				};
+				template<asset::Asset AssetType>
+				struct Hasher
+				{
+					inline size_t operator()(const key_t<AssetType>& key) const
+					{
+						size_t value = 0x45ull; // TODO: use the instance hash!
+						core::hash_combine(value,key.patch);
+						return value;
+					}
+					inline size_t operator()(const lookup_t<AssetType>& lookup) const
+					{
+						size_t value = 0x45ull; // TODO: use the instance hash!
+						assert(lookup.valid());
+						core::hash_combine(value,*lookup.patch);
+						return value;
+					}
+				};
+				template<asset::Asset AssetType>
+				using container_t = core::unordered_map<key_t<AssetType>,core::blake3_hash_t,Hasher<AssetType>>;
+
+			public:
+				//
+				template<asset::Asset AssetType>
+				inline core::blake3_hash_t hash(const lookup_t<AssetType>& toHash)
+				{
+					assert(toHash.valid());
+					// consult cache
+					auto& container = std::get<container_t<AssetType>>(m_containers);
+					auto foundIt = container.end();
+					foundIt = container.find<lookup_t<AssetType>>(toHash);
+					const bool found = foundIt!=container.end();
+					// if found and we trust then return the cached hash
+					if (toHash.hashTrustLevel==0 && found)
+						return foundIt->second;
+					// proceed with full hash computation
+					core::blake3_hash_t retval;
+					{
+						blake3_hasher hasher;
+						blake3_hasher_init(&hasher);
+						// We purposefully don't hash asset pointer, we hash the contents instead
+						//core::blake3_hasher_update(hasher,toHash.asset);
+						core::blake3_hasher_update(hasher,toHash.uniqueCopyGroupID);
+						const auto trustLevel = toHash.hashTrustLevel ? (toHash.hashTrustLevel-1):0;
+//TODO					hash_impl(&hasher,toHash.asset,toHash.patch,trustLevel);
+						blake3_hasher_finalize(&hasher,retval.data,sizeof(retval));
+					}
+					if (found) // replace stale entry
+						foundIt->second = retval;
+					else // insert new entry
+					{
+						auto insertIt = container.insert(foundIt,retval);
+						assert(insertIt->first==toHash && insertIt->second==retval);
+					}
+					return retval;
+				}
+				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
+				NBL_API void ejectStale();
+
+			private:
+				//
+				core::tuple_transform_t<container_t,supported_asset_types> m_containers;
+		};
 		// Typed Cache (for a particular AssetType)
 		template<asset::Asset AssetType>
         class CCache final : core::Uncopyable
@@ -184,56 +286,19 @@ class CAssetConverter : public core::IReferenceCounted
 				// fastest lookup
 				inline const auto find(const core::blake3_hash_t& hash) const
 				{
-					return m_forwardMap.find(hash)->second.get();
+					const auto end = m_forwardMap.end();
+					const auto found = m_forwardMap.find(hash);
+					if (found!=end)
+						return found->second.get();
+					return end;
 				}
 				inline const auto find(const asset_cached_t<AssetType>::type& gpuObject) const
 				{
-					return m_reverseMap.find(gpuObject)->second;
+					const auto end = m_reverseMap.end();
+					const auto found = m_reverseMap.find(gpuObject);
+					if (found!=end)
+						return found->second;
 				}
-
-				struct lookup_t final
-				{
-					public:
-						inline bool operator==(const lookup_t& rhs) const = default;
-
-						inline core::blake3_hash_t hash() const
-						{
-							core::blake3_hash_t retval;
-							{
-								blake3_hasher hasher;
-								blake3_hasher_init(&hasher);
-								// We purposefully don't hash asset pointer, we hash the contents instead
-								//core::blake3_hasher_update(hasher,asset);
-								core::blake3_hasher_update(hasher,uniqueCopyGroupID);
-								hash_impl(&hasher);
-								blake3_hasher_finalize(&hasher,retval.data,sizeof(retval));
-							}
-							return retval;
-						}
-
-						inline bool valid() const
-						{
-							return asset && patch.valid();
-						}
-
-						const typename asset_traits<AssetType>::asset_t* asset = nullptr;
-						// Normally all references to the same IAsset* would spawn the same IBackendObject*.
-						// However, each unique integer value "spawns" a new copy, note that the group ID is the same size as a pointer, so you can e.g.
-						// cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
-						size_t uniqueCopyGroupID = 0;
-						patch_t<AssetType> patch = {};
-
-					private:
-						NBL_API void hash_impl(blake3_hasher* hasher) const;
-				};
-				// slower but more useful version
-                inline auto find(const lookup_t& key) const
-                {
-					if (key.valid())
-						return m_forwardMap.end();
-
-                    return find(key.hash());
-                }
 
 				inline void merge(const CCache<AssetType>& other)
 				{

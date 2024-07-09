@@ -114,8 +114,39 @@ CAssetConverter::patch_t<ICPUPipelineLayout>::patch_t(
 	invalid = false;
 }
 
-
 //
+void CAssetConverter::CHasher::ejectStale()
+{
+	auto rehash = [&]<typename AssetType>() -> void
+	{
+		auto& container = std::get<container_t<AssetType>>(m_containers);
+		for (auto it=container.begin(), end=container.end(); it!=end;)
+		{
+			const auto oldHash = it->second;
+			const auto& key = it->first;
+			lookup_t<AssetType> lookup = {
+				.asset = key.asset.get(),
+				.uniqueCopyGroupID = key.uniqueCopyGroupID,
+				.patch = &key.patch,
+				// can re-use cached hashes for dependants if we start ejecting in the correct order
+				.hashTrustLevel = 1
+			};
+			if (hash(lookup)!=oldHash)
+				it = container.erase(it);
+			else
+				it++;
+		}
+	};
+	// to make the process more efficient we start ejecting from "lowest level" assets
+	rehash.operator()<ICPUShader>();
+	rehash.operator()<ICPUBuffer>();
+	rehash.operator()<ICPUSampler>();
+//	rehash.operator()<ICPUBufferView>();
+	rehash.operator()<ICPUDescriptorSetLayout>();
+	rehash.operator()<ICPUPipelineLayout>();
+}
+
+#if 0
 void CAssetConverter::CCache<asset::ICPUShader>::lookup_t::hash_impl(blake3_hasher* hasher) const
 {
 	// TODO: optimizer settings
@@ -138,6 +169,7 @@ void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(bla
 //		blake3_hasher_update(hasher,asset->getDescriptorSetLayout(i));
 	}
 }
+#endif
 
 // question of propagating changes, image view and buffer view
 // if image view used as STORAGE, or SAMPLED have to change subUsage
@@ -171,13 +203,6 @@ Grab (asset,group,patch) hash the asset params, group and patch, then update wit
 We know pointer, so can actually trim hashes of stale assets (same pointer, different hash) if we do full recompute.
 
 */
-template<Asset AssetType>
-struct to_hash_t
-{
-	const AssetType* asset = nullptr;
-	size_t uniqueCopyGroupID = 0;
-	CAssetConverter::patch_t<AssetType> patch = {};
-};
 
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
