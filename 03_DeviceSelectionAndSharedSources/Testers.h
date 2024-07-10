@@ -203,7 +203,7 @@ public:
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 				.stageFlags = ICPUShader::ESS_COMPUTE,
 				.count = 1,
-				.samplers = nullptr
+				.immutableSamplers = nullptr
 			}
 		};
 
@@ -215,7 +215,7 @@ public:
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = ICPUShader::ESS_COMPUTE,
 					.count = 1,
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 				},
 				{
 					.binding = 1,
@@ -223,7 +223,7 @@ public:
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = ICPUShader::ESS_COMPUTE,
 					.count = 2,
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 				}
 		};
 
