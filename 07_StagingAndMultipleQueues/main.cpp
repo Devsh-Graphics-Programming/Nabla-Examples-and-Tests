@@ -379,11 +379,6 @@ private:
 			m_histogramBufferMemPtrs[2] = m_histogramBufferMemPtrs[1] + HISTOGRAM_SIZE;
 		}
 
-		// TODO: Remove stuff below
-		IGPUSampler::SParams samplerParams;
-		samplerParams.AnisotropicFilter = false;
-		core::smart_refctd_ptr<IGPUSampler> sampler = m_device->createSampler(samplerParams);
-
 		IGPUDescriptorSet::SDescriptorInfo bufInfo;
 		bufInfo.desc = smart_refctd_ptr(histogramBuffer);
 		bufInfo.info.buffer = { .offset = 0u, .size = histogramBuffer->getSize() };

@@ -10,13 +10,10 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 
 #include "push_constants.hlsl"
     
-#if defined(SEPARATED_IMMUTABLE) || defined(SEPARATED_MUTABLE)
-    [[vk::binding(0,3)]] Texture2DArray texture;
-    [[vk::binding(1,3)]] SamplerState samplerState;
-#else
-    [[vk::combinedImageSampler]][[vk::binding(0,3)]] Texture2DArray texture;
-    [[vk::combinedImageSampler]][[vk::binding(0,3)]] SamplerState samplerState;
-#endif
+
+[[vk::combinedImageSampler]][[vk::binding(0,3)]] Texture2DArray texture;
+[[vk::combinedImageSampler]][[vk::binding(0,3)]] SamplerState samplerState;
+
 
 [[vk::push_constant]] push_constants_t pc;
 
