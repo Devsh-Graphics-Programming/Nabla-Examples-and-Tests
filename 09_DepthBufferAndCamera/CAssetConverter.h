@@ -61,136 +61,162 @@ class CAssetConverter : public core::IReferenceCounted
 			return core::smart_refctd_ptr<CAssetConverter>(new CAssetConverter(std::move(params)),core::dont_grab);
 		}
 
-		// when getting dependents, the creation parameters of GPU objects will be produced and patched appropriately
+		// When getting dependents, the creation parameters of GPU objects will be produced and patched appropriately.
+		// `patch_t` uses CRPT to inherit from `patch_impl_t` to provide default `operator==` and `update_hash()` definition.
+		// The default specialization kicks in for any `AssetType` that has nothing possible to patch (e.g. Descriptor Set Layout).
 		template<asset::Asset AssetType>
-		struct patch_t;
-		template<>
-		struct patch_t<asset::ICPUShader>
+		struct patch_impl_t
 		{
-			using this_t = patch_t<asset::ICPUShader>;
+#define PATCH_IMPL_BOILERPLATE(ASSET_TYPE,...) using this_t = patch_impl_t<ASSET_TYPE>; \
+			public: \
+				inline patch_impl_t() = default; \
+				inline patch_impl_t(const this_t& other) = default; \
+				inline patch_impl_t(this_t&& other) = default; \
+				inline this_t& operator=(const this_t& other) = default; \
+				inline this_t& operator=(this_t&& other) = default; \
+				__VA_ARGS__ patch_impl_t(const ASSET_TYPE* asset, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
 
-			inline patch_t() = default;
-			inline patch_t(const asset::ICPUShader* shader, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
+				PATCH_IMPL_BOILERPLATE(AssetType,inline) {}
 
-			inline bool valid() const {return nbl::hlsl::bitCount<uint32_t>(stage)!=1;}
+				// always valid
+				inline bool valid() const {return true;}
 
-			inline bool operator==(const this_t& other) const
-			{
-				return stage==other.stage;
-			}
-
-			inline this_t combine(const this_t& other) const
-			{
-				if (stage!=other.stage)
+			protected:
+				// there's nothing to combine, so combining always produces the input
+				inline this_t combine(const this_t& other) const
 				{
-					if (stage==IGPUShader::ESS_UNKNOWN)
-						return other; // return the other whether valid or not
-					else if (other.stage!=IGPUShader::ESS_UNKNOWN)
-						return {}; // invalid
-					// other is UNKNOWN so fallthrough and return us whether valid or not
+					return *this;
 				}
-				return *this;
-			}
-
-			IGPUShader::E_SHADER_STAGE stage = IGPUShader::ESS_UNKNOWN;
 		};
 		template<>
-		struct patch_t<asset::ICPUBuffer>
+		struct patch_impl_t<asset::ICPUShader>
 		{
-			using this_t = patch_t<asset::ICPUBuffer>;
-			using usage_flags_t = asset::IBuffer::E_USAGE_FLAGS;
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUShader);
 
-			inline patch_t() = default;
-			patch_t(const asset::ICPUBuffer* buffer, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
+				inline bool valid() const {return nbl::hlsl::bitCount<uint32_t>(stage)!=1;}
 
-			inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
+				IGPUShader::E_SHADER_STAGE stage = IGPUShader::ESS_UNKNOWN;
 
-			inline bool operator==(const this_t& other) const
-			{
-				return usage==other.usage;
-			}
-
-			inline this_t combine(const this_t& other)
-			{
-				usage |= other.usage;
-				return *this;
-			}
-
-			core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
+			protected:
+				inline this_t combine(const this_t& other) const
+				{
+					if (stage != other.stage)
+					{
+						if (stage == IGPUShader::ESS_UNKNOWN)
+							return other; // return the other whether valid or not
+						else if (other.stage != IGPUShader::ESS_UNKNOWN)
+							return {}; // invalid
+						// other is UNKNOWN so fallthrough and return us whether valid or not
+					}
+					return *this;
+				}
 		};
 		template<>
-		struct patch_t<asset::ICPUSampler>
+		struct patch_impl_t<asset::ICPUBuffer>
 		{
-			using this_t = patch_t<asset::ICPUSampler>;
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUBuffer);
 
-			inline patch_t() = default;
-			patch_t(const asset::ICPUSampler* sampler, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
+				inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
 
-			inline bool valid() const { return anisotropyLevelLog2 > 5; }
+				using usage_flags_t = IGPUBuffer::E_USAGE_FLAGS;
+				core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
 
-			inline bool operator==(const this_t& other) const
+			protected:
+				inline this_t combine(const this_t& other) const
+				{
+					this_t retval = *this;
+					retval.usage |= other.usage;
+					return *this;
+				}
+		};
+		template<>
+		struct patch_impl_t<asset::ICPUSampler>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUSampler);
+
+				inline bool valid() const { return anisotropyLevelLog2>5; }
+
+				uint8_t anisotropyLevelLog2 = 6;
+				
+			protected:
+				inline this_t combine(const this_t& other) const
+				{
+					// The only reason why someone would have a different level to creation parameters is
+					// because the HW doesn't support that level and the level gets clamped. So must be same.
+					if (anisotropyLevelLog2 != other.anisotropyLevelLog2)
+						return {}; // invalid
+					return *this;
+				}
+		};
+		template<>
+		struct patch_impl_t<asset::ICPUPipelineLayout>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUPipelineLayout);
+
+				inline bool valid() const {return !invalid;}
+
+				std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
+				bool invalid = true;
+				
+			protected:
+				inline this_t combine(const this_t& other) const
+				{
+					if (invalid || other.invalid)
+						return {};
+					this_t retval = *this;
+					for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
+						retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
+					return retval;
+				}
+		};
+#undef PATCH_IMPL_BOILERPLATE
+		// The default specialization provides simple equality operations and hash operations, this will work as long as your patch_impl_t doesn't:
+		// - use a container like `core::vector<T>`, etc.
+		// - use pointers to other objects or arrays whose contents must be analyzed
+		template<asset::Asset AssetType>
+		struct patch_t : patch_impl_t<AssetType>
+		{
+			using this_t = patch_t<AssetType>;
+			using base_t = patch_impl_t<AssetType>;
+
+			// forwarding
+			using base_t::base_t;
+			inline patch_t() : base_t() {}
+			inline patch_t(const this_t& other) : base_t(other) {}
+			inline patch_t(this_t&& other) : base_t(std::move(other)) {}
+			inline patch_t(base_t&& other) : base_t(std::move(other)) {}
+			inline patch_t(const AssetType* asset, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits) : base_t(asset,features,limits) {}
+
+			inline this_t& operator=(const this_t& other)
 			{
-				return anisotropyLevelLog2==other.anisotropyLevelLog2;
+				base_t::operator=(other);
+				return *this;
+			}
+			inline this_t& operator=(this_t&& other)
+			{
+				base_t::operator=(std::move(other));
+				return *this;
 			}
 
 			inline this_t combine(const this_t& other) const
 			{
-				// The only reason why someone would have a different level to creation parameters is
-				// because the HW doesn't support that level and the level gets clamped. So must be same.
-				if (anisotropyLevelLog2 != other.anisotropyLevelLog2)
-					return {}; // invalid
-				return *this;
+				return base_t::combine(other);
 			}
 
-			uint8_t anisotropyLevelLog2 = 6;
-		};
-		template<>
-		struct patch_t<asset::ICPUDescriptorSetLayout>
-		{
-			using this_t = patch_t<asset::ICPUDescriptorSetLayout>;
-
-			inline patch_t() = default;
-			patch_t(const asset::ICPUDescriptorSetLayout* layout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
-
-			inline bool valid() const {return true;}
-
-			inline bool operator==(const this_t& other) const
+			// actual new methods
+			inline bool operator==(const patch_t<AssetType>& other) const
 			{
-				return true;
+				return memcmp(this,&other,sizeof(base_t))==0;
 			}
 
-			inline this_t combine(const this_t& other) const
+			inline void hasher_update(::blake3_hasher& hasher) const
 			{
-				return *this;
+				core::blake3_hasher_update(hasher,*this);
 			}
-		};
-		template<>
-		struct patch_t<asset::ICPUPipelineLayout>
-		{
-			using this_t = patch_t<asset::ICPUPipelineLayout>;
-
-			inline patch_t() = default;
-			patch_t(const asset::ICPUPipelineLayout* pplnLayout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
-
-			inline bool valid() const {return !invalid;}
-
-			inline bool operator==(const this_t& other) const
-			{
-				return invalid==other.invalid && pushConstantBytes==other.pushConstantBytes;
-			}
-
-			inline this_t combine(const this_t& other) const
-			{
-				if (invalid || other.invalid)
-					return {};
-				this_t retval = *this;
-				for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
-					retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
-				return retval;
-			}
-
-			std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
-			bool invalid = true;
 		};
 #define NBL_API
 		// A class to accelerate our hash computations
@@ -232,16 +258,15 @@ class CAssetConverter : public core::IReferenceCounted
 
 					inline size_t operator()(const key_t<AssetType>& key) const
 					{
-						size_t value = 0x45ull; // TODO: use the instance hash!
-//						core::hash_combine(value,key.patch);
-						return value;
+						return operator()(lookup_t<AssetType>{key.asset.get(),key.uniqueCopyGroupID,&key.patch});
 					}
 					inline size_t operator()(const lookup_t<AssetType>& lookup) const
 					{
-						size_t value = 0x45ull; // TODO: use the instance hash!
-						assert(lookup.valid());
-//						core::hash_combine(value,*lookup.patch);
-						return value;
+						blake3_hasher hasher;
+						blake3_hasher_init(&hasher);
+						lookup.patch->hasher_update(hasher);
+						const auto longHash = core::blake3_hasher_finalize(hasher);
+						return std::hash<core::blake3_hash_t>()(longHash);
 					}
 
 					inline bool operator()(const key_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
@@ -283,7 +308,7 @@ class CAssetConverter : public core::IReferenceCounted
 						core::blake3_hasher_update(hasher,toHash.uniqueCopyGroupID);
 						const auto trustLevel = toHash.hashTrustLevel ? (toHash.hashTrustLevel-1):0;
 //TODO					hash_impl(&hasher,toHash.asset,toHash.patch,trustLevel);
-						blake3_hasher_finalize(&hasher,retval.data,sizeof(retval));
+						retval = core::blake3_hasher_finalize(hasher);
 					}
 					if (found) // replace stale entry
 						foundIt->second = retval;

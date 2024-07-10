@@ -11,7 +11,7 @@ using namespace nbl::asset;
 
 namespace nbl::video
 {
-CAssetConverter::patch_t<ICPUShader>::patch_t(
+CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 	const ICPUShader* shader,
 	const SPhysicalDeviceFeatures& features,
 	const SPhysicalDeviceLimits& limits
@@ -57,7 +57,7 @@ CAssetConverter::patch_t<ICPUShader>::patch_t(
 	}
 }
 
-CAssetConverter::patch_t<ICPUBuffer>::patch_t(
+CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(
 	const ICPUBuffer* buffer,
 	const SPhysicalDeviceFeatures& features,
 	const SPhysicalDeviceLimits& limits
@@ -75,7 +75,7 @@ CAssetConverter::patch_t<ICPUBuffer>::patch_t(
 	usage |= usage_flags_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
 }
 
-CAssetConverter::patch_t<ICPUSampler>::patch_t(
+CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
 	const ICPUSampler* sampler,
 	const SPhysicalDeviceFeatures& features,
 	const SPhysicalDeviceLimits& limits
@@ -85,19 +85,11 @@ CAssetConverter::patch_t<ICPUSampler>::patch_t(
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
 }
 
-CAssetConverter::patch_t<ICPUDescriptorSetLayout>::patch_t(
-	const ICPUDescriptorSetLayout* layout,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-) : patch_t()
-{
-}
-
-CAssetConverter::patch_t<ICPUPipelineLayout>::patch_t(
+CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(
 	const ICPUPipelineLayout* pplnLayout,
 	const SPhysicalDeviceFeatures& features,
 	const SPhysicalDeviceLimits& limits
-) : patch_t()
+) : patch_impl_t()
 {
 	// TODO: some way to do bound checking and indicate validity
 	const auto pc = pplnLayout->getPushConstantRanges();
