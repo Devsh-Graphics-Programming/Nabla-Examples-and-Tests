@@ -211,7 +211,7 @@ class CAssetConverter : public core::IReferenceCounted
 		};
 #define NBL_API
 		// A class to accelerate our hash computations
-		class CHasher final : core::IReferenceCounted
+		class CHashCache final : core::IReferenceCounted
 		{
 			public:
 				//
@@ -316,8 +316,36 @@ class CAssetConverter : public core::IReferenceCounted
 					}
 					return retval;
 				}
+				// The `hashTrust` level gets ignored (TODO: shall we use it to recurse?)
+				template<asset::Asset AssetType>
+				inline bool erase(const lookup_t<AssetType>& what)
+				{
+					return std::get<container_t<AssetType>>(m_containers).erase(what)>0;
+				}
+				// Warning: Linear Search! Super slow!
+				template<asset::Asset AssetType>
+				inline bool erase(const AssetType* asset)
+				{
+					return core::erase_if(std::get<container_t<AssetType>>(m_containers),[asset](const auto& entry)->bool
+						{
+							auto const& [key,value] = entry;
+							return key.asset==asset;
+						}
+					);
+				}
 				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
-				NBL_API void ejectStale();
+				NBL_API void eraseStale();
+				// Clear the cache for a given type
+				template<asset::Asset AssetType>
+				inline void clear()
+				{
+					std::get<container_t<AssetType>>(m_containers).clear();
+				}
+				// Clear the caches completely
+				inline void clear()
+				{
+					core::for_each_in_tuple(m_containers,[](auto& container)->void{container.clear();});
+				}
 
 			private:
 				//

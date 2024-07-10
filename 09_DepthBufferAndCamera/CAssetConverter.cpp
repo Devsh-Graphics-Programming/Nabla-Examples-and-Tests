@@ -107,27 +107,26 @@ CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(
 }
 
 //
-void CAssetConverter::CHasher::ejectStale()
+void CAssetConverter::CHashCache::eraseStale()
 {
 	auto rehash = [&]<typename AssetType>() -> void
 	{
 		auto& container = std::get<container_t<AssetType>>(m_containers);
-		for (auto it=container.begin(), end=container.end(); it!=end;)
-		{
-			const auto oldHash = it->second;
-			const auto& key = it->first;
-			lookup_t<AssetType> lookup = {
-				.asset = key.asset.get(),
-				.uniqueCopyGroupID = key.uniqueCopyGroupID,
-				.patch = &key.patch,
-				// can re-use cached hashes for dependants if we start ejecting in the correct order
-				.hashTrustLevel = 1
-			};
-			if (hash(lookup)!=oldHash)
-				it = container.erase(it);
-			else
-				it++;
-		}
+		core::erase_if(container,[this](const auto& entry)->bool
+			{
+				// backup because `hash(lookup)` call will update it
+				const auto oldHash = entry.second;
+				const auto& key = entry.first;
+				lookup_t<AssetType> lookup = {
+					.asset = key.asset.get(),
+					.uniqueCopyGroupID = key.uniqueCopyGroupID,
+					.patch = &key.patch,
+					// can re-use cached hashes for dependants if we start ejecting in the correct order
+					.hashTrustLevel = 1
+				};
+				return hash(lookup)!=oldHash;
+			}
+		);
 	};
 	// to make the process more efficient we start ejecting from "lowest level" assets
 	rehash.operator()<ICPUShader>();
