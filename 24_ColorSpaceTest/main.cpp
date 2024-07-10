@@ -120,50 +120,28 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
 
-			// create the descriptor sets layout
+			/* 
+			* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding. 
+			* In this example we provide a sampler at descriptor set creation time, via the SBinding struct below. This specifies that the sampler for this binding is immutable,
+			* as evidenced by the name of the field in the SBinding. 
+			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
+			* field set to its default (nullptr). 
+			*/
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				auto defaultSampler = m_device->createSampler({
 					.AnisotropicFilter = 0
 				});
 
-#if defined(COMBINED_IMMUTABLE) || defined(COMBINED_MUTABLE)
 				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
 					.binding = 0,
 					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::ESS_FRAGMENT,
 					.count = 1,
-					#if defined(COMBINED_IMMUTABLE)
 					.immutableSamplers = &defaultSampler
-					#else
-					.immutableSamplers = nullptr
-					#endif
 				}
 				};
-#else 
-				const IGPUDescriptorSetLayout::SBinding bindings[2] = { {
-					.binding = 0,
-					.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::ESS_FRAGMENT,
-					.count = 1,
-					.immutableSamplers = nullptr
-				},
-				{
-					.binding = 1,
-					.type = IDescriptor::E_TYPE::ET_SAMPLER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::ESS_FRAGMENT,
-					.count = 1,
-					#if defined(SEPARATED_IMMUTABLE)
-					.immutableSamplers = &defaultSampler
-					#else
-					.immutableSamplers = nullptr
-					#endif
-				}
-				};
-#endif
 				dsLayout = m_device->createDescriptorSetLayout(bindings);
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
@@ -288,12 +266,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 		inline void workLoopBody() override
 		{
-			// Make the sampler persist in the workloopbody
-			#if defined(COMBINED_MUTABLE) || defined(SEPARATED_MUTABLE)
-			static auto defaultSampler = m_device->createSampler({
-					.AnisotropicFilter = 0
-				});
-			#endif
 			// load the image view
 			system::path filename, extension;
 			smart_refctd_ptr<ICPUImageView> cpuImgView;
@@ -377,6 +349,13 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			smart_refctd_ptr<IGPUImage> gpuImg;
 			auto ds = m_descriptorSets[resourceIx].get();
 			{
+				/*
+				* Since we're using a combined image sampler with an immutable sampler, we only need to update the sampled image at the binding. Do note however that had we chosen
+				* to use a mutable sampler instead, we'd need to write to it at least once, via the SDescriptorInfo info.info.combinedImageSampler.sampler field
+				* WARNING: With an immutable sampler on a combined image sampler, trying to write to it is valid according to Vulkan spec, although the sampler is ignored and only
+				* the image is updated. Please note that this is NOT the case in Nabla: if you try to write to a combined image sampler, then
+				* info.info.combinedImageSampler.sampler MUST be nullptr
+				*/
 				IGPUDescriptorSet::SDescriptorInfo info = {};
 				info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				{
@@ -426,11 +405,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					};
 					info.desc = m_device->createImageView(std::move(viewParams));
 				}
-
-#if defined(COMBINED_IMMUTABLE) || defined(COMBINED_MUTABLE) || defined(SEPARATED_IMMUTABLE)
-				#if defined(COMBINED_MUTABLE)
-				info.info.image.sampler = defaultSampler;
-				#endif
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
 					.dstSet = ds,
 					.binding = 0,
@@ -438,25 +412,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.count = 1,
 					.info = &info
 				}};
-#else
-				IGPUDescriptorSet::SDescriptorInfo samplerInfo = {};
-				samplerInfo.desc = defaultSampler;
-				samplerInfo.info.image.sampler = defaultSampler;
-				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = { {
-					.dstSet = ds,
-					.binding = 0,
-					.arrayElement = 0,
-					.count = 1,
-					.info = &info
-				}, 
-				{
-					.dstSet = ds,
-					.binding = 1,
-					.arrayElement = 0,
-					.count = 1,
-					.info = &samplerInfo
-				}};
-#endif
 				m_device->updateDescriptorSets(writes,{});
 			}
 
