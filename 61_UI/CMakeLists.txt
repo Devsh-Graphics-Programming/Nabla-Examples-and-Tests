@@ -1,6 +1,6 @@
 if(NBL_BUILD_IMGUI)
 	list(APPEND NBL_LIBRARIES 
-		imgui
+		imtestengine
 		imguizmo
 		"${NBL_EXT_IMGUI_UI_LIB}"
 	)
