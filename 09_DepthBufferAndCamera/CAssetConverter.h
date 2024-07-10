@@ -185,23 +185,14 @@ class CAssetConverter : public core::IReferenceCounted
 
 			// forwarding
 			using base_t::base_t;
-			inline patch_t() : base_t() {}
 			inline patch_t(const this_t& other) : base_t(other) {}
 			inline patch_t(this_t&& other) : base_t(std::move(other)) {}
 			inline patch_t(base_t&& other) : base_t(std::move(other)) {}
-			inline patch_t(const AssetType* asset, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits) : base_t(asset,features,limits) {}
 
-			inline this_t& operator=(const this_t& other)
-			{
-				base_t::operator=(other);
-				return *this;
-			}
-			inline this_t& operator=(this_t&& other)
-			{
-				base_t::operator=(std::move(other));
-				return *this;
-			}
+			inline this_t& operator=(const this_t& other) = default;
+			inline this_t& operator=(this_t&& other) = default;
 
+			// "unhide" this method
 			inline this_t combine(const this_t& other) const
 			{
 				return base_t::combine(other);
