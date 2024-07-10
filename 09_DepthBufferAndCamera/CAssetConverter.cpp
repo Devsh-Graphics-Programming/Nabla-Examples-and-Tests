@@ -11,6 +11,16 @@ using namespace nbl::asset;
 
 namespace nbl::video
 {
+CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
+	const ICPUSampler* sampler,
+	const SPhysicalDeviceFeatures& features,
+	const SPhysicalDeviceLimits& limits
+) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter)
+{
+	if (anisotropyLevelLog2>limits.maxSamplerAnisotropyLog2)
+		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
+}
+
 CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 	const ICPUShader* shader,
 	const SPhysicalDeviceFeatures& features,
@@ -75,16 +85,6 @@ CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(
 	usage |= usage_flags_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
 }
 
-CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
-	const ICPUSampler* sampler,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter)
-{
-	if (anisotropyLevelLog2>limits.maxSamplerAnisotropyLog2)
-		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
-}
-
 CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(
 	const ICPUPipelineLayout* pplnLayout,
 	const SPhysicalDeviceFeatures& features,
@@ -129,9 +129,9 @@ void CAssetConverter::CHashCache::eraseStale()
 		);
 	};
 	// to make the process more efficient we start ejecting from "lowest level" assets
+	rehash.operator()<ICPUSampler>();
 	rehash.operator()<ICPUShader>();
 	rehash.operator()<ICPUBuffer>();
-	rehash.operator()<ICPUSampler>();
 //	rehash.operator()<ICPUBufferView>();
 	rehash.operator()<ICPUDescriptorSetLayout>();
 	rehash.operator()<ICPUPipelineLayout>();
@@ -198,10 +198,13 @@ We know pointer, so can actually trim hashes of stale assets (same pointer, diff
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
-	SResults retval = {};
+	auto* const device = m_params.device;
 	if (inputs.readCache && inputs.readCache->m_params.device!=m_params.device)
-		return retval;
+		return {};
+	if (inputs.pipelineCache && inputs.pipelineCache->getOriginDevice()!=device)
+		return {};
 
+	SResults retval = {};
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
@@ -254,7 +257,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			return true;
 		};
 		//
-		auto* const device = m_params.device;
 		const auto& features = device->getEnabledFeatures();
 		const auto& limits = device->getPhysicalDevice()->getLimits();
 		// initialize stacks
@@ -333,6 +335,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	}
 	// now we have a set of implicit gpu creation parameters we want to create resources with
 	// If there's a readCache we need to look for an item there first.
+	// We can't look up "near misses" (supersets) because they'd have different hashes
+	// can't afford to split hairs like finding overlapping buffer ranges, etc.
+	// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
 #if 0
 	auto dedup = [&]<Asset AssetType>()->void
 	{
@@ -370,46 +375,83 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 // Image -> this, patched usage, promoted format
 // Image View -> ref to patched Image, patched usage, promoted format
 // Descriptor Set -> unique layout, 
+	
+	// its a very good idea to set debug names on everything!
+	auto setDebugName = [this](IBackendObject* obj, const core::blake3_hash_t& hashval)->void
+	{
+		if (obj)
+		{
+			std::ostringstream debugName;
+			debugName << "Created by Converter ";
+			debugName << std::hex;
+			debugName << this;
+			debugName << " from Asset with hash ";
+			for (const auto& byte : hashval.data)
+				debugName << uint32_t(byte) << " ";
+			obj->setObjectDebugName(debugName.str().c_str());
+		}
+	};
+
+	// create shaders
+	{
+		ILogicalDevice::SShaderCreationParameters createParams = {
+			.optimizer = m_params.optimizer.get(),
+			.readCache = inputs.readShaderCache,
+			.writeCache = inputs.writeShaderCache
+		};
+#if 0
+		for (auto& entry : shadersToCreate)
+		{
+			assert(!shader.second.result);
+			// custom code start
+			params.cpushader = shader.first.asset;
+			shader.second.result = device->createShader(params);
+		}
+#endif
+	}
+
+	core::unordered_map<core::blake3_hash_t,patch_t<ICPUBuffer>> buffersToCreate;
+	// create IGPUBuffers
+	for (auto& entry : buffersToCreate)
+	{
+		IGPUBuffer::SCreationParams params = {};
+		params.size = 0x45;
+		params.usage = entry.second.usage;
+		// TODO: make this configurable
+		params.queueFamilyIndexCount = 0;
+		params.queueFamilyIndices = nullptr;
+		auto buffer = device->createBuffer(std::move(params));
+	}
+
+	// create IGPUImages
+
+	// gather memory reqs
+	// allocate device memory
+//	device->allocate(reqs,false);
+
+	// create IGPUBufferViews
+
+	// create IGPUImageViews
 
 	return retval;
 }
 
-// read[key,patch,blake3] -> look up GPU Object based on hash
-// We can't look up "near misses" (supersets) because they'd have different hashes
-// can't afford to split hairs like finding overlapping buffer ranges, etc.
-// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
-
-// reservation<type>[key,patch,blake3] -> reserve GPU Object (how?) based on hash
-
-// afterwards
-// iterate over reservation<type>, create the GPU objects and insert into write cache
-
-// now I need to find the GPU objects for my inputs
-// but I don't know how the inputs have been patched, also don't want to re-hash, so lets just store the values per input element?
-
 //
 bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 {
-	if (!reservations.reserveSuccess())
-		return false;
-
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
-	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT | IQueue::FAMILY_FLAGS::COMPUTE_BIT) && !params.utilities)
-		return false;
+	// nothing to do!
+	if (reqQueueFlags.value==IQueue::FAMILY_FLAGS::NONE)
+		return true;
 
 	auto device = m_params.device;
-	if (!device)
-		return false;
-
-	if (params.pipelineCache && params.pipelineCache->getOriginDevice()!=device)
+	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
 		return false;
 
 	auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
 	{
 		if (!reqQueueFlags.hasFlags(flag))
 			return false;
-		if (!params.utilities || params.utilities->getLogicalDevice()!=device)
-			return true;
 		if (!queue || queue->getOriginDevice()!=device)
 			return true;
 		const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
@@ -423,32 +465,6 @@ bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
 	// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
 	if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
 		return false;
-
-	const core::string debugPrefix = "Created by Converter "+std::to_string(ptrdiff_t(this))+" with hash ";
-	auto setDebugName = [&debugPrefix](IBackendObject* obj, const size_t hashval)->void
-	{
-		if (obj)
-			obj->setObjectDebugName((debugPrefix+std::to_string(hashval)).c_str());
-	};
-
-	// create shaders
-	{
-		ILogicalDevice::SShaderCreationParameters createParams = {
-			.optimizer = m_params.optimizer.get(),
-			.readCache = params.readShaderCache,
-			.writeCache = params.writeShaderCache
-		};
-#if 0
-		for (auto& shader : std::get<SResults::dag_cache_t<ICPUShader>>(reservations.m_typedDagNodes))
-		if (!shader.second.canonical)
-		{
-			assert(!shader.second.result);
-			// custom code start
-			params.cpushader = shader.first.asset;
-			shader.second.result = device->createShader(params);
-		}
-#endif
-	}
 
 	return true;
 }

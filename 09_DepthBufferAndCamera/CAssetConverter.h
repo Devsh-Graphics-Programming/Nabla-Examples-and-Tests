@@ -29,9 +29,9 @@ class CAssetConverter : public core::IReferenceCounted
 {
 	public:
 		using supported_asset_types = core::type_list<
+			asset::ICPUSampler,
 			asset::ICPUShader,
 			asset::ICPUBuffer,
-			asset::ICPUSampler,
 			// image,
 //			asset::ICPUBufferView,
 			// image view
@@ -89,6 +89,26 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 		};
 		template<>
+		struct patch_impl_t<asset::ICPUSampler>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUSampler);
+
+				inline bool valid() const { return anisotropyLevelLog2>5; }
+
+				uint8_t anisotropyLevelLog2 = 6;
+				
+			protected:
+				inline this_t combine(const this_t& other) const
+				{
+					// The only reason why someone would have a different level to creation parameters is
+					// because the HW doesn't support that level and the level gets clamped. So must be same.
+					if (anisotropyLevelLog2 != other.anisotropyLevelLog2)
+						return {}; // invalid
+					return *this;
+				}
+		};
+		template<>
 		struct patch_impl_t<asset::ICPUShader>
 		{
 			public:
@@ -128,26 +148,6 @@ class CAssetConverter : public core::IReferenceCounted
 				{
 					this_t retval = *this;
 					retval.usage |= other.usage;
-					return *this;
-				}
-		};
-		template<>
-		struct patch_impl_t<asset::ICPUSampler>
-		{
-			public:
-				PATCH_IMPL_BOILERPLATE(asset::ICPUSampler);
-
-				inline bool valid() const { return anisotropyLevelLog2>5; }
-
-				uint8_t anisotropyLevelLog2 = 6;
-				
-			protected:
-				inline this_t combine(const this_t& other) const
-				{
-					// The only reason why someone would have a different level to creation parameters is
-					// because the HW doesn't support that level and the level gets clamped. So must be same.
-					if (anisotropyLevelLog2 != other.anisotropyLevelLog2)
-						return {}; // invalid
 					return *this;
 				}
 		};
@@ -333,6 +333,7 @@ class CAssetConverter : public core::IReferenceCounted
 						}
 					);
 				}
+// TODO: `eraseStale(const IAsset*)` which erases a subgraph?
 				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
 				NBL_API void eraseStale();
 				// Clear the cache for a given type
@@ -427,6 +428,11 @@ class CAssetConverter : public core::IReferenceCounted
 			core::tuple_transform_t<asset_span_t,supported_asset_types> assets = {};
 			// Optional: Whatever is not in `patches` will generate a default patch
 			core::tuple_transform_t<patch_span_t,supported_asset_types> patches = {};
+
+			// optional, useful for shaders
+			asset::IShaderCompiler::CCache* readShaderCache = nullptr;
+			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
+			IGPUPipelineCache* pipelineCache = nullptr;
         };
         struct SResults
         {
@@ -437,15 +443,8 @@ class CAssetConverter : public core::IReferenceCounted
 				inline SResults& operator=(const SResults&) = delete;
 				inline SResults& operator=(SResults&&) = default;
 
-				//
-				inline bool reserveSuccess() const {return m_success;}
-
 				// What queues you'll need to run the submit
 				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
-
-				// for every entry in the input array, we have this mapped 1:1
-				template<asset::Asset AssetType>
-				using vector_t = core::vector<asset_cached_t<AssetType>>;
 
 				// until `convert` is called, this will only contain valid entries for items already found in `SInput::readCache`
 				template<asset::Asset AssetType>
@@ -453,17 +452,30 @@ class CAssetConverter : public core::IReferenceCounted
 
 			private:
 				friend class CAssetConverter;
+				friend struct SConvertParams;
 
 				inline SResults() = default;
 
-				//
+				// for every entry in the input array, we have this mapped 1:1
+				template<asset::Asset AssetType>
+				using vector_t = core::vector<asset_cached_t<AssetType>>;
 				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
+#if 0
 				//
-//				m_reservations;
+				template<asset::Asset AssetType>
+				struct reservation_t
+				{
+					patch_t<AssetType> patch = {};
+					const AssetType* asset = nullptr;
+					// index to write into `m_gpuObjects`, if past the end the reservation is for an implicit item
+					size_t outputIndex = ~0x0ull;
+				};
+				template<asset::Asset AssetType>
+				using reservation_container_t = core::unordered_map<core::blake3_hash_t,reservation_t<AssetType>>;
+				core::tuple_transform_t<reservation_container_t,supported_asset_types> m_reservations;
+#endif
 				//
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
-				//
-				bool m_success = true;
         };
 		// First Pass: Explore the DAG of Assets and "gather" patch infos for creating/retrieving equivalent GPU Objects.
 		NBL_API SResults reserve(const SInputs& inputs);
@@ -492,10 +504,6 @@ class CAssetConverter : public core::IReferenceCounted
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
-			// optional, useful for shaders
-			asset::IShaderCompiler::CCache* readShaderCache = nullptr;
-			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
-			IGPUPipelineCache* pipelineCache = nullptr;
 		};
 		// Second Pass: Actually create the GPU Objects
 		NBL_API bool convert(SResults& reservations, SConvertParams& params);
