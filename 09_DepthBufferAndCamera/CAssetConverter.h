@@ -74,6 +74,11 @@ class CAssetConverter : public core::IReferenceCounted
 
 			inline bool valid() const {return nbl::hlsl::bitCount<uint32_t>(stage)!=1;}
 
+			inline bool operator==(const this_t& other) const
+			{
+				return stage==other.stage;
+			}
+
 			inline this_t combine(const this_t& other) const
 			{
 				if (stage!=other.stage)
@@ -100,6 +105,11 @@ class CAssetConverter : public core::IReferenceCounted
 
 			inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
 
+			inline bool operator==(const this_t& other) const
+			{
+				return usage==other.usage;
+			}
+
 			inline this_t combine(const this_t& other)
 			{
 				usage |= other.usage;
@@ -117,6 +127,11 @@ class CAssetConverter : public core::IReferenceCounted
 			patch_t(const asset::ICPUSampler* sampler, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
 
 			inline bool valid() const { return anisotropyLevelLog2 > 5; }
+
+			inline bool operator==(const this_t& other) const
+			{
+				return anisotropyLevelLog2==other.anisotropyLevelLog2;
+			}
 
 			inline this_t combine(const this_t& other) const
 			{
@@ -139,6 +154,11 @@ class CAssetConverter : public core::IReferenceCounted
 
 			inline bool valid() const {return true;}
 
+			inline bool operator==(const this_t& other) const
+			{
+				return true;
+			}
+
 			inline this_t combine(const this_t& other) const
 			{
 				return *this;
@@ -153,6 +173,11 @@ class CAssetConverter : public core::IReferenceCounted
 			patch_t(const asset::ICPUPipelineLayout* pplnLayout, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits);
 
 			inline bool valid() const {return !invalid;}
+
+			inline bool operator==(const this_t& other) const
+			{
+				return invalid==other.invalid && pushConstantBytes==other.pushConstantBytes;
+			}
 
 			inline this_t combine(const this_t& other) const
 			{
@@ -196,39 +221,44 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				struct key_t
 				{
-					inline bool operator==(const key_t<AssetType>& other) const
-					{
-						return asset.get()==other.asset && uniqueCopyGroupID==other.uniqueCopyGroupID && patch==other.patch;
-					}
-					inline bool operator==(const lookup_t<AssetType>& other) const
-					{
-						assert(other.valid());
-						return asset.get()==other.asset && uniqueCopyGroupID==other.uniqueCopyGroupID && patch==*other.patch;
-					}
-
 					core::smart_refctd_ptr<const AssetType> asset = {};
 					size_t uniqueCopyGroupID = 0;
 					patch_t<AssetType> patch = {};
 				};
 				template<asset::Asset AssetType>
-				struct Hasher
+				struct HashEquals
 				{
+					using is_transparent = void;
+
 					inline size_t operator()(const key_t<AssetType>& key) const
 					{
 						size_t value = 0x45ull; // TODO: use the instance hash!
-						core::hash_combine(value,key.patch);
+//						core::hash_combine(value,key.patch);
 						return value;
 					}
 					inline size_t operator()(const lookup_t<AssetType>& lookup) const
 					{
 						size_t value = 0x45ull; // TODO: use the instance hash!
 						assert(lookup.valid());
-						core::hash_combine(value,*lookup.patch);
+//						core::hash_combine(value,*lookup.patch);
 						return value;
+					}
+
+					inline bool operator()(const key_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
+					{
+						return lhs.asset.get()==rhs.asset.get() && lhs.uniqueCopyGroupID==rhs.uniqueCopyGroupID && lhs.patch==rhs.patch;
+					}
+					inline bool operator()(const key_t<AssetType>& lhs, const lookup_t<AssetType>& rhs) const
+					{
+						return lhs.asset.get()==rhs.asset && lhs.uniqueCopyGroupID==rhs.uniqueCopyGroupID && rhs.patch && lhs.patch==*rhs.patch;
+					}
+					inline bool operator()(const lookup_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
+					{
+						return lhs.asset==rhs.asset.get() && lhs.uniqueCopyGroupID==rhs.uniqueCopyGroupID && lhs.patch && *lhs.patch==rhs.patch;
 					}
 				};
 				template<asset::Asset AssetType>
-				using container_t = core::unordered_map<key_t<AssetType>,core::blake3_hash_t,Hasher<AssetType>>;
+				using container_t = core::unordered_map<key_t<AssetType>,core::blake3_hash_t,HashEquals<AssetType>,HashEquals<AssetType>>;
 
 			public:
 				//
@@ -238,8 +268,7 @@ class CAssetConverter : public core::IReferenceCounted
 					assert(toHash.valid());
 					// consult cache
 					auto& container = std::get<container_t<AssetType>>(m_containers);
-					auto foundIt = container.end();
-					foundIt = container.find<lookup_t<AssetType>>(toHash);
+					auto foundIt = container.find<lookup_t<AssetType>>(toHash);
 					const bool found = foundIt!=container.end();
 					// if found and we trust then return the cached hash
 					if (toHash.hashTrustLevel==0 && found)
@@ -260,8 +289,14 @@ class CAssetConverter : public core::IReferenceCounted
 						foundIt->second = retval;
 					else // insert new entry
 					{
-						auto insertIt = container.insert(foundIt,retval);
-						assert(insertIt->first==toHash && insertIt->second==retval);
+						auto insertIt = container.insert(foundIt,{
+							{
+								.asset = core::smart_refctd_ptr<const AssetType>(toHash.asset),
+								.uniqueCopyGroupID = toHash.uniqueCopyGroupID,
+								.patch = *toHash.patch
+							},
+						retval});
+						assert(HashEquals<AssetType>()(insertIt->first,toHash) && insertIt->second==retval);
 					}
 					return retval;
 				}
