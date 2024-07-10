@@ -276,7 +276,7 @@ private:
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 				},
 				{
 					.binding = 1,
@@ -284,7 +284,7 @@ private:
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
-					.samplers = nullptr
+					.immutableSamplers = nullptr
 				}
 			};
 
