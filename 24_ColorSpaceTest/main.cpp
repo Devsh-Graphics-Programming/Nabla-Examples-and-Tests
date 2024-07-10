@@ -17,6 +17,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+// defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
 
 
@@ -126,17 +127,47 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.AnisotropicFilter = 0
 				});
 
-				const IGPUDescriptorSetLayout::SBinding bindings[1] = {{
+#if defined(COMBINED_IMMUTABLE) || defined(COMBINED_MUTABLE)
+				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
 					.binding = 0,
 					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::ESS_FRAGMENT,
 					.count = 1,
-					.samplers = &defaultSampler
-				}};
+					#if defined(COMBINED_IMMUTABLE)
+					.immutableSamplers = &defaultSampler
+					#else
+					.immutableSamplers = nullptr
+					#endif
+				}
+				};
+#else 
+				const IGPUDescriptorSetLayout::SBinding bindings[2] = { {
+					.binding = 0,
+					.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::ESS_FRAGMENT,
+					.count = 1,
+					.immutableSamplers = nullptr
+				},
+				{
+					.binding = 1,
+					.type = IDescriptor::E_TYPE::ET_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::ESS_FRAGMENT,
+					.count = 1,
+					#if defined(SEPARATED_IMMUTABLE)
+					.immutableSamplers = &defaultSampler
+					#else
+					.immutableSamplers = nullptr
+					#endif
+				}
+				};
+#endif
 				dsLayout = m_device->createDescriptorSetLayout(bindings);
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
+
 			}
 
 			ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
@@ -257,6 +288,12 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 		inline void workLoopBody() override
 		{
+			// Make the sampler persist in the workloopbody
+			#if defined(COMBINED_MUTABLE) || defined(SEPARATED_MUTABLE)
+			static auto defaultSampler = m_device->createSampler({
+					.AnisotropicFilter = 0
+				});
+			#endif
 			// load the image view
 			system::path filename, extension;
 			smart_refctd_ptr<ICPUImageView> cpuImgView;
@@ -390,6 +427,10 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					info.desc = m_device->createImageView(std::move(viewParams));
 				}
 
+#if defined(COMBINED_IMMUTABLE) || defined(COMBINED_MUTABLE) || defined(SEPARATED_IMMUTABLE)
+				#if defined(COMBINED_MUTABLE)
+				info.info.image.sampler = defaultSampler;
+				#endif
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
 					.dstSet = ds,
 					.binding = 0,
@@ -397,6 +438,25 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					.count = 1,
 					.info = &info
 				}};
+#else
+				IGPUDescriptorSet::SDescriptorInfo samplerInfo = {};
+				samplerInfo.desc = defaultSampler;
+				samplerInfo.info.image.sampler = defaultSampler;
+				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = { {
+					.dstSet = ds,
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info
+				}, 
+				{
+					.dstSet = ds,
+					.binding = 1,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &samplerInfo
+				}};
+#endif
 				m_device->updateDescriptorSets(writes,{});
 			}
 
