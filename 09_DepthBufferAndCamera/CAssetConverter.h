@@ -356,6 +356,12 @@ class CAssetConverter : public core::IReferenceCounted
 		template<asset::Asset AssetType>
         class CCache final : core::Uncopyable
         {
+				// The blake3 hash is quite fat (256bit), so we don't actually store a full asset ref for comparison.
+				// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
+				// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
+				core::unordered_map<core::blake3_hash_t,asset_cached_t<AssetType>> m_forwardMap;
+				core::unordered_map<asset_cached_t<AssetType>,core::blake3_hash_t> m_reverseMap;
+
 			public:
 				inline CCache() = default;
 				inline CCache(CCache&&) = default;
@@ -380,18 +386,20 @@ class CAssetConverter : public core::IReferenceCounted
 						return found->second;
 				}
 
+				inline void erase(decltype(m_forwardMap)::const_iterator it)
+				{
+					m_forwardMap.erase(it);
+				}
+				inline void erase(decltype(m_reverseMap)::const_iterator it)
+				{
+					m_reverseMap.erase(it);
+				}
+
 				inline void merge(const CCache<AssetType>& other)
 				{
 					m_forwardMap.insert(other.m_forwardMap.begin(),other.m_forwardMap.end());
 					m_reverseMap.insert(other.m_reverseMap.begin(),other.m_reverseMap.end());
 				}
-
-            private:
-				// The blake3 hash is quite fat (256bit), so we don't actually store a full asset ref for comparison.
-				// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
-				// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
-				core::unordered_map<core::blake3_hash_t,asset_cached_t<AssetType>> m_forwardMap;
-				core::unordered_map<asset_cached_t<AssetType>,core::blake3_hash_t> m_reverseMap;
         };
 
 		// A meta class to encompass all the Assets you might want to convert at once
@@ -477,7 +485,7 @@ class CAssetConverter : public core::IReferenceCounted
 				//
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
         };
-		// First Pass: Explore the DAG of Assets and "gather" patch infos for creating/retrieving equivalent GPU Objects.
+		// First Pass: Explore the DAG of Assets and "gather" patch infos and create equivalent GPU Objects.
 		NBL_API SResults reserve(const SInputs& inputs);
 
 		//
@@ -505,7 +513,7 @@ class CAssetConverter : public core::IReferenceCounted
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
 		};
-		// Second Pass: Actually create the GPU Objects
+		// Second Pass: Actually fill the GPU Objects with data
 		NBL_API bool convert(SResults& reservations, SConvertParams& params);
 #undef NBL_API
 
