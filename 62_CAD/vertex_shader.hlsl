@@ -499,8 +499,29 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setFontGlyphTextureId(textureID);
         outV.setFontGlyphScreenSpaceSize(screenSpaceAabbExtents);
     }
-    
-    
+    else if (objType == ObjectType::IMAGE)
+    {
+        float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
+        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
+
+        const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
+        const float2 ndcTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
+        const float2 ndcDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
+        const float2 ndcDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
+
+        float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        float2 uv = corner; // non-dilated
+        
+        float2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+        
+        outV.position = float4(ndcCorner, 0.f, 1.f);
+        outV.setImageUV(uv);
+        outV.setImageTextureId(textureID);
+    }
+
+
 // Make the cage fullscreen for testing: 
 #if 0
     // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen

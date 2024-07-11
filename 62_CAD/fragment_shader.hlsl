@@ -596,6 +596,17 @@ float4 main(PSInput input) : SV_TARGET
             localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
+    else if (objType == ObjectType::FONT_GLYPH) 
+    {
+        const float2 uv = input.getImageUV();
+        // const uint32_t textureId = input.getImageTextureId(); unused
+
+        // if (textureId != InvalidTextureIdx)
+        {
+            float4 colorSample = textures.Sample(textureSampler, float2(uv.x, uv.y));
+            localAlpha = colorSample.a;
+        }
+    }
 
     uint2 fragCoord = uint2(input.position.xy);
     
