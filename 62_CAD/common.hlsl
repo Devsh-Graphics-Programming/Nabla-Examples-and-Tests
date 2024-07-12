@@ -59,8 +59,7 @@ struct FontGlyphInfo
     // unorm8 minU;
     // unorm8 minV;
     // uint16 textureId;
-    uint32_t minUVTextureID; // 4 bytes (36)
-    uint32_t2 padding;
+    uint32_t minUV_textureID_packed; // 4 bytes (36)
 };
 
 #ifndef __HLSL_VERSION
@@ -340,11 +339,11 @@ struct PSInput
     // data2    
     float2 getFontGlyphUv() { return interp_data5.xy; }
     uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
-    float2 getFontGlyphScreenSpaceSize() { return data2.yz; }
+    float getFontGlyphScreenPxRange() { return data2.y; }
     
     void setFontGlyphUv(float2 uv) { interp_data5.xy = uv; }
     void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
-    void setFontGlyphScreenSpaceSize(float2 screenSpaceSize) { data2.yz = screenSpaceSize; }
+    void setFontGlyphScreenPxRange(float2 screenSpaceSize) { data2.y = screenSpaceSize; }
     
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,

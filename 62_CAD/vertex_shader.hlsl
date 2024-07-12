@@ -494,10 +494,12 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 maxUV = float2(1.0, 1.0) - minUV;
         const float2 uvs = minUV + corner * (maxUV - minUV);
 
+        const float screenPxRange = min(screenSpaceAabbExtents.x / ((maxUV.x - minUV.x) * MSDFSize), 1.0);
+
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUv(uvs);
         outV.setFontGlyphTextureId(textureID);
-        outV.setFontGlyphScreenSpaceSize(screenSpaceAabbExtents);
+        outV.setFontGlyphScreenPxRange(screenPxRange);
     }
     
     

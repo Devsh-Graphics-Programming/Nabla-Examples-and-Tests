@@ -930,7 +930,7 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 			.topLeft = glyphBox->topLeft,
 			.dirU = glyphBox->dirU,
 			.aspectRatio = float(glyphBox->dirV.y / -glyphBox->dirU.x),
-			.minUVTextureID = textureId | uint32_t(minUV.x * 255.0) << 24 | uint32_t(minUV.y * 255.0) << 16,
+			.minUV_textureID_packed = textureId | uint32_t(minUV.x * 255.0) << 24 | uint32_t(minUV.y * 255.0) << 16,
 		};
 		uint32_t currentObjectInSection = 0u;
 		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
