@@ -603,8 +603,8 @@ float4 main(PSInput input) : SV_TARGET
 
         // if (textureId != InvalidTextureIdx)
         {
-            float4 colorSample = textures.Sample(textureSampler, float2(uv.x, uv.y));
-            localAlpha = colorSample.a;
+            // float4 colorSample = textures[0].Sample(textureSampler, float2(uv.x, uv.y));
+            // localAlpha = colorSample.a;
         }
     }
 

@@ -485,8 +485,8 @@ struct PSInput
 [[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float4> msdfTextures : register(t3); // @Lucas, change `<float4>` to the number of components used in msdf texture
 [[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
 
-[[vk::combinedImageSampler]][[vk::binding(5, 0)]] Texture2D<float4> textures : register(t4);
-[[vk::combinedImageSampler]][[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
+[[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
+[[vk::binding(6, 0)]] Texture2D textures[128] : register(t4);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);

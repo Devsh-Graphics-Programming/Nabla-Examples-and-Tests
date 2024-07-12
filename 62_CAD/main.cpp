@@ -508,6 +508,11 @@ public:
 
 		allocateResources(40960u);
 
+		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
+			// IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT | -> I don't need this flag because I'll try to update before command buffer has begun
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT |
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
+
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
 			video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
@@ -546,6 +551,20 @@ public:
 					.stageFlags = asset::IShader::ESS_FRAGMENT,
 					.count = 1u,
 				},
+				{
+					.binding = 5u,
+					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 6u,
+					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+					.createFlags = bindlessTextureFlags,
+					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.count = 128u,
+				},
 			};
 			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
 			if (!descriptorSetLayout0)
@@ -569,7 +588,7 @@ public:
 			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 			{
 				const uint32_t setCounts[2u] = { 1u, 1u};
-				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, layouts, setCounts);
 				if (!descriptorPool)
 					return logFail("Failed to Create Descriptor Pool");
 			}
@@ -577,7 +596,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 5u;
+				constexpr uint32_t DescriptorCountSet0 = 6u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -597,9 +616,15 @@ public:
 				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
 				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
 				
-				descriptorInfosSet0[4u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[4u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
 				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				
+				descriptorInfosSet0[5u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				
+				// This is bindless to we write to it later.
+				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 1u;
@@ -641,13 +666,19 @@ public:
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-
-				// Set 1 Updates:
-				descriptorUpdates[5u].dstSet = descriptorSet1.get();
-				descriptorUpdates[5u].binding = 0u;
+				
+				descriptorUpdates[5u].dstSet = descriptorSet0.get();
+				descriptorUpdates[5u].binding = 5u;
 				descriptorUpdates[5u].arrayElement = 0u;
 				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfosSet1[0u];
+				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
+
+				// Set 1 Updates:
+				descriptorUpdates[6u].dstSet = descriptorSet1.get();
+				descriptorUpdates[6u].binding = 0u;
+				descriptorUpdates[6u].arrayElement = 0u;
+				descriptorUpdates[6u].count = 1u;
+				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
 
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
