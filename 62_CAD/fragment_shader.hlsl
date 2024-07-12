@@ -599,12 +599,12 @@ float4 main(PSInput input) : SV_TARGET
     else if (objType == ObjectType::FONT_GLYPH) 
     {
         const float2 uv = input.getImageUV();
-        // const uint32_t textureId = input.getImageTextureId(); unused
+        const uint32_t textureId = input.getImageTextureId();
 
-        // if (textureId != InvalidTextureIdx)
+        if (textureId != InvalidTextureIdx)
         {
-            // float4 colorSample = textures[0].Sample(textureSampler, float2(uv.x, uv.y));
-            // localAlpha = colorSample.a;
+            float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
+            localAlpha = colorSample.a;
         }
     }
 
