@@ -17,6 +17,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+// defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
 
 
@@ -119,24 +120,32 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
 
-			// create the descriptor sets layout
+			/* 
+			* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding. 
+			* In this example we provide a sampler at descriptor set creation time, via the SBinding struct below. This specifies that the sampler for this binding is immutable,
+			* as evidenced by the name of the field in the SBinding. 
+			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
+			* field set to its default (nullptr). 
+			*/
 			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 			{
 				auto defaultSampler = m_device->createSampler({
 					.AnisotropicFilter = 0
 				});
 
-				const IGPUDescriptorSetLayout::SBinding bindings[1] = {{
+				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
 					.binding = 0,
 					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::ESS_FRAGMENT,
 					.count = 1,
-					.samplers = &defaultSampler
-				}};
+					.immutableSamplers = &defaultSampler
+				}
+				};
 				dsLayout = m_device->createDescriptorSetLayout(bindings);
 				if (!dsLayout)
 					return logFail("Failed to Create Descriptor Layout");
+
 			}
 
 			ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
@@ -340,6 +349,13 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			smart_refctd_ptr<IGPUImage> gpuImg;
 			auto ds = m_descriptorSets[resourceIx].get();
 			{
+				/*
+				* Since we're using a combined image sampler with an immutable sampler, we only need to update the sampled image at the binding. Do note however that had we chosen
+				* to use a mutable sampler instead, we'd need to write to it at least once, via the SDescriptorInfo info.info.combinedImageSampler.sampler field
+				* WARNING: With an immutable sampler on a combined image sampler, trying to write to it is valid according to Vulkan spec, although the sampler is ignored and only
+				* the image is updated. Please note that this is NOT the case in Nabla: if you try to write to a combined image sampler, then
+				* info.info.combinedImageSampler.sampler MUST be nullptr
+				*/
 				IGPUDescriptorSet::SDescriptorInfo info = {};
 				info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				{
@@ -389,7 +405,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					};
 					info.desc = m_device->createImageView(std::move(viewParams));
 				}
-
 				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
 					.dstSet = ds,
 					.binding = 0,

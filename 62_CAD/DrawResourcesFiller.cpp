@@ -383,7 +383,7 @@ uint32_t DrawResourcesFiller::addMainObject_SubmitIfNeeded(uint32_t styleIdx, SI
 
 void DrawResourcesFiller::pushClipProjectionData(const ClipProjectionData& clipProjectionData)
 {
-	clipProjections.push(clipProjectionData);
+	clipProjections.push_back(clipProjectionData);
 	clipProjectionAddresses.push_back(InvalidClipProjectionAddress);
 }
 
@@ -392,7 +392,7 @@ void DrawResourcesFiller::popClipProjectionData()
 	if (clipProjections.empty())
 		return;
 
-	clipProjections.pop();
+	clipProjections.pop_back();
 	clipProjectionAddresses.pop_back();
 }
 
@@ -602,7 +602,7 @@ inline uint64_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntend
 		return InvalidClipProjectionAddress;
 
 	if (clipProjectionAddresses.back() == InvalidClipProjectionAddress)
-		clipProjectionAddresses.back() = addClipProjectionData_SubmitIfNeeded(clipProjections.top(), intendedNextSubmit);
+		clipProjectionAddresses.back() = addClipProjectionData_SubmitIfNeeded(clipProjections.back(), intendedNextSubmit);
 	
 	return clipProjectionAddresses.back();
 }

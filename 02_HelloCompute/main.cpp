@@ -151,7 +151,6 @@ class HelloComputeApp final : public nbl::application_templates::MonoSystemMonoL
 						.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, // not is not the time for descriptor indexing
 						.stageFlags=IGPUShader::ESS_COMPUTE,
 						.count=1,
-						.samplers=nullptr // irrelevant for a buffer
 					}
 				};
 				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = device->createDescriptorSetLayout(bindings);
