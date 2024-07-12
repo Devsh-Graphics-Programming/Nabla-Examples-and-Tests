@@ -598,14 +598,14 @@ public:
 				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
 				
 				descriptorInfosSet0[4u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfosSet0[4u].info.image.sampler = msdfTextureSampler;
+				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
 				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 1u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet1[DescriptorCountSet0] = {};
 				descriptorInfosSet1[0u].info.image.imageLayout = IImage::LAYOUT::GENERAL;
-				descriptorInfosSet1[0u].info.image.sampler = nullptr;
+				descriptorInfosSet1[0u].info.combinedImageSampler.sampler = nullptr;
 				descriptorInfosSet1[0u].desc = pseudoStencilImageView;
 
 				constexpr uint32_t DescriptorUpdatesCount = DescriptorCountSet0 + DescriptorCountSet1;

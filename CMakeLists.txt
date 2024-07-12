@@ -26,12 +26,16 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(07_StagingAndMultipleQueues EXCLUDE_FROM_ALL)
 	# showcase the set-up of a swapchain and picking of a matching device
 	add_subdirectory(08_HelloSwapchain EXCLUDE_FROM_ALL)
+	# showcase the use of a depth buffer and rudimentary camera
+	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
+  # demonstrate the counting sort utility
+	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
 	#add_subdirectory(29_SpecializationConstants EXCLUDE_FROM_ALL)
 	#add_subdirectory(33_Draw3DLine EXCLUDE_FROM_ALL)
-	#add_subdirectory(35_GeometryCreator EXCLUDE_FROM_ALL)
+	add_subdirectory(35_GeometryCreator EXCLUDE_FROM_ALL)
 
 	# Unit Test Examples
 	add_subdirectory(20_AllocatorTest EXCLUDE_FROM_ALL)
@@ -57,7 +61,7 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(55_RGB18E7S3 EXCLUDE_FROM_ALL)
 	add_subdirectory(56_RayQuery EXCLUDE_FROM_ALL)
 	add_subdirectory(60_ClusteredRendering EXCLUDE_FROM_ALL)
-	#add_subdirectory(61_UI EXCLUDE_FROM_ALL)
+	add_subdirectory(61_UI EXCLUDE_FROM_ALL)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
