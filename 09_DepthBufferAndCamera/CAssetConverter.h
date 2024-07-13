@@ -107,7 +107,7 @@ class CAssetConverter : public core::IReferenceCounted
 						return {}; // invalid
 					return *this;
 				}
-		};
+		};/** repurpose for pipeline
 		template<>
 		struct patch_impl_t<asset::ICPUShader>
 		{
@@ -131,7 +131,7 @@ class CAssetConverter : public core::IReferenceCounted
 					}
 					return *this;
 				}
-		};
+		};**/
 		template<>
 		struct patch_impl_t<asset::ICPUBuffer>
 		{
@@ -178,7 +178,7 @@ class CAssetConverter : public core::IReferenceCounted
 		// - use a container like `core::vector<T>`, etc.
 		// - use pointers to other objects or arrays whose contents must be analyzed
 		template<asset::Asset AssetType>
-		struct patch_t : patch_impl_t<AssetType>
+		struct patch_t final : patch_impl_t<AssetType>
 		{
 			using this_t = patch_t<AssetType>;
 			using base_t = patch_impl_t<AssetType>;
@@ -211,7 +211,7 @@ class CAssetConverter : public core::IReferenceCounted
 		};
 #define NBL_API
 		// A class to accelerate our hash computations
-		class CHashCache final : core::IReferenceCounted
+		class CHashCache final : public core::IReferenceCounted
 		{
 			public:
 				//
@@ -230,7 +230,7 @@ class CAssetConverter : public core::IReferenceCounted
 					size_t uniqueCopyGroupID = 0;
 					const patch_t<AssetType>* patch = {};
 					// how deep from `asset` do we start trusting the cache to contain correct non stale hashes
-					uint32_t hashTrustLevel = 0;
+					uint32_t cacheMistrustLevel = 0;
 				};
 
 			private:
@@ -255,6 +255,8 @@ class CAssetConverter : public core::IReferenceCounted
 					{
 						blake3_hasher hasher;
 						blake3_hasher_init(&hasher);
+						core::blake3_hasher_update(hasher,lookup.asset);
+						// TODO: groupCopyGroudID or not?
 						lookup.patch->hasher_update(hasher);
 						const auto longHash = core::blake3_hasher_finalize(hasher);
 						return std::hash<core::blake3_hash_t>()(longHash);
@@ -277,6 +279,8 @@ class CAssetConverter : public core::IReferenceCounted
 				using container_t = core::unordered_map<key_t<AssetType>,core::blake3_hash_t,HashEquals<AssetType>,HashEquals<AssetType>>;
 
 			public:
+				inline CHashCache() = default;
+
 				//
 				template<asset::Asset AssetType>
 				inline core::blake3_hash_t hash(const lookup_t<AssetType>& toHash)
@@ -287,7 +291,7 @@ class CAssetConverter : public core::IReferenceCounted
 					auto foundIt = container.find<lookup_t<AssetType>>(toHash);
 					const bool found = foundIt!=container.end();
 					// if found and we trust then return the cached hash
-					if (toHash.hashTrustLevel==0 && found)
+					if (toHash.cacheMistrustLevel==0 && found)
 						return foundIt->second;
 					// proceed with full hash computation
 					core::blake3_hash_t retval;
@@ -297,8 +301,8 @@ class CAssetConverter : public core::IReferenceCounted
 						// We purposefully don't hash asset pointer, we hash the contents instead
 						//core::blake3_hasher_update(hasher,toHash.asset);
 						core::blake3_hasher_update(hasher,toHash.uniqueCopyGroupID);
-						const auto trustLevel = toHash.hashTrustLevel ? (toHash.hashTrustLevel-1):0;
-//TODO					hash_impl(&hasher,toHash.asset,toHash.patch,trustLevel);
+						const auto nextMistrustLevel = toHash.cacheMistrustLevel ? (toHash.cacheMistrustLevel-1):0;
+						hash_impl(hasher,toHash.asset,*toHash.patch,nextMistrustLevel);
 						retval = core::blake3_hasher_finalize(hasher);
 					}
 					if (found) // replace stale entry
@@ -326,6 +330,7 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				inline bool erase(const AssetType* asset)
 				{
+					// TODO: improve by cycling through possible patches
 					return core::erase_if(std::get<container_t<AssetType>>(m_containers),[asset](const auto& entry)->bool
 						{
 							auto const& [key,value] = entry;
@@ -349,6 +354,12 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 
 			private:
+				inline ~CHashCache() = default;
+
+				//
+				template<asset::Asset AssetType>
+				void hash_impl(::blake3_hasher& hasher, const AssetType* asset, const patch_t<AssetType>& patch, const uint32_t nextMistrustLevel);
+
 				//
 				core::tuple_transform_t<container_t,supported_asset_types> m_containers;
 		};
@@ -360,7 +371,7 @@ class CAssetConverter : public core::IReferenceCounted
 				// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
 				// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
 				core::unordered_map<core::blake3_hash_t,asset_cached_t<AssetType>> m_forwardMap;
-				core::unordered_map<asset_cached_t<AssetType>,core::blake3_hash_t> m_reverseMap;
+				core::unordered_map<typename asset_traits<AssetType>::lookup_t,core::blake3_hash_t> m_reverseMap;
 
 			public:
 				inline CCache() = default;
@@ -368,6 +379,19 @@ class CAssetConverter : public core::IReferenceCounted
 				inline ~CCache() = default;
 
 				inline CCache& operator=(CCache&&) = default;
+
+				// no point returning iterators to inserted positions, they're not stable
+				inline bool insert(const core::blake3_hash_t& _hash, asset_cached_t<AssetType>::type&& _gpuObj)
+				{
+					asset_cached_t<AssetType> cached;
+					cached.value = std::move(_gpuObj);
+					auto& [unused0, insertedF] = m_forwardMap.insert(_hash,std::move(cached));
+					if (!insertedF)
+						return false;
+					auto& [unused1, insertedR] = m_reverseMap.insert(_gpuObj.get(),_hash);
+					assert(insertedR);
+					return true;
+				}
 
 				// fastest lookup
 				inline const auto find(const core::blake3_hash_t& hash) const
@@ -378,21 +402,31 @@ class CAssetConverter : public core::IReferenceCounted
 						return found->second.get();
 					return end;
 				}
-				inline const auto find(const asset_cached_t<AssetType>::type& gpuObject) const
+				inline const auto find(asset_traits<AssetType>::lookup_t gpuObject) const
 				{
 					const auto end = m_reverseMap.end();
 					const auto found = m_reverseMap.find(gpuObject);
 					if (found!=end)
 						return found->second;
+					return end;
 				}
 
-				inline void erase(decltype(m_forwardMap)::const_iterator it)
+				// fastest erase
+				inline bool erase(decltype(m_forwardMap)::const_iterator fit, decltype(m_reverseMap)::const_iterator rit)
 				{
-					m_forwardMap.erase(it);
+					if (fit->first!=rit->second || fit->second!=rit->first)
+						return false;
+					m_reverseMap.erase(rit);
+					m_forwardMap.erase(fit);
+					return true;
 				}
-				inline void erase(decltype(m_reverseMap)::const_iterator it)
+				inline bool erase(decltype(m_forwardMap)::const_iterator it)
 				{
-					m_reverseMap.erase(it);
+					return erase(it,find(it->second));
+				}
+				inline bool erase(decltype(m_reverseMap)::const_iterator it)
+				{
+					return erase(find(it->second),it);
 				}
 
 				inline void merge(const CCache<AssetType>& other)
@@ -441,6 +475,9 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::IShaderCompiler::CCache* readShaderCache = nullptr;
 			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
 			IGPUPipelineCache* pipelineCache = nullptr;
+
+			// Leave this as `nullptr` unless you know what you're doing.
+			CHashCache* hashCache = nullptr;
         };
         struct SResults
         {
@@ -507,14 +544,14 @@ class CAssetConverter : public core::IReferenceCounted
 
 			// recommended you set this
 			system::logger_opt_ptr logger = nullptr;
-			// TODO: documentation
+			// TODO: documentation (and allow same queue/same intended submit)
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
 		};
 		// Second Pass: Actually fill the GPU Objects with data
-		NBL_API bool convert(SResults& reservations, SConvertParams& params);
+		NBL_API bool convert(SResults&& reservations, SConvertParams& params);
 #undef NBL_API
 
 		// Only const methods so others are not able to insert things made by e.g. different devices

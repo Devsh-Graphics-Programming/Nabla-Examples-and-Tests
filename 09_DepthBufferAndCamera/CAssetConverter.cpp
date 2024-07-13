@@ -21,6 +21,7 @@ CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
 }
 
+/** repurpose for pipeline
 CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 	const ICPUShader* shader,
 	const SPhysicalDeviceFeatures& features,
@@ -65,7 +66,7 @@ CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 		default:
 			break;
 	}
-}
+}*/
 
 CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(
 	const ICPUBuffer* buffer,
@@ -122,7 +123,7 @@ void CAssetConverter::CHashCache::eraseStale()
 					.uniqueCopyGroupID = key.uniqueCopyGroupID,
 					.patch = &key.patch,
 					// can re-use cached hashes for dependants if we start ejecting in the correct order
-					.hashTrustLevel = 1
+					.cacheMistrustLevel = 1
 				};
 				return hash(lookup)!=oldHash;
 			}
@@ -137,30 +138,53 @@ void CAssetConverter::CHashCache::eraseStale()
 	rehash.operator()<ICPUPipelineLayout>();
 }
 
-#if 0
-void CAssetConverter::CCache<asset::ICPUShader>::lookup_t::hash_impl(blake3_hasher* hasher) const
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUShader>(::blake3_hasher& hasher, const ICPUShader* asset, const patch_t<ICPUShader>& patch, const uint32_t nextMistrustLevel)
 {
-	// TODO: optimizer settings
-	blake3_hasher_update(hasher,asset->getContentType());
-	const auto& pathHint = asset->getFilepathHint();
-	blake3_hasher_update(hasher,pathHint.data(),pathHint.size());
+	core::blake3_hasher_update(hasher,asset->getContentType());
 	const auto* content = asset->getContent();
-	blake3_hasher_update(hasher,content->getPointer(),content->getSize());
+	::blake3_hasher_update(&hasher,content->getPointer(),content->getSize());
 }
-void CAssetConverter::CCache<asset::ICPUDescriptorSetLayout>::lookup_t::hash_impl(blake3_hasher* hasher) const
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUSampler>(::blake3_hasher& hasher, const ICPUSampler* asset, const patch_t<ICPUSampler>& patch, const uint32_t nextMistrustLevel)
 {
-	// TODO: hash the bindings!
+	auto patchedParams = asset->getParams();
+	patchedParams.AnisotropicFilter = patch.anisotropyLevelLog2;
+	core::blake3_hasher_update(hasher,patchedParams);
 }
-void CAssetConverter::CCache<asset::ICPUPipelineLayout>::lookup_t::hash_impl(blake3_hasher* hasher) const
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(::blake3_hasher& hasher, const ICPUBuffer* asset, const patch_t<ICPUBuffer>& patch, const uint32_t nextMistrustLevel)
 {
-	blake3_hasher_update(hasher,patch.pushConstantBytes);
-	for (auto i=0; i<asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+	auto patchedParams = asset->getCreationParams();
+	assert(patch.usage.hasFlags(patchedParams.usage));
+	patchedParams.usage = patch.usage;
+	core::blake3_hasher_update(hasher,patchedParams);
+}
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(::blake3_hasher& hasher, const ICPUDescriptorSetLayout* asset, const patch_t<ICPUDescriptorSetLayout>& patch, const uint32_t nextMistrustLevel)
+{
+	// TODO: hash the bindings uniquely after `master` merge!
+}
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher& hasher, const ICPUPipelineLayout* asset, const patch_t<ICPUPipelineLayout>& patch, const uint32_t nextMistrustLevel)
+{
+	core::blake3_hasher_update(hasher,patch.pushConstantBytes);
+	for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 	{
-		// TODO: need the hashes of patched descriptor set layouts!!! FIXME
-//		blake3_hasher_update(hasher,asset->getDescriptorSetLayout(i));
+		hash(lookup_t<ICPUDescriptorSetLayout>{
+			.asset = asset->getDescriptorSetLayout(i),
+			.uniqueCopyGroupID = 0x45,//TODO: What now?
+			.patch = {}, // there's nothing to patch
+			.cacheMistrustLevel = nextMistrustLevel
+		});
 	}
 }
-#endif
+
 
 // question of propagating changes, image view and buffer view
 // if image view used as STORAGE, or SAMPLED have to change subUsage
@@ -203,6 +227,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		return {};
 	if (inputs.pipelineCache && inputs.pipelineCache->getOriginDevice()!=device)
 		return {};
+
+	core::smart_refctd_ptr<CHashCache> hashCache;
+	if (inputs.hashCache)
+		hashCache = core::smart_refctd_ptr<CHashCache>(inputs.hashCache);
+	else
+		hashCache = core::make_smart_refctd_ptr<CHashCache>();
 
 	SResults retval = {};
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
@@ -437,7 +467,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 }
 
 //
-bool CAssetConverter::convert(SResults& reservations, SConvertParams& params)
+bool CAssetConverter::convert(SResults&& reservations, SConvertParams& params)
 {
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
 	// nothing to do!
