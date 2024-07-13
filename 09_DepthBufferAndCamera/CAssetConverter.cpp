@@ -162,6 +162,7 @@ void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(::blake3_hasher& hasher,
 	assert(patch.usage.hasFlags(patchedParams.usage));
 	patchedParams.usage = patch.usage;
 	core::blake3_hasher_update(hasher,patchedParams);
+	core::blake3_hasher_update(hasher,asset->getContentHash());
 }
 
 template<>
