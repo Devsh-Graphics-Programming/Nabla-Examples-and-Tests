@@ -91,6 +91,5 @@ Build the application with desired configuration and fire
 ctest -C <configuration> --progress --stop-on-failure --verbose
 ```
 
-currently we have issues with `std::execution::parallel_policy`, turns out the filter hashing image does OOB writes somewhere and crashes the application.
+![64ctestpass](https://github.com/user-attachments/assets/cd08eb11-0866-457f-9fc2-7a6233528dbf)
 
-![64ctest](https://github.com/user-attachments/assets/40ed7d30-0cd6-460b-98c0-8d30fbe764ef)
