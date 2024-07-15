@@ -190,7 +190,7 @@ public:
 						const bool passed = outJson == referenceJson;
 
 						if (passed)
-							m_logger->log("Passed!", ILogger::ELL_INFO);
+							m_logger->log("Passed!", ILogger::ELL_WARNING);
 						else
 						{
 							logFail("Failed!");
