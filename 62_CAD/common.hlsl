@@ -2,6 +2,7 @@
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/limits.hlsl>
+#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
@@ -60,6 +61,19 @@ struct FontGlyphInfo
     // unorm8 minV;
     // uint16 textureId;
     uint32_t minUV_textureID_packed; // 4 bytes (36)
+
+#ifdef __HLSL_VERSION
+    float2 getMinUV() {
+        return float2(
+            float(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0,
+            float(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0
+        );
+    }
+
+    uint16_t getTextureID() {
+        return uint16_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
+    }
+#endif
 };
 
 #ifndef __HLSL_VERSION

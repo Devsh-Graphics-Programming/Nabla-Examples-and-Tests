@@ -457,18 +457,18 @@ PSInput main(uint vertexID : SV_VertexID)
     }
     else if (objType == ObjectType::FONT_GLYPH)
     {
-        float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
-        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
-        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
-        uint32_t minUVTextureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
+        FontGlyphInfo glyphInfo;
+        glyphInfo.topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
+        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
+        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
 
-        // TODO: use bitfield extract once I merge master
-        float32_t2 minUV = float32_t2(float((minUVTextureID >> 24) & 0xff) / 255.0, float((minUVTextureID >> 16) & 0xff) / 255.0);
-        uint16_t textureID = uint16_t(minUVTextureID & 0xffff);
+        float32_t2 minUV = glyphInfo.getMinUV();
+        uint16_t textureID = glyphInfo.getTextureID();
 
-        const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
-        const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
-        const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
+        const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
+        const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft);
+        const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, glyphInfo.dirU);
         const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
@@ -494,7 +494,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 maxUV = float2(1.0, 1.0) - minUV;
         const float2 uvs = minUV + corner * (maxUV - minUV);
 
-        const float screenPxRange = min(screenSpaceAabbExtents.x / ((maxUV.x - minUV.x) * MSDFSize), 1.0);
+        const float screenPxRange = max(screenSpaceAabbExtents.x / ((maxUV.x - minUV.x) * MSDFSize), 1.0);
 
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUv(uvs);
