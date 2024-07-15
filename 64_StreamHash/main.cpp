@@ -56,7 +56,7 @@ public:
 		const bool test = program.get<bool>("--test");
 		const bool updateReferences = program.get<bool>("--update-references");
 
-		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+		if (!device_base_t::MonoSystemMonoLoggerApplication::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
 
 		auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
@@ -105,7 +105,7 @@ public:
 
 				const auto start = std::chrono::high_resolution_clock::now();
 
-				m_logger->log("Executing hash filter!", ILogger::ELL_PERFORMANCE);
+				m_logger->log("Executing hash filter with " + policyName + " policy!", ILogger::ELL_PERFORMANCE);
 
 				if (!filter.execute(policy, &state))
 				{
@@ -118,7 +118,6 @@ public:
 				const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
 				m_logger->log("Took: " + std::to_string(duration.count()) + " ms", ILogger::ELL_PERFORMANCE);
-				m_logger->log("Policy: " + policyName, ILogger::ELL_PERFORMANCE);
 
 				json outJson;
 				outJson["image"] = json::array();
@@ -219,7 +218,7 @@ public:
 			};
 
 			executeFilter(std::execution::seq, status);
-			// executeFilter(std::execution::par); // looks we we have OOB writes and access violations
+			executeFilter(std::execution::par, status); // looks we we have OOB writes and access violations
 		}
 
 		return status;
