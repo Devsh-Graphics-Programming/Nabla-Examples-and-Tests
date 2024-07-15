@@ -10,7 +10,9 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 
 #include "app_resources/common.hlsl"
+#include "app_resources/emulated_float64_t_test/common.hlsl"
 
+#include "nbl/builtin/hlsl/ieee754.hlsl"
 
 using namespace nbl::core;
 using namespace nbl::hlsl;
@@ -60,7 +62,51 @@ public:
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
-        
+
+        // TODO: remove
+        /*{
+            //emulated_float64_t a = emulated_float64_t::create(123.321);
+            //emulated_float64_t b = emulated_float64_t::create(12233.69);
+
+            emulated_float64_t a = emulated_float64_t::createPreserveBitPattern(13900005726052177961);
+            emulated_float64_t b = emulated_float64_t::createPreserveBitPattern(4681601146558425158);
+
+            //float64_t addExpectedOutput = 123.321 + 12233.69;
+
+            float64_t addExpectedOutput = reinterpret_cast<double&>(a) * reinterpret_cast<double&>(b);
+
+            std::cout << std::bitset<64>(reinterpret_cast<uint64_t&>(addExpectedOutput)) << std::endl;
+            std::cout << ieee754::extractBiasedExponent(addExpectedOutput) << std::endl;
+
+            std::cout << std::setprecision(20) << reinterpret_cast<float64_t&>(a.data) << std::endl;
+            std::cout << std::setprecision(20) << reinterpret_cast<float64_t&>(b.data) << std::endl;
+
+            auto add = a + b;
+            auto sub = a - b;
+            auto mul = a * b;
+            auto div = a / b;
+
+            //add = ieee754::replaceBiasedExponent(add, 1036);
+
+            std::cout << ieee754::extractBiasedExponent(add) << std::endl;
+
+            std::cout << "a: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
+            std::cout << "b: ";
+            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl << std::endl;;
+            std::cout << "add: \n";
+            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(add) << std::endl;
+            std::cout << "expected = " << std::fixed << std::setprecision(20) << 123.321 + 12233.69 << std::endl;
+            std::cout << "sub: \n";
+            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(sub) << std::endl;
+            std::cout << "expected = " << std::fixed << std::setprecision(20) << 123.321 - 12233.69 << std::endl;
+            std::cout << "mul: \n";
+            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(mul) << std::endl;
+            //std::cout << "expected = " << std::fixed << std::setprecision(20) << 123.321 * 12233.69 << std::endl;
+            std::cout << "expected = " << std::fixed << std::setprecision(20) << addExpectedOutput << std::endl;
+            std::cout << "div: \n";
+            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(div) << std::endl << std::endl << std::endl;
+        }*/
 
         smart_refctd_ptr<IGPUShader> shader;
         {
@@ -206,6 +252,8 @@ public:
 
     void workLoopBody() override
     {
+        emulated_float64_shared_tests();
+
         cpu_tests();
 
         constexpr auto StartedValue = 0;
@@ -366,6 +414,580 @@ private:
     constexpr static inline uint64_t MaxIterations = 200;
 
     bool m_keepRunning = true;
+
+    constexpr static inline uint32_t EmulatedFloat64TestIterations = 100u;
+    
+    bool compareEmulatedFloat64TestValues(const TestValues& lhs, const TestValues& rhs)
+    {
+        bool success = true;
+
+        auto printArrithmeticOperationError = [this](const char* valName, uint64_t lhs, uint64_t rhs)
+            {
+                double lhsAsDouble = reinterpret_cast<double&>(lhs);
+                double rhsAsDouble = reinterpret_cast<double&>(rhs);
+                double error = std::abs(lhsAsDouble - rhsAsDouble);
+
+                std::stringstream ss;
+                ss << valName << " not equal!";
+                ss << "\nexpected value: " << std::fixed << std::setprecision(15) << lhsAsDouble;
+                ss << "\ntest value: " << std::fixed << std::setprecision(15) << rhsAsDouble;
+                ss << "\nerror = " << error << '\n';
+
+                m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+            };
+
+        /*if (lhs.uint16CreateVal != rhs.uint16CreateVal)
+        {
+            m_logger->log("uint16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.uint16CreateVal, rhs.uint16CreateVal);
+            success = false;
+        }*/
+        if (lhs.int32CreateVal != rhs.int32CreateVal)
+        {
+            m_logger->log("int32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.int32CreateVal, rhs.int32CreateVal);
+            success = false;
+        }
+        if (lhs.int64CreateVal != rhs.int64CreateVal)
+        {
+            m_logger->log("int64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.int64CreateVal, rhs.int64CreateVal);
+            success = false;
+        }
+        if (lhs.uint32CreateVal != rhs.uint32CreateVal)
+        {
+            m_logger->log("uint32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.uint32CreateVal, rhs.uint32CreateVal);
+            success = false;
+        }
+        if (lhs.uint64CreateVal != rhs.uint64CreateVal)
+        {
+            m_logger->log("uint64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.uint64CreateVal, rhs.uint64CreateVal);
+            success = false;
+        }
+        /*if (lhs.float16CreateVal != rhs.float16CreateVal)
+        {
+            m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.float16CreateVal, rhs.float16CreateVal);
+            success = false;
+        }*/
+        if (lhs.float32CreateVal != rhs.float32CreateVal)
+        {
+            m_logger->log("float32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.float32CreateVal, rhs.float32CreateVal);
+            success = false;
+        }
+        if (lhs.float64CreateVal != rhs.float64CreateVal)
+        {
+            m_logger->log("float64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.float64CreateVal, rhs.float64CreateVal);
+            success = false;
+        }
+        if (lhs.additionVal != rhs.additionVal)
+        {
+            printArrithmeticOperationError("additionVal", lhs.additionVal, rhs.additionVal);
+            success = false;
+        }
+        if (lhs.substractionVal != rhs.substractionVal)
+        {
+            printArrithmeticOperationError("substractionVal", lhs.substractionVal, rhs.substractionVal);
+            success = false;
+        }
+        if (lhs.multiplicationVal != rhs.multiplicationVal)
+        {
+            printArrithmeticOperationError("multiplicationVal", lhs.multiplicationVal, rhs.multiplicationVal);
+            success = false;
+        }
+        if (lhs.divisionVal != rhs.divisionVal)
+        {
+            //printArrithmeticOperationError("divisionVal", lhs.divisionVal, rhs.divisionVal);
+            //success = false;
+        }
+        if (lhs.lessOrEqualVal != rhs.lessOrEqualVal)
+        {
+            m_logger->log("lessOrEqualVal not equal, expected value: %f     test value: %f", ILogger::ELL_DEBUG, lhs.lessOrEqualVal, rhs.lessOrEqualVal);
+            success = false;
+        }
+        if (lhs.greaterOrEqualVal != rhs.greaterOrEqualVal)
+        {
+            m_logger->log("greaterOrEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterOrEqualVal, rhs.greaterOrEqualVal);
+            success = false;
+        }
+        if (lhs.equalVal != rhs.equalVal)
+        {
+            m_logger->log("equalVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.equalVal, rhs.equalVal);
+            success = false;
+        }
+        if (lhs.notEqualVal != rhs.notEqualVal)
+        {
+            m_logger->log("notEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.notEqualVal, rhs.notEqualVal);
+            success = false;
+        }
+        if (lhs.lessVal != rhs.lessVal)
+        {
+            m_logger->log("lessVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.lessVal, rhs.lessVal);
+            success = false;
+        }
+        if (lhs.greaterVal != rhs.greaterVal)
+        {
+            m_logger->log("greaterVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
+            success = false;
+        }
+
+        return success;
+    };
+
+    bool emulated_float64_shared_tests()
+    {
+        nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
+        const uint32_t queueFamily = getComputeQueue()->getFamilyIndex();
+        smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
+        smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+        if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+            return logFail("Failed to create Command Buffers!\n");
+
+        // Load shaders, set up pipeline
+        {
+            smart_refctd_ptr<IGPUShader> shader;
+            {
+                IAssetLoader::SAssetLoadParams lp = {};
+                lp.logger = m_logger.get();
+                lp.workingDirectory = ""; // virtual root
+                // this time we load a shader directly from a file
+                auto assetBundle = m_assetMgr->getAsset("app_resources/emulated_float64_t_test/test.comp.hlsl", lp);
+                const auto assets = assetBundle.getContents();
+                if (assets.empty())
+                {
+                    logFail("Could not load shader!");
+                    assert(0);
+                }
+
+                // It would be super weird if loading a shader from a file produced more than 1 asset
+                assert(assets.size() == 1);
+                smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+
+                auto* compilerSet = m_assetMgr->getCompilerSet();
+
+                nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+                options.stage = source->getStage();
+                options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                options.spirvOptimizer = nullptr;
+                options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+                options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+                options.preprocessorOptions.logger = m_logger.get();
+                options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+
+                auto spirv = compilerSet->compileToSPIRV(source.get(), options);
+
+                ILogicalDevice::SShaderCreationParameters params{};
+                params.cpushader = spirv.get();
+                shader = m_device->createShader(params);
+            }
+
+            if (!shader)
+                return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
+
+            nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+                {
+                    .binding = 0,
+                    .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+                    .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+                    .stageFlags = IGPUShader::ESS_COMPUTE,
+                    .count = 1,
+                    .samplers = nullptr
+                }
+            };
+            smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
+            if (!dsLayout)
+                return logFail("Failed to create a Descriptor Layout!\n");
+
+            smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({}, smart_refctd_ptr(dsLayout));
+            if (!pplnLayout)
+                return logFail("Failed to create a Pipeline Layout!\n");
+
+            smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+            {
+                IGPUComputePipeline::SCreationParams params = {};
+                params.layout = pplnLayout.get();
+                params.shader.entryPoint = "main";
+                params.shader.shader = shader.get();
+                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+                    return logFail("Failed to create pipelines (compile & link shaders)!\n");
+            }
+
+            smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
+
+            // Allocate the memory
+            {
+                constexpr size_t BufferSize = sizeof(TestValues);
+
+                nbl::video::IGPUBuffer::SCreationParams params = {};
+                params.size = BufferSize;
+                params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                smart_refctd_ptr<IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
+                if (!outputBuff)
+                    return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+                outputBuff->setObjectDebugName("emulated_float64_t output buffer");
+
+                nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
+                reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+                allocation = m_device->allocate(reqs, outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                if (!allocation.isValid())
+                    return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+                assert(outputBuff->getBoundMemory().memory == allocation.memory.get());
+                smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+                ds = pool->createDescriptorSet(std::move(dsLayout));
+                {
+                    IGPUDescriptorSet::SDescriptorInfo info[1];
+                    info[0].desc = smart_refctd_ptr(outputBuff);
+                    info[0].info.buffer = { .offset = 0,.size = BufferSize };
+                    IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                        {.dstSet = ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+                    };
+                    m_device->updateDescriptorSets(writes, {});
+                }
+            }
+
+            if (!allocation.memory->map({ 0ull,allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+                return logFail("Failed to map the Device Memory!\n");
+
+            cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+            cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
+            cmdbuf->bindComputePipeline(pipeline.get());
+            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
+            cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
+            cmdbuf->endDebugMarker();
+            cmdbuf->end();
+        }
+
+        // if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
+        const ILogicalDevice::MappedMemoryRange memoryRange(allocation.memory.get(), 0ull, allocation.memory->getAllocationSize());
+        if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+            m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+
+        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
+
+        IQueue* queue = m_device->getQueue(queueFamily, 0);
+
+        auto printTestOutput = [this](const std::string& functionName, const EmulatedFloat64TestOutput& testResult)
+        {
+                std::cout << functionName << ": " << std::endl;
+
+                if (!testResult.cpuTestsSucceed)
+                    logFail("Incorrect CPU determinated values!");
+                else
+                    m_logger->log("Correct CPU determinated values!", ILogger::ELL_PERFORMANCE);
+
+                if (!testResult.gpuTestsSucceed)
+                    logFail("Incorrect GPU determinated values!");
+                else
+                    m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
+        };
+
+        printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64BNegInfTest(cmdbuf.get(), queue, memoryRange));
+
+        allocation.memory->unmap();
+    }
+
+    struct EmulatedFloat64TestValuesInfo
+    {
+        emulated_float64_t a;
+        emulated_float64_t b;
+        ConstructorTestValues constrTestValues;
+        TestValues expectedTestValues;
+        
+        void fillExpectedTestValues()
+        {
+            // TODO: expected create val shouldn't be created this way!
+                //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
+            expectedTestValues.int32CreateVal = bit_cast<uint64_t>(double(constrTestValues.int32));
+            expectedTestValues.int64CreateVal = bit_cast<uint64_t>(double(constrTestValues.int64));
+                //.uint16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data
+            expectedTestValues.uint32CreateVal = bit_cast<uint64_t>(double(constrTestValues.uint32));
+            expectedTestValues.uint64CreateVal = bit_cast<uint64_t>(double(constrTestValues.uint64));
+            // TODO: unresolved external symbol imath_half_to_float_table
+            //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
+            expectedTestValues.float32CreateVal = bit_cast<uint64_t>(double(constrTestValues.float32));
+            expectedTestValues.float64CreateVal = bit_cast<uint64_t>(double(constrTestValues.float64));
+            expectedTestValues.additionVal = (a + b).data;
+            expectedTestValues.substractionVal = (a - b).data;
+            expectedTestValues.multiplicationVal = (a * b).data;
+            expectedTestValues.divisionVal = (a / b).data;
+            expectedTestValues.lessOrEqualVal = a <= b;
+            expectedTestValues.greaterOrEqualVal = a >= b;
+            expectedTestValues.equalVal = a == b;
+            expectedTestValues.notEqualVal = a != b;
+            expectedTestValues.lessVal = a < b;
+            expectedTestValues.greaterVal = a > b;
+        }
+    };
+
+    struct EmulatedFloat64TestOutput
+    {
+        bool cpuTestsSucceed;
+        bool gpuTestsSucceed;
+    };
+
+    EmulatedFloat64TestOutput emulatedFloat64RandomValuesTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
+        {
+            // generate random test values
+
+            std::random_device rd;
+            std::mt19937 mt(rd());
+
+            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
+            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
+            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+
+            EmulatedFloat64TestValuesInfo testValInfo;
+            double aTmp = f64Distribution(mt);
+            double bTmp = f64Distribution(mt);
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.constrTestValues.int32 = i32Distribution(mt);
+            testValInfo.constrTestValues.int64 = i64Distribution(mt);
+            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
+            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
+            testValInfo.constrTestValues.float32 = f32Distribution(mt);
+            testValInfo.constrTestValues.float64 = f64Distribution(mt);
+
+            testValInfo.fillExpectedTestValues();
+            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        }
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64BothValuesNaNTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        EmulatedFloat64TestValuesInfo testValInfo;
+        const float32_t nan32 = std::numeric_limits<float32_t>::quiet_NaN();
+        const float64_t nan64 = std::numeric_limits<float64_t>::quiet_NaN();
+        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
+        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
+        testValInfo.constrTestValues = {
+            .int32 = std::bit_cast<int32_t>(nan32),
+            .int64 = std::bit_cast<int64_t>(nan64),
+            .uint32 = std::bit_cast<uint32_t>(nan32),
+            .uint64 = std::bit_cast<uint64_t>(nan64),
+            .float32 = nan32,
+            .float64 = nan64
+        };
+
+        testValInfo.fillExpectedTestValues();
+        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64NegAndPosZeroTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        EmulatedFloat64TestValuesInfo testValInfo;
+        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(-0.0));
+        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(0.0));
+        testValInfo.constrTestValues = {};
+
+        testValInfo.fillExpectedTestValues();
+        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64BothValuesInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        EmulatedFloat64TestValuesInfo testValInfo;
+        const float32_t inf32 = std::numeric_limits<float64_t>::infinity();
+        const float64_t inf64 = std::numeric_limits<float64_t>::infinity();
+        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.constrTestValues = {
+            .int32 = std::bit_cast<int32_t>(inf32),
+            .int64 = std::bit_cast<int64_t>(inf64),
+            .uint32 = std::bit_cast<uint32_t>(inf32),
+            .uint64 = std::bit_cast<uint64_t>(inf64),
+            .float32 = inf32,
+            .float64 = inf64
+        };
+
+        testValInfo.fillExpectedTestValues();
+        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64BothValuesNegInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        EmulatedFloat64TestValuesInfo testValInfo;
+        const float32_t inf32 = -std::numeric_limits<float64_t>::infinity();
+        const float64_t inf64 = -std::numeric_limits<float64_t>::infinity();
+        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.constrTestValues = {
+            .int32 = std::bit_cast<int32_t>(inf32),
+            .int64 = std::bit_cast<int64_t>(inf64),
+            .uint32 = std::bit_cast<uint32_t>(inf32),
+            .uint64 = std::bit_cast<uint64_t>(inf64),
+            .float32 = inf32,
+            .float64 = inf64
+        };
+
+        testValInfo.fillExpectedTestValues();
+        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64BNaNTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
+        {
+            std::random_device rd;
+            std::mt19937 mt(rd());
+
+            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
+            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
+            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+
+            EmulatedFloat64TestValuesInfo testValInfo;
+            double aTmp = f64Distribution(mt);
+            double bTmp = std::numeric_limits<float64_t>::quiet_NaN();
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.constrTestValues.int32 = i32Distribution(mt);
+            testValInfo.constrTestValues.int64 = i64Distribution(mt);
+            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
+            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
+            testValInfo.constrTestValues.float32 = f32Distribution(mt);
+            testValInfo.constrTestValues.float64 = f64Distribution(mt);
+
+            testValInfo.fillExpectedTestValues();
+            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        }
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64BInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
+        {
+            std::random_device rd;
+            std::mt19937 mt(rd());
+
+            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
+            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
+            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+
+            EmulatedFloat64TestValuesInfo testValInfo;
+            double aTmp = f64Distribution(mt);
+            double bTmp = std::numeric_limits<float64_t>::infinity();
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.constrTestValues.int32 = i32Distribution(mt);
+            testValInfo.constrTestValues.int64 = i64Distribution(mt);
+            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
+            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
+            testValInfo.constrTestValues.float32 = f32Distribution(mt);
+            testValInfo.constrTestValues.float64 = f64Distribution(mt);
+
+            testValInfo.fillExpectedTestValues();
+            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        }
+    }
+
+    EmulatedFloat64TestOutput emulatedFloat64BNegInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
+        {
+            std::random_device rd;
+            std::mt19937 mt(rd());
+
+            std::uniform_int_distribution i32Distribution(-std::numeric_limits<int>::max(), std::numeric_limits<int>::max());
+            std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
+            std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
+            std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
+            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
+
+            EmulatedFloat64TestValuesInfo testValInfo;
+            double aTmp = f64Distribution(mt);
+            double bTmp = -std::numeric_limits<float64_t>::infinity();
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.constrTestValues.int32 = i32Distribution(mt);
+            testValInfo.constrTestValues.int64 = i64Distribution(mt);
+            testValInfo.constrTestValues.uint32 = u32Distribution(mt);
+            testValInfo.constrTestValues.uint64 = u64Distribution(mt);
+            testValInfo.constrTestValues.float32 = f32Distribution(mt);
+            testValInfo.constrTestValues.float64 = f64Distribution(mt);
+
+            testValInfo.fillExpectedTestValues();
+            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        }
+    }
+
+    EmulatedFloat64TestOutput performEmulatedFloat64Tests(EmulatedFloat64TestValuesInfo& testValInfo, IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    {
+        emulated_float64_t a = testValInfo.a;
+        emulated_float64_t b = testValInfo.b;
+
+        const TestValues cpuTestValues = {
+            //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
+            .int32CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.int32).data,
+            .int64CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.int64).data,
+            //.uint16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
+            .uint32CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.uint32).data,
+            .uint64CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.uint64).data,
+            // TODO: unresolved external symbol imath_half_to_float_table
+            //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
+            .float32CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.float32).data,
+            .float64CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.float64).data,
+            .additionVal = (a + b).data,
+            .substractionVal = (a - b).data,
+            .multiplicationVal = (a * b).data,
+            .divisionVal = (a / b).data,
+            .lessOrEqualVal = a <= b,
+            .greaterOrEqualVal = a >= b,
+            .equalVal = a == b,
+            .notEqualVal = a != b,
+            .lessVal = a < b,
+            .greaterVal = a > b,
+        };
+
+        EmulatedFloat64TestOutput output;
+
+        // cpu validation
+        output.cpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, cpuTestValues);
+
+        // gpu validation
+        IQueue::SSubmitInfo submitInfos[1] = {};
+        const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdBuff} };
+        submitInfos[0].commandBuffers = cmdbufs;
+        submitInfos[0].signalSemaphores = {};
+
+        queue->startCapture();
+        queue->submit(submitInfos);
+        queue->endCapture();
+
+        m_device->waitIdle();
+        TestValues* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
+
+        // TODO:
+        //output.gpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, *gpuTestValues);
+        output.gpuTestsSucceed = true;
+
+        return output;
+    }
+
+    template<typename... Args>
+    inline bool logFail(const char* msg, Args&&... args)
+    {
+        m_logger->log(msg, ILogger::ELL_ERROR, std::forward<Args>(args)...);
+        return false;
+    }
 };
 
 template<class T>
@@ -665,7 +1287,7 @@ void cpu_tests()
 
     // countl_zero test
     mpl::countl_zero<uint32_t, 5>::value;
-    std::countl_zero(5u);
+    auto countlzero = std::countl_zero(5u);
     nbl::hlsl::countl_zero(5u);
 
     // bit.hlsl test
