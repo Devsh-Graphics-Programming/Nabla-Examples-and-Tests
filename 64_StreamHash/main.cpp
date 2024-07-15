@@ -56,7 +56,7 @@ public:
 		const bool test = program.get<bool>("--test");
 		const bool updateReferences = program.get<bool>("--update-references");
 
-		if (!device_base_t::MonoSystemMonoLoggerApplication::onAppInitialized(smart_refctd_ptr(system)))
+		if (!MonoSystemMonoLoggerApplication::onAppInitialized(smart_refctd_ptr(system)))
 			return false;
 
 		auto assetManager = make_smart_refctd_ptr<IAssetManager>(smart_refctd_ptr(m_system));
@@ -84,6 +84,8 @@ public:
 			state_t state;
 			state.inImage = imageView->getCreationParameters().image.get();
 			state.scratchMemory = filter.allocateScratchMemory(state.inImage);
+
+			std::vector<json> references;
 
 			auto executeFilter = [&]<typename ExecutionPolicy>(ExecutionPolicy&& policy, bool& status)
 			{
@@ -180,7 +182,7 @@ public:
 				{
 					std::ifstream referenceFile(referenceJsonPath);
 
-					json referenceJson;
+					auto& referenceJson = references.emplace_back();
 					if (referenceFile.is_open())
 					{
 						referenceFile >> referenceJson;
@@ -218,10 +220,39 @@ public:
 			};
 
 			executeFilter(std::execution::seq, status);
-			executeFilter(std::execution::par, status); // looks we we have OOB writes and access violations
+			executeFilter(std::execution::par, status);
+
+			if (test)
+			{
+				bool identical = true;
+				m_logger->log("Comparing complete image hashes accross references with different execution policies, performing test..", ILogger::ELL_WARNING);
+
+				const auto& rImage = references[0]["image"];
+
+				for (const auto& reference : references)
+				{
+					const auto& cImage = reference["image"];
+
+					if (cImage != rImage)
+					{
+						logFail("Failed!");
+						status = identical = false;
+						break;
+					}
+				}
+
+				if(identical)
+					m_logger->log("Passed!", ILogger::ELL_WARNING);
+			}
 		}
 
-		return status;
+		// I know what I'm doing, don't want to bother with destructors & runtime issues
+		if (status)
+			exit(0);
+		else
+			exit(0x45);
+
+		return true;
 	}
 
 	void workLoopBody() override {}
