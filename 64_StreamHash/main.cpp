@@ -82,8 +82,20 @@ public:
 		filter_t filter;
 		{
 			state_t state;
+
+			struct
+			{
+				uint8_t* memory = nullptr;
+				size_t size = 0ull;
+			} scratch;
+
 			state.inImage = imageView->getCreationParameters().image.get();
-			state.scratchMemory = filter.allocateScratchMemory(state.inImage);
+
+			scratch.size = state.getRequiredScratchByteSize(state.inImage);
+			scratch.memory = _NBL_NEW_ARRAY(uint8_t, scratch.size);
+
+			state.scratch.memory = scratch.memory;
+			state.scratch.size = scratch.size;
 
 			std::vector<json> references;
 
@@ -137,7 +149,7 @@ public:
 
 					for (auto layer = 0u; layer < parameters.arrayLayers; ++layer)
 					{
-						const auto* hash = reinterpret_cast<state_t::hash_t*>(state.scratchMemory.heap->getPointer()) + (miplevel * parameters.arrayLayers) + layer;
+						const auto* hash = reinterpret_cast<state_t::hash_t*>(state.scratch.memory) + (miplevel * parameters.arrayLayers) + layer;
 
 						json layerJson;
 						layerJson["hash"] = json::array();
@@ -244,6 +256,8 @@ public:
 				if(identical)
 					m_logger->log("Passed!", ILogger::ELL_WARNING);
 			}
+
+			_NBL_DELETE_ARRAY(scratch.memory, scratch.size);
 		}
 
 		// I know what I'm doing, don't want to bother with destructors & runtime issues
