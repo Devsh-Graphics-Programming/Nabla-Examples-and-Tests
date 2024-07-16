@@ -336,18 +336,26 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 
 // We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
 // because there is no `if constexpr` in hlsl
+// @params
+// textureColor: color sampled from a texture
+// useStyleColor: instead of writing and reading from colorStorage, use main object Idx to find the style color for the object.
 template<bool FragmentShaderPixelInterlock>
-float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx);
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor);
 
 template<>
-float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor)
 {
-    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
-    col.w *= localAlpha;
-    return float4(col);
+    if (useStyleColor)
+    {
+        float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
+        col.w *= localAlpha;
+        return float4(col);
+    }
+    else
+        return float4(textureColor, localAlpha);
 }
 template<>
-float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor)
 {
     nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
@@ -378,7 +386,8 @@ float4 main(PSInput input) : SV_TARGET
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
-
+    float3 textureColor = float3(0, 0, 0); // color sampled from a texture
+    
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
@@ -582,11 +591,24 @@ float4 main(PSInput input) : SV_TARGET
             localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
+    else if (objType == ObjectType::IMAGE) 
+    {
+        const float2 uv = input.getImageUV();
+        const uint32_t textureId = input.getImageTextureId();
+
+        if (textureId != InvalidTextureIdx)
+        {
+            float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
+            textureColor = colorSample.rgb;
+            localAlpha = colorSample.a;
+        }
+    }
 
     uint2 fragCoord = uint2(input.position.xy);
     
     if (localAlpha <= 0)
         discard;
     
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
+    bool useStyleColor = (objType != ObjectType::IMAGE);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, useStyleColor);
 }

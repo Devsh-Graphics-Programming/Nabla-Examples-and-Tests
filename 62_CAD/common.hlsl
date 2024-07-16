@@ -14,7 +14,8 @@ enum class ObjectType : uint32_t
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
     POLYLINE_CONNECTOR = 3u,
-    FONT_GLYPH = 4u
+    FONT_GLYPH = 4u,
+    IMAGE = 5u
 };
 
 enum class MajorAxis : uint32_t
@@ -51,6 +52,9 @@ struct QuadraticBezierInfo
     float32_t phaseShift;
     float32_t stretchValue;
 };
+#ifndef __HLSL_VERSION
+static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
+#endif
 
 struct FontGlyphInfo
 {
@@ -76,9 +80,13 @@ struct FontGlyphInfo
 #endif
 };
 
-#ifndef __HLSL_VERSION
-static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
-#endif
+struct ImageObjectInfo
+{
+    float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (28)
+    uint32_t textureID; // 4 bytes (32)
+};
 
 struct PolylineConnector
 {
@@ -472,6 +480,13 @@ struct PSInput
     float getPolylineConnectorTrapezoidShortBase() { return data3.x; }
     float getPolylineConnectorTrapezoidLongBase() { return data3.y; }
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
+    
+    // IMAGE object data
+    float2 getImageUV() { return interp_data5.xy; }
+    uint32_t getImageTextureId() { return asuint(data2.x); }
+    
+    void setImageUV(float2 uv) { interp_data5.xy = uv; }
+    void setImageTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
@@ -479,11 +494,16 @@ struct PSInput
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 [[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
+
 [[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float4> msdfTextures : register(t3); // @Lucas, change `<float4>` to the number of components used in msdf texture
 [[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
 
+[[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
+[[vk::binding(6, 0)]] Texture2D textures[128] : register(t4);
+
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
+// [[vk::binding(0, 2)]] globallycoherent RWTexture2D<uint> colorStorage : register(u1);
 
 #endif
 

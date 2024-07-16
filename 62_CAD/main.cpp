@@ -37,7 +37,7 @@ using namespace video;
 
 static constexpr bool DebugMode = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -48,9 +48,10 @@ enum class ExampleMode
 	CASE_4, // STIPPLE PATTERN
 	CASE_5, // Advanced Styling
 	CASE_6, // Custom Clip Projections
+	CASE_7, // Images
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr ExampleMode mode = ExampleMode::CASE_7;
 
 class Camera2D
 {
@@ -291,13 +292,6 @@ public:
 		// pseudoStencil
 		{
 			asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
-
-			IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
-			promotionRequest.originalFormat = asset::EF_R32_UINT;
-			promotionRequest.usages = {};
-			promotionRequest.usages.storageImageAtomic = true;
-			pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
-
 			{
 				IGPUImage::SCreationParams imgInfo;
 				imgInfo.format = pseudoStencilFormat;
@@ -472,7 +466,7 @@ public:
 			return false;
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
-
+		
 		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
 		
 		// Create the Semaphores
@@ -507,6 +501,11 @@ public:
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
 
 		allocateResources(40960u);
+
+		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT |
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
@@ -546,6 +545,20 @@ public:
 					.stageFlags = asset::IShader::ESS_FRAGMENT,
 					.count = 1u,
 				},
+				{
+					.binding = 5u,
+					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 6u,
+					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+					.createFlags = bindlessTextureFlags,
+					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.count = 128u,
+				},
 			};
 			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
 			if (!descriptorSetLayout0)
@@ -569,7 +582,7 @@ public:
 			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 			{
 				const uint32_t setCounts[2u] = { 1u, 1u};
-				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, layouts, setCounts);
 				if (!descriptorPool)
 					return logFail("Failed to Create Descriptor Pool");
 			}
@@ -577,7 +590,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 5u;
+				constexpr uint32_t DescriptorCountSet0 = 6u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -597,9 +610,15 @@ public:
 				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
 				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
 				
-				descriptorInfosSet0[4u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[4u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
 				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				
+				descriptorInfosSet0[5u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				
+				// This is bindless to we write to it later.
+				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 1u;
@@ -641,13 +660,19 @@ public:
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-
-				// Set 1 Updates:
-				descriptorUpdates[5u].dstSet = descriptorSet1.get();
-				descriptorUpdates[5u].binding = 0u;
+				
+				descriptorUpdates[5u].dstSet = descriptorSet0.get();
+				descriptorUpdates[5u].binding = 5u;
 				descriptorUpdates[5u].arrayElement = 0u;
 				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfosSet1[0u];
+				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
+
+				// Set 1 Updates:
+				descriptorUpdates[6u].dstSet = descriptorSet1.get();
+				descriptorUpdates[6u].binding = 0u;
+				descriptorUpdates[6u].arrayElement = 0u;
+				descriptorUpdates[6u].count = 1u;
+				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
 
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
@@ -3081,7 +3106,168 @@ protected:
 			drawResourcesFiller.popClipProjectionData();
 			
 		}
+		else if (mode == ExampleMode::CASE_7)
+		{
+			if (m_realFrameIx == 0u)
+			{
+				// Load image
+				system::path m_loadCWD = "..";
+				std::string imagePath = "../../media/color_space_test/R8G8B8_1.jpg";
+				
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(),m_loadCWD);
+				auto bundle = m_assetMgr->getAsset(imagePath,loadParams);
+				auto contents = bundle.getContents();
+				if (contents.empty())
+				{
+					m_logger->log("Failed to load image with path %s, skipping!",ILogger::ELL_ERROR,(m_loadCWD/imagePath).c_str());
+				}
+				
+				smart_refctd_ptr<ICPUImageView> cpuImgView;
+				const auto& asset = contents[0];
+				switch (asset->getAssetType())
+				{
+					case IAsset::ET_IMAGE:
+					{
+						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+						const auto format = image->getCreationParameters().format;
 
+						ICPUImageView::SCreationParams viewParams = {
+							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+							.image = std::move(image),
+							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+							.format = format,
+							.subresourceRange = {
+								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = ICPUImageView::remaining_mip_levels,
+								.baseArrayLayer = 0u,
+								.layerCount = ICPUImageView::remaining_array_layers
+							}
+						};
+
+						cpuImgView = ICPUImageView::create(std::move(viewParams));
+					} break;
+
+					case IAsset::ET_IMAGE_VIEW:
+						cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+						break;
+					default:
+						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
+						return;
+				}
+			
+
+				// create matching size gpu image
+				smart_refctd_ptr<IGPUImage> gpuImg;
+				const auto& origParams = cpuImgView->getCreationParameters();
+				const auto origImage = origParams.image;
+				IGPUImage::SCreationParams imageParams = {};
+				imageParams = origImage->getCreationParameters();
+				imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
+				// promote format because RGB8 and friends don't actually exist in HW
+				{
+					const IPhysicalDevice::SImageFormatPromotionRequest request = {
+						.originalFormat = imageParams.format,
+						.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
+					};
+					imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
+				}
+				gpuImg = m_device->createImage(std::move(imageParams));
+				if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
+					return;
+				gpuImg->setObjectDebugName(imagePath.c_str());
+				
+				IGPUImageView::SCreationParams viewParams = {
+					.image = gpuImg,
+					.viewType = IGPUImageView::ET_2D,
+					.format = gpuImg->getCreationParameters().format
+				};
+				auto gpuImgView = m_device->createImageView(std::move(viewParams));
+
+				// Bind gpu image view to descriptor set
+				video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
+				dsInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				dsInfo.desc = gpuImgView;
+
+				IGPUDescriptorSet::SWriteDescriptorSet dsWrites[1u] =
+				{
+					{
+						.dstSet = descriptorSet0.get(),
+						.binding = 6u,
+						.arrayElement = 0u,
+						.count = 1u,
+						.info = &dsInfo,
+					}
+				};
+				m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
+
+				// Upload Loaded CPUImageData to GPU
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t beforeCopyImageBarriers[] =
+				{
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = origParams.subresourceRange,
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					}
+				};
+
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = beforeCopyImageBarriers  });
+				m_utils->updateImageViaStagingBuffer(
+					intendedNextSubmit, 
+					origImage->getBuffer()->getPointer(), origImage->getCreationParameters().format,
+					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
+					origImage->getRegions());
+
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t afterCopyImageBarriers[] =
+				{
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = origParams.subresourceRange,
+						.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+					}
+				};
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = afterCopyImageBarriers  });
+			}
+			drawResourcesFiller._test_addImageObject({ 0.0, 0.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+			
+			LineStyleInfo lineStyle = 
+			{
+				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
+				.screenSpaceLineWidth = 3.0f,
+				.worldSpaceLineWidth = 0.0f,
+				.isRoadStyleFlag = false,
+			};
+			CPolyline polyline;
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ 0.0, 0.0 });
+				linePoints.push_back({ 100.0, 0.0 });
+				linePoints.push_back({ 100.0, -100.0 });
+				polyline.addLinePoints(linePoints);
+			}
+			drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
+		}
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 
@@ -3138,7 +3324,6 @@ protected:
 	smart_refctd_ptr<IGPUGraphicsPipeline>		graphicsPipeline;
 
 	Camera2D m_Camera;
-
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;

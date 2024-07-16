@@ -21,5 +21,6 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 {
     const float32_t2 repeatCoord = vxAttr.uv*float32_t2(pc.grid);
     const int32_t layer = int32_t(repeatCoord.y)*pc.grid.x+int32_t(repeatCoord.x);
-    return texture.Sample(samplerState,float32_t3(repeatCoord,layer));
+    float4 color = texture.Sample(samplerState,float32_t3(repeatCoord,layer));
+    return color * color.a;
 }

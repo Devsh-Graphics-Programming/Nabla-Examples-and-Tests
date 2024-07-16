@@ -129,6 +129,56 @@ public:
 
 	void addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 	
+	void _test_addImageObject(
+		float64_t2 topLeftPos,
+		float32_t2 size,
+		float32_t rotation,
+		SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		auto addImageObject_Internal = [&](const ImageObjectInfo& imageObjectInfo, uint32_t mainObjIdx) -> bool
+			{
+				const auto maxGeometryBufferImageObjects = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(ImageObjectInfo);
+				uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
+				uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
+				uploadableObjects = min(uploadableObjects, maxGeometryBufferImageObjects);
+
+				if (uploadableObjects >= 1u)
+				{
+					void* dstGeom = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+					memcpy(dstGeom, &imageObjectInfo, sizeof(ImageObjectInfo));
+					uint64_t geomBufferAddr = geometryBufferAddress + currentGeometryBufferSize;
+					currentGeometryBufferSize += sizeof(ImageObjectInfo);
+
+					DrawObject drawObj = {};
+					drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::IMAGE) | (0 << 16)); // TODO: use custom pack/unpack function
+					drawObj.mainObjIndex = mainObjIdx;
+					drawObj.geometryAddress = geomBufferAddr;
+					void* dstDrawObj = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+					memcpy(dstDrawObj, &drawObj, sizeof(DrawObject));
+					currentDrawObjectCount += 1u;
+
+					return true;
+				}
+				else
+					return false;
+			};
+		
+		uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(InvalidStyleIdx, intendedNextSubmit);
+
+		ImageObjectInfo info = {};
+		info.topLeft = topLeftPos;
+		info.dirU = float32_t2(size.x * cos(rotation), size.x * sin(rotation)); // 
+		info.aspectRatio = size.y / size.x;
+		info.textureID = 0u;
+		if (!addImageObject_Internal(info, mainObjIdx))
+		{
+			// single image object couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+			submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
+			bool success = addImageObject_Internal(info, mainObjIdx);
+			assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single image object 
+		}
+	}
+
 	void finalizeAllCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	inline uint32_t getLineStyleCount() const { return currentLineStylesCount; }
