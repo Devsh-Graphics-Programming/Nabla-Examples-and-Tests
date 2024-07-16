@@ -8,6 +8,7 @@
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
 #include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
+#include <nbl/builtin/hlsl/text_rendering/msdf.hlsl>
 
 template<typename float_t>
 struct DefaultClipper
@@ -380,21 +381,6 @@ float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlp
     return col;
 }
 
-// TODO: place this MSDF code elsewhere
-float median(float r, float g, float b) {
-    return max(min(r, g), min(max(r, g), b));
-}
-
-float screenPxRange(float2 screenSpaceSizePixels, float2 distanceFieldSizePixels) {
-    float2 unitRange = 1.0 / distanceFieldSizePixels;
-    return max(0.5 * dot(unitRange, screenSpaceSizePixels), 1.0);
-}
-
-float msdfDistance(float3 msd, float2 screenPxRangeValue) {
-    float snormSignedDistance = (median(msd.r, msd.g, msd.b) - 0.5) * 2.0;
-    return screenPxRangeValue.x * MSDFPixelRange * snormSignedDistance;
-}
-
 float4 main(PSInput input) : SV_TARGET
 {
     ObjectType objType = input.getObjType();
@@ -589,7 +575,7 @@ float4 main(PSInput input) : SV_TARGET
         if (textureId != InvalidTextureIdx)
         {
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
-            float msdf = msdfDistance(msdfSample, HatchFillMSDFSceenSpaceSize / MSDFSize);
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
             localAlpha *= smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
@@ -601,7 +587,7 @@ float4 main(PSInput input) : SV_TARGET
         if (textureId != InvalidTextureIdx)
         {
             float4 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
-            float msdf = msdfDistance(msdfSample, screenPxRange(input.getFontGlyphScreenSpaceSize(), float2(MSDFSize, MSDFSize)));
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
             localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }
