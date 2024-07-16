@@ -1,619 +1,813 @@
-// Copyright (C) 2018-2021 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
 
-#define _NBL_STATIC_LIB_
-#include <iostream>
-#include <cstdio>
 #include <nabla.h>
+#include "nbl/asset/utils/CGeometryCreator.h"
+#include "nbl/video/utilities/CSimpleResizeSurface.h"
 
+#include "../common/SimpleWindowedApplication.hpp"
+#include "../common/InputSystem.hpp"
 #include "../common/Camera.hpp"
-#include "../common/CommonAPI.h"
-#include "nbl/ext/ScreenShot/ScreenShot.h"
+
+#include "this_example/spirv/builtin/CArchive.h"
+#include "this_example/spirv/builtin/builtinResources.h"
+
+#include "shaders/template/common.hlsl"
 
 using namespace nbl;
 using namespace core;
+using namespace hlsl;
+using namespace system;
+using namespace asset;
 using namespace ui;
+using namespace video;
 
-/*
-	Uncomment for more detailed logging
-*/
-
-#define NBL_MORE_LOGS
-
-#include "nbl/nblpack.h"
-struct GPUObject
+class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
-	core::smart_refctd_ptr<video::IGPUMeshBuffer> gpuMeshbBuffer;
-	core::smart_refctd_ptr<video::IGPUGraphicsPipeline> gpuGraphicsPipeline;
-} PACK_STRUCT;
-
-struct Objects
-{
-	enum E_OBJECT_INDEX
-	{
-		E_CUBE,
-		E_SPHERE,
-		E_CYLINDER,
-		E_RECTANGLE,
-		E_DISK,
-		E_CONE,
-		E_ARROW,
-		E_ICOSPHERE,
-		E_COUNT
-	};
-
-	Objects(std::initializer_list<std::pair<asset::IGeometryCreator::return_type, GPUObject>> _objects) : objects(_objects) {}
-
-	const std::vector<std::pair<asset::IGeometryCreator::return_type, GPUObject>> objects;
-} PACK_STRUCT;
-#include "nbl/nblunpack.h"
-
-const char* vertexSource = R"===(
-#version 430 core
-layout(location = 0) in vec4 vPos;
-layout(location = 1) in vec4 vColor;
-layout(location = 2) in vec2 vUv;
-layout(location = 3) in vec3 vNormal;
-
-#include <nbl/builtin/glsl/utils/common.glsl>
-#include <nbl/builtin/glsl/utils/transform.glsl>
-
-layout( push_constant, row_major ) uniform Block {
-	mat4 modelViewProj;
-} PushConstants;
-
-layout(location = 0) out vec3 Color; //per vertex output color, will be interpolated across the triangle
-
-void main()
-{
-    gl_Position = PushConstants.modelViewProj*vPos;
-    Color = vNormal*0.5+vec3(0.5);
-}
-)===";
-
-const char* vertexSource_cone = R"===(
-#version 430 core
-layout(location = 0) in vec4 vPos;
-layout(location = 1) in vec4 vColor;
-layout(location = 2) in vec3 vNormal;
-
-#include <nbl/builtin/glsl/utils/common.glsl>
-#include <nbl/builtin/glsl/utils/transform.glsl>
-
-layout( push_constant, row_major ) uniform Block {
-	mat4 modelViewProj;
-} PushConstants;
-
-layout(location = 0) out vec3 Color; //per vertex output color, will be interpolated across the triangle
-
-void main()
-{
-    gl_Position = PushConstants.modelViewProj*vPos;
-    Color = vNormal*0.5+vec3(0.5);
-}
-)===";
-
-const char* vertexSource_ico = R"===(
-#version 430 core
-layout(location = 0) in vec4 vPos;
-layout(location = 1) in vec3 vNormal;
-layout(location = 2) in vec2 vUv;
-
-#include <nbl/builtin/glsl/utils/common.glsl>
-#include <nbl/builtin/glsl/utils/transform.glsl>
-
-layout( push_constant, row_major ) uniform Block {
-	mat4 modelViewProj;
-} PushConstants;
-
-layout(location = 0) out vec3 Color; //per vertex output color, will be interpolated across the triangle
-
-void main()
-{
-    gl_Position = PushConstants.modelViewProj*vPos;
-    Color = vNormal*0.5+vec3(0.5);
-}
-)===";
-
-const char* fragmentSource = R"===(
-#version 430 core
-
-layout(location = 0) in vec3 Color;
-
-layout(location = 0) out vec4 pixelColor;
-
-void main()
-{
-    pixelColor = vec4(Color,1.0);
-}
-)===";
-
-class GeometryCreatorSampleApp : public ApplicationBase
-{
-	constexpr static uint32_t WIN_W = 1280;
-	constexpr static uint32_t WIN_H = 720;
-	constexpr static uint32_t SC_IMG_COUNT = 3u;
-	constexpr static uint32_t FRAMES_IN_FLIGHT = 5u;
-	static constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-	static constexpr size_t NBL_FRAMES_TO_AVERAGE = 100ull;
-	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
-
-    core::smart_refctd_ptr<nbl::system::ISystem> system;
-	core::smart_refctd_ptr<nbl::ui::IWindow> window;
-	core::smart_refctd_ptr<CommonAPI::CommonAPIEventCallback> windowCb;
-	core::smart_refctd_ptr<nbl::system::ILogger> logger;
-	core::smart_refctd_ptr<CommonAPI::InputSystem> inputSystem;
-	core::smart_refctd_ptr<nbl::video::IAPIConnection> api;
-	core::smart_refctd_ptr<nbl::video::ISurface> surface;
-	video::IPhysicalDevice* gpuPhysicalDevice;
-	core::smart_refctd_ptr<nbl::video::ILogicalDevice> logicalDevice;
-	std::array<video::IGPUQueue*, CommonAPI::InitOutput::MaxQueuesCount> queues;
-	core::smart_refctd_ptr<nbl::video::ISwapchain> swapchain;
-	core::smart_refctd_ptr<nbl::video::IGPURenderpass> renderpass;
-	nbl::core::smart_refctd_dynamic_array<nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer>> fbos;
-	std::array<std::array<nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool>, CommonAPI::InitOutput::MaxFramesInFlight>, CommonAPI::InitOutput::MaxQueuesCount> commandPools;
-	core::smart_refctd_ptr<nbl::asset::IAssetManager> assetManager;
-	video::IGPUObjectFromAssetConverter::SParams cpu2gpuParams;
-	core::smart_refctd_ptr<nbl::video::IUtilities> utilities;
-
-	core::smart_refctd_ptr<video::IGPUFence> m_frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUSemaphore> m_imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUSemaphore> m_renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUCommandBuffer> m_commandBuffers[FRAMES_IN_FLIGHT];
-
-	int32_t m_resourceIx = -1;
-	uint32_t m_acquiredNextFBO = {};
-
-	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> m_mouse;
-	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> m_keyboard;
-	std::unique_ptr<Camera> m_camera = nullptr;
-	std::unique_ptr<Objects> m_cpuGpuObjects = nullptr;
-	video::CDumbPresentationOracle oracle;
-	nbl::video::ISwapchain::SCreationParams m_swapchainCreationParams;
+	using base_t = CDefaultSwapchainFramebuffers;
 
 public:
-
-    void setWindow(core::smart_refctd_ptr<nbl::ui::IWindow>&& wnd) override
-    {
-        window = std::move(wnd);
-    }
-    void setSystem(core::smart_refctd_ptr<nbl::system::ISystem>&& s) override
-    {
-        system = std::move(s);
-    }
-    nbl::ui::IWindow* getWindow() override
-    {
-        return window.get();
-    }
-    video::IAPIConnection* getAPIConnection() override
-    {
-        return api.get();
-    }
-    video::ILogicalDevice* getLogicalDevice()  override
-    {
-        return logicalDevice.get();
-    }
-    video::IGPURenderpass* getRenderpass() override
-    {
-        return renderpass.get();
-    }
-    void setSurface(core::smart_refctd_ptr<video::ISurface>&& s) override
-    {
-        surface = std::move(s);
-    }
-    void setFBOs(std::vector<core::smart_refctd_ptr<video::IGPUFramebuffer>>& f) override
-    {
-        for (int i = 0; i < f.size(); i++)
-        {
-            fbos->begin()[i] = core::smart_refctd_ptr(f[i]);
-        }
-    }
-    void setSwapchain(core::smart_refctd_ptr<video::ISwapchain>&& s) override
-    {
-        swapchain = std::move(s);
-    }
-    uint32_t getSwapchainImageCount() override
-    {
-        return swapchain->getImageCount();
-    }
-    virtual nbl::asset::E_FORMAT getDepthFormat() override
-    {
-        return nbl::asset::EF_D32_SFLOAT;
-    }
-
-	APP_CONSTRUCTOR(GeometryCreatorSampleApp);
-
-	void onAppInitialized_impl() override
+	template<typename... Args>
+	inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args) : CDefaultSwapchainFramebuffers(device, std::forward<Args>(args)...)
 	{
-		const auto swapchainImageUsage = static_cast<asset::IImage::E_USAGE_FLAGS>(asset::IImage::EUF_COLOR_ATTACHMENT_BIT | asset::IImage::EUF_TRANSFER_SRC_BIT);
-
-		CommonAPI::InitParams initParams;
-		initParams.window = core::smart_refctd_ptr(window);
-		initParams.apiType = video::EAT_VULKAN;
-		initParams.appName = { _NBL_APP_NAME_ };
-		initParams.framesInFlight = FRAMES_IN_FLIGHT;
-		initParams.windowWidth = WIN_W;
-		initParams.windowHeight = WIN_H;
-		initParams.swapchainImageCount = SC_IMG_COUNT;
-		initParams.swapchainImageUsage = swapchainImageUsage;
-		initParams.depthFormat = nbl::asset::EF_D32_SFLOAT;
-		auto initOutput = CommonAPI::InitWithDefaultExt(std::move(initParams));
-
-		window = std::move(initParams.window);
-		windowCb = std::move(initParams.windowCb);
-		logger = std::move(initOutput.logger);
-		inputSystem = std::move(initOutput.inputSystem);
-		api = std::move(initOutput.apiConnection);
-		surface = std::move(initOutput.surface);
-		gpuPhysicalDevice = std::move(initOutput.physicalDevice);
-		logicalDevice = std::move(initOutput.logicalDevice);
-		queues = std::move(initOutput.queues);
-		renderpass = std::move(initOutput.renderToSwapchainRenderpass);
-        system = std::move(initOutput.system);
-		commandPools = std::move(initOutput.commandPools);
-		assetManager = std::move(initOutput.assetManager);
-		cpu2gpuParams = std::move(initOutput.cpu2gpuParams);
-		utilities = std::move(initOutput.utilities);
-		m_swapchainCreationParams = std::move(initOutput.swapchainCreationParams);
-
-		CommonAPI::createSwapchain(std::move(logicalDevice), m_swapchainCreationParams, WIN_W, WIN_H, swapchain);
-		assert(swapchain);
-		fbos = CommonAPI::createFBOWithSwapchainImages(
-			swapchain->getImageCount(), WIN_W, WIN_H,
-			logicalDevice, swapchain, renderpass,
-			nbl::asset::EF_D32_SFLOAT
-		);
-
-		auto geometryCreator = assetManager->getGeometryCreator();
-		auto cubeGeometry = geometryCreator->createCubeMesh(vector3df(2, 2, 2));
-		auto sphereGeometry = geometryCreator->createSphereMesh(2, 16, 16);
-		auto cylinderGeometry = geometryCreator->createCylinderMesh(2, 2, 20);
-		auto rectangleGeometry = geometryCreator->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3));
-		auto diskGeometry = geometryCreator->createDiskMesh(2, 30);
-		auto coneGeometry = geometryCreator->createConeMesh(2, 3, 10);
-		auto arrowGeometry = geometryCreator->createArrowMesh();
-		auto icosphereGeometry = geometryCreator->createIcoSphere(1, 3, true);
-
-		auto createSpecializedShaderFromSource = [=](const char* source, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUSpecializedShader>
-		{
-			auto computeUnspec = core::make_smart_refctd_ptr<asset::ICPUShader>(source, stage, asset::IShader::E_CONTENT_TYPE::ECT_GLSL, "runtimeID");
-
-			asset::IShaderCompiler::SCompilerOptions options = {};
-			options.preprocessorOptions.sourceIdentifier = "runtimeID";
-			options.stage = stage;
-
-			auto spirv = assetManager->getCompilerSet()->compileToSPIRV(computeUnspec.get(), std::move(options));
-			if (!spirv)
-				return nullptr;
-
-			auto gpuUnspecializedShader = logicalDevice->createShader(std::move(spirv));
-			return logicalDevice->createSpecializedShader(gpuUnspecializedShader.get(), { nullptr, nullptr, "main" });
+		const IPhysicalDevice::SImageFormatPromotionRequest req = {
+			.originalFormat = _desiredDepthFormat,
+			.usages = {IGPUImage::EUF_RENDER_ATTACHMENT_BIT}
 		};
+		m_depthFormat = m_device->getPhysicalDevice()->promoteImageFormat(req, IGPUImage::TILING::OPTIMAL);
 
-		auto createSpecializedShaderFromSourceWithIncludes = [&](const char* source, asset::IShader::E_SHADER_STAGE stage, const char* origFilepath)
-		{
-			auto computeUnspec = core::make_smart_refctd_ptr<asset::ICPUShader>(source, stage, asset::IShader::E_CONTENT_TYPE::ECT_GLSL, origFilepath);
-			auto includeFinder = assetManager->getCompilerSet()->getShaderCompiler(asset::IShader::E_CONTENT_TYPE::ECT_GLSL)->getDefaultIncludeFinder();
-
-			asset::IShaderCompiler::SPreprocessorOptions options = {};
-			options.sourceIdentifier = origFilepath;
-			options.includeFinder = includeFinder;
-			auto resolved_includes = assetManager->getCompilerSet()->preprocessShader(computeUnspec.get(), std::move(options));
-			return createSpecializedShaderFromSource(reinterpret_cast<const char*>(resolved_includes->getContent()->getPointer()), stage);
-		};
-
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuShaders[2] =
-		{
-			createSpecializedShaderFromSourceWithIncludes(vertexSource,asset::IShader::ESS_VERTEX, "shader.vert"),
-			createSpecializedShaderFromSource(fragmentSource,asset::IShader::ESS_FRAGMENT)
-		};
-		auto gpuShadersRaw = reinterpret_cast<video::IGPUSpecializedShader**>(gpuShaders);
-
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuShaders_cone[2] =
-		{
-			createSpecializedShaderFromSourceWithIncludes(vertexSource_cone, asset::IShader::ESS_VERTEX, "shader_cone.vert"),
-			gpuShaders[1]
-		};
-		auto gpuShadersRaw_cone = reinterpret_cast<video::IGPUSpecializedShader**>(gpuShaders_cone);
-
-		core::smart_refctd_ptr<video::IGPUSpecializedShader> gpuShaders_ico[2] =
-		{
-			createSpecializedShaderFromSourceWithIncludes(vertexSource_ico, asset::IShader::ESS_VERTEX, "shader_ico.vert"),
-			gpuShaders[1]
-		};
-		auto gpuShadersRaw_ico = reinterpret_cast<video::IGPUSpecializedShader**>(gpuShaders_ico);
-
-		auto createGPUMeshBufferAndItsPipeline = [&](asset::IGeometryCreator::return_type& geometryObject, Objects::E_OBJECT_INDEX object) -> GPUObject
-		{
-			asset::SBlendParams blendParams;
-			blendParams.logicOpEnable = false;
-			blendParams.logicOp = nbl::asset::ELO_NO_OP;
-
-			asset::SRasterizationParams rasterParams;
-			rasterParams.faceCullingMode = asset::EFCM_NONE;
-
-			asset::SPushConstantRange range[1] = { asset::IShader::ESS_VERTEX, 0u, sizeof(core::matrix4SIMD) };
-			core::smart_refctd_ptr<video::IGPURenderpassIndependentPipeline> gpuRenderpassIndependentPipeline = nullptr;
-			if (object == Objects::E_CONE)
-			{
-				gpuRenderpassIndependentPipeline = logicalDevice->createRenderpassIndependentPipeline
-				(
-					nullptr,
-					logicalDevice->createPipelineLayout(range, range + 1u, nullptr, nullptr, nullptr, nullptr),
-					gpuShadersRaw_cone,
-					gpuShadersRaw_cone + sizeof(gpuShaders_cone) / sizeof(core::smart_refctd_ptr<video::IGPUSpecializedShader>),
-					geometryObject.inputParams,
-					blendParams,
-					geometryObject.assemblyParams,
-					rasterParams
-				);
-			}
-			else if (object == Objects::E_ICOSPHERE)
-			{
-				gpuRenderpassIndependentPipeline = logicalDevice->createRenderpassIndependentPipeline
-				(
-					nullptr,
-					logicalDevice->createPipelineLayout(range, range + 1u, nullptr, nullptr, nullptr, nullptr),
-					gpuShadersRaw_ico,
-					gpuShadersRaw_ico + sizeof(gpuShaders_ico) / sizeof(core::smart_refctd_ptr<video::IGPUSpecializedShader>),
-					geometryObject.inputParams,
-					blendParams,
-					geometryObject.assemblyParams,
-					rasterParams
-				);
-			}
-			else
-			{
-				gpuRenderpassIndependentPipeline = logicalDevice->createRenderpassIndependentPipeline
-				(
-					nullptr,
-					logicalDevice->createPipelineLayout(range, range + 1u, nullptr, nullptr, nullptr, nullptr),
-					gpuShadersRaw,
-					gpuShadersRaw + sizeof(gpuShaders) / sizeof(core::smart_refctd_ptr<video::IGPUSpecializedShader>),
-					geometryObject.inputParams,
-					blendParams,
-					geometryObject.assemblyParams,
-					rasterParams
-				);
-			}
-
-			constexpr auto MAX_ATTR_BUF_BINDING_COUNT = video::IGPUMeshBuffer::MAX_ATTR_BUF_BINDING_COUNT;
-			constexpr auto MAX_DATA_BUFFERS = MAX_ATTR_BUF_BINDING_COUNT + 1;
-			core::vector<asset::ICPUBuffer*> cpubuffers;
-			cpubuffers.reserve(MAX_DATA_BUFFERS);
-			for (auto i = 0; i < MAX_ATTR_BUF_BINDING_COUNT; i++)
-			{
-				auto buf = geometryObject.bindings[i].buffer.get();
-				if (buf)
+		const static IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] = {
+			{{
 				{
-					buf->addUsageFlags(asset::IBuffer::EUF_VERTEX_BUFFER_BIT);
-					cpubuffers.push_back(buf);
-				}
-			}
-			auto cpuindexbuffer = geometryObject.indexBuffer.buffer.get();
-			if (cpuindexbuffer)
+					.format = m_depthFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+			/*.loadOp = */{IGPURenderpass::LOAD_OP::CLEAR},
+			/*.storeOp = */{IGPURenderpass::STORE_OP::STORE},
+			/*.initialLayout = */{IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
+			/*.finalLayout = */{IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
+		}},
+		IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+		};
+		m_params.depthStencilAttachments = depthAttachments;
+
+		static IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+			m_params.subpasses[0],
+			IGPURenderpass::SCreationParams::SubpassesEnd
+		};
+		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0,.layout = IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
+		m_params.subpasses = subpasses;
+	}
+
+protected:
+	inline bool onCreateSwapchain_impl(const uint8_t qFam) override
+	{
+		auto device = const_cast<ILogicalDevice*>(m_renderpass->getOriginDevice());
+
+		const auto depthFormat = m_renderpass->getCreationParameters().depthStencilAttachments[0].format;
+		const auto& sharedParams = getSwapchain()->getCreationParameters().sharedParams;
+		auto image = device->createImage({ IImage::SCreationParams{
+			.type = IGPUImage::ET_2D,
+			.samples = IGPUImage::ESCF_1_BIT,
+			.format = depthFormat,
+			.extent = {sharedParams.width,sharedParams.height,1},
+			.mipLevels = 1,
+			.arrayLayers = 1,
+			.depthUsage = IGPUImage::EUF_RENDER_ATTACHMENT_BIT
+		} });
+
+		device->allocate(image->getMemoryReqs(), image.get());
+
+		m_depthBuffer = device->createImageView({
+			.flags = IGPUImageView::ECF_NONE,
+			.subUsages = IGPUImage::EUF_RENDER_ATTACHMENT_BIT,
+			.image = std::move(image),
+			.viewType = IGPUImageView::ET_2D,
+			.format = depthFormat,
+			.subresourceRange = {IGPUImage::EAF_DEPTH_BIT,0,1,0,1}
+			});
+
+		const auto retval = base_t::onCreateSwapchain_impl(qFam);
+		m_depthBuffer = nullptr;
+		return retval;
+	}
+
+	inline smart_refctd_ptr<IGPUFramebuffer> createFramebuffer(IGPUFramebuffer::SCreationParams&& params) override
+	{
+		params.depthStencilAttachments = &m_depthBuffer.get();
+		return m_device->createFramebuffer(std::move(params));
+	}
+
+	E_FORMAT m_depthFormat;
+	// only used to pass a parameter from `onCreateSwapchain_impl` to `createFramebuffer`
+	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
+};
+
+class CEventCallback : public ISimpleManagedSurface::ICallback
+{
+public:
+	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}
+	CEventCallback() {}
+
+	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
+	{
+		m_logger = logger;
+	}
+	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	{
+		m_inputSystem = std::move(m_inputSystem);
+	}
+private:
+
+	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
+	{
+		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_mouse, std::move(mch));
+	}
+	void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
+	{
+		m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse, mch);
+	}
+	void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
+	{
+		m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard, std::move(kbch));
+	}
+	void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
+	{
+		m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard, kbch);
+	}
+
+private:
+	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
+};
+
+class GeometryCreatorApp final : public examples::SimpleWindowedApplication
+{
+	using device_base_t = examples::SimpleWindowedApplication;
+	using clock_t = std::chrono::steady_clock;
+
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
+	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
+
+	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+
+public:
+	inline GeometryCreatorApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
+		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+
+	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+	{
+		if (!m_surface)
+		{
 			{
-				cpuindexbuffer->addUsageFlags(asset::IBuffer::EUF_INDEX_BUFFER_BIT);
-				cpubuffers.push_back(cpuindexbuffer);
+				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+				params.width = WIN_W;
+				params.height = WIN_H;
+				params.x = 32;
+				params.y = 32;
+				params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
+				params.windowCaption = "GeometryCreatorApp";
+				params.callback = windowCallback;
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 			}
 
-			video::IGPUObjectFromAssetConverter cpu2gpu;
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>::create(std::move(surface));
+		}
 
-			core::smart_refctd_ptr<video::IGPUCommandBuffer> transferCmdBuffer;
-			core::smart_refctd_ptr<video::IGPUCommandBuffer> computeCmdBuffer;
+		if (m_surface)
+			return { {m_surface->getSurface()/*,EQF_NONE*/} };
 
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_TRANSFER_UP][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &transferCmdBuffer);
-			logicalDevice->createCommandBuffers(commandPools[CommonAPI::InitOutput::EQT_COMPUTE][0].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1u, &computeCmdBuffer);
+		return {};
+	}
 
-			cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_TRANSFER].cmdbuf = transferCmdBuffer;
-			cpu2gpuParams.perQueue[video::IGPUObjectFromAssetConverter::EQU_COMPUTE].cmdbuf = computeCmdBuffer;
+	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+	{
+		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
-			cpu2gpuParams.beginCommandBuffers();
-			auto gpubuffers = cpu2gpu.getGPUObjectsFromAssets(cpubuffers.data(), cpubuffers.data() + cpubuffers.size(), cpu2gpuParams);
-			cpu2gpuParams.waitForCreationToComplete(false);
-			if (!gpubuffers || gpubuffers->size() < 1u)
-				assert(false);
+		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			return false;
 
-			asset::SBufferBinding<video::IGPUBuffer> bindings[MAX_DATA_BUFFERS];
-			for (auto i = 0, j = 0; i < MAX_ATTR_BUF_BINDING_COUNT; i++)
+		m_semaphore = m_device->createSemaphore(m_submitIx);
+		if (!m_semaphore)
+			return logFail("Failed to Create a Semaphore!");
+
+		ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
+		if (!swapchainParams.deduceFormat(m_physicalDevice))
+			return logFail("Could not choose a Surface Format for the Swapchain!");
+
+		// Subsequent submits don't wait for each other, hence its important to have External Dependencies which prevent users of the depth attachment overlapping.
+		const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+			// wipe-transition of Color to ATTACHMENT_OPTIMAL
 			{
-				if (!geometryObject.bindings[i].buffer)
-					continue;
-				auto buffPair = gpubuffers->operator[](j++);
-				bindings[i].offset = buffPair->getOffset();
-				bindings[i].buffer = core::smart_refctd_ptr<video::IGPUBuffer>(buffPair->getBuffer());
+				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier = {
+				// last place where the depth can get modified in previous frame
+				.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
+				// only write ops, reads can't be made available
+				.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				// destination needs to wait as early as possible
+				.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+				// because of depth test needing a read and a write
+				.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
 			}
-			if (cpuindexbuffer)
+			// leave view offsets and flags default
+		},
+			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
 			{
-				auto buffPair = gpubuffers->back();
-				bindings[MAX_ATTR_BUF_BINDING_COUNT].offset = buffPair->getOffset();
-				bindings[MAX_ATTR_BUF_BINDING_COUNT].buffer = core::smart_refctd_ptr<video::IGPUBuffer>(buffPair->getBuffer());
+				.srcSubpass = 0,
+				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier = {
+				// last place where the depth can get modified
+				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+				// only write ops, reads can't be made available
+				.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+				// spec says nothing is needed when presentation is the destination
 			}
-
-			auto mb = core::make_smart_refctd_ptr<video::IGPUMeshBuffer>(core::smart_refctd_ptr(gpuRenderpassIndependentPipeline), nullptr, bindings, std::move(bindings[MAX_ATTR_BUF_BINDING_COUNT]));
-			{
-				mb->setIndexType(geometryObject.indexType);
-				mb->setIndexCount(geometryObject.indexCount);
-				mb->setBoundingBox(geometryObject.bbox);
-			}
-
-			nbl::video::IGPUGraphicsPipeline::SCreationParams graphicsPipelineParams;
-			graphicsPipelineParams.renderpassIndependent = core::smart_refctd_ptr(gpuRenderpassIndependentPipeline);
-			graphicsPipelineParams.renderpass = core::smart_refctd_ptr(renderpass);
-
-			auto gpuGraphicsPipeline = logicalDevice->createGraphicsPipeline(nullptr, std::move(graphicsPipelineParams));
-
-			return { mb, gpuGraphicsPipeline };
+			// leave view offsets and flags default
+		},
+		IGPURenderpass::SCreationParams::DependenciesEnd
 		};
 
-		auto gpuCube = createGPUMeshBufferAndItsPipeline(cubeGeometry, Objects::E_CUBE);
-		auto gpuSphere = createGPUMeshBufferAndItsPipeline(sphereGeometry, Objects::E_SPHERE);
-		auto gpuCylinder = createGPUMeshBufferAndItsPipeline(cylinderGeometry, Objects::E_CYLINDER);
-		auto gpuRectangle = createGPUMeshBufferAndItsPipeline(rectangleGeometry, Objects::E_RECTANGLE);
-		auto gpuDisk = createGPUMeshBufferAndItsPipeline(diskGeometry, Objects::E_DISK);
-		auto gpuCone = createGPUMeshBufferAndItsPipeline(coneGeometry, Objects::E_CONE);
-		auto gpuArrow = createGPUMeshBufferAndItsPipeline(arrowGeometry, Objects::E_ARROW);
-		auto gpuIcosphere = createGPUMeshBufferAndItsPipeline(icosphereGeometry, Objects::E_ICOSPHERE);
+		auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+		auto* renderpass = scResources->getRenderpass();
 
-		m_cpuGpuObjects = std::make_unique<Objects>
-		(std::initializer_list({
-			std::make_pair(cubeGeometry, gpuCube),
-			std::make_pair(sphereGeometry, gpuSphere),
-			std::make_pair(cylinderGeometry, gpuCylinder),
-			std::make_pair(rectangleGeometry, gpuRectangle),
-			std::make_pair(diskGeometry, gpuDisk),
-			std::make_pair(coneGeometry, gpuCone),
-			std::make_pair(arrowGeometry, gpuArrow),
-			std::make_pair(icosphereGeometry, gpuIcosphere)
-		}));
+		if (!renderpass)
+			return logFail("Failed to create Renderpass!");
 
-		core::vectorSIMDf cameraPosition(0, 5, -10);
-		matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), video::ISurface::getTransformedAspectRatio(swapchain->getPreTransform(), WIN_W, WIN_H), 0.001, 1000);
-		m_camera = std::make_unique<Camera>(cameraPosition, core::vectorSIMDf(0, 0, 0), projectionMatrix, 10.f, 1.f);
+		auto gQueue = getGraphicsQueue();
+		if (!m_surface || !m_surface->init(gQueue, std::move(scResources), swapchainParams.sharedParams))
+			return logFail("Could not create Window & Surface or initialize the Surface!");
 
+		m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+		if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
+		{
+			m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
+			m_maxFramesInFlight = FRAMES_IN_FLIGHT;
+		}
+
+		m_cmdPool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+
+		for (auto i = 0u; i < m_maxFramesInFlight; i++)
+		{
+			if (!m_cmdPool)
+				return logFail("Couldn't create Command Pool!");
+			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
+				return logFail("Couldn't create Command Buffer!");
+		}
+
+		m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
+		m_surface->recreateSwapchain();
+
+		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
+		auto* geometry = assetManager->getGeometryCreator();
+
+		SPushConstantRange pushConstantRanges[] = {
+			{
+				.stageFlags = IShader::ESS_VERTEX,
+				.offset = 0,
+				.size = sizeof(PushConstants)
+			}
+		};
+
+		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[] = {
+			{
+				.binding = 0u,
+				.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+				.count = 1u,
+			}
+		};
+
+		auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+		{
+			const video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
+			const uint32_t setCounts[] = { 0u, 1u };
+			m_descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+			if (!m_descriptorPool)
+				return logFail("Failed to Create Descriptor Pool");
+		}
+
+		m_gpuDescriptorSet = m_descriptorPool->createDescriptorSet(descriptorSetLayout);
+
+		if (!m_gpuDescriptorSet)
+			return logFail("Could not create Descriptor Set!");
+
+		auto pipelineLayout = m_device->createPipelineLayout(pushConstantRanges, nullptr, std::move(descriptorSetLayout));
+
+		if (!pipelineLayout)
+			return logFail("Could not create Pipeline Layout!");
+
+		struct
+		{
+			const IGeometryCreator* gc;
+
+			const std::vector<O_DATA>
+			basic = 
+			{ 
+				std::make_pair(gc->createCubeMesh(vector3df(1.f, 1.f, 1.f)), "Cube Mesh"),
+
+				std::make_pair(gc->createSphereMesh(2, 16, 16), "Sphere Mesh"),
+				std::make_pair(gc->createCylinderMesh(2, 2, 20), "Cylinder Mesh"),
+				std::make_pair(gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)), "Rectangle Mesh"),
+				std::make_pair(gc->createDiskMesh(2, 30), "Disk Mesh"),
+				std::make_pair(gc->createArrowMesh(), "Arrow Mesh")
+			},
+			cone =
+			{
+				std::make_pair(gc->createConeMesh(2, 3, 10), "Cone Mesh")
+			}, 
+			ico =
+			{
+				std::make_pair(gc->createIcoSphere(1, 3, true), "Icoshpere Mesh")
+			}, 
+			grid =
+			{
+				std::make_pair(gc->createRectangleMesh(vector2df_SIMD(999.f, 999.f)), "Grid on Scene")
+			};
+		} geometries{.gc = geometry };
+
+		auto createBundlePassData = [&]<E_PASS_TYPE ept, nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>(const auto& objects)
+		{
+			for (auto& object : objects)
+				if (!createPassData<vPath, fPath>(ept, object, pipelineLayout.get(), renderpass))
+					return logFail("Could not create pass data!");
+
+			return true;
+		};
+
+		if (!createBundlePassData.template operator() < EPT_GEOMETRY_CREATOR, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv")> (geometries.basic))
+			return false;
+
+		if (!createBundlePassData.template operator() < EPT_GEOMETRY_CREATOR, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.cone)) // note we reuse basic fragment shader
+			return false;
+
+		if (!createBundlePassData.template operator() < EPT_GEOMETRY_CREATOR, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.ico)) // note we reuse basic fragment shader
+			return false;
+
+		if (!createBundlePassData.template operator() < EPT_GRID, NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/grid.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/grid.fragment.spv") > (geometries.grid))
+			return false;
+
+		// gpu resources
+		{
+			const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+			m_ubo = m_device->createBuffer({{.size = sizeof(SBasicViewParameters), .usage = core::bitflag(asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
+
+			for (auto it : { m_ubo })
+			{
+				IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
+				reqs.memoryTypeBits &= mask;
+
+				m_device->allocate(reqs, it.get());
+			}
+
+			{
+				video::IGPUDescriptorSet::SWriteDescriptorSet write;
+				write.dstSet = m_gpuDescriptorSet.get();
+				write.binding = 0;
+				write.arrayElement = 0u;
+				write.count = 1u;
+				video::IGPUDescriptorSet::SDescriptorInfo info;
+				{
+					info.desc = core::smart_refctd_ptr(m_ubo);
+					info.info.buffer.offset = 0ull;
+					info.info.buffer.size = m_ubo->getSize();
+				}
+				write.info = &info;
+				m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
+			}
+		}
+
+		// camera
+		{
+			core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+			core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_W) / WIN_H, 0.1, 10000);
+			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+		}
+
+		m_winMgr->show(m_window.get());
 		oracle.reportBeginFrameRecord();
 
-		const auto& graphicsCommandPools = commandPools[CommonAPI::InitOutput::EQT_GRAPHICS];
-		for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
+		return true;
+	}
+
+	inline void workLoopBody() override
+	{
+		const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
+
+		if (m_realFrameIx >= m_maxFramesInFlight)
 		{
-			logicalDevice->createCommandBuffers(graphicsCommandPools[i].get(), video::IGPUCommandBuffer::EL_PRIMARY, 1, m_commandBuffers+i);
-			m_imageAcquire[i] = logicalDevice->createSemaphore();
-			m_renderFinished[i] = logicalDevice->createSemaphore();
+			const ISemaphore::SWaitInfo cbDonePending[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = m_realFrameIx + 1 - m_maxFramesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
 		}
-	}
 
-	void onAppTerminated_impl() override
-	{
-		logicalDevice->waitIdle();
+		m_inputSystem->getDefaultMouse(&mouse);
+		m_inputSystem->getDefaultKeyboard(&keyboard);
 
-		const auto& fboCreationParams = fbos->begin()[m_acquiredNextFBO]->getCreationParameters();
-		auto gpuSourceImageView = fboCreationParams.attachments[0];
+		auto updatePresentationTimestamp = [&]()
+		{
+			m_currentImageAcquire = m_surface->acquireNextImage();
 
-		bool status = ext::ScreenShot::createScreenShot(
-			logicalDevice.get(),
-			queues[CommonAPI::InitOutput::EQT_TRANSFER_UP],
-			m_renderFinished[m_resourceIx].get(),
-			gpuSourceImageView.get(),
-			assetManager.get(),
-			"ScreenShot.png",
-			asset::IImage::EL_PRESENT_SRC,
-			asset::EAF_NONE);
+			oracle.reportEndFrameRecord();
+			const auto timestamp = oracle.getNextPresentationTimeStamp();
+			oracle.reportBeginFrameRecord();
 
-		assert(status);
-	}
+			return timestamp;
+		};
 
-	void workLoopBody() override
-	{
-		++m_resourceIx;
-		if (m_resourceIx >= FRAMES_IN_FLIGHT)
-			m_resourceIx = 0;
+		const auto nextPresentationTimestamp = updatePresentationTimestamp();
 
-		auto& commandBuffer = m_commandBuffers[m_resourceIx];
-		auto& fence = m_frameComplete[m_resourceIx];
+		if (!m_currentImageAcquire)
+			return;
 
-		if (fence)
-			logicalDevice->blockForFences(1u, &fence.get());
-		else
-			fence = logicalDevice->createFence(static_cast<video::IGPUFence::E_CREATE_FLAGS>(0));
+		auto* const cb = m_cmdBufs.data()[resourceIx].get();
+		cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cb->beginDebugMarker("GeometryCreatorApp Frame");
+		{
+			camera.beginInputProcessing(nextPresentationTimestamp);
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+			camera.endInputProcessing(nextPresentationTimestamp);
+		}
 
-		const auto nextPresentationTimeStamp = oracle.acquireNextImage(swapchain.get(), m_imageAcquire[m_resourceIx].get(), nullptr, &m_acquiredNextFBO);
+		const auto viewMatrix = camera.getViewMatrix();
+		const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
-		inputSystem->getDefaultMouse(&m_mouse);
-		inputSystem->getDefaultKeyboard(&m_keyboard);
+		core::matrix3x4SIMD modelMatrix;
+		modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
+		modelMatrix.setRotation(quaternion(0, 0, 0));
 
-		m_camera->beginInputProcessing(nextPresentationTimeStamp);
-		m_mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { m_camera->mouseProcess(events); }, logger.get());
-		m_keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { m_camera->keyboardProcess(events); }, logger.get());
-		m_camera->endInputProcessing(nextPresentationTimeStamp);
+		core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
+		core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
 
-		const auto& viewMatrix = m_camera->getViewMatrix();
-		const auto& viewProjectionMatrix = matrix4SIMD::concatenateBFollowedByAPrecisely(
-			video::ISurface::getSurfaceTransformationMatrix(swapchain->getPreTransform()),
-			m_camera->getConcatenatedMatrix()
-		);
+		core::matrix3x4SIMD normalMatrix;
+		modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
 
-		commandBuffer->reset(nbl::video::IGPUCommandBuffer::ERF_RELEASE_RESOURCES_BIT);
-		commandBuffer->begin(video::IGPUCommandBuffer::EU_ONE_TIME_SUBMIT_BIT);
+		SBasicViewParameters uboData;
+		memcpy(uboData.MVP, modelViewProjectionMatrix.pointer(), sizeof(uboData.MVP));
+		memcpy(uboData.MV, modelViewMatrix.pointer(), sizeof(uboData.MV));
+		memcpy(uboData.NormalMat, normalMatrix.pointer(), sizeof(uboData.NormalMat));
+		{
+
+			SBufferRange<IGPUBuffer> range;
+			range.buffer = core::smart_refctd_ptr(m_ubo);
+			range.size = m_ubo->getSize();
+
+			cb->updateBuffer(range, &uboData);
+		}
+
+		auto* queue = getGraphicsQueue();
 
 		asset::SViewport viewport;
-		viewport.minDepth = 1.f;
-		viewport.maxDepth = 0.f;
-		viewport.x = 0u;
-		viewport.y = 0u;
-		viewport.width = WIN_W;
-		viewport.height = WIN_H;
-		commandBuffer->setViewport(0u, 1u, &viewport);
-
-		VkRect2D scissor;
-		scissor.offset = { 0, 0 };
-		scissor.extent = { WIN_W,WIN_H };
-		commandBuffer->setScissor(0u, 1u, &scissor);
-
-		video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
 		{
-			VkRect2D area;
-			area.offset = { 0,0 };
-			area.extent = { WIN_W, WIN_H };
-			asset::SClearValue clear[2] = {};
-			clear[0].color.float32[0] = 1.f;
-			clear[0].color.float32[1] = 1.f;
-			clear[0].color.float32[2] = 1.f;
-			clear[0].color.float32[3] = 1.f;
-			clear[1].depthStencil.depth = 0.f;
-
-			beginInfo.clearValueCount = 2u;
-			beginInfo.framebuffer = fbos->begin()[m_acquiredNextFBO];
-			beginInfo.renderpass = renderpass;
-			beginInfo.renderArea = area;
-			beginInfo.clearValues = clear;
+			viewport.minDepth = 1.f;
+			viewport.maxDepth = 0.f;
+			viewport.x = 0u;
+			viewport.y = 0u;
+			viewport.width = m_window->getWidth();
+			viewport.height = m_window->getHeight();
 		}
-
-		commandBuffer->beginRenderPass(&beginInfo, nbl::asset::ESC_INLINE);
-
-		for (auto index = 0u; index < m_cpuGpuObjects->objects.size(); ++index)
-		{
-			const auto iterator = m_cpuGpuObjects->objects[index];
-			auto geometryObject = iterator.first;
-			auto gpuObject = iterator.second;
-
-			core::matrix3x4SIMD modelMatrix;
-			modelMatrix.setTranslation(nbl::core::vectorSIMDf(index * 5, 0, 0, 0));
-
-			core::matrix4SIMD mvp = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
-			auto* gpuGraphicsPipeline = gpuObject.gpuGraphicsPipeline.get();
-
-			commandBuffer->bindGraphicsPipeline(gpuGraphicsPipeline);
-			commandBuffer->pushConstants(gpuGraphicsPipeline->getRenderpassIndependentPipeline()->getLayout(), video::IGPUShader::ESS_VERTEX, 0u, sizeof(core::matrix4SIMD), mvp.pointer());
-			commandBuffer->drawMeshBuffer(gpuObject.gpuMeshbBuffer.get());
-		}
-
-		commandBuffer->endRenderPass();
-		commandBuffer->end();
+		cb->setViewport(0u, 1u, &viewport);
 		
-		logicalDevice->resetFences(1, &fence.get());
-		CommonAPI::Submit(
-			logicalDevice.get(),
-			commandBuffer.get(),
-			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			m_imageAcquire[m_resourceIx].get(),
-			m_renderFinished[m_resourceIx].get(),
-			fence.get());
+		VkRect2D scissor =
+		{
+			.offset = { 0, 0 },
+			.extent = { m_window->getWidth(), m_window->getHeight() },
+		};
+		cb->setScissor(0u, 1u, &scissor);
 
-		CommonAPI::Present(
-			logicalDevice.get(),
-			swapchain.get(),
-			queues[CommonAPI::InitOutput::EQT_GRAPHICS],
-			m_renderFinished[m_resourceIx].get(),
-			m_acquiredNextFBO);
+		{
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+			const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			const IGPUCommandBuffer::SRenderpassBeginInfo info =
+			{
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = &depthValue,
+				.renderArea = currentRenderArea
+			};
+
+			cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		}
+
+		auto render = [&]<E_PASS_TYPE ept>(uint16_t index = 0) -> void
+		{
+			auto& hook = gpu.pass[ept][index];
+
+			auto* rawPipeline = hook.pipeline.get();
+			cb->bindGraphicsPipeline(rawPipeline);
+			cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
+			cb->pushConstants(rawPipeline->getLayout(), IShader::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
+
+			const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = hook.m_vertexBuffer} };
+			const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
+
+			cb->bindVertexBuffers(0, 1, bVertices);
+
+			if (bIndices.buffer && hook.indexType != EIT_UNKNOWN)
+			{
+				cb->bindIndexBuffer(bIndices, hook.indexType);
+				cb->drawIndexed(hook.indexCount, 1, 0, 0, 0);
+			}
+			else
+				cb->draw(hook.indexCount, 1, 0, 0);
+		};
+
+		render.template operator() < EPT_GEOMETRY_CREATOR > (gcIndex);
+		render.template operator() < EPT_GRID > ();
+
+		cb->endRenderPass();
+		cb->end();
+		{
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] =
+			{
+				{
+					.semaphore = m_semaphore.get(),
+					.value = ++m_submitIx,
+					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+				}
+			};
+			{
+				{
+					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] =
+					{
+						{.cmdbuf = cb }
+					};
+
+					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] =
+					{
+						{
+							.semaphore = m_currentImageAcquire.semaphore,
+							.value = m_currentImageAcquire.acquireCount,
+							.stageMask = PIPELINE_STAGE_FLAGS::NONE
+						}
+					};
+					const IQueue::SSubmitInfo infos[] =
+					{
+						{
+							.waitSemaphores = acquired,
+							.commandBuffers = commandBuffers,
+							.signalSemaphores = rendered
+						}
+					};
+
+					if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
+						m_submitIx--;
+				}
+			}
+
+			std::string caption = "[Nabla Engine] Geometry Creator";
+			{
+				caption += ", displaying [" + gpu.pass[EPT_GEOMETRY_CREATOR][gcIndex].displayName + "]";
+				m_window->setCaption(caption);
+			}
+			m_surface->present(m_currentImageAcquire.imageIndex, rendered);
+		}
+
+		m_realFrameIx++;
 	}
 
-	bool keepRunning() override
+	inline bool keepRunning() override
 	{
-		return windowCb->isWindowOpen();
+		if (m_surface->irrecoverable())
+			return false;
+
+		return true;
+	}
+
+	inline bool onAppTerminated() override
+	{
+		return device_base_t::onAppTerminated();
+	}
+
+private:
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
+	smart_refctd_ptr<ISemaphore> m_semaphore;
+	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
+	uint64_t m_realFrameIx : 59 = 0;
+	uint64_t m_submitIx : 59 = 0;
+	uint64_t m_maxFramesInFlight : 5;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
+
+	core::smart_refctd_ptr<InputSystem> m_inputSystem;
+	InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+
+	Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+	video::CDumbPresentationOracle oracle;
+
+	core::smart_refctd_ptr<video::IDescriptorPool> m_descriptorPool;
+	core::smart_refctd_ptr<video::IGPUDescriptorSet> m_gpuDescriptorSet;
+
+	using O_DATA = std::pair<IGeometryCreator::return_type, std::string>;
+
+	enum E_PASS_TYPE
+	{
+		EPT_GEOMETRY_CREATOR,
+		EPT_GRID,
+		EPT_COUNT
+	};
+
+	struct Pass {
+		core::smart_refctd_ptr<video::IGPUGraphicsPipeline> pipeline;
+		core::smart_refctd_ptr<video::IGPUBuffer> m_vertexBuffer, m_indexBuffer;
+		E_INDEX_TYPE indexType;
+		uint32_t indexCount;
+		std::string displayName;
+	};
+
+	struct GPUPData
+	{
+		std::array<std::vector<Pass>, EPT_COUNT> pass = {};
+	} gpu;
+
+	uint16_t gcIndex = {};
+	core::smart_refctd_ptr<video::IGPUBuffer> m_ubo;
+	PushConstants m_pc = {.withGizmo = true};
+
+	template<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>
+	bool createPassData(E_PASS_TYPE ept, const O_DATA& oData, const video::IGPUPipelineLayout* pl, const video::IGPURenderpass* rp)
+	{
+		const auto& geo = oData.first;
+
+		struct
+		{
+			core::smart_refctd_ptr<video::IGPUShader> vertex, fragment;
+		} shaders;
+
+		{
+			struct
+			{
+				const system::SBuiltinFile vertex = ::this_example::spirv::builtin::get_resource<vPath>();
+				const system::SBuiltinFile fragment = ::this_example::spirv::builtin::get_resource<fPath>();
+			} spirv;
+
+			auto createShader = [&](const system::SBuiltinFile& in, asset::IShader::E_SHADER_STAGE stage) -> core::smart_refctd_ptr<video::IGPUShader>
+			{
+				const auto buffer = core::make_smart_refctd_ptr<asset::CCustomAllocatorCPUBuffer<core::null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, core::adopt_memory);
+				const auto shader = make_smart_refctd_ptr<ICPUShader>(core::smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, "");
+
+				// also first should look for cached/already created to not duplicate
+				return m_device->createShader(shader.get());
+			};
+
+			shaders.vertex = createShader(spirv.vertex, IShader::ESS_VERTEX);
+			shaders.fragment = createShader(spirv.fragment, IShader::ESS_FRAGMENT);
+		}
+
+		SBlendParams blendParams{};
+		{
+			blendParams.logicOp = ELO_NO_OP;
+
+			auto& param = blendParams.blendParams[0];
+			param.srcColorFactor = EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
+			param.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			param.colorBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
+			param.srcAlphaFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			param.dstAlphaFactor = EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
+			param.alphaBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
+			param.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+		}
+
+		SRasterizationParams rasterizationParams{};
+		rasterizationParams.faceCullingMode = EFCM_NONE;
+
+		{
+			const IGPUShader::SSpecInfo specs[] =
+			{
+				{.entryPoint = "VSMain", .shader = shaders.vertex.get() },
+				{.entryPoint = "PSMain", .shader = shaders.fragment.get() }
+			};
+
+			IGPUGraphicsPipeline::SCreationParams params[1];
+			{
+				auto& param = params[0];
+				param.layout = pl;
+				param.shaders = specs;
+				param.renderpass = rp;
+				param.cached = { .vertexInput = geo.inputParams, .primitiveAssembly = geo.assemblyParams, .rasterization = rasterizationParams, .blend = blendParams, .subpassIx = 0u };
+			};
+
+			auto& hook = gpu.pass[ept].emplace_back();
+
+			hook.indexCount = geo.indexCount;
+			hook.indexType = geo.indexType;
+			hook.displayName = oData.second;
+
+			// first should look for cached pipeline to not duplicate but lets leave how it is now
+			if (!m_device->createGraphicsPipelines(nullptr, params, &hook.pipeline))
+				return false;
+
+			if (!createVIBuffers(hook, geo))
+				return false;
+
+			return true;
+		}
+	}
+
+	bool createVIBuffers(Pass& hook, const CGeometryCreator::return_type& oData)
+	{
+		const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+		auto vBuffer = core::smart_refctd_ptr(oData.bindings[0].buffer); // no offset
+		auto iBuffer = core::smart_refctd_ptr(oData.indexBuffer.buffer); // no offset
+
+		hook.m_vertexBuffer = m_device->createBuffer({ {.size = vBuffer->getSize(), .usage = core::bitflag(asset::IBuffer::EUF_VERTEX_BUFFER_BIT) | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF}});
+		hook.m_indexBuffer = iBuffer ? m_device->createBuffer({ {.size = iBuffer->getSize(), .usage = core::bitflag(asset::IBuffer::EUF_INDEX_BUFFER_BIT) | asset::IBuffer::EUF_VERTEX_BUFFER_BIT | asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF}}) : nullptr;
+
+		if (!hook.m_vertexBuffer)
+			return false;
+
+		if (oData.indexType != EIT_UNKNOWN)
+			if (!hook.m_indexBuffer)
+				return false;
+
+		for (auto it : { hook.m_vertexBuffer , hook.m_indexBuffer })
+		{
+			if (it)
+			{
+				IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
+				reqs.memoryTypeBits &= mask;
+
+				m_device->allocate(reqs, it.get());
+			}
+		}
+
+		{
+			auto fillGPUBuffer = [&m_logger = m_logger](smart_refctd_ptr<ICPUBuffer> cBuffer, smart_refctd_ptr<IGPUBuffer> gBuffer)
+			{
+				auto binding = gBuffer->getBoundMemory();
+
+				if (!binding.memory->map({ 0ull, binding.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+				{
+					m_logger->log("Could not map device memory", system::ILogger::ELL_ERROR);
+					return false;
+				}
+
+				if (!binding.memory->isCurrentlyMapped())
+				{
+					m_logger->log("Buffer memory is not mapped!", system::ILogger::ELL_ERROR);
+					return false;
+				}
+
+				auto* mPointer = binding.memory->getMappedPointer();
+				memcpy(mPointer, cBuffer->getPointer(), gBuffer->getSize());
+				binding.memory->unmap();
+
+				return true;
+			};
+
+			if (!fillGPUBuffer(vBuffer, hook.m_vertexBuffer))
+				return false;
+
+			if(hook.m_indexBuffer)
+				if (!fillGPUBuffer(iBuffer, hook.m_indexBuffer))
+					return false;
+		}
+
+		return true;
+	}
+
+	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+	{
+		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+		{
+			auto ev = *eventIt;
+
+			if (ev.type == nbl::ui::SMouseEvent::EET_SCROLL)
+				gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(ev.scrollEvent.verticalScroll)), int64_t(0), int64_t( gpu.pass[EPT_GEOMETRY_CREATOR].size() - 1));
+		}
 	}
 };
 
-NBL_COMMON_API_MAIN(GeometryCreatorSampleApp)
-
-extern "C" {  _declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001; }
+NBL_MAIN_FUNC(GeometryCreatorApp)
