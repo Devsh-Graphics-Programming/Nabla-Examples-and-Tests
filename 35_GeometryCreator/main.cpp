@@ -484,10 +484,18 @@ public:
 			viewport.maxDepth = 0.f;
 			viewport.x = 0u;
 			viewport.y = 0u;
-			viewport.width = WIN_W;
-			viewport.height = WIN_H;
+			viewport.width = m_window->getWidth();
+			viewport.height = m_window->getHeight();
 		}
 		cb->setViewport(0u, 1u, &viewport);
+		
+		VkRect2D scissor =
+		{
+			.offset = { 0, 0 },
+			.extent = { m_window->getWidth(), m_window->getHeight() },
+		};
+		cb->setScissor(0u, 1u, &scissor);
+
 		{
 			const VkRect2D currentRenderArea =
 			{
@@ -582,6 +590,8 @@ public:
 			}
 			m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 		}
+
+		m_realFrameIx++;
 	}
 
 	inline bool keepRunning() override
