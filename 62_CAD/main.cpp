@@ -3112,7 +3112,7 @@ protected:
 			{
 				// Load image
 				system::path m_loadCWD = "..";
-				std::string imagePath = "../../media/color_space_test/R8G8B8A8_1.png";
+				std::string imagePath = "../../media/color_space_test/R8G8B8_1.jpg";
 				
 				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(),m_loadCWD);
@@ -3180,7 +3180,7 @@ protected:
 				
 				IGPUImageView::SCreationParams viewParams = {
 					.image = gpuImg,
-					.viewType = IGPUImageView::ET_2D_ARRAY,
+					.viewType = IGPUImageView::ET_2D,
 					.format = gpuImg->getCreationParameters().format
 				};
 				auto gpuImgView = m_device->createImageView(std::move(viewParams));
