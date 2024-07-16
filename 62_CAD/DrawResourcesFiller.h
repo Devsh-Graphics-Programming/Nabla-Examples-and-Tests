@@ -127,7 +127,8 @@ public:
 		const float32_t4& color,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
-	void addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
+	// ! Draw Font Glyph, will auto submit if there is no space
+	void drawFontGlyph(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	void _test_addImageObject(
 		float64_t2 topLeftPos,
@@ -306,7 +307,9 @@ protected:
 	void addQuadBeziers_Internal(const CPolylineBase& polyline, const CPolylineBase::SectionInfo& section, uint32_t& currentObjectInSection, uint32_t mainObjIdx);
 
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
-
+	
+	bool addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx);
+	
 	void resetMainObjectCounters()
 	{
 		inMemMainObjectCount = 0u;
@@ -387,7 +390,6 @@ public:
 
 	// iterates over `glyphBoxes` generates textures msdfs if failed to add to cache (through that lambda you put)
 	// void Draw(DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
-
 	std::span<TextRenderer::GlyphBox> getGlyphBoxes() { return std::span<TextRenderer::GlyphBox>(glyphBoxes);  }
 
 	void Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);

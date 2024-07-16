@@ -267,6 +267,17 @@ void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color,
 	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
 }
 
+void DrawResourcesFiller::drawFontGlyph(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
+{		
+	if (!addFontGlyph_Internal(fontGlyph, mainObjIdx))
+	{
+		// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
+		submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
+		bool success = addFontGlyph_Internal(fontGlyph, mainObjIdx);
+		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single FontGlyphInfo
+	}
+}
+
 uint32_t DrawResourcesFiller::getMSDFTextureIndex(texture_hash hash)
 {
 	auto ptr = textureLRUCache->get(hash);
@@ -291,8 +302,10 @@ DrawResourcesFiller::TextureReference* DrawResourcesFiller::addMSDFTexture(std::
 			// Submit
 			finalizeAllCopiesToGPU(intendedNextSubmit);
 			submitDraws(intendedNextSubmit);
-			resetGeometryCounters();
-			resetMainObjectCounters();
+			// Importatn: We don't reset anything because the auto submit wasn't due to lack of any of the buffers such as geometry, drawObjs or mainObjs
+			// If we reset it will cause an auto submission bug, where adding an msdf texture while constructing glyphs will invalidate geometries and main objects
+			// resetGeometryCounters();
+			// resetMainObjectCounters();
 		} else {
 			// We didn't use it this frame, so it's safe to dealloc now
 			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
@@ -806,39 +819,35 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	currentObjectInSection += uploadableObjects;
 }
 
-void DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, texture_hash hash, uint32_t& currentObjectInSection, uint32_t mainObjIdx)
+bool DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx)
 {
-	const auto totalObjects = 1u;
-	const auto maxGeometryBufferHatchBoxes = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(FontGlyphInfo);
+	const auto maxGeometryBufferFontGlyphs = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(FontGlyphInfo);
 	
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
 	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
-	uploadableObjects = min(uploadableObjects, maxGeometryBufferHatchBoxes);
+	uploadableObjects = min(uploadableObjects, maxGeometryBufferFontGlyphs);
 
-	uint32_t remainingObjects = totalObjects - currentObjectInSection;
-	uploadableObjects = min(uploadableObjects, remainingObjects);
-
-	for (uint32_t i = 0; i < uploadableObjects; i++)
+	if (uploadableObjects >= 1u)
 	{
-		uint64_t hatchBoxAddress;
-		{			
-			void* dst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-			memcpy(dst, &fontGlyph, sizeof(FontGlyphInfo));
-			hatchBoxAddress = geometryBufferAddress + currentGeometryBufferSize;
-			currentGeometryBufferSize += sizeof(FontGlyphInfo);
-		}
+		void* geomDst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
+		memcpy(geomDst, &fontGlyph, sizeof(FontGlyphInfo));
+		uint64_t fontGlyphAddr = geometryBufferAddress + currentGeometryBufferSize;
+		currentGeometryBufferSize += sizeof(FontGlyphInfo);
 
 		DrawObject drawObj = {};
 		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
 		drawObj.mainObjIndex = mainObjIdx;
-		drawObj.geometryAddress = hatchBoxAddress;
-		void* dst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount + i;
-		memcpy(dst, &drawObj, sizeof(DrawObject));
-	}
+		drawObj.geometryAddress = fontGlyphAddr;
+		void* drawObjDst = reinterpret_cast<DrawObject*>(cpuDrawBuffers.drawObjectsBuffer->getPointer()) + currentDrawObjectCount;
+		memcpy(drawObjDst, &drawObj, sizeof(DrawObject));
+		currentDrawObjectCount += 1u;
 
-	// Add Indices
-	currentDrawObjectCount += uploadableObjects;
-	currentObjectInSection += uploadableObjects;
+		return true;
+	}
+	else
+	{
+		return false;
+	}
 }
 
 SingleLineText::SingleLineText(core::smart_refctd_ptr<TextRenderer::Face>&& face, std::string text, float64_t3x3 transformation)
@@ -889,15 +898,15 @@ SingleLineText::SingleLineText(core::smart_refctd_ptr<TextRenderer::Face>&& face
 
 void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit)
 {
+	LineStyleInfo lineStyle = {};
+	lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+
 	auto glyphBoxes = getGlyphBoxes();
 	for (auto glyphBox = glyphBoxes.data(); glyphBox < glyphBoxes.data() + glyphBoxes.size(); glyphBox++)
 	{
-		LineStyleInfo lineStyle = {};
-		lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-		const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-		auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-
 		const auto msdfHash = hashFontGlyph(m_face->getHash(), glyphBox->glyphIdx);
 		DrawResourcesFiller::TextureReference* textureReference = drawResourcesFiller.addMSDFTexture(
 			[&]()
@@ -927,8 +936,7 @@ void SingleLineText::Draw(TextRenderer* textRenderer, DrawResourcesFiller& drawR
 			.aspectRatio = float(glyphBox->dirV.y / -glyphBox->dirU.x),
 			.minUV_textureID_packed = textureId | uint32_t(minUV.x * 255.0) << 24 | uint32_t(minUV.y * 255.0) << 16,
 		};
-		uint32_t currentObjectInSection = 0u;
-		drawResourcesFiller.addFontGlyph_Internal(glyphInfo, msdfHash, currentObjectInSection, glyphObjectIdx);
+		drawResourcesFiller.drawFontGlyph(glyphInfo, glyphObjectIdx, intendedNextSubmit);
 	}
 
 }
