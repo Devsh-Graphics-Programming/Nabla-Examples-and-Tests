@@ -495,7 +495,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 		m_utilities->updateImageViaStagingBuffer(
 			intendedNextSubmit, 
-			textureCopy.srcBuffer->getPointer(), asset::E_FORMAT::EF_R32G32B32A32_SFLOAT,
+			textureCopy.srcBuffer->getPointer(), nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
 			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 			{ &region, &region + 1 });
 	}

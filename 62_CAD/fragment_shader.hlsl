@@ -587,8 +587,7 @@ float4 main(PSInput input) : SV_TARGET
         if (textureId != InvalidTextureIdx)
         {
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
-            float3 snormValue = msdfSample * 2.0 - 1.0; // TODO: remove this after changing format to SNORM
-            float msdf = nbl::hlsl::text::msdfDistance(snormValue, MSDFPixelRange, input.getFontGlyphScreenPxRange());
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
             localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
         }
     }

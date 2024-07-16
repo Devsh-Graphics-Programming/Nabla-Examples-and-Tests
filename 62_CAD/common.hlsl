@@ -495,7 +495,7 @@ struct PSInput
 [[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
 
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float4> msdfTextures : register(t3); // @Lucas, change `<float4>` to the number of components used in msdf texture
+[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float3> msdfTextures : register(t3);
 [[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
 
 [[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
