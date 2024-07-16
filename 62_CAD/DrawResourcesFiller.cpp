@@ -252,12 +252,8 @@ void DrawResourcesFiller::drawHatch(
 	const uint32_t styleIdx = addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 
 	uint32_t mainObjIdx = addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-	MainObject mainObjCached = *getMainObject(mainObjIdx);
-
-	const auto sectionsCount = 1;
 
 	uint32_t currentObjectInSection = 0u; // Object here refers to DrawObject used in vertex shader. You can think of it as a Cage.
-
 	while (currentObjectInSection < hatch.getHatchBoxCount())
 	{
 		addHatch_Internal(hatch, currentObjectInSection, mainObjIdx);
@@ -445,8 +441,8 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 
 	msdfTextureArrayIndicesUsed.clear();
 
-	if (!textureCopies.size())
-		return;
+	// if (!textureCopies.size())
+	// 	return;
 
 	// preparing images for copy
 	using image_barrier_t = IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t;
@@ -503,7 +499,6 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 			{ &region, &region + 1 });
 	}
-
 		
 	// preparing images for use
 	{
@@ -549,7 +544,7 @@ void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& inte
 	resetGeometryCounters();
 
 	uint32_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
-	// If there clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data)
+	// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data and it was reset)
 	if (newClipProjectionAddress != InvalidClipProjectionAddress)
 	{
 		// then modify the mainObject data
