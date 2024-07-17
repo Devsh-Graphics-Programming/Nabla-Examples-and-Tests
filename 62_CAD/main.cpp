@@ -35,7 +35,7 @@ using namespace video;
 //#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
 //#define SHADER_CACHE_TEST_CACHE_RETRIEVE
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = false;
 
@@ -862,7 +862,7 @@ public:
 			if (!m_device->createGraphicsPipelines(nullptr,params,&graphicsPipeline))
 				return logFail("Graphics Pipeline Creation Failed.");
 
-			if constexpr (DebugMode)
+			if constexpr (DebugModeWireframe)
 			{
 				specInfo[1u].shader = shaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
 				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
@@ -895,17 +895,13 @@ public:
 		m_timeElapsed = 0.0;
 		
 		// Loading font stuff
-		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>(MSDFPixelRange);
-		m_arialFont = nbl::core::make_smart_refctd_ptr<TextRenderer::Face>(m_textRenderer.get(), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
+		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
 		const auto str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
-		auto transform = float64_t3x3();
-		transform[0][0] = 1.0;
-		transform[1][1] = 1.0;
-		transform[2][2] = 1.0;
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
-			core::smart_refctd_ptr<TextRenderer::Face>(m_arialFont), 
-			std::string(str), transform));
+			core::smart_refctd_ptr<FontFace>(m_arialFont), 
+			std::string(str)));
 
 		return true;
 	}
@@ -1287,7 +1283,7 @@ public:
 			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
 
-		if constexpr (DebugMode)
+		if constexpr (DebugModeWireframe)
 		{
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
@@ -1571,9 +1567,9 @@ protected:
 			{
 
 				/*
-				if (hatchDebugStep < uint32_t(MSDFFillPattern::COUNT))
+				if (hatchDebugStep < uint32_t(HatchFillPattern::COUNT))
 				{
-					DrawResourcesFiller::texture_hash msdfHash = addMSDFFillPatternTexture(drawResourcesFiller, MSDFFillPattern(hatchDebugStep), intendedNextSubmit);
+					DrawResourcesFiller::msdf_hash msdfHash = addMSDFFillPatternTexture(drawResourcesFiller, HatchFillPattern(hatchDebugStep), intendedNextSubmit);
 			
 					for (int x = -3; x <= 3; x++)
 					{
@@ -1637,18 +1633,18 @@ protected:
 						}
 					}
 				}
-				hatchDebugStep -= uint32_t(MSDFFillPattern::COUNT);
+				hatchDebugStep -= uint32_t(HatchFillPattern::COUNT);
 				*/
 				constexpr double hatchFillShapeSize = 10.0;
 				constexpr double hatchFillShapePadding = 1.0;
 
 				// Hatch fill shapes described above
 				// Iterate each one of them, rendering
-				for (uint32_t hatchFillShapeIdx = 0; hatchFillShapeIdx < uint32_t(MSDFFillPattern::COUNT); hatchFillShapeIdx++)
+				for (uint32_t hatchFillShapeIdx = 1u; hatchFillShapeIdx < uint32_t(HatchFillPattern::COUNT); hatchFillShapeIdx++)
 				{
 					if (hatchDebugStep == 0) break;
 
-					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(MSDFFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(MSDFFillPattern::COUNT) - 1);
+					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(HatchFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(HatchFillPattern::COUNT) - 1);
 					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
 					// Center it
 					offset -= totalShapesWidth / 2.0;
@@ -1674,10 +1670,10 @@ protected:
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
 						);
-						DrawResourcesFiller::texture_hash msdfHash = addMSDFFillPatternTexture(
+						DrawResourcesFiller::msdf_hash msdfHash = addMSDFFillPatternTexture(
 							m_textRenderer.get(), 
 							drawResourcesFiller, 
-							MSDFFillPattern(hatchFillShapeIdx), 
+							HatchFillPattern(hatchFillShapeIdx), 
 							intendedNextSubmit);
 
 						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
@@ -1696,7 +1692,8 @@ protected:
 
 			if (hatchDebugStep > 0 && singleLineText)
 			{
-				singleLineText->Draw(m_textRenderer.get(), drawResourcesFiller, intendedNextSubmit);
+				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,0.0), float32_t2(1.0, 1.0), rotation);
 				hatchDebugStep--;
 			}
 
@@ -1727,7 +1724,7 @@ protected:
 
 					char k = TestString[i];
 					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
+					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;
@@ -1840,16 +1837,15 @@ protected:
 							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
 							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
 
-							const auto msdfHash = hashFontGlyph(m_arialFont->getHash(), glyphIndex);
+							const auto msdfHash = DrawResourcesFiller::hashFontGlyph(m_arialFont->getHash(), glyphIndex);
 							drawResourcesFiller.addMSDFTexture(
 								[&]()
 								{
-									auto shape = m_arialFont->generateGlyphUploadInfo(m_textRenderer.get(), glyphIndex, uint32_t2(MSDFSize, MSDFSize));
+									auto msdfBitmapBuffer = m_arialFont->generateGlyphMSDF(MSDFPixelRange, glyphIndex, uint32_t2(MSDFSize, MSDFSize));
 									MSDFTextureUploadInfo textureUploadInfo = {
-										.cpuBuffer = std::move(shape.msdfBitmap),
+										.cpuBuffer = msdfBitmapBuffer,
 										.bufferOffset = 0u,
 										.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
-										.shapeSize = float32_t2(shape.biggerAxis == 0u ? shape.smallerSizeRatio : 1.0, shape.biggerAxis == 1u ? shape.smallerSizeRatio : 1.0),
 									};
 									return textureUploadInfo;
 								},
@@ -3328,7 +3324,7 @@ protected:
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
-	smart_refctd_ptr<TextRenderer::Face> m_arialFont;
+	smart_refctd_ptr<FontFace> m_arialFont;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};

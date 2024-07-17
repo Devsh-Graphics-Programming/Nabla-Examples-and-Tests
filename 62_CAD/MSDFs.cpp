@@ -293,7 +293,6 @@ void circle(std::vector<CPolyline>& polylines)
 	polylines.push_back(polyline);
 }
 
-
 void lightShaded(std::vector<CPolyline>& polylines)
 {
 	// Light shaded-2
@@ -310,7 +309,6 @@ void lightShaded(std::vector<CPolyline>& polylines)
 	square(polylines, float64_t2(6.0, 5.0));
 }
 
-
 void shaded(std::vector<CPolyline>& polylines)
 {
 	for (uint32_t x = 0; x < 8; x++)
@@ -324,45 +322,45 @@ void shaded(std::vector<CPolyline>& polylines)
 
 }
 
-core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMSDF(TextRenderer* textRenderer, MSDFFillPattern fillPattern, uint32_t2 msdfExtents)
+core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMSDF(TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents)
 {
 	std::vector<CPolyline> polylines;
 	switch (fillPattern)
 	{
-	case MSDFFillPattern::CHECKERED:
+	case HatchFillPattern::CHECKERED:
 		checkered(polylines);
 		break;
-	case MSDFFillPattern::DIAMONDS:
+	case HatchFillPattern::DIAMONDS:
 		diamonds(polylines);
 		break;
-	case MSDFFillPattern::CROSS_HATCH:
+	case HatchFillPattern::CROSS_HATCH:
 		crossHatch(polylines);
 		break;
-	case MSDFFillPattern::HATCH:
+	case HatchFillPattern::HATCH:
 		hatch(polylines);
 		break;
-	case MSDFFillPattern::HORIZONTAL:
+	case HatchFillPattern::HORIZONTAL:
 		horizontal(polylines);
 		break;
-	case MSDFFillPattern::VERTICAL:
+	case HatchFillPattern::VERTICAL:
 		vertical(polylines);
 		break;
-	case MSDFFillPattern::INTERWOVEN:
+	case HatchFillPattern::INTERWOVEN:
 		interwoven(polylines);
 		break;
-	case MSDFFillPattern::REVERSE_HATCH:
+	case HatchFillPattern::REVERSE_HATCH:
 		reverseHatch(polylines);
 		break;
-	case MSDFFillPattern::SQUARES:
+	case HatchFillPattern::SQUARES:
 		squares(polylines);
 		break;
-	case MSDFFillPattern::CIRCLE:
+	case HatchFillPattern::CIRCLE:
 		circle(polylines);
 		break;
-	case MSDFFillPattern::LIGHT_SHADED:
+	case HatchFillPattern::LIGHT_SHADED:
 		lightShaded(polylines);
 		break;
-	case MSDFFillPattern::SHADED:
+	case HatchFillPattern::SHADED:
 		shaded(polylines);
 		break;
 	default:
@@ -393,12 +391,12 @@ core::smart_refctd_ptr<ICPUBuffer> generateHatchFillPatternMSDF(TextRenderer* te
 
 	float scaleX = (1.0 / float(HatchFillPatternGlyphExtents.x)) * float(msdfExtents.x);
 	float scaleY = (1.0 / float(HatchFillPatternGlyphExtents.y)) * float(msdfExtents.y);
-	return textRenderer->generateMSDFForShape(glyph, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
+	return textRenderer->generateShapeMSDF(glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
 }
 
-DrawResourcesFiller::texture_hash addMSDFFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, MSDFFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit)
+DrawResourcesFiller::msdf_hash addMSDFFillPatternTexture(TextRenderer* textRenderer, DrawResourcesFiller& drawResourcesFiller, HatchFillPattern fillPattern, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	const auto msdfHash = hashFillPattern(fillPattern);
+	const auto msdfHash = DrawResourcesFiller::hashFillPattern(fillPattern);
 	auto msdfResolution = drawResourcesFiller.getMSDFResolution();
 	drawResourcesFiller.addMSDFTexture(
 		[textRenderer, fillPattern, msdfResolution] {
@@ -415,19 +413,3 @@ DrawResourcesFiller::texture_hash addMSDFFillPatternTexture(TextRenderer* textRe
 
 	return msdfHash;
 }
-
-DrawResourcesFiller::texture_hash hashFillPattern(MSDFFillPattern fillPattern)
-{
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFTextureType::HATCH_FILL_PATTERN));
-	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(uint32_t(fillPattern)));
-	return hash;
-}
-
-DrawResourcesFiller::texture_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex)
-{
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFTextureType::FONT_GLYPH));
-	nbl::core::hash_combine(hash, std::hash<size_t>{}(fontHash));
-	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(glyphIndex));
-	return hash;
-}
-

@@ -14,6 +14,24 @@
 #include <nbl/builtin/hlsl/math/equations/quartic.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 
+enum class HatchFillPattern: uint32_t
+{
+	SOLID_FILL,
+	CHECKERED,
+	DIAMONDS,
+	CROSS_HATCH,
+	HATCH,
+	HORIZONTAL,
+	VERTICAL,
+	INTERWOVEN,
+	REVERSE_HATCH,
+	SQUARES,
+	CIRCLE,
+	LIGHT_SHADED,
+	SHADED,
+	COUNT
+};
+
 class Hatch
 {
 public:
