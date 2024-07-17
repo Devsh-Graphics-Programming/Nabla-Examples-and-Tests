@@ -365,7 +365,7 @@ struct PSInput
     
     void setFontGlyphUv(float2 uv) { interp_data5.xy = uv; }
     void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
-    void setFontGlyphScreenPxRange(float2 screenSpaceSize) { data2.y = screenSpaceSize; }
+    void setFontGlyphScreenPxRange(float glyphScreenPxRange) { data2.y = glyphScreenPxRange; }
     
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
