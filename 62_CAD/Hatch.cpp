@@ -133,7 +133,7 @@ std::array<double, 2> Hatch::Segment::intersect(const Segment& other) const
 	return result;
 }
 
-Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, LineStyleInfo)> debugOutput /* tmp */)
+Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t* debugStepPtr, const std::function<void(CPolyline, LineStyleInfo)>& debugOutput)
 {
 	intersectionAmounts = std::vector<uint32_t>();
 	// this threshsold is used to decide when to consider minor position to be 
@@ -150,8 +150,11 @@ Hatch::Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& deb
 
 	int major = (int)majorAxis;
 	int minor = 1-major; // Minor = Opposite of major (X)
-
+	
 #ifdef DEBUG_HATCH_VISUALLY
+	int32_t debugStepDefault = 0u;
+	int32_t& debugStep = (debugStepPtr) ? *debugStepPtr : debugStepDefault;
+
 	auto drawDebugBezier = [&](QuadraticBezier bezier, float32_t4 color)
 	{
 		CPolyline outputPolyline;

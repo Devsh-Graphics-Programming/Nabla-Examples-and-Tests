@@ -44,7 +44,7 @@ public:
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
 
 	typedef std::function<void(SIntendedSubmitInfo&)> SubmitFunc;
-	void setSubmitDrawsFunction(SubmitFunc func);
+	void setSubmitDrawsFunction(const SubmitFunc& func);
 
 	void allocateIndexBuffer(ILogicalDevice* logicalDevice, uint32_t indices);
 
@@ -62,8 +62,8 @@ public:
 	// it's up to user to return cached or generate on the fly.
 	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
 	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
-	void setGlyphMSDFTextureFunction(GetGlyphMSDFTextureFunc func);
-	void setHatchFillMSDFTextureFunction(GetHatchFillPatternMSDFTextureFunc func);
+	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
+	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
 	//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
 	void drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit);

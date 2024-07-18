@@ -75,7 +75,8 @@ public:
 		// checks if it's a straight line e.g. if you're sweeping along y axis the it's a line parallel to x
 		bool isStraightLineConstantMajor() const;
 	};
-	Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, LineStyleInfo)> debugOutput /* tmp */);
+
+	Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t* debugStep = nullptr, const std::function<void(CPolyline, LineStyleInfo)>& debugOutput = {});
 	
 	// (temporary)
 	Hatch(std::vector<CurveHatchBox>&& in_hatchBoxes) :

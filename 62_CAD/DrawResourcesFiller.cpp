@@ -10,7 +10,7 @@ DrawResourcesFiller::DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, I
 
 // function is called when buffer is filled and we should submit draws and clear the buffers and continue filling
 
-void DrawResourcesFiller::setSubmitDrawsFunction(SubmitFunc func)
+void DrawResourcesFiller::setSubmitDrawsFunction(const SubmitFunc& func)
 {
 	submitDraws = func;
 }
@@ -825,12 +825,12 @@ DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFontGlyph(size_t fontHas
 	return hash;
 }
 
-void DrawResourcesFiller::setGlyphMSDFTextureFunction(GetGlyphMSDFTextureFunc func)
+void DrawResourcesFiller::setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func)
 {
 	getGlyphMSDF = func;
 }
 
-void DrawResourcesFiller::setHatchFillMSDFTextureFunction(GetHatchFillPatternMSDFTextureFunc  func)
+void DrawResourcesFiller::setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func)
 {
 	getHatchFillPatternMSDF = func;
 }

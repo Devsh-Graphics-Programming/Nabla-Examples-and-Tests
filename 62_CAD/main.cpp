@@ -48,9 +48,24 @@ enum class ExampleMode
 	CASE_5, // Advanced Styling
 	CASE_6, // Custom Clip Projections
 	CASE_7, // Images
+	CASE_8, // MSDF and Text
+	CASE_COUNT
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_2;
+constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
+{
+	10.0,	// CASE_0
+	10.0,	// CASE_1
+	200.0,	// CASE_2
+	10.0,	// CASE_3
+	10.0,	// CASE_4
+	10.0,	// CASE_5
+	10.0,	// CASE_6
+	10.0,	// CASE_7
+	600.0,	// CASE_8
+};
+
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -448,13 +463,6 @@ public:
 	double m_timeElapsed = 0.0;
 	std::chrono::steady_clock::time_point lastTime;
 	uint32_t m_hatchDebugStep = 0u;
-
-	struct TextGlyphBoundingBox
-	{
-		float64_t2 topLeft;
-		float64_t2 dirU;
-		float64_t2 dirV;
-	};
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
@@ -885,11 +893,7 @@ public:
 		
 		m_Camera.setOrigin({ 0.0, 0.0 });
 		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
-		m_Camera.setSize(10.0);
-		if constexpr (mode == ExampleMode::CASE_2)
-		{
-			m_Camera.setSize(200.0);
-		}
+		m_Camera.setSize(cameraExtents[uint32_t(mode)]);
 
 		m_timeElapsed = 0.0;
 		
@@ -1578,278 +1582,6 @@ protected:
 
 			if (hatchDebugStep > 0)
 			{
-
-				/*
-				if (hatchDebugStep < uint32_t(HatchFillPattern::COUNT))
-				{
-					DrawResourcesFiller::msdf_hash msdfHash = addMSDFFillPatternTexture(drawResourcesFiller, HatchFillPattern(hatchDebugStep), intendedNextSubmit);
-			
-					for (int x = -3; x <= 3; x++)
-					{
-						for (int y = -3; y <= 3; y++)
-						{
-							double xx = double(x) * hatchFillShapeSize;
-							double yy = double(y) * hatchFillShapeSize;
-
-							std::vector<CPolyline> transformedPolylines;
-							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
-							{
-								auto& polyline = shapePolylines[polylineIdx];
-								CPolyline transformedPolyline;
-								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-								{
-									auto& section = polyline.getSectionInfoAt(sectorIdx);
-									if (section.type == ObjectType::LINE)
-									{
-										if (section.count == 0u) continue;
-
-										std::vector<float64_t2> points;
-										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
-										{
-											auto point = polyline.getLinePointAt(i).p / 8.0;
-											points.push_back(point * hatchFillShapeSize + float64_t2(xx, yy));
-										}
-										if (section.count + 1 >= 3)
-										{
-											auto a = polyline.getLinePointAt(0).p;
-											auto b = polyline.getLinePointAt(1).p;
-											auto c = polyline.getLinePointAt(2).p;
-
-											auto u = b - a;
-											auto v = c - b;
-
-											auto uvx = u.x * v.y - u.y * v.x;
-
-											bool cw = uvx >= 0.0;
-
-											CPolyline dbgLineDirPolyline;
-											dbgLineDirPolyline.addLinePoints(points);
-
-											LineStyleInfo style = {};
-											style.screenSpaceLineWidth = 4.0f;
-											style.worldSpaceLineWidth = 0.0f;
-											style.color = cw ? float32_t4(0.0, 0.0, 1.0, 1.0) : float32_t4(1.0, 0.0, 0.0, 1.0);
-											drawResourcesFiller.drawPolyline(dbgLineDirPolyline, style, intendedNextSubmit);
-										}
-										transformedPolyline.addLinePoints(points);
-									}
-									else if (section.type == ObjectType::QUAD_BEZIER)
-									{
-										// TODO
-									}
-								}
-								transformedPolylines.push_back(transformedPolyline);
-							}
-
-							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-							drawResourcesFiller.drawHatch(hatch, float32_t4(0.75, 0.75, 0.75, 1.0f), msdfHash, intendedNextSubmit);
-						}
-					}
-				}
-				hatchDebugStep -= uint32_t(HatchFillPattern::COUNT);
-				*/
-				constexpr double hatchFillShapeSize = 10.0;
-				constexpr double hatchFillShapePadding = 1.0;
-
-				// Hatch fill shapes described above
-				// Iterate each one of them, rendering
-				for (uint32_t hatchFillShapeIdx = 1u; hatchFillShapeIdx < uint32_t(HatchFillPattern::COUNT); hatchFillShapeIdx++)
-				{
-					if (hatchDebugStep == 0) break;
-
-					double totalShapesWidth = hatchFillShapeSize * double(uint32_t(HatchFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(HatchFillPattern::COUNT) - 1);
-					double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
-					// Center it
-					offset -= totalShapesWidth / 2.0;
-
-					{
-						CPolyline squareBelow;
-						{
-							std::vector<float64_t2> points;
-							auto addPt = [&](float64_t2 p)
-							{
-								auto point = p / 8.0;
-								points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
-							};
-							addPt(float64_t2(0.0, 0.0));
-							addPt(float64_t2(8.0, 0.0));
-							addPt(float64_t2(8.0, 8.0));
-							addPt(float64_t2(0.0, 8.0));
-							addPt(float64_t2(0.0, 0.0));
-							squareBelow.addLinePoints(points);
-						}
-
-						Hatch filledHatch(
-							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
-							SelectedMajorAxis, hatchDebugStep, debug
-						);
-						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
-						drawResourcesFiller.drawHatch(
-							filledHatch, 
-							float32_t4(0.0, 0.0, 0.0, 1.0f), 
-							float32_t4(1.0, 1.0, 1.0, 1.0f), 
-							HatchFillPattern(hatchFillShapeIdx), 
-							intendedNextSubmit
-						);
-					}
-
-					hatchDebugStep--;
-				}
-			}
-
-			if (hatchDebugStep > 0 && singleLineText)
-			{
-				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
-				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,0.0), float32_t2(1.0, 1.0), rotation);
-				hatchDebugStep--;
-			}
-
-			if (hatchDebugStep > 0)
-			{
-				constexpr auto TestString = "Hatch: The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
-
-				auto penX = -100.0;
-				auto penY = -500.0;
-				auto previous = 0;
-
-				uint32_t glyphObjectIdx;
-				{
-					LineStyleInfo lineStyle = {};
-					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
-					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
-
-					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
-				}
-
-				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
-				float64_t scale = 1.0 / 64.0;
-
-				for (uint32_t i = 0; i < strlen(TestString); i++)
-				{
-					if (hatchDebugStep == 0) break;
-					hatchDebugStep--; 
-
-					char k = TestString[i];
-					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
-					const float64_t2 baselineStart = currentBaselineStart;
-
-					currentBaselineStart += glyphMetrics.advance;
-					
-					TextGlyphBoundingBox glyphBbox = {};
-					if (glyphIndex != 0 || k != ' ')
-					{
-						glyphBbox.topLeft = baselineStart + glyphMetrics.horizontalBearing;
-						glyphBbox.dirU = float64_t2(glyphMetrics.size.x, 0.0);
-						glyphBbox.dirV = float64_t2(0.0, -glyphMetrics.size.y);
-
-						{
-							// Draw bounding box of the glyph
-							LineStyleInfo bboxStyle = {};
-							bboxStyle.screenSpaceLineWidth = 1.0f;
-							bboxStyle.worldSpaceLineWidth = 0.0f;
-							bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
-
-							CPolyline newPoly = {};
-							std::vector<float64_t2> points;
-							points.push_back(glyphBbox.topLeft);
-							points.push_back(glyphBbox.topLeft + glyphBbox.dirU);
-							points.push_back(glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV);
-							points.push_back(glyphBbox.topLeft + glyphBbox.dirV);
-							points.push_back(glyphBbox.topLeft);
-							newPoly.addLinePoints(points);
-							drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
-						}
-
-						{
-							const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
-
-							FreetypeHatchBuilder hatchBuilder;
-							{
-								FT_Outline_Funcs ftFunctions;
-								ftFunctions.move_to = &ftMoveTo;
-								ftFunctions.line_to = &ftLineTo;
-								ftFunctions.conic_to = &ftConicTo;
-								ftFunctions.cubic_to = &ftCubicTo;
-								ftFunctions.shift = 0;
-								ftFunctions.delta = 0;
-								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
-								assert(!error);
-								hatchBuilder.finish();
-							}
-							msdfgen::Shape glyphShape;
-							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
-							assert(loadedGlyph);
-
-							auto& shapePolylines = hatchBuilder.polylines;
-							std::vector<CPolyline> transformedPolylines;
-
-							auto transformPoint = [&](float64_t2 point)
-							{
-								auto shapeBounds = glyphShape.getBounds();
-								float64_t2 scale = float64_t2(
-									shapeBounds.r - shapeBounds.l,
-									shapeBounds.t - shapeBounds.b
-								);
-								float64_t2 translate = float64_t2(-shapeBounds.l, -shapeBounds.b);
-								
-								auto pointIn0To1 = (point + translate) / scale;
-								pointIn0To1.y = 1.0 - pointIn0To1.y; // Honestly not sure why this makes it go upside down
-								auto aabbMin = glyphBbox.topLeft + float64_t2(0, 50);
-								auto aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV + float64_t2(0, 50);
-								return aabbMin + pointIn0To1 * (aabbMax - aabbMin);
-							};
-
-							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
-							{
-								auto& polyline = shapePolylines[polylineIdx];
-								if (polyline.getSectionsCount() == 0) continue;
-								CPolyline transformedPolyline;
-								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-								{
-									auto& section = polyline.getSectionInfoAt(sectorIdx);
-									if (section.type == ObjectType::LINE)
-									{
-										if (section.count == 0u) continue;
-
-										std::vector<float64_t2> points;
-										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
-										{
-											auto point = polyline.getLinePointAt(i).p;
-											points.push_back(transformPoint(point));
-										}
-										transformedPolyline.addLinePoints(points);
-									}
-									else if (section.type == ObjectType::QUAD_BEZIER)
-									{
-										if (section.count == 0u) continue;
-
-										std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
-										for (uint32_t i = section.index; i < section.index + section.count; i++)
-										{
-											QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
-											beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
-												transformPoint(bezier.shape.P0),
-												transformPoint(bezier.shape.P1),
-												transformPoint(bezier.shape.P2)
-											));
-										}
-										transformedPolyline.addQuadBeziers(beziers);
-									}
-								}
-								transformedPolylines.push_back(transformedPolyline);
-							}
-
-							if (transformedPolylines.size() == 0) continue;
-							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.8, 1.0, 1.0f), intendedNextSubmit);
-						}
-
-					}
-				}
-			}
-			if (hatchDebugStep > 0)
-			{
 #include "bike_hatch.h"
 				for (uint32_t i = 0; i < polylines.size(); i++)
 				{
@@ -1861,7 +1593,7 @@ protected:
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
 				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
@@ -1917,7 +1649,7 @@ protected:
 					polylines.push_back(polyline);
 				}
 
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
 
@@ -1950,7 +1682,7 @@ protected:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
 
@@ -2104,7 +1836,7 @@ protected:
 					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
 			
@@ -2143,7 +1875,7 @@ protected:
 				polyline.addLinePoints(points);
 				polyline.addQuadBeziers(beziers);
 
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
 			
@@ -2161,7 +1893,7 @@ protected:
 					100.0 * float64_t2(3.7, 7.27) });
 				polyline.addQuadBeziers(beziers);
 			
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), intendedNextSubmit);
 			}
 		}
@@ -3242,6 +2974,204 @@ protected:
 				polyline.addLinePoints(linePoints);
 			}
 			drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
+		}
+		else if (mode == ExampleMode::CASE_8)
+		{
+			constexpr double hatchFillShapeSize = 100.0;
+			constexpr double hatchFillShapePadding = 10.0;
+
+			// Hatches with MSDF Fill patterns
+			for (uint32_t hatchFillShapeIdx = 1u; hatchFillShapeIdx < uint32_t(HatchFillPattern::COUNT); hatchFillShapeIdx++)
+			{
+				double totalShapesWidth = hatchFillShapeSize * double(uint32_t(HatchFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(HatchFillPattern::COUNT) - 1);
+				double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
+				// Center it
+				offset -= totalShapesWidth / 2.0;
+
+				{
+					CPolyline squareBelow;
+					{
+						std::vector<float64_t2> points;
+						auto addPt = [&](float64_t2 p)
+						{
+							auto point = p / 8.0;
+							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+						};
+						addPt(float64_t2(0.0, 0.0));
+						addPt(float64_t2(8.0, 0.0));
+						addPt(float64_t2(8.0, 8.0));
+						addPt(float64_t2(0.0, 8.0));
+						addPt(float64_t2(0.0, 0.0));
+						squareBelow.addLinePoints(points);
+					}
+
+					Hatch filledHatch(std::span<CPolyline, 1>{std::addressof(squareBelow), 1}, SelectedMajorAxis);
+					// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
+					drawResourcesFiller.drawHatch(
+						filledHatch, 
+						float32_t4(1.0, 1.0, 1.0, 1.0f), 
+						float32_t4(0.1, 0.1, 0.1, 1.0f), 
+						HatchFillPattern(hatchFillShapeIdx), 
+						intendedNextSubmit
+					);
+				}
+			}
+
+			if (singleLineText)
+			{
+				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation);
+			}
+
+			const bool drawTextHatches = true;
+			if (drawTextHatches)
+			{
+				constexpr auto TestString = "Hatch: The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+
+				auto penX = -100.0;
+				auto penY = -500.0;
+				auto previous = 0;
+
+				uint32_t glyphObjectIdx;
+				{
+					LineStyleInfo lineStyle = {};
+					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+				}
+
+				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
+				float64_t scale = 1.0 / 64.0;
+
+				for (uint32_t i = 0; i < strlen(TestString); i++)
+				{
+					char k = TestString[i];
+					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
+					const float64_t2 baselineStart = currentBaselineStart;
+
+					currentBaselineStart += glyphMetrics.advance;
+					
+					struct TextGlyphBoundingBox
+					{
+						float64_t2 topLeft;
+						float64_t2 dirU;
+						float64_t2 dirV;
+					} glyphBbox;
+
+					if (glyphIndex != 0 || k != ' ')
+					{
+						glyphBbox.topLeft = baselineStart + glyphMetrics.horizontalBearing;
+						glyphBbox.dirU = float64_t2(glyphMetrics.size.x, 0.0);
+						glyphBbox.dirV = float64_t2(0.0, -glyphMetrics.size.y);
+
+						{
+							// Draw bounding box of the glyph
+							LineStyleInfo bboxStyle = {};
+							bboxStyle.screenSpaceLineWidth = 1.0f;
+							bboxStyle.worldSpaceLineWidth = 0.0f;
+							bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+
+							CPolyline newPoly = {};
+							std::vector<float64_t2> points;
+							points.push_back(glyphBbox.topLeft);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft);
+							newPoly.addLinePoints(points);
+							drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
+						}
+
+						{
+							const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
+
+							FreetypeHatchBuilder hatchBuilder;
+							{
+								FT_Outline_Funcs ftFunctions;
+								ftFunctions.move_to = &ftMoveTo;
+								ftFunctions.line_to = &ftLineTo;
+								ftFunctions.conic_to = &ftConicTo;
+								ftFunctions.cubic_to = &ftCubicTo;
+								ftFunctions.shift = 0;
+								ftFunctions.delta = 0;
+								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
+								assert(!error);
+								hatchBuilder.finish();
+							}
+							msdfgen::Shape glyphShape;
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
+							assert(loadedGlyph);
+
+							auto& shapePolylines = hatchBuilder.polylines;
+							std::vector<CPolyline> transformedPolylines;
+
+							auto transformPoint = [&](float64_t2 point)
+							{
+								auto shapeBounds = glyphShape.getBounds();
+								float64_t2 scale = float64_t2(
+									shapeBounds.r - shapeBounds.l,
+									shapeBounds.t - shapeBounds.b
+								);
+								float64_t2 translate = float64_t2(-shapeBounds.l, -shapeBounds.b);
+								
+								auto pointIn0To1 = (point + translate) / scale;
+								pointIn0To1.y = 1.0 - pointIn0To1.y; // Honestly not sure why this makes it go upside down
+								auto aabbMin = glyphBbox.topLeft;
+								auto aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV;
+								return aabbMin + pointIn0To1 * (aabbMax - aabbMin);
+							};
+
+							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+							{
+								auto& polyline = shapePolylines[polylineIdx];
+								if (polyline.getSectionsCount() == 0) continue;
+								CPolyline transformedPolyline;
+								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+								{
+									auto& section = polyline.getSectionInfoAt(sectorIdx);
+									if (section.type == ObjectType::LINE)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<float64_t2> points;
+										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+										{
+											auto point = polyline.getLinePointAt(i).p;
+											points.push_back(transformPoint(point));
+										}
+										transformedPolyline.addLinePoints(points);
+									}
+									else if (section.type == ObjectType::QUAD_BEZIER)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
+										for (uint32_t i = section.index; i < section.index + section.count; i++)
+										{
+											QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
+											beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
+												transformPoint(bezier.shape.P0),
+												transformPoint(bezier.shape.P1),
+												transformPoint(bezier.shape.P2)
+											));
+										}
+										transformedPolyline.addQuadBeziers(beziers);
+									}
+								}
+								transformedPolylines.push_back(transformedPolyline);
+							}
+
+							if (transformedPolylines.size() == 0) continue;
+							Hatch hatch(transformedPolylines, SelectedMajorAxis);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.8, 1.0, 1.0f), intendedNextSubmit);
+						}
+
+					}
+				}
+			}
+
 		}
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
