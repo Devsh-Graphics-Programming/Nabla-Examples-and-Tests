@@ -210,6 +210,22 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 		};
 #define NBL_API
+#if 0
+		//
+		template<asset::Asset AssetType>
+		struct patch_callback_t
+		{
+			static inline patch_t<AssetType> operator()(const IAsset* user, const AssetType* dependant, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+			{
+				if (underlying)
+					return underlying();
+				else
+					return patch_t<AssetType>(dependant,features,limits);
+			}
+
+			std::function<patch_t<AssetType>(const IAsset*, const AssetType*)> underlying = {};
+		};
+#endif
 		// A class to accelerate our hash computations
 		class CHashCache final : public core::IReferenceCounted
 		{
@@ -220,15 +236,18 @@ class CAssetConverter : public core::IReferenceCounted
 				{
 					inline bool valid() const
 					{
+						//return asset && features && limits && patch && patch->valid();
 						return asset && patch && patch->valid();
 					}
 
 					const AssetType* asset = nullptr;
-					// Normally all references to the same IAsset* would spawn the same IBackendObject*.
-					// However, each unique integer value "spawns" a new copy, note that the group ID is the same size as a pointer, so you can e.g.
-					// cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
-					size_t uniqueCopyGroupID = 0;
 					const patch_t<AssetType>* patch = {};
+					// the callbacks are only called on dependants to construct/retrieve correct patches
+#if 0
+					const SPhysicalDeviceFeatures* features = nullptr;
+					const SPhysicalDeviceLimits* limits = nullptr;
+					core::tuple_transform_t<patch_callback_t,supported_asset_types> patchCallbacks = {};
+#endif
 					// how deep from `asset` do we start trusting the cache to contain correct non stale hashes
 					uint32_t cacheMistrustLevel = 0;
 				};
@@ -239,7 +258,6 @@ class CAssetConverter : public core::IReferenceCounted
 				struct key_t
 				{
 					core::smart_refctd_ptr<const AssetType> asset = {};
-					size_t uniqueCopyGroupID = 0;
 					patch_t<AssetType> patch = {};
 				};
 				template<asset::Asset AssetType>
@@ -249,14 +267,13 @@ class CAssetConverter : public core::IReferenceCounted
 
 					inline size_t operator()(const key_t<AssetType>& key) const
 					{
-						return operator()(lookup_t<AssetType>{key.asset.get(),key.uniqueCopyGroupID,&key.patch});
+						return operator()(lookup_t<AssetType>{key.asset.get(),&key.patch});
 					}
 					inline size_t operator()(const lookup_t<AssetType>& lookup) const
 					{
 						blake3_hasher hasher;
 						blake3_hasher_init(&hasher);
 						core::blake3_hasher_update(hasher,lookup.asset);
-						// TODO: groupCopyGroudID or not?
 						lookup.patch->hasher_update(hasher);
 						const auto longHash = core::blake3_hasher_finalize(hasher);
 						return std::hash<core::blake3_hash_t>()(longHash);
@@ -264,15 +281,15 @@ class CAssetConverter : public core::IReferenceCounted
 
 					inline bool operator()(const key_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
 					{
-						return lhs.asset.get()==rhs.asset.get() && lhs.uniqueCopyGroupID==rhs.uniqueCopyGroupID && lhs.patch==rhs.patch;
+						return lhs.asset.get()==rhs.asset.get() && lhs.patch==rhs.patch;
 					}
 					inline bool operator()(const key_t<AssetType>& lhs, const lookup_t<AssetType>& rhs) const
 					{
-						return lhs.asset.get()==rhs.asset && lhs.uniqueCopyGroupID==rhs.uniqueCopyGroupID && rhs.patch && lhs.patch==*rhs.patch;
+						return lhs.asset.get()==rhs.asset && rhs.patch && lhs.patch==*rhs.patch;
 					}
 					inline bool operator()(const lookup_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
 					{
-						return lhs.asset==rhs.asset.get() && lhs.uniqueCopyGroupID==rhs.uniqueCopyGroupID && lhs.patch && *lhs.patch==rhs.patch;
+						return lhs.asset==rhs.asset.get() && lhs.patch && *lhs.patch==rhs.patch;
 					}
 				};
 				template<asset::Asset AssetType>
@@ -300,7 +317,6 @@ class CAssetConverter : public core::IReferenceCounted
 						blake3_hasher_init(&hasher);
 						// We purposefully don't hash asset pointer, we hash the contents instead
 						//core::blake3_hasher_update(hasher,toHash.asset);
-						core::blake3_hasher_update(hasher,toHash.uniqueCopyGroupID);
 						const auto nextMistrustLevel = toHash.cacheMistrustLevel ? (toHash.cacheMistrustLevel-1):0;
 						hash_impl(hasher,toHash.asset,*toHash.patch,nextMistrustLevel);
 						retval = core::blake3_hasher_finalize(hasher);
@@ -312,7 +328,6 @@ class CAssetConverter : public core::IReferenceCounted
 						auto insertIt = container.insert(foundIt,{
 							{
 								.asset = core::smart_refctd_ptr<const AssetType>(toHash.asset),
-								.uniqueCopyGroupID = toHash.uniqueCopyGroupID,
 								.patch = *toHash.patch
 							},
 						retval});
@@ -357,6 +372,11 @@ class CAssetConverter : public core::IReferenceCounted
 				inline ~CHashCache() = default;
 
 				//
+				struct HashSession
+				{
+					::blake3_hasher& hasher;
+					uint32_t nextMistrustLevel;
+				};
 				template<asset::Asset AssetType>
 				void hash_impl(::blake3_hasher& hasher, const AssetType* asset, const patch_t<AssetType>& patch, const uint32_t nextMistrustLevel);
 
@@ -439,17 +459,13 @@ class CAssetConverter : public core::IReferenceCounted
 		// A meta class to encompass all the Assets you might want to convert at once
         struct SInputs
         {
-			struct instance_t
-			{
-				inline bool operator==(const instance_t&) const = default;
-
-				const asset::IAsset* asset = nullptr;
-				size_t uniqueCopyGroupID = 0;
-			};
-			// You need to tell us if an asset needs multiple copies, separate for each user. The return value of this function dictates
-			// what copy of the asset each user gets. Note that we also call it with `user=={nullptr,0}` for each entry in `SInputs::assets`.
+			// Normally all references to the same IAsset* would spawn the same IBackendObject*.
+			// You need to tell us if an asset needs multiple copies, separate for each user. The return value of this function dictates what copy of the asset each user gets.
+			// Each unique integer value returned for a given input `dependant` "spawns" a new copy.
+			// Note that the group ID is the same size as a pointer, so you can e.g. cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
+			// Note that we also call it with `user=={nullptr,0}` for each entry in `SInputs::assets`.
 			// NOTE: You might get extra copies within the same group ID due to inability to patch entries
-			virtual inline size_t getDependantUniqueCopyGroupID(const instance_t& user, const asset::IAsset* dependant) const
+			virtual inline size_t getDependantUniqueCopyGroupID(const size_t usersGroupCopyID, const asset::IAsset* user, const asset::IAsset* dependant) const
 			{
 				return 0;
 			}
@@ -577,17 +593,5 @@ class CAssetConverter : public core::IReferenceCounted
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
 };
 
-}
-
-namespace std
-{
-template<>
-struct hash<nbl::video::CAssetConverter::SInputs::instance_t>
-{
-	inline size_t operator()(const nbl::video::CAssetConverter::SInputs::instance_t& record) const noexcept
-	{
-		return ptrdiff_t(record.asset)^ptrdiff_t(record.uniqueCopyGroupID);
-	}
-};
 }
 #endif
