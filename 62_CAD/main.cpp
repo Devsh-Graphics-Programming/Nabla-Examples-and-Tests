@@ -23,7 +23,6 @@ using namespace video;
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
-#include "MSDFs.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -898,11 +897,25 @@ public:
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
 		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
-		const auto str = "ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
+		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			core::smart_refctd_ptr<FontFace>(m_arialFont), 
 			std::string(str)));
 
+
+		drawResourcesFiller.setGlyphMSDFTextureFunction(
+			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			{
+				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution());
+			}
+		);
+
+		drawResourcesFiller.setHatchFillMSDFTextureFunction(
+			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			{
+				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
+			}
+		);
 		return true;
 	}
 
@@ -1670,18 +1683,12 @@ protected:
 							std::span<CPolyline, 1>{std::addressof(squareBelow), 1},
 							SelectedMajorAxis, hatchDebugStep, debug
 						);
-						DrawResourcesFiller::msdf_hash msdfHash = addMSDFFillPatternTexture(
-							m_textRenderer.get(), 
-							drawResourcesFiller, 
-							HatchFillPattern(hatchFillShapeIdx), 
-							intendedNextSubmit);
-
 						// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
 						drawResourcesFiller.drawHatch(
 							filledHatch, 
 							float32_t4(0.0, 0.0, 0.0, 1.0f), 
 							float32_t4(1.0, 1.0, 1.0, 1.0f), 
-							msdfHash, 
+							HatchFillPattern(hatchFillShapeIdx), 
 							intendedNextSubmit
 						);
 					}
@@ -1699,7 +1706,7 @@ protected:
 
 			if (hatchDebugStep > 0)
 			{
-				constexpr auto TestString = "The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+				constexpr auto TestString = "Hacth: The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
 
 				auto penX = -100.0;
 				auto penY = -500.0;
@@ -1835,34 +1842,7 @@ protected:
 
 							if (transformedPolylines.size() == 0) continue;
 							Hatch hatch(transformedPolylines, SelectedMajorAxis, hatchDebugStep, debug);
-							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 1.0, 1.0, 1.0f), intendedNextSubmit);
-
-							const auto msdfHash = DrawResourcesFiller::hashFontGlyph(m_arialFont->getHash(), glyphIndex);
-							drawResourcesFiller.addMSDFTexture(
-								[&]()
-								{
-									auto msdfBitmapBuffer = m_arialFont->generateGlyphMSDF(MSDFPixelRange, glyphIndex, uint32_t2(MSDFSize, MSDFSize));
-									MSDFTextureUploadInfo textureUploadInfo = {
-										.cpuBuffer = msdfBitmapBuffer,
-										.bufferOffset = 0u,
-										.imageExtent = uint32_t3(MSDFSize, MSDFSize, 1),
-									};
-									return textureUploadInfo;
-								},
-								msdfHash,
-								intendedNextSubmit
-							);
-
-							const auto textureId = drawResourcesFiller.getMSDFTextureIndex(msdfHash);
-							assert(textureId != DrawResourcesFiller::InvalidTextureHash);
-
-							auto boundingBoxExpandAmount = (MSDFPixelRange / MSDFSize);
-
-							FontGlyphInfo glyphInfo = {
-								.topLeft = glyphBbox.topLeft + float64_t2(0, 100.0) - float64_t2(boundingBoxExpandAmount, boundingBoxExpandAmount) * (glyphBbox.dirU + glyphBbox.dirV),
-								.dirU = glyphBbox.dirU * (1.0 + 2.0 * boundingBoxExpandAmount),
-							};
-							drawResourcesFiller.drawFontGlyph(glyphInfo, glyphObjectIdx, intendedNextSubmit);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.8, 1.0, 1.0f), intendedNextSubmit);
 						}
 
 					}

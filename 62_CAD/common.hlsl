@@ -56,7 +56,7 @@ struct QuadraticBezierInfo
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 #endif
 
-struct FontGlyphInfo
+struct GlyphInfo
 {
     float64_t2 topLeft; // 2 * 8 = 16 bytes
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
@@ -65,19 +65,37 @@ struct FontGlyphInfo
     // unorm8 minV;
     // uint16 textureId;
     uint32_t minUV_textureID_packed; // 4 bytes (36)
+    
+#ifndef __HLSL_VERSION
+    GlyphInfo(float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
+        topLeft(topLeft),
+        dirU(dirU),
+        aspectRatio(aspectRatio)
+    {
+        assert(textureId < nbl::hlsl::numeric_limits<uint16_t>::max);
+        packMinUV_TextureID(minUV, textureId);
+    }
+#endif
 
-#ifdef __HLSL_VERSION
-    float2 getMinUV() {
-        return float2(
-            float(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0,
-            float(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0
+    void packMinUV_TextureID(float32_t2 minUV, uint16_t textureId)
+    {
+        minUV_textureID_packed = textureId;
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.x * 255.0f), 16, 8);
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.y * 255.0f), 24, 8);
+    }
+
+    float32_t2 getMinUV()
+    {
+        return float32_t2(
+            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0,
+            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0
         );
     }
 
-    uint16_t getTextureID() {
+    uint16_t getTextureID()
+    {
         return uint16_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
     }
-#endif
 };
 
 struct ImageObjectInfo

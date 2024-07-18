@@ -13,6 +13,9 @@
 #include <nbl/builtin/hlsl/math/equations/cubic.hlsl>
 #include <nbl/builtin/hlsl/math/equations/quartic.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/ext/TextRendering/TextRendering.h>
+
+using namespace nbl;
 
 enum class HatchFillPattern: uint32_t
 {
@@ -73,6 +76,7 @@ public:
 		bool isStraightLineConstantMajor() const;
 	};
 	Hatch(std::span<CPolyline> lines, const MajorAxis majorAxis, int32_t& debugStep, std::function<void(CPolyline, LineStyleInfo)> debugOutput /* tmp */);
+	
 	// (temporary)
 	Hatch(std::vector<CurveHatchBox>&& in_hatchBoxes) :
 		hatchBoxes(std::move(in_hatchBoxes))
@@ -83,6 +87,11 @@ public:
 	uint32_t getHatchBoxCount() const { return hatchBoxes.size(); }
 
 	std::vector<uint32_t> intersectionAmounts;
+
+	// Generate Fill Pattern
+	static core::smart_refctd_ptr<asset::ICPUBuffer> generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents);
+
 private:
 	std::vector<CurveHatchBox> hatchBoxes;
 };
+

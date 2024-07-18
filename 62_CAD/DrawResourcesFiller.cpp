@@ -1,5 +1,4 @@
 #include "DrawResourcesFiller.h"
-#include "MSDFs.h"
 
 DrawResourcesFiller::DrawResourcesFiller()
 {}
@@ -166,102 +165,6 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 	}
 }
 
-DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFillPattern(HatchFillPattern fillPattern)
-{
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFType::HATCH_FILL_PATTERN));
-	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(uint32_t(fillPattern)));
-	return hash;
-}
-
-DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFontGlyph(size_t fontHash, uint32_t glyphIndex)
-{
-	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFType::FONT_GLYPH));
-	nbl::core::hash_combine(hash, std::hash<size_t>{}(fontHash));
-	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(glyphIndex));
-	return hash;
-}
-
-//! this function fills buffers required for drawing a polyline and submits a draw through provided callback when there is not enough memory.
-
-void DrawResourcesFiller::setGlyphMSDFTextureFunction(GetGlyphMSDFTextureFunc func)
-{
-	getGlyphMSDF = func;
-}
-
-void DrawResourcesFiller::setHatchFillMSDFTextureFunction(GetHatchFillPatternMSDFTextureFunc  func)
-{
-	getHatchFillPatternMSDF = func;
-}
-
-uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
-{
-	auto ptr = textureLRUCache->get(hash);
-	if (ptr) return ptr->alloc_idx;
-	else return InvalidTextureHash;
-}
-
-DrawResourcesFiller::MSDFReference* DrawResourcesFiller::addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
-	// Every single submit increases this value by 1
-	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
-	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
-
-	auto evictionCallback = [&](const MSDFReference& evicted)
-	{
-		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
-		{
-			// Dealloc once submission is finished
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
-
-			// Submit
-			finalizeAllCopiesToGPU(intendedNextSubmit);
-			submitDraws(intendedNextSubmit);
-			// Importatn: We don't reset anything because the auto submit wasn't due to lack of any of the buffers such as geometry, drawObjs or mainObjs
-			// If we reset it will cause an auto submission bug, where adding an msdf texture while constructing glyphs will invalidate geometries and main objects
-			// resetGeometryCounters();
-			// resetMainObjectCounters();
-		} else {
-			// We didn't use it this frame, so it's safe to dealloc now
-			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
-		}
-	};
-	
-	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
-	MSDFReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
-	
-	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
-	if (inserted->alloc_idx == InvalidTextureIdx)
-	{
-		auto textureUploadInfo = createResourceIfEmpty();
-
-		// New insertion == cache miss happened and insertion was successfull
-		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
-		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
-
-		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-		textureCopies.push_back({
-			.srcBuffer = textureUploadInfo.cpuBuffer,
-			.bufferOffset = textureUploadInfo.bufferOffset,
-			.imageExtent = textureUploadInfo.imageExtent,
-			.index = inserted->alloc_idx,
-		});
-	}
-	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
-
-	assert(inserted->alloc_idx != InvalidTextureIdx);
-	return inserted;
-}
-
-uint32_t DrawResourcesFiller::addMSDFTexture(MSDFTextureUploadInfo textureUploadInfo, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
-{
-	return addMSDFTexture(
-		[textureUploadInfo] { return textureUploadInfo; },
-		hash,
-		intendedNextSubmit
-	)->alloc_idx;
-}
-
 void DrawResourcesFiller::drawPolyline(const CPolylineBase& polyline, const LineStyleInfo& lineStyleInfo, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (!lineStyleInfo.isVisible())
@@ -319,7 +222,7 @@ void DrawResourcesFiller::drawHatch(
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
 		const float32_t4& backgroundColor,
-		const msdf_hash msdfTexture,
+		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TODO[Optimization Idea]: don't draw hatch twice if both colors are visible: instead do the msdf inside the alpha resolve by detecting mainObj being a hatch
@@ -329,16 +232,24 @@ void DrawResourcesFiller::drawHatch(
 	// if backgroundColor is visible
 	drawHatch(hatch, backgroundColor, intendedNextSubmit);
 	// if foregroundColor is visible
-	drawHatch(hatch, foregroundColor, msdfTexture, intendedNextSubmit);
+	drawHatch(hatch, foregroundColor, fillPattern, intendedNextSubmit);
 }
 
 void DrawResourcesFiller::drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		const msdf_hash msdfTexture,
+		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit)
 {
-	uint32_t textureIdx = getTextureIndexFromHash(msdfTexture, intendedNextSubmit);
+	uint32_t textureIdx = InvalidTextureIdx;
+	if (fillPattern != HatchFillPattern::SOLID_FILL)
+	{
+		const msdf_hash msdfHash = hashFillPattern(fillPattern);
+		textureIdx = getTextureIndexFromHash(msdfHash, intendedNextSubmit);
+		if (textureIdx == InvalidTextureIdx)
+			textureIdx = addMSDFTexture(getHatchFillPatternMSDF(fillPattern), msdfHash, intendedNextSubmit);
+		assert(textureIdx != InvalidTextureIdx);
+	}
 
 	LineStyleInfo lineStyle = {};
 	lineStyle.color = color;
@@ -358,17 +269,33 @@ void DrawResourcesFiller::drawHatch(
 
 void DrawResourcesFiller::drawHatch(const Hatch& hatch, const float32_t4& color, SIntendedSubmitInfo& intendedNextSubmit)
 {
-	drawHatch(hatch, color, InvalidTextureHash, intendedNextSubmit);
+	drawHatch(hatch, color, HatchFillPattern::SOLID_FILL, intendedNextSubmit);
 }
 
-void DrawResourcesFiller::drawFontGlyph(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit)
-{		
-	if (!addFontGlyph_Internal(fontGlyph, mainObjIdx))
+void DrawResourcesFiller::drawFontGlyph(
+		nbl::ext::TextRendering::FontFace* fontFace,
+		uint32_t glyphIdx,
+		float64_t2 topLeft,
+		float32_t2 dirU,
+		float32_t  aspectRatio,
+		float32_t2 minUV,
+		uint32_t mainObjIdx,
+		SIntendedSubmitInfo& intendedNextSubmit)
+{
+	uint32_t textureIdx = InvalidTextureIdx;
+	const msdf_hash msdfHash = hashFontGlyph(fontFace->getHash(), glyphIdx);
+	textureIdx = getTextureIndexFromHash(msdfHash, intendedNextSubmit);
+	if (textureIdx == InvalidTextureIdx)
+		textureIdx = addMSDFTexture(getGlyphMSDF(fontFace, glyphIdx), msdfHash, intendedNextSubmit);
+	assert(textureIdx != InvalidTextureIdx);
+	
+	GlyphInfo glyphInfo = GlyphInfo(topLeft, dirU, aspectRatio, textureIdx, minUV);
+	if (!addFontGlyph_Internal(glyphInfo, mainObjIdx))
 	{
 		// single font glyph couldn't fit into memory to push to gpu, so we submit rendering current objects and reset geometry buffer and draw objects
 		submitCurrentObjectsAndReset(intendedNextSubmit, mainObjIdx);
-		bool success = addFontGlyph_Internal(fontGlyph, mainObjIdx);
-		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single FontGlyphInfo
+		bool success = addFontGlyph_Internal(glyphInfo, mainObjIdx);
+		assert(success); // this should always be true, otherwise it's either bug in code or not enough memory allocated to hold a single GlyphInfo
 	}
 }
 
@@ -852,9 +779,9 @@ void DrawResourcesFiller::addHatch_Internal(const Hatch& hatch, uint32_t& curren
 	currentObjectInSection += uploadableObjects;
 }
 
-bool DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx)
+bool DrawResourcesFiller::addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx)
 {
-	const auto maxGeometryBufferFontGlyphs = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(FontGlyphInfo);
+	const auto maxGeometryBufferFontGlyphs = (maxGeometryBufferSize - currentGeometryBufferSize) / sizeof(GlyphInfo);
 	
 	uint32_t uploadableObjects = (maxIndexCount / 6u) - currentDrawObjectCount;
 	uploadableObjects = min(uploadableObjects, maxDrawObjects - currentDrawObjectCount);
@@ -863,9 +790,9 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, 
 	if (uploadableObjects >= 1u)
 	{
 		void* geomDst = reinterpret_cast<char*>(cpuDrawBuffers.geometryBuffer->getPointer()) + currentGeometryBufferSize;
-		memcpy(geomDst, &fontGlyph, sizeof(FontGlyphInfo));
+		memcpy(geomDst, &glyphInfo, sizeof(GlyphInfo));
 		uint64_t fontGlyphAddr = geometryBufferAddress + currentGeometryBufferSize;
-		currentGeometryBufferSize += sizeof(FontGlyphInfo);
+		currentGeometryBufferSize += sizeof(GlyphInfo);
 
 		DrawObject drawObj = {};
 		drawObj.type_subsectionIdx = uint32_t(static_cast<uint16_t>(ObjectType::FONT_GLYPH) | (0 << 16));
@@ -881,6 +808,100 @@ bool DrawResourcesFiller::addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, 
 	{
 		return false;
 	}
+}
+
+DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFillPattern(HatchFillPattern fillPattern)
+{
+	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFType::HATCH_FILL_PATTERN));
+	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(uint32_t(fillPattern)));
+	return hash;
+}
+
+DrawResourcesFiller::msdf_hash DrawResourcesFiller::hashFontGlyph(size_t fontHash, uint32_t glyphIndex)
+{
+	std::size_t hash = std::hash<uint32_t>{}(uint32_t(MSDFType::FONT_GLYPH));
+	nbl::core::hash_combine(hash, std::hash<size_t>{}(fontHash));
+	nbl::core::hash_combine(hash, std::hash<uint32_t>{}(glyphIndex));
+	return hash;
+}
+
+void DrawResourcesFiller::setGlyphMSDFTextureFunction(GetGlyphMSDFTextureFunc func)
+{
+	getGlyphMSDF = func;
+}
+
+void DrawResourcesFiller::setHatchFillMSDFTextureFunction(GetHatchFillPatternMSDFTextureFunc  func)
+{
+	getHatchFillPatternMSDF = func;
+}
+
+uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
+{
+	auto ptr = textureLRUCache->get(hash);
+	if (ptr) return ptr->alloc_idx;
+	else return InvalidMSDFHash;
+}
+
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
+	// Every single submit increases this value by 1
+	// The reason for hiolding on to the lastUsedSema is deferred dealloc, which we call in the case of eviction, making sure we get rid of the entry inside the allocator only when the texture is done being used
+	const auto nextSemaSignal = intendedNextSubmit.getFutureScratchSemaphore();
+
+	auto evictionCallback = [&](const MSDFReference& evicted)
+	{
+		if (msdfTextureArrayIndicesUsed.contains(evicted.alloc_idx)) 
+		{
+			// Dealloc once submission is finished
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx, nextSemaSignal);
+
+			// Submit
+			finalizeAllCopiesToGPU(intendedNextSubmit);
+			submitDraws(intendedNextSubmit);
+			// Importatn: We don't reset anything because the auto submit wasn't due to lack of any of the buffers such as geometry, drawObjs or mainObjs
+			// If we reset it will cause an auto submission bug, where adding an msdf texture while constructing glyphs will invalidate geometries and main objects
+			// resetGeometryCounters();
+			// resetMainObjectCounters();
+		} else {
+			// We didn't use it this frame, so it's safe to dealloc now
+			msdfTextureArrayIndexAllocator->multi_deallocate(1u, &evicted.alloc_idx);
+		}
+	};
+	
+	// We pass nextSemaValue instead of constructing a new MSDFReference and passing it into `insert` that's because we might get a cache hit and only update the value of the nextSema
+	MSDFReference* inserted = textureLRUCache->insert(hash, nextSemaSignal.value, evictionCallback);
+	
+	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
+	if (inserted->alloc_idx == InvalidTextureIdx)
+	{
+		auto textureBuffer = createResourceIfEmpty();
+
+		// New insertion == cache miss happened and insertion was successfull
+		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
+		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+
+		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
+		textureCopies.push_back({
+			.srcBuffer = textureBuffer,
+			.bufferOffset = 0u,
+			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
+			.index = inserted->alloc_idx,
+		});
+	}
+	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
+
+	assert(inserted->alloc_idx != InvalidTextureIdx);
+	return inserted->alloc_idx;
+}
+
+uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+{
+	return addMSDFTexture(
+		[textureBuffer] { return textureBuffer; },
+		hash,
+		intendedNextSubmit
+	);
 }
 
 SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text)
@@ -943,38 +964,14 @@ void SingleLineText::Draw(
 
 	for (const auto& glyphBox : glyphBoxes)
 	{
-		const auto msdfHash = DrawResourcesFiller::hashFontGlyph(m_face->getHash(), glyphBox.glyphIdx);
-		DrawResourcesFiller::MSDFReference* textureReference = drawResourcesFiller.addMSDFTexture(
-			[&]()
-			{
-				auto msdfCPUBuffer = m_face->generateGlyphMSDF(MSDFPixelRange, glyphBox.glyphIdx, drawResourcesFiller.getMSDFResolution());
-				MSDFTextureUploadInfo textureUploadInfo = {
-					.cpuBuffer = msdfCPUBuffer,
-					.bufferOffset = 0u,
-					.imageExtent = uint32_t3(drawResourcesFiller.getMSDFResolution(), 1),
-				};
-				return textureUploadInfo;
-			},
-			msdfHash,
-			intendedNextSubmit
-		);
-		const auto textureId = textureReference->alloc_idx;
-		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
+		const float64_t2 topLeft = mul(transformation, float64_t3(glyphBox.topLeft, 1.0)).xy;
+		const float64_t2 dirU = mul(transformation, float64_t3(glyphBox.size.x, 0.0, 0.0)).xy;
+		const float64_t2 dirV = mul(transformation, float64_t3(0.0, -glyphBox.size.y, 0.0)).xy;
 
-		float64_t2 topLeft = mul(transformation, float64_t3(glyphBox.topLeft, 1.0)).xy;
-		float64_t2 dirU = mul(transformation, float64_t3(glyphBox.size.x, 0.0, 0.0)).xy;
-		float64_t2 dirV = mul(transformation, float64_t3(0.0, -glyphBox.size.y, 0.0)).xy;
-		float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
-		float32_t2 minUV = m_face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
-		
-		FontGlyphInfo glyphInfo = 
-		{
-			.topLeft = topLeft,
-			.dirU = dirU,
-			.aspectRatio = aspectRatio,
-			.minUV_textureID_packed = textureId | uint32_t(minUV.x * 255.0) << 24 | uint32_t(minUV.y * 255.0) << 16,
-		};
-		drawResourcesFiller.drawFontGlyph(glyphInfo, glyphObjectIdx, intendedNextSubmit);
+		// float32_t3 xx = float64_t3(0.0, -glyphBox.size.y, 0.0);
+		const float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
+		const float32_t2 minUV = m_face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
+		drawResourcesFiller.drawFontGlyph(m_face.get(), glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, glyphObjectIdx, intendedNextSubmit);
 	}
 
 }

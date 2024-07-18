@@ -27,14 +27,6 @@ struct DrawBuffers
 	smart_refctd_ptr<BufferType> lineStylesBuffer;
 };
 
-// ! return index to be used later in hatch fill style or text glyph object
-struct MSDFTextureUploadInfo 
-{
-	core::smart_refctd_ptr<ICPUBuffer> cpuBuffer;
-	uint64_t bufferOffset;
-	uint32_t3 imageExtent;
-};
-
 // ! DrawResourcesFiller
 // ! This class provides important functionality to manage resources needed for a draw.
 // ! Drawing new objects (polylines, hatches, etc.) should go through this function.
@@ -66,44 +58,10 @@ public:
 	
 	void allocateMSDFTextures(ILogicalDevice* logicalDevice, uint32_t maxMSDFs, uint32_t2 msdfsExtent);
 
-	// MSDF functions: 
-	using msdf_hash = std::size_t;
-
-	enum class MSDFType : uint8_t
-	{
-		HATCH_FILL_PATTERN,
-		FONT_GLYPH,
-	};
-
-	static msdf_hash hashFillPattern(HatchFillPattern fillPattern);
-
-	static msdf_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex);
-
-	static constexpr uint64_t InvalidTextureHash = std::numeric_limits<uint64_t>::max();
-	
-	struct MSDFReference
-	{
-		uint32_t alloc_idx;
-		uint64_t lastUsedSemaphoreValue;
-
-		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
-		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIdx, semaphoreVal) {}
-		MSDFReference() : MSDFReference(InvalidTextureIdx, ~0ull) {}
-
-		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to MSDFReference without changing `alloc_idx`
-		inline MSDFReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
-	};
-	
-	uint32_t getMSDFTextureIndex(msdf_hash hash);
-
-	MSDFReference* addMSDFTexture(std::function<MSDFTextureUploadInfo()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
-
-	uint32_t addMSDFTexture(MSDFTextureUploadInfo textureUploadInfo, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
-	
 	// functions that user should set to get MSDF texture if it's not available in cache.
 	// it's up to user to return cached or generate on the fly.
-	typedef std::function<MSDFTextureUploadInfo(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace> /*face*/, uint32_t /*glyphIdx*/, uint32_t2 /*size*/)> GetGlyphMSDFTextureFunc;
-	typedef std::function<MSDFTextureUploadInfo(HatchFillPattern/*pattern*/, uint32_t2/*size*/)> GetHatchFillPatternMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
+	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
 	void setGlyphMSDFTextureFunction(GetGlyphMSDFTextureFunc func);
 	void setHatchFillMSDFTextureFunction(GetHatchFillPatternMSDFTextureFunc func);
 
@@ -117,14 +75,14 @@ public:
 		const Hatch& hatch,
 		const float32_t4& foregroundColor, 
 		const float32_t4& backgroundColor,
-		const msdf_hash msdfTexture,
+		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// ! Hatch with MSDF Pattern
 	void drawHatch(
 		const Hatch& hatch,
 		const float32_t4& color,
-		const msdf_hash msdfTexture,
+		const HatchFillPattern fillPattern,
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Solid Fill Hacth
@@ -134,7 +92,15 @@ public:
 		SIntendedSubmitInfo& intendedNextSubmit);
 
 	// ! Draw Font Glyph, will auto submit if there is no space
-	void drawFontGlyph(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx, SIntendedSubmitInfo& intendedNextSubmit);
+	void drawFontGlyph(
+		nbl::ext::TextRendering::FontFace* fontFace,
+		uint32_t glyphIdx,
+		float64_t2 topLeft,
+		float32_t2 dirU,
+		float32_t  aspectRatio,
+		float32_t2 minUV,
+		uint32_t mainObjIdx,
+		SIntendedSubmitInfo& intendedNextSubmit);
 	
 	void _test_addImageObject(
 		float64_t2 topLeftPos,
@@ -221,23 +187,6 @@ public:
 		resetLineStyleCounters();
 	}
 
-	// TODO this should be protected
-	uint32_t getTextureIndexFromHash(const msdf_hash msdfTexture, SIntendedSubmitInfo& intendedNextSubmit)
-	{
-		uint32_t textureIdx = InvalidTextureIdx;
-		if (msdfTexture != InvalidTextureHash)
-		{
-			MSDFReference* tRef = textureLRUCache->get(msdfTexture);
-			if (tRef)
-			{
-				textureIdx = tRef->alloc_idx;
-				tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
-			}
-		}
-
-		return textureIdx;
-	}
-
 	DrawBuffers<ICPUBuffer> cpuDrawBuffers;
 	DrawBuffers<IGPUBuffer> gpuDrawBuffers;
 
@@ -315,7 +264,7 @@ protected:
 
 	void addHatch_Internal(const Hatch& hatch, uint32_t& currentObjectInSection, uint32_t mainObjIndex);
 	
-	bool addFontGlyph_Internal(const FontGlyphInfo& fontGlyph, uint32_t mainObjIdx);
+	bool addFontGlyph_Internal(const GlyphInfo& glyphInfo, uint32_t mainObjIdx);
 	
 	void resetMainObjectCounters()
 	{
@@ -348,6 +297,54 @@ protected:
 		return &mainObjsArray[idx];
 	}
 
+	// MSDF Hashing and Caching Internal Functions 
+	static constexpr uint64_t InvalidMSDFHash = std::numeric_limits<uint64_t>::max();
+	using msdf_hash = std::size_t;
+	enum class MSDFType : uint8_t
+	{
+		HATCH_FILL_PATTERN,
+		FONT_GLYPH,
+	};
+
+	static msdf_hash hashFillPattern(HatchFillPattern fillPattern);
+
+	static msdf_hash hashFontGlyph(size_t fontHash, uint32_t glyphIndex);
+
+	struct MSDFReference
+	{
+		uint32_t alloc_idx;
+		uint64_t lastUsedSemaphoreValue;
+
+		MSDFReference(uint32_t alloc_idx, uint64_t semaphoreVal) : alloc_idx(alloc_idx), lastUsedSemaphoreValue(semaphoreVal) {}
+		MSDFReference(uint64_t semaphoreVal) : MSDFReference(InvalidTextureIdx, semaphoreVal) {}
+		MSDFReference() : MSDFReference(InvalidTextureIdx, ~0ull) {}
+
+		// In LRU Cache `insert` function, in case of cache hit, we need to assign semaphore value to MSDFReference without changing `alloc_idx`
+		inline MSDFReference& operator=(uint64_t semamphoreVal) { lastUsedSemaphoreValue = semamphoreVal; return *this;  }
+	};
+	
+	uint32_t getMSDFTextureIndex(msdf_hash hash);
+	
+	uint32_t getTextureIndexFromHash(const msdf_hash msdfTexture, SIntendedSubmitInfo& intendedNextSubmit)
+	{
+		uint32_t textureIdx = InvalidTextureIdx;
+		if (msdfTexture != InvalidMSDFHash)
+		{
+			MSDFReference* tRef = textureLRUCache->get(msdfTexture);
+			if (tRef)
+			{
+				textureIdx = tRef->alloc_idx;
+				tRef->lastUsedSemaphoreValue = intendedNextSubmit.getFutureScratchSemaphore().value; // update this because the texture will get used on the next submit
+			}
+		}
+		return textureIdx;
+	}
+
+	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+
+	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	
+	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;
 	IQueue* m_copyQueue;
 
