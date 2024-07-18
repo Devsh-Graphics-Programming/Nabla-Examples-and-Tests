@@ -120,7 +120,6 @@ void CAssetConverter::CHashCache::eraseStale()
 				const auto& key = entry.first;
 				lookup_t<AssetType> lookup = {
 					.asset = key.asset.get(),
-					.uniqueCopyGroupID = key.uniqueCopyGroupID,
 					.patch = &key.patch,
 					// can re-use cached hashes for dependants if we start ejecting in the correct order
 					.cacheMistrustLevel = 1
@@ -144,7 +143,8 @@ void CAssetConverter::CHashCache::hash_impl<ICPUShader>(::blake3_hasher& hasher,
 {
 	core::blake3_hasher_update(hasher,asset->getContentType());
 	const auto* content = asset->getContent();
-	::blake3_hasher_update(&hasher,content->getPointer(),content->getSize());
+	// we're not using the buffer directly, just its contents
+	core::blake3_hasher_update(hasher,content->getContentHash());
 }
 
 template<>
@@ -168,7 +168,8 @@ void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(::blake3_hasher& hasher,
 template<>
 void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(::blake3_hasher& hasher, const ICPUDescriptorSetLayout* asset, const patch_t<ICPUDescriptorSetLayout>& patch, const uint32_t nextMistrustLevel)
 {
-	// TODO: hash the bindings uniquely after `master` merge!
+//	asset->getImmutableSamplers();
+//	core::blake3_hasher_update(hasher,);
 }
 
 template<>
@@ -179,7 +180,6 @@ void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher&
 	{
 		hash(lookup_t<ICPUDescriptorSetLayout>{
 			.asset = asset->getDescriptorSetLayout(i),
-			.uniqueCopyGroupID = 0x45,//TODO: What now?
 			.patch = {}, // there's nothing to patch
 			.cacheMistrustLevel = nextMistrustLevel
 		});
@@ -220,6 +220,21 @@ We know pointer, so can actually trim hashes of stale assets (same pointer, diff
 
 */
 
+template<asset::Asset AssetType>
+using patch_vector_t = core::vector<CAssetConverter::patch_t<AssetType>>;
+
+// not sure if useful enough to move to core utils
+template<typename T, typename TypeList>
+struct index_of;
+template<typename T>
+struct index_of<T,core::type_list<>> : std::integral_constant<size_t,0> {};
+template<typename T, typename... Us>
+struct index_of<T,core::type_list<T,Us...>> : std::integral_constant<size_t,0> {};
+template<typename T, typename U, typename... Us>
+struct index_of<T,core::type_list<U,Us...>> : std::integral_constant<size_t,1+index_of<T,core::type_list<Us...>>::value> {};
+template<typename T, typename TypeList>
+inline constexpr size_t index_of_v = index_of<T,TypeList>::value;
+
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
@@ -236,76 +251,81 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		hashCache = core::make_smart_refctd_ptr<CHashCache>();
 
 	SResults retval = {};
+	// stop multiple copies of the patches floating around
+	core::tuple_transform_t<patch_vector_t,supported_asset_types> finalPatchStorage = {};
+
 	// gather all dependencies (DFS graph search) and patch, this happens top-down
 	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
-		//
-		using patch_variant_t = core::variant_transform_t<patch_t,supported_asset_types>;
-		//
 		struct dfs_entry_t
 		{
-			SInputs::instance_t instance = {};
-			patch_variant_t patch = {};
+			asset_instance_t instance = {};
+			size_t patchIndex = {};
 		};
 		core::stack<dfs_entry_t> dfsStack;
 		// This cache stops us traversing an asset with the same user group and patch more than once.
-		core::unordered_multimap<SInputs::instance_t,patch_variant_t> dfsCache = {};
+		core::unordered_multimap<asset_instance_t,size_t> dfsCache = {};
 		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch)->bool
+		auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch) -> size_t
 		{
 			assert(asset);
 			// skip invalid inputs silently
 			if (!patch.valid())
-				return false;
+				return 0xdeadbeefBADC0FFEull;
 
 			// get unique group and see if we visited already
-			SInputs::instance_t record = {
+			asset_instance_t record = {
 				.asset = asset,
 				.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.instance,asset)
 			};
 
+			auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
 			// iterate over all intended EXTRA copies of an asset
 			auto found = dfsCache.equal_range(record);
 			for (auto it=found.first; it!=found.second; it++)
 			{
-				auto& candidate = std::get<patch_t<AssetType>>(it->second);
+				const size_t patchIndex = it->second;
+				auto& candidate = patchStorage[patchIndex];
 				// found a thing, try-combine the patches
 				auto combined = candidate.combine(patch);
 				// check whether the item is creatable after patching
 				if (combined.valid())
 				{
 					candidate = std::move(combined);
-					return false;
+					return patchIndex;
 				}
 				// else try the next one
 			}
 			// Either haven't managed to combine with anything or no entry found
-			patch_variant_t poly_patch = std::move(patch);
+			const auto patchIndex = patchStorage.size();
+			patchStorage.push_back(std::move(patch));
 			if (AssetType::HasDependents)
-				dfsStack.emplace(record,poly_patch);
-			dfsCache.emplace(std::move(record),std::move(poly_patch));
-
-			return true;
+				dfsStack.emplace(record,patchIndex);
+			dfsCache.emplace(std::move(record),patchIndex);
+			return patchIndex;
 		};
 		//
 		const auto& features = device->getEnabledFeatures();
 		const auto& limits = device->getPhysicalDevice()->getLimits();
+		// this will allow us to look up the conversion parameter (actual patch for an asset) and therefore write the GPUObject to the correct place in the return value
+		core::vector<size_t> finalPatchIndexForRoot[core::type_list_size_v<supported_asset_types>];
 		// initialize stacks
 		auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
 		{
+			const auto count = assets.size();
 			const auto& patches = std::get<SInputs::patch_span_t<AssetType>>(inputs.patches);
 			// size and fill the result array with nullptr
-			std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(assets.size());
-			for (size_t i=0; i<assets.size(); i++)
-			if (auto asset=assets[i]; asset)
+			std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(count);
+			// size the final patch mapping
+			auto& patchRedirects = finalPatchIndexForRoot[index_of_v<AssetType,supported_asset_types>];
+			patchRedirects.resize(count);
+			for (size_t i=0; i<count; i++)
+			if (auto asset=assets[i]; asset) // skip invalid inputs silently
 			{
-				// skip invalid inputs silently
-				if (!asset)
-					continue;
 				// for explicitly given patches we don't try to create implicit patch and merge that with the explicit
 				// we trust the implicit patches are correct/feasible
 				patch_t<AssetType> patch = i<patches.size() ? patches[i]:patch_t<AssetType>(asset,features,limits);
-				cache({},asset,std::move(patch));
+				patchRedirects[i] = cache({},asset,std::move(patch));
 			}
 		};
 		core::for_each_in_tuple(inputs.assets,initialize);
@@ -367,7 +387,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	// now we have a set of implicit gpu creation parameters we want to create resources with
 	// If there's a readCache we need to look for an item there first.
 	// We can't look up "near misses" (supersets) because they'd have different hashes
-	// can't afford to split hairs like finding overlapping buffer ranges, etc.
+	// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
 	// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
 #if 0
 	auto dedup = [&]<Asset AssetType>()->void
