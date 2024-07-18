@@ -1706,7 +1706,7 @@ protected:
 
 			if (hatchDebugStep > 0)
 			{
-				constexpr auto TestString = "Hacth: The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+				constexpr auto TestString = "Hatch: The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
 
 				auto penX = -100.0;
 				auto penY = -500.0;
