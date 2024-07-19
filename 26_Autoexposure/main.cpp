@@ -1,3 +1,94 @@
+// Copyright (C) 2018-2024 - DevSH Graphics Programming Sp. z O.O.
+// This file is part of the "Nabla Engine".
+// For conditions of distribution and use, see copyright notice in nabla.h
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "../common/SimpleWindowedApplication.hpp"
+
+#include "nbl/video/surface/CSurfaceVulkan.h"
+
+using namespace nbl;
+using namespace core;
+using namespace hlsl;
+using namespace system;
+using namespace asset;
+using namespace ui;
+using namespace video;
+
+//#include "app_resources/push_constants.hlsl"
+
+class AutoexposureApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+{
+	using device_base_t = examples::SimpleWindowedApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
+	using clock_t = std::chrono::steady_clock;
+
+public:
+	// Yay thanks to multiple inheritance we cannot forward ctors anymore
+	inline AutoexposureApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+		IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
+
+	// Will get called mid-initialization, via `filterDevices` between when the API Connection is created and Physical Device is chosen
+	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
+	{
+		// So let's create our Window and Surface then!
+		if (!m_surface)
+		{
+			{
+				IWindow::SCreationParams params = {};
+				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
+				params.width = 256;
+				params.height = 256;
+				params.x = 32;
+				params.y = 32;
+				// Don't want to have a window lingering about before we're ready so create it hidden.
+				// Only programmatic resize, not regular.
+				params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
+				params.windowCaption = "AutoexposureApp";
+				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
+			}
+			auto surface = CSurfaceVulkanWin32::create(smart_refctd_ptr(m_api), smart_refctd_ptr_static_cast<IWindowWin32>(m_window));
+			const_cast<std::remove_const_t<decltype(m_surface)>&>(m_surface) = nbl::video::CSimpleResizeSurface<nbl::video::CDefaultSwapchainFramebuffers>::create(std::move(surface));
+		}
+		if (m_surface)
+			return { {m_surface->getSurface()/*,EQF_NONE*/} };
+		return {};
+	}
+
+	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
+	{
+		// Remember to call the base class initialization!
+		if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+			return false;
+		if (!asset_base_t::onAppInitialized(std::move(system)))
+			return false;
+
+		return true;
+	}
+
+	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
+	inline void workLoopBody() override
+	{
+	}
+
+	inline bool keepRunning() override
+	{
+		return false;
+	}
+
+	inline bool onAppTerminated() override
+	{
+		return device_base_t::onAppTerminated();
+	}
+
+protected:
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+};
+
+NBL_MAIN_FUNC(AutoexposureApp)
+
+#if 0
+
 // Copyright (C) 2018-2020 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 // For conditions of distribution and use, see copyright notice in nabla.h
@@ -175,3 +266,5 @@ int main()
 
 	return 0;
 }
+
+#endif
