@@ -235,6 +235,18 @@ struct index_of<T,core::type_list<U,Us...>> : std::integral_constant<size_t,1+in
 template<typename T, typename TypeList>
 inline constexpr size_t index_of_v = index_of<T,TypeList>::value;
 
+
+template<asset::Asset AssetType>
+struct unique_conversion_t
+{
+	asset_cached_t<AssetType> gpuObj = {};
+	const AssetType* canonical = nullptr;
+	uint32_t patchIndex = 0xdeadbeefu;
+	uint32_t copyCount = 0;
+};
+template<asset::Asset AssetType>
+using conversions_t = core::unordered_map<core::blake3_hash_t,unique_conversion_t<AssetType>>;
+
 //
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
@@ -264,8 +276,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	// stop multiple copies of the patches floating around
 	core::tuple_transform_t<patch_vector_t,supported_asset_types> finalPatchStorage = {};
 
-	// gather all dependencies (DFS graph search) and patch, this happens top-down
-	// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 	{
 		struct dfs_entry_t
 		{
@@ -281,161 +291,156 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				return ptrdiff_t(entry.asset)^entry.instance.uniqueCopyGroupID;
 			}
 		};
-		core::stack<dfs_entry_t> dfsStack;
 		// This cache stops us traversing an asset with the same user group and patch more than once.
 		core::unordered_multiset<dfs_entry_t,dfs_entry_hash> dfsCache = {};
-		// returns true if new element was inserted
-		auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch) -> instance_metadata_t
+		// gather all dependencies (DFS graph search) and patch, this happens top-down
+		// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 		{
-			assert(asset);
-			// skip invalid inputs silently
-			if (!patch.valid())
-				return {};
+			core::stack<dfs_entry_t> dfsStack;
+			// returns true if new element was inserted
+			auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch) -> instance_metadata_t
+			{
+				assert(asset);
+				// skip invalid inputs silently
+				if (!patch.valid())
+					return {};
 
-			// get unique group and see if we visited already
-			dfs_entry_t record = {
-				.asset = asset,
-				.instance = {
-					.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.instance.uniqueCopyGroupID,user.asset,asset)
+				// get unique group and see if we visited already
+				dfs_entry_t record = {
+					.asset = asset,
+					.instance = {
+						.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.instance.uniqueCopyGroupID,user.asset,asset)
+					}
+				};
+
+				auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
+				// iterate over all intended EXTRA copies of an asset
+				auto found = dfsCache.equal_range(record);
+				for (auto it=found.first; it!=found.second; it++)
+				{
+					record.instance.patchIndex = it->instance.patchIndex;
+					auto& candidate = patchStorage[record.instance.patchIndex];
+					// found a thing, try-combine the patches
+					auto combined = candidate.combine(patch);
+					// check whether the item is creatable after patching
+					if (combined.valid())
+					{
+						candidate = std::move(combined);
+						return record.instance;
+					}
+					// else try the next one
+				}
+				// Either haven't managed to combine with anything or no entry found
+				record.instance.patchIndex = patchStorage.size();
+				patchStorage.push_back(std::move(patch));
+				if (AssetType::HasDependents)
+					dfsStack.emplace(record);
+				dfsCache.emplace(record);
+				return record.instance;
+			};
+			//
+			const auto& features = device->getEnabledFeatures();
+			const auto& limits = device->getPhysicalDevice()->getLimits();
+			// initialize stacks
+			auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
+			{
+				const auto count = assets.size();
+				const auto& patches = std::get<SInputs::patch_span_t<AssetType>>(inputs.patches);
+				// size and fill the result array with nullptr
+				std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(count);
+				// size the final patch mapping
+				auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
+				metadata.resize(count);
+				for (size_t i=0; i<count; i++)
+				if (auto asset=assets[i]; asset) // skip invalid inputs silently
+				{
+					// for explicitly given patches we don't try to create implicit patch and merge that with the explicit
+					// we trust the implicit patches are correct/feasible
+					patch_t<AssetType> patch = i<patches.size() ? patches[i]:patch_t<AssetType>(asset,features,limits);
+					metadata[i] = cache({},asset,std::move(patch));
 				}
 			};
-
-			auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
-			// iterate over all intended EXTRA copies of an asset
-			auto found = dfsCache.equal_range(record);
-			for (auto it=found.first; it!=found.second; it++)
+			core::for_each_in_tuple(inputs.assets,initialize);
+			// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
+			while (!dfsStack.empty())
 			{
-				record.instance.patchIndex = it->instance.patchIndex;
-				auto& candidate = patchStorage[record.instance.patchIndex];
-				// found a thing, try-combine the patches
-				auto combined = candidate.combine(patch);
-				// check whether the item is creatable after patching
-				if (combined.valid())
+				const auto entry = dfsStack.top();
+				dfsStack.pop();
+				// everything we popped, has already been cached, now time to go over dependents
+				const auto* user = entry.asset;
+				switch (user->getAssetType())
 				{
-					candidate = std::move(combined);
-					return record.instance;
-				}
-				// else try the next one
-			}
-			// Either haven't managed to combine with anything or no entry found
-			record.instance.patchIndex = patchStorage.size();
-			patchStorage.push_back(std::move(patch));
-			if (AssetType::HasDependents)
-				dfsStack.emplace(record);
-			dfsCache.emplace(record);
-			return record.instance;
-		};
-		//
-		const auto& features = device->getEnabledFeatures();
-		const auto& limits = device->getPhysicalDevice()->getLimits();
-		// initialize stacks
-		auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
-		{
-			const auto count = assets.size();
-			const auto& patches = std::get<SInputs::patch_span_t<AssetType>>(inputs.patches);
-			// size and fill the result array with nullptr
-			std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(count);
-			// size the final patch mapping
-			auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
-			metadata.resize(count);
-			for (size_t i=0; i<count; i++)
-			if (auto asset=assets[i]; asset) // skip invalid inputs silently
-			{
-				// for explicitly given patches we don't try to create implicit patch and merge that with the explicit
-				// we trust the implicit patches are correct/feasible
-				patch_t<AssetType> patch = i<patches.size() ? patches[i]:patch_t<AssetType>(asset,features,limits);
-				metadata[i] = cache({},asset,std::move(patch));
-			}
-		};
-		core::for_each_in_tuple(inputs.assets,initialize);
-		// everything that's not explicit has `uniqueCopyForUser==nullptr` and default patch params
-		while (!dfsStack.empty())
-		{
-			const auto entry = dfsStack.top();
-			dfsStack.pop();
-			// everything we popped, has already been cached, now time to go over dependents
-			const auto* user = entry.asset;
-			switch (user->getAssetType())
-			{
-				case ICPUPipelineLayout::AssetType:
-				{
-					auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
-					for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
-					if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
-						cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout,features,limits});
-					break;
-				}
-				case ICPUDescriptorSetLayout::AssetType:
-				{
-					auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
-					for (const auto& sampler : layout->getImmutableSamplers())
-					if (sampler)
-						cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
-					break;
-				}
-				case ICPUDescriptorSet::AssetType:
-				{
-					_NBL_TODO();
-					break;
-				}
-				case ICPUImageView::AssetType:
-				{
-					_NBL_TODO();
-					break;
-				}
-				case ICPUBufferView::AssetType:
-				{
-					auto view = static_cast<const ICPUBufferView*>(user);
-					const auto buffer = view->getUnderlyingBuffer();
-					if (buffer)
+					case ICPUPipelineLayout::AssetType:
 					{
-						patch_t<ICPUBuffer> patch = {buffer,features,limits};
-						// we have no clue how this will be used, so we mark both usages
-						patch.usage = IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-						cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
+						auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
+						for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+						if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
+							cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout,features,limits});
+						break;
 					}
-					break;
+					case ICPUDescriptorSetLayout::AssetType:
+					{
+						auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
+						for (const auto& sampler : layout->getImmutableSamplers())
+						if (sampler)
+							cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
+						break;
+					}
+					case ICPUDescriptorSet::AssetType:
+					{
+						_NBL_TODO();
+						break;
+					}
+					case ICPUImageView::AssetType:
+					{
+						_NBL_TODO();
+						break;
+					}
+					case ICPUBufferView::AssetType:
+					{
+						auto view = static_cast<const ICPUBufferView*>(user);
+						const auto buffer = view->getUnderlyingBuffer();
+						if (buffer)
+						{
+							patch_t<ICPUBuffer> patch = {buffer,features,limits};
+							// we have no clue how this will be used, so we mark both usages
+							patch.usage = IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+							cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
+						}
+						break;
+					}
+					// these assets have no dependants, should have never been pushed on the stack
+					default:
+						assert(false);
+						break;
 				}
-				// these assets have no dependants, should have never been pushed on the stack
-				default:
-					assert(false);
-					break;
 			}
 		}
+
+		// This map contains the assets by-hash, identical asset+patch hash the same.
+		core::tuple_transform_t<conversions_t,supported_asset_types> uniqueGpuObjects;
+		auto dedup = [&]<Asset AssetType>()->void
+		{
+			// go over all `dfsCache` entries
+			
+			// hash them
+
+			// insert them
+
+			// if insertion prevented ++ the counter of copies
+		};
+		// Lets see if we can collapse any of the (Asset Content) into the same thing,
+		// to correctly de-dup we need to go bottom-up!!!
+		dedup.operator()<ICPUShader>();
 	}
-	// now we have a set of implicit gpu creation parameters we want to create resources with
+	// Now we have a set of implicit gpu creation parameters we want to create resources with.
 	// If there's a readCache we need to look for an item there first.
 	// We can't look up "near misses" (supersets) because they'd have different hashes
 	// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
 	// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
-#if 0
-	auto dedup = [&]<Asset AssetType>()->void
-	{
-		using cache_t = SResults::dag_cache_t<AssetType>;
-		core::unordered_set<typename cache_t::value_type*/*TODO: Hash,Equals*/> conser;
-		for (auto& asset : std::get<cache_t>(retval.m_typedDagNodes))
-		{
-			assert(!asset.second.canonical);
-			//assert(!asset.second.result);
-			auto [it, inserted] = conser.insert(&asset);
-			if (inserted)
-			{
-				if (input.readCache)
-					continue; // TODO: below
-//				if (auto found=input.readCache->find(); found!=input.readCache->end())
-// 				{
-// 				   TODO: insert to our own cache
-//					asset.second.result = &((*it)->second.result = found->result);
-//				}
-			}
-			else
-				asset.second.canonical = &(*it)->second;
-		}
-	};
-	// Lets see if we can collapse any of the (Asset Content) into the same thing,
-	// to correctly de-dup we need to go bottom-up!!!
-	dedup.operator()<ICPUShader>();
-#endif
+
+
+
 // Shader, DSLayout, PipelineLayout, Compute Pipeline
 // Renderpass, Graphics Pipeline
 // Buffer, BufferView, Sampler, Image, Image View, Bottom Level AS, Top Level AS, Descriptor Set, Framebuffer  
@@ -503,6 +508,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 	// create IGPUImageViews
 
+
+	// insert whatever assets don't need conversion to the cache
+//	core::for_each_in_tuple(uniqueGpuObjects,cacheInsert);
 
 	// write out results
 	auto finalize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
