@@ -118,11 +118,13 @@ void CAssetConverter::CHashCache::eraseStale()
 				// backup because `hash(lookup)` call will update it
 				const auto oldHash = entry.second;
 				const auto& key = entry.first;
-				lookup_t<AssetType> lookup = {
-					.asset = key.asset.get(),
-					.patch = &key.patch,
+				hash_request_t<AssetType> lookup = {
+					{
+						.asset = key.asset.get(),
+						.patch = &key.patch,
+					},
 					// can re-use cached hashes for dependants if we start ejecting in the correct order
-					.cacheMistrustLevel = 1
+					/*.cacheMistrustLevel = */1
 				};
 				return hash(lookup)!=oldHash;
 			}
@@ -178,10 +180,12 @@ void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher&
 	core::blake3_hasher_update(hasher,patch.pushConstantBytes);
 	for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 	{
-		hash(lookup_t<ICPUDescriptorSetLayout>{
-			.asset = asset->getDescriptorSetLayout(i),
-			.patch = {}, // there's nothing to patch
-			.cacheMistrustLevel = nextMistrustLevel
+		hash<ICPUDescriptorSetLayout>({
+			{
+				.asset = asset->getDescriptorSetLayout(i),
+				.patch = {}, // there's nothing to patch
+			},
+			nextMistrustLevel
 		});
 	}
 }
@@ -522,10 +526,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		for (size_t i=0; i<count; i++)
 		if (auto asset=assets[i]; asset && metadata[i].patchIndex<patchStorage.size())
 		{
-			const core::blake3_hash_t hash = hashCache->hash<AssetType>({
+			const core::blake3_hash_t hash = hashCache->hash<AssetType>({{
 				.asset=asset,
 				.patch=patchStorage.data()+metadata[i].patchIndex
-			});
+			}});
 			// lookup the hash in the local cache
 			_NBL_TODO();
 			// write it out to the results

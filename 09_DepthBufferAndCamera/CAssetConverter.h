@@ -242,14 +242,6 @@ class CAssetConverter : public core::IReferenceCounted
 
 					const AssetType* asset = nullptr;
 					const patch_t<AssetType>* patch = {};
-					// the callbacks are only called on dependants to construct/retrieve correct patches
-#if 0
-					const SPhysicalDeviceFeatures* features = nullptr;
-					const SPhysicalDeviceLimits* limits = nullptr;
-					core::tuple_transform_t<patch_callback_t,supported_asset_types> patchCallbacks = {};
-#endif
-					// how deep from `asset` do we start trusting the cache to contain correct non stale hashes
-					uint32_t cacheMistrustLevel = 0;
 				};
 
 			private:
@@ -300,12 +292,41 @@ class CAssetConverter : public core::IReferenceCounted
 
 				//
 				template<asset::Asset AssetType>
-				inline core::blake3_hash_t hash(const lookup_t<AssetType>& toHash)
+				inline container_t<AssetType>::iterator find(const lookup_t<AssetType>& assetAndPatch)
+				{
+					return std::get<container_t<AssetType>>(m_containers).find<lookup_t<AssetType>>(assetAndPatch);
+				}
+				template<asset::Asset AssetType>
+				inline container_t<AssetType>::const_iterator find(const lookup_t<AssetType>& assetAndPatch) const
+				{
+					return std::get<container_t<AssetType>>(m_containers).find<lookup_t<AssetType>>(assetAndPatch);
+				}
+				template<asset::Asset AssetType>
+				inline container_t<AssetType>::const_iterator end() const
+				{
+					return std::get<container_t<AssetType>>(m_containers).end();
+				}
+
+				//
+				template<asset::Asset AssetType>
+				struct hash_request_t : lookup_t<AssetType>
+				{
+					// the callbacks are only called on dependants to construct/retrieve correct patches
+#if 0
+					const SPhysicalDeviceFeatures* features = nullptr;
+					const SPhysicalDeviceLimits* limits = nullptr;
+					core::tuple_transform_t<patch_callback_t,supported_asset_types> patchCallbacks = {};
+#endif
+					// how deep from `asset` do we start trusting the cache to contain correct non stale hashes
+					uint32_t cacheMistrustLevel = 0;
+				};
+				template<asset::Asset AssetType>
+				inline core::blake3_hash_t hash(const hash_request_t<AssetType>& toHash)
 				{
 					assert(toHash.valid());
 					// consult cache
+					auto foundIt = find(toHash);
 					auto& container = std::get<container_t<AssetType>>(m_containers);
-					auto foundIt = container.find<lookup_t<AssetType>>(toHash);
 					const bool found = foundIt!=container.end();
 					// if found and we trust then return the cached hash
 					if (toHash.cacheMistrustLevel==0 && found)
@@ -335,6 +356,7 @@ class CAssetConverter : public core::IReferenceCounted
 					}
 					return retval;
 				}
+
 				// The `hashTrust` level gets ignored (TODO: shall we use it to recurse?)
 				template<asset::Asset AssetType>
 				inline bool erase(const lookup_t<AssetType>& what)
@@ -372,11 +394,6 @@ class CAssetConverter : public core::IReferenceCounted
 				inline ~CHashCache() = default;
 
 				//
-				struct HashSession
-				{
-					::blake3_hasher& hasher;
-					uint32_t nextMistrustLevel;
-				};
 				template<asset::Asset AssetType>
 				void hash_impl(::blake3_hasher& hasher, const AssetType* asset, const patch_t<AssetType>& patch, const uint32_t nextMistrustLevel);
 
