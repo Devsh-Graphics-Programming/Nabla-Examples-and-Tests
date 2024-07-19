@@ -576,7 +576,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
-            localAlpha *= smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
+            localAlpha = smoothstep(-globals.antiAliasingFactor / 2.0, +globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
     else if (objType == ObjectType::FONT_GLYPH) 
@@ -588,7 +588,10 @@ float4 main(PSInput input) : SV_TARGET
         {
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
-            localAlpha = smoothstep(-globals.antiAliasingFactor, globals.antiAliasingFactor, msdf);
+            
+            // localAlpha = smoothstep(-globals.antiAliasingFactor, 0.0, msdf); 
+            // IDK why but it looks best if aa is done on the inside of the shape too esp for curved and diagonal shapes, it may make the shape a tiny bit thinner but worth it
+            localAlpha = smoothstep(-globals.antiAliasingFactor, +globals.antiAliasingFactor, msdf); 
         }
     }
     else if (objType == ObjectType::IMAGE) 

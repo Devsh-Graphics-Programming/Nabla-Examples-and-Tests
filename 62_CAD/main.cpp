@@ -345,9 +345,9 @@ public:
 
 		IGPUSampler::SParams samplerParams = {};
 		// @Lucas you might need to modify the sampler
-		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapU = IGPUSampler::ETC_REPEAT;
+		samplerParams.TextureWrapV = IGPUSampler::ETC_REPEAT;
+		samplerParams.TextureWrapW = IGPUSampler::ETC_REPEAT;
 		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;

@@ -790,6 +790,7 @@ bool Hatch::isLineSegment(const QuadraticBezier& bezier)
 	return lenSqA < exp(-23.0f) * dot(quadratic.B, quadratic.B);
 }
 
+// TODO: the shape functions below should work with this instead of magic numbers
 static constexpr uint32_t2 HatchFillPatternGlyphExtents = uint32_t2(8, 8);
 
 void line(std::vector<CPolyline>& polylines, float64_t2 begin, float64_t2 end)
@@ -816,45 +817,68 @@ void square(std::vector<CPolyline>& polylines, float64_t2 position, float64_t2 s
 	polylines.push_back(polyline);
 }
 
-void checkered(std::vector<CPolyline>& polylines)
-{
-	line(polylines, float64_t2(0.0, 0.0), float64_t2(4.0, 0.0));
-	line(polylines, float64_t2(4.0, 0.0), float64_t2(4.0, 4.0));
-	line(polylines, float64_t2(4.0, 4.0), float64_t2(0.0, 4.0));
-	line(polylines, float64_t2(0.0, 4.0), float64_t2(0.0, 0.0));
-
-	line(polylines, float64_t2(4.0, 4.0), float64_t2(8.0, 4.0));
-	line(polylines, float64_t2(8.0, 4.0), float64_t2(8.0, 8.0));
-	line(polylines, float64_t2(8.0, 8.0), float64_t2(4.0, 8.0));
-	line(polylines, float64_t2(4.0, 8.0), float64_t2(4.0, 4.0));
-}
-
-void diamonds(std::vector<CPolyline>& polylines)
+void checkered(std::vector<CPolyline>& polylines, float64_t2 offset)
 {
 	{
-		// Outer
-		std::vector<float64_t2> points = {
-			float64_t2(3.5, 8.0),
-			float64_t2(7.0, 4.5),
-			float64_t2(3.5, 1.0),
-			float64_t2(0.0, 4.5),
-			float64_t2(3.5, 8.0),
-		};
 		CPolyline polyline;
+		std::array<float64_t2, 5u> points = 
+		{
+			float64_t2(0.0, 8.0) + offset,
+			float64_t2(4.0, 8.0) + offset,
+			float64_t2(4.0, 4.0) + offset,
+			float64_t2(0.0, 4.0) + offset,
+			float64_t2(0.0, 8.0) + offset,
+		};
 		polyline.addLinePoints(points);
 		polylines.push_back(polyline);
 	}
 	{
-		// Inner 
-		std::vector<float64_t2> points = {
-			float64_t2(3.5, 6.5),
-			float64_t2(1.5, 4.5),
-			float64_t2(3.5, 2.5),
-			float64_t2(5.5, 4.5),
-			float64_t2(3.5, 6.5)
-		};
-
 		CPolyline polyline;
+		std::array<float64_t2, 5u> points = 
+		{
+			float64_t2(4.0, 4.0) + offset,
+			float64_t2(8.0, 4.0) + offset,
+			float64_t2(8.0, 0.0) + offset,
+			float64_t2(4.0, 0.0) + offset,
+			float64_t2(4.0, 4.0) + offset,
+		};
+		polyline.addLinePoints(points);
+		polylines.push_back(polyline);
+	}
+}
+
+void diamonds(std::vector<CPolyline>& polylines, float64_t2 offset, float64_t innerSize = 4.0, float64_t outerSize = 8.0)
+{
+	const std::array<float64_t2, 5u> diamondPointsCW = {
+		float64_t2(0.0, 0.5),
+		float64_t2(0.5, 0.0),
+		float64_t2(0.0, -0.5),
+		float64_t2(-0.5, 0.0),
+		float64_t2(0.0, 0.5),
+	};
+	const std::array<float64_t2, 5u> diamondPointsCCW = {
+		float64_t2(0.0, 0.5),
+		float64_t2(-0.5, 0.0),
+		float64_t2(0.0, -0.5),
+		float64_t2(0.5, 0.0),
+		float64_t2(0.0, 0.5),
+	};
+
+	// Outer
+	{
+		CPolyline polyline;
+		std::vector<float64_t2> points;
+		points.reserve(diamondPointsCW.size());
+		for (const auto& p : diamondPointsCW) points.push_back(p * outerSize + float64_t2(4.0, 4.0) + offset);
+		polyline.addLinePoints(points);
+		polylines.push_back(polyline);
+	}
+	// Inner
+	{
+		CPolyline polyline;
+		std::vector<float64_t2> points;
+		points.reserve(diamondPointsCCW.size());
+		for (const auto& p : diamondPointsCCW) points.push_back(p * innerSize + float64_t2(4.0, 4.0) + offset);
 		polyline.addLinePoints(points);
 		polylines.push_back(polyline);
 	}
@@ -1113,47 +1137,63 @@ void shaded(std::vector<CPolyline>& polylines)
 
 core::smart_refctd_ptr<asset::ICPUBuffer> Hatch::generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents)
 {
+	constexpr std::array<float64_t2, 1u> offsets = {
+		float64_t2(0.0, 0.0),
+		//float64_t2(-8.0, -8.0),
+		//float64_t2(0.0, -8.0),
+		//float64_t2(8.0, -8.0),
+		//float64_t2(8.0, 8.0),
+		//float64_t2(-8.0, 8.0),
+		//float64_t2(0.0, 8.0),
+		//float64_t2(-8.0, 0.0),
+		//float64_t2(8.0, 0.0),
+	};
+
 	std::vector<CPolyline> polylines;
-	switch (fillPattern)
+
+	for (const auto& offset : offsets)
 	{
-	case HatchFillPattern::CHECKERED:
-		checkered(polylines);
-		break;
-	case HatchFillPattern::DIAMONDS:
-		diamonds(polylines);
-		break;
-	case HatchFillPattern::CROSS_HATCH:
-		crossHatch(polylines);
-		break;
-	case HatchFillPattern::HATCH:
-		hatch(polylines);
-		break;
-	case HatchFillPattern::HORIZONTAL:
-		horizontal(polylines);
-		break;
-	case HatchFillPattern::VERTICAL:
-		vertical(polylines);
-		break;
-	case HatchFillPattern::INTERWOVEN:
-		interwoven(polylines);
-		break;
-	case HatchFillPattern::REVERSE_HATCH:
-		reverseHatch(polylines);
-		break;
-	case HatchFillPattern::SQUARES:
-		squares(polylines);
-		break;
-	case HatchFillPattern::CIRCLE:
-		circle(polylines);
-		break;
-	case HatchFillPattern::LIGHT_SHADED:
-		lightShaded(polylines);
-		break;
-	case HatchFillPattern::SHADED:
-		shaded(polylines);
-		break;
-	default:
-		break;
+		switch (fillPattern)
+		{
+		case HatchFillPattern::CHECKERED:
+			checkered(polylines, offset);
+			break;
+		case HatchFillPattern::DIAMONDS:
+			diamonds(polylines, offset);
+			break;
+		case HatchFillPattern::CROSS_HATCH:
+			crossHatch(polylines);
+			break;
+		case HatchFillPattern::HATCH:
+			hatch(polylines);
+			break;
+		case HatchFillPattern::HORIZONTAL:
+			horizontal(polylines);
+			break;
+		case HatchFillPattern::VERTICAL:
+			vertical(polylines);
+			break;
+		case HatchFillPattern::INTERWOVEN:
+			interwoven(polylines);
+			break;
+		case HatchFillPattern::REVERSE_HATCH:
+			reverseHatch(polylines);
+			break;
+		case HatchFillPattern::SQUARES:
+			squares(polylines);
+			break;
+		case HatchFillPattern::CIRCLE:
+			circle(polylines);
+			break;
+		case HatchFillPattern::LIGHT_SHADED:
+			lightShaded(polylines);
+			break;
+		case HatchFillPattern::SHADED:
+			shaded(polylines);
+			break;
+		default:
+			break;
+		}
 	}
 
 	// Generate MSDFgen Shape
@@ -1176,7 +1216,7 @@ core::smart_refctd_ptr<asset::ICPUBuffer> Hatch::generateHatchFillPatternMSDF(nb
 		}
 	}
 	glyphShapeBuilder.finish();
-	glyph.normalize();
+	//glyph.normalize();
 
 	float scaleX = (1.0 / float(HatchFillPatternGlyphExtents.x)) * float(msdfExtents.x);
 	float scaleY = (1.0 / float(HatchFillPatternGlyphExtents.y)) * float(msdfExtents.y);
