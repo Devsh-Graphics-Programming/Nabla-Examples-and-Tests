@@ -402,52 +402,76 @@ class CAssetConverter : public core::IReferenceCounted
 		};
 		// Typed Cache (for a particular AssetType)
 		template<asset::Asset AssetType>
-        class CCache final : core::Uncopyable
+        class CCache final
         {
-				// The blake3 hash is quite fat (256bit), so we don't actually store a full asset ref for comparison.
-				// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
-				// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
-				core::unordered_map<core::blake3_hash_t,asset_cached_t<AssetType>> m_forwardMap;
-				core::unordered_map<typename asset_traits<AssetType>::lookup_t,core::blake3_hash_t> m_reverseMap;
-
 			public:
 				inline CCache() = default;
+				inline CCache(const CCache&) = default;
 				inline CCache(CCache&&) = default;
 				inline ~CCache() = default;
 
+				inline CCache& operator=(const CCache&) = default;
 				inline CCache& operator=(CCache&&) = default;
 
+				// Make it clear to users that we don't look up just by the asset content hash
+				struct key_t
+				{
+					inline key_t(const core::blake3_hash_t& contentHash, const size_t uniqueCopyGroupID) : value(contentHash)
+					{
+						reinterpret_cast<size_t*>(value.data)[0] ^= uniqueCopyGroupID;
+					}
+
+					inline bool operator==(const key_t&) const = default;
+
+					// The blake3 hash is quite fat (256bit), so we don't actually store a full asset ref for comparison.
+					// Assuming a uniform distribution of keys and perfect hashing, we'd expect a collision on average every 2^256 asset loads.
+					// Or if you actually calculate the P(X>1) for any reasonable number of asset loads (k trials), the Poisson CDF will be pratically 0.
+					core::blake3_hash_t value;
+				};
+
 				// no point returning iterators to inserted positions, they're not stable
-				inline bool insert(const core::blake3_hash_t& _hash, asset_cached_t<AssetType>::type&& _gpuObj)
+				inline bool insert(const key_t& _key, asset_cached_t<AssetType>::type&& _gpuObj)
 				{
 					asset_cached_t<AssetType> cached;
 					cached.value = std::move(_gpuObj);
-					auto& [unused0, insertedF] = m_forwardMap.insert(_hash,std::move(cached));
+					auto& [unused0, insertedF] = m_forwardMap.insert(_key,std::move(cached));
 					if (!insertedF)
 						return false;
-					auto& [unused1, insertedR] = m_reverseMap.insert(_gpuObj.get(),_hash);
+					auto& [unused1, insertedR] = m_reverseMap.insert(_gpuObj.get(),_key);
 					assert(insertedR);
 					return true;
 				}
 
 				// fastest lookup
-				inline const auto find(const core::blake3_hash_t& hash) const
+				inline const asset_cached_t<AssetType>* find(const key_t& _key) const
 				{
 					const auto end = m_forwardMap.end();
-					const auto found = m_forwardMap.find(hash);
+					const auto found = m_forwardMap.find(_key);
 					if (found!=end)
-						return found->second.get();
-					return end;
+						return &found->second;
+					return nullptr;
 				}
-				inline const auto find(asset_traits<AssetType>::lookup_t gpuObject) const
+				inline const key_t* find(asset_traits<AssetType>::lookup_t gpuObject) const
 				{
 					const auto end = m_reverseMap.end();
 					const auto found = m_reverseMap.find(gpuObject);
 					if (found!=end)
-						return found->second;
-					return end;
+						return &found->second;
+					return nullptr;
 				}
 
+			private:
+				struct ForwardHash
+				{
+					inline size_t operator()(const key_t& key) const
+					{
+						return std::hash<core::blake3_hash_t>()(key.value);
+					}
+				};
+				core::unordered_map<key_t,asset_cached_t<AssetType>,ForwardHash> m_forwardMap;
+				core::unordered_map<typename asset_traits<AssetType>::lookup_t,key_t> m_reverseMap;
+
+			public:
 				// fastest erase
 				inline bool erase(decltype(m_forwardMap)::const_iterator fit, decltype(m_reverseMap)::const_iterator rit)
 				{
@@ -538,6 +562,9 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				using vector_t = core::vector<asset_cached_t<AssetType>>;
 				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
+				
+// we don't insert into the writeCache until conversions are successful
+core::tuple_transform_t<CCache,supported_asset_types> m_stagingCache;
 #if 0
 				//
 				template<asset::Asset AssetType>
@@ -605,6 +632,12 @@ class CAssetConverter : public core::IReferenceCounted
     protected:
         inline CAssetConverter(const SCreationParams& params) : m_params(std::move(params)) {}
         virtual inline ~CAssetConverter() = default;
+		
+		template<asset::Asset AssetType>
+		inline CCache<AssetType>& getCache()
+		{
+			return std::get<CCache<AssetType>>(m_caches);
+		}
 
         SCreationParams m_params;
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
