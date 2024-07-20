@@ -4,7 +4,6 @@
 
 #include <nabla.h>
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/asset/filters/CFlattenRegionsStreamHashImageFilter.h"
 #include "nlohmann/json.hpp"
 #include "argparse/argparse.hpp"
 
