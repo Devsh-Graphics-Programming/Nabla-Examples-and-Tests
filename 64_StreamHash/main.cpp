@@ -75,59 +75,23 @@ public:
 
 		const auto* imageView = IAsset::castDown<const ICPUImageView>(assets[0].get());
 
-		using filter_t = CFlattenRegionsStreamHashImageFilter;
-		using state_t = filter_t::CState;
-
 		bool status = true;
-		filter_t filter;
 		{
-			state_t state;
-
-			struct
-			{
-				uint8_t* memory = nullptr;
-				size_t size = 0ull;
-			} scratch;
-
-			state.inImage = imageView->getCreationParameters().image.get();
-
-			scratch.size = state.getRequiredScratchByteSize(state.inImage);
-			scratch.memory = _NBL_NEW_ARRAY(uint8_t, scratch.size);
-
-			state.scratch.memory = scratch.memory;
-			state.scratch.size = scratch.size;
-
 			std::vector<json> references;
 
-			auto executeFilter = [&]<typename ExecutionPolicy>(ExecutionPolicy&& policy, bool& status)
+			auto executeFilter = [&](bool& status)
 			{
-				using policy_t = std::remove_cvref<decltype(policy)>::type;
-
-				auto policyToString = []() -> std::string 
-				{
-					if constexpr (std::is_same_v<policy_t, std::execution::sequenced_policy>)
-						return "std::execution::sequenced_policy";
-					else if constexpr (std::is_same_v<policy_t, std::execution::parallel_policy>)
-						return "std::execution::parallel_policy";
-					else if constexpr (std::is_same_v<policy_t, std::execution::parallel_unsequenced_policy>)
-						return "std::execution::parallel_unsequenced_policy";
-					else
-						return "unknown";
-				};
-
-				const auto policyName = policyToString();
-
+				m_logger->log("Hashing image content!", ILogger::ELL_PERFORMANCE);
 				const auto start = std::chrono::high_resolution_clock::now();
-
-				m_logger->log("Executing hash filter with " + policyName + " policy!", ILogger::ELL_PERFORMANCE);
-
-				if (!filter.execute(policy, &state))
+				const auto hash = [&]()
 				{
-					logFail(("Failed to create hash for input image with " + policyName + " execution policy!").c_str());
-					status = false;
-					return;
-				}
+					auto hash = imageView->getCreationParameters().image->computeContentHash();
 
+					std::array<size_t, 4> data;
+					memcpy(data.data(), hash.data, sizeof(hash));
+
+					return data;
+				}();
 				const auto end = std::chrono::high_resolution_clock::now();
 				const auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
 
@@ -135,43 +99,17 @@ public:
 
 				json outJson;
 				outJson["image"] = json::array();
-				for (const auto& it : state.outHash)
+				for (const auto& it : hash)
 					outJson["image"].push_back(it);
-
-				outJson["policy"] = policyName;
-
-				const auto& parameters = state.inImage->getCreationParameters();
-				outJson["mipLevels"] = json::array();
-				for (auto miplevel = 0u; miplevel < parameters.mipLevels; ++miplevel)
-				{
-					json mipLevelJson;
-					mipLevelJson["layers"] = json::array();
-
-					for (auto layer = 0u; layer < parameters.arrayLayers; ++layer)
-					{
-						const auto* hash = reinterpret_cast<state_t::hash_t*>(state.scratch.memory) + (miplevel * parameters.arrayLayers) + layer;
-
-						json layerJson;
-						layerJson["hash"] = json::array();
-						for (const auto& it : *hash)
-							layerJson["hash"].push_back(it);
-
-						mipLevelJson["layers"].push_back(layerJson);
-					}
-
-					outJson["mipLevels"].push_back(mipLevelJson);
-				}
 
 				const std::string prettyJson = outJson.dump(4);
 
 				if(verbose)
 					m_logger->log(prettyJson, ILogger::ELL_INFO);
 				
-				auto cwd = localOutputCWD;
+				const auto cwd = localOutputCWD;
 
-				auto fileName = policyName;
-				std::replace(fileName.begin(), fileName.end(), ':', '_');
-				fileName += ".json";
+				std::string fileName = "seq.json";
 
 				const auto filePath = (cwd / fileName).make_preferred();
 
@@ -188,7 +126,7 @@ public:
 
 				m_logger->log("Saved " + fileName + " to \"" + filePath.string() + "\"!", ILogger::ELL_INFO);
 
-				const std::string referenceJsonPath = std::filesystem::absolute((cwd / ("../test/references/" + fileName)).make_preferred()).string();
+				const std::string referenceJsonPath = std::filesystem::absolute((cwd / ("../test/references/std__execution__parallel_policy.json")).make_preferred()).string();
 
 				if (test)
 				{
@@ -199,8 +137,8 @@ public:
 					{
 						referenceFile >> referenceJson;
 
-						m_logger->log("Comparing " + policyName + "'s reference, performing test..", ILogger::ELL_WARNING);
-						const bool passed = outJson == referenceJson;
+						m_logger->log("Comparing seq 's reference, performing test..", ILogger::ELL_WARNING);
+						const bool passed = outJson["image"] == referenceJson["image"];
 
 						if (passed)
 							m_logger->log("Passed!", ILogger::ELL_WARNING);
@@ -212,10 +150,12 @@ public:
 					}
 					else
 					{
-						logFail(("Could not open " + policyName + "'s reference file, skipping requested test. If the reference doesn't exist make sure to create one with --update-references flag!").c_str());
+						logFail("Could not open seq 's reference file, skipping requested test. If the reference doesn't exist make sure to create one with --update-references flag!");
 						status = false;
 					}
 				}
+
+				/*
 
 				if (updateReferences)
 				{
@@ -229,10 +169,13 @@ public:
 					else
 						m_logger->log("Updated " + policyName + "'s reference, saved to \"" + referenceJsonPath + "\"!", ILogger::ELL_INFO);
 				}
+
+				*/
 			};
 
-			executeFilter(std::execution::seq, status);
-			executeFilter(std::execution::par, status);
+			executeFilter(status);
+
+			/*
 
 			if (test)
 			{
@@ -257,7 +200,7 @@ public:
 					m_logger->log("Passed!", ILogger::ELL_WARNING);
 			}
 
-			_NBL_DELETE_ARRAY(scratch.memory, scratch.size);
+			*/
 		}
 
 		// I know what I'm doing, don't want to bother with destructors & runtime issues
