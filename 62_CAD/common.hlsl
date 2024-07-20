@@ -357,34 +357,55 @@ struct PSInput
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
-    // data1 (w component reserved for later)
+    /* SHARED: ALL ObjectTypes */
     ObjectType getObjType() { return (ObjectType) data1.x; }
     uint getMainObjectIdx() { return data1.y; }
-    float getLineThickness() { return asfloat(data1.z); }
-    float getPatternStretch() { return asfloat(data1.w); }
     
     void setObjType(ObjectType objType) { data1.x = (uint) objType; }
     void setMainObjectIdx(uint mainObjIdx) { data1.y = mainObjIdx; }
+    
+    /* SHARED: LINE + QUAD_BEZIER (Curve Outlines) */
+    float getLineThickness() { return asfloat(data1.z); }
+    float getPatternStretch() { return asfloat(data1.w); }
+
     void setLineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
     void setPatternStretch(float stretch) { data1.w = asuint(stretch); }
+
+    void setCurrentPhaseShift(float phaseShift)  { interp_data5.x = phaseShift; }
+    float getCurrentPhaseShift() { return interp_data5.x; }
+
+    void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
+    float getCurrentWorldToScreenRatio() { return interp_data5.y; }
     
-    // data2
+    /* LINE */
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
-    
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
-
-    // Texture glyph UVs
-    // data2    
-    float2 getFontGlyphUv() { return interp_data5.xy; }
-    uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
-    float getFontGlyphScreenPxRange() { return data2.y; }
     
-    void setFontGlyphUv(float2 uv) { interp_data5.xy = uv; }
-    void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
-    void setFontGlyphScreenPxRange(float glyphScreenPxRange) { data2.y = glyphScreenPxRange; }
+    /* QUAD_BEZIER */
+    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+    }
+    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    {
+        data2.xy = quadratic.A;
+        data2.zw = quadratic.B;
+        data3.xy = quadratic.C;
+    }
     
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
+    {
+        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
+        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
+    }
+    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+    }
+    
+    /* CURVE_BOX */
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
     // curveMin = smaller x / left, curveMax = bigger x / right)
@@ -429,64 +450,15 @@ struct PSInput
     }
 
     // Curve box value along minor & major axis
-    float getMinorBBoxUv() { return interp_data5.x; };
-    void setMinorBBoxUv(float minorBBoxUv) { interp_data5.x = minorBBoxUv; }
-    float getMajorBBoxUv() { return interp_data5.y; };
-    void setMajorBBoxUv(float majorBBoxUv) { interp_data5.y = majorBBoxUv; }
+    float getMinorBBoxUV() { return interp_data5.x; };
+    void setMinorBBoxUV(float minorBBoxUV) { interp_data5.x = minorBBoxUV; }
+    float getMajorBBoxUV() { return interp_data5.y; };
+    void setMajorBBoxUV(float majorBBoxUV) { interp_data5.y = majorBBoxUV; }
 
     float2 getCurveBoxScreenSpaceSize() { return asfloat(data1.zw); }
     void setCurveBoxScreenSpaceSize(float2 aabbSize) { data1.zw = asuint(aabbSize); }
-
-    // data2 + data3.xy
-    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
-    {
-        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
-    }
     
-    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
-    {
-        data2.xy = quadratic.A;
-        data2.zw = quadratic.B;
-        data3.xy = quadratic.C;
-    }
-    
-    // data3.zw + data4
-    
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
-    {
-        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
-        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
-    }
-    
-    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
-    {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
-    }
-
-    // data5.x
-
-    void setCurrentPhaseShift(float phaseShift)
-    {
-        interp_data5.x = phaseShift;
-    }
-
-    float getCurrentPhaseShift()
-    {
-        return interp_data5.x;
-    }
-    
-    // Use only for Lines and QuadBeziers, other objects use this slot of interp_data5.y
-    void setCurrentWorldToScreenRatio(float worldToScreen)
-    {
-        interp_data5.y = worldToScreen;
-    }
-
-    float getCurrentWorldToScreenRatio()
-    {
-        return interp_data5.y;
-    }
-    // POLYLINE_CONNECTOR data
-
+    /* POLYLINE_CONNECTOR */
     void setPolylineConnectorTrapezoidStart(float2 trapezoidStart) { data2.xy = trapezoidStart; }
     void setPolylineConnectorTrapezoidEnd(float2 trapezoidEnd) { data2.zw = trapezoidEnd; }
     void setPolylineConnectorTrapezoidShortBase(float shortBase) { data3.x = shortBase; }
@@ -499,7 +471,17 @@ struct PSInput
     float getPolylineConnectorTrapezoidLongBase() { return data3.y; }
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
     
-    // IMAGE object data
+    /* FONT_GLYPH */
+    float2 getFontGlyphUV() { return interp_data5.xy; }
+    uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
+    float getFontGlyphScreenPxRange() { return data2.y; }
+    
+    void setFontGlyphUV(float2 uv) { interp_data5.xy = uv; }
+    void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+    void setFontGlyphScreenPxRange(float glyphScreenPxRange) { data2.y = glyphScreenPxRange; }
+    
+    
+    /* IMAGE */
     float2 getImageUV() { return interp_data5.xy; }
     uint32_t getImageTextureId() { return asuint(data2.x); }
     

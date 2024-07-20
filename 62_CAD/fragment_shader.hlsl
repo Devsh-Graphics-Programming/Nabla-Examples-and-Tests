@@ -463,17 +463,17 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        const float minorBBoxUv = input.getMinorBBoxUv();
-        const float majorBBoxUv = input.getMajorBBoxUv();
+        const float minorBBoxUV = input.getMinorBBoxUV();
+        const float majorBBoxUV = input.getMajorBBoxUV();
 
         nbl::hlsl::math::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
         nbl::hlsl::math::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
         nbl::hlsl::math::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
         nbl::hlsl::math::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
 
-        //  TODO(Optimization): Can we ignore this majorBBoxUv clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
-        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv, 0.0, 1.0));
-        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv, 0.0, 1.0));
+        //  TODO(Optimization): Can we ignore this majorBBoxUV clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
+        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
+        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
 
         const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
         const float minEv = curveMinMinor.evaluate(minT);
@@ -481,8 +481,8 @@ float4 main(PSInput input) : SV_TARGET
         const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
         const float maxEv = curveMaxMinor.evaluate(maxT);
 
-        const bool insideMajor = majorBBoxUv >= 0.0 && majorBBoxUv <= 1.0;
-        const bool insideMinor = minorBBoxUv >= minEv && minorBBoxUv <= maxEv;
+        const bool insideMajor = majorBBoxUV >= 0.0 && majorBBoxUV <= 1.0;
+        const bool insideMinor = minorBBoxUV >= minEv && minorBBoxUV <= maxEv;
 
         if (insideMinor && insideMajor)
         {
@@ -499,9 +499,9 @@ float4 main(PSInput input) : SV_TARGET
 
 
             float closestDistanceSquared = MAX_DISTANCE_SQUARED;
-            const float2 pos = float2(minorBBoxUv, majorBBoxUv) * boxScreenSpaceSize;
+            const float2 pos = float2(minorBBoxUV, majorBBoxUV) * boxScreenSpaceSize;
 
-            if (minorBBoxUv < minEv)
+            if (minorBBoxUV < minEv)
             {
                 // DO SDF of Min Curve
                 nbl::hlsl::shapes::Quadratic<float> minCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
@@ -520,7 +520,7 @@ float4 main(PSInput input) : SV_TARGET
                         closestDistanceSquared = candidateDistanceSquared;
                 }
             }
-            else if (minorBBoxUv > maxEv)
+            else if (minorBBoxUV > maxEv)
             {
                 // Do SDF of Max Curve
                 nbl::hlsl::shapes::Quadratic<float> maxCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
@@ -543,7 +543,7 @@ float4 main(PSInput input) : SV_TARGET
             {
                 const bool minLessThanMax = minEv < maxEv;
                 float2 majorDistVector = float2(MAX_DISTANCE_SQUARED, MAX_DISTANCE_SQUARED);
-                if (majorBBoxUv > 1.0)
+                if (majorBBoxUV > 1.0)
                 {
                     const float2 minCurveEnd = float2(minEv, 1.0) * boxScreenSpaceSize;
                     if (minLessThanMax)
@@ -581,7 +581,7 @@ float4 main(PSInput input) : SV_TARGET
     }
     else if (objType == ObjectType::FONT_GLYPH) 
     {
-        const float2 uv = input.getFontGlyphUv();
+        const float2 uv = input.getFontGlyphUV();
         const uint32_t textureId = input.getFontGlyphTextureId();
 
         if (textureId != InvalidTextureIdx)

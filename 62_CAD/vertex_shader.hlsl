@@ -423,8 +423,8 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
-        outV.setMinorBBoxUv(maxCorner[minor]);
-        outV.setMajorBBoxUv(maxCorner[major]);
+        outV.setMinorBBoxUV(maxCorner[minor]);
+        outV.setMajorBBoxUV(maxCorner[major]);
 
         outV.setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMin.A[minor], 
@@ -472,9 +472,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-
-        const float2 ndcAxisMin = screenTopLeft;
-        const float2 ndcAxisMax = screenTopLeft + screenDirU + screenDirV;
+        
         const float2 screenSpaceAabbExtents = float2(length(screenDirU), length(screenDirV)) * float2(globals.resolution);
 
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
@@ -489,7 +487,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 vy = screenDirV * dilateRate.y;
         const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
 
-        const float2 coord = screenTopLeft + corner * screenDirU + corner * screenDirV + offsetVec;
+        const float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
 
         const float2 maxUV = float2(1.0, 1.0) - minUV;
         const float2 uvs = minUV + corner * (maxUV - minUV);
@@ -497,7 +495,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float screenPxRange = max(screenSpaceAabbExtents.x / ((maxUV.x - minUV.x) * MSDFSize), 1.0);
 
         outV.position = float4(coord, 0.f, 1.f);
-        outV.setFontGlyphUv(uvs);
+        outV.setFontGlyphUV(uvs);
         outV.setFontGlyphTextureId(textureID);
         outV.setFontGlyphScreenPxRange(screenPxRange);
     }
