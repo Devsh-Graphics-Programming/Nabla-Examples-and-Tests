@@ -4,10 +4,13 @@
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
 
-//
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
+#include "nlohmann/json.hpp"
+#include "argparse/argparse.hpp"
+
+using json = nlohmann::json;
 
 using namespace nbl;
 using namespace core;
@@ -19,7 +22,6 @@ using namespace video;
 
 // defines for sampler tests can be found in the file below
 #include "app_resources/push_constants.hlsl"
-
 
 class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
@@ -64,21 +66,81 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		
 		inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 		{
-			// Remember to call the base class initialization!
-			if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
-				return false;
+			argparse::ArgumentParser program("Color Space");
+
+			program.add_argument("--verbose")
+				.default_value(false)
+				.implicit_value(true)
+				.help("Print detailed logs.");
+
+			program.add_argument("--test")
+				.help("Perform tests for given mode.");
+
+			program.add_argument("--input-list")
+				.help("File path to override input list with image file paths to execute this program with.");
+
+			program.add_argument("--update-references")
+				.default_value(false)
+				.implicit_value(true)
+				.help("Update test result references with current test result data.");
+
+			try
+			{
+				program.parse_args({ argv.data(), argv.data() + argv.size() });
+			}
+			catch (const std::exception& err)
+			{
+				std::cerr << err.what() << std::endl << program;
+				return 1;
+			}
+
+			options.verbose = program.get<bool>("--verbose");
+			{
+				const auto test = program.present("--test");
+
+				if (test)
+				{
+					options.tests.enabled = true;
+					options.tests.mode = *test;
+					options.tests.updateReferences = program.get<bool>("--update-references");
+				}
+			}
+
+			if(!options.tests.enabled)
+			{
+				// Remember to call the base class initialization!
+				if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
+					return false;
+			}
+	
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
-			
-			// get list of files to test
-			system::path m_loadCWD = DefaultImagePathsFile;
-			if (IApplicationFramework::argv.size()>=2)
+
+			if (options.tests.enabled)
 			{
-				m_testPathsFile = std::ifstream(argv[1]);
-				if (m_testPathsFile.is_open())
-					m_loadCWD = argv[1];
-				else
-					m_logger->log("Couldn't open test file given by argument 1 = %s, falling back to default!",ILogger::ELL_ERROR,argv[1].c_str());
+				// validate, do not move before asset_base_t::onAppInitialized
+				if (options.tests.mode != "hash")
+				{
+					logFail("Invalid test mode \"%s\", current only \"hash\" is supported for this example!", options.tests.mode.c_str());
+					exit(0x45);
+				}
+			}
+			
+			// get custom input list of files to execute the program with
+			system::path m_loadCWD = DefaultImagePathsFile;
+			{
+				const auto hook = program.present("--input-list");
+
+				if (hook)
+				{
+					const auto inputList = *hook;
+
+					m_testPathsFile = std::ifstream(inputList);
+					if (m_testPathsFile.is_open())
+						m_loadCWD = inputList;
+					else
+						m_logger->log("Couldn't open test file given by argument --input-list \"%s\", falling back to default list!", ILogger::ELL_ERROR, inputList.c_str());
+				}
 			}
 
 			if (!m_testPathsFile.is_open())
@@ -86,178 +148,183 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 			if (!m_testPathsFile.is_open())
 				return logFail("Could not open the test paths file");
+
+			m_logger->log("Connected \"%s\" input test list!", ILogger::ELL_INFO, m_loadCWD.string().c_str());
 			m_loadCWD = m_loadCWD.parent_path();
 
-			// Load FSTri Shader
-			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(),m_device.get(),m_logger.get());
-			if (!fsTriProtoPPln)
-				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
-
-			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+			if (!options.tests.enabled)
 			{
-				IAssetLoader::SAssetLoadParams lp = {};
-				lp.logger = m_logger.get();
-				lp.workingDirectory = ""; // virtual root
-				auto assetBundle = m_assetMgr->getAsset(relPath,lp);
-				const auto assets = assetBundle.getContents();
-				if (assets.empty())
-					return nullptr;
+				// Load FSTri Shader
+				ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(),m_device.get(),m_logger.get());
+				if (!fsTriProtoPPln)
+					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-				auto source = IAsset::castDown<ICPUShader>(assets[0]);
-				if (!source)
-					return nullptr;
+				// Load Custom Shader
+				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath,lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
 
-				return m_device->createShader(source.get());
-			};
-			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
-			if (!fragmentShader)
-				return logFail("Failed to Load and Compile Fragment Shader!");
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					if (!source)
+						return nullptr;
+
+					return m_device->createShader(source.get());
+				};
+				auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+				if (!fragmentShader)
+					return logFail("Failed to Load and Compile Fragment Shader!");
 			
-			// Now surface indep resources
-			m_semaphore = m_device->createSemaphore(m_submitIx);
-			if (!m_semaphore)
-				return logFail("Failed to Create a Semaphore!");
+				// Now surface indep resources
+				m_semaphore = m_device->createSemaphore(m_submitIx);
+				if (!m_semaphore)
+					return logFail("Failed to Create a Semaphore!");
 
-			/* 
-			* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding. 
-			* In this example we provide a sampler at descriptor set creation time, via the SBinding struct below. This specifies that the sampler for this binding is immutable,
-			* as evidenced by the name of the field in the SBinding. 
-			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
-			* field set to its default (nullptr). 
-			*/
-			smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
-			{
-				auto defaultSampler = m_device->createSampler({
-					.AnisotropicFilter = 0
-				});
+				/* 
+				* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding. 
+				* In this example we provide a sampler at descriptor set creation time, via the SBinding struct below. This specifies that the sampler for this binding is immutable,
+				* as evidenced by the name of the field in the SBinding. 
+				* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
+				* field set to its default (nullptr). 
+				*/
+				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
+				{
+					auto defaultSampler = m_device->createSampler({
+						.AnisotropicFilter = 0
+					});
 
-				const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
-					.binding = 0,
-					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::ESS_FRAGMENT,
-					.count = 1,
-					.immutableSamplers = &defaultSampler
+					const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
+						.binding = 0,
+						.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.count = 1,
+						.immutableSamplers = &defaultSampler
+					}
+					};
+					dsLayout = m_device->createDescriptorSetLayout(bindings);
+					if (!dsLayout)
+						return logFail("Failed to Create Descriptor Layout");
+
 				}
+
+				ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
+				// Need to choose a surface format
+				if (!swapchainParams.deduceFormat(m_physicalDevice))
+					return logFail("Could not choose a Surface Format for the Swapchain!");
+				// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+				const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+					// wipe-transition to ATTACHMENT_OPTIMAL
+					{
+						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.dstSubpass = 0,
+						.memoryBarrier = {
+							// since we're uploading the image data we're about to draw 
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							// because we clear and don't blend
+							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						}
+						// leave view offsets and flags default
+					},
+					// ATTACHMENT_OPTIMAL to PRESENT_SRC
+					{
+						.srcSubpass = 0,
+						.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+						.memoryBarrier = {
+							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+							// we can have NONE as the Destinations because the spec says so about presents
+						}
+						// leave view offsets and flags default
+					},
+					IGPURenderpass::SCreationParams::DependenciesEnd
 				};
-				dsLayout = m_device->createDescriptorSetLayout(bindings);
-				if (!dsLayout)
-					return logFail("Failed to Create Descriptor Layout");
+				auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(),swapchainParams.surfaceFormat.format,dependencies);
+				if (!scResources->getRenderpass())
+					return logFail("Failed to create Renderpass!");
 
-			}
-
-			ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
-			// Need to choose a surface format
-			if (!swapchainParams.deduceFormat(m_physicalDevice))
-				return logFail("Could not choose a Surface Format for the Swapchain!");
-			// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
-			const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-				// wipe-transition to ATTACHMENT_OPTIMAL
+				// Now create the pipeline
 				{
-					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.dstSubpass = 0,
-					.memoryBarrier = {
-						// since we're uploading the image data we're about to draw 
-						.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
-						.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-						.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-						// because we clear and don't blend
-						.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-					}
-					// leave view offsets and flags default
-				},
-				// ATTACHMENT_OPTIMAL to PRESENT_SRC
+					const asset::SPushConstantRange range = {
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.offset = 0,
+						.size = sizeof(push_constants_t)
+					};
+					auto layout = m_device->createPipelineLayout({&range,1},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
+					const IGPUShader::SSpecInfo fragSpec = {
+						.entryPoint = "main",
+						.shader = fragmentShader.get()
+					};
+					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),scResources->getRenderpass()/*,default is subpass 0*/);
+					if (!m_pipeline)
+						return logFail("Could not create Graphics Pipeline!");
+				}
+
+				auto queue = getGraphicsQueue();
+				// Let's just use the same queue since there's no need for async present
+				if (!m_surface || !m_surface->init(queue,std::move(scResources),swapchainParams.sharedParams))
+					return logFail("Could not create Window & Surface or initialize the Surface!");
+				m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+
+				// create the descriptor sets, 1 per FIF and with enough room for one image sampler
 				{
-					.srcSubpass = 0,
-					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-					.memoryBarrier = {
-						.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-						.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-						// we can have NONE as the Destinations because the spec says so about presents
+					const uint32_t setCount = m_maxFramesInFlight;
+					auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1},&setCount);
+					if (!pool)
+						return logFail("Failed to Create Descriptor Pool");
+
+					for (auto i=0u; i<m_maxFramesInFlight; i++)
+					{
+						m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
+						if (!m_descriptorSets[i])
+							return logFail("Could not create Descriptor Set!");
 					}
-					// leave view offsets and flags default
-				},
-				IGPURenderpass::SCreationParams::DependenciesEnd
-			};
-			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(),swapchainParams.surfaceFormat.format,dependencies);
-			if (!scResources->getRenderpass())
-				return logFail("Failed to create Renderpass!");
-
-			// Now create the pipeline
-			{
-				const asset::SPushConstantRange range = {
-					.stageFlags = IShader::ESS_FRAGMENT,
-					.offset = 0,
-					.size = sizeof(push_constants_t)
-				};
-				auto layout = m_device->createPipelineLayout({&range,1},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
-				const IGPUShader::SSpecInfo fragSpec = {
-					.entryPoint = "main",
-					.shader = fragmentShader.get()
-				};
-				m_pipeline = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),scResources->getRenderpass()/*,default is subpass 0*/);
-				if (!m_pipeline)
-					return logFail("Could not create Graphics Pipeline!");
-			}
-
-			auto queue = getGraphicsQueue();
-			// Let's just use the same queue since there's no need for async present
-			if (!m_surface || !m_surface->init(queue,std::move(scResources),swapchainParams.sharedParams))
-				return logFail("Could not create Window & Surface or initialize the Surface!");
-			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-
-			// create the descriptor sets, 1 per FIF and with enough room for one image sampler
-			{
-				const uint32_t setCount = m_maxFramesInFlight;
-				auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1},&setCount);
-				if (!pool)
-					return logFail("Failed to Create Descriptor Pool");
-
+				}
+			
+				// need resetttable commandbuffers for the upload utility
+				m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+				// create the commandbuffers
 				for (auto i=0u; i<m_maxFramesInFlight; i++)
 				{
-					m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
-					if (!m_descriptorSets[i])
-						return logFail("Could not create Descriptor Set!");
+					if (!m_cmdPool)
+						return logFail("Couldn't create Command Pool!");
+					if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
+						return logFail("Couldn't create Command Buffer!");
 				}
-			}
-			
-			// need resetttable commandbuffers for the upload utility
-			m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
-			// create the commandbuffers
-			for (auto i=0u; i<m_maxFramesInFlight; i++)
-			{
-				if (!m_cmdPool)
-					return logFail("Couldn't create Command Pool!");
-				if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
-					return logFail("Couldn't create Command Buffer!");
-			}
 
-			// things for IUtilities
-			m_scratchSemaphore = m_device->createSemaphore(0);
-			if (!m_scratchSemaphore)
-				return logFail("Could not create Scratch Semaphore");
-			m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
-			// we don't want to overcomplicate the example with multi-queue
-			m_intendedSubmit.queue = queue;
-			// wait for nothing before upload
-			m_intendedSubmit.waitSemaphores = {};
-			// fill later
-			m_intendedSubmit.commandBuffers = {};
-			m_intendedSubmit.scratchSemaphore = {
-				.semaphore = m_scratchSemaphore.get(),
-				.value = 0,
-				.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
-			};
+				// things for IUtilities
+				m_scratchSemaphore = m_device->createSemaphore(0);
+				if (!m_scratchSemaphore)
+					return logFail("Could not create Scratch Semaphore");
+				m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
+				// we don't want to overcomplicate the example with multi-queue
+				m_intendedSubmit.queue = queue;
+				// wait for nothing before upload
+				m_intendedSubmit.waitSemaphores = {};
+				// fill later
+				m_intendedSubmit.commandBuffers = {};
+				m_intendedSubmit.scratchSemaphore = {
+					.semaphore = m_scratchSemaphore.get(),
+					.value = 0,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				};
 
-			// Allocate and Leave 1/4 for image uploads, to test image copy with small memory remaining 
-			{
-				uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
-				uint32_t maxFreeBlock = m_utils->getDefaultUpStreamingBuffer()->max_size();
-				const uint32_t allocationAlignment = 64u;
-				const uint32_t allocationSize = (maxFreeBlock/4)*3;
-				m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
+				// Allocate and Leave 1/4 for image uploads, to test image copy with small memory remaining 
+				{
+					uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
+					uint32_t maxFreeBlock = m_utils->getDefaultUpStreamingBuffer()->max_size();
+					const uint32_t allocationAlignment = 64u;
+					const uint32_t allocationSize = (maxFreeBlock/4)*3;
+					m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
+				}
 			}
 
 			return true;
@@ -268,311 +335,379 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		{
 			// load the image view
 			system::path filename, extension;
-			smart_refctd_ptr<ICPUImageView> cpuImgView;
+			auto asset = getImageView(m_nextPath, filename, extension);
+
+			if (!asset)
 			{
-				m_logger->log("Loading image from path %s",ILogger::ELL_INFO,m_nextPath.c_str());
+				options.tests.passed = false;
+				return;
+			}
 
-				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
-				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
-				auto bundle = m_assetMgr->getAsset(m_nextPath,loadParams);
-				auto contents = bundle.getContents();
-				if (contents.empty())
+			auto cpuImgView = *asset;
+
+			if (options.tests.enabled)
+			{
+				if (options.tests.mode == "hash")
 				{
-					m_logger->log("Failed to load image with path %s, skipping!",ILogger::ELL_ERROR,(m_loadCWD/m_nextPath).c_str());
-					return;
-				}
+					bool passed = true;
 
-				core::splitFilename(m_nextPath.c_str(),nullptr,&filename,&extension);
+					const auto* const image = cpuImgView->getCreationParameters().image.get();
 
-				const auto& asset = contents[0];
-				switch (asset->getAssetType())
-				{
-					case IAsset::ET_IMAGE:
+					const auto hash = [&image]()
 					{
-						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
-						const auto format = image->getCreationParameters().format;
+						auto hash = image->getContentHash();
 
-						ICPUImageView::SCreationParams viewParams = {
-							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
-							.image = std::move(image),
-							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
-							.format = format,
-							.subresourceRange = {
-								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
-								.baseMipLevel = 0u,
-								.levelCount = ICPUImageView::remaining_mip_levels,
-								.baseArrayLayer = 0u,
-								.layerCount = ICPUImageView::remaining_array_layers
+						std::array<size_t, 4> data;
+						memcpy(data.data(), hash.data, sizeof(hash));
+
+						return data;
+					}();
+
+					struct
+					{
+						std::string path;
+						json data;
+					} current, reference;
+
+					current.path = (localOutputCWD / filename).make_preferred().string() + extension.string() + ".json";
+
+					m_logger->log("Perfoming [%s] tests for \"%s\" asset!", ILogger::ELL_PERFORMANCE, std::to_string(options.tests.count.total).c_str(), m_nextPath.c_str());
+					m_logger->log("Writing \"%ls\"'s image hash to \"%s\"", ILogger::ELL_INFO, filename.c_str(), current.path.c_str());
+
+					current.data["image"] = json::array();
+					for (const auto& it : hash)
+						current.data["image"].push_back(it);
+
+					const std::string prettyJson = current.data.dump(4);
+
+					if (options.verbose)
+						m_logger->log(prettyJson, ILogger::ELL_INFO);
+
+					system::ISystem::future_t<core::smart_refctd_ptr<system::IFile>> future;
+					m_system->createFile(future, current.path, system::IFileBase::ECF_WRITE);
+					if (auto file = future.acquire(); file && bool(*file))
+					{
+						system::IFile::success_t succ;
+						(*file)->write(succ, prettyJson.data(), 0, prettyJson.size());
+						succ.getBytesProcessed(true);
+					}
+					else
+					{
+						m_logger->log("Failed to write \"%ls\"'s data to \"%s\" location!", ILogger::ELL_ERROR, filename.c_str(), current.path.c_str());
+						passed = false;
+					}
+
+					reference.path = std::filesystem::absolute((localOutputCWD / (std::string("../test/references/") + filename.string() + extension.string() + ".json")).make_preferred()).string();
+					{
+						std::ifstream referenceFile(reference.path);
+
+						if (referenceFile.is_open())
+						{
+							referenceFile >> reference.data;
+
+							m_logger->log("Comparing \"%ls\"'s reference data..", ILogger::ELL_INFO, filename.c_str());
+							const bool ok = current.data["image"] == reference.data["image"];
+
+							if (ok)
+							{
+								++options.tests.count.passed;
+								m_logger->log("Passed tests!", ILogger::ELL_WARNING);
 							}
-						};
+							else
+							{
+								logFail("Failed tests!");
+								passed = false;
+							}
+						}
+						else
+						{
+							m_logger->log("Could not open \"%s\"'s reference file! If the reference doesn't exist make sure to create one by executing the program with \"--update-references\" flag.", ILogger::ELL_ERROR, reference.path.c_str());
+							passed = false;
+						}
+					}
 
-						cpuImgView = ICPUImageView::create(std::move(viewParams));
-					} break;
+					if (options.tests.updateReferences)
+					{
+						std::error_code errorCode;
+						std::filesystem::copy(current.path, reference.path, std::filesystem::copy_options::overwrite_existing, errorCode);
+						if (errorCode)
+						{
+							m_logger->log("Failed to update \"%ls\"'s reference file!", ILogger::ELL_ERROR, filename.c_str());
+							passed = false;
+						}
+						else
+							m_logger->log("Updated \"%ls\"'s reference file & saved to \"%s\"!", ILogger::ELL_INFO, filename.c_str(), reference.path.c_str());
+					}
 
-					case IAsset::ET_IMAGE_VIEW:
-						cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
-						break;
-					default:
-						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
+					++options.tests.count.total;
+
+					if(!passed)
+						options.tests.passed = false;
+				}
+				else
+					assert(false);
+			}
+			else
+			{
+				// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
+				if (m_submitIx>=m_maxFramesInFlight)
+				{
+					const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+						{ 
+							.semaphore = m_semaphore.get(),
+							.value = m_submitIx+1-m_maxFramesInFlight
+						}
+					};
+					if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
 						return;
 				}
-			}
+				const auto resourceIx = m_submitIx%m_maxFramesInFlight;
+
+				// we don't want to overcomplicate the example with multi-queue
+				auto queue = getGraphicsQueue();
+				auto cmdbuf = m_cmdBufs[resourceIx].get();
+				IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {cmdbuf};
+				m_intendedSubmit.commandBuffers = {&cmdbufInfo,1};
 			
-			// Can't reset a cmdbuffer before the previous use of commandbuffer is finished!
-			if (m_submitIx>=m_maxFramesInFlight)
-			{
-				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
-					{ 
-						.semaphore = m_semaphore.get(),
-						.value = m_submitIx+1-m_maxFramesInFlight
-					}
+				// there's no previous operation to wait for
+				const SMemoryBarrier toTransferBarrier = {
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+					.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
 				};
-				if (m_device->blockForSemaphores(cmdbufDonePending)!=ISemaphore::WAIT_RESULT::SUCCESS)
-					return;
-			}
-			const auto resourceIx = m_submitIx%m_maxFramesInFlight;
 
-			// we don't want to overcomplicate the example with multi-queue
-			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[resourceIx].get();
-			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = {cmdbuf};
-			m_intendedSubmit.commandBuffers = {&cmdbufInfo,1};
-			
-			// there's no previous operation to wait for
-			const SMemoryBarrier toTransferBarrier = {
-				.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-				.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
-			};
-
-			// upload image and write to descriptor set
-			queue->startCapture();
-			smart_refctd_ptr<IGPUImage> gpuImg;
-			auto ds = m_descriptorSets[resourceIx].get();
-			{
-				/*
-				* Since we're using a combined image sampler with an immutable sampler, we only need to update the sampled image at the binding. Do note however that had we chosen
-				* to use a mutable sampler instead, we'd need to write to it at least once, via the SDescriptorInfo info.info.combinedImageSampler.sampler field
-				* WARNING: With an immutable sampler on a combined image sampler, trying to write to it is valid according to Vulkan spec, although the sampler is ignored and only
-				* the image is updated. Please note that this is NOT the case in Nabla: if you try to write to a combined image sampler, then
-				* info.info.combinedImageSampler.sampler MUST be nullptr
-				*/
-				IGPUDescriptorSet::SDescriptorInfo info = {};
-				info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// upload image and write to descriptor set
+				queue->startCapture();
+				smart_refctd_ptr<IGPUImage> gpuImg;
+				auto ds = m_descriptorSets[resourceIx].get();
 				{
-					const auto& origParams = cpuImgView->getCreationParameters();
-					const auto origImage = origParams.image;
-
-					// create matching size image
-					IGPUImage::SCreationParams imageParams = {};
-					imageParams = origImage->getCreationParameters();
-					imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT|IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
-					// promote format because RGB8 and friends don't actually exist in HW
+					/*
+					* Since we're using a combined image sampler with an immutable sampler, we only need to update the sampled image at the binding. Do note however that had we chosen
+					* to use a mutable sampler instead, we'd need to write to it at least once, via the SDescriptorInfo info.info.combinedImageSampler.sampler field
+					* WARNING: With an immutable sampler on a combined image sampler, trying to write to it is valid according to Vulkan spec, although the sampler is ignored and only
+					* the image is updated. Please note that this is NOT the case in Nabla: if you try to write to a combined image sampler, then
+					* info.info.combinedImageSampler.sampler MUST be nullptr
+					*/
+					IGPUDescriptorSet::SDescriptorInfo info = {};
+					info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 					{
-						const IPhysicalDevice::SImageFormatPromotionRequest request = {
-							.originalFormat = imageParams.format,
-							.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
-						};
-						imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
-					}
-					if (imageParams.type==IGPUImage::ET_3D)
-						imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
-					gpuImg = m_device->createImage(std::move(imageParams));
-					if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
-						return;
-					gpuImg->setObjectDebugName(m_nextPath.c_str());
+						const auto& origParams = cpuImgView->getCreationParameters();
+						const auto origImage = origParams.image;
 
+						// create matching size image
+						IGPUImage::SCreationParams imageParams = {};
+						imageParams = origImage->getCreationParameters();
+						imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT|IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
+						// promote format because RGB8 and friends don't actually exist in HW
+						{
+							const IPhysicalDevice::SImageFormatPromotionRequest request = {
+								.originalFormat = imageParams.format,
+								.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
+							};
+							imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
+						}
+						if (imageParams.type==IGPUImage::ET_3D)
+							imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
+						gpuImg = m_device->createImage(std::move(imageParams));
+						if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
+							return;
+						gpuImg->setObjectDebugName(m_nextPath.c_str());
+
+						cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+						// change the layout of the image
+						const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
+							.barrier = {
+								.dep = toTransferBarrier
+								// no ownership transfers
+							},
+							.image = gpuImg.get(),
+							// transition the whole view
+							.subresourceRange = origParams.subresourceRange,
+							// a wiping transition
+							.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+						}};
+						cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
+						// upload contents and submit right away
+						m_utils->updateImageViaStagingBufferAutoSubmit(m_intendedSubmit,origImage->getBuffer(),origImage->getCreationParameters().format,gpuImg.get(),IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,origImage->getRegions());
+
+						IGPUImageView::SCreationParams viewParams = {
+							.image = gpuImg,
+							.viewType = IGPUImageView::ET_2D_ARRAY,
+							.format = gpuImg->getCreationParameters().format
+						};
+						info.desc = m_device->createImageView(std::move(viewParams));
+					}
+					const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
+						.dstSet = ds,
+						.binding = 0,
+						.arrayElement = 0,
+						.count = 1,
+						.info = &info
+					}};
+					m_device->updateDescriptorSets(writes,{});
+				}
+
+				// now we can sleep till we're ready for next render
+				std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
+				m_lastImageEnqueued = clock_t::now();
+
+				const auto& params = gpuImg->getCreationParameters();
+				const auto imageExtent = params.extent;
+				push_constants_t pc;
+				{
+					const float realLayers = core::max(params.arrayLayers,imageExtent.depth);
+					pc.grid.x = ceil(sqrt(realLayers));
+					pc.grid.y = ceil(realLayers/float(pc.grid.x));
+				}
+				const VkExtent2D newWindowResolution = {imageExtent.width*pc.grid.x,imageExtent.height*pc.grid.y};
+				if (newWindowResolution.width!=m_window->getWidth() || newWindowResolution.height!=m_window->getHeight())
+				{
+					// Resize the window
+					m_winMgr->setWindowSize(m_window.get(),newWindowResolution.width,newWindowResolution.height);
+					// Don't want to rely on the Swapchain OUT_OF_DATE causing an implicit re-create in the `acquireNextImage` because the
+					// swapchain may report OUT_OF_DATE after the next VBlank after the resize, not getting the message right away.
+					m_surface->recreateSwapchain();
+				}
+				// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
+				m_winMgr->show(m_window.get());
+
+				// Acquire
+				auto acquire = m_surface->acquireNextImage();
+				if (!acquire)
+					return;
+
+				// Render to the Image
+				{
 					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-					// change the layout of the image
+
+					// need a pipeline barrier to transition layout
 					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
 						.barrier = {
-							.dep = toTransferBarrier
-							// no ownership transfers
+							.dep = toTransferBarrier.nextBarrier(PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT)
 						},
 						.image = gpuImg.get(),
-						// transition the whole view
-						.subresourceRange = origParams.subresourceRange,
-						// a wiping transition
-						.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+						.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
+						.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
 					}};
 					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
-					// upload contents and submit right away
-					m_utils->updateImageViaStagingBufferAutoSubmit(m_intendedSubmit,origImage->getBuffer(),origImage->getCreationParameters().format,gpuImg.get(),IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,origImage->getRegions());
 
-					IGPUImageView::SCreationParams viewParams = {
-						.image = gpuImg,
-						.viewType = IGPUImageView::ET_2D_ARRAY,
-						.format = gpuImg->getCreationParameters().format
-					};
-					info.desc = m_device->createImageView(std::move(viewParams));
-				}
-				const IGPUDescriptorSet::SWriteDescriptorSet writes[] = {{
-					.dstSet = ds,
-					.binding = 0,
-					.arrayElement = 0,
-					.count = 1,
-					.info = &info
-				}};
-				m_device->updateDescriptorSets(writes,{});
-			}
-
-			// now we can sleep till we're ready for next render
-			std::this_thread::sleep_until(m_lastImageEnqueued+DisplayImageDuration);
-			m_lastImageEnqueued = clock_t::now();
-
-			const auto& params = gpuImg->getCreationParameters();
-			const auto imageExtent = params.extent;
-			push_constants_t pc;
-			{
-				const float realLayers = core::max(params.arrayLayers,imageExtent.depth);
-				pc.grid.x = ceil(sqrt(realLayers));
-				pc.grid.y = ceil(realLayers/float(pc.grid.x));
-			}
-			const VkExtent2D newWindowResolution = {imageExtent.width*pc.grid.x,imageExtent.height*pc.grid.y};
-			if (newWindowResolution.width!=m_window->getWidth() || newWindowResolution.height!=m_window->getHeight())
-			{
-				// Resize the window
-				m_winMgr->setWindowSize(m_window.get(),newWindowResolution.width,newWindowResolution.height);
-				// Don't want to rely on the Swapchain OUT_OF_DATE causing an implicit re-create in the `acquireNextImage` because the
-				// swapchain may report OUT_OF_DATE after the next VBlank after the resize, not getting the message right away.
-				m_surface->recreateSwapchain();
-			}
-			// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
-			m_winMgr->show(m_window.get());
-
-			// Acquire
-			auto acquire = m_surface->acquireNextImage();
-			if (!acquire)
-				return;
-
-			// Render to the Image
-			{
-				cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-				// need a pipeline barrier to transition layout
-				const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = {{
-					.barrier = {
-						.dep = toTransferBarrier.nextBarrier(PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT)
-					},
-					.image = gpuImg.get(),
-					.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
-					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-					.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
-				}};
-				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
-
-				const VkRect2D currentRenderArea =
-				{
-					.offset = {0,0},
-					.extent = {newWindowResolution.width,newWindowResolution.height}
-				};
-				// set viewport
-				{
-					const asset::SViewport viewport =
+					const VkRect2D currentRenderArea =
 					{
-						.width = float(newWindowResolution.width),
-						.height = float(newWindowResolution.height)
+						.offset = {0,0},
+						.extent = {newWindowResolution.width,newWindowResolution.height}
 					};
-					cmdbuf->setViewport({&viewport,1});
-				}
-				cmdbuf->setScissor({&currentRenderArea,1});
+					// set viewport
+					{
+						const asset::SViewport viewport =
+						{
+							.width = float(newWindowResolution.width),
+							.height = float(newWindowResolution.height)
+						};
+						cmdbuf->setViewport({&viewport,1});
+					}
+					cmdbuf->setScissor({&currentRenderArea,1});
 
-				// begin the renderpass
+					// begin the renderpass
+					{
+						const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
+						auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+						const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+							.framebuffer = scRes->getFramebuffer(acquire.imageIndex),
+							.colorClearValues = &clearValue,
+							.depthStencilClearValues = nullptr,
+							.renderArea = currentRenderArea
+						};
+						cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+					}
+					cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+					cmdbuf->pushConstants(m_pipeline->getLayout(),IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
+					cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
+					ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+					cmdbuf->endRenderPass();
+
+					cmdbuf->end();
+				}
+
+				// submit
+				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
+					.semaphore = m_semaphore.get(),
+					.value = ++m_submitIx,
+					// just as we've outputted all pixels, signal
+					.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+				}};
 				{
-					const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
-					auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-					const IGPUCommandBuffer::SRenderpassBeginInfo info = {
-						.framebuffer = scRes->getFramebuffer(acquire.imageIndex),
-						.colorClearValues = &clearValue,
-						.depthStencilClearValues = nullptr,
-						.renderArea = currentRenderArea
-					};
-					cmdbuf->beginRenderPass(info,IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+					{
+						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
+							.cmdbuf = cmdbuf
+						}};
+						// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
+						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
+							.semaphore = acquire.semaphore,
+							.value = acquire.acquireCount,
+							.stageMask = PIPELINE_STAGE_FLAGS::NONE
+						}};
+						const IQueue::SSubmitInfo infos[1] = {{
+							.waitSemaphores = acquired,
+							.commandBuffers = commandBuffers,
+							.signalSemaphores = rendered
+						}};
+						// we won't signal the sema if no success
+						if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
+							m_submitIx--;
+					}
 				}
-				cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-				cmdbuf->pushConstants(m_pipeline->getLayout(),IGPUShader::ESS_FRAGMENT,0,sizeof(push_constants_t),&pc);
-				cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS,m_pipeline->getLayout(),3,1,&ds);
-				ext::FullScreenTriangle::recordDrawCall(cmdbuf);
-				cmdbuf->endRenderPass();
-
-				cmdbuf->end();
-			}
-
-			// submit
-			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
-				.semaphore = m_semaphore.get(),
-				.value = ++m_submitIx,
-				// just as we've outputted all pixels, signal
-				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-			}};
-			{
-				{
-					const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
-						.cmdbuf = cmdbuf
-					}};
-					// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
-					const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
-						.semaphore = acquire.semaphore,
-						.value = acquire.acquireCount,
-						.stageMask = PIPELINE_STAGE_FLAGS::NONE
-					}};
-					const IQueue::SSubmitInfo infos[1] = {{
-						.waitSemaphores = acquired,
-						.commandBuffers = commandBuffers,
-						.signalSemaphores = rendered
-					}};
-					// we won't signal the sema if no success
-					if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
-						m_submitIx--;
-				}
-			}
 			
-			// Set the Caption
-			std::string viewTypeStr;
-			switch (cpuImgView->getCreationParameters().viewType)
-			{
-				case IImageView<video::IGPUImage>::ET_2D:
-					viewTypeStr = "ET_2D";
-				case IImageView<video::IGPUImage>::ET_2D_ARRAY:
-					viewTypeStr = "ET_2D_ARRAY";
-					break;
-				case IImageView<video::IGPUImage>::ET_CUBE_MAP:
-					viewTypeStr = "ET_CUBE_MAP";
-					break;
-				default:
-					assert(false);
-					break;
-			};
-			m_window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
-
-			// Present
-			m_surface->present(acquire.imageIndex, rendered);
-			getGraphicsQueue()->endCapture();
-
-			// Now do a write to disk in the meantime
-			{
-				const std::string assetPath = "imageAsset_" + filename.string() + extension.string();
-
-				auto tryToWrite = [&](IAsset* asset)->bool
+				// Set the Caption
+				std::string viewTypeStr;
+				switch (cpuImgView->getCreationParameters().viewType)
 				{
-					IAssetWriter::SAssetWriteParams wparams(asset);
-					wparams.workingDirectory = localOutputCWD;
-					return m_assetMgr->writeAsset(assetPath,wparams);
+					case IImageView<video::IGPUImage>::ET_2D:
+						viewTypeStr = "ET_2D";
+					case IImageView<video::IGPUImage>::ET_2D_ARRAY:
+						viewTypeStr = "ET_2D_ARRAY";
+						break;
+					case IImageView<video::IGPUImage>::ET_CUBE_MAP:
+						viewTypeStr = "ET_CUBE_MAP";
+						break;
+					default:
+						assert(false);
+						break;
 				};
+				m_window->setCaption("[Nabla Engine] Color Space Test Demo - CURRENT IMAGE: " + filename.string() + " - VIEW TYPE: " + viewTypeStr + " - EXTENSION: " + extension.string());
 
-				// try write as an image, else try as image view
-				if (!tryToWrite(cpuImgView->getCreationParameters().image.get()))
-					if (!tryToWrite(cpuImgView.get()))
-						m_logger->log("Failed to write %s to disk!",ILogger::ELL_ERROR,assetPath.c_str());
+				// Present
+				m_surface->present(acquire.imageIndex, rendered);
+				getGraphicsQueue()->endCapture();
+
+				// Now do a write to disk in the meantime
+				{
+					const std::string assetPath = "imageAsset_" + filename.string() + extension.string();
+
+					auto tryToWrite = [&](IAsset* asset)->bool
+					{
+						IAssetWriter::SAssetWriteParams wparams(asset);
+						wparams.workingDirectory = localOutputCWD;
+						return m_assetMgr->writeAsset(assetPath,wparams);
+					};
+
+					// try write as an image, else try as image view
+					if (!tryToWrite(cpuImgView->getCreationParameters().image.get()))
+						if (!tryToWrite(cpuImgView.get()))
+							m_logger->log("Failed to write %s to disk!",ILogger::ELL_ERROR,assetPath.c_str());
+				}
+
+				// TODO: reuse the resources without frames in flight (cmon we block and do like one swap every 900ms)
 			}
-
-			// TODO: reuse the resources without frames in flight (cmon we block and do like one swap every 900ms)
 		}
 
 		inline bool keepRunning() override
 		{
-			// Keep arunning as long as we have a surface to present to (usually this means, as long as the window is open)
-			if (m_surface->irrecoverable())
-				return false;
+			if (!options.tests.enabled)
+			{
+				// Keep arunning as long as we have a surface to present to (usually this means, as long as the window is open)
+				if (m_surface->irrecoverable())
+					return false;
+			}
 
 			while (std::getline(m_testPathsFile,m_nextPath))
 			if (m_nextPath!="" && m_nextPath[0]!=';')
@@ -583,6 +718,13 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 		inline bool onAppTerminated() override
 		{
+			if (options.tests.enabled)
+			{
+				m_logger->log("Testing completed!", ILogger::ELL_PERFORMANCE);
+				m_logger->log("Passed [%s/%s] tests.", ILogger::ELL_WARNING, std::to_string(options.tests.count.passed).c_str(), std::to_string(options.tests.count.total).c_str());
+				exit(options.tests.passed ? 0 : 0x45); // do not remove this unless you want to refactor the example to cover destructors properly when in test mode & not crash the program
+			}
+
 			return device_base_t::onAppTerminated();
 		}
 
@@ -610,6 +752,80 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		// Enough Command Buffers and other resources for all frames in flight!
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>,ISwapchain::MaxImages> m_descriptorSets;
 		std::array<smart_refctd_ptr<IGPUCommandBuffer>,ISwapchain::MaxImages> m_cmdBufs;
+
+	private:
+
+		std::optional<smart_refctd_ptr<ICPUImageView>> getImageView(std::string inAssetPath, system::path& outFilename, system::path& outExtension)
+		{
+			smart_refctd_ptr<ICPUImageView> view;
+
+			m_logger->log("Loading image from path %s", ILogger::ELL_INFO, inAssetPath.c_str());
+
+			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+			auto bundle = m_assetMgr->getAsset(inAssetPath, loadParams);
+			auto contents = bundle.getContents();
+			if (contents.empty())
+			{
+				m_logger->log("Failed to load image with path %s, skipping!", ILogger::ELL_ERROR, (m_loadCWD / inAssetPath).c_str());
+				return {};
+			}
+
+			core::splitFilename(inAssetPath.c_str(), nullptr, &outFilename, &outExtension);
+
+			const auto& asset = contents[0];
+			switch (asset->getAssetType())
+			{
+				case IAsset::ET_IMAGE:
+				{
+					auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+					const auto format = image->getCreationParameters().format;
+
+					ICPUImageView::SCreationParams viewParams = 
+					{
+						.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+						.image = std::move(image),
+						.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+						.format = format,
+						.subresourceRange = {
+							.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+							.baseMipLevel = 0u,
+							.levelCount = ICPUImageView::remaining_mip_levels,
+							.baseArrayLayer = 0u,
+							.layerCount = ICPUImageView::remaining_array_layers
+						}
+					};
+
+					view = ICPUImageView::create(std::move(viewParams));
+				} break;
+
+				case IAsset::ET_IMAGE_VIEW:
+					view = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+					break;
+				default:
+					m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!", ILogger::ELL_ERROR);
+					return {};
+			}
+
+			return view;
+		}
+
+		struct NBL_APP_OPTIONS
+		{
+			struct 
+			{
+				bool enabled = false, passed = true, updateReferences = false;
+				std::string mode = {};
+				
+				struct
+				{
+					size_t total = {}, passed = {};
+				} count;
+
+			} tests;
+
+			bool verbose = false;
+		} options;
 };
 
 
