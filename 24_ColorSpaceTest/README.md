@@ -2,7 +2,7 @@
 
 ## Usage
 
-Just launch the executable to display images from input list. Application supports following command-line arguments:
+Just launch the executable to display images from default input list. Application supports following command-line arguments:
 
 - `--verbose`: Enables detailed logging. Useful for debugging or understanding the app's process.
 - `--test`: Performs tests by comparing the current data with reference data saved on disk. 
@@ -34,4 +34,7 @@ Build the application with desired configuration, `cd` to it's build directory a
 ctest -C <configuration> --progress --stop-on-failure --verbose
 ```
 
-test writes current image hash to a file in *cwd* and compares with saved reference file - if there is a difference the test fails.
+![24csthash](https://github.com/user-attachments/assets/817a2ba3-e4f4-44d8-bc37-483ea5d56d1f)
+
+
+test writes current image hash to a file in the application's *cwd* (`bin`) and compares with saved reference file - if there is a difference the test fails.
