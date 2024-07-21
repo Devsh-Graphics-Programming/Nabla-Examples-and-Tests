@@ -471,31 +471,35 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, glyphInfo.dirU);
         const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
 
-        float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
+        const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
         
-        const float2 screenSpaceAabbExtents = float2(length(screenDirU), length(screenDirV)) * float2(globals.resolution);
-
+        const double2 screenSpaceAabbExtents = double2(length(screenDirU * double2(globals.resolution)) / 2.0, length(screenDirV * double2(globals.resolution)) / 2.0);
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
-        const double2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents;
-        const double2 dilatationFactor = 1.0 + 2.0 * dilateRate;
-
-        const float2 undilatedCornerNDC = corner * 2.0 - 1.0;
-        // Dilate the UVs
-        const float2 maxCorner = float2((undilatedCornerNDC * dilatationFactor + 1.0) * 0.5);
+        const float2 dilateRate = (float2)(pixelsToIncreaseOnEachSide / screenSpaceAabbExtents);
 
         const float2 vx = screenDirU * dilateRate.x;
         const float2 vy = screenDirV * dilateRate.y;
         const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
-
         const float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
 
-        const float2 maxUV = float2(1.0, 1.0) - minUV;
-        const float2 uvs = minUV + corner * (maxUV - minUV);
-
-        const float screenPxRange = max(screenSpaceAabbExtents.x / ((maxUV.x - minUV.x) * MSDFSize), 1.0);
+        // If aspect ratio of the dimensions and glyph inside the texture are the same -->
+        // it doesn't matter which component (x or y) to use to compute screenPxRange.
+        // but if the glyph box is stretched in any way then we won't get correct msdf
+        // We compute this value using the ration of our screenspace extent to the texel space our glyph takes inside the texture
+        // Our glyph is centered inside the texture, so `maxUV = 1.0 - minUV` and `glyphTexelSize = (1.0-2.0*minUV) * MSDFSize
+        const float screenPxRange = max(screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x) * MSDFSize), 1.0);
+        
+        // In order to keep the shape scale constant with any dilation values:
+        // We compute the new dilated minUV that gets us minUV when interpolated on the previous undilated top left
+        const float2 topLeftInterpolationValue = (dilateRate/(1.0+2.0*dilateRate));
+        const float2 dilatedMinUV = (topLeftInterpolationValue - minUV) / (2.0 * topLeftInterpolationValue - 1.0);
+        const float2 dilatedMaxUV = float2(1.0, 1.0) - dilatedMinUV;
+        
+        const float2 uv = dilatedMinUV + corner * (dilatedMaxUV - dilatedMinUV);
 
         outV.position = float4(coord, 0.f, 1.f);
-        outV.setFontGlyphUV(uvs);
+        outV.setFontGlyphUV(uv);
         outV.setFontGlyphTextureId(textureID);
         outV.setFontGlyphScreenPxRange(screenPxRange);
     }
