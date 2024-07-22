@@ -85,7 +85,7 @@ public:
 				binding.binding = introspectionBinding.binding;
 				binding.type = introspectionBinding.type;
 				binding.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
-				binding.stageFlags = IGPUShader::ESS_COMPUTE;
+				binding.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
 				assert(introspectionBinding.count.countMode == CSPIRVIntrospector::CIntrospectionData::SDescriptorArrayInfo::DESCRIPTOR_COUNT::STATIC);
 				binding.count = introspectionBinding.count.count;
 			}
@@ -305,7 +305,7 @@ public:
 			// The Shader Asset Loaders deduce the stage from the file extension,
 			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
 			// But it can still be overriden from within the source with a `#pragma shader_stage` 
-			options.stage = source->getStage() == IShader::ESS_COMPUTE ? source->getStage() : IShader::ESS_VERTEX; // TODO: do smth with it
+			options.stage = source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE ? source->getStage() : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
 			options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 			options.spirvOptimizer = nullptr;
