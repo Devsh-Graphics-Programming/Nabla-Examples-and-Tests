@@ -391,6 +391,7 @@ float4 main(PSInput input) : SV_TARGET
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
+        float distance = nbl::hlsl::numeric_limits<float>::max;
         if (objType == ObjectType::LINE)
         {
             const float2 start = input.getLineStart();
@@ -406,7 +407,6 @@ float4 main(PSInput input) : SV_TARGET
 
             LineStyle style = lineStyles[styleIdx];
 
-            float distance;
             if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
             {
                 distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
@@ -416,9 +416,6 @@ float4 main(PSInput input) : SV_TARGET
                 LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
@@ -432,7 +429,6 @@ float4 main(PSInput input) : SV_TARGET
             const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
             LineStyle style = lineStyles[styleIdx];
-            float distance;
             if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
             {
                 distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
@@ -442,14 +438,11 @@ float4 main(PSInput input) : SV_TARGET
                 BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
         else if (objType == ObjectType::POLYLINE_CONNECTOR)
         {
             const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-            const float distance = miterSDF(
+            distance = miterSDF(
                 P,
                 input.getLineThickness(),
                 input.getPolylineConnectorTrapezoidStart(),
@@ -457,9 +450,8 @@ float4 main(PSInput input) : SV_TARGET
                 input.getPolylineConnectorTrapezoidLongBase(),
                 input.getPolylineConnectorTrapezoidShortBase());
 
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
+        localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
@@ -567,7 +559,6 @@ float4 main(PSInput input) : SV_TARGET
 
             const float dist = sqrt(closestDistanceSquared);
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
-            
         }
 
         LineStyle style = lineStyles[mainObjects[currentMainObjectIdx].styleIdx];
@@ -576,7 +567,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
-            localAlpha = smoothstep(-globals.antiAliasingFactor / 2.0, +globals.antiAliasingFactor / 2.0f, msdf);
+            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
     else if (objType == ObjectType::FONT_GLYPH) 
@@ -591,7 +582,7 @@ float4 main(PSInput input) : SV_TARGET
             
             // localAlpha = smoothstep(-globals.antiAliasingFactor, 0.0, msdf); 
             // IDK why but it looks best if aa is done on the inside of the shape too esp for curved and diagonal shapes, it may make the shape a tiny bit thinner but worth it
-            localAlpha = smoothstep(-globals.antiAliasingFactor, +globals.antiAliasingFactor, msdf); 
+            localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, msdf); 
         }
     }
     else if (objType == ObjectType::IMAGE) 
