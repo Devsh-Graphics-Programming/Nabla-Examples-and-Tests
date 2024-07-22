@@ -119,7 +119,7 @@ struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
     float64_t2 aabbMin; // 16
-    float64_t2 aabbMax; // 32
+    float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
     float32_t2 curveMin[3]; // 56
     float32_t2 curveMax[3]; // 80
 };

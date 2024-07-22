@@ -379,12 +379,10 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        // TODO: better name?
-        // TODO: can we use floats instead of doubles for every dilation and ndc things except the main box values
-        const double2 ndcBoxAxisX = transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
-        const double2 ndcBoxAxisY = transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
+        const float2 ndcBoxAxisX = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
+        const float2 ndcBoxAxisY = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
 
-        const double2 screenSpaceAabbExtents = double2(length(ndcBoxAxisX * double2(globals.resolution)) / 2.0, length(ndcBoxAxisY * double2(globals.resolution)) / 2.0);
+        const float2 screenSpaceAabbExtents = float2(length(ndcBoxAxisX * float2(globals.resolution)) / 2.0, length(ndcBoxAxisY * float2(globals.resolution)) / 2.0);
 
         // we could use something like  this to compute screen space change over minor/major change and avoid ddx(minor), ddy(major) in frag shader (the code below doesn't account for rotation)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
@@ -474,7 +472,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
         const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
         
-        const double2 screenSpaceAabbExtents = double2(length(screenDirU * double2(globals.resolution)) / 2.0, length(screenDirV * double2(globals.resolution)) / 2.0);
+        const float2 screenSpaceAabbExtents = float2(length(screenDirU * float2(globals.resolution)) / 2.0, length(screenDirV * float2(globals.resolution)) / 2.0);
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
         const float2 dilateRate = (float2)(pixelsToIncreaseOnEachSide / screenSpaceAabbExtents);
 
