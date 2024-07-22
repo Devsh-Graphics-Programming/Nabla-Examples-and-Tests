@@ -36,7 +36,7 @@ using namespace video;
 //#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
 //#define SHADER_CACHE_TEST_CACHE_RETRIEVE
 
-static constexpr bool DebugModeWireframe = true;
+static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
 static constexpr bool FragmentShaderPixelInterlock = false;
 
@@ -346,11 +346,10 @@ public:
 		}
 
 		IGPUSampler::SParams samplerParams = {};
-		// @Lucas you might need to modify the sampler
-		samplerParams.TextureWrapU = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_REPEAT;
-		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
+		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
@@ -1028,7 +1027,7 @@ public:
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
 		auto& cb = m_commandBuffers[resourceIx];
 		auto& commandPool = m_graphicsCommandPools[resourceIx];
-		
+
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
