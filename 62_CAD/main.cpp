@@ -522,49 +522,49 @@ public:
 					.binding = 0u,
 					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
 					.binding = 1u,
 					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
 					.binding = 2u,
 					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
 					.binding = 3u,
 					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
 					.binding = 4u,
 					.type = asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
 					.binding = 5u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 				{
 					.binding = 6u,
 					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
 					.createFlags = bindlessTextureFlags,
-					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 128u,
 				},
 			};
@@ -577,7 +577,7 @@ public:
 					.binding = 0u,
 					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::ESS_FRAGMENT,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
 			};
@@ -720,10 +720,10 @@ public:
 
 					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 
 			auto serializedCache = cache->serialize();
 			auto savePath = localOutputCWD / "cache.bin";
@@ -784,10 +784,10 @@ public:
 
 					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 #else
 
 			// Load Custom Shader
@@ -809,10 +809,10 @@ public:
 
 					return m_device->createShader(cpuShader.get());
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 #endif
 		}
 
