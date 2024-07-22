@@ -30,7 +30,7 @@ public:
 	{
 	public:
 		inline DeferredFreeFunctor(IndexAllocator* composed, size_type count, const value_type* addresses)
-			: m_addresses(std::move(core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<value_type>>(count))), 
+			: m_addresses(core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<value_type>>(count)), 
 			  m_parent(composed)
 		{
 			memcpy(m_addresses->data(), addresses, count * sizeof(value_type));
