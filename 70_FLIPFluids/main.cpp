@@ -1,5 +1,6 @@
 #include <nabla.h>
 
+#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
 #include "../common/InputSystem.hpp"
 #include "../common/Camera.hpp"
@@ -97,9 +98,10 @@ protected:
 	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
 };
 
-class FLIPFluidsApp final : public examples::SimpleWindowedApplication
+class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
-	using base_t = examples::SimpleWindowedApplication;
+	using device_base_t = examples::SimpleWindowedApplication;
+	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 	using clock_t = std::chrono::steady_clock;
 
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_WIDTH = 1280, WIN_HEIGHT = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
@@ -141,7 +143,9 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		if (!base_t::onAppInitialized(std::move(system)))
+		if (!device_base_t::onAppInitialized(std::move(system)))
+			return false;
+		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
 		m_semaphore = m_device->createSemaphore(m_submitIx);
@@ -182,77 +186,18 @@ public:
 		if (!renderpass)
 			return logFail("Failed to create renderpass!");
 
-		// init shaders
-		auto assetManager = make_smart_refctd_ptr<nbl::asset::IAssetManager>(smart_refctd_ptr(system));
-		CSPIRVIntrospector introspector;
-		auto compiledShader = compileShaderAndIntrospect("app_resources/test.comp.hlsl", introspector, assetManager);
-		auto source = compiledShader.first;
-		auto shaderIntrospection = compiledShader.second;
-
-		ICPUShader::SSpecInfo specInfo;
-		specInfo.entryPoint = "main";
-		specInfo.shader = source.get();
-
-		smart_refctd_ptr<ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo); ///< what does this do?
-
-		smart_refctd_ptr<nbl::video::IGPUShader> exampleShader = m_device->createShader(source.get());
-		if (!exampleShader)
-			return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
-
-		std::array<std::vector<IGPUDescriptorSetLayout::SBinding>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> bindings;
-		for (uint32_t i = 0u; i < IGPUPipelineLayout::DESCRIPTOR_SET_COUNT; ++i)
-		{
-			const auto& introspectionBindings = shaderIntrospection->getDescriptorSetInfo(i);
-			bindings[i].resize(introspectionBindings.size());
-
-			for (const auto& introspectionBinding : introspectionBindings)
-			{
-				auto& binding = bindings[i].emplace_back();
-
-				binding.binding = introspectionBinding.binding;
-				binding.type = introspectionBinding.type;
-				binding.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
-				binding.stageFlags = IGPUShader::ESS_COMPUTE;
-				assert(introspectionBinding.count.countMode == CSPIRVIntrospector::CIntrospectionData::SDescriptorArrayInfo::DESCRIPTOR_COUNT::STATIC);
-				binding.count = introspectionBinding.count.count;
-			}
-		}
-
-		const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> testDsLayouts = {
-			bindings[0].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[0]),
-			bindings[1].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[1]),
-			bindings[2].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[2]),
-			bindings[3].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[3]),
-		};
-
-		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout(
-			{},
-			core::smart_refctd_ptr(testDsLayouts[0]),
-			core::smart_refctd_ptr(testDsLayouts[1]),
-			core::smart_refctd_ptr(testDsLayouts[2]),
-			core::smart_refctd_ptr(testDsLayouts[3])
-		);
-		if (!pipelineLayout)
-			return logFail("Failed to create compute pipeline layout!\n");
-
-		// init pipeline(s)
-		smart_refctd_ptr<video::IGPUComputePipeline> pipeline;
-		{
-			IGPUComputePipeline::SCreationParams params = {};
-			params.layout = pipelineLayout.get();
-			params.shader.entryPoint = "main";
-			params.shader.shader = exampleShader.get();
-			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
-				return logFail("Failed to create pipelines (compile & link shaders)!\n");
-		}
+		// init shaders and pipeline
+		auto computePipeline = createComputePipelineFromShader("app_resources/test.comp.hlsl");
+		smart_refctd_ptr<video::IGPUComputePipeline> pipeline = computePipeline.first;
+		const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayouts = computePipeline.second;
 
 		// init and write descriptor
 		constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
 		const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
-			!testDsLayouts[0] ? nullptr : testDsLayouts[0].get(),
-			!testDsLayouts[1] ? nullptr : testDsLayouts[1].get(),
-			!testDsLayouts[2] ? nullptr : testDsLayouts[2].get(),
-			!testDsLayouts[3] ? nullptr : testDsLayouts[3].get()
+			!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
+			!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
+			!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
+			!dsLayouts[3] ? nullptr : dsLayouts[3].get()
 		};
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>, maxDescriptorSets> descriptorSets;
 		auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
@@ -286,9 +231,9 @@ public:
 				info[0].desc = smart_refctd_ptr(testBuffer);
 				info[0].info.buffer = {.offset = 0, .size = bufferSize};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-					{.dstSet = descriptorSets[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = info}
+					{.dstSet = descriptorSets[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = info}
 				};
-				m_device->updateDescriptorSets(std::span(writes, 1), {});
+				m_device->updateDescriptorSets(writes, {});
 			}
 		}
 
@@ -333,11 +278,10 @@ public:
 		m_device->blockForSemaphores(waitInfos);
 
 		auto buffData = reinterpret_cast<const uint32_t*>(allocation.memory->getMappedPointer());
-		assert(allocation.offset==0); // simpler than writing out all the pointer arithmetic
-		for (auto i=0; i<WorkgroupSize*workgroupCount; i++)
+		assert(allocation.offset==0);
+		for (auto i=0; i<WorkgroupSize * workgroupCount; i++)
 		if (buffData[i]!=i)
 			return logFail("DWORD at position %d doesn't match!\n",i);
-		// This allocation would unmap itself in the dtor anyway, but lets showcase the API usage
 		allocation.memory->unmap();
 
 		/*
@@ -401,12 +345,12 @@ public:
 
 private:
 	std::pair<smart_refctd_ptr<ICPUShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileShaderAndIntrospect(
-		const std::string& filePath, CSPIRVIntrospector& introspector, smart_refctd_ptr<IAssetManager> assetManager)
+		const std::string& filePath, CSPIRVIntrospector& introspector)
 	{
 		IAssetLoader::SAssetLoadParams lparams = {};
 		lparams.logger = m_logger.get();
 		lparams.workingDirectory = "";
-		auto bundle = assetManager->getAsset(filePath, lparams);
+		auto bundle = m_assetMgr->getAsset(filePath, lparams);
 		if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
 		{
 			m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
@@ -419,7 +363,7 @@ private:
 
 		smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspection;
 		{
-			auto* compilerSet = assetManager->getCompilerSet();
+			auto* compilerSet = m_assetMgr->getCompilerSet();
 
 			nbl::asset::IShaderCompiler::SCompilerOptions options = {};
 			options.stage = shaderSrc->getStage();
@@ -464,6 +408,84 @@ private:
 		}
 		return std::pair(shaderSrc, introspection);
 	}
+
+	std::pair<smart_refctd_ptr<video::IGPUComputePipeline>, const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT>> createComputePipelineFromShader(
+		const std::string& filePath)
+	{
+		CSPIRVIntrospector introspector;
+		auto compiledShader = compileShaderAndIntrospect(filePath, introspector);
+		auto source = compiledShader.first;
+		auto shaderIntrospection = compiledShader.second;
+
+		ICPUShader::SSpecInfo specInfo;
+		specInfo.entryPoint = "main";
+		specInfo.shader = source.get();
+
+		smart_refctd_ptr<ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo); ///< what does this do?
+
+		smart_refctd_ptr<nbl::video::IGPUShader> shader = m_device->createShader(source.get());
+		if (!shader)
+		{
+			m_logger->log("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n", ILogger::ELL_ERROR);
+			exit(-1);
+		}
+
+		std::array<std::vector<IGPUDescriptorSetLayout::SBinding>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> bindings;
+		for (uint32_t i = 0u; i < IGPUPipelineLayout::DESCRIPTOR_SET_COUNT; ++i)
+		{
+			const auto& introspectionBindings = shaderIntrospection->getDescriptorSetInfo(i);
+			bindings[i].reserve(introspectionBindings.size());
+
+			for (const auto& introspectionBinding : introspectionBindings)
+			{
+				auto& binding = bindings[i].emplace_back();
+
+				binding.binding = introspectionBinding.binding;
+				binding.type = introspectionBinding.type;
+				binding.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
+				binding.stageFlags = IGPUShader::ESS_COMPUTE;
+				assert(introspectionBinding.count.countMode == CSPIRVIntrospector::CIntrospectionData::SDescriptorArrayInfo::DESCRIPTOR_COUNT::STATIC);
+				binding.count = introspectionBinding.count.count;
+			}
+		}
+
+		const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayouts = {
+			bindings[0].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[0]),
+			bindings[1].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[1]),
+			bindings[2].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[2]),
+			bindings[3].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[3]),
+		};
+
+		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout(
+			{},
+			core::smart_refctd_ptr(dsLayouts[0]),
+			core::smart_refctd_ptr(dsLayouts[1]),
+			core::smart_refctd_ptr(dsLayouts[2]),
+			core::smart_refctd_ptr(dsLayouts[3])
+		);
+		if (!pipelineLayout)
+		{
+			m_logger->log("Failed to create compute pipeline layout!\n", ILogger::ELL_ERROR);
+			exit(-1);
+		}
+
+		// init pipeline(s)
+		smart_refctd_ptr<video::IGPUComputePipeline> pipeline;
+		{
+			IGPUComputePipeline::SCreationParams params = {};
+			params.layout = pipelineLayout.get();
+			params.shader.entryPoint = "main";
+			params.shader.shader = shader.get();
+			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+			{
+				m_logger->log("Failed to create pipelines (compile & link shaders)!\n", ILogger::ELL_ERROR);
+				exit(-1);
+			}
+		}
+
+		return std::pair(pipeline, dsLayouts);
+	}
+
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
