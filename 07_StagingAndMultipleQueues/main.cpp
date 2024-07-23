@@ -313,7 +313,7 @@ private:
 		smart_refctd_ptr<ICPUShader> source;
 		{
 			source = loadFistAssetInBundle<ICPUShader>("../app_resources/comp_shader.hlsl");
-			source->setShaderStage(IShader::ESS_COMPUTE);
+			source->setShaderStage(IShader::E_SHADER_STAGE::ESS_COMPUTE);
 		}
 
 		if (!source)
