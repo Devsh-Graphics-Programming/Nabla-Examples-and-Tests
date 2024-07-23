@@ -5,6 +5,7 @@
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
+#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -54,6 +55,39 @@ float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d)
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
     return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+}
+
+template<bool FragmentShaderPixelInterlock>
+void dilateHatch(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV);
+
+// Dilate with ease, our transparency algorithm will handle the overlaps easily with the help of FragmentShaderPixelInterlock
+template<>
+void dilateHatch<true>(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV)
+{
+    const float2 dilatationFactor = 1.0 + 2.0 * dilateRate;
+    
+    // cornerMultiplier stores the direction of the corner to dilate:
+    // (-1,-1)|--|(1,-1)
+    //        |  |
+    // (-1,1) |--|(1,1)
+    const float2 cornerMultiplier = float2(undilatedCorner * 2.0 - 1.0);
+    outUV = float2((cornerMultiplier * dilatationFactor + 1.0) * 0.5);
+    
+    // vx/vy are vectors in direction of the box's axes and their length is equal to X pixels (X = globals.antiAliasingFactor + 1.0)
+    // and we use them for dilation of X pixels in ndc space by adding them to the currentCorner in NDC space 
+    const float2 vx = ndcAxisU * dilateRate.x;
+    const float2 vy = ndcAxisV * dilateRate.y;
+    outOffsetVec = vx * cornerMultiplier.x + vy * cornerMultiplier.y; // (0, 0) should do -vx-vy and (1, 1) should do +vx+vy
+}
+
+// Don't dilate which causes overlap of colors when no fragshaderInterlock which powers our transparency and overlap resolving algorithm
+template<>
+void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV)
+{
+    outOffsetVec = float2(0.0f, 0.0f);
+    outUV = undilatedCorner;
+    // TODO: If it became a huge bummer on AMD devices we can consider dilating only in minor direction which may still avoid color overlaps
+    // Or optionally we could dilate and stuff when we know this hatch is opaque (alpha = 1.0)
 }
 
 PSInput main(uint vertexID : SV_VertexID)
@@ -379,35 +413,26 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        const float2 ndcBoxAxisX = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
-        const float2 ndcBoxAxisY = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
+        const float2 ndcAxisU = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
+        const float2 ndcAxisV = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
 
-        const float2 screenSpaceAabbExtents = float2(length(ndcBoxAxisX * float2(globals.resolution)) / 2.0, length(ndcBoxAxisY * float2(globals.resolution)) / 2.0);
+        const float2 screenSpaceAabbExtents = float2(length(ndcAxisU * float2(globals.resolution)) / 2.0, length(ndcAxisV * float2(globals.resolution)) / 2.0);
 
         // we could use something like  this to compute screen space change over minor/major change and avoid ddx(minor), ddy(major) in frag shader (the code below doesn't account for rotation)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
-        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
-        const double2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents;
-        const double2 dilatationFactor = 1.0 + 2.0 * dilateRate;
-        // undilatedMaxCornerNDC stores the quad's UVs:
-        // (-1,-1)|--|(1,-1)
-        //        |  |
-        // (-1,1) |--|(1,1)
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const float2 undilatedCornerNDC = float2(undilatedCorner * 2.0 - 1.0);
-        // Dilate the UVs
-        const float2 maxCorner = float2((undilatedCornerNDC * dilatationFactor + 1.0) * 0.5);
         
-        // vx/vy are vectors in direction of the box's axes and their length is equal to X pixels (X = globals.antiAliasingFactor + 1.0)
-        // and we use them for dilation of X pixels in ndc space by adding them to the currentCorner in NDC space 
-        const double2 vx = ndcBoxAxisX * dilateRate.x;
-        const double2 vy = ndcBoxAxisY * dilateRate.y;
-        const double2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y; // (0, 0) should do -vx-vy and (1, 1) should do +vx+vy
+        // We don't dilate on AMD (= no fragShaderInterlock)
+        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
+        const float2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents; // float sufficient to hold the dilate rect? 
+        float2 dilateVec;
+        float2 dilatedUV;
+        dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
         const double2 currentCorner = curveBox.aabbMin * (1.0 - undilatedCorner) + curveBox.aabbMax * undilatedCorner;
-        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + offsetVec);
+        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + dilateVec);
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -421,8 +446,8 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
-        outV.setMinorBBoxUV(maxCorner[minor]);
-        outV.setMajorBBoxUV(maxCorner[major]);
+        outV.setMinorBBoxUV(dilatedUV[minor]);
+        outV.setMajorBBoxUV(dilatedUV[major]);
 
         outV.setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMin.A[minor], 
