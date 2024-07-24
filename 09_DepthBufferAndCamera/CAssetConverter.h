@@ -30,8 +30,8 @@ class CAssetConverter : public core::IReferenceCounted
 	public:
 		using supported_asset_types = core::type_list<
 			asset::ICPUSampler,
-			asset::ICPUShader,
 			asset::ICPUBuffer,
+			asset::ICPUShader,
 			// image,
 //			asset::ICPUBufferView,
 			// image view
@@ -533,7 +533,9 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
 			IGPUPipelineCache* pipelineCache = nullptr;
 
-			// Leave this as `nullptr` unless you know what you're doing.
+			// Leave this as `nullptr` unless you know what you're doing. If you supply a hash cache,
+			// and it has stale hashes (asset or its dependants mutated since hash computed),
+			// then you can get hash mismatches which will lead to UB or conversion failures.
 			CHashCache* hashCache = nullptr;
         };
         struct SResults
