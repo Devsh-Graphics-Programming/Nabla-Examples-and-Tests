@@ -965,7 +965,6 @@ void SingleLineText::Draw(
 
 	for (const auto& glyphBox : glyphBoxes)
 	{
-<<<<<<< Updated upstream
 		const float64_t2 topLeft = mul(transformation, float64_t3(glyphBox.topLeft, 1.0)).xy;
 		const float64_t2 dirU = mul(transformation, float64_t3(glyphBox.size.x, 0.0, 0.0)).xy;
 		const float64_t2 dirV = mul(transformation, float64_t3(0.0, -glyphBox.size.y, 0.0)).xy;
@@ -974,40 +973,6 @@ void SingleLineText::Draw(
 		const float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
 		const float32_t2 minUV = m_face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
 		drawResourcesFiller.drawFontGlyph(m_face.get(), glyphBox.glyphIdx, topLeft, dirU, aspectRatio, minUV, glyphObjectIdx, intendedNextSubmit);
-=======
-		const auto msdfHash = DrawResourcesFiller::hashFontGlyph(m_face->getHash(), glyphBox.glyphIdx);
-		DrawResourcesFiller::MSDFReference* textureReference = drawResourcesFiller.addMSDFTexture(
-			[&]()
-			{
-				auto msdfCPUBuffer = m_face->generateGlyphMSDF(MSDFPixelRange, glyphBox.glyphIdx, drawResourcesFiller.getMSDFResolution(), drawResourcesFiller.getMSDFMips());
-				MSDFTextureUploadInfo textureUploadInfo = {
-					.cpuBuffer = msdfCPUBuffer,
-					.bufferOffset = 0u,
-					.imageExtent = uint32_t3(drawResourcesFiller.getMSDFResolution(), 1),
-				};
-				return textureUploadInfo;
-			},
-			msdfHash,
-			intendedNextSubmit
-		);
-		const auto textureId = textureReference->alloc_idx;
-		assert(textureId != DrawResourcesFiller::InvalidTextureHash);
-
-		float64_t2 topLeft = mul(transformation, float64_t3(glyphBox.topLeft, 1.0)).xy;
-		float64_t2 dirU = mul(transformation, float64_t3(glyphBox.size.x, 0.0, 0.0)).xy;
-		float64_t2 dirV = mul(transformation, float64_t3(0.0, -glyphBox.size.y, 0.0)).xy;
-		float32_t aspectRatio = static_cast<float32_t>(glm::length(dirV) / glm::length(dirU)); // check if you can just do: (glyphBox.size.y * scale.y) / glyphBox.size.x * scale.x)
-		float32_t2 minUV = m_face->getUV(float32_t2(0.0f,0.0f), glyphBox.size, drawResourcesFiller.getMSDFResolution(), MSDFPixelRange);
-		
-		FontGlyphInfo glyphInfo = 
-		{
-			.topLeft = topLeft,
-			.dirU = dirU,
-			.aspectRatio = aspectRatio,
-			.minUV_textureID_packed = textureId | uint32_t(minUV.x * 255.0) << 24 | uint32_t(minUV.y * 255.0) << 16,
-		};
-		drawResourcesFiller.drawFontGlyph(glyphInfo, glyphObjectIdx, intendedNextSubmit);
->>>>>>> Stashed changes
 	}
 
 }
