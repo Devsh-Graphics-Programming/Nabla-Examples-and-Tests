@@ -204,6 +204,9 @@ public:
 		auto extents = msdfTextureArray->getCreationParameters().image->getCreationParameters().extent;
 		return uint32_t2(extents.width, extents.height);
 	}
+	uint32_t getMSDFMips() {
+		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
+	}
 
 protected:
 	
