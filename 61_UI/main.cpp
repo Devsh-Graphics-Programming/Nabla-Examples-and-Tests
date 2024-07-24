@@ -625,30 +625,42 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			struct
 			{
 				std::vector<SMouseEvent> mouse{};
+				std::vector<SKeyboardEvent> keyboard{};
 			} capturedEvents;
 
 			m_inputSystem->getDefaultMouse(&mouse);
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
-			{
-				for (auto event : events)
 				{
-					if (event.timeStamp < previousEventTimestamp)
-						continue;
+					for (const auto& e : events)
+					{
+						if (e.timeStamp < previousEventTimestamp)
+							continue;
 
-					previousEventTimestamp = event.timeStamp;
-					capturedEvents.mouse.push_back(event);
-				}
-			}, m_logger.get());
+						previousEventTimestamp = e.timeStamp;
+						capturedEvents.mouse.emplace_back(e);
+					}
+				}, m_logger.get());
 
 			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
-			{
-				// TOOD
-			}, m_logger.get());
+				{
+					for (const auto& e : events)
+					{
+						if (e.timeStamp < previousEventTimestamp)
+							continue;
+
+						previousEventTimestamp = e.timeStamp;
+						capturedEvents.keyboard.emplace_back(e);
+					}
+				}, m_logger.get());
 
 			const auto mousePosition = m_window->getCursorControl()->getPosition();
-			ui->update(deltaTimeInSec, static_cast<float>(mousePosition.x), static_cast<float>(mousePosition.y), capturedEvents.mouse.size(), capturedEvents.mouse.data());
+
+			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
+			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
+
+			ui->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
 		}
 
 		inline bool keepRunning() override
