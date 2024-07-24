@@ -53,7 +53,7 @@ protected:
 			// The Shader Asset Loaders deduce the stage from the file extension,
 			// if the extension is generic (.glsl or .hlsl) the stage is unknown.
 			// But it can still be overriden from within the source with a `#pragma shader_stage` 
-			options.stage = source->getStage() == IShader::ESS_COMPUTE ? source->getStage() : IShader::ESS_VERTEX; // TODO: do smth with it
+			options.stage = source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE ? source->getStage() : IShader::E_SHADER_STAGE::ESS_VERTEX; // TODO: do smth with it
 			options.targetSpirvVersion = device->getPhysicalDevice()->getLimits().spirvVersion;
 			// we need to perform an unoptimized compilation with source debug info or we'll lose names of variable sin the introspection
 			options.spirvOptimizer = nullptr;
@@ -201,7 +201,7 @@ public:
 				.binding = 0,
 				.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 				.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = ICPUShader::ESS_COMPUTE,
+				.stageFlags = ICPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 				.count = 1,
 				.immutableSamplers = nullptr
 			}
@@ -213,7 +213,7 @@ public:
 					.binding = 0,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = ICPUShader::ESS_COMPUTE,
+					.stageFlags = ICPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 1,
 					.immutableSamplers = nullptr
 				},
@@ -221,7 +221,7 @@ public:
 					.binding = 1,
 					.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
 					.createFlags = ICPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = ICPUShader::ESS_COMPUTE,
+					.stageFlags = ICPUShader::E_SHADER_STAGE::ESS_COMPUTE,
 					.count = 2,
 					.immutableSamplers = nullptr
 				}
