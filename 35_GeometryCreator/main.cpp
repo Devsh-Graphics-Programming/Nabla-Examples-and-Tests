@@ -273,7 +273,7 @@ public:
 
 		SPushConstantRange pushConstantRanges[] = {
 			{
-				.stageFlags = IShader::ESS_VERTEX,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX,
 				.offset = 0,
 				.size = sizeof(PushConstants)
 			}
@@ -284,7 +284,7 @@ public:
 				.binding = 0u,
 				.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
 				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = asset::IShader::ESS_VERTEX | asset::IShader::ESS_FRAGMENT,
+				.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 				.count = 1u,
 			}
 		};
@@ -524,7 +524,7 @@ public:
 			auto* rawPipeline = hook.pipeline.get();
 			cb->bindGraphicsPipeline(rawPipeline);
 			cb->bindDescriptorSets(EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
-			cb->pushConstants(rawPipeline->getLayout(), IShader::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
+			cb->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
 
 			const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = hook.m_vertexBuffer} };
 			const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
@@ -681,8 +681,8 @@ private:
 				return m_device->createShader(shader.get());
 			};
 
-			shaders.vertex = createShader(spirv.vertex, IShader::ESS_VERTEX);
-			shaders.fragment = createShader(spirv.fragment, IShader::ESS_FRAGMENT);
+			shaders.vertex = createShader(spirv.vertex, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			shaders.fragment = createShader(spirv.fragment, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 		}
 
 		SBlendParams blendParams{};

@@ -76,7 +76,7 @@ public:
             auto source = IAsset::castDown<ICPUShader>(assets[0]);
             // The down-cast should not fail!
             assert(source);
-            assert(source->getStage() == IShader::ESS_COMPUTE);
+            assert(source->getStage() == IShader::E_SHADER_STAGE::ESS_COMPUTE);
 
             // this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
             shader = m_device->createShader(source.get());
@@ -93,14 +93,14 @@ public:
         
         for(int i = 0; i < bindingCount; ++i)
         {
-            bindings[i].stageFlags = IShader::ESS_COMPUTE;
+            bindings[i].stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
             bindings[i].count = 1;
             bindings[i].binding = i;
         }
 		m_descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
         {
 		    SPushConstantRange pcRange = {};
-		    pcRange.stageFlags = IShader::ESS_COMPUTE;
+		    pcRange.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE;
 		    pcRange.offset = 0u;
 		    pcRange.size = 2 * sizeof(uint32_t);
             auto layout = m_device->createPipelineLayout({ &pcRange,1 }, smart_refctd_ptr(m_descriptorSetLayout));
