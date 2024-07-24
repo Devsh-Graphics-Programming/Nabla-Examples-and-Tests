@@ -14,6 +14,7 @@ using namespace video;
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+#include "nbl/ext/TextRendering/TextRendering.h"
 #include "nbl/core/SRange.h"
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
@@ -26,6 +27,8 @@ using namespace video;
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
+#include "HatchGlyphBuilder.h"
+
 #include <chrono>
 #define BENCHMARK_TILL_FIRST_FRAME
 
@@ -33,9 +36,9 @@ using namespace video;
 //#define SHADER_CACHE_TEST_COMPILATION_CACHE_STORE
 //#define SHADER_CACHE_TEST_CACHE_RETRIEVE
 
-static constexpr bool DebugMode = false;
+static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = true;
+static constexpr bool FragmentShaderPixelInterlock = false;
 
 enum class ExampleMode
 {
@@ -46,9 +49,25 @@ enum class ExampleMode
 	CASE_4, // STIPPLE PATTERN
 	CASE_5, // Advanced Styling
 	CASE_6, // Custom Clip Projections
+	CASE_7, // Images
+	CASE_8, // MSDF and Text
+	CASE_COUNT
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_6;
+constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
+{
+	10.0,	// CASE_0
+	10.0,	// CASE_1
+	200.0,	// CASE_2
+	10.0,	// CASE_3
+	10.0,	// CASE_4
+	10.0,	// CASE_5
+	10.0,	// CASE_6
+	10.0,	// CASE_7
+	600.0,	// CASE_8
+};
+
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -269,10 +288,10 @@ public:
 		drawResourcesFiller.allocateStylesBuffer(m_device.get(), 32u);
 
 		// * 3 because I just assume there is on average 3x beziers per actual object (cause we approximate other curves/arcs with beziers now)
-		// + 128 ClipProjDaa
+		// + 128 ClipProjData
 		size_t geometryBufferSize = maxObjects * sizeof(QuadraticBezierInfo) * 3 + 128 * sizeof(ClipProjectionData);
 		drawResourcesFiller.allocateGeometryBuffer(m_device.get(), geometryBufferSize);
-		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 1024u);
+		drawResourcesFiller.allocateMSDFTextures(m_device.get(), 512u, uint32_t2(MSDFSize, MSDFSize));
 
 		{
 			IGPUBuffer::SCreationParams globalsCreationParams = {};
@@ -289,13 +308,6 @@ public:
 		// pseudoStencil
 		{
 			asset::E_FORMAT pseudoStencilFormat = asset::EF_R32_UINT;
-
-			IPhysicalDevice::SImageFormatPromotionRequest promotionRequest = {};
-			promotionRequest.originalFormat = asset::EF_R32_UINT;
-			promotionRequest.usages = {};
-			promotionRequest.usages.storageImageAtomic = true;
-			pseudoStencilFormat = m_physicalDevice->promoteImageFormat(promotionRequest, IGPUImage::TILING::OPTIMAL);
-
 			{
 				IGPUImage::SCreationParams imgInfo;
 				imgInfo.format = pseudoStencilFormat;
@@ -334,11 +346,10 @@ public:
 		}
 
 		IGPUSampler::SParams samplerParams = {};
-		// @Lucas you might need to modify the sampler
-		samplerParams.TextureWrapU = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapV = IGPUSampler::ETC_REPEAT;
-		samplerParams.TextureWrapW = IGPUSampler::ETC_REPEAT;
-		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_BLACK;
+		samplerParams.TextureWrapU = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapV = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.TextureWrapW = IGPUSampler::ETC_CLAMP_TO_BORDER;
+		samplerParams.BorderColor  = IGPUSampler::ETBC_FLOAT_OPAQUE_WHITE; // positive means outside shape
 		samplerParams.MinFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MaxFilter		= IGPUSampler::ETF_LINEAR;
 		samplerParams.MipmapMode	= IGPUSampler::ESMM_LINEAR;
@@ -463,7 +474,7 @@ public:
 			return false;
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
-
+		
 		fragmentShaderInterlockEnabled = m_device->getEnabledFeatures().fragmentShaderPixelInterlock;
 		
 		// Create the Semaphores
@@ -498,6 +509,11 @@ public:
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
 
 		allocateResources(40960u);
+
+		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT |
+			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_PARTIALLY_BOUND_BIT;
 
 		// Create DescriptorSetLayout, PipelineLayout and update DescriptorSets
 		{
@@ -537,6 +553,20 @@ public:
 					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
 					.count = 1u,
 				},
+				{
+					.binding = 5u,
+					.type = asset::IDescriptor::E_TYPE::ET_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				},
+				{
+					.binding = 6u,
+					.type = asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+					.createFlags = bindlessTextureFlags,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 128u,
+				},
 			};
 			descriptorSetLayout0 = m_device->createDescriptorSetLayout(bindingsSet0);
 			if (!descriptorSetLayout0)
@@ -560,7 +590,7 @@ public:
 			smart_refctd_ptr<IDescriptorPool> descriptorPool = nullptr;
 			{
 				const uint32_t setCounts[2u] = { 1u, 1u};
-				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				descriptorPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT, layouts, setCounts);
 				if (!descriptorPool)
 					return logFail("Failed to Create Descriptor Pool");
 			}
@@ -568,7 +598,7 @@ public:
 			{
 				descriptorSet0 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout0));
 				descriptorSet1 = descriptorPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout1));
-				constexpr uint32_t DescriptorCountSet0 = 5u;
+				constexpr uint32_t DescriptorCountSet0 = 6u;
 				video::IGPUDescriptorSet::SDescriptorInfo descriptorInfosSet0[DescriptorCountSet0] = {};
 
 				// Descriptors For Set 0:
@@ -588,9 +618,15 @@ public:
 				descriptorInfosSet0[3u].info.buffer.size = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer->getCreationParams().size;
 				descriptorInfosSet0[3u].desc = drawResourcesFiller.gpuDrawBuffers.lineStylesBuffer;
 				
-				descriptorInfosSet0[4u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfosSet0[4u].info.combinedImageSampler.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				descriptorInfosSet0[4u].info.combinedImageSampler.sampler = msdfTextureSampler;
 				descriptorInfosSet0[4u].desc = drawResourcesFiller.getMSDFsTextureArray();
+				
+				descriptorInfosSet0[5u].desc = msdfTextureSampler; // TODO[Erfan]: different sampler and make immutable?
+				
+				// This is bindless to we write to it later.
+				// descriptorInfosSet0[6u].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				// descriptorInfosSet0[6u].desc = drawResourcesFiller.getMSDFsTextureArray();
 
 				// Descriptors For Set 1:
 				constexpr uint32_t DescriptorCountSet1 = 1u;
@@ -632,13 +668,19 @@ public:
 				descriptorUpdates[4u].arrayElement = 0u;
 				descriptorUpdates[4u].count = 1u;
 				descriptorUpdates[4u].info = &descriptorInfosSet0[4u];
-
-				// Set 1 Updates:
-				descriptorUpdates[5u].dstSet = descriptorSet1.get();
-				descriptorUpdates[5u].binding = 0u;
+				
+				descriptorUpdates[5u].dstSet = descriptorSet0.get();
+				descriptorUpdates[5u].binding = 5u;
 				descriptorUpdates[5u].arrayElement = 0u;
 				descriptorUpdates[5u].count = 1u;
-				descriptorUpdates[5u].info = &descriptorInfosSet1[0u];
+				descriptorUpdates[5u].info = &descriptorInfosSet0[5u];
+
+				// Set 1 Updates:
+				descriptorUpdates[6u].dstSet = descriptorSet1.get();
+				descriptorUpdates[6u].binding = 0u;
+				descriptorUpdates[6u].arrayElement = 0u;
+				descriptorUpdates[6u].count = 1u;
+				descriptorUpdates[6u].info = &descriptorInfosSet1[0u];
 
 
 				m_device->updateDescriptorSets(DescriptorUpdatesCount, descriptorUpdates, 0u, nullptr);
@@ -678,10 +720,10 @@ public:
 
 					return m_device->createShader({ cpuShader.get(), nullptr, nullptr, cache.get() });
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 
 			auto serializedCache = cache->serialize();
 			auto savePath = localOutputCWD / "cache.bin";
@@ -742,10 +784,10 @@ public:
 
 					return m_device->createShader({ cpuShader.get(), nullptr, cache.get(), nullptr });
 				};
-			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::ESS_VERTEX);
-			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::ESS_FRAGMENT);
-			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::ESS_FRAGMENT);
+			shaders[0] = loadCompileAndCreateShader(vertexShaderPath, IShader::E_SHADER_STAGE::ESS_VERTEX);
+			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 #else
 
 			// Load Custom Shader
@@ -828,7 +870,7 @@ public:
 			if (!m_device->createGraphicsPipelines(nullptr,params,&graphicsPipeline))
 				return logFail("Graphics Pipeline Creation Failed.");
 
-			if constexpr (DebugMode)
+			if constexpr (DebugModeWireframe)
 			{
 				specInfo[1u].shader = shaders[2u].get(); // change only fragment shader to fragment_shader_debug.hlsl
 				params[0].cached.rasterization.polygonMode = asset::EPM_LINE;
@@ -852,14 +894,33 @@ public:
 		
 		m_Camera.setOrigin({ 0.0, 0.0 });
 		m_Camera.setAspectRatio((double)m_window->getWidth() / m_window->getHeight());
-		m_Camera.setSize(10.0);
-		if constexpr (mode == ExampleMode::CASE_2)
-		{
-			m_Camera.setSize(200.0);
-		}
+		m_Camera.setSize(cameraExtents[uint32_t(mode)]);
 
 		m_timeElapsed = 0.0;
 		
+		// Loading font stuff
+		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
+		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+
+		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
+		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
+			core::smart_refctd_ptr<FontFace>(m_arialFont), 
+			std::string(str)));
+
+
+		drawResourcesFiller.setGlyphMSDFTextureFunction(
+			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			{
+				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution());
+			}
+		);
+
+		drawResourcesFiller.setHatchFillMSDFTextureFunction(
+			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			{
+				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
+			}
+		);
 		return true;
 	}
 
@@ -966,7 +1027,7 @@ public:
 		const auto resourceIx = m_realFrameIx%m_framesInFlight;
 		auto& cb = m_commandBuffers[resourceIx];
 		auto& commandPool = m_graphicsCommandPools[resourceIx];
-		
+
 		// safe to proceed
 		cb->reset(video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -1035,6 +1096,8 @@ public:
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 		{
 			const VkRect2D currentRenderArea =
 			{
@@ -1042,8 +1105,6 @@ public:
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
 
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = renderpassInitial.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
@@ -1208,15 +1269,15 @@ public:
 		}
 
 		nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		VkRect2D currentRenderArea;
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 		{
-			const VkRect2D currentRenderArea =
+			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
+			currentRenderArea =
 			{
 				.offset = {0,0},
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
-
-			auto scRes = static_cast<CSwapchainResources*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,0.f} };
 			beginInfo = {
 				.renderpass = (inBetweenSubmit) ? renderpassInBetween.get():renderpassFinal.get(),
 				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
@@ -1240,7 +1301,7 @@ public:
 			nbl::ext::FullScreenTriangle::recordDrawCall(cb);
 		}
 
-		if constexpr (DebugMode)
+		if constexpr (DebugModeWireframe)
 		{
 			cb->bindGraphicsPipeline(debugGraphicsPipeline.get());
 			cb->drawIndexed(currentIndexCount, 1u, 0u, 0u, 0u);
@@ -1375,7 +1436,7 @@ protected:
 			{
 				drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
 			};
-			
+
 			int32_t hatchDebugStep = m_hatchDebugStep;
 
 			if (hatchDebugStep > 0)
@@ -1391,7 +1452,7 @@ protected:
 				}
 				//printf("hatchDebugStep = %d\n", hatchDebugStep);
 				std::chrono::steady_clock::time_point begin = std::chrono::steady_clock::now();
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				std::chrono::steady_clock::time_point end = std::chrono::steady_clock::now();
 				// std::cout << "Hatch::Hatch time = " << std::chrono::duration_cast<std::chrono::microseconds>(end - begin).count() << "[us]" << std::endl;
 				std::sort(hatch.intersectionAmounts.begin(), hatch.intersectionAmounts.end());
@@ -1447,7 +1508,7 @@ protected:
 					polylines.push_back(polyline);
 				}
 
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 1.0, 0.1, 1.0f), intendedNextSubmit);
 			}
 
@@ -1480,7 +1541,7 @@ protected:
 				circleThing(float64_t2(0, -500));
 				circleThing(float64_t2(0, 500));
 
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.1, 0.1, 1.0f), intendedNextSubmit);
 			}
 
@@ -1634,7 +1695,7 @@ protected:
 					polyline.addLinePoints(points);
 					polylines.push_back(polyline);
 				}
-				Hatch hatch(polylines, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch(polylines, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.0, 0.0, 1.0, 1.0f), intendedNextSubmit);
 			}
 			
@@ -1673,7 +1734,7 @@ protected:
 				polyline.addLinePoints(points);
 				polyline.addQuadBeziers(beziers);
 
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(1.0f, 0.325f, 0.103f, 1.0f), intendedNextSubmit);
 			}
 			
@@ -1691,7 +1752,7 @@ protected:
 					100.0 * float64_t2(3.7, 7.27) });
 				polyline.addQuadBeziers(beziers);
 			
-				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, hatchDebugStep, debug);
+				Hatch hatch({&polyline, 1u}, SelectedMajorAxis, &hatchDebugStep, debug);
 				drawResourcesFiller.drawHatch(hatch, float32_t4(0.619f, 0.325f, 0.709f, 0.9f), intendedNextSubmit);
 			}
 		}
@@ -1773,7 +1834,7 @@ protected:
 						myCurve.majorAxis = { -10.0, 5.0 };
 						myCurve.center = { 0, -5.0 };
 						myCurve.angleBounds = {
-							nbl::core::PI<double>() * 1.0,
+							nbl::core::PI<double>() * 2.0,
 							nbl::core::PI<double>() * 0.0
 							};
 						myCurve.eccentricity = 1.0;
@@ -1801,10 +1862,10 @@ protected:
 			}
 
 			drawResourcesFiller.drawPolyline(originalPolyline, style, intendedNextSubmit);
-			CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
-			drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
-			drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
+			//CPolyline offsettedPolyline = originalPolyline.generateParallelPolyline(+0.0 - 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//CPolyline offsettedPolyline2 = originalPolyline.generateParallelPolyline(+0.0 + 3.0 * abs(cos(m_timeElapsed * 0.0009)));
+			//drawResourcesFiller.drawPolyline(offsettedPolyline, style2, intendedNextSubmit);
+			//drawResourcesFiller.drawPolyline(offsettedPolyline2, style2, intendedNextSubmit);
 		}
 		else if (mode == ExampleMode::CASE_4)
 		{
@@ -2611,7 +2672,366 @@ protected:
 			drawResourcesFiller.popClipProjectionData();
 			
 		}
+		else if (mode == ExampleMode::CASE_7)
+		{
+			if (m_realFrameIx == 0u)
+			{
+				// Load image
+				system::path m_loadCWD = "..";
+				std::string imagePath = "../../media/color_space_test/R8G8B8_1.jpg";
+				
+				constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
+				const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(),m_loadCWD);
+				auto bundle = m_assetMgr->getAsset(imagePath,loadParams);
+				auto contents = bundle.getContents();
+				if (contents.empty())
+				{
+					m_logger->log("Failed to load image with path %s, skipping!",ILogger::ELL_ERROR,(m_loadCWD/imagePath).c_str());
+				}
+				
+				smart_refctd_ptr<ICPUImageView> cpuImgView;
+				const auto& asset = contents[0];
+				switch (asset->getAssetType())
+				{
+					case IAsset::ET_IMAGE:
+					{
+						auto image = smart_refctd_ptr_static_cast<ICPUImage>(asset);
+						const auto format = image->getCreationParameters().format;
 
+						ICPUImageView::SCreationParams viewParams = {
+							.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+							.image = std::move(image),
+							.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+							.format = format,
+							.subresourceRange = {
+								.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+								.baseMipLevel = 0u,
+								.levelCount = ICPUImageView::remaining_mip_levels,
+								.baseArrayLayer = 0u,
+								.layerCount = ICPUImageView::remaining_array_layers
+							}
+						};
+
+						cpuImgView = ICPUImageView::create(std::move(viewParams));
+					} break;
+
+					case IAsset::ET_IMAGE_VIEW:
+						cpuImgView = smart_refctd_ptr_static_cast<ICPUImageView>(asset);
+						break;
+					default:
+						m_logger->log("Failed to load ICPUImage or ICPUImageView got some other Asset Type, skipping!",ILogger::ELL_ERROR);
+						return;
+				}
+			
+
+				// create matching size gpu image
+				smart_refctd_ptr<IGPUImage> gpuImg;
+				const auto& origParams = cpuImgView->getCreationParameters();
+				const auto origImage = origParams.image;
+				IGPUImage::SCreationParams imageParams = {};
+				imageParams = origImage->getCreationParameters();
+				imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT|IGPUImage::EUF_SAMPLED_BIT;
+				// promote format because RGB8 and friends don't actually exist in HW
+				{
+					const IPhysicalDevice::SImageFormatPromotionRequest request = {
+						.originalFormat = imageParams.format,
+						.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
+					};
+					imageParams.format = m_physicalDevice->promoteImageFormat(request,imageParams.tiling);
+				}
+				gpuImg = m_device->createImage(std::move(imageParams));
+				if (!gpuImg || !m_device->allocate(gpuImg->getMemoryReqs(),gpuImg.get()).isValid())
+					return;
+				gpuImg->setObjectDebugName(imagePath.c_str());
+				
+				IGPUImageView::SCreationParams viewParams = {
+					.image = gpuImg,
+					.viewType = IGPUImageView::ET_2D,
+					.format = gpuImg->getCreationParameters().format
+				};
+				auto gpuImgView = m_device->createImageView(std::move(viewParams));
+
+				// Bind gpu image view to descriptor set
+				video::IGPUDescriptorSet::SDescriptorInfo dsInfo;
+				dsInfo.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				dsInfo.desc = gpuImgView;
+
+				IGPUDescriptorSet::SWriteDescriptorSet dsWrites[1u] =
+				{
+					{
+						.dstSet = descriptorSet0.get(),
+						.binding = 6u,
+						.arrayElement = 0u,
+						.count = 1u,
+						.info = &dsInfo,
+					}
+				};
+				m_device->updateDescriptorSets(1u, dsWrites, 0u, nullptr);
+
+				// Upload Loaded CPUImageData to GPU
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t beforeCopyImageBarriers[] =
+				{
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::NONE, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::NONE,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = origParams.subresourceRange,
+						.oldLayout = IImage::LAYOUT::UNDEFINED,
+						.newLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					}
+				};
+
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = beforeCopyImageBarriers  });
+				m_utils->updateImageViaStagingBuffer(
+					intendedNextSubmit, 
+					origImage->getBuffer()->getPointer(), origImage->getCreationParameters().format,
+					gpuImg.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
+					origImage->getRegions());
+
+				IGPUCommandBuffer::SPipelineBarrierDependencyInfo::image_barrier_t afterCopyImageBarriers[] =
+				{
+					{
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT, // previous top of pipe -> top_of_pipe in first scope = none
+								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+								.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+								.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS,
+							}
+							// .ownershipOp. No queueFam ownership transfer
+						},
+						.image = gpuImg.get(),
+						.subresourceRange = origParams.subresourceRange,
+						.oldLayout = IImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						.newLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL,
+					}
+				};
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,  { .imgBarriers = afterCopyImageBarriers  });
+			}
+			drawResourcesFiller._test_addImageObject({ 0.0, 0.0 }, { 100.0, 100.0 }, 0.0, intendedNextSubmit);
+			
+			LineStyleInfo lineStyle = 
+			{
+				.color = float32_t4(1.0f, 0.1f, 0.1f, 0.9f),
+				.screenSpaceLineWidth = 3.0f,
+				.worldSpaceLineWidth = 0.0f,
+				.isRoadStyleFlag = false,
+			};
+			CPolyline polyline;
+			{
+				std::vector<float64_t2> linePoints;
+				linePoints.push_back({ 0.0, 0.0 });
+				linePoints.push_back({ 100.0, 0.0 });
+				linePoints.push_back({ 100.0, -100.0 });
+				polyline.addLinePoints(linePoints);
+			}
+			drawResourcesFiller.drawPolyline(polyline, lineStyle, intendedNextSubmit);
+		}
+		else if (mode == ExampleMode::CASE_8)
+		{
+			constexpr double hatchFillShapeSize = 100.0;
+			constexpr double hatchFillShapePadding = 10.0;
+
+			// Hatches with MSDF Fill patterns
+			for (uint32_t hatchFillShapeIdx = 1u; hatchFillShapeIdx < uint32_t(HatchFillPattern::COUNT); hatchFillShapeIdx++)
+			{
+				double totalShapesWidth = hatchFillShapeSize * double(uint32_t(HatchFillPattern::COUNT)) + hatchFillShapePadding * double(uint32_t(HatchFillPattern::COUNT) - 1);
+				double offset = hatchFillShapeSize * double(hatchFillShapeIdx) + hatchFillShapePadding * double(hatchFillShapeIdx);
+				// Center it
+				offset -= totalShapesWidth / 2.0;
+
+				{
+					CPolyline squareBelow;
+					{
+						std::vector<float64_t2> points;
+						auto addPt = [&](float64_t2 p)
+						{
+							auto point = p / 8.0;
+							points.push_back(point * hatchFillShapeSize + float64_t2(offset, -200.0 - hatchFillShapeSize));
+						};
+						addPt(float64_t2(0.0, 0.0));
+						addPt(float64_t2(8.0, 0.0));
+						addPt(float64_t2(8.0, 8.0));
+						addPt(float64_t2(0.0, 8.0));
+						addPt(float64_t2(0.0, 0.0));
+						squareBelow.addLinePoints(points);
+					}
+
+					Hatch filledHatch(std::span<CPolyline, 1>{std::addressof(squareBelow), 1}, SelectedMajorAxis);
+					// This draws a square that is textured with the fill pattern at hatchFillShapeIdx
+					drawResourcesFiller.drawHatch(
+						filledHatch, 
+						float32_t4(1.0, 1.0, 1.0, 1.0f), 
+						float32_t4(0.1, 0.1, 0.1, 1.0f), 
+						HatchFillPattern(hatchFillShapeIdx), 
+						intendedNextSubmit
+					);
+				}
+			}
+
+			if (singleLineText)
+			{
+				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation);
+			}
+
+			const bool drawTextHatches = true;
+			if (drawTextHatches)
+			{
+				constexpr auto TestString = "Hatch: The quick brown fox jumps over the lazy dog. !@#$%&*()_+-";
+
+				auto penX = -100.0;
+				auto penY = -500.0;
+				auto previous = 0;
+
+				uint32_t glyphObjectIdx;
+				{
+					LineStyleInfo lineStyle = {};
+					lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+					const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
+
+					glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
+				}
+
+				float64_t2 currentBaselineStart = float64_t2(0.0, 0.0);
+				float64_t scale = 1.0 / 64.0;
+
+				for (uint32_t i = 0; i < strlen(TestString); i++)
+				{
+					char k = TestString[i];
+					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
+					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
+					const float64_t2 baselineStart = currentBaselineStart;
+
+					currentBaselineStart += glyphMetrics.advance;
+					
+					struct TextGlyphBoundingBox
+					{
+						float64_t2 topLeft;
+						float64_t2 dirU;
+						float64_t2 dirV;
+					} glyphBbox;
+
+					if (glyphIndex != 0 || k != ' ')
+					{
+						glyphBbox.topLeft = baselineStart + glyphMetrics.horizontalBearing;
+						glyphBbox.dirU = float64_t2(glyphMetrics.size.x, 0.0);
+						glyphBbox.dirV = float64_t2(0.0, -glyphMetrics.size.y);
+
+						{
+							// Draw bounding box of the glyph
+							LineStyleInfo bboxStyle = {};
+							bboxStyle.screenSpaceLineWidth = 1.0f;
+							bboxStyle.worldSpaceLineWidth = 0.0f;
+							bboxStyle.color = float32_t4(0.619f, 0.325f, 0.709f, 0.5f);
+
+							CPolyline newPoly = {};
+							std::vector<float64_t2> points;
+							points.push_back(glyphBbox.topLeft);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft + glyphBbox.dirV);
+							points.push_back(glyphBbox.topLeft);
+							newPoly.addLinePoints(points);
+							drawResourcesFiller.drawPolyline(newPoly, bboxStyle, intendedNextSubmit);
+						}
+
+						{
+							const auto msdfTextureIdx = uint32_t(k) - uint32_t(FirstGeneratedCharacter);
+
+							FreetypeHatchBuilder hatchBuilder;
+							{
+								FT_Outline_Funcs ftFunctions;
+								ftFunctions.move_to = &ftMoveTo;
+								ftFunctions.line_to = &ftLineTo;
+								ftFunctions.conic_to = &ftConicTo;
+								ftFunctions.cubic_to = &ftCubicTo;
+								ftFunctions.shift = 0;
+								ftFunctions.delta = 0;
+								auto error = FT_Outline_Decompose(&m_arialFont->getGlyphSlot(glyphIndex)->outline, &ftFunctions, &hatchBuilder);
+								assert(!error);
+								hatchBuilder.finish();
+							}
+							msdfgen::Shape glyphShape;
+							bool loadedGlyph = drawFreetypeGlyph(glyphShape, m_textRenderer->getFreetypeLibrary(), m_arialFont->getFreetypeFace());
+							assert(loadedGlyph);
+
+							auto& shapePolylines = hatchBuilder.polylines;
+							std::vector<CPolyline> transformedPolylines;
+
+							auto transformPoint = [&](float64_t2 point)
+							{
+								auto shapeBounds = glyphShape.getBounds();
+								float64_t2 scale = float64_t2(
+									shapeBounds.r - shapeBounds.l,
+									shapeBounds.t - shapeBounds.b
+								);
+								float64_t2 translate = float64_t2(-shapeBounds.l, -shapeBounds.b);
+								
+								auto pointIn0To1 = (point + translate) / scale;
+								pointIn0To1.y = 1.0 - pointIn0To1.y; // Honestly not sure why this makes it go upside down
+								auto aabbMin = glyphBbox.topLeft;
+								auto aabbMax = glyphBbox.topLeft + glyphBbox.dirU + glyphBbox.dirV;
+								return aabbMin + pointIn0To1 * (aabbMax - aabbMin);
+							};
+
+							for (uint32_t polylineIdx = 0; polylineIdx < shapePolylines.size(); polylineIdx++)
+							{
+								auto& polyline = shapePolylines[polylineIdx];
+								if (polyline.getSectionsCount() == 0) continue;
+								CPolyline transformedPolyline;
+								for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+								{
+									auto& section = polyline.getSectionInfoAt(sectorIdx);
+									if (section.type == ObjectType::LINE)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<float64_t2> points;
+										for (uint32_t i = section.index; i < section.index + section.count + 1; i++)
+										{
+											auto point = polyline.getLinePointAt(i).p;
+											points.push_back(transformPoint(point));
+										}
+										transformedPolyline.addLinePoints(points);
+									}
+									else if (section.type == ObjectType::QUAD_BEZIER)
+									{
+										if (section.count == 0u) continue;
+
+										std::vector<nbl::hlsl::shapes::QuadraticBezier<double>> beziers;
+										for (uint32_t i = section.index; i < section.index + section.count; i++)
+										{
+											QuadraticBezierInfo bezier = polyline.getQuadBezierInfoAt(i);
+											beziers.push_back(nbl::hlsl::shapes::QuadraticBezier<double>::construct(
+												transformPoint(bezier.shape.P0),
+												transformPoint(bezier.shape.P1),
+												transformPoint(bezier.shape.P2)
+											));
+										}
+										transformedPolyline.addQuadBeziers(beziers);
+									}
+								}
+								transformedPolylines.push_back(transformedPolyline);
+							}
+
+							if (transformedPolylines.size() == 0) continue;
+							Hatch hatch(transformedPolylines, SelectedMajorAxis);
+							drawResourcesFiller.drawHatch(hatch, float32_t4(1.0, 0.8, 1.0, 1.0f), intendedNextSubmit);
+						}
+
+					}
+				}
+			}
+
+		}
 		drawResourcesFiller.finalizeAllCopiesToGPU(intendedNextSubmit);
 	}
 
@@ -2669,10 +3089,19 @@ protected:
 
 	Camera2D m_Camera;
 
-
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainResources>> m_surface;
-	smart_refctd_ptr<IGPUImageView>		pseudoStencilImageView;
+	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
+	smart_refctd_ptr<TextRenderer> m_textRenderer;
+	smart_refctd_ptr<FontFace> m_arialFont;
+	std::unique_ptr<SingleLineText> singleLineText = nullptr;
+	
+	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
+
+	static constexpr char FirstGeneratedCharacter = ' ';
+	static constexpr char LastGeneratedCharacter = '~';
+
+	std::vector<CPolyline> m_glyphPolylines[(LastGeneratedCharacter + 1) - FirstGeneratedCharacter];
 
 	#ifdef BENCHMARK_TILL_FIRST_FRAME
 	const std::chrono::steady_clock::time_point startBenchmark = std::chrono::high_resolution_clock::now();
