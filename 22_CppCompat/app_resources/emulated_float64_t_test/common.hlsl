@@ -22,6 +22,8 @@ struct ConstructorTestValues
 
 struct TestValues
 {
+    double a;
+    double b;
     // constructors
     
     //nbl::hlsl::emulated_float64_t::storage_t int16CreateVal;

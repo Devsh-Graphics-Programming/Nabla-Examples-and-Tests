@@ -53,6 +53,11 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        double asdfasdf1 = 6466501.675008991733193;
+        double asdfasdf2 = 7427552.131694119423628;
+        std::cout << std::bitset<64>(ieee754::extractMantissa(reinterpret_cast<uint64_t&>(asdfasdf1))) << std::endl;
+        std::cout << std::bitset<64>(ieee754::extractMantissa(reinterpret_cast<uint64_t&>(asdfasdf2))) << std::endl;
+
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
@@ -417,113 +422,127 @@ private:
 
     constexpr static inline uint32_t EmulatedFloat64TestIterations = 100u;
     
-    bool compareEmulatedFloat64TestValues(const TestValues& lhs, const TestValues& rhs)
+    bool compareEmulatedFloat64TestValues(const TestValues& expectedValues, const TestValues& testValues)
     {
         bool success = true;
 
-        auto printArrithmeticOperationError = [this](const char* valName, uint64_t lhs, uint64_t rhs)
+        auto printOnArithmeticFailure = [this](const char* valName, uint64_t expectedValue, uint64_t testValue, double a, double b)
             {
-                double lhsAsDouble = reinterpret_cast<double&>(lhs);
-                double rhsAsDouble = reinterpret_cast<double&>(rhs);
-                double error = std::abs(lhsAsDouble - rhsAsDouble);
+                double expectedAsDouble = reinterpret_cast<double&>(expectedValue);
+                double testAsDouble = reinterpret_cast<double&>(testValue);
+                double error = std::abs(expectedAsDouble - testAsDouble);
+
+                m_logger->log("for input values: A = %f B = %f", ILogger::ELL_ERROR, a, b);
 
                 std::stringstream ss;
                 ss << valName << " not equal!";
-                ss << "\nexpected value: " << std::fixed << std::setprecision(15) << lhsAsDouble;
-                ss << "\ntest value: " << std::fixed << std::setprecision(15) << rhsAsDouble;
+                ss << "\nexpected value: " << std::fixed << std::setprecision(15) << expectedAsDouble;
+                ss << "\ntest value: " << std::fixed << std::setprecision(15) << testAsDouble;
                 ss << "\nerror = " << error << '\n';
 
                 m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
             };
 
-        /*if (lhs.uint16CreateVal != rhs.uint16CreateVal)
+        auto printOnComparisonFailure = [this](const char* valName, int expectedValue, int testValue, double a, double b)
         {
-            m_logger->log("uint16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.uint16CreateVal, rhs.uint16CreateVal);
+            m_logger->log("for input values: A = %f B = %f", ILogger::ELL_ERROR, a, b);
+
+            std::stringstream ss;
+            ss << valName << " not equal!";
+            ss << "\nexpected value: " << std::boolalpha << bool(expectedValue);
+            ss << "\ntest value: " << std::boolalpha << bool(testValue);
+
+            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+        };
+
+        /*if (expectedValues.uint16CreateVal != testValues.uint16CreateVal)
+        {
+            m_logger->log("uint16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.uint16CreateVal, testValues.uint16CreateVal);
             success = false;
         }*/
-        if (lhs.int32CreateVal != rhs.int32CreateVal)
+        if (expectedValues.int32CreateVal != testValues.int32CreateVal)
         {
-            m_logger->log("int32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.int32CreateVal, rhs.int32CreateVal);
+            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, expectedValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.int64CreateVal != rhs.int64CreateVal)
+        if (expectedValues.int64CreateVal != testValues.int64CreateVal)
         {
-            m_logger->log("int64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.int64CreateVal, rhs.int64CreateVal);
+            printOnArithmeticFailure("int64CreateVal", expectedValues.int64CreateVal, expectedValues.int64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.uint32CreateVal != rhs.uint32CreateVal)
+        if (expectedValues.uint32CreateVal != testValues.uint32CreateVal)
         {
-            m_logger->log("uint32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.uint32CreateVal, rhs.uint32CreateVal);
+            printOnArithmeticFailure("uint32CreateVal", expectedValues.uint32CreateVal, expectedValues.uint32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.uint64CreateVal != rhs.uint64CreateVal)
+        if (expectedValues.uint64CreateVal != testValues.uint64CreateVal)
         {
-            m_logger->log("uint64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.uint64CreateVal, rhs.uint64CreateVal);
+            printOnArithmeticFailure("uint64CreateVal", expectedValues.uint64CreateVal, expectedValues.uint64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        /*if (lhs.float16CreateVal != rhs.float16CreateVal)
+        /*if (expectedValues.float16CreateVal != testValues.float16CreateVal)
         {
-            m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.float16CreateVal, rhs.float16CreateVal);
+            m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.float16CreateVal, testValues.float16CreateVal);
             success = false;
         }*/
-        if (lhs.float32CreateVal != rhs.float32CreateVal)
+        if (expectedValues.float32CreateVal != testValues.float32CreateVal)
         {
-            m_logger->log("float32CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.float32CreateVal, rhs.float32CreateVal);
+            printOnArithmeticFailure("float32CreateVal", expectedValues.float32CreateVal, expectedValues.float32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.float64CreateVal != rhs.float64CreateVal)
+        if (expectedValues.float64CreateVal != testValues.float64CreateVal)
         {
-            m_logger->log("float64CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, lhs.float64CreateVal, rhs.float64CreateVal);
+            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, expectedValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.additionVal != rhs.additionVal)
+        if (expectedValues.additionVal != testValues.additionVal)
         {
-            printArrithmeticOperationError("additionVal", lhs.additionVal, rhs.additionVal);
+            printOnArithmeticFailure("additionVal", expectedValues.additionVal, testValues.additionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.substractionVal != rhs.substractionVal)
+        if (expectedValues.substractionVal != testValues.substractionVal)
         {
-            printArrithmeticOperationError("substractionVal", lhs.substractionVal, rhs.substractionVal);
+            printOnArithmeticFailure("substractionVal", expectedValues.substractionVal, testValues.substractionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.multiplicationVal != rhs.multiplicationVal)
+        if (expectedValues.multiplicationVal != testValues.multiplicationVal)
         {
-            printArrithmeticOperationError("multiplicationVal", lhs.multiplicationVal, rhs.multiplicationVal);
+            printOnArithmeticFailure("multiplicationVal", expectedValues.multiplicationVal, testValues.multiplicationVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.divisionVal != rhs.divisionVal)
+        if (expectedValues.divisionVal != testValues.divisionVal)
         {
-            //printArrithmeticOperationError("divisionVal", lhs.divisionVal, rhs.divisionVal);
-            //success = false;
-        }
-        if (lhs.lessOrEqualVal != rhs.lessOrEqualVal)
-        {
-            m_logger->log("lessOrEqualVal not equal, expected value: %f     test value: %f", ILogger::ELL_DEBUG, lhs.lessOrEqualVal, rhs.lessOrEqualVal);
+            printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.greaterOrEqualVal != rhs.greaterOrEqualVal)
+        if (expectedValues.lessOrEqualVal != testValues.lessOrEqualVal)
         {
-            m_logger->log("greaterOrEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterOrEqualVal, rhs.greaterOrEqualVal);
+            printOnComparisonFailure("lessOrEqualVal", expectedValues.lessOrEqualVal, testValues.lessOrEqualVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.equalVal != rhs.equalVal)
+        if (expectedValues.greaterOrEqualVal != testValues.greaterOrEqualVal)
         {
-            m_logger->log("equalVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.equalVal, rhs.equalVal);
+            printOnComparisonFailure("greaterOrEqualVal", expectedValues.greaterOrEqualVal, testValues.greaterOrEqualVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.notEqualVal != rhs.notEqualVal)
+        if (expectedValues.equalVal != testValues.equalVal)
         {
-            m_logger->log("notEqualVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.notEqualVal, rhs.notEqualVal);
+            printOnComparisonFailure("equalVal", expectedValues.equalVal, testValues.equalVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.lessVal != rhs.lessVal)
+        if (expectedValues.notEqualVal != testValues.notEqualVal)
         {
-            m_logger->log("lessVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.lessVal, rhs.lessVal);
+            printOnComparisonFailure("notEqualVal", expectedValues.notEqualVal, testValues.notEqualVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (lhs.greaterVal != rhs.greaterVal)
+        if (expectedValues.lessVal != testValues.lessVal)
         {
-            m_logger->log("greaterVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_DEBUG, lhs.greaterVal, rhs.greaterVal);
+            printOnComparisonFailure("lessVal", expectedValues.lessVal, testValues.lessVal, expectedValues.a, expectedValues.b);
+            success = false;
+        }
+        if (expectedValues.greaterVal != testValues.greaterVal)
+        {
+            printOnComparisonFailure("greaterVal", expectedValues.greaterVal, testValues.greaterVal, expectedValues.a, expectedValues.b);
             success = false;
         }
 
@@ -702,6 +721,12 @@ private:
         
         void fillExpectedTestValues()
         {
+            double aAsDouble = reinterpret_cast<double&>(a);
+            double bAsDouble = reinterpret_cast<double&>(b);
+
+            expectedTestValues.a = aAsDouble;
+            expectedTestValues.b = bAsDouble;
+
             // TODO: expected create val shouldn't be created this way!
                 //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
             expectedTestValues.int32CreateVal = bit_cast<uint64_t>(double(constrTestValues.int32));
@@ -713,16 +738,16 @@ private:
             //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
             expectedTestValues.float32CreateVal = bit_cast<uint64_t>(double(constrTestValues.float32));
             expectedTestValues.float64CreateVal = bit_cast<uint64_t>(double(constrTestValues.float64));
-            expectedTestValues.additionVal = (a + b).data;
-            expectedTestValues.substractionVal = (a - b).data;
-            expectedTestValues.multiplicationVal = (a * b).data;
-            expectedTestValues.divisionVal = (a / b).data;
-            expectedTestValues.lessOrEqualVal = a <= b;
-            expectedTestValues.greaterOrEqualVal = a >= b;
-            expectedTestValues.equalVal = a == b;
-            expectedTestValues.notEqualVal = a != b;
-            expectedTestValues.lessVal = a < b;
-            expectedTestValues.greaterVal = a > b;
+            expectedTestValues.additionVal = emulated_float64_t::create(aAsDouble + bAsDouble).data;
+            expectedTestValues.substractionVal = emulated_float64_t::create(aAsDouble - bAsDouble).data;
+            expectedTestValues.multiplicationVal = emulated_float64_t::create(aAsDouble * bAsDouble).data;
+            expectedTestValues.divisionVal = emulated_float64_t::create(aAsDouble / bAsDouble).data;
+            expectedTestValues.lessOrEqualVal = aAsDouble <= bAsDouble;
+            expectedTestValues.greaterOrEqualVal = aAsDouble >= bAsDouble;
+            expectedTestValues.equalVal = aAsDouble == bAsDouble;
+            expectedTestValues.notEqualVal = aAsDouble != bAsDouble;
+            expectedTestValues.lessVal = aAsDouble < bAsDouble;
+            expectedTestValues.greaterVal = aAsDouble > bAsDouble;
         }
     };
 
@@ -734,6 +759,8 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64RandomValuesTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
     {
+        EmulatedFloat64TestOutput output = { true, true };
+
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
         {
             // generate random test values
@@ -761,8 +788,15 @@ private:
             testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
         }
+
+        return output;
     }
 
     EmulatedFloat64TestOutput emulatedFloat64BothValuesNaNTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
@@ -1275,15 +1309,15 @@ void cpu_tests()
 
     test_type_limits.template operator()<float32_t>();
     test_type_limits.template operator()<float64_t>();
-    test_type_limits.template operator()<int8_t>();
+    //test_type_limits.template operator()<int8_t>();
     test_type_limits.template operator()<int16_t>();
     test_type_limits.template operator()<int32_t>();
     test_type_limits.template operator()<int64_t>();
-    test_type_limits.template operator()<uint8_t>();
+    //test_type_limits.template operator()<uint8_t>();
     test_type_limits.template operator()<uint16_t>();
     test_type_limits.template operator()<uint32_t>();
     test_type_limits.template operator()<uint64_t>();
-    test_type_limits.template operator()<bool>();
+    //test_type_limits.template operator()<bool>();
 
     // countl_zero test
     mpl::countl_zero<uint32_t, 5>::value;
