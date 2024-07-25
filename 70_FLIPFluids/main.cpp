@@ -1,11 +1,14 @@
 #include <nabla.h>
 
+#include "nbl/asset/asset_utils.h"
+
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
 #include "../common/SimpleWindowedApplication.hpp"
 #include "../common/InputSystem.hpp"
 #include "../common/Camera.hpp"
 
 #include "app_resources/common.hlsl"
+#include "app_resources/gridUtils.hlsl"
 
 using namespace nbl;
 using namespace core;
@@ -20,6 +23,7 @@ using namespace video;
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
 	using scbase_t = CDefaultSwapchainFramebuffers;
+
 public:
 	template<typename... Args>
 	inline CSwapchainFramebuffersAndDepth(ILogicalDevice* device, const asset::E_FORMAT _desiredDepthFormat, Args&&... args)
@@ -109,6 +113,8 @@ class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public a
 
 	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 
+	using IGPUDescriptorSetLayoutArray = std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT>;
+
 public:
 	inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
@@ -143,61 +149,41 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
+
 		if (!device_base_t::onAppInitialized(std::move(system)))
 			return false;
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
 
-		m_semaphore = m_device->createSemaphore(m_submitIx);
-		if (!m_semaphore)
-			return logFail("Failed to create semaphore!");
+		// init grid params
+		gridData.gridCellSize = 0.25f;
+		gridData.gridInvCellSize = 1.f / gridData.gridCellSize;
+		gridData.gridSize = int32_t4{128, 128, 128, 0};
+		gridData.particleInitMin = int32_t4{2, 2, 2, 0};
+		gridData.particleInitMax = int32_t4{64, 64, 64, 0};
+		gridData.particleInitSize = gridData.particleInitMax - gridData.particleInitMin;
+		float32_t4 simAreaSize = gridData.gridSize;
+		simAreaSize *= gridData.gridCellSize;
+		gridData.worldMin = -simAreaSize * 0.5f;
+		gridData.worldMax = simAreaSize * 0.5f;
 
-		ISwapchain::SCreationParams swapchainParams{
-			.surface = smart_refctd_ptr<video::ISurface>(m_surface->getSurface())
-		};
-		if (!swapchainParams.deduceFormat(m_physicalDevice))
-			return logFail("Could not choose a surface format for the swapchain!");
-
-		const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-			{
-				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.dstSubpass = 0,
-				.memoryBarrier = {
-				.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
-				.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-				.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
-				.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
-			}
-		},
-			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-			{
-				.srcSubpass = 0,
-				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier = {
-				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-				.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-			}
-		},
-		IGPURenderpass::SCreationParams::DependenciesEnd
-		};
-
-		auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
-		auto* renderpass = scResources->getRenderpass();
-		if (!renderpass)
-			return logFail("Failed to create renderpass!");
+		// init render pipeline
+		if (!initGraphicsPipeline())
+			return logFail("Failed to initialize render pipeline!\n");
 
 		// init shaders and pipeline
-		auto computePipeline = createComputePipelineFromShader("app_resources/test.comp.hlsl");
-		smart_refctd_ptr<video::IGPUComputePipeline> pipeline = computePipeline.first;
-		const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayouts = computePipeline.second;
+		auto piPipeline = createComputePipelineFromShader("app_resources/particlesInit.comp.hlsl");
+		m_initParticlePipeline = piPipeline.first;
+		IGPUDescriptorSetLayoutArray initParticleDsLayouts = piPipeline.second;
 
 		// init and write descriptor
 		constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
 		const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
-			!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
-			!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
-			!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
-			!dsLayouts[3] ? nullptr : dsLayouts[3].get()
+			!initParticleDsLayouts[0] ? nullptr : initParticleDsLayouts[0].get(),
+			!initParticleDsLayouts[1] ? nullptr : initParticleDsLayouts[1].get(),
+			!initParticleDsLayouts[2] ? nullptr : initParticleDsLayouts[2].get(),
+			!initParticleDsLayouts[3] ? nullptr : initParticleDsLayouts[3].get()
 		};
 		std::array<smart_refctd_ptr<IGPUDescriptorSet>, maxDescriptorSets> descriptorSets;
 		auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
@@ -240,24 +226,39 @@ public:
 		if (!allocation.memory->map({0ull, allocation.memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ))
 			return logFail("Failed to map the device memory!\n");
 
+		video::IGPUBuffer::SCreationParams params = {};
+		params.size = sizeof(SGridData);
+		params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
+		createBuffer(gridDataBuffer, params);
+
 		// create command buffer and pool
 		smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf;
 		IQueue* const queue = getComputeQueue();
-		m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-		if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
+		smart_refctd_ptr<video::IGPUCommandPool> cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+		if (!cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
 		{
 			logFail("Failed to create command buffers!\n");
 			return false;
 		}
 
+		// update one-time buffers
 		constexpr auto StartedValue = 0;
 		constexpr auto FinishedValue = 45;
 		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
 		{
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cmdbuf->bindComputePipeline(pipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pipeline->getLayout(), 0, descriptorSets.size(), &descriptorSets.begin()->get());
+
+			SBufferRange<IGPUBuffer> gridDataRange{
+				.size = gridDataBuffer->getSize(),
+				.buffer = gridDataBuffer,
+			};
+			cmdbuf->updateBuffer(gridDataRange, &gridData);
+
+			// test ssbo in compute shader
+			cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, descriptorSets.size(), &descriptorSets.begin()->get());
 			cmdbuf->dispatch(workgroupCount, 1, 1);
+
 			cmdbuf->end();
 
 			IQueue::SSubmitInfo submitInfo = {};
@@ -302,6 +303,78 @@ public:
 
 	inline void workLoopBody()
 	{
+		const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
+
+		if (m_realFrameIx >= m_maxFramesInFlight)
+		{
+			const ISemaphore::SWaitInfo cbDonePending[] =
+			{
+				{
+					.semaphore = m_renderSemaphore.get(),
+					.value = m_realFrameIx + 1 - m_maxFramesInFlight
+				}
+			};
+			if (m_device->blockForSemaphores(cbDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
+		}
+
+		m_inputSystem->getDefaultMouse(&mouse);
+		m_inputSystem->getDefaultKeyboard(&keyboard);
+
+		auto updatePresentationTimestamp = [&]()
+		{
+			m_currentImageAcquire = m_surface->acquireNextImage();
+
+			oracle.reportEndFrameRecord();
+			const auto timestamp = oracle.getNextPresentationTimeStamp();
+			oracle.reportBeginFrameRecord();
+
+			return timestamp;
+		};
+
+		const auto nextPresentationTimestamp = updatePresentationTimestamp();
+
+		if (!m_currentImageAcquire)
+			return;
+
+		auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
+		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		{
+			camera.beginInputProcessing(nextPresentationTimestamp);
+			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void { camera.keyboardProcess(events); }, m_logger.get());
+			camera.endInputProcessing(nextPresentationTimestamp);
+		}
+
+		{
+			const auto viewMatrix = camera.getViewMatrix();
+			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
+
+			core::matrix3x4SIMD modelMatrix;
+			modelMatrix.setTranslation(nbl::core::vectorSIMDf(0, 0, 0, 0));
+			modelMatrix.setRotation(quaternion(0, 0, 0));
+
+			core::matrix3x4SIMD modelViewMatrix = core::concatenateBFollowedByA(viewMatrix, modelMatrix);
+			core::matrix4SIMD modelViewProjectionMatrix = core::concatenateBFollowedByA(viewProjectionMatrix, modelMatrix);
+
+			core::matrix3x4SIMD normalMatrix;
+			modelViewMatrix.getSub3x3InverseTranspose(normalMatrix);
+
+			SBasicViewParameters camData;
+			memcpy(camData.MVP, modelViewProjectionMatrix.pointer(), sizeof(camData.MVP));
+			memcpy(camData.MV, modelViewMatrix.pointer(), sizeof(camData.MV));
+			memcpy(camData.NormalMat, normalMatrix.pointer(), sizeof(camData.NormalMat));
+			{
+
+				SBufferRange<IGPUBuffer> range;
+				range.buffer = cameraBuffer;
+				range.size = cameraBuffer->getSize();
+
+				cmdbuf->updateBuffer(range, &camData);
+			}
+		}
+
 		/*
 		for (uint32_t i = 0; i < m_substepsPerFrame; i++)
 		{
@@ -317,7 +390,18 @@ public:
 		// renderFluid();		// TODO: mesh or particles?
 	}
 
-	bool keepRunning() override { return false; }
+	inline bool keepRunning() override
+	{
+		if (m_surface->irrecoverable())
+			return false;
+
+		return true;
+	}
+
+	inline bool onAppTerminated() override
+	{
+		return device_base_t::onAppTerminated();
+	}
 
 	void dispatchUpdateFluidCells()
 	{
@@ -409,7 +493,23 @@ private:
 		return std::pair(shaderSrc, introspection);
 	}
 
-	std::pair<smart_refctd_ptr<video::IGPUComputePipeline>, const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT>> createComputePipelineFromShader(
+	bool createBuffer(smart_refctd_ptr<IGPUBuffer> buffer, video::IGPUBuffer::SCreationParams& params)
+	{
+		buffer = m_device->createBuffer(std::move(params));
+		if (!buffer)
+			return logFail("Failed to create GPU buffer of size %d!\n", params.size);
+
+		video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = buffer->getMemoryReqs();
+		reqs.memoryTypeBits &= m_physicalDevice->getDeviceLocalMemoryTypeBits();
+
+		auto bufMem = m_device->allocate(reqs, buffer.get());
+		if (!bufMem.isValid())
+			return logFail("Failed to allocate device memory compatible with gpu buffer!\n");
+
+		return true;
+	}
+
+	std::pair<smart_refctd_ptr<video::IGPUComputePipeline>, const IGPUDescriptorSetLayoutArray> createComputePipelineFromShader(
 		const std::string& filePath)
 	{
 		CSPIRVIntrospector introspector;
@@ -486,12 +586,91 @@ private:
 		return std::pair(pipeline, dsLayouts);
 	}
 
+	bool initGraphicsPipeline()
+	{
+		m_renderSemaphore = m_device->createSemaphore(m_submitIx);
+		if (!m_renderSemaphore)
+			return logFail("Failed to create render semaphore!\n");
+			
+		ISwapchain::SCreationParams swapchainParams{
+			.surface = smart_refctd_ptr<video::ISurface>(m_surface->getSurface())
+		};
+		if (!swapchainParams.deduceFormat(m_physicalDevice))
+			return logFail("Could not choose a surface format for the swapchain!\n");
+
+		const static IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+			{
+				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier = {
+				.srcStageMask = PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
+				.srcAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+				.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+				.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
+			}
+		},
+			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
+			{
+				.srcSubpass = 0,
+				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier = {
+				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+				.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+			}
+		},
+		IGPURenderpass::SCreationParams::DependenciesEnd
+		};
+
+		auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+		auto* renderpass = scResources->getRenderpass();
+		if (!renderpass)
+			return logFail("Failed to create renderpass!\n");
+
+		auto queue = getGraphicsQueue();
+		if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
+			return logFail("Could not create window & surface or initialize surface\n");
+
+		m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
+		if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
+		{
+			m_logger->log("Lowering frames in flight!\n", ILogger::ELL_WARNING);
+			m_maxFramesInFlight = FRAMES_IN_FLIGHT;
+		}
+
+		m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		for (auto i = 0u; i < m_maxFramesInFlight; i++)
+		{
+			if (!m_cmdPool)
+				return logFail("Couldn't create command pool\n");
+
+			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i, 1 }))
+				return logFail("Couldn't create command buffer\n");
+		}
+
+		m_winMgr->setWindowSize(m_window.get(), WIN_WIDTH, WIN_HEIGHT);
+		m_surface->recreateSwapchain();
+
+		// init shaders and pipeline
+		// TODO
+
+		return true;
+	}
+
+	void mouseProcess(const nbl::ui::IMouseEventChannel::range_t& events)
+	{
+		for (auto eventIt = events.begin(); eventIt != events.end(); eventIt++)
+		{
+			auto ev = *eventIt;
+
+			// do nothing
+		}
+	}
+
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_computePipeline;
-	smart_refctd_ptr<ISemaphore> m_semaphore;
+	smart_refctd_ptr<ISemaphore> m_renderSemaphore;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 	uint64_t m_realFrameIx : 59 = 0;
@@ -499,19 +678,40 @@ private:
 	uint64_t m_maxFramesInFlight : 5;
 	ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
-	// input system?
+	smart_refctd_ptr<video::IDescriptorPool> m_renderDsPool;
+	smart_refctd_ptr<video::IGPUDescriptorSet> m_renderDs;
+
+	// simulation compute shaders
+	smart_refctd_ptr<IGPUComputePipeline> m_initParticlePipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_updateFluidCellsPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_applyBodyForcesPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_diffusionPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_applyPressurePipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_advectParticlesPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_densityProjectPipeline;
+
+	smart_refctd_ptr<video::IDescriptorPool> m_initParticlePool;
+	smart_refctd_ptr<video::IGPUDescriptorSet> m_initParticleDs;
+
+	// input system
+	smart_refctd_ptr<InputSystem> m_inputSystem;
+	InputSystem::ChannelReader<IMouseEventChannel> mouse;
+	InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 	Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), core::matrix4SIMD());
-
-	smart_refctd_ptr<video::IDescriptorPool> m_descriptorPool;
-	smart_refctd_ptr<video::IGPUDescriptorSet> m_gpuDescriptorSet;	// porbably need more
+	video::CDumbPresentationOracle oracle;
 
 	// simulation constants
 	uint32_t m_substepsPerFrame = 1;
+	SGridData gridData;
 
 	// buffers
+	smart_refctd_ptr<IGPUBuffer> cameraBuffer;
+
 	smart_refctd_ptr<IGPUBuffer> particleBuffer;		// Particle
-	
+
+	smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		// SGridData
 	smart_refctd_ptr<IGPUBuffer> gridParticleIDBuffer;	// uint2
 	smart_refctd_ptr<IGPUBuffer> gridCellTypeBuffer;	// uint, fluid or solid
 	smart_refctd_ptr<IGPUBuffer> velocityFieldBuffer;	// float3
