@@ -516,7 +516,7 @@ void DrawResourcesFiller::submitCurrentObjectsAndReset(SIntendedSubmitInfo& inte
 	// We don't reset counters for styles because we will be reusing them
 	resetGeometryCounters();
 
-	uint32_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
+	uint64_t newClipProjectionAddress = acquireCurrentClipProjectionAddress(intendedNextSubmit);
 	// If the clip projection stack is non-empty, then it means we need to re-push the clipProjectionData (because it exists in geometry data and it was reset)
 	if (newClipProjectionAddress != InvalidClipProjectionAddress)
 	{
@@ -564,7 +564,7 @@ uint32_t DrawResourcesFiller::addLineStyle_Internal(const LineStyleInfo& lineSty
 	return currentLineStylesCount++;
 }
 
-inline uint64_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
+uint64_t DrawResourcesFiller::acquireCurrentClipProjectionAddress(SIntendedSubmitInfo& intendedNextSubmit)
 {
 	if (clipProjectionAddresses.empty())
 		return InvalidClipProjectionAddress;
