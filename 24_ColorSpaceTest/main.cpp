@@ -28,6 +28,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		using device_base_t = examples::SimpleWindowedApplication;
 		using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
 		using clock_t = std::chrono::steady_clock;
+		using perf_clock_resolution_t = std::chrono::milliseconds;
 
 		constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 		constexpr static inline std::string_view DefaultImagePathsFile = "../imagesTestList.txt";
@@ -519,6 +520,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 						m_logger->log("Perfoming [%s]th test!", ILogger::ELL_PERFORMANCE, std::to_string(options.tests.count.total).c_str());
 						m_logger->log("Asset: \"%s\"", ILogger::ELL_INFO, m_nextPath.c_str());
+						m_logger->log("Asset load time: %llu ms", ILogger::ELL_INFO, perfRes.lastLoadDuration);
 						m_logger->log("Mode: \"%s\"", ILogger::ELL_INFO, modeAsString.c_str());
 						m_logger->log("Writing \"%ls\"'s image hash to \"%s\"", ILogger::ELL_INFO, filename.c_str(), current.path.c_str());
 
@@ -885,6 +887,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			{
 				m_logger->log("Testing completed!", ILogger::ELL_PERFORMANCE);
 				m_logger->log("Passed [%s/%s] tests.", ILogger::ELL_WARNING, std::to_string(options.tests.count.passed).c_str(), std::to_string(options.tests.count.total).c_str());
+				m_logger->log("Load perf: \t total %llu ms \t average %llu ms", ILogger::ELL_PERFORMANCE, perfRes.totalLoadDuration, perfRes.totalLoadDuration / perfRes.count);
 				exit(options.tests.passed ? 0 : 0x45); // do not remove this unless you want to refactor the example to cover destructors properly when in test mode & not crash the program
 			}
 
@@ -918,6 +921,12 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 	private:
 
+		struct PerfResult {
+			unsigned long long lastLoadDuration = 0;
+			unsigned long long totalLoadDuration = 0;
+			size_t count = 0;
+		} perfRes;
+
 		std::optional<smart_refctd_ptr<ICPUImageView>> getImageView(std::string inAssetPath, system::path& outFilename, system::path& outExtension)
 		{
 			smart_refctd_ptr<ICPUImageView> view;
@@ -926,7 +935,15 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 
 			constexpr auto cachingFlags = static_cast<IAssetLoader::E_CACHING_FLAGS>(IAssetLoader::ECF_DONT_CACHE_REFERENCES & IAssetLoader::ECF_DONT_CACHE_TOP_LEVEL);
 			const IAssetLoader::SAssetLoadParams loadParams(0ull, nullptr, cachingFlags, IAssetLoader::ELPF_NONE, m_logger.get(), m_loadCWD);
+			
+			auto perfStart = clock_t::now();
 			auto bundle = m_assetMgr->getAsset(inAssetPath, loadParams);
+			auto perfEnd = clock_t::now();
+
+			perfRes.lastLoadDuration = std::chrono::duration_cast<perf_clock_resolution_t>(perfEnd - perfStart).count();
+			perfRes.totalLoadDuration += perfRes.lastLoadDuration;
+			perfRes.count += 1;
+			
 			auto contents = bundle.getContents();
 			if (contents.empty())
 			{
