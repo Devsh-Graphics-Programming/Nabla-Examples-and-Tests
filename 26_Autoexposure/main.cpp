@@ -6,6 +6,8 @@
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/asset/interchange/IAssetLoader.h"
+#include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
+
 
 using namespace nbl;
 using namespace core;
@@ -107,9 +109,11 @@ public:
 
 		auto queue = getGraphicsQueue();
 
-		// init the surface and create the swapchain
+		// Gather swapchain resources
+		std::unique_ptr<CDefaultSwapchainFramebuffers> scResources;
+		ISwapchain::SCreationParams swapchainParams;
 		{
-			ISwapchain::SCreationParams swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
+			swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
 			// Need to choose a surface format
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
@@ -142,21 +146,41 @@ public:
 				},
 				IGPURenderpass::SCreationParams::DependenciesEnd
 			};
-			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
+			scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
 			if (!scResources->getRenderpass())
 				return logFail("Failed to create Renderpass!");
-			if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
-				return logFail("Could not create Window & Surface or initialize the Surface!");
 		}
 
-		// Now create the pipeline
-		/* {
-			const asset::SPushConstantRange range = {
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-				.offset = 0,
-				.size = sizeof(push_constants_t)
-			};
-			auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
+		// Load the shaders and create the pipeline
+		{
+			// Load FSTri Shader
+			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
+			if (!fsTriProtoPPln)
+				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
+
+			// Load Custom Shader
+			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+						return nullptr;
+
+					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					if (!source)
+						return nullptr;
+
+					return m_device->createShader(source.get());
+				};
+			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+			if (!fragmentShader)
+				return logFail("Failed to Load and Compile Fragment Shader!");
+
+			auto layout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
 			const IGPUShader::SSpecInfo fragSpec = {
 				.entryPoint = "main",
 				.shader = fragmentShader.get()
@@ -164,7 +188,11 @@ public:
 			m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass());
 			if (!m_pipeline)
 				return logFail("Could not create Graphics Pipeline!");
-		}*/
+		}
+
+		// Init the surface and create the swapchain
+		if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
+			return logFail("Could not create Window & Surface or initialize the Surface!");
 
 		// need resetttable commandbuffers for the upload utility
 		{
@@ -326,6 +354,7 @@ protected:
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
 
 	// window
 	smart_refctd_ptr<IWindow> m_window;
