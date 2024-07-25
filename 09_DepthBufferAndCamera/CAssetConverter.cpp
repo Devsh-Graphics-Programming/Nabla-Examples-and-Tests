@@ -456,7 +456,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				record.instance.patchIndex = patchStorage.size();
 				patchStorage.push_back(std::move(patch));
 				// Only when we cannot find a GPU object do we carry on with the DFS
-				if (AssetType::HasDependents)
+				if (asset_traits<AssetType>::HasChildren)
 					dfsStack.emplace(record);
 				dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},asset_cached_t<AssetType>{});
 				return record.instance;
