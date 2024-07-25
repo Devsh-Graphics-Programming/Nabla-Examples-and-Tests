@@ -250,6 +250,7 @@ template<asset::Asset AssetType>
 struct dfs_result_t
 {
 	instance_t<AssetType> canonical = {};
+	mutable core::blake3_hash_t contentHash = {};
 	mutable asset_cached_t<AssetType> gpuObj = {};
 };
 
@@ -323,6 +324,14 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		return {};
 
 	SResults retval = {};
+
+	// No asset has a 0 length input to the hash function
+	const auto NoContentHash = []()->core::blake3_hash_t
+	{
+		::blake3_hasher hasher;
+		::blake3_hasher_init(&hasher);
+		return core::blake3_hasher_finalize(hasher);
+	}();
 	
 	// this will allow us to look up the conversion parameter (actual patch for an asset) and therefore write the GPUObject to the correct place in the return value
 	core::vector<instance_metadata_t> inputsMetadata[core::type_list_size_v<supported_asset_types>];
@@ -415,7 +424,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					// now we'll look in the read-only conversion cache (from this or another CAssetConverter)
 					const auto& conversionCache = inputs.readCache->getCache<AssetType>();
 					// lambda for doing lookups, returns a pointer to a cached type if successful
-					auto findGPUObj = [&](const patch_t<AssetType>* _patch)->const asset_cached_t<AssetType>*
+					auto findGPUObj = [&](const patch_t<AssetType>* _patch)->std::pair<core::blake3_hash_t,const asset_cached_t<AssetType>*>
 					{
 						// Find our content hash (blind find, we're trying to see if this asset ptr+patch has been hashed before)
 						// lookup Hash Cache using asset+patch, using find to not trigger hash recompute until finished DFS
@@ -424,18 +433,18 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						if (contentHashFound!=inputs.hashCache->end<AssetType>())
 						{
 							// found a content hash, lets try to find the converted gpu object
-							return conversionCache.find({contentHashFound->second,record.instance.uniqueCopyGroupID});
+							return {contentHashFound->second,conversionCache.find({contentHashFound->second,record.instance.uniqueCopyGroupID})};
 						}
-						return nullptr;
+						return {NoContentHash,nullptr};
 					};
 					// First look for unpatched/unmerged self.
-					if (const auto* found=findGPUObj(&patch); found)
+					if (const auto [contentHash,found] = findGPUObj(&patch); found)
 					{
 						// this is a new never before seen patch, we need to push it
 						record.instance.patchIndex = patchStorage.size();
 						patchStorage.push_back(std::move(patch));
 						// obviously not in the DFS cache so need to insert
-						dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},*found);
+						dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},contentHash,*found);
 						return record.instance;
 					}
 					else if (mergableIt!=dfsCachedRange.second) // if there's a valid merge candidate
@@ -443,11 +452,13 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						// we can now do same as the `!lookupGPUObjDuringDFS` case during merging and make the merge take effect
 						const auto& effective = (patchStorage[record.instance.patchIndex] = std::move(combined));
 						// then look for self with that combined patch
-						if (const auto* found=findGPUObj(&effective); found)
-						{
-							// instead of emplacing a new entry in DFS cache, update it with GPU object, now the patch will not mutate
+						const auto [contentHash,found] = findGPUObj(&patch);
+						// even if we haven't found a GPU object we'll store the content hash for this patch
+						mergableIt->contentHash = contentHash;
+						// instead of emplacing a new entry in DFS cache, update it, now the assigned patch (and contentHash) will not mutate
+						if (found)
 							mergableIt->gpuObj = *found;
-						}
+						// NOTE: if we don't find a GPU object, the contentHash will be stale if the patch changes!
 						// there's no other patch to try and found GPU object, but at least we were able to merge this oen
 						return record.instance;
 					}
@@ -463,7 +474,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					dfsStack.emplace(record);
 				// emplace without a valid GPU object, this will not change unless the cache entry's
 				// patch gets combined and that is findable in the gpu conversion cache
-				dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},asset_cached_t<AssetType>{});
+				dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},NoContentHash,asset_cached_t<AssetType>{});
 				return record.instance;
 			};
 			// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
@@ -544,6 +555,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 			}
 		}
+		//! `finalPatchStorage` is now constant!
 
 		// can now spawn our own hash cache if one wasn't provided
 		core::smart_refctd_ptr<CHashCache> hashCache;
@@ -551,47 +563,50 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			hashCache = core::smart_refctd_ptr<CHashCache>(inputs.hashCache);
 		else
 			hashCache = core::make_smart_refctd_ptr<CHashCache>();
-
-		// Lookup Cache
-		if (inputs.readCache)
+		
+		// This map contains the assets by-hash, identical asset+patch hash the same.
+		core::tuple_transform_t<conversions_t,supported_asset_types> conversionRequests;
+		// Deduplication.
+		// We now go through the dfsCache and work out each entry's content hashes.
+		// So that we can carry out unique conversions.
+		auto dedup = [&]<Asset AssetType>(dfs_cache_t<AssetType>& dfsCache)->void
 		{
-			auto lookup = [&]<Asset AssetType>(dfs_cache_t<AssetType>& dfsCache)->void
+			const auto* pPatches = std::get<patch_vector_t<AssetType>>(finalPatchStorage).data();
+			const CCache<AssetType>* readCache = inputs.readCache ? (&std::get<CCache<AssetType>>(inputs.readCache->m_caches)):nullptr;
+			for (auto& entry : dfsCache)
 			{
-				const auto* pPatches = std::get<patch_vector_t<AssetType>>(finalPatchStorage).data();
-				const auto& readCache = std::get<CCache<AssetType>>(inputs.readCache->m_caches);
-				for (auto& entry : dfsCache)
-				if (entry.gpuObj)
+				// first lets get our content hash, only treat content hashes seriously if gpuObj also found
+				if (!entry.gpuObj)
 				{
 					const auto& canonical = entry.canonical;
-					const auto contentHash = hashCache->hash<AssetType>({
+					// compute the hash or look it up if it exists
+					entry.contentHash = hashCache->hash<AssetType>({
 						{.asset=canonical.asset,.patch=pPatches+canonical.meta.patchIndex},
 						// We mistrust every dependency such that the eject/update if needed.
+						// Its really important that the Deduplication gets performed Bottom-Up
 						/*.mistrustLevel = */1
 					});
-					const auto found = readCache.find({contentHash,canonical.meta.uniqueCopyGroupID});
-//					if (found)
-//						entry.gpuObj = *found;
+					// if we have a read cache, lets look the item up!
+					if (readCache)
+					{
+						const auto found = readCache->find({entry.contentHash,canonical.meta.uniqueCopyGroupID});
+						if (found)
+							entry.gpuObj = *found;
+					}
 				}
-			};
-			// We do this bottom up, so the hashes recompute in O(N) not O(N^2)
-//			core::for_each_in_tuple(dfsCaches,lookup);
-			lookup(std::get<dfs_cache_t<ICPUBuffer>>(dfsCaches));
-		}
 
-		// This map contains the assets by-hash, identical asset+patch hash the same.
-		core::tuple_transform_t<conversions_t,supported_asset_types> uniqueGpuObjects;
-		auto dedup = [&]<Asset AssetType>()->void
-		{
-			// go over all `dfsCache` entries
-			
-			// hash them
-
-			// insert them
-
-			// if insertion prevented ++ the counter of copies
+				// then de-duplicate the conversions needed
+				{
+				}
+			}
 		};
-		// Lets see if we can collapse any of the (Asset Content) into the same thing, to correctly de-dup we need to go bottom-up!!!
-		dedup.operator()<ICPUShader>();
+		// The order of `supported_asset_types` is super important to be BOTTOM UP in terms of hashing and conversion dependants.
+		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we may catch all duplicates!
+		core::for_each_in_tuple(dfsCaches,dedup);
+
+// TODO:
+// how do we assign a GPU object copy to a groupID ?
+// how do we REBUILD GPU objects from their dependencies? Potential ANswer: traverse DFS again!
 	}
 	// Now we have a set of implicit gpu creation parameters we want to create resources with.
 	// If there's a readCache we need to look for an item there first.

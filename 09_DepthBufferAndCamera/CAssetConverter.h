@@ -518,7 +518,7 @@ class CAssetConverter : public core::IReferenceCounted
             using patch_span_t = std::span<const patch_t<AssetType>>;
 
 			// can be `nullptr` and even equal to `this`
-			CAssetConverter* readCache = nullptr;
+			const CAssetConverter* readCache = nullptr;
 
 			// recommended you set this
 			system::logger_opt_ptr logger = nullptr;
