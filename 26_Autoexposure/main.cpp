@@ -349,6 +349,10 @@ public:
 
 	inline bool keepRunning() override
 	{
+		// Keep arunning as long as we have a surface to present to (usually this means, as long as the window is open)
+		if (m_surface->irrecoverable())
+			return false;
+
 		return true;
 	}
 
