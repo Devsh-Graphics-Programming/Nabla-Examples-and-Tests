@@ -25,7 +25,6 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 
 	constexpr static inline std::string_view DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
 
-
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
 	inline AutoexposureApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
@@ -107,6 +106,65 @@ public:
 		}
 
 		auto queue = getGraphicsQueue();
+
+		// init the surface and create the swapchain
+		{
+			ISwapchain::SCreationParams swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
+			// Need to choose a surface format
+			if (!swapchainParams.deduceFormat(m_physicalDevice))
+				return logFail("Could not choose a Surface Format for the Swapchain!");
+			// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+			constexpr IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+				// wipe-transition to ATTACHMENT_OPTIMAL
+				{
+					.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.dstSubpass = 0,
+					.memoryBarrier = {
+					// since we're uploading the image data we're about to draw
+					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+					.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					// because we clear and don't blend
+					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					}
+					// leave view offsets and flags default
+				},
+				// ATTACHMENT_OPTIMAL to PRESENT_SRC
+				{
+					.srcSubpass = 0,
+					.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.memoryBarrier = {
+						.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+						// we can have NONE as the Destinations because the spec says so about presents
+						}
+					// leave view offsets and flags default
+				},
+				IGPURenderpass::SCreationParams::DependenciesEnd
+			};
+			auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
+			if (!scResources->getRenderpass())
+				return logFail("Failed to create Renderpass!");
+			if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
+				return logFail("Could not create Window & Surface or initialize the Surface!");
+		}
+
+		// Now create the pipeline
+		/* {
+			const asset::SPushConstantRange range = {
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+				.offset = 0,
+				.size = sizeof(push_constants_t)
+			};
+			auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
+			const IGPUShader::SSpecInfo fragSpec = {
+				.entryPoint = "main",
+				.shader = fragmentShader.get()
+			};
+			m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass());
+			if (!m_pipeline)
+				return logFail("Could not create Graphics Pipeline!");
+		}*/
 
 		// need resetttable commandbuffers for the upload utility
 		{
@@ -257,8 +315,6 @@ public:
 	}
 
 protected:
-	smart_refctd_ptr<IWindow> m_window;
-	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 	smart_refctd_ptr<IGPUImage> m_gpuImg;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView;
 
@@ -270,6 +326,10 @@ protected:
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets;
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+
+	// window
+	smart_refctd_ptr<IWindow> m_window;
+	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)
