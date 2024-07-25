@@ -275,6 +275,21 @@ public:
 				return false;
 			m_gpuImg->setObjectDebugName("Autoexposure Image");
 
+			// set window size
+			const auto imageExtent = m_gpuImg->getCreationParameters().extent;
+			const VkExtent2D newWindowResolution = { imageExtent.width, imageExtent.height };
+
+			if (newWindowResolution.width != m_window->getWidth() || newWindowResolution.height != m_window->getHeight())
+			{
+				// Resize the window
+				m_winMgr->setWindowSize(m_window.get(), newWindowResolution.width, newWindowResolution.height);
+				// Don't want to rely on the Swapchain OUT_OF_DATE causing an implicit re-create in the `acquireNextImage` because the
+				// swapchain may report OUT_OF_DATE after the next VBlank after the resize, not getting the message right away.
+				m_surface->recreateSwapchain();
+			}
+			// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
+			m_winMgr->show(m_window.get());
+
 			// we don't want to overcomplicate the example with multi-queue
 			auto queue = getGraphicsQueue();
 			auto cmdbuf = m_cmdBufs[0].get();
@@ -314,7 +329,6 @@ public:
 				IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				cpuImgParams.image->getRegions()
 			);
-
 			IGPUImageView::SCreationParams gpuImgViewParams = {
 				.image = m_gpuImg,
 				.viewType = IGPUImageView::ET_2D_ARRAY,
@@ -322,6 +336,7 @@ public:
 			};
 
 			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
+			queue->endCapture();
 		}
 
 		return true;
@@ -334,7 +349,7 @@ public:
 
 	inline bool keepRunning() override
 	{
-		return false;
+		return true;
 	}
 
 	inline bool onAppTerminated() override
