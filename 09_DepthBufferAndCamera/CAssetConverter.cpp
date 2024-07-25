@@ -198,21 +198,6 @@ void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher&
 // have to pass the patch around
 
 /*
-// need to map (asset,uniqueGroup,patch) -> blake3_hash to avoid re-hashing
-struct dedup_entry_t
-{
-	core::blake3_hash_t patchedHash;
-	core::blake3_hash_t unpatchedHash;
-};
-
-
-When to look for assets in the read cache?
-
-Ideally when traversing already because then we can skip DAG subgraph exploration.
-
-But we need to explore the DAG to hash anyway.
-
-
 How to "amortized hash"?
 
 Grab (asset,group,patch) hash the asset params, group and patch, then update with dependents:
@@ -221,7 +206,6 @@ Grab (asset,group,patch) hash the asset params, group and patch, then update wit
 - if lookup fails, proceed to compute full hash and insert it into cache
 
 We know pointer, so can actually trim hashes of stale assets (same pointer, different hash) if we do full recompute.
-
 */
 
 template<asset::Asset AssetType>
@@ -243,6 +227,9 @@ inline constexpr size_t index_of_v = index_of<T,TypeList>::value;
 struct instance_metadata_t
 {
 	inline bool operator==(const instance_metadata_t&) const = default;
+	inline bool operator!=(const instance_metadata_t&) const = default;
+
+	explicit inline operator bool() const {return operator!=({}); }
 
 	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
 	size_t patchIndex = 0xdeadbeefBADC0FFEull;
@@ -343,16 +330,16 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	core::tuple_transform_t<patch_vector_t,supported_asset_types> finalPatchStorage = {};
 
 	{
-		// One would think that we first need an (AssetPtr,Patch) -> ContentHash map and then a ContentHash -> GPUObj map to save
-		// ourselves iterating over redundant assets. The truth is that we going from a ContentHash to GPUObj is blazing fast.
+		// One would think that we first need an (AssetPtr,Patch) -> ContentHash map and then a ContentHash -> GPUObj map to
+		// save ourselves iterating over redundant assets. The truth is that we going from a ContentHash to GPUObj is blazing fast.
 		core::tuple_transform_t<dfs_cache_t,supported_asset_types> dfsCaches = {};
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
 		// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 		{
-			// to do GPU Object lookups during DFS phase, we need a reliable (IAsset*,patch)->ContentHash cache, otherwise we'd be doing O(N^2) during hashing
+			// to do GPU Object lookups during DFS phase, we need a reliable (IAsset*,patch)->ContentHash cache first, otherwise we'd be doing O(N^2) during hashing
 			const bool lookupGPUObjDuringDFS = inputs.hashCache && inputs.readCache;
 			core::stack<dfs_entry_t> dfsStack;
-			// returns true if new element was inserted
+			// returns `instance_metadata_t` which you can `bool(instance_metadata_t)` to find out if a new element was inserted
 			auto cache = [&]<Asset AssetType>(const dfs_entry_t& user, const AssetType* asset, patch_t<AssetType>&& patch) -> instance_metadata_t
 			{
 				assert(asset);
@@ -360,7 +347,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				if (!patch.valid())
 					return {};
 
-				// get unique group and see if we visited already
+				// get unique group
 				dfs_entry_t record = {
 					.asset = asset,
 					.instance = {
@@ -368,18 +355,23 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					}
 				};
 
-				//
-				auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
+				// all entries refer to patch by index, so its stable against vector growth
+				// NOTE: There's a 1:1 correspondence between `dfsCache` entries and `finalPatchStorage` entries!
 				auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
 
-				// all the patches for the same (AssetType*,UniqueCopyGroupID)
+				// now see if we visited already
+				auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
+				// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
 				auto dfsCachedRange = dfsCache.equal_range(record);
-				// iterate over all intended EXTRA copies of an asset
-				patch_t<AssetType> combined;
+
 				// if we will do GPU object lookups we need to back up the first mergable entry in case we find nothing
 				typename dfs_cache_t<AssetType>::const_iterator mergableIt = dfsCachedRange.second;
+				// we may need the first combined patch candidate later if we can `lookupGPUObjDuringDFS` but don't manage to find anything
+				patch_t<AssetType> combined;
+				// iterate over all intended EXTRA copies of an asset
 				for (auto it=dfsCachedRange.first; it!=dfsCachedRange.second; it++)
 				{
+					// get our candidate patch
 					const auto patchIndex = it->canonical.meta.patchIndex;
 					const auto& candidate = patchStorage[patchIndex];
 					// found a thing, try-combine the patches
@@ -390,21 +382,25 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						if (lookupGPUObjDuringDFS)
 						{
 							// Check if a GPU object was already found for the cache before, but we can only use this GPU object if its patch is a superset of ours,
-							// i.e. the candidate cannot change! But we already looked up a GPU object for it, treat same as Not Found if would have to change.
+							// i.e. the candidate cannot change! But we already looked up a GPU object for it, treat same as Not Found if would have to change the patch.
 							if (it->gpuObj && combined==candidate)
 							{
-								// no patch move needed
+								// no patch std::move needed because it needs to stay the same
 								record.instance.patchIndex = patchIndex;
 								return record.instance;
 							}
-							// We don't do a lookup of a GPU object in the cache because it should have already looked up when emplaced as a new entry.
+							// We don't do a lookup of a GPU object in the cache because it should have already looked up when emplaced as a new entry into the dfsCache.
 							// But we back up the entry that's mergable, so we can merge and do a lookup later.
 							if (mergableIt!=dfsCachedRange.second)
+							{
+								record.instance.patchIndex = patchIndex;
 								mergableIt = it;
+							}
 							// but we continue iterating because we want to keep looking for compatible GPU objects in the current equal range
 						}
 						else // no GPU lookups to do, can return right away
 						{
+							// change the patch to a combined version
 							patchStorage[patchIndex] = std::move(combined);
 							record.instance.patchIndex = patchIndex;
 							return record.instance;
@@ -413,15 +409,17 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					// else try the next one
 				}
 
-				// Handle, no compatible GPU objects found
+				// Handle, no GPU objects with compatible patches found in the dfsCache
 				if (lookupGPUObjDuringDFS)
 				{
+					// now we'll look in the read-only conversion cache (from this or another CAssetConverter)
 					const auto& conversionCache = inputs.readCache->getCache<AssetType>();
-					// lambda for doing lookups
+					// lambda for doing lookups, returns a pointer to a cached type if successful
 					auto findGPUObj = [&](const patch_t<AssetType>* _patch)->const asset_cached_t<AssetType>*
 					{
 						// Find our content hash (blind find, we're trying to see if this asset ptr+patch has been hashed before)
 						// lookup Hash Cache using asset+patch, using find to not trigger hash recompute until finished DFS
+						// NOTE: its super important that the `input.hashCache` entries for `asset*.patch` are not stale!
 						const auto contentHashFound = inputs.hashCache->find<AssetType>({.asset=asset,.patch=_patch});
 						if (contentHashFound!=inputs.hashCache->end<AssetType>())
 						{
@@ -430,38 +428,45 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						}
 						return nullptr;
 					};
-					// No compatible GPU objects found, so first look for unpatched/unmerged self.
+					// First look for unpatched/unmerged self.
 					if (const auto* found=findGPUObj(&patch); found)
 					{
-						// obviously not in cache so need to insert
+						// this is a new never before seen patch, we need to push it
 						record.instance.patchIndex = patchStorage.size();
 						patchStorage.push_back(std::move(patch));
+						// obviously not in the DFS cache so need to insert
 						dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},*found);
 						return record.instance;
 					}
-					else if (mergableIt!=dfsCachedRange.second) // there's a valid merge candidate
+					else if (mergableIt!=dfsCachedRange.second) // if there's a valid merge candidate
 					{
-						if (const auto* found=findGPUObj(&combined); found)
+						// we can now do same as the `!lookupGPUObjDuringDFS` case during merging and make the merge take effect
+						const auto& effective = (patchStorage[record.instance.patchIndex] = std::move(combined));
+						// then look for self with that combined patch
+						if (const auto* found=findGPUObj(&effective); found)
 						{
-							patchStorage[mergableIt->canonical.meta.patchIndex] = std::move(combined);
+							// instead of emplacing a new entry in DFS cache, update it with GPU object, now the patch will not mutate
 							mergableIt->gpuObj = *found;
-							dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},*found);
-							return record.instance;
 						}
-						// proceed onto the no GPU object no find case
+						// there's no other patch to try and found GPU object, but at least we were able to merge this oen
+						return record.instance;
 					}
+					// proceed onto the no compatible patch and no compatible GPU object found case
 				}
 
 				// Either haven't managed to combine with anything, or no GPU object found
 				record.instance.patchIndex = patchStorage.size();
+				// push a new patch
 				patchStorage.push_back(std::move(patch));
-				// Only when we cannot find a GPU object do we carry on with the DFS
+				// Only when we cannot find a cached GPU object or a compatible patch entry do we carry on with the DFS
 				if (asset_traits<AssetType>::HasChildren)
 					dfsStack.emplace(record);
+				// emplace without a valid GPU object, this will not change unless the cache entry's
+				// patch gets combined and that is findable in the gpu conversion cache
 				dfsCache.emplace(instance_t<AssetType>{.asset=asset,.meta=record.instance},asset_cached_t<AssetType>{});
 				return record.instance;
 			};
-			//
+			// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
 			const auto& features = device->getEnabledFeatures();
 			const auto& limits = device->getPhysicalDevice()->getLimits();
 			// initialize stacks
@@ -489,7 +494,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				const auto entry = dfsStack.top();
 				dfsStack.pop();
-				// everything we popped, has already been cached, now time to go over dependents
+				// everything we popped has already been cached in dfsCache, now time to go over dependents
 				const auto* user = entry.asset;
 				switch (user->getAssetType())
 				{
@@ -527,7 +532,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						{
 							patch_t<ICPUBuffer> patch = {buffer,features,limits};
 							// we have no clue how this will be used, so we mark both usages
-							patch.usage = IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+							patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
 							cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
 						}
 						break;
