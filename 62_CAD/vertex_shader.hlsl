@@ -5,6 +5,7 @@
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/algorithm.hlsl>
+#include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
 
 // TODO[Lucas]: Move these functions to builtin hlsl functions (Even the shadertoy obb and aabb ones)
 float cross2D(float2 a, float2 b)
@@ -54,6 +55,39 @@ float2 transformPointScreenSpace(float64_t3x3 transformation, double2 point2d)
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
     return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+}
+
+template<bool FragmentShaderPixelInterlock>
+void dilateHatch(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV);
+
+// Dilate with ease, our transparency algorithm will handle the overlaps easily with the help of FragmentShaderPixelInterlock
+template<>
+void dilateHatch<true>(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV)
+{
+    const float2 dilatationFactor = 1.0 + 2.0 * dilateRate;
+    
+    // cornerMultiplier stores the direction of the corner to dilate:
+    // (-1,-1)|--|(1,-1)
+    //        |  |
+    // (-1,1) |--|(1,1)
+    const float2 cornerMultiplier = float2(undilatedCorner * 2.0 - 1.0);
+    outUV = float2((cornerMultiplier * dilatationFactor + 1.0) * 0.5);
+    
+    // vx/vy are vectors in direction of the box's axes and their length is equal to X pixels (X = globals.antiAliasingFactor + 1.0)
+    // and we use them for dilation of X pixels in ndc space by adding them to the currentCorner in NDC space 
+    const float2 vx = ndcAxisU * dilateRate.x;
+    const float2 vy = ndcAxisV * dilateRate.y;
+    outOffsetVec = vx * cornerMultiplier.x + vy * cornerMultiplier.y; // (0, 0) should do -vx-vy and (1, 1) should do +vx+vy
+}
+
+// Don't dilate which causes overlap of colors when no fragshaderInterlock which powers our transparency and overlap resolving algorithm
+template<>
+void dilateHatch<false>(out float2 outOffsetVec, out float2 outUV, const float2 undilatedCorner, const float2 dilateRate, const float2 ndcAxisU, const float2 ndcAxisV)
+{
+    outOffsetVec = float2(0.0f, 0.0f);
+    outUV = undilatedCorner;
+    // TODO: If it became a huge bummer on AMD devices we can consider dilating only in minor direction which may still avoid color overlaps
+    // Or optionally we could dilate and stuff when we know this hatch is opaque (alpha = 1.0)
 }
 
 PSInput main(uint vertexID : SV_VertexID)
@@ -379,37 +413,26 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        // TODO: better name?
-        // TODO: can we use floats instead of doubles for every dilation and ndc things except the main box values
-        const double2 ndcBoxAxisX = transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
-        const double2 ndcBoxAxisY = transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
+        const float2 ndcAxisU = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin);
+        const float2 ndcAxisV = (float2)transformVectorNdc(clipProjectionData.projectionToNDC, double2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin);
 
-        const double2 screenSpaceAabbExtents = double2(length(ndcBoxAxisX * double2(globals.resolution)) / 2.0, length(ndcBoxAxisY * double2(globals.resolution)) / 2.0);
+        const float2 screenSpaceAabbExtents = float2(length(ndcAxisU * float2(globals.resolution)) / 2.0, length(ndcAxisV * float2(globals.resolution)) / 2.0);
 
         // we could use something like  this to compute screen space change over minor/major change and avoid ddx(minor), ddy(major) in frag shader (the code below doesn't account for rotation)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
-        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
-        const double2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents;
-        const double2 dilatationFactor = 1.0 + 2.0 * dilateRate;
-        // undilatedMaxCornerNDC stores the quad's UVs:
-        // (-1,-1)|--|(1,-1)
-        //        |  |
-        // (-1,1) |--|(1,1)
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        const float2 undilatedCornerNDC = float2(undilatedCorner * 2.0 - 1.0);
-        // Dilate the UVs
-        const float2 maxCorner = float2((undilatedCornerNDC * dilatationFactor + 1.0) * 0.5);
         
-        // vx/vy are vectors in direction of the box's axes and their length is equal to X pixels (X = globals.antiAliasingFactor + 1.0)
-        // and we use them for dilation of X pixels in ndc space by adding them to the currentCorner in NDC space 
-        const double2 vx = ndcBoxAxisX * dilateRate.x;
-        const double2 vy = ndcBoxAxisY * dilateRate.y;
-        const double2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y; // (0, 0) should do -vx-vy and (1, 1) should do +vx+vy
+        // We don't dilate on AMD (= no fragShaderInterlock)
+        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
+        const float2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents; // float sufficient to hold the dilate rect? 
+        float2 dilateVec;
+        float2 dilatedUV;
+        dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
         const double2 currentCorner = curveBox.aabbMin * (1.0 - undilatedCorner) + curveBox.aabbMax * undilatedCorner;
-        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + offsetVec);
+        const float2 coord = (float2) (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + dilateVec);
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -423,8 +446,8 @@ PSInput main(uint vertexID : SV_VertexID)
         nbl::hlsl::shapes::Quadratic<float> curveMax = nbl::hlsl::shapes::Quadratic<float>::construct(
             curveBox.curveMax[0], curveBox.curveMax[1], curveBox.curveMax[2]);
 
-        outV.setMinorBBoxUv(maxCorner[minor]);
-        outV.setMajorBBoxUv(maxCorner[major]);
+        outV.setMinorBBoxUV(dilatedUV[minor]);
+        outV.setMajorBBoxUV(dilatedUV[major]);
 
         outV.setCurveMinMinor(nbl::hlsl::math::equations::Quadratic<float>::construct(
             curveMin.A[minor], 
@@ -455,8 +478,77 @@ PSInput main(uint vertexID : SV_VertexID)
         //outV.setMinCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMinRootFinding));
         //outV.setMaxCurvePrecomputedRootFinders(PrecomputedRootFinder<float>::construct(curveMaxRootFinding));
     }
-    
-    
+    else if (objType == ObjectType::FONT_GLYPH)
+    {
+        GlyphInfo glyphInfo;
+        glyphInfo.topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
+        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
+        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
+
+        float32_t2 minUV = glyphInfo.getMinUV();
+        uint16_t textureID = glyphInfo.getTextureID();
+
+        const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
+        const float2 screenTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft);
+        const float2 screenDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, glyphInfo.dirU);
+        const float2 screenDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
+
+        const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
+        const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
+        
+        const float2 screenSpaceAabbExtents = float2(length(screenDirU * float2(globals.resolution)) / 2.0, length(screenDirV * float2(globals.resolution)) / 2.0);
+        const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
+        const float2 dilateRate = (float2)(pixelsToIncreaseOnEachSide / screenSpaceAabbExtents);
+
+        const float2 vx = screenDirU * dilateRate.x;
+        const float2 vy = screenDirV * dilateRate.y;
+        const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
+        const float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
+
+        // If aspect ratio of the dimensions and glyph inside the texture are the same -->
+        // it doesn't matter which component (x or y) to use to compute screenPxRange.
+        // but if the glyph box is stretched in any way then we won't get correct msdf
+        // We compute this value using the ration of our screenspace extent to the texel space our glyph takes inside the texture
+        // Our glyph is centered inside the texture, so `maxUV = 1.0 - minUV` and `glyphTexelSize = (1.0-2.0*minUV) * MSDFSize
+        const float screenPxRange = max(screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x) * MSDFSize), 1.0);
+        
+        // In order to keep the shape scale constant with any dilation values:
+        // We compute the new dilated minUV that gets us minUV when interpolated on the previous undilated top left
+        const float2 topLeftInterpolationValue = (dilateRate/(1.0+2.0*dilateRate));
+        const float2 dilatedMinUV = (topLeftInterpolationValue - minUV) / (2.0 * topLeftInterpolationValue - 1.0);
+        const float2 dilatedMaxUV = float2(1.0, 1.0) - dilatedMinUV;
+        
+        const float2 uv = dilatedMinUV + corner * (dilatedMaxUV - dilatedMinUV);
+
+        outV.position = float4(coord, 0.f, 1.f);
+        outV.setFontGlyphUV(uv);
+        outV.setFontGlyphTextureId(textureID);
+        outV.setFontGlyphScreenPxRange(screenPxRange);
+    }
+    else if (objType == ObjectType::IMAGE)
+    {
+        float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(double2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2), 4u);
+        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(double2) + sizeof(float2) + sizeof(float), 4u);
+
+        const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
+        const float2 ndcTopLeft = (float2) transformPointNdc(clipProjectionData.projectionToNDC, topLeft);
+        const float2 ndcDirU = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirU);
+        const float2 ndcDirV = (float2) transformVectorNdc(clipProjectionData.projectionToNDC, dirV);
+
+        float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
+        float2 uv = corner; // non-dilated
+        
+        float2 ndcCorner = ndcTopLeft + corner.x * ndcDirU + corner.y * ndcDirV;
+        
+        outV.position = float4(ndcCorner, 0.f, 1.f);
+        outV.setImageUV(uv);
+        outV.setImageTextureId(textureID);
+    }
+
+
 // Make the cage fullscreen for testing: 
 #if 0
     // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
