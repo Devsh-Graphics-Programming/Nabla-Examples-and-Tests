@@ -25,6 +25,7 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 	using clock_t = std::chrono::steady_clock;
 
 	constexpr static inline std::string_view DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
+	constexpr static inline std::array<int, 2> Dimensions = { 1280, 720 };
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -40,8 +41,8 @@ public:
 			{
 				IWindow::SCreationParams params = {};
 				params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
-				params.width = 256;
-				params.height = 256;
+				params.width = Dimensions[0];
+				params.height = Dimensions[1];
 				params.x = 32;
 				params.y = 32;
 				// Don't want to have a window lingering about before we're ready so create it hidden.
@@ -278,19 +279,7 @@ public:
 				return false;
 			m_gpuImg->setObjectDebugName("Autoexposure Image");
 
-			// set window size
-			const auto imageExtent = m_gpuImg->getCreationParameters().extent;
-			const VkExtent2D newWindowResolution = { imageExtent.width, imageExtent.height };
-
-			if (newWindowResolution.width != m_window->getWidth() || newWindowResolution.height != m_window->getHeight())
-			{
-				// Resize the window
-				m_winMgr->setWindowSize(m_window.get(), newWindowResolution.width, newWindowResolution.height);
-				// Don't want to rely on the Swapchain OUT_OF_DATE causing an implicit re-create in the `acquireNextImage` because the
-				// swapchain may report OUT_OF_DATE after the next VBlank after the resize, not getting the message right away.
-				m_surface->recreateSwapchain();
-			}
-			// Now show the window (ideally should happen just after present, but don't want to mess with acquire/recreation)
+			// Now show the window
 			m_winMgr->show(m_window.get());
 
 			// we don't want to overcomplicate the example with multi-queue
@@ -373,46 +362,26 @@ public:
 		auto cmdbuf = m_cmdBufs[0].get();
 		auto ds = m_descriptorSets[0].get();
 
-		// there's no previous operation to wait for
-		const SMemoryBarrier toTransferBarrier = {
-			.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-			.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
-		};
-		const auto gpuImgCreationParams = m_gpuImg->getCreationParameters();
-		const auto gpuImgViewCreationParams = m_gpuImgView->getCreationParameters();
-
 		queue->startCapture();
-		// Render to the Image
+		// Render to the swapchain
 		{
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			// need a pipeline barrier to transition layout
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = { {
-				.barrier = {
-					.dep = toTransferBarrier.nextBarrier(PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT)
-				},
-				.image = m_gpuImg.get(),
-				.subresourceRange = gpuImgViewCreationParams.subresourceRange,
-				.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
-				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
-			} };
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
 
 			const VkRect2D currentRenderArea =
 			{
 				.offset = {0,0},
-				.extent = {gpuImgCreationParams.extent.width, gpuImgCreationParams.extent.height}
+				.extent = { m_window->getWidth(), m_window->getHeight() }
 			};
 			// set viewport
 			{
 				const asset::SViewport viewport =
 				{
-					.width = float(gpuImgCreationParams.extent.width),
-					.height = float(gpuImgCreationParams.extent.height)
+					.width = float(m_window->getWidth()),
+					.height = float(m_window->getHeight())
 				};
-				cmdbuf->setViewport({ &viewport,1 });
+				cmdbuf->setViewport({ &viewport, 1 });
 			}
-			cmdbuf->setScissor({ &currentRenderArea,1 });
+			cmdbuf->setScissor({ &currentRenderArea, 1 });
 
 			// begin the renderpass
 			{
@@ -426,6 +395,7 @@ public:
 				};
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
+
 			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_pipeline->getLayout(), 3, 1, &ds);
 			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
@@ -467,6 +437,7 @@ public:
 		m_surface->present(acquire.imageIndex, rendered);
 		getGraphicsQueue()->endCapture();
 
+		// Wait for completion
 		{
 			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
 				{
