@@ -337,11 +337,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	core::vector<instance_metadata_t> inputsMetadata[core::type_list_size_v<supported_asset_types>];
 	// stop multiple copies of the patches floating around
 	core::tuple_transform_t<patch_vector_t,supported_asset_types> finalPatchStorage = {};
+	// One would think that we first need an (AssetPtr,Patch) -> ContentHash map and then a ContentHash -> GPUObj map to
+	// save ourselves iterating over redundant assets. The truth is that we going from a ContentHash to GPUObj is blazing fast.
+	core::tuple_transform_t<dfs_cache_t,supported_asset_types> dfsCaches = {};
 
 	{
-		// One would think that we first need an (AssetPtr,Patch) -> ContentHash map and then a ContentHash -> GPUObj map to
-		// save ourselves iterating over redundant assets. The truth is that we going from a ContentHash to GPUObj is blazing fast.
-		core::tuple_transform_t<dfs_cache_t,supported_asset_types> dfsCaches = {};
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
 		// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 		{
@@ -555,6 +555,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 			}
 		}
+		//! `inputsMetadata` is now constant!
 		//! `finalPatchStorage` is now constant!
 
 		// can now spawn our own hash cache if one wasn't provided
@@ -603,6 +604,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		// The order of `supported_asset_types` is super important to be BOTTOM UP in terms of hashing and conversion dependants.
 		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we may catch all duplicates!
 		core::for_each_in_tuple(dfsCaches,dedup);
+		//! `dfsCaches` is now constant!
 
 // TODO:
 // how do we assign a GPU object copy to a groupID ?
@@ -686,7 +688,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 	// insert whatever assets don't need conversion to the cache
 //	core::for_each_in_tuple(uniqueGpuObjects,cacheInsert);
-#if 0
+
 	// write out results
 	auto finalize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
 	{
@@ -694,7 +696,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		//
 		const auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
 		const auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
-		const auto& staging = std::get<CCache<AssetType>>(retval.m_stagingCache);
+//		const auto& staging = std::get<CCache<AssetType>>(retval.m_stagingCache);
+		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
 		auto& results = std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects);
 		//
 		for (size_t i=0; i<count; i++)
@@ -703,18 +706,16 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			const auto* patch = patchStorage.data()+metadata[i].patchIndex;
 			if (!patch->valid())
 				continue;
-			const core::blake3_hash_t hash = hashCache->hash<AssetType>({{
-				.asset=asset,
-				.patch=patch
-			}});
-			// lookup the hash in the local cache (it must be present)
-			const auto found = staging.find({hash,metadata[i].uniqueCopyGroupID});
+			// The Content Hash and GPU object are in the dfsCache
+			auto range = dfsCache.equal_range(dfs_entry_t{.asset=asset,.instance=metadata[i]});
+			auto found = std::find_if(range.first,range.second,[&](const auto& entry)->bool{return entry.canonical.meta.patchIndex==metadata[i].patchIndex;});
+			assert(found!=range.second);
 			// write it out to the results
-			results[i] = *found;
+			results[i] = found->gpuObj;
 		}
 	};
 	core::for_each_in_tuple(inputs.assets,finalize);
-#endif
+
 	return retval;
 }
 
