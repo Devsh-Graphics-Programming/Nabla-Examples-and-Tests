@@ -8,7 +8,6 @@
 #include "nbl/asset/interchange/IAssetLoader.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
-
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
@@ -95,6 +94,9 @@ public:
 
 		}
 
+		// Create semaphore
+		m_semaphore = m_device->createSemaphore(m_submitIx);
+
 		// create the descriptor set and with enough room for one image sampler
 		{
 			const uint32_t setCount = 1;
@@ -107,6 +109,7 @@ public:
 				return logFail("Could not create Descriptor Set!");
 		}
 
+		auto ds = m_descriptorSets[0].get();
 		auto queue = getGraphicsQueue();
 
 		// Gather swapchain resources
@@ -256,7 +259,7 @@ public:
 			const auto cpuImgView = ICPUImageView::create(std::move(viewParams));
 			const auto& cpuImgParams = cpuImgView->getCreationParameters();
 
-			// create matching size image
+			// create matching size image upto dimensions
 			IGPUImage::SCreationParams imageParams = {};
 			imageParams = cpuImgParams.image->getCreationParameters();
 			imageParams.usage |= IGPUImage::EUF_TRANSFER_DST_BIT | IGPUImage::EUF_SAMPLED_BIT | IGPUImage::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT;
@@ -304,7 +307,6 @@ public:
 
 			// upload image and write to descriptor set
 			queue->startCapture();
-			auto ds = m_descriptorSets[0].get();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// change the layout of the image
@@ -331,11 +333,28 @@ public:
 			);
 			IGPUImageView::SCreationParams gpuImgViewParams = {
 				.image = m_gpuImg,
-				.viewType = IGPUImageView::ET_2D_ARRAY,
+				.viewType = IGPUImageView::ET_2D,
 				.format = m_gpuImg->getCreationParameters().format
 			};
 
 			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
+
+			IGPUDescriptorSet::SDescriptorInfo info = {};
+			info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			info.desc = m_gpuImgView;
+
+			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
+				{
+					.dstSet = ds,
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info
+				}
+			};
+
+			m_device->updateDescriptorSets(1, writeDescriptors, 0, nullptr);
+
 			queue->endCapture();
 		}
 
@@ -345,6 +364,119 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+		// Acquire
+		auto acquire = m_surface->acquireNextImage();
+		if (!acquire)
+			return;
+
+		auto queue = getGraphicsQueue();
+		auto cmdbuf = m_cmdBufs[0].get();
+		auto ds = m_descriptorSets[0].get();
+
+		// there's no previous operation to wait for
+		const SMemoryBarrier toTransferBarrier = {
+			.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+			.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+		};
+		const auto gpuImgCreationParams = m_gpuImg->getCreationParameters();
+		const auto gpuImgViewCreationParams = m_gpuImgView->getCreationParameters();
+
+		queue->startCapture();
+		// Render to the Image
+		{
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			// need a pipeline barrier to transition layout
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = { {
+				.barrier = {
+					.dep = toTransferBarrier.nextBarrier(PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,ACCESS_FLAGS::SAMPLED_READ_BIT)
+				},
+				.image = m_gpuImg.get(),
+				.subresourceRange = gpuImgViewCreationParams.subresourceRange,
+				.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+			} };
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
+
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {gpuImgCreationParams.extent.width, gpuImgCreationParams.extent.height}
+			};
+			// set viewport
+			{
+				const asset::SViewport viewport =
+				{
+					.width = float(gpuImgCreationParams.extent.width),
+					.height = float(gpuImgCreationParams.extent.height)
+				};
+				cmdbuf->setViewport({ &viewport,1 });
+			}
+			cmdbuf->setScissor({ &currentRenderArea,1 });
+
+			// begin the renderpass
+			{
+				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {1.f,0.f,1.f,1.f} };
+				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+				const IGPUCommandBuffer::SRenderpassBeginInfo info = {
+					.framebuffer = scRes->getFramebuffer(acquire.imageIndex),
+					.colorClearValues = &clearValue,
+					.depthStencilClearValues = nullptr,
+					.renderArea = currentRenderArea
+				};
+				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+			}
+			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_pipeline->getLayout(), 3, 1, &ds);
+			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+			cmdbuf->endRenderPass();
+
+			cmdbuf->end();
+		}
+
+		// submit
+		const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
+			.semaphore = m_semaphore.get(),
+			.value = ++m_submitIx,
+			// just as we've outputted all pixels, signal
+			.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+		} };
+		{
+			{
+				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
+					.cmdbuf = cmdbuf
+				} };
+				// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
+				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = { {
+					.semaphore = acquire.semaphore,
+					.value = acquire.acquireCount,
+					.stageMask = PIPELINE_STAGE_FLAGS::NONE
+				} };
+				const IQueue::SSubmitInfo infos[1] = { {
+					.waitSemaphores = acquired,
+					.commandBuffers = commandBuffers,
+					.signalSemaphores = rendered
+				} };
+				// we won't signal the sema if no success
+				if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
+					m_submitIx--;
+			}
+		}
+
+		// Present
+		m_surface->present(acquire.imageIndex, rendered);
+		getGraphicsQueue()->endCapture();
+
+		{
+			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+				{
+					.semaphore = m_semaphore.get(),
+					.value = m_submitIx
+				}
+			};
+			if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+				return;
+		}
 	}
 
 	inline bool keepRunning() override
@@ -374,6 +506,8 @@ protected:
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
+	smart_refctd_ptr<ISemaphore> m_semaphore;
+	uint64_t m_submitIx = 0;
 
 	// window
 	smart_refctd_ptr<IWindow> m_window;
