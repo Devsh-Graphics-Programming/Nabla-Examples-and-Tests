@@ -307,9 +307,9 @@ template<asset::Asset AssetType>
 struct unique_conversion_t
 {
 	const AssetType* canonicalAsset = nullptr;
-	size_t patchIndex : 40 = 0xdeadbeefBAull;
+	size_t patchIndex = 0xdeadbeefBAull;
+	size_t firstCopyIx : 40 = 0u;
 	size_t copyCount : 24 = 0u;
-	asset_cached_t<AssetType> gpuObj = {};
 };
 
 //
@@ -626,7 +626,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				if (IPreHashed::anyDependantDiscardedContents(canonical.asset))
 					continue;
 				// then de-duplicate the conversions needed
-				conversionRequests.emplace(entry.contentHash,unique_conversion_t<AssetType>{.canonicalAsset=canonical.asset,.patchIndex=canonical.meta.patchIndex,.copyCount=0});
+				conversionRequests.emplace(entry.contentHash,unique_conversion_t<AssetType>{.canonicalAsset=canonical.asset,.patchIndex=canonical.meta.patchIndex});
 			}
 
 			// Count how many distinct `uniqueGroupID` we have 
@@ -637,17 +637,31 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				if (found!=conversionRequests.end())
 					found->second.copyCount++;
 			}
-			//! `conversionRequests` is now constant!
- 
+
+			// storage for GPU objects
+			core::vector<asset_cached_t<AssetType>> gpuObjects;
+			// now assign storage offsets via exclusive scan (don't want `std::exclusive_scan` because the binop is not compound assignment)
+			{
+				size_t sum = 0;
+				for (auto& entry : conversionRequests)
+				{
+					entry.second.firstCopyIx = sum;
+					sum += entry.second.copyCount;
+				}
+				gpuObjects.resize(sum);
+			}
+
 			// Dispatch to correct creation of GPU objects
 			if constexpr (std::is_same_v<AssetType,ICPUSampler>)
 			{
 				for (auto& entry : conversionRequests)
-					entry.second.gpuObj.value = device->createSampler(entry.second.canonicalAsset->getParams());
+				for (auto i=0ull; i<entry.second.copyCount; i++)
+					gpuObjects[i+entry.second.firstCopyIx].value = device->createSampler(entry.second.canonicalAsset->getParams());
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
 			{
 				for (auto& entry : conversionRequests)
+				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
 					IGPUBuffer::SCreationParams params = {};
 					params.size = entry.second.canonicalAsset->getSize();
@@ -655,7 +669,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					// TODO: make this configurable
 					params.queueFamilyIndexCount = 0;
 					params.queueFamilyIndices = nullptr;
-					entry.second.gpuObj.value = device->createBuffer(std::move(params));
+					gpuObjects[i+entry.second.firstCopyIx].value = device->createBuffer(std::move(params));
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUShader>)
@@ -666,9 +680,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					.writeCache = inputs.writeShaderCache
 				};
 				for (auto& entry : conversionRequests)
+				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
 					createParams.cpushader = entry.second.canonicalAsset;
-					entry.second.gpuObj.value = device->createShader(createParams);
+					gpuObjects[i+entry.second.firstCopyIx].value = device->createShader(createParams);
 				}
 			}
 
@@ -680,16 +695,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				if (found==conversionRequests.end())
 					continue;
 
-				const auto copyIx = found->second.copyCount--;
-				if (copyIx)
-				{
-					// copy
-				}
-				else
-				{
-					// canonical
-				}
+				const auto copyIx = found->second.firstCopyIx++;
 				auto& outGPUObj = entry.gpuObj;
+				outGPUObj = std::move(gpuObjects[copyIx]);
 //				outGPUObj.setDebugName(hash,group);
 				// insert into staging cache
 			}
