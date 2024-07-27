@@ -306,7 +306,9 @@ using dfs_cache_t = core::unordered_multiset<dfs_result_t<AssetType>,dfs_cache_h
 template<asset::Asset AssetType>
 struct unique_conversion_t
 {
-	instance_t<AssetType> canonical = {};
+	const AssetType* canonicalAsset = nullptr;
+	size_t patchIndex : 40 = 0xdeadbeefBAull;
+	size_t copyCount : 24 = 0u;
 	asset_cached_t<AssetType> gpuObj = {};
 };
 
@@ -500,7 +502,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 			};
 			core::for_each_in_tuple(inputs.assets,initialize);
-			//
+
+			// Perform Depth First Search of the Asset Graph
 			while (!dfsStack.empty())
 			{
 				const auto entry = dfsStack.top();
@@ -564,130 +567,154 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			hashCache = core::smart_refctd_ptr<CHashCache>(inputs.hashCache);
 		else
 			hashCache = core::make_smart_refctd_ptr<CHashCache>();
-		
-		// This map contains the assets by-hash, identical asset+patch hash the same.
-		core::tuple_transform_t<conversions_t,supported_asset_types> conversionRequests;
-		// Deduplication.
-		// We now go through the dfsCache and work out each entry's content hashes.
-		// So that we can carry out unique conversions.
-		auto dedup = [&]<Asset AssetType>(dfs_cache_t<AssetType>& dfsCache)->void
+	
+		// its a very good idea to set debug names on everything!
+		auto setDebugName = [this](IBackendObject* obj, const core::blake3_hash_t& hashval, const size_t uniqueCopyGroupID)->void
 		{
-			const auto* pPatches = std::get<patch_vector_t<AssetType>>(finalPatchStorage).data();
-			const CCache<AssetType>* readCache = inputs.readCache ? (&std::get<CCache<AssetType>>(inputs.readCache->m_caches)):nullptr;
-			for (auto& entry : dfsCache)
+			if (obj)
 			{
-				// first lets get our content hash, only treat content hashes seriously if gpuObj also found
-				if (!entry.gpuObj)
-				{
-					const auto& canonical = entry.canonical;
-					// compute the hash or look it up if it exists
-					entry.contentHash = hashCache->hash<AssetType>({
-						{.asset=canonical.asset,.patch=pPatches+canonical.meta.patchIndex},
-						// We mistrust every dependency such that the eject/update if needed.
-						// Its really important that the Deduplication gets performed Bottom-Up
-						/*.mistrustLevel = */1
-					});
-					// if we have a read cache, lets look the item up!
-					if (readCache)
-					{
-						const auto found = readCache->find({entry.contentHash,canonical.meta.uniqueCopyGroupID});
-						if (found)
-							entry.gpuObj = *found;
-					}
-				}
-
-				// then de-duplicate the conversions needed
-				{
-				}
+				std::ostringstream debugName;
+				debugName << "Created by Converter ";
+				debugName << std::hex;
+				debugName << this;
+				debugName << " from Asset with hash ";
+				for (const auto& byte : hashval.data)
+					debugName << uint32_t(byte) << " ";
+				debugName << "for Group " << uniqueCopyGroupID;
+				obj->setObjectDebugName(debugName.str().c_str());
 			}
 		};
-		// The order of `supported_asset_types` is super important to be BOTTOM UP in terms of hashing and conversion dependants.
-		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we may catch all duplicates!
-		core::for_each_in_tuple(dfsCaches,dedup);
+
+		// Deduplication, Creation and Propagation
+		auto dedupCreateProp = [&]<Asset AssetType>(dfs_cache_t<AssetType>& dfsCache)->void
+		{
+			const auto* pPatches = std::get<patch_vector_t<AssetType>>(finalPatchStorage).data();
+			// This map contains the assets by-hash, identical asset+patch hash the same.
+			conversions_t<AssetType> conversionRequests;
+
+			// We now go through the dfsCache and work out each entry's content hashes.
+			// So that we can carry out unique conversions.
+			const CCache<AssetType>* readCache = inputs.readCache ? (&std::get<CCache<AssetType>>(inputs.readCache->m_caches)):nullptr;
+			for (auto& entry : dfsCache)
+			if (!entry.gpuObj)
+			{
+				const auto& canonical = entry.canonical;
+				if (!canonical.asset)
+					continue;
+				// compute the hash or look it up if it exists
+				entry.contentHash = hashCache->hash<AssetType>({
+					{.asset=canonical.asset,.patch=pPatches+canonical.meta.patchIndex},
+					// We mistrust every dependency such that the eject/update if needed.
+					// Its really important that the Deduplication gets performed Bottom-Up
+					/*.mistrustLevel = */1
+				});
+				// if we have a read cache, lets retry looking the item up!
+				if (readCache)
+				{
+					// We can't look up "near misses" (supersets of patches) because they'd have different hashes
+					// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
+					// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
+					const auto found = readCache->find({entry.contentHash,canonical.meta.uniqueCopyGroupID});
+					if (found)
+					{
+						entry.gpuObj = *found;
+						// no conversion needed
+						continue;
+					}
+				}
+				// The conversion request we insert needs a canonical asset without missing contents
+				if (IPreHashed::anyDependantDiscardedContents(canonical.asset))
+					continue;
+				// then de-duplicate the conversions needed
+				conversionRequests.emplace(entry.contentHash,unique_conversion_t<AssetType>{.canonicalAsset=canonical.asset,.patchIndex=canonical.meta.patchIndex,.copyCount=0});
+			}
+
+			// Count how many distinct `uniqueGroupID` we have 
+			for (auto& entry : dfsCache)
+			if (entry.canonical.asset && !entry.gpuObj)
+			{
+				auto found = conversionRequests.find(entry.contentHash);
+				if (found!=conversionRequests.end())
+					found->second.copyCount++;
+			}
+			//! `conversionRequests` is now constant!
+ 
+			// Dispatch to correct creation of GPU objects
+			if constexpr (std::is_same_v<AssetType,ICPUSampler>)
+			{
+				for (auto& entry : conversionRequests)
+					entry.second.gpuObj.value = device->createSampler(entry.second.canonicalAsset->getParams());
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					IGPUBuffer::SCreationParams params = {};
+					params.size = entry.second.canonicalAsset->getSize();
+					params.usage = pPatches[entry.second.patchIndex].usage;
+					// TODO: make this configurable
+					params.queueFamilyIndexCount = 0;
+					params.queueFamilyIndices = nullptr;
+					entry.second.gpuObj.value = device->createBuffer(std::move(params));
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUShader>)
+			{
+				ILogicalDevice::SShaderCreationParameters createParams = {
+					.optimizer = m_params.optimizer.get(),
+					.readCache = inputs.readShaderCache,
+					.writeCache = inputs.writeShaderCache
+				};
+				for (auto& entry : conversionRequests)
+				{
+					createParams.cpushader = entry.second.canonicalAsset;
+					entry.second.gpuObj.value = device->createShader(createParams);
+				}
+			}
+
+			// Propagate the results back, since there's no easy way to find the `uniqueCopyGroupID` for a given asset and patch, we map in reverse
+			for (auto& entry : dfsCache)
+			if (entry.canonical.asset && !entry.gpuObj)
+			{
+				auto found = conversionRequests.find(entry.contentHash);
+				if (found==conversionRequests.end())
+					continue;
+
+				const auto copyIx = found->second.copyCount--;
+				if (copyIx)
+				{
+					// copy
+				}
+				else
+				{
+					// canonical
+				}
+				auto& outGPUObj = entry.gpuObj;
+//				outGPUObj.setDebugName(hash,group);
+				// insert into staging cache
+			}
+		};
+		// The order of `supported_asset_types` is super important to go BOTTOM UP in terms of hashing and conversion dependants.
+		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we have all the possible dependants ready.
+		core::for_each_in_tuple(dfsCaches,dedupCreateProp);
+
+		// Allocate Memory
+		{
+			// gather memory reqs
+			// allocate device memory
+		//	device->allocate(reqs,false);
+			// now bind it
+			// if fail, need to wipe the GPU Obj as a failure
+		}
 		//! `dfsCaches` is now constant!
 
+
+
 // TODO:
-// how do we assign a GPU object copy to a groupID ?
-// how do we REBUILD GPU objects from their dependencies? Potential ANswer: traverse DFS again!
+// how to get Patch while hashing dependants?
+// how to get dependant while converting?
+	// - ????
 	}
-	// Now we have a set of implicit gpu creation parameters we want to create resources with.
-	// If there's a readCache we need to look for an item there first.
-	// We can't look up "near misses" (supersets) because they'd have different hashes
-	// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
-	// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
-
-
-
-// Shader, DSLayout, PipelineLayout, Compute Pipeline
-// Renderpass, Graphics Pipeline
-// Buffer, BufferView, Sampler, Image, Image View, Bottom Level AS, Top Level AS, Descriptor Set, Framebuffer  
-// Buffer -> SRange, patched usage, owner(s)
-// BufferView -> SRange, promoted format
-// Sampler -> Clamped Params (only aniso, really)
-// Image -> this, patched usage, promoted format
-// Image View -> ref to patched Image, patched usage, promoted format
-// Descriptor Set -> unique layout, 
-	
-	// its a very good idea to set debug names on everything!
-	auto setDebugName = [this](IBackendObject* obj, const core::blake3_hash_t& hashval)->void
-	{
-		if (obj)
-		{
-			std::ostringstream debugName;
-			debugName << "Created by Converter ";
-			debugName << std::hex;
-			debugName << this;
-			debugName << " from Asset with hash ";
-			for (const auto& byte : hashval.data)
-				debugName << uint32_t(byte) << " ";
-			obj->setObjectDebugName(debugName.str().c_str());
-		}
-	};
-
-	// create shaders
-	{
-		ILogicalDevice::SShaderCreationParameters createParams = {
-			.optimizer = m_params.optimizer.get(),
-			.readCache = inputs.readShaderCache,
-			.writeCache = inputs.writeShaderCache
-		};
-#if 0
-		for (auto& entry : shadersToCreate)
-		{
-			assert(!shader.second.result);
-			// custom code start
-			params.cpushader = shader.first.asset;
-			shader.second.result = device->createShader(params);
-		}
-#endif
-	}
-
-	core::unordered_map<core::blake3_hash_t,patch_t<ICPUBuffer>> buffersToCreate;
-	// create IGPUBuffers
-	for (auto& entry : buffersToCreate)
-	{
-		IGPUBuffer::SCreationParams params = {};
-		params.size = 0x45;
-		params.usage = entry.second.usage;
-		// TODO: make this configurable
-		params.queueFamilyIndexCount = 0;
-		params.queueFamilyIndices = nullptr;
-		auto buffer = device->createBuffer(std::move(params));
-	}
-
-	// create IGPUImages
-
-	// gather memory reqs
-	// allocate device memory
-//	device->allocate(reqs,false);
-
-	// create IGPUBufferViews
-
-	// create IGPUImageViews
-
-
-	// insert whatever assets don't need conversion to the cache
-//	core::for_each_in_tuple(uniqueGpuObjects,cacheInsert);
 
 	// write out results
 	auto finalize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void

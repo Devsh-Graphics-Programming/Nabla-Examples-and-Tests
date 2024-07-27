@@ -28,6 +28,15 @@ namespace nbl::video
 class CAssetConverter : public core::IReferenceCounted
 {
 	public:
+		// Shader, DSLayout, PipelineLayout, Compute Pipeline
+		// Renderpass, Graphics Pipeline
+		// Buffer, BufferView, Sampler, Image, Image View, Bottom Level AS, Top Level AS, Descriptor Set, Framebuffer  
+		// Buffer -> SRange, patched usage, owner(s)
+		// BufferView -> SRange, promoted format
+		// Sampler -> Clamped Params (only aniso, really)
+		// Image -> this, patched usage, promoted format
+		// Image View -> ref to patched Image, patched usage, promoted format
+		// Descriptor Set -> unique layout, 
 		using supported_asset_types = core::type_list<
 			asset::ICPUSampler,
 			asset::ICPUBuffer,
@@ -565,8 +574,8 @@ class CAssetConverter : public core::IReferenceCounted
 				using vector_t = core::vector<asset_cached_t<AssetType>>;
 				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
 				
-// we don't insert into the writeCache until conversions are successful
-core::tuple_transform_t<CCache,supported_asset_types> m_stagingCache;
+				// we don't insert into the writeCache until conversions are successful
+				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCache;
 #if 0
 				//
 				template<asset::Asset AssetType>
