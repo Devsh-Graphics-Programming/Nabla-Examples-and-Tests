@@ -197,16 +197,6 @@ void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher&
 // therefore image is now changed
 // have to pass the patch around
 
-/*
-How to "amortized hash"?
-
-Grab (asset,group,patch) hash the asset params, group and patch, then update with dependents:
-- this requires building or retrieving patches for dependents
-- lookup with (dependent,group,patch)
-- if lookup fails, proceed to compute full hash and insert it into cache
-
-We know pointer, so can actually trim hashes of stale assets (same pointer, different hash) if we do full recompute.
-*/
 
 template<asset::Asset AssetType>
 using patch_vector_t = core::vector<CAssetConverter::patch_t<AssetType>>;
@@ -568,6 +558,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		else
 			hashCache = core::make_smart_refctd_ptr<CHashCache>();
 	
+// TODO: move into cached type!
 		// its a very good idea to set debug names on everything!
 		auto setDebugName = [this](IBackendObject* obj, const core::blake3_hash_t& hashval, const size_t uniqueCopyGroupID)->void
 		{
@@ -686,6 +677,36 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					gpuObjects[i+entry.second.firstCopyIx].value = device->createShader(createParams);
 				}
 			}
+			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUDescriptorSetLayout* asset = entry.second.canonicalAsset;
+					// rebuild bindings from CPU info
+					core::vector<IGPUDescriptorSetLayout::SBinding> bindings;
+					bindings.reserve(asset->getTotalBindingCount());
+					for (uint32_t t=0u; t<static_cast<uint32_t>(IDescriptor::E_TYPE::ET_COUNT); t++)
+					{
+						const auto type = static_cast<IDescriptor::E_TYPE>(t);
+						const auto& redirect = asset->getDescriptorRedirect(type);
+						const auto count = redirect.getBindingCount();
+						for (auto i=0u; i<count; i++)
+						{
+							const ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t storageRangeIx(i);
+							bindings.push_back(IGPUDescriptorSetLayout::SBinding{
+								.binding = redirect.getBinding(storageRangeIx).data,
+								.type = type,
+								.createFlags = redirect.getCreateFlags(storageRangeIx), // TODO: transparent conversion!
+								.stageFlags = redirect.getStageFlags(storageRangeIx),
+								.count = redirect.getCount(storageRangeIx),
+								.immutableSamplers = nullptr // TODO!!!!!
+							});
+						}
+					}
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+						gpuObjects[i+entry.second.firstCopyIx].value = device->createDescriptorSetLayout(bindings);
+				}
+			}
 
 			// Propagate the results back, since there's no easy way to find the `uniqueCopyGroupID` for a given asset and patch, we map in reverse
 			for (auto& entry : dfsCache)
@@ -699,21 +720,21 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				auto& outGPUObj = entry.gpuObj;
 				outGPUObj = std::move(gpuObjects[copyIx]);
 //				outGPUObj.setDebugName(hash,group);
-				// insert into staging cache
+// insert into staging cache
 			}
 		};
 		// The order of `supported_asset_types` is super important to go BOTTOM UP in terms of hashing and conversion dependants.
 		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we have all the possible dependants ready.
 		core::for_each_in_tuple(dfsCaches,dedupCreateProp);
 
-		// Allocate Memory
-		{
-			// gather memory reqs
-			// allocate device memory
-		//	device->allocate(reqs,false);
-			// now bind it
-			// if fail, need to wipe the GPU Obj as a failure
-		}
+// Allocate Memory
+{
+	// gather memory reqs
+	// allocate device memory
+//	device->allocate(reqs,false);
+	// now bind it
+	// if fail, need to wipe the GPU Obj as a failure
+}
 		//! `dfsCaches` is now constant!
 
 
@@ -721,7 +742,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 // TODO:
 // how to get Patch while hashing dependants?
 // how to get dependant while converting?
-	// - ????
+	// - (A*,G) of dependant easily findable
+	// - how to find patch?
 	}
 
 	// write out results
