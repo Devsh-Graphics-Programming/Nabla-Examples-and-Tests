@@ -439,14 +439,12 @@ class CAssetConverter : public core::IReferenceCounted
 				};
 
 				// no point returning iterators to inserted positions, they're not stable
-				inline bool insert(const key_t& _key, asset_cached_t<AssetType>::type&& _gpuObj)
+				inline bool insert(const key_t& _key, const asset_cached_t<AssetType>& _gpuObj)
 				{
-					asset_cached_t<AssetType> cached;
-					cached.value = std::move(_gpuObj);
-					auto& [unused0, insertedF] = m_forwardMap.insert(_key,std::move(cached));
+					auto& [unused0,insertedF] = m_forwardMap.insert(_key,_gpuObj);
 					if (!insertedF)
 						return false;
-					auto& [unused1, insertedR] = m_reverseMap.insert(_gpuObj.get(),_key);
+					auto& [unused1,insertedR] = m_reverseMap.insert(_gpuObj.get(),_key);
 					assert(insertedR);
 					return true;
 				}
@@ -575,7 +573,7 @@ class CAssetConverter : public core::IReferenceCounted
 				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
 				
 				// we don't insert into the writeCache until conversions are successful
-				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCache;
+				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCaches;
 #if 0
 				//
 				template<asset::Asset AssetType>

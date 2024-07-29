@@ -299,10 +299,10 @@ struct unique_conversion_t
 	const AssetType* canonicalAsset = nullptr;
 	size_t patchIndex = 0xdeadbeefBAull;
 	size_t firstCopyIx : 40 = 0u;
-	size_t copyCount : 24 = 0u;
+	size_t copyCount : 24 = 1u;
 };
 
-//
+// Map from ContentHash to canonical asset & patch and the list of uniqueCopyGroupIDs
 template<asset::Asset AssetType>
 using conversions_t = core::unordered_map<core::blake3_hash_t,unique_conversion_t<AssetType>>;
 
@@ -557,34 +557,16 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			hashCache = core::smart_refctd_ptr<CHashCache>(inputs.hashCache);
 		else
 			hashCache = core::make_smart_refctd_ptr<CHashCache>();
-	
-// TODO: move into cached type!
-		// its a very good idea to set debug names on everything!
-		auto setDebugName = [this](IBackendObject* obj, const core::blake3_hash_t& hashval, const size_t uniqueCopyGroupID)->void
-		{
-			if (obj)
-			{
-				std::ostringstream debugName;
-				debugName << "Created by Converter ";
-				debugName << std::hex;
-				debugName << this;
-				debugName << " from Asset with hash ";
-				for (const auto& byte : hashval.data)
-					debugName << uint32_t(byte) << " ";
-				debugName << "for Group " << uniqueCopyGroupID;
-				obj->setObjectDebugName(debugName.str().c_str());
-			}
-		};
 
 		// Deduplication, Creation and Propagation
-		auto dedupCreateProp = [&]<Asset AssetType>(dfs_cache_t<AssetType>& dfsCache)->void
+		auto dedupCreateProp = [&]<Asset AssetType>()->void
 		{
+			auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
 			const auto* pPatches = std::get<patch_vector_t<AssetType>>(finalPatchStorage).data();
 			// This map contains the assets by-hash, identical asset+patch hash the same.
 			conversions_t<AssetType> conversionRequests;
 
-			// We now go through the dfsCache and work out each entry's content hashes.
-			// So that we can carry out unique conversions.
+			// We now go through the dfsCache and work out each entry's content hashes, so that we can carry out unique conversions.
 			const CCache<AssetType>* readCache = inputs.readCache ? (&std::get<CCache<AssetType>>(inputs.readCache->m_caches)):nullptr;
 			for (auto& entry : dfsCache)
 			if (!entry.gpuObj)
@@ -592,9 +574,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				const auto& canonical = entry.canonical;
 				if (!canonical.asset)
 					continue;
+				const auto patchIx = canonical.meta.patchIndex;
 				// compute the hash or look it up if it exists
 				entry.contentHash = hashCache->hash<AssetType>({
-					{.asset=canonical.asset,.patch=pPatches+canonical.meta.patchIndex},
+					{.asset=canonical.asset,.patch=pPatches+patchIx},
 					// We mistrust every dependency such that the eject/update if needed.
 					// Its really important that the Deduplication gets performed Bottom-Up
 					/*.mistrustLevel = */1
@@ -617,21 +600,18 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				if (IPreHashed::anyDependantDiscardedContents(canonical.asset))
 					continue;
 				// then de-duplicate the conversions needed
-				conversionRequests.emplace(entry.contentHash,unique_conversion_t<AssetType>{.canonicalAsset=canonical.asset,.patchIndex=canonical.meta.patchIndex});
+				auto [inSetIt,inserted] = conversionRequests.emplace(entry.contentHash,unique_conversion_t<AssetType>{.canonicalAsset=canonical.asset,.patchIndex=patchIx});
+				if (!inserted)
+				{
+					// If an element prevented insertion, the patch must be identical!
+					// Because the conversions don't care about groupIDs, the patches may be identical but not the same object in memory.
+					assert(inSetIt->second.patchIndex==patchIx || pPatches[inSetIt->second.patchIndex]==pPatches[patchIx]);
+					inSetIt->second.copyCount++;
+				}
 			}
-
-			// Count how many distinct `uniqueGroupID` we have 
-			for (auto& entry : dfsCache)
-			if (entry.canonical.asset && !entry.gpuObj)
-			{
-				auto found = conversionRequests.find(entry.contentHash);
-				if (found!=conversionRequests.end())
-					found->second.copyCount++;
-			}
-
-			// storage for GPU objects
-			core::vector<asset_cached_t<AssetType>> gpuObjects;
-			// now assign storage offsets via exclusive scan (don't want `std::exclusive_scan` because the binop is not compound assignment)
+			
+			// work out mapping of `conversionRequests` to multiple GPU objects and their copy groups via counting sort
+			auto exclScanConvReqs = [&]()->size_t
 			{
 				size_t sum = 0;
 				for (auto& entry : conversionRequests)
@@ -639,28 +619,60 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					entry.second.firstCopyIx = sum;
 					sum += entry.second.copyCount;
 				}
-				gpuObjects.resize(sum);
-			}
+				return sum;
+			};
+			const auto gpuObjUniqueCopyGroupIDs = [&]()->core::vector<size_t>
+			{
+				core::vector<size_t> retval;
+				// now assign storage offsets via exclusive scan and put the `uniqueGroupID` mappings in sorted order
+				retval.resize(exclScanConvReqs());
+				for (auto& entry : dfsCache)
+				if (entry.canonical.asset && !entry.gpuObj)
+				{
+					auto found = conversionRequests.find(entry.contentHash);
+					// may not find things because of unconverted dummy deps
+					if (found!=conversionRequests.end())
+						retval[found->second.firstCopyIx++] = entry.canonical.meta.uniqueCopyGroupID;
+				}
+				// `{conversionRequests}.firstCopyIx` needs to be brought back down to exclusive scan form
+				exclScanConvReqs();
+			}();
+			core::vector<asset_cached_t<AssetType>> gpuObjects(gpuObjUniqueCopyGroupIDs.size());
 
+			// Only warn once to reduce log spam
+			auto warnMultipleCopyGroupsOnReadonly = [&](const AssetType* asset, const size_t copyIx)->void
+			{
+				if (copyIx==1)
+					inputs.logger.log("Why are you creating multiple Objects for asset %p and patch (same content hash), when they are a readonly GPU Object Type with no dependants!?",system::ILogger::ELL_PERFORMANCE,asset);
+			};
 			// Dispatch to correct creation of GPU objects
 			if constexpr (std::is_same_v<AssetType,ICPUSampler>)
 			{
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
-					gpuObjects[i+entry.second.firstCopyIx].value = device->createSampler(entry.second.canonicalAsset->getParams());
+				{
+					const auto* asset = entry.second.canonicalAsset;
+					gpuObjects[i+entry.second.firstCopyIx].value = device->createSampler(asset->getParams());
+					warnMultipleCopyGroupsOnReadonly(asset,i);
+				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
 			{
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
+					const auto* asset = entry.second.canonicalAsset;
 					IGPUBuffer::SCreationParams params = {};
-					params.size = entry.second.canonicalAsset->getSize();
+					params.size = asset->getSize();
 					params.usage = pPatches[entry.second.patchIndex].usage;
 					// TODO: make this configurable
 					params.queueFamilyIndexCount = 0;
 					params.queueFamilyIndices = nullptr;
-					gpuObjects[i+entry.second.firstCopyIx].value = device->createBuffer(std::move(params));
+					// if creation successful, we 
+					if (gpuObjects[i+entry.second.firstCopyIx].value=device->createBuffer(std::move(params)))
+						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+					else
+						inputs.logger.log("Failed to create IGPUBuffer for (ICPUBuffer*)%p",system::ILogger::ELL_ERROR,asset);
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUShader>)
@@ -673,15 +685,20 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
-					createParams.cpushader = entry.second.canonicalAsset;
+					const auto* asset = entry.second.canonicalAsset;
+					createParams.cpushader = asset;
 					gpuObjects[i+entry.second.firstCopyIx].value = device->createShader(createParams);
+					warnMultipleCopyGroupsOnReadonly(asset,i);
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
 			{
+				const auto& samplerCache = std::get<dfs_cache_t<ICPUSampler>>(dfsCaches);
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUDescriptorSetLayout* asset = entry.second.canonicalAsset;
+
+					using storage_range_index_t = ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t;
 					// rebuild bindings from CPU info
 					core::vector<IGPUDescriptorSetLayout::SBinding> bindings;
 					bindings.reserve(asset->getTotalBindingCount());
@@ -692,50 +709,107 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						const auto count = redirect.getBindingCount();
 						for (auto i=0u; i<count; i++)
 						{
-							const ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t storageRangeIx(i);
+							const storage_range_index_t storageRangeIx(i);
+							const auto binding = redirect.getBinding(storageRangeIx);
 							bindings.push_back(IGPUDescriptorSetLayout::SBinding{
-								.binding = redirect.getBinding(storageRangeIx).data,
+								.binding = binding.data,
 								.type = type,
-								.createFlags = redirect.getCreateFlags(storageRangeIx), // TODO: transparent conversion!
+								.createFlags = redirect.getCreateFlags(storageRangeIx),
 								.stageFlags = redirect.getStageFlags(storageRangeIx),
 								.count = redirect.getCount(storageRangeIx),
-								.immutableSamplers = nullptr // TODO!!!!!
+								.immutableSamplers = nullptr
 							});
 						}
 					}
+					// get the immutable sampler info
+					const auto samplerAssets = asset->getImmutableSamplers();
+					core::vector<core::smart_refctd_ptr<IGPUSampler>> immutableSamplers(samplerAssets.size());
+					// to let us know what binding has immutables
+					const auto& immutableSamplerRedirects = asset->getImmutableSamplerRedirect();
 					for (auto i=0ull; i<entry.second.copyCount; i++)
-						gpuObjects[i+entry.second.firstCopyIx].value = device->createDescriptorSetLayout(bindings);
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						// go over the immutables, can't be factored out because depending on groupID the dependant might change
+						const auto count = immutableSamplerRedirects.getBindingCount();
+						auto outImmutableSamplers = immutableSamplers.data();
+						for (auto j=0u; j<count; j++)
+						{
+							const storage_range_index_t storageRangeIx(j);
+							// assuming the asset was validly created, the binding must exist
+							const auto binding = immutableSamplerRedirects.getBinding(storageRangeIx);
+							const auto bindingsSamplerAssets = samplerAssets.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
+							// TODO: optimize this, the `bindings` are sorted within a given type
+							auto outBinding = std::find_if(bindings.begin(),bindings.end(),[=](const IGPUDescriptorSetLayout::SBinding& item)->bool{return item.binding==binding.data;});
+							// the binding must be findable, otherwise above code logic is wrong
+							assert(outBinding!=bindings.end());
+							outBinding->immutableSamplers = outImmutableSamplers;
+							for (auto k=0u; k<outBinding->count; k++)
+							{
+								auto samplerAsset = bindingsSamplerAssets[k].get();
+								// there's no patch incompatiblity issues here
+								auto candidates = samplerCache.equal_range(dfs_entry_t{
+									.asset = asset,
+									.instance = {
+										.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(uniqueCopyGroupID,asset,samplerAsset)
+									}
+								});
+								*(outImmutableSamplers++) = candidates.first->gpuObj.value;
+							}
+						}
+						gpuObjects[outIx].value = device->createDescriptorSetLayout(bindings);
+					}
 				}
 			}
 
-			// Propagate the results back, since there's no easy way to find the `uniqueCopyGroupID` for a given asset and patch, we map in reverse
+			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
+			auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
 			for (auto& entry : dfsCache)
 			if (entry.canonical.asset && !entry.gpuObj)
 			{
 				auto found = conversionRequests.find(entry.contentHash);
+				// can happen if deps were unconverted dummies
 				if (found==conversionRequests.end())
 					continue;
 
 				const auto copyIx = found->second.firstCopyIx++;
-				auto& outGPUObj = entry.gpuObj;
-				outGPUObj = std::move(gpuObjects[copyIx]);
-//				outGPUObj.setDebugName(hash,group);
-// insert into staging cache
+				// the counting sort was stable
+				const auto uniqueCopyGroupID = entry.canonical.meta.uniqueCopyGroupID;
+				assert(uniqueCopyGroupID==gpuObjUniqueCopyGroupIDs[copyIx]);
+
+				auto& gpuObj = gpuObjects[copyIx];
+				// set debug names on everything!
+				{
+					std::ostringstream debugName;
+					debugName << "Created by Converter ";
+					debugName << std::hex;
+					debugName << this;
+					debugName << " from Asset with hash ";
+					for (const auto& byte : entry.contentHash.data)
+						debugName << uint32_t(byte) << " ";
+					debugName << "for Group " << uniqueCopyGroupID;
+					gpuObj.get()->setObjectDebugName(debugName.str().c_str());
+				}
+				// insert into staging cache
+				stagingCache.insert({entry.contentHash,uniqueCopyGroupID},gpuObj);
+				// propagate back to dfsCache
+				entry.gpuObj = std::move(gpuObj);
 			}
 		};
-		// The order of `supported_asset_types` is super important to go BOTTOM UP in terms of hashing and conversion dependants.
+		// The order of these calls is super important to go BOTTOM UP in terms of hashing and conversion dependants.
 		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we have all the possible dependants ready.
-		core::for_each_in_tuple(dfsCaches,dedupCreateProp);
-
-// Allocate Memory
-{
-	// gather memory reqs
-	// allocate device memory
-//	device->allocate(reqs,false);
-	// now bind it
-	// if fail, need to wipe the GPU Obj as a failure
-}
-		//! `dfsCaches` is now constant!
+		dedupCreateProp.operator()<ICPUBuffer>();
+//		dedupCreateProp.operator()<ICPUImage>();
+		// Allocate Memory
+		{
+			// gather memory reqs
+			// allocate device memory
+		//	device->allocate(reqs,false);
+			// now bind it
+			// if fail, need to wipe the GPU Obj as a failure
+		}
+		dedupCreateProp.operator()<ICPUSampler>();
+		dedupCreateProp.operator()<ICPUDescriptorSetLayout>();
 
 
 
@@ -752,23 +826,37 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		const auto count = assets.size();
 		//
 		const auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
-		const auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
-//		const auto& staging = std::get<CCache<AssetType>>(retval.m_stagingCache);
 		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
+		const auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
 		auto& results = std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects);
 		//
+		const auto patchCount = std::get<patch_vector_t<AssetType>>(finalPatchStorage).size();
 		for (size_t i=0; i<count; i++)
-		if (auto asset=assets[i]; asset && metadata[i].patchIndex<patchStorage.size())
+		if (auto asset=assets[i]; asset && metadata[i].patchIndex<patchCount)
 		{
-			const auto* patch = patchStorage.data()+metadata[i].patchIndex;
-			if (!patch->valid())
-				continue;
 			// The Content Hash and GPU object are in the dfsCache
 			auto range = dfsCache.equal_range(dfs_entry_t{.asset=asset,.instance=metadata[i]});
+			// we'll find the correct patch from metadata
 			auto found = std::find_if(range.first,range.second,[&](const auto& entry)->bool{return entry.canonical.meta.patchIndex==metadata[i].patchIndex;});
-			assert(found!=range.second);
+			// unless ofc the patch was invalid
+			const auto uniqueCopyGroupID = metadata[i].uniqueCopyGroupID;
+			if (found==range.second)
+			{
+				inputs.logger.log("No valid patch could be created for Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
+				continue;
+			}
 			// write it out to the results
-			results[i] = found->gpuObj;
+			if (found->gpuObj) // found from the `input.readCache`
+			{
+				results[i] = found->gpuObj;
+				// if something with this content hash is in the stagingCache, then it must match the `found->gpuObj`
+				if (auto pGpuObj=stagingCache.find({found->contentHash,metadata[i].uniqueCopyGroupID}); pGpuObj)
+				{
+					assert(pGpuObj->get()==found->gpuObj.get());
+				}
+			}
+			else
+				inputs.logger.log("No valid patch could be created for Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
 		}
 	};
 	core::for_each_in_tuple(inputs.assets,finalize);
