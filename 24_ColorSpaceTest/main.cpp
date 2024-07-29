@@ -333,6 +333,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 		inline void workLoopBody() override
 		{
+			std::array<core::blake3_hash_t, E_IMAGE_REGIONS::EIR_COUNT> hashes;
 			// load the image view
 			system::path filename, extension;
 			const auto asset = getImageView(m_nextPath, filename, extension);
@@ -541,6 +542,11 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						bool passed = true;
 
 						const auto* const image = cpuImgView->getCreationParameters().image.get();
+
+						{
+							auto hash = image->getContentHash();
+							memcpy(static_cast<void*>(&hashes[mode]), hash.data, sizeof(hash));
+						}
 
 						const auto hash = [&image]()
 						{
@@ -901,6 +907,40 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				{
 					m_logger->log("Internal error, skipping execution for \"%s\" with \"%s\" mode!", ILogger::ELL_ERROR, m_nextPath.c_str(), std::to_string(mode).c_str());
 					options.tests.passed = false;
+				}
+			}
+			if (options.tests.enabled) 
+			{
+				if (options.tests.mode == "hash") 
+				{
+					bool passed = true;
+					m_logger->log("Perfoming [%s]th test!", ILogger::ELL_PERFORMANCE, std::to_string(options.tests.count.total).c_str());
+					m_logger->log("Asset: \"%s\"", ILogger::ELL_INFO, m_nextPath.c_str());
+					m_logger->log("Comparing \"%ls\"'s hash between modes..", ILogger::ELL_INFO, filename.c_str());
+					
+					if (hashes[EIR_FLATTEN_FULL_EXTENT] != hashes[EIR_MULTI_OVERLAPPING_FULL_EXTENT]) 
+					{
+						logFail("failed EIR_FLATTEN_FULL_EXTENT == EIR_MULTI_OVERLAPPING_FULL_EXTENT hash check");
+						passed = false;
+
+					}
+					if (hashes[EIR_FLATTEN_FULL_EXTENT] == hashes[EIR_FLATTEN_MULTI_OFFSET]) 
+					{
+						logFail("failed EIR_FLATTEN_FULL_EXTENT != EIR_FLATTEN_MULTI_OFFSET hash check");
+						bool passed = false;
+					}
+
+					options.tests.count.total++;
+					if (passed)
+					{
+						options.tests.count.passed++;
+						m_logger->log("Passed tests!", ILogger::ELL_WARNING);
+					}
+					else 
+					{
+						options.tests.passed = false;
+					}
+
 				}
 			}
 		}
