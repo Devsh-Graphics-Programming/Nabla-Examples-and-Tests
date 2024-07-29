@@ -348,8 +348,8 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						return "EIR_FLATTEN_FULL_EXTENT";
 					case EIR_FLATTEN_MULTI_OFFSET:
 						return "EIR_FLATTEN_MULTI_OFFSET";
-					case EIR_MULTI_OVERLAPPING:
-						return "EIR_MULTI_OVERLAPPING";
+					case EIR_MULTI_OVERLAPPING_FULL_EXTENT:
+						return "EIR_MULTI_OVERLAPPING_FULL_EXTENT";
 					default:
 						assert(false);
 						return "";
@@ -469,12 +469,55 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							+----+----+
 						*/
 
-						case EIR_MULTI_OVERLAPPING:
+						case EIR_MULTI_OVERLAPPING_FULL_EXTENT:
 						{
-							// TODO
+							std::vector<asset::IImage::SBufferCopy> newRegions;
 
-							assert(false);
-							return nullptr;
+							for (size_t i = 0; i < inAmountOfRegions; ++i)
+							{
+								const auto* const inRegion = inRegions->begin() + i;
+								newRegions.emplace_back() = *inRegion;
+
+
+								if (inRegion->imageSubresource.mipLevel == 0) // add overlay region
+								{
+									const auto halfWidth = core::max(inRegion->imageExtent.width / 2, 1u);
+									const auto halfHeight = core::max(inRegion->imageExtent.height / 2, 1u);
+
+									auto& newRegion = newRegions.emplace_back() = *inRegion;
+									newRegion.bufferRowLength = inRegion->imageExtent.width;
+									newRegion.bufferImageHeight = inRegion->imageExtent.height;
+
+									newRegion.imageExtent = { .width = halfWidth, .height = halfHeight, .depth = inRegion->imageExtent.depth };
+									newRegion.imageOffset = { .x = 0, .y = 0, .z = 0 };
+									newRegion.bufferOffset = 0;
+								}
+							}
+
+							auto outRegions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(newRegions.size());
+							memcpy(outRegions->data(), newRegions.data(), outRegions->bytesize()); // full content copy
+
+							auto outImage = smart_refctd_ptr_static_cast<ICPUImage>(inViewParams.image->clone(0u)); // without contents
+							if (!outImage->setBufferAndRegions(smart_refctd_ptr(inBuffer), std::move(outRegions))) // do NOT make copy of the input buffer (we won't modify its content!) & set respecified regions
+							{
+								assert(false);
+								return nullptr;
+							}
+
+							outImage->setContentHash(outImage->computeContentHash());
+
+							auto outViewParams = inViewParams;
+							outViewParams.image = std::move(outImage);
+
+							auto outView = ICPUImageView::create(std::move(outViewParams));
+
+							if (!outView)
+							{
+								assert(false);
+								return nullptr;
+							}
+
+							return outView;
 						} break;
 
 						default:
@@ -852,7 +895,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				return true;
 			};
 
-			for (const auto mode : { EIR_FLATTEN_FULL_EXTENT, EIR_FLATTEN_MULTI_OFFSET })
+			for (const auto mode : { EIR_FLATTEN_FULL_EXTENT, EIR_FLATTEN_MULTI_OFFSET, EIR_MULTI_OVERLAPPING_FULL_EXTENT })
 			{
 				if (!execute(mode))
 				{
@@ -994,7 +1037,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 		{
 			EIR_FLATTEN_FULL_EXTENT,		//! from image loaders, single region per mip level, no overlapping & covers whole mip
 			EIR_FLATTEN_MULTI_OFFSET,		//! respecified to have 2 regions for 0th mip level with no overlapping
-			EIR_MULTI_OVERLAPPING,			//! respecified to have 2 regions for 0th mip level, second is embeded in first hence they are overlapping
+			EIR_MULTI_OVERLAPPING_FULL_EXTENT,			//! respecified to have 2 regions for 0th mip level, second is embeded in first hence they are overlapping
 			EIR_COUNT
 		};
 };
