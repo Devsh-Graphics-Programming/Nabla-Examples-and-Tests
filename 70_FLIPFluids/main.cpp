@@ -7,9 +7,13 @@
 #include "../common/InputSystem.hpp"
 #include "../common/Camera.hpp"
 
-#include "app_resources/common.hlsl"
-#include "app_resources/gridUtils.hlsl"
+#include "glm/glm/glm.hpp"
+#include <nbl/builtin/hlsl/cpp_compat.hlsl>
+#include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
+#include "app_resources/common.hlsl"
+
+using namespace nbl::hlsl;
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
@@ -18,7 +22,30 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-// struct Particle defined in shader
+// struct Particle defined in shader???
+struct Particle
+{
+    float id;
+    float pad0[3];
+
+    float32_t4 position;
+    float32_t4 velocity;
+};
+
+struct SGridData
+{
+    float gridCellSize;
+    float gridInvCellSize;
+    float pad0[2];
+
+    int32_t4 particleInitMin;
+    int32_t4 particleInitMax;
+    int32_t4 particleInitSize;
+
+    float32_t4 worldMin;
+    float32_t4 worldMax;
+    int32_t4 gridSize;
+};
 
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
@@ -167,13 +194,14 @@ public:
 		simAreaSize *= gridData.gridCellSize;
 		gridData.worldMin = -simAreaSize * 0.5f;
 		gridData.worldMax = simAreaSize * 0.5f;
+		numParticles = gridData.particleInitSize.x * gridData.particleInitSize.y * gridData.particleInitSize.z * particlesPerCell;
 
 		// init render pipeline
 		if (!initGraphicsPipeline())
 			return logFail("Failed to initialize render pipeline!\n");
 
 		// init shaders and pipeline
-		auto piPipeline = createComputePipelineFromShader("app_resources/particlesInit.comp.hlsl");
+		auto piPipeline = createComputePipelineFromShader("app_resources/test.comp.hlsl");
 		m_initParticlePipeline = piPipeline.first;
 		IGPUDescriptorSetLayoutArray initParticleDsLayouts = piPipeline.second;
 
@@ -230,6 +258,11 @@ public:
 		params.size = sizeof(SGridData);
 		params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
 		createBuffer(gridDataBuffer, params);
+		
+		params.size = sizeof(SBasicViewParameters);
+		createBuffer(cameraBuffer, params);
+
+		//createBuffer(vertexBuffer, params);
 
 		// create command buffer and pool
 		smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf;
@@ -296,12 +329,10 @@ public:
 
 		m_winMgr->show(m_window.get());
 
-		m_device->waitIdle();
-
 		return true;
 	}
 
-	inline void workLoopBody()
+	inline void workLoopBody() override
 	{
 		const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
 
@@ -387,7 +418,92 @@ public:
 		}
 		*/
 
-		// renderFluid();		// TODO: mesh or particles?
+		// TODO: pipeline barrier for particles buffer
+
+		auto* queue = getGraphicsQueue();
+
+		asset::SViewport viewport;
+		{
+			viewport.minDepth = 1.f;
+			viewport.maxDepth = 0.f;
+			viewport.x = 0u;
+			viewport.y = 0u;
+			viewport.width = m_window->getWidth();
+			viewport.height = m_window->getHeight();
+		}
+		cmdbuf->setViewport(0u, 1u, &viewport);
+
+		VkRect2D scissor{
+			.offset = { 0, 0 },
+			.extent = { m_window->getWidth(), m_window->getHeight() }
+		};
+		cmdbuf->setScissor(0u, 1u, &scissor);
+
+		{
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+			const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			const IGPUCommandBuffer::SRenderpassBeginInfo info =
+			{
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = &depthValue,
+				.renderArea = currentRenderArea
+			};
+
+			cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+		}
+
+		// put into renderFluid();		// TODO: mesh or particles?
+		cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
+		//cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 1, 1, &m_renderDs.get());
+		//cmdbuf->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
+
+		//const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = vertexBuffer} };
+		//const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
+
+		//cmdbuf->bindVertexBuffers(0, 1, bVertices);
+		cmdbuf->draw(3, 1, 0, 0);	// TODO: check how many, num of particles?
+
+		cmdbuf->endRenderPass();
+		cmdbuf->end();
+
+		// submit
+		const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = {{
+			.semaphore = m_renderSemaphore.get(),
+			.value = ++m_submitIx,
+			.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+		}};
+
+		{
+			{
+				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = {{
+						.cmdbuf = cmdbuf
+					}};
+				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = {{
+						.semaphore = m_currentImageAcquire.semaphore,
+						.value = m_currentImageAcquire.acquireCount,
+						.stageMask = PIPELINE_STAGE_FLAGS::NONE
+					}};
+				const IQueue::SSubmitInfo infos[1] = {{
+					.waitSemaphores = acquired,
+					.commandBuffers = commandBuffers,
+					.signalSemaphores = rendered
+				}};
+				if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
+					m_submitIx--;
+			}
+		}
+		
+
+		m_surface->present(m_currentImageAcquire.imageIndex, rendered);
+		m_realFrameIx++;
 	}
 
 	inline bool keepRunning() override
@@ -451,8 +567,8 @@ private:
 
 			nbl::asset::IShaderCompiler::SCompilerOptions options = {};
 			options.stage = shaderSrc->getStage();
-			if (!(options.stage == IShader::ESS_COMPUTE || options.stage == IShader::ESS_FRAGMENT))
-				options.stage = IShader::ESS_VERTEX;
+			if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
+				options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
 			options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
 			options.spirvOptimizer = nullptr;
 			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
@@ -493,7 +609,7 @@ private:
 		return std::pair(shaderSrc, introspection);
 	}
 
-	bool createBuffer(smart_refctd_ptr<IGPUBuffer> buffer, video::IGPUBuffer::SCreationParams& params)
+	bool createBuffer(smart_refctd_ptr<IGPUBuffer>& buffer, video::IGPUBuffer::SCreationParams& params)
 	{
 		buffer = m_device->createBuffer(std::move(params));
 		if (!buffer)
@@ -543,7 +659,7 @@ private:
 				binding.binding = introspectionBinding.binding;
 				binding.type = introspectionBinding.type;
 				binding.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
-				binding.stageFlags = IGPUShader::ESS_COMPUTE;
+				binding.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
 				assert(introspectionBinding.count.countMode == CSPIRVIntrospector::CIntrospectionData::SDescriptorArrayInfo::DESCRIPTOR_COUNT::STATIC);
 				binding.count = introspectionBinding.count.count;
 			}
@@ -584,6 +700,71 @@ private:
 		}
 
 		return std::pair(pipeline, dsLayouts);
+	}
+
+	smart_refctd_ptr<IGPURenderpass> createRenderpass(
+		E_FORMAT colorAttachmentFormat,
+		IGPURenderpass::LOAD_OP loadOp,
+		IImage::LAYOUT initialLayout,
+		IImage::LAYOUT finalLayout)
+	{		
+		const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
+			{{
+				{
+					.format = colorAttachmentFormat,
+					.samples = IGPUImage::ESCF_1_BIT,
+					.mayAlias = false
+				},
+				/*.loadOp = */loadOp,
+				/*.storeOp = */IGPURenderpass::STORE_OP::STORE,
+				/*.initialLayout = */initialLayout,
+				/*.finalLayout = */finalLayout
+			}},
+			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+		};
+		
+		IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
+			{},
+			IGPURenderpass::SCreationParams::SubpassesEnd
+		};
+		subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
+		
+		// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
+		const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
+			// wipe-transition to ATTACHMENT_OPTIMAL
+			{
+				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier = {
+					// we can have NONE as Sources because ????
+					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+				}
+				// leave view offsets and flags default
+			},
+			// ATTACHMENT_OPTIMAL to PRESENT_SRC
+			{
+				.srcSubpass = 0,
+				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier = {
+					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					// we can have NONE as the Destinations because the spec says so about presents
+				}
+				// leave view offsets and flags default
+			},
+			IGPURenderpass::SCreationParams::DependenciesEnd
+		};
+		
+		smart_refctd_ptr<IGPURenderpass> renderpass;
+		IGPURenderpass::SCreationParams params = {};
+		params.colorAttachments = colorAttachments;
+		params.subpasses = subpasses;
+		params.dependencies = dependencies;
+		renderpass = m_device->createRenderpass(params);
+		if (!renderpass)
+			logFail("Failed to Create a Renderpass!");
+		return renderpass;
 	}
 
 	bool initGraphicsPipeline()
@@ -651,7 +832,68 @@ private:
 		m_surface->recreateSwapchain();
 
 		// init shaders and pipeline
-		// TODO
+
+		auto compileShader = [&](const std::string& filePath, IShader::E_SHADER_STAGE stage) -> smart_refctd_ptr<IGPUShader>
+			{
+				IAssetLoader::SAssetLoadParams lparams = {};
+				lparams.logger = m_logger.get();
+				lparams.workingDirectory = "";
+				auto bundle = m_assetMgr->getAsset(filePath, lparams);
+				if (bundle.getContents().empty() || bundle.getAssetType() != IAsset::ET_SHADER)
+				{
+					m_logger->log("Shader %s not found!", ILogger::ELL_ERROR, filePath);
+					exit(-1);
+				}
+		
+				const auto assets = bundle.getContents();
+				assert(assets.size() == 1);
+				smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+				shaderSrc->setShaderStage(stage);
+				if (!shaderSrc)
+					return nullptr;
+
+				return m_device->createShader(shaderSrc.get());
+			};
+		auto vs = compileShader("app_resources/test.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
+		auto fs = compileShader("app_resources/test.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+
+		SBlendParams blendParams = {};
+		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
+		blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
+		blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
+		blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
+		blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
+		blendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+
+		{
+			IGPUShader::SSpecInfo specInfo[2] = {
+				{.shader = vs.get()},
+				{.shader = fs.get()}
+			};
+
+			const auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, nullptr);
+
+			SRasterizationParams rasterizationParams{};
+			rasterizationParams.faceCullingMode = EFCM_NONE;
+			rasterizationParams.depthWriteEnable = false;
+
+			IGPUGraphicsPipeline::SCreationParams params[1] = {};
+			params[0].layout = pipelineLayout.get();
+			params[0].shaders = specInfo;
+			params[0].cached = {
+				.vertexInput = {},
+				.primitiveAssembly = {
+					.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
+				},
+				.rasterization = rasterizationParams,
+				.blend = blendParams,
+			};
+			params[0].renderpass = renderpass;
+
+			if (!m_device->createGraphicsPipelines(nullptr, params, &m_graphicsPipeline))
+				return logFail("Graphics pipeline creation failed");
+		}
 
 		return true;
 	}
@@ -705,9 +947,12 @@ private:
 	// simulation constants
 	uint32_t m_substepsPerFrame = 1;
 	SGridData gridData;
+	uint32_t particlesPerCell = 8;
+	uint32_t numParticles;
 
 	// buffers
 	smart_refctd_ptr<IGPUBuffer> cameraBuffer;
+	smart_refctd_ptr<IGPUBuffer> vertexBuffer;
 
 	smart_refctd_ptr<IGPUBuffer> particleBuffer;		// Particle
 

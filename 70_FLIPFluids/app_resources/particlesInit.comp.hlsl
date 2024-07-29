@@ -21,7 +21,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     const int x = pid % (gridData.particleInitSize.x * 2);
     const int y = pid / (gridData.particleInitSize.x * 2) % (gridData.particleInitSize.y * 2);
     const int z = pid / ((gridData.particleInitSize.x * 2) * (gridData.particleInitSize.y * 2));
-    p.position = gridPosToWorldPos(gridData.particleInitMin + 0.25f + float3(x, y, z) * 0.5f);
+    p.position = gridPosToWorldPos(gridData.particleInitMin + 0.25f + float4(x, y, z, 1) * 0.5f, gridData);
     clampPosition(p.position, gridData.worldMin, gridData.worldMax);
 
     particleBuffer[pid] = p;
