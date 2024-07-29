@@ -927,7 +927,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					if (hashes[EIR_FLATTEN_FULL_EXTENT] == hashes[EIR_FLATTEN_MULTI_OFFSET]) 
 					{
 						logFail("failed EIR_FLATTEN_FULL_EXTENT != EIR_FLATTEN_MULTI_OFFSET hash check");
-						bool passed = false;
+						passed = false;
 					}
 
 					options.tests.count.total++;
