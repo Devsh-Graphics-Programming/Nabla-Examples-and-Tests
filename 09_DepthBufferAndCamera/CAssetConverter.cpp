@@ -550,6 +550,26 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		}
 		//! `inputsMetadata` is now constant!
 		//! `finalPatchStorage` is now constant!
+		
+		// small utility
+		auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const IAsset* user, const DepAssetType* depAsset, Pred pred)->asset_cached_t<DepAssetType>::type
+		{
+			if (!depAsset)
+				return {};
+			const auto candidates = std::get<dfs_cache_t<DepAssetType>>(dfsCaches).equal_range(
+				dfs_entry_t
+				{
+					.asset = depAsset,
+					.instance = {
+						.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(usersCopyGroupID,user,depAsset)
+					}
+				}
+			);
+			const auto chosen = std::find_if(candidates.first,candidates.second,pred);
+			if (chosen!=candidates.second)
+				return chosen->gpuObj.value;
+			return {};
+		};
 
 		// can now spawn our own hash cache if one wasn't provided
 		core::smart_refctd_ptr<CHashCache> hashCache;
@@ -643,15 +663,20 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// Only warn once to reduce log spam
 			auto assign = [&]<bool GPUObjectWhollyImmutable=false>(const core::blake3_hash_t& contentHash, const size_t baseIx, const size_t copyIx, asset_cached_t<AssetType>::type&& gpuObj)->bool
 			{
+				const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 				if constexpr (GPUObjectWhollyImmutable) // including any deps!
 				if (copyIx==1)
 					inputs.logger.log(
 						"Why are you creating multiple Objects for asset content %8llx%8llx%8llx%8llx, when they are a readonly GPU Object Type with no dependants!?",
-						system::ILogger::ELL_PERFORMANCE,reinterpret_cast<const uint64_t*>(contentHash.data)
+						system::ILogger::ELL_PERFORMANCE,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
 					);
+				//
 				if (!gpuObj)
 				{
-					inputs.logger.log("Failed to create GPU Object for asset content %8llx%8llx%8llx%8llx",system::ILogger::ELL_ERROR,reinterpret_cast<const uint64_t*>(contentHash.data));
+					inputs.logger.log(
+						"Failed to create GPU Object for asset content %8llx%8llx%8llx%8llx",
+						system::ILogger::ELL_ERROR,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+					);
 					return false;
 				}
 				gpuObjects[copyIx+baseIx].value = std::move(gpuObj);
@@ -697,7 +722,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
 			{
-				const auto& samplerCache = std::get<dfs_cache_t<ICPUSampler>>(dfsCaches);
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUDescriptorSetLayout* asset = entry.second.canonicalAsset;
@@ -742,26 +766,81 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 							const storage_range_index_t storageRangeIx(j);
 							// assuming the asset was validly created, the binding must exist
 							const auto binding = immutableSamplerRedirects.getBinding(storageRangeIx);
-							const auto bindingsSamplerAssets = samplerAssets.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
+							auto inSamplerAsset = samplerAssets.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
 							// TODO: optimize this, the `bindings` are sorted within a given type
 							auto outBinding = std::find_if(bindings.begin(),bindings.end(),[=](const IGPUDescriptorSetLayout::SBinding& item)->bool{return item.binding==binding.data;});
 							// the binding must be findable, otherwise above code logic is wrong
 							assert(outBinding!=bindings.end());
 							outBinding->immutableSamplers = outImmutableSamplers;
-							for (auto k=0u; k<outBinding->count; k++)
+							//
+							const auto end = outImmutableSamplers+outBinding->count;
+							while (outImmutableSamplers!=end)
 							{
-								auto samplerAsset = bindingsSamplerAssets[k].get();
-								// there's no patch incompatiblity issues here
-								auto candidates = samplerCache.equal_range(dfs_entry_t{
-									.asset = asset,
-									.instance = {
-										.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(uniqueCopyGroupID,asset,samplerAsset)
-									}
-								});
-								*(outImmutableSamplers++) = candidates.first->gpuObj.value;
+								// make the first sampler found match, there shouldn't be multiple copies anyway (warning will be logged)
+								auto found = getDependant(uniqueCopyGroupID,asset,(inSamplerAsset++)->get(),[](const auto& candidate)->bool{return true;});
+								// if we cannot find a dep, we fail whole gpu object creation
+								if (!found)
+									break;
+								*(outImmutableSamplers++) = std::move(found);
+							}
+							if (outImmutableSamplers!=end)
+								break;
+						}
+						if (outImmutableSamplers!=immutableSamplers.data()+immutableSamplers.size())
+							break;
+						assign(entry.first,entry.second.firstCopyIx,i,device->createDescriptorSetLayout(bindings));
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
+			{
+				auto dslPred = [](const auto& candidate)->bool{return true;};
+
+				core::vector<asset::SPushConstantRange> pcRanges;
+				pcRanges.reserve(CSPIRVIntrospector::MaxPushConstantsSize);
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUPipelineLayout* asset = entry.second.canonicalAsset;
+					const auto& patch = std::get<patch_vector_t<ICPUPipelineLayout>>(finalPatchStorage)[entry.second.patchIndex];
+					// time for some RLE
+					{
+						pcRanges.resize(0);
+						asset::SPushConstantRange prev = {
+							.stageFlags = IGPUShader::ESS_UNKNOWN,
+							.offset = 0,
+							.size = 0
+						};
+						for (auto byte=0u; byte<patch.pushConstantBytes.size(); byte++)
+						{
+							const auto current = patch.pushConstantBytes[byte].value;
+							if (current!=prev.stageFlags)
+							{
+								if (prev.stageFlags)
+								{
+									prev.size = byte-prev.offset;
+									pcRanges.push_back(prev);
+								}
+								prev.stageFlags = current;
+								prev.offset = byte;
 							}
 						}
-						assign(entry.first,entry.second.firstCopyIx,i,device->createDescriptorSetLayout(bindings));
+						if (prev.stageFlags)
+						{
+							prev.size = CSPIRVIntrospector::MaxPushConstantsSize-prev.offset;
+							pcRanges.push_back(prev);
+						}
+					}
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+// TODO: get deps and fail if needed
+						assign(entry.first,entry.second.firstCopyIx,i,device->createPipelineLayout(pcRanges,
+							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(0),dslPred),
+							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(1),dslPred),
+							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(2),dslPred),
+							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(3),dslPred)
+						));
 					}
 				}
 			}
@@ -772,13 +851,21 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			if (entry.canonical.asset && !entry.gpuObj)
 			{
 				auto found = conversionRequests.find(entry.contentHash);
+				const auto uniqueCopyGroupID = entry.canonical.meta.uniqueCopyGroupID;
+
 				// can happen if deps were unconverted dummies
 				if (found==conversionRequests.end())
+				{
+					const auto hashAsU64 = reinterpret_cast<const uint64_t*>(entry.contentHash.data);
+					inputs.logger.log(
+						"Could not find GPU Object for Asset %p in group %ull with Content Hash %8llx%8llx%8llx%8llx",
+						system::ILogger::ELL_ERROR,entry.canonical.asset,uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+					);
 					continue;
+				}
 
 				const auto copyIx = found->second.firstCopyIx++;
 				// the counting sort was stable
-				const auto uniqueCopyGroupID = entry.canonical.meta.uniqueCopyGroupID;
 				assert(uniqueCopyGroupID==gpuObjUniqueCopyGroupIDs[copyIx]);
 
 				auto& gpuObj = gpuObjects[copyIx];
