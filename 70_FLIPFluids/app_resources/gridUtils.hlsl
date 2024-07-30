@@ -1,22 +1,22 @@
 #ifndef _FLIP_EXAMPLE_GRID_UTILS_HLSL
 #define _FLIP_EXAMPLE_GRID_UTILS_HLSL
 
-#ifdef __HLSL_VERSION
 struct SGridData
 {
     float gridCellSize;
     float gridInvCellSize;
     float pad0[2];
 
-    int4 particleInitMin;
-    int4 particleInitMax;
-    int4 particleInitSize;
+    int32_t4 particleInitMin;
+    int32_t4 particleInitMax;
+    int32_t4 particleInitSize;
 
-    float4 worldMin;
-    float4 worldMax;
-    int4 gridSize;
+    float32_t4 worldMin;
+    float32_t4 worldMax;
+    int32_t4 gridSize;
 };
 
+#ifdef __HLSL_VERSION
 static const float POSITION_EPSILON = 1e-4;
 
 void clampPosition(inout float4 position, float4 gridMin, float4 gridMax)

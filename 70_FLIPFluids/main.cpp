@@ -12,6 +12,7 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
 #include "app_resources/common.hlsl"
+#include "app_resources/gridUtils.hlsl"
 
 using namespace nbl::hlsl;
 using namespace nbl;
@@ -23,6 +24,7 @@ using namespace ui;
 using namespace video;
 
 // struct Particle defined in shader???
+/*
 struct Particle
 {
     float id;
@@ -46,6 +48,7 @@ struct SGridData
     float32_t4 worldMax;
     int32_t4 gridSize;
 };
+*/
 
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
