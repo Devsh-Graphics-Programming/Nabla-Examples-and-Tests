@@ -636,43 +636,49 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 				// `{conversionRequests}.firstCopyIx` needs to be brought back down to exclusive scan form
 				exclScanConvReqs();
+				return retval;
 			}();
 			core::vector<asset_cached_t<AssetType>> gpuObjects(gpuObjUniqueCopyGroupIDs.size());
 
 			// Only warn once to reduce log spam
-			auto warnMultipleCopyGroupsOnReadonly = [&](const AssetType* asset, const size_t copyIx)->void
+			auto assign = [&]<bool GPUObjectWhollyImmutable=false>(const core::blake3_hash_t& contentHash, const size_t baseIx, const size_t copyIx, asset_cached_t<AssetType>::type&& gpuObj)->bool
 			{
+				if constexpr (GPUObjectWhollyImmutable) // including any deps!
 				if (copyIx==1)
-					inputs.logger.log("Why are you creating multiple Objects for asset %p and patch (same content hash), when they are a readonly GPU Object Type with no dependants!?",system::ILogger::ELL_PERFORMANCE,asset);
+					inputs.logger.log(
+						"Why are you creating multiple Objects for asset content %8llx%8llx%8llx%8llx, when they are a readonly GPU Object Type with no dependants!?",
+						system::ILogger::ELL_PERFORMANCE,reinterpret_cast<const uint64_t*>(contentHash.data)
+					);
+				if (!gpuObj)
+				{
+					inputs.logger.log("Failed to create GPU Object for asset content %8llx%8llx%8llx%8llx",system::ILogger::ELL_ERROR,reinterpret_cast<const uint64_t*>(contentHash.data));
+					return false;
+				}
+				gpuObjects[copyIx+baseIx].value = std::move(gpuObj);
+				return true;
 			};
+			
 			// Dispatch to correct creation of GPU objects
 			if constexpr (std::is_same_v<AssetType,ICPUSampler>)
 			{
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
-				{
-					const auto* asset = entry.second.canonicalAsset;
-					gpuObjects[i+entry.second.firstCopyIx].value = device->createSampler(asset->getParams());
-					warnMultipleCopyGroupsOnReadonly(asset,i);
-				}
+					assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createSampler(entry.second.canonicalAsset->getParams()));
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
 			{
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
-					const auto* asset = entry.second.canonicalAsset;
 					IGPUBuffer::SCreationParams params = {};
-					params.size = asset->getSize();
+					params.size = entry.second.canonicalAsset->getSize();
 					params.usage = pPatches[entry.second.patchIndex].usage;
 					// TODO: make this configurable
 					params.queueFamilyIndexCount = 0;
 					params.queueFamilyIndices = nullptr;
 					// if creation successful, we 
-					if (gpuObjects[i+entry.second.firstCopyIx].value=device->createBuffer(std::move(params)))
+					if (assign(entry.first,entry.second.firstCopyIx,i,device->createBuffer(std::move(params))))
 						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
-					else
-						inputs.logger.log("Failed to create IGPUBuffer for (ICPUBuffer*)%p",system::ILogger::ELL_ERROR,asset);
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUShader>)
@@ -685,10 +691,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
-					const auto* asset = entry.second.canonicalAsset;
-					createParams.cpushader = asset;
-					gpuObjects[i+entry.second.firstCopyIx].value = device->createShader(createParams);
-					warnMultipleCopyGroupsOnReadonly(asset,i);
+					createParams.cpushader = entry.second.canonicalAsset;
+					assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createShader(createParams));
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
@@ -757,7 +761,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 								*(outImmutableSamplers++) = candidates.first->gpuObj.value;
 							}
 						}
-						gpuObjects[outIx].value = device->createDescriptorSetLayout(bindings);
+						assign(entry.first,entry.second.firstCopyIx,i,device->createDescriptorSetLayout(bindings));
 					}
 				}
 			}
@@ -791,7 +795,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					gpuObj.get()->setObjectDebugName(debugName.str().c_str());
 				}
 				// insert into staging cache
-				stagingCache.insert({entry.contentHash,uniqueCopyGroupID},gpuObj);
+//				stagingCache.insert({entry.contentHash,uniqueCopyGroupID},gpuObj);
 				// propagate back to dfsCache
 				entry.gpuObj = std::move(gpuObj);
 			}
@@ -814,10 +818,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 
 // TODO:
-// how to get Patch while hashing dependants?
+// how to get Patch while hashing dependants? ANSWER: the DFS cache! Pointer and Group already there!
 // how to get dependant while converting?
-	// - (A*,G) of dependant easily findable
-	// - how to find patch?
+	// - (A*,G) of dependant easily supplied, the group is done by calling `inputs` again
+	// - how to find patch? TODO
 	}
 
 	// write out results
