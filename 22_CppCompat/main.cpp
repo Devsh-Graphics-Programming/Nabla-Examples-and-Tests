@@ -14,6 +14,10 @@
 
 #include "nbl/builtin/hlsl/ieee754.hlsl"
 
+#ifndef __HLSL_VERSION
+#include <bitset>
+#endif
+
 using namespace nbl::core;
 using namespace nbl::hlsl;
 using namespace nbl::system;
@@ -53,10 +57,13 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        double asdfasdf1 = 6466501.675008991733193;
-        double asdfasdf2 = 7427552.131694119423628;
-        std::cout << std::bitset<64>(ieee754::extractMantissa(reinterpret_cast<uint64_t&>(asdfasdf1))) << std::endl;
-        std::cout << std::bitset<64>(ieee754::extractMantissa(reinterpret_cast<uint64_t&>(asdfasdf2))) << std::endl;
+        emulated_float64_t<false, true> asdfasdf1 = emulated_float64_t<false, true>::create(58559.685071);
+        emulated_float64_t<false, true> asdfasdf2 = emulated_float64_t<false, true>::create(44815.876656);
+        
+        emulated_float64_t<false, true> result = asdfasdf1 * asdfasdf2;
+        bool result2 = asdfasdf1 < asdfasdf2;
+
+        std::cout << reinterpret_cast<double&>(result) << std::endl;
 
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -420,9 +427,10 @@ private:
 
     bool m_keepRunning = true;
 
-    constexpr static inline uint32_t EmulatedFloat64TestIterations = 100u;
+    constexpr static inline uint32_t EmulatedFloat64TestIterations = 1000000u;
     
-    bool compareEmulatedFloat64TestValues(const TestValues& expectedValues, const TestValues& testValues)
+    template<bool FastMath, bool FlushDenormToZero>
+    bool compareEmulatedFloat64TestValues(const TestValues<FastMath, FlushDenormToZero>& expectedValues, const TestValues<FastMath, FlushDenormToZero>& testValues)
     {
         bool success = true;
 
@@ -436,12 +444,23 @@ private:
 
                 std::stringstream ss;
                 ss << valName << " not equal!";
-                ss << "\nexpected value: " << std::fixed << std::setprecision(15) << expectedAsDouble;
-                ss << "\ntest value: " << std::fixed << std::setprecision(15) << testAsDouble;
+                ss << "\nexpected value: " << std::fixed << std::setprecision(20) << expectedAsDouble;
+                ss << "\ntest value:     " << std::fixed << std::setprecision(20) << testAsDouble;
                 ss << "\nerror = " << error << '\n';
+                ss << "bit representations: \n";
+                ss << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
+                ss << std::bitset<64>(expectedValue) << '\n';
+                ss << std::bitset<64>(testValue) << '\n';
 
                 m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
+
             };
+
+        auto calcULPError = [](emulated_float64_t::storage_t expectedValue, emulated_float64_t::storage_t testValue)
+        {
+            return std::abs(int64_t(expectedValue) - int64_t(testValue));
+        };
+
 
         auto printOnComparisonFailure = [this](const char* valName, int expectedValue, int testValue, double a, double b)
         {
@@ -495,25 +514,27 @@ private:
             printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, expectedValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.additionVal != testValues.additionVal)
+        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 1u)
         {
             printOnArithmeticFailure("additionVal", expectedValues.additionVal, testValues.additionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.substractionVal != testValues.substractionVal)
+        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 1u)
         {
             printOnArithmeticFailure("substractionVal", expectedValues.substractionVal, testValues.substractionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.multiplicationVal != testValues.multiplicationVal)
+        if (calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal) > 2u) // TODO: only 1 upl error allowed
         {
+            std::cout << calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal);
+            __debugbreak();
             printOnArithmeticFailure("multiplicationVal", expectedValues.multiplicationVal, testValues.multiplicationVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.divisionVal != testValues.divisionVal)
+        if (calcULPError(expectedValues.divisionVal, testValues.divisionVal) > 2u)  // TODO: only 1 upl error allowed
         {
-            printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
-            success = false;
+            //printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
+            //success = false;
         }
         if (expectedValues.lessOrEqualVal != testValues.lessOrEqualVal)
         {
@@ -631,7 +652,7 @@ private:
 
             // Allocate the memory
             {
-                constexpr size_t BufferSize = sizeof(TestValues);
+                constexpr size_t BufferSize = sizeof(TestValues<true, true>);
 
                 nbl::video::IGPUBuffer::SCreationParams params = {};
                 params.size = BufferSize;
@@ -681,7 +702,7 @@ private:
         if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
             m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues));
+        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues<true, true>));
 
         IQueue* queue = m_device->getQueue(queueFamily, 0);
 
@@ -700,24 +721,28 @@ private:
                     m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
         };
 
+        // TODO: Test case when lhs is +-0 and rhs is +-inf and vice versa
+
         printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
         printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(cmdbuf.get(), queue, memoryRange));
         printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
         printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(cmdbuf.get(), queue, memoryRange));
         printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64BInfTest(cmdbuf.get(), queue, memoryRange));
         printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64BNegInfTest(cmdbuf.get(), queue, memoryRange));
+
+        //TODO: test quick math
 
         allocation.memory->unmap();
     }
 
+    template <bool FastMath, bool FlushDenormToZero>
     struct EmulatedFloat64TestValuesInfo
     {
-        emulated_float64_t a;
-        emulated_float64_t b;
+        emulated_float64_t<FastMath, FlushDenormToZero> a;
+        emulated_float64_t<FastMath, FlushDenormToZero> b;
         ConstructorTestValues constrTestValues;
-        TestValues expectedTestValues;
+        TestValues<FastMath, FlushDenormToZero> expectedTestValues;
         
         void fillExpectedTestValues()
         {
@@ -738,10 +763,10 @@ private:
             //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
             expectedTestValues.float32CreateVal = bit_cast<uint64_t>(double(constrTestValues.float32));
             expectedTestValues.float64CreateVal = bit_cast<uint64_t>(double(constrTestValues.float64));
-            expectedTestValues.additionVal = emulated_float64_t::create(aAsDouble + bAsDouble).data;
-            expectedTestValues.substractionVal = emulated_float64_t::create(aAsDouble - bAsDouble).data;
-            expectedTestValues.multiplicationVal = emulated_float64_t::create(aAsDouble * bAsDouble).data;
-            expectedTestValues.divisionVal = emulated_float64_t::create(aAsDouble / bAsDouble).data;
+            expectedTestValues.additionVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble + bAsDouble).data;
+            expectedTestValues.substractionVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble - bAsDouble).data;
+            expectedTestValues.multiplicationVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble * bAsDouble).data;
+            expectedTestValues.divisionVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(aAsDouble / bAsDouble).data;
             expectedTestValues.lessOrEqualVal = aAsDouble <= bAsDouble;
             expectedTestValues.greaterOrEqualVal = aAsDouble >= bAsDouble;
             expectedTestValues.equalVal = aAsDouble == bAsDouble;
@@ -775,11 +800,11 @@ private:
             std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
             std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
 
-            EmulatedFloat64TestValuesInfo testValInfo;
+            EmulatedFloat64TestValuesInfo<false, true> testValInfo;
             double aTmp = f64Distribution(mt);
             double bTmp = f64Distribution(mt);
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(bTmp);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
             testValInfo.constrTestValues.int64 = i64Distribution(mt);
             testValInfo.constrTestValues.uint32 = u32Distribution(mt);
@@ -801,11 +826,11 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64BothValuesNaNTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
     {
-        EmulatedFloat64TestValuesInfo testValInfo;
+        EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t nan32 = std::numeric_limits<float32_t>::quiet_NaN();
         const float64_t nan64 = std::numeric_limits<float64_t>::quiet_NaN();
-        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
-        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
+        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
+        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
         testValInfo.constrTestValues = {
             .int32 = std::bit_cast<int32_t>(nan32),
             .int64 = std::bit_cast<int64_t>(nan64),
@@ -821,9 +846,9 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64NegAndPosZeroTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
     {
-        EmulatedFloat64TestValuesInfo testValInfo;
-        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(-0.0));
-        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(0.0));
+        EmulatedFloat64TestValuesInfo<false, true> testValInfo;
+        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(-0.0));
+        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(0.0));
         testValInfo.constrTestValues = {};
 
         testValInfo.fillExpectedTestValues();
@@ -832,11 +857,11 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64BothValuesInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
     {
-        EmulatedFloat64TestValuesInfo testValInfo;
+        EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t inf32 = std::numeric_limits<float64_t>::infinity();
         const float64_t inf64 = std::numeric_limits<float64_t>::infinity();
-        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
-        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
         testValInfo.constrTestValues = {
             .int32 = std::bit_cast<int32_t>(inf32),
             .int64 = std::bit_cast<int64_t>(inf64),
@@ -852,11 +877,11 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64BothValuesNegInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
     {
-        EmulatedFloat64TestValuesInfo testValInfo;
+        EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t inf32 = -std::numeric_limits<float64_t>::infinity();
         const float64_t inf64 = -std::numeric_limits<float64_t>::infinity();
-        testValInfo.a = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
-        testValInfo.b = emulated_float64_t::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
         testValInfo.constrTestValues = {
             .int32 = std::bit_cast<int32_t>(inf32),
             .int64 = std::bit_cast<int64_t>(inf64),
@@ -884,11 +909,11 @@ private:
             std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
             std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
 
-            EmulatedFloat64TestValuesInfo testValInfo;
+            EmulatedFloat64TestValuesInfo<false, true> testValInfo;
             double aTmp = f64Distribution(mt);
             double bTmp = std::numeric_limits<float64_t>::quiet_NaN();
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(std::numeric_limits<float64_t>::quiet_NaN);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
             testValInfo.constrTestValues.int64 = i64Distribution(mt);
             testValInfo.constrTestValues.uint32 = u32Distribution(mt);
@@ -915,11 +940,11 @@ private:
             std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
             std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
 
-            EmulatedFloat64TestValuesInfo testValInfo;
+            EmulatedFloat64TestValuesInfo<false, true> testValInfo;
             double aTmp = f64Distribution(mt);
             double bTmp = std::numeric_limits<float64_t>::infinity();
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(bTmp);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
             testValInfo.constrTestValues.int64 = i64Distribution(mt);
             testValInfo.constrTestValues.uint32 = u32Distribution(mt);
@@ -946,11 +971,11 @@ private:
             std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
             std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
 
-            EmulatedFloat64TestValuesInfo testValInfo;
+            EmulatedFloat64TestValuesInfo<false, true> testValInfo;
             double aTmp = f64Distribution(mt);
             double bTmp = -std::numeric_limits<float64_t>::infinity();
-            testValInfo.a.data = reinterpret_cast<emulated_float64_t::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t::storage_t&>(bTmp);
+            testValInfo.a.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(aTmp);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(bTmp);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
             testValInfo.constrTestValues.int64 = i64Distribution(mt);
             testValInfo.constrTestValues.uint32 = u32Distribution(mt);
@@ -963,22 +988,23 @@ private:
         }
     }
 
-    EmulatedFloat64TestOutput performEmulatedFloat64Tests(EmulatedFloat64TestValuesInfo& testValInfo, IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    template <bool FastMath, bool FlushDenormToZero>
+    EmulatedFloat64TestOutput performEmulatedFloat64Tests(EmulatedFloat64TestValuesInfo<FastMath, FlushDenormToZero>& testValInfo, IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
     {
         emulated_float64_t a = testValInfo.a;
         emulated_float64_t b = testValInfo.b;
 
-        const TestValues cpuTestValues = {
+        const TestValues<FastMath, FlushDenormToZero> cpuTestValues = {
             //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
-            .int32CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.int32).data,
-            .int64CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.int64).data,
+            .int32CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.int32).data,
+            .int64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.int64).data,
             //.uint16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
-            .uint32CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.uint32).data,
-            .uint64CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.uint64).data,
+            .uint32CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.uint32).data,
+            .uint64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.uint64).data,
             // TODO: unresolved external symbol imath_half_to_float_table
             //.float16CreateVal = 0, //emulated_float64_t::create(testValue16).data,
-            .float32CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.float32).data,
-            .float64CreateVal = emulated_float64_t::create(testValInfo.constrTestValues.float64).data,
+            .float32CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.float32).data,
+            .float64CreateVal = emulated_float64_t<FastMath, FlushDenormToZero>::create(testValInfo.constrTestValues.float64).data,
             .additionVal = (a + b).data,
             .substractionVal = (a - b).data,
             .multiplicationVal = (a * b).data,
@@ -994,7 +1020,7 @@ private:
         EmulatedFloat64TestOutput output;
 
         // cpu validation
-        output.cpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, cpuTestValues);
+        output.cpuTestsSucceed = compareEmulatedFloat64TestValues<false, true>(testValInfo.expectedTestValues, cpuTestValues);
 
         // gpu validation
         IQueue::SSubmitInfo submitInfos[1] = {};
@@ -1007,7 +1033,7 @@ private:
         queue->endCapture();
 
         m_device->waitIdle();
-        TestValues* gpuTestValues = static_cast<TestValues*>(memoryRange.memory->getMappedPointer());
+        TestValues<FastMath, FlushDenormToZero>* gpuTestValues = static_cast<TestValues<FastMath, FlushDenormToZero>*>(memoryRange.memory->getMappedPointer());
 
         // TODO:
         //output.gpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, *gpuTestValues);

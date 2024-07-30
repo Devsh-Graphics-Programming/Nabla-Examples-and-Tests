@@ -6,22 +6,23 @@
 #include "app_resources/emulated_float64_t_test/common.hlsl"
 #include <nbl/builtin/hlsl/bit.hlsl>
 
-[[vk::binding(0, 0)]] RWStructuredBuffer<TestValues> testValuesOutput;
+[[vk::binding(0, 0)]] RWStructuredBuffer<TestValues<false, true> > testValuesOutput;
 
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
     //nbl::hlsl::bit_cast<uint64_t, uint32_t>(2u);
 
-    const nbl::hlsl::emulated_float64_t a = nbl::hlsl::emulated_float64_t::create(float64_t(20.0));
-    const nbl::hlsl::emulated_float64_t b = nbl::hlsl::emulated_float64_t::create(float64_t(10.0));
+    const nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t<false, true>::create(float64_t(20.0));
+    const nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t<false, true>::create(float64_t(10.0));
 
     // "constructors"
-    //testValuesOutput[0].intCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(24);
-    //testValuesOutput[0].uintCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(24u);
-    //testValuesOutput[0].uint64CreateVal = nbl::hlsl::emulated::emulated_float64_t::create(24ull);
-    //testValuesOutput[0].floatCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(1.2f);
-    //testValuesOutput[0].doubleCreateVal = nbl::hlsl::emulated::emulated_float64_t::create(1.2);
+    testValuesOutput[0].int32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(24).data;
+    testValuesOutput[0].int64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(24).data;
+    testValuesOutput[0].uint32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(24u).data;
+    testValuesOutput[0].uint64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(24ull).data;
+    testValuesOutput[0].float32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(1.2f).data;
+    testValuesOutput[0].float64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(1.2).data;
     //nbl::hlsl::emulated_float64_t::create(min16int(2));
 
     // arithmetic operators

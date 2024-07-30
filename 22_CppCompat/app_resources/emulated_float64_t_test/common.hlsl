@@ -20,6 +20,7 @@ struct ConstructorTestValues
     float64_t float64;
 };
 
+template<bool FastMath, bool FlushDenormToZero>
 struct TestValues
 {
     double a;
@@ -27,23 +28,23 @@ struct TestValues
     // constructors
     
     //nbl::hlsl::emulated_float64_t::storage_t int16CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t int32CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t int64CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t int32CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t int64CreateVal;
     
     // TODO:
     //nbl::hlsl::emulated_float64_t::storage_t uint16CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t uint32CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t uint64CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t uint32CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t uint64CreateVal;
     // TODO:
     //nbl::hlsl::emulated_float64_t::storage_t float16CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t float32CreateVal;
-    nbl::hlsl::emulated_float64_t::storage_t float64CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float32CreateVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t float64CreateVal;
 
     // arithmetic
-    nbl::hlsl::emulated_float64_t::storage_t additionVal;
-    nbl::hlsl::emulated_float64_t::storage_t substractionVal;
-    nbl::hlsl::emulated_float64_t::storage_t multiplicationVal;
-    nbl::hlsl::emulated_float64_t::storage_t divisionVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t additionVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t substractionVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t multiplicationVal;
+    typename nbl::hlsl::emulated_float64_t<FastMath, FlushDenormToZero>::storage_t divisionVal;
 
     // relational
     int lessOrEqualVal;
