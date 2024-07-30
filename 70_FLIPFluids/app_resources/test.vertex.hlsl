@@ -15,8 +15,8 @@ PSInput main(uint vertexID : SV_VertexID)
     PSInput output;
 
     const float4 position[3] = {
-		float4(-0.5,0.5,0,1),
-		float4(0.5,0.5,0,1),
+		float4(0.5,-0.5,0,1),
+		float4(0,0.5,0,1),
 		float4(-0.5,-0.5,0,1),
 	};
 

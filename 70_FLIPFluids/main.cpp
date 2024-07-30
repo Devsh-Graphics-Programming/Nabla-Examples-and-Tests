@@ -129,6 +129,48 @@ protected:
 	smart_refctd_ptr<IGPUImageView> m_depthBuffer;
 };
 
+class CEventCallback : public ISimpleManagedSurface::ICallback
+{
+public:
+	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}
+	CEventCallback() {}
+
+	void setLogger(nbl::system::logger_opt_smart_ptr& logger)
+	{
+		m_logger = logger;
+	}
+	void setInputSystem(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem)
+	{
+		m_inputSystem = std::move(m_inputSystem);
+	}
+private:
+
+	void onMouseConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IMouseEventChannel>&& mch) override
+	{
+		m_logger.log("A mouse %p has been connected", nbl::system::ILogger::ELL_INFO, mch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_mouse, std::move(mch));
+	}
+	void onMouseDisconnected_impl(nbl::ui::IMouseEventChannel* mch) override
+	{
+		m_logger.log("A mouse %p has been disconnected", nbl::system::ILogger::ELL_INFO, mch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_mouse, mch);
+	}
+	void onKeyboardConnected_impl(nbl::core::smart_refctd_ptr<nbl::ui::IKeyboardEventChannel>&& kbch) override
+	{
+		m_logger.log("A keyboard %p has been connected", nbl::system::ILogger::ELL_INFO, kbch.get());
+		m_inputSystem.get()->add(m_inputSystem.get()->m_keyboard, std::move(kbch));
+	}
+	void onKeyboardDisconnected_impl(nbl::ui::IKeyboardEventChannel* kbch) override
+	{
+		m_logger.log("A keyboard %p has been disconnected", nbl::system::ILogger::ELL_INFO, kbch);
+		m_inputSystem.get()->remove(m_inputSystem.get()->m_keyboard, kbch);
+	}
+
+private:
+	nbl::core::smart_refctd_ptr<InputSystem> m_inputSystem = nullptr;
+	nbl::system::logger_opt_smart_ptr m_logger = nullptr;
+};
+
 class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -151,7 +193,7 @@ public:
 		if (!m_surface)
 		{
 			{
-				//auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
+				auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 				IWindow::SCreationParams params{
 					.callback = core::make_smart_refctd_ptr<ISimpleManagedSurface::ICallback>(),
 					.x = 32,
@@ -161,6 +203,7 @@ public:
 					.flags = IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE,
 					.windowCaption = "FLIPFluidsApp"
 				};
+				params.callback = windowCallback;
 				const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 			}
 
@@ -371,6 +414,7 @@ public:
 		auto* const cmdbuf = m_cmdBufs.data()[resourceIx].get();
 		cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 		cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cmdbuf->beginDebugMarker("Frame Debug FLIP sim begin");
 		{
 			camera.beginInputProcessing(nextPresentationTimestamp);
 			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void { camera.mouseProcess(events); mouseProcess(events); }, m_logger.get());
@@ -500,7 +544,6 @@ public:
 					m_submitIx--;
 			}
 		}
-		
 
 		m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 		m_realFrameIx++;
@@ -702,71 +745,6 @@ private:
 		return std::pair(pipeline, dsLayouts);
 	}
 
-	smart_refctd_ptr<IGPURenderpass> createRenderpass(
-		E_FORMAT colorAttachmentFormat,
-		IGPURenderpass::LOAD_OP loadOp,
-		IImage::LAYOUT initialLayout,
-		IImage::LAYOUT finalLayout)
-	{		
-		const IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] = {
-			{{
-				{
-					.format = colorAttachmentFormat,
-					.samples = IGPUImage::ESCF_1_BIT,
-					.mayAlias = false
-				},
-				/*.loadOp = */loadOp,
-				/*.storeOp = */IGPURenderpass::STORE_OP::STORE,
-				/*.initialLayout = */initialLayout,
-				/*.finalLayout = */finalLayout
-			}},
-			IGPURenderpass::SCreationParams::ColorAttachmentsEnd
-		};
-		
-		IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] = {
-			{},
-			IGPURenderpass::SCreationParams::SubpassesEnd
-		};
-		subpasses[0].colorAttachments[0] = {.render={.attachmentIndex=0,.layout=IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}};
-		
-		// We actually need external dependencies to ensure ordering of the Implicit Layout Transitions relative to the semaphore signals
-		const IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] = {
-			// wipe-transition to ATTACHMENT_OPTIMAL
-			{
-				.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.dstSubpass = 0,
-				.memoryBarrier = {
-					// we can have NONE as Sources because ????
-					.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-				// leave view offsets and flags default
-			},
-			// ATTACHMENT_OPTIMAL to PRESENT_SRC
-			{
-				.srcSubpass = 0,
-				.dstSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
-				.memoryBarrier = {
-					.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-					// we can have NONE as the Destinations because the spec says so about presents
-				}
-				// leave view offsets and flags default
-			},
-			IGPURenderpass::SCreationParams::DependenciesEnd
-		};
-		
-		smart_refctd_ptr<IGPURenderpass> renderpass;
-		IGPURenderpass::SCreationParams params = {};
-		params.colorAttachments = colorAttachments;
-		params.subpasses = subpasses;
-		params.dependencies = dependencies;
-		renderpass = m_device->createRenderpass(params);
-		if (!renderpass)
-			logFail("Failed to Create a Renderpass!");
-		return renderpass;
-	}
-
 	bool initGraphicsPipeline()
 	{
 		m_renderSemaphore = m_device->createSemaphore(m_submitIx);
@@ -774,7 +752,7 @@ private:
 			return logFail("Failed to create render semaphore!\n");
 			
 		ISwapchain::SCreationParams swapchainParams{
-			.surface = smart_refctd_ptr<video::ISurface>(m_surface->getSurface())
+			.surface = m_surface->getSurface()
 		};
 		if (!swapchainParams.deduceFormat(m_physicalDevice))
 			return logFail("Could not choose a surface format for the swapchain!\n");
