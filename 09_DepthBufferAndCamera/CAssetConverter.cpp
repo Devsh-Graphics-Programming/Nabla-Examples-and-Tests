@@ -795,7 +795,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					gpuObj.get()->setObjectDebugName(debugName.str().c_str());
 				}
 				// insert into staging cache
-//				stagingCache.insert({entry.contentHash,uniqueCopyGroupID},gpuObj);
+				stagingCache.insert({entry.contentHash,uniqueCopyGroupID},gpuObj);
 				// propagate back to dfsCache
 				entry.gpuObj = std::move(gpuObj);
 			}
@@ -821,7 +821,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 // how to get Patch while hashing dependants? ANSWER: the DFS cache! Pointer and Group already there!
 // how to get dependant while converting?
 	// - (A*,G) of dependant easily supplied, the group is done by calling `inputs` again
-	// - how to find patch? TODO
+	// - how to find patch? first compatible!
+		// + compatible with what? derived patch? asset usage?
+			// * Maybe lets store original patch in YAC?
 	}
 
 	// write out results

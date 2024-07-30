@@ -441,10 +441,10 @@ class CAssetConverter : public core::IReferenceCounted
 				// no point returning iterators to inserted positions, they're not stable
 				inline bool insert(const key_t& _key, const asset_cached_t<AssetType>& _gpuObj)
 				{
-					auto& [unused0,insertedF] = m_forwardMap.insert(_key,_gpuObj);
+					auto [unused0,insertedF] = m_forwardMap.emplace(_key,_gpuObj);
 					if (!insertedF)
 						return false;
-					auto& [unused1,insertedR] = m_reverseMap.insert(_gpuObj.get(),_key);
+					auto [unused1,insertedR] = m_reverseMap.emplace(_gpuObj.get(),_key);
 					assert(insertedR);
 					return true;
 				}
