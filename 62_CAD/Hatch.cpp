@@ -1150,7 +1150,7 @@ void shaded(std::vector<CPolyline>& polylines, const float64_t2& offset)
 
 }
 
-core::smart_refctd_ptr<asset::ICPUImage> Hatch::generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents)
+core::smart_refctd_ptr<asset::ICPUBuffer> Hatch::generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents)
 {
 	std::array<float64_t2, 9u> offsets = {};
 	uint32_t idx = 0u;
@@ -1240,5 +1240,5 @@ core::smart_refctd_ptr<asset::ICPUImage> Hatch::generateHatchFillPatternMSDF(nbl
 
 	float scaleX = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.x);
 	float scaleY = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.y);
-	return textRenderer->generateShapeMSDF(glyph, MSDFPixelRange, msdfExtents, 4, float32_t2(scaleX, scaleY), float32_t2(0, 0));
+	return textRenderer->generateShapeMSDF(glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
 }

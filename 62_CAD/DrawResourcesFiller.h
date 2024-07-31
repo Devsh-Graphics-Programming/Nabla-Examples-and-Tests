@@ -60,8 +60,8 @@ public:
 
 	// functions that user should set to get MSDF texture if it's not available in cache.
 	// it's up to user to return cached or generate on the fly.
-	typedef std::function<core::smart_refctd_ptr<ICPUImage>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
-	typedef std::function<core::smart_refctd_ptr<ICPUBuffer>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
+	typedef std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>(nbl::ext::TextRendering::FontFace* /*face*/, uint32_t /*glyphIdx*/)> GetGlyphMSDFTextureFunc;
+	typedef std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>(HatchFillPattern/*pattern*/)> GetHatchFillPatternMSDFTextureFunc;
 	void setGlyphMSDFTextureFunction(const GetGlyphMSDFTextureFunc& func);
 	void setHatchFillMSDFTextureFunction(const GetHatchFillPatternMSDFTextureFunc& func);
 
@@ -212,7 +212,7 @@ protected:
 	
 	struct TextureCopy
 	{
-		core::smart_refctd_ptr<ICPUBuffer> srcBuffer;
+		std::vector<core::smart_refctd_ptr<ICPUBuffer>> buffers;
 		uint64_t bufferOffset;
 		uint32_t3 imageExtent;
 		uint32_t index;
@@ -343,9 +343,9 @@ protected:
 		return textureIdx;
 	}
 
-	uint32_t addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
-	uint32_t addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+	uint32_t addMSDFTexture(std::vector<core::smart_refctd_ptr<ICPUBuffer>> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 	
 	// Members
 	smart_refctd_ptr<IUtilities> m_utilities;

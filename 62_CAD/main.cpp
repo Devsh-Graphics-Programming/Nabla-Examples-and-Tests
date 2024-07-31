@@ -909,16 +909,18 @@ public:
 
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
-			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>>
 			{
 				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), 4);
 			}
 		);
 
 		drawResourcesFiller.setHatchFillMSDFTextureFunction(
-			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUBuffer>
+			[&](HatchFillPattern pattern) -> std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>>
 			{
-				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
+				std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>> buffers;
+				buffers.push_back(Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution()));
+				return buffers;
 			}
 		);
 		return true;
