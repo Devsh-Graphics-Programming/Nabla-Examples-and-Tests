@@ -5,21 +5,23 @@
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 128;
 
+#ifdef __HLSL_VERSION
 struct Particle
 {
     float id;
     float pad0[3];
 
-    float32_t4 position;
-    float32_t4 velocity;
+    float4 position;
+    float4 velocity;
 };
 
-#ifdef __HLSL_VERSION
 struct SMVPParams
 {
+    float4 camPos;
+
 	float4x4 MVP;
-	float3x4 MV;
-	float3x3 normalMat;
+	float4x4 M;
+    float4x4 V;
 };
 #endif
 

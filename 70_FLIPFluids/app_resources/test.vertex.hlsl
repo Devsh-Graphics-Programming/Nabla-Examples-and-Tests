@@ -1,7 +1,12 @@
 #pragma shader_stage(vertex)
 
 #include "common.hlsl"
-#include "render_common.hlsl"
+
+struct PSInput
+{
+	float4 position : SV_Position;
+	float4 color : COLOR0;
+};
 
 // set 1, binding 0
 [[vk::binding(0, 1)]]
