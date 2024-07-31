@@ -133,7 +133,7 @@ void CAssetConverter::CHashCache::eraseStale()
 	rehash.operator()<ICPUSampler>();
 	rehash.operator()<ICPUDescriptorSetLayout>();
 	rehash.operator()<ICPUPipelineLayout>();
-	// shaders and images depend on buffers for data sourching
+	// shaders and images depend on buffers for data sourcing
 	rehash.operator()<ICPUBuffer>();
 //	rehash.operator()<ICPUBufferView>();
 //	rehash.operator()<ICPUImage>();
@@ -154,20 +154,24 @@ void CAssetConverter::CHashCache::eraseStale()
 
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUShader>(::blake3_hasher& hasher, const ICPUShader* asset, const patch_t<ICPUShader>& patch, const uint32_t nextMistrustLevel)
-{
-	core::blake3_hasher_update(hasher,asset->getContentType());
-	const auto* content = asset->getContent();
-	// we're not using the buffer directly, just its contents
-	core::blake3_hasher_update(hasher,content->getContentHash());
-}
-
-template<>
 void CAssetConverter::CHashCache::hash_impl<ICPUSampler>(::blake3_hasher& hasher, const ICPUSampler* asset, const patch_t<ICPUSampler>& patch, const uint32_t nextMistrustLevel)
 {
 	auto patchedParams = asset->getParams();
 	patchedParams.AnisotropicFilter = patch.anisotropyLevelLog2;
 	core::blake3_hasher_update(hasher,patchedParams);
+}
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUShader>(::blake3_hasher& hasher, const ICPUShader* asset, const patch_t<ICPUShader>& patch, const uint32_t nextMistrustLevel)
+{
+	const auto type = asset->getContentType();
+	core::blake3_hasher_update(hasher,type);
+	// if not SPIR-V then own path matters
+	if (type!=ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
+		core::blake3_hasher_update(hasher,asset->getFilepathHint())
+	const auto* content = asset->getContent();
+	// we're not using the buffer directly, just its contents
+	core::blake3_hasher_update(hasher,content->getContentHash());
 }
 
 template<>
@@ -183,8 +187,15 @@ void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(::blake3_hasher& hasher,
 template<>
 void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(::blake3_hasher& hasher, const ICPUDescriptorSetLayout* asset, const patch_t<ICPUDescriptorSetLayout>& patch, const uint32_t nextMistrustLevel)
 {
-//	asset->getImmutableSamplers();
-//	core::blake3_hasher_update(hasher,);
+	const auto& immutableSamplerRedirect = asset->getImmutableSamplerRedirect();
+	const auto count = immutableSamplerRedirect.getBindingCount();
+	for (auto i=0; i<count; i++)
+	{
+		const ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t storageRangeIx(i);
+		const auto binding = immutableSamplerRedirect.getBinding(storageRangeIx);
+		// need to hash not only the sampler state, but the slots they're supposed to go into
+		core::blake3_hasher_update(hasher,binding);
+	}
 }
 
 template<>
@@ -196,11 +207,37 @@ void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher&
 		hash<ICPUDescriptorSetLayout>({
 			{
 				.asset = asset->getDescriptorSetLayout(i),
-				.patch = {}, // there's nothing to patch
+				.patch = {}, // there's nothing to patch in a DS Layout
 			},
 			nextMistrustLevel
 		});
 	}
+}
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUPipelineCache>(::blake3_hasher& hasher, const ICPUPipelineCache* asset, const patch_t<ICPUPipelineCache>& patch, const uint32_t nextMistrustLevel)
+{
+	// TODO: move the hashings around
+	core::blake3_hasher_update(hasher,asset->getContentHash());
+}
+
+template<>
+void CAssetConverter::CHashCache::hash_impl<ICPUComputePipeline>(::blake3_hasher& hasher, const ICPUComputePipeline* asset, const patch_t<ICPUComputePipeline>& patch, const uint32_t nextMistrustLevel)
+{
+	hash<ICPUPipelineLayout>({
+		{
+			.asset = asset->getLayout(),
+			.patch = {}, // TODO: how to get!?
+		},
+		nextMistrustLevel
+	});
+	hash<ICPUShader>({
+		{
+			.asset = asset->getSpecInfo().shader,
+			.patch = {}, // TODO: how to get!?
+		},
+		nextMistrustLevel
+	});
 }
 
 
@@ -744,7 +781,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
 					createParams.cpushader = entry.second.canonicalAsset;
-					assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createShader(createParams));
+					assign(entry.first,entry.second.firstCopyIx,i,device->createShader(createParams));
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
@@ -916,7 +953,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 							{
 								// we choose whatever patch, because there should really only ever be one (all pipeline layouts merge their PC ranges seamlessly)
 								params.layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound).get();
-								// there are no patches possible for shaders
+								// while there are patches possible for shaders, the only patch which can happen here is changing a stage from UNKNOWN to COMPUTE
 								params.shader.shader = getDependant(uniqueCopyGroupID,asset,assetSpecShader.shader,firstPatchMatch,depNotFound).get();
 							}
 							if (depNotFound)
