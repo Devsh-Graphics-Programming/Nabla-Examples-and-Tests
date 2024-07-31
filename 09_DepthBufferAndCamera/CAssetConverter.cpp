@@ -21,7 +21,6 @@ CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
 }
 
-/** repurpose for pipeline
 CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 	const ICPUShader* shader,
 	const SPhysicalDeviceFeatures& features,
@@ -66,7 +65,7 @@ CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 		default:
 			break;
 	}
-}*/
+}
 
 CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(
 	const ICPUBuffer* buffer,
@@ -132,11 +131,25 @@ void CAssetConverter::CHashCache::eraseStale()
 	};
 	// to make the process more efficient we start ejecting from "lowest level" assets
 	rehash.operator()<ICPUSampler>();
-	rehash.operator()<ICPUShader>();
-	rehash.operator()<ICPUBuffer>();
-//	rehash.operator()<ICPUBufferView>();
 	rehash.operator()<ICPUDescriptorSetLayout>();
 	rehash.operator()<ICPUPipelineLayout>();
+	// shaders and images depend on buffers for data sourching
+	rehash.operator()<ICPUBuffer>();
+//	rehash.operator()<ICPUBufferView>();
+//	rehash.operator()<ICPUImage>();
+//	rehash.operator()<ICPUImageView>();
+//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
+//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
+	// only once all the descriptor types have been hashed, we can hash sets
+//	rehash.operator()<ICPUDescriptorSet>();
+	// naturally any pipeline depends on shaders and pipeline cache
+	rehash.operator()<ICPUShader>();
+	rehash.operator()<ICPUPipelineCache>();
+	rehash.operator()<ICPUComputePipeline>();
+	// graphics pipeline needs a renderpass
+//	rehash.operator()<ICPURenderpass>();
+//	rehash.operator()<ICPUGraphicsPipeline>();
+//	rehash.operator()<ICPUFramebuffer>();
 }
 
 
@@ -502,6 +515,14 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				const auto* user = entry.asset;
 				switch (user->getAssetType())
 				{
+					case ICPUDescriptorSetLayout::AssetType:
+					{
+						auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
+						for (const auto& sampler : layout->getImmutableSamplers())
+						if (sampler)
+							cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
+						break;
+					}
 					case ICPUPipelineLayout::AssetType:
 					{
 						auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
@@ -510,12 +531,15 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 							cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout,features,limits});
 						break;
 					}
-					case ICPUDescriptorSetLayout::AssetType:
+					case ICPUComputePipeline::AssetType:
 					{
-						auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
-						for (const auto& sampler : layout->getImmutableSamplers())
-						if (sampler)
-							cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
+						auto compPpln = static_cast<const ICPUComputePipeline*>(user);
+						const auto* layout = compPpln->getLayout();
+						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout,features,limits});
+						const auto* shader = compPpln->getSpecInfo().shader;
+						patch_t<ICPUShader> patch = {shader,features,limits};
+						patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
+						cache.operator()<ICPUShader>(entry,shader,std::move(patch));
 						break;
 					}
 					case ICPUDescriptorSet::AssetType:
@@ -860,8 +884,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					for (auto i=0ull; i<entry.second.copyCount; i++)
 					{
 						// since we don't have dependants we don't care about our group ID
-						// also don't create threadsafe pipeline caches, we don't do pipeline conversions in parallel right now
-						assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createPipelineCache(asset,true));
+						// we create threadsafe pipeline caches, because we have no idea how they may be used
+						assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createPipelineCache(asset,false));
 					}
 				}
 			}
@@ -949,6 +973,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		};
 		// The order of these calls is super important to go BOTTOM UP in terms of hashing and conversion dependants.
 		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we have all the possible dependants ready.
+		// If two Asset chains are independent then we order them from most catastrophic failure to least.
 		dedupCreateProp.operator()<ICPUBuffer>();
 //		dedupCreateProp.operator()<ICPUImage>();
 		// Allocate Memory
@@ -959,17 +984,22 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// now bind it
 			// if fail, need to wipe the GPU Obj as a failure
 		}
+//		dedupCreateProp.operator()<ICPUBottomLevelAccelerationStructure>();
+//		dedupCreateProp.operator()<ICPUTopLevelAccelerationStructure>();
+//		dedupCreateProp.operator()<ICPUBufferView>();
+		dedupCreateProp.operator()<ICPUShader>();
 		dedupCreateProp.operator()<ICPUSampler>();
 		dedupCreateProp.operator()<ICPUDescriptorSetLayout>();
 		dedupCreateProp.operator()<ICPUPipelineLayout>();
 		dedupCreateProp.operator()<ICPUPipelineCache>();
-		dedupCreateProp.operator()<ICPUShader>();
 		dedupCreateProp.operator()<ICPUComputePipeline>();
-
+//		dedupCreateProp.operator()<ICPURenderpass>();
+//		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
+//		dedupCreateProp.operator()<ICPUDescriptorSet>();
+//		dedupCreateProp.operator()<ICPUFramebuffer>();
 
 
 // TODO:
-// how to get Patch while hashing dependants? ANSWER: the DFS cache! Pointer and Group already there!
 // how to get dependant while converting?
 	// - (A*,G) of dependant easily supplied, the group is done by calling `inputs` again
 	// - how to find patch? first compatible!

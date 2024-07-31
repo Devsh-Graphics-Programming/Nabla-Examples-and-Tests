@@ -3,6 +3,7 @@
 #ifndef _NBL_VIDEO_C_ASSET_CONVERTER_INCLUDED_
 #define _NBL_VIDEO_C_ASSET_CONVERTER_INCLUDED_
 
+
 #if 1
 #include "nabla.h"
 #else
@@ -39,8 +40,9 @@ class CAssetConverter : public core::IReferenceCounted
 		// Descriptor Set -> unique layout, 
 		using supported_asset_types = core::type_list<
 			asset::ICPUSampler,
-			asset::ICPUBuffer,
 			asset::ICPUShader,
+			asset::ICPUBuffer,
+			// acceleration structures
 			// image,
 //			asset::ICPUBufferView,
 			// image view
@@ -48,6 +50,8 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUPipelineLayout,
 			asset::ICPUPipelineCache,
 			asset::ICPUComputePipeline
+			// framebuffer, renderpass and graphics pipeline
+			// descriptor sets
 		>;
 
 		struct SCreationParams
@@ -118,14 +122,14 @@ class CAssetConverter : public core::IReferenceCounted
 						return {}; // invalid
 					return *this;
 				}
-		};/** repurpose for pipeline
+		};
 		template<>
 		struct patch_impl_t<asset::ICPUShader>
 		{
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUShader);
 
-				inline bool valid() const {return nbl::hlsl::bitCount<uint32_t>(stage)!=1;}
+				inline bool valid() const {return hlsl::bitCount(static_cast<std::underlying_type_t<IGPUShader::E_SHADER_STAGE>>(stage))!=1;}
 
 				IGPUShader::E_SHADER_STAGE stage = IGPUShader::ESS_UNKNOWN;
 
@@ -142,7 +146,7 @@ class CAssetConverter : public core::IReferenceCounted
 					}
 					return *this;
 				}
-		};**/
+		};
 		template<>
 		struct patch_impl_t<asset::ICPUBuffer>
 		{
