@@ -847,7 +847,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 							if (notAllDepsFound)
 								continue;
 						}
-						assign(entry.first,entry.second.firstCopyIx,i,device->createPipelineLayout(pcRanges,dsLayouts[0],dsLayouts[1],dsLayouts[2],dsLayouts[3]));
+						assign(entry.first,entry.second.firstCopyIx,i,device->createPipelineLayout(pcRanges,std::move(dsLayouts[0]),std::move(dsLayouts[1]),std::move(dsLayouts[2]),std::move(dsLayouts[3])));
 					}
 				}
 			}
@@ -961,6 +961,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		}
 		dedupCreateProp.operator()<ICPUSampler>();
 		dedupCreateProp.operator()<ICPUDescriptorSetLayout>();
+		dedupCreateProp.operator()<ICPUPipelineLayout>();
+		dedupCreateProp.operator()<ICPUPipelineCache>();
+		dedupCreateProp.operator()<ICPUShader>();
+		dedupCreateProp.operator()<ICPUComputePipeline>();
 
 
 
