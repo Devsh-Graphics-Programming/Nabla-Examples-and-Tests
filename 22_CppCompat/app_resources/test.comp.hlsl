@@ -166,9 +166,9 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     {
         static const uint16_t TEST_VALUE_0 = 5;
         static const uint32_t TEST_VALUE_1 = 0x80000000u;
-        static const uint32_t TEST_VALUE_2 = 0x8000000000000000u;
+        static const uint64_t TEST_VALUE_2 = 0x8000000000000000u;
         static const uint32_t TEST_VALUE_3 = 0x00000001u;
-        static const uint32_t TEST_VALUE_4 = 0x0000000000000001u;
+        static const uint64_t TEST_VALUE_4 = 0x0000000000000001u;
         
 
         fill(invocationID, 5.01);

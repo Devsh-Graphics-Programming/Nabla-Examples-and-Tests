@@ -57,13 +57,13 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        emulated_float64_t<false, true> asdfasdf1 = emulated_float64_t<false, true>::create(58559.685071);
+        /*emulated_float64_t<false, true> asdfasdf1 = emulated_float64_t<false, true>::create(58559.685071);
         emulated_float64_t<false, true> asdfasdf2 = emulated_float64_t<false, true>::create(44815.876656);
         
         emulated_float64_t<false, true> result = asdfasdf1 * asdfasdf2;
         bool result2 = asdfasdf1 < asdfasdf2;
 
-        std::cout << reinterpret_cast<double&>(result) << std::endl;
+        std::cout << reinterpret_cast<double&>(result) << std::endl;*/
 
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -363,6 +363,7 @@ public:
                     .semaphore = progress.get(),
                     .value = FinishedValue
                 } };
+            //TODO: fix semaphore timeout
             m_device->blockForSemaphores(waitInfos);
         }
 
@@ -481,22 +482,22 @@ private:
         }*/
         if (expectedValues.int32CreateVal != testValues.int32CreateVal)
         {
-            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, expectedValues.int32CreateVal, expectedValues.a, expectedValues.b);
+            std::cout << expectedValues.int32CreateVal << std::endl;
+            std::cout << testValues.int32CreateVal << std::endl;
+            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.int64CreateVal != testValues.int64CreateVal)
         {
-            printOnArithmeticFailure("int64CreateVal", expectedValues.int64CreateVal, expectedValues.int64CreateVal, expectedValues.a, expectedValues.b);
+            printOnArithmeticFailure("int64CreateVal", expectedValues.int64CreateVal, testValues.int64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.uint32CreateVal != testValues.uint32CreateVal)
-        {
-            printOnArithmeticFailure("uint32CreateVal", expectedValues.uint32CreateVal, expectedValues.uint32CreateVal, expectedValues.a, expectedValues.b);
+        if (expectedValues.uint32CreateVal != testValues.uint32Crea            printOnArithmeticFailure("uint32CreateVal", expectedValues.uint32CreateVal, testValues.uint32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.uint64CreateVal != testValues.uint64CreateVal)
         {
-            printOnArithmeticFailure("uint64CreateVal", expectedValues.uint64CreateVal, expectedValues.uint64CreateVal, expectedValues.a, expectedValues.b);
+            printOnArithmeticFailure("uint64CreateVal", expectedValues.uint64CreateVal, testValues.uint64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         /*if (expectedValues.float16CreateVal != testValues.float16CreateVal)
@@ -506,12 +507,12 @@ private:
         }*/
         if (expectedValues.float32CreateVal != testValues.float32CreateVal)
         {
-            printOnArithmeticFailure("float32CreateVal", expectedValues.float32CreateVal, expectedValues.float32CreateVal, expectedValues.a, expectedValues.b);
+            printOnArithmeticFailure("float32CreateVal", expectedValues.float32CreateVal, testValues.float32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.float64CreateVal != testValues.float64CreateVal)
         {
-            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, expectedValues.int32CreateVal, expectedValues.a, expectedValues.b);
+            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 1u)
@@ -1034,10 +1035,9 @@ private:
 
         m_device->waitIdle();
         TestValues<FastMath, FlushDenormToZero>* gpuTestValues = static_cast<TestValues<FastMath, FlushDenormToZero>*>(memoryRange.memory->getMappedPointer());
+        m_device->waitIdle();
 
-        // TODO:
-        //output.gpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, *gpuTestValues);
-        output.gpuTestsSucceed = true;
+        output.gpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, *gpuTestValues);
 
         return output;
     }

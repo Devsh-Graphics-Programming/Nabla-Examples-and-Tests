@@ -32,10 +32,10 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     testValuesOutput[0].divisionVal = (a/b).data;
 
     // relational operators
-    testValuesOutput[0].lessOrEqualVal = (a<=b);
-    testValuesOutput[0].greaterOrEqualVal = (a>=b);
-    testValuesOutput[0].equalVal = (a==b);
-    testValuesOutput[0].notEqualVal = (a!=b);
-    testValuesOutput[0].lessVal = (a<b);
-    testValuesOutput[0].greaterVal = (a>b);
+    testValuesOutput[0].lessOrEqualVal = int(a<=b);
+    testValuesOutput[0].greaterOrEqualVal = int(a>=b);
+    testValuesOutput[0].equalVal = int(a==b);
+    testValuesOutput[0].notEqualVal = int(a!=b);
+    testValuesOutput[0].lessVal = int(a<b);
+    testValuesOutput[0].greaterVal = int(a>b);
 }
