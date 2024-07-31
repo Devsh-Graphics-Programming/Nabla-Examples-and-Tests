@@ -45,7 +45,9 @@ class CAssetConverter : public core::IReferenceCounted
 //			asset::ICPUBufferView,
 			// image view
 			asset::ICPUDescriptorSetLayout,
-			asset::ICPUPipelineLayout
+			asset::ICPUPipelineLayout,
+			asset::ICPUPipelineCache,
+			asset::ICPUComputePipeline
 		>;
 
 		struct SCreationParams

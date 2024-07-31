@@ -550,26 +550,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		}
 		//! `inputsMetadata` is now constant!
 		//! `finalPatchStorage` is now constant!
-		
-		// small utility
-		auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const IAsset* user, const DepAssetType* depAsset, Pred pred)->asset_cached_t<DepAssetType>::type
-		{
-			if (!depAsset)
-				return {};
-			const auto candidates = std::get<dfs_cache_t<DepAssetType>>(dfsCaches).equal_range(
-				dfs_entry_t
-				{
-					.asset = depAsset,
-					.instance = {
-						.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(usersCopyGroupID,user,depAsset)
-					}
-				}
-			);
-			const auto chosen = std::find_if(candidates.first,candidates.second,pred);
-			if (chosen!=candidates.second)
-				return chosen->gpuObj.value;
-			return {};
-		};
 
 		// can now spawn our own hash cache if one wasn't provided
 		core::smart_refctd_ptr<CHashCache> hashCache;
@@ -659,6 +639,29 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				return retval;
 			}();
 			core::vector<asset_cached_t<AssetType>> gpuObjects(gpuObjUniqueCopyGroupIDs.size());
+			
+			// small utility
+			auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const AssetType* user, const DepAssetType* depAsset, Pred pred, bool& failed)->asset_cached_t<DepAssetType>::type
+			{
+				if (!depAsset)
+					return {};
+				const auto candidates = std::get<dfs_cache_t<DepAssetType>>(dfsCaches).equal_range(
+					dfs_entry_t
+					{
+						.asset = depAsset,
+						.instance = {
+							.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(usersCopyGroupID,user,depAsset)
+						}
+					}
+				);
+				const auto chosen = std::find_if(candidates.first,candidates.second,pred);
+				if (chosen!=candidates.second)
+					return chosen->gpuObj.value;
+				failed = true;
+				return {};
+			};
+			// for all the asset types which don't have a patch possible, or its irrelavant for the user asset
+			auto firstPatchMatch = [](const auto& candidate)->bool{return true;};
 
 			// Only warn once to reduce log spam
 			auto assign = [&]<bool GPUObjectWhollyImmutable=false>(const core::blake3_hash_t& contentHash, const size_t baseIx, const size_t copyIx, asset_cached_t<AssetType>::type&& gpuObj)->bool
@@ -725,7 +728,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUDescriptorSetLayout* asset = entry.second.canonicalAsset;
-
+					// there is no patching possible for this asset
 					using storage_range_index_t = ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t;
 					// rebuild bindings from CPU info
 					core::vector<IGPUDescriptorSetLayout::SBinding> bindings;
@@ -759,43 +762,45 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
 						// go over the immutables, can't be factored out because depending on groupID the dependant might change
-						const auto count = immutableSamplerRedirects.getBindingCount();
-						auto outImmutableSamplers = immutableSamplers.data();
-						for (auto j=0u; j<count; j++)
+						bool notAllDepsFound = false;
 						{
-							const storage_range_index_t storageRangeIx(j);
-							// assuming the asset was validly created, the binding must exist
-							const auto binding = immutableSamplerRedirects.getBinding(storageRangeIx);
-							auto inSamplerAsset = samplerAssets.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
-							// TODO: optimize this, the `bindings` are sorted within a given type
-							auto outBinding = std::find_if(bindings.begin(),bindings.end(),[=](const IGPUDescriptorSetLayout::SBinding& item)->bool{return item.binding==binding.data;});
-							// the binding must be findable, otherwise above code logic is wrong
-							assert(outBinding!=bindings.end());
-							outBinding->immutableSamplers = outImmutableSamplers;
-							//
-							const auto end = outImmutableSamplers+outBinding->count;
-							while (outImmutableSamplers!=end)
+							const auto count = immutableSamplerRedirects.getBindingCount();
+							auto outImmutableSamplers = immutableSamplers.data();
+							for (auto j=0u; j<count; j++)
 							{
-								// make the first sampler found match, there shouldn't be multiple copies anyway (warning will be logged)
-								auto found = getDependant(uniqueCopyGroupID,asset,(inSamplerAsset++)->get(),[](const auto& candidate)->bool{return true;});
-								// if we cannot find a dep, we fail whole gpu object creation
-								if (!found)
+								const storage_range_index_t storageRangeIx(j);
+								// assuming the asset was validly created, the binding must exist
+								const auto binding = immutableSamplerRedirects.getBinding(storageRangeIx);
+								auto inSamplerAsset = samplerAssets.data()+immutableSamplerRedirects.getStorageOffset(storageRangeIx).data;
+								// TODO: optimize this, the `bindings` are sorted within a given type
+								auto outBinding = std::find_if(bindings.begin(),bindings.end(),[=](const IGPUDescriptorSetLayout::SBinding& item)->bool{return item.binding==binding.data;});
+								// the binding must be findable, otherwise above code logic is wrong
+								assert(outBinding!=bindings.end());
+								outBinding->immutableSamplers = outImmutableSamplers;
+								//
+								const auto end = outImmutableSamplers+outBinding->count;
+								while (outImmutableSamplers!=end)
+								{
+									// make the first sampler found match, there shouldn't be multiple copies anyway (warning will be logged)
+									auto found = getDependant(uniqueCopyGroupID,asset,(inSamplerAsset++)->get(),firstPatchMatch,notAllDepsFound);
+									// if we cannot find a dep, we fail whole gpu object creation
+									if (notAllDepsFound)
+										break;
+									*(outImmutableSamplers++) = std::move(found);
+								}
+								// early out
+								if (notAllDepsFound)
 									break;
-								*(outImmutableSamplers++) = std::move(found);
 							}
-							if (outImmutableSamplers!=end)
-								break;
+							if (notAllDepsFound)
+								continue;
 						}
-						if (outImmutableSamplers!=immutableSamplers.data()+immutableSamplers.size())
-							break;
 						assign(entry.first,entry.second.firstCopyIx,i,device->createDescriptorSetLayout(bindings));
 					}
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
 			{
-				auto dslPred = [](const auto& candidate)->bool{return true;};
-
 				core::vector<asset::SPushConstantRange> pcRanges;
 				pcRanges.reserve(CSPIRVIntrospector::MaxPushConstantsSize);
 				for (auto& entry : conversionRequests)
@@ -834,13 +839,68 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					{
 						const auto outIx = i+entry.second.firstCopyIx;
 						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
-// TODO: get deps and fail if needed
-						assign(entry.first,entry.second.firstCopyIx,i,device->createPipelineLayout(pcRanges,
-							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(0),dslPred),
-							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(1),dslPred),
-							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(2),dslPred),
-							getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(3),dslPred)
-						));
+						asset_cached_t<ICPUDescriptorSetLayout>::type dsLayouts[4];
+						{
+							bool notAllDepsFound = false;
+							for (auto j=0u; j<4; j++)
+								dsLayouts[j] = getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(j),firstPatchMatch,notAllDepsFound);
+							if (notAllDepsFound)
+								continue;
+						}
+						assign(entry.first,entry.second.firstCopyIx,i,device->createPipelineLayout(pcRanges,dsLayouts[0],dsLayouts[1],dsLayouts[2],dsLayouts[3]));
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUPipelineCache>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUPipelineCache* asset = entry.second.canonicalAsset;
+					// there is no patching possible for this asset
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						// since we don't have dependants we don't care about our group ID
+						// also don't create threadsafe pipeline caches, we don't do pipeline conversions in parallel right now
+						assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createPipelineCache(asset,true));
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUComputePipeline>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUComputePipeline* asset = entry.second.canonicalAsset;
+					const auto& assetSpecShader = asset->getSpecInfo();
+					const IGPUShader::SSpecInfo specShaderWithoutDep = {
+						.entryPoint = assetSpecShader.entryPoint,
+						.shader = nullptr, // to get later in the loop
+						.entries = assetSpecShader.entries,
+						.requiredSubgroupSize = assetSpecShader.requiredSubgroupSize,
+						.requireFullSubgroups = assetSpecShader.requireFullSubgroups
+					};
+					// there is no patching possible for this asset
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						// ILogicalDevice::createComputePipelines is rather aggressive on the spec constant validation, so we create one pipeline at a time
+						{
+							// no derivatives, special flags, etc.
+							IGPUComputePipeline::SCreationParams params = {};
+							params.shader = specShaderWithoutDep;
+							bool depNotFound = false;
+							{
+								// we choose whatever patch, because there should really only ever be one (all pipeline layouts merge their PC ranges seamlessly)
+								params.layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound).get();
+								// there are no patches possible for shaders
+								params.shader.shader = getDependant(uniqueCopyGroupID,asset,assetSpecShader.shader,firstPatchMatch,depNotFound).get();
+							}
+							if (depNotFound)
+								continue;
+							core::smart_refctd_ptr<IGPUComputePipeline> ppln;
+							device->createComputePipelines(inputs.pipelineCache,{&params,1},&ppln);
+							assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
+						}
 					}
 				}
 			}
