@@ -218,11 +218,6 @@ class CAssetConverter : public core::IReferenceCounted
 			{
 				return memcmp(this,&other,sizeof(base_t))==0;
 			}
-
-			inline void hasher_update(::blake3_hasher& hasher) const
-			{
-				core::blake3_hasher_update(hasher,*this);
-			}
 		};
 #define NBL_API
 #if 0
@@ -278,12 +273,11 @@ class CAssetConverter : public core::IReferenceCounted
 					}
 					inline size_t operator()(const lookup_t<AssetType>& lookup) const
 					{
-						blake3_hasher hasher;
-						blake3_hasher_init(&hasher);
-						core::blake3_hasher_update(hasher,lookup.asset);
-						lookup.patch->hasher_update(hasher);
-						const auto longHash = core::blake3_hasher_finalize(hasher);
-						return std::hash<core::blake3_hash_t>()(longHash);
+						core::blake3_hasher hasher;
+						hasher << ptrdiff_t(lookup.asset);
+						hasher << *lookup.patch;
+						// put long hash inside a small hash
+						return std::hash<core::blake3_hash_t>()(static_cast<core::blake3_hash_t>(hasher));
 					}
 
 					inline bool operator()(const key_t<AssetType>& lhs, const key_t<AssetType>& rhs) const
@@ -347,16 +341,15 @@ class CAssetConverter : public core::IReferenceCounted
 					if (toHash.cacheMistrustLevel==0 && found)
 						return foundIt->second;
 					// proceed with full hash computation
-					core::blake3_hash_t retval;
+					core::blake3_hasher hasher;
 					{
-						blake3_hasher hasher;
-						blake3_hasher_init(&hasher);
 						// We purposefully don't hash asset pointer, we hash the contents instead
 						//core::blake3_hasher_update(hasher,toHash.asset);
 						const auto nextMistrustLevel = toHash.cacheMistrustLevel ? (toHash.cacheMistrustLevel-1):0;
 						hash_impl(hasher,toHash.asset,*toHash.patch,nextMistrustLevel);
-						retval = core::blake3_hasher_finalize(hasher);
 					}
+					// don't call finalize twice for no reason
+					const auto retval = static_cast<core::blake3_hash_t>(hasher);
 					if (found) // replace stale entry
 						foundIt->second = retval;
 					else // insert new entry
@@ -410,7 +403,7 @@ class CAssetConverter : public core::IReferenceCounted
 
 				//
 				template<asset::Asset AssetType>
-				void hash_impl(::blake3_hasher& hasher, const AssetType* asset, const patch_t<AssetType>& patch, const uint32_t nextMistrustLevel);
+				void hash_impl(core::blake3_hasher& hasher, const AssetType* asset, const patch_t<AssetType>& patch, const uint32_t nextMistrustLevel);
 
 				//
 				core::tuple_transform_t<container_t,supported_asset_types> m_containers;

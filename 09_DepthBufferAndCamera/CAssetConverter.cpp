@@ -9,7 +9,19 @@ using namespace nbl::core;
 using namespace nbl::asset;
 
 
-namespace nbl::video
+// if you end up specializing `patch_t` for any type because its non trivial and starts needing weird stuff done with memory, you need to spec this as well
+namespace nbl
+{
+template<asset::Asset AssetType, typename Dummy>
+struct core::blake3_hasher::update_impl<video::CAssetConverter::patch_t<AssetType>,Dummy>
+{
+	static inline void __call(blake3_hasher& hasher, const video::CAssetConverter::patch_t<AssetType>& input)
+	{
+		hasher.update(&input,sizeof(input));
+	}
+};
+
+namespace video
 {
 CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
 	const ICPUSampler* sampler,
@@ -154,38 +166,37 @@ void CAssetConverter::CHashCache::eraseStale()
 
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUSampler>(::blake3_hasher& hasher, const ICPUSampler* asset, const patch_t<ICPUSampler>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUSampler>(core::blake3_hasher& hasher, const ICPUSampler* asset, const patch_t<ICPUSampler>& patch, const uint32_t nextMistrustLevel)
 {
 	auto patchedParams = asset->getParams();
 	patchedParams.AnisotropicFilter = patch.anisotropyLevelLog2;
-	core::blake3_hasher_update(hasher,patchedParams);
+	hasher.update(&patchedParams,sizeof(patchedParams));
 }
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUShader>(::blake3_hasher& hasher, const ICPUShader* asset, const patch_t<ICPUShader>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUShader>(core::blake3_hasher& hasher, const ICPUShader* asset, const patch_t<ICPUShader>& patch, const uint32_t nextMistrustLevel)
 {
 	const auto type = asset->getContentType();
-	core::blake3_hasher_update(hasher,type);
+	hasher << type;
 	// if not SPIR-V then own path matters
 	if (type!=ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
-		core::blake3_hasher_update(hasher,asset->getFilepathHint())
+		hasher << asset->getFilepathHint();
 	const auto* content = asset->getContent();
 	// we're not using the buffer directly, just its contents
-	core::blake3_hasher_update(hasher,content->getContentHash());
+	hasher << content->getContentHash();
 }
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(::blake3_hasher& hasher, const ICPUBuffer* asset, const patch_t<ICPUBuffer>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(core::blake3_hasher& hasher, const ICPUBuffer* asset, const patch_t<ICPUBuffer>& patch, const uint32_t nextMistrustLevel)
 {
 	auto patchedParams = asset->getCreationParams();
 	assert(patch.usage.hasFlags(patchedParams.usage));
 	patchedParams.usage = patch.usage;
-	core::blake3_hasher_update(hasher,patchedParams);
-	core::blake3_hasher_update(hasher,asset->getContentHash());
+	hasher.update(&patchedParams,sizeof(patchedParams)) << asset->getContentHash();
 }
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(::blake3_hasher& hasher, const ICPUDescriptorSetLayout* asset, const patch_t<ICPUDescriptorSetLayout>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(core::blake3_hasher& hasher, const ICPUDescriptorSetLayout* asset, const patch_t<ICPUDescriptorSetLayout>& patch, const uint32_t nextMistrustLevel)
 {
 	const auto& immutableSamplerRedirect = asset->getImmutableSamplerRedirect();
 	const auto count = immutableSamplerRedirect.getBindingCount();
@@ -194,17 +205,25 @@ void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(::blake3_ha
 		const ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t storageRangeIx(i);
 		const auto binding = immutableSamplerRedirect.getBinding(storageRangeIx);
 		// need to hash not only the sampler state, but the slots they're supposed to go into
-		core::blake3_hasher_update(hasher,binding);
+		hasher << binding.data;
+		// now the sampler itself
+		hasher << hash<ICPUSampler>({
+			{
+				.asset = asset->getImmutableSamplers()[i].get(),
+				.patch = {}, // TODO: FIND IT !
+			},
+			nextMistrustLevel
+		});
 	}
 }
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher& hasher, const ICPUPipelineLayout* asset, const patch_t<ICPUPipelineLayout>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(core::blake3_hasher& hasher, const ICPUPipelineLayout* asset, const patch_t<ICPUPipelineLayout>& patch, const uint32_t nextMistrustLevel)
 {
-	core::blake3_hasher_update(hasher,patch.pushConstantBytes);
+	hasher << std::span(patch.pushConstantBytes);
 	for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 	{
-		hash<ICPUDescriptorSetLayout>({
+		hasher << hash<ICPUDescriptorSetLayout>({
 			{
 				.asset = asset->getDescriptorSetLayout(i),
 				.patch = {}, // there's nothing to patch in a DS Layout
@@ -215,14 +234,19 @@ void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(::blake3_hasher&
 }
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUPipelineCache>(::blake3_hasher& hasher, const ICPUPipelineCache* asset, const patch_t<ICPUPipelineCache>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUPipelineCache>(core::blake3_hasher& hasher, const ICPUPipelineCache* asset, const patch_t<ICPUPipelineCache>& patch, const uint32_t nextMistrustLevel)
 {
-	// TODO: move the hashings around
-	core::blake3_hasher_update(hasher,asset->getContentHash());
+	for (const auto& entry : asset->getEntries())
+	{
+		hasher << entry.first.deviceAndDriverUUID;
+		if (entry.first.meta)
+			hasher.update(entry.first.meta->data(),entry.first.meta->size());
+	}
+	hasher << asset->getContentHash();
 }
 
 template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUComputePipeline>(::blake3_hasher& hasher, const ICPUComputePipeline* asset, const patch_t<ICPUComputePipeline>& patch, const uint32_t nextMistrustLevel)
+void CAssetConverter::CHashCache::hash_impl<ICPUComputePipeline>(core::blake3_hasher& hasher, const ICPUComputePipeline* asset, const patch_t<ICPUComputePipeline>& patch, const uint32_t nextMistrustLevel)
 {
 	hash<ICPUPipelineLayout>({
 		{
@@ -368,12 +392,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	SResults retval = {};
 
 	// No asset has a 0 length input to the hash function
-	const auto NoContentHash = []()->core::blake3_hash_t
-	{
-		::blake3_hasher hasher;
-		::blake3_hasher_init(&hasher);
-		return core::blake3_hasher_finalize(hasher);
-	}();
+	const auto NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
 	
 	// this will allow us to look up the conversion parameter (actual patch for an asset) and therefore write the GPUObject to the correct place in the return value
 	core::vector<instance_metadata_t> inputsMetadata[core::type_list_size_v<supported_asset_types>];
@@ -1127,4 +1146,5 @@ ISemaphore::future_t<bool> CAssetConverter::SConvertParams::autoSubmit()
 	return {};
 }
 
+}
 }
