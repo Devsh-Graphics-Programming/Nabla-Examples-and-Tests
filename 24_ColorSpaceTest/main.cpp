@@ -728,7 +728,10 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							}};
 							cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.imgBarriers=imgBarriers});
 							// upload contents and submit right away
-							m_utils->updateImageViaStagingBufferAutoSubmit(m_intendedSubmit,origImage->getBuffer(),origImage->getCreationParameters().format,gpuImg.get(),IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,origImage->getRegions());
+
+							const std::span <const IImage::SBufferCopy> regions = origImage->getRegions();
+							const core::SRange<const IImage::SBufferCopy> srange = { regions.data(), regions.data() + regions.size() };
+							m_utils->updateImageViaStagingBufferAutoSubmit(m_intendedSubmit, origImage->getBuffer(), origImage->getCreationParameters().format, gpuImg.get(), IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL, srange); // TODO: Tad use span directly and fix runtime crash
 
 							IGPUImageView::SCreationParams viewParams = {
 								.image = gpuImg,
