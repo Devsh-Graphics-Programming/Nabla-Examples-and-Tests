@@ -103,7 +103,6 @@ CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(
 	const SPhysicalDeviceLimits& limits
 ) : patch_impl_t()
 {
-	// TODO: some way to do bound checking and indicate validity
 	const auto pc = pplnLayout->getPushConstantRanges();
 	for (auto it=pc.begin(); it!=pc.end(); it++)
 	{
@@ -116,152 +115,6 @@ CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(
 			pushConstantBytes[byte] = it->stageFlags;
 	}
 	invalid = false;
-}
-
-//
-void CAssetConverter::CHashCache::eraseStale()
-{
-	auto rehash = [&]<typename AssetType>() -> void
-	{
-		auto& container = std::get<container_t<AssetType>>(m_containers);
-		core::erase_if(container,[this](const auto& entry)->bool
-			{
-				// backup because `hash(lookup)` call will update it
-				const auto oldHash = entry.second;
-				const auto& key = entry.first;
-				hash_request_t<AssetType> lookup = {
-					{
-						.asset = key.asset.get(),
-						.patch = &key.patch,
-					},
-					// can re-use cached hashes for dependants if we start ejecting in the correct order
-					/*.cacheMistrustLevel = */1
-				};
-				return hash(lookup)!=oldHash;
-			}
-		);
-	};
-	// to make the process more efficient we start ejecting from "lowest level" assets
-	rehash.operator()<ICPUSampler>();
-	rehash.operator()<ICPUDescriptorSetLayout>();
-	rehash.operator()<ICPUPipelineLayout>();
-	// shaders and images depend on buffers for data sourcing
-	rehash.operator()<ICPUBuffer>();
-//	rehash.operator()<ICPUBufferView>();
-//	rehash.operator()<ICPUImage>();
-//	rehash.operator()<ICPUImageView>();
-//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
-//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
-	// only once all the descriptor types have been hashed, we can hash sets
-//	rehash.operator()<ICPUDescriptorSet>();
-	// naturally any pipeline depends on shaders and pipeline cache
-	rehash.operator()<ICPUShader>();
-	rehash.operator()<ICPUPipelineCache>();
-	rehash.operator()<ICPUComputePipeline>();
-	// graphics pipeline needs a renderpass
-//	rehash.operator()<ICPURenderpass>();
-//	rehash.operator()<ICPUGraphicsPipeline>();
-//	rehash.operator()<ICPUFramebuffer>();
-}
-
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUSampler>(core::blake3_hasher& hasher, const ICPUSampler* asset, const patch_t<ICPUSampler>& patch, const uint32_t nextMistrustLevel)
-{
-	auto patchedParams = asset->getParams();
-	patchedParams.AnisotropicFilter = patch.anisotropyLevelLog2;
-	hasher.update(&patchedParams,sizeof(patchedParams));
-}
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUShader>(core::blake3_hasher& hasher, const ICPUShader* asset, const patch_t<ICPUShader>& patch, const uint32_t nextMistrustLevel)
-{
-	const auto type = asset->getContentType();
-	hasher << type;
-	// if not SPIR-V then own path matters
-	if (type!=ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
-		hasher << asset->getFilepathHint();
-	const auto* content = asset->getContent();
-	// we're not using the buffer directly, just its contents
-	hasher << content->getContentHash();
-}
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUBuffer>(core::blake3_hasher& hasher, const ICPUBuffer* asset, const patch_t<ICPUBuffer>& patch, const uint32_t nextMistrustLevel)
-{
-	auto patchedParams = asset->getCreationParams();
-	assert(patch.usage.hasFlags(patchedParams.usage));
-	patchedParams.usage = patch.usage;
-	hasher.update(&patchedParams,sizeof(patchedParams)) << asset->getContentHash();
-}
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUDescriptorSetLayout>(core::blake3_hasher& hasher, const ICPUDescriptorSetLayout* asset, const patch_t<ICPUDescriptorSetLayout>& patch, const uint32_t nextMistrustLevel)
-{
-	const auto& immutableSamplerRedirect = asset->getImmutableSamplerRedirect();
-	const auto count = immutableSamplerRedirect.getBindingCount();
-	for (auto i=0; i<count; i++)
-	{
-		const ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t storageRangeIx(i);
-		const auto binding = immutableSamplerRedirect.getBinding(storageRangeIx);
-		// need to hash not only the sampler state, but the slots they're supposed to go into
-		hasher << binding.data;
-		// now the sampler itself
-		hasher << hash<ICPUSampler>({
-			{
-				.asset = asset->getImmutableSamplers()[i].get(),
-				.patch = {}, // TODO: FIND IT !
-			},
-			nextMistrustLevel
-		});
-	}
-}
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUPipelineLayout>(core::blake3_hasher& hasher, const ICPUPipelineLayout* asset, const patch_t<ICPUPipelineLayout>& patch, const uint32_t nextMistrustLevel)
-{
-	hasher << std::span(patch.pushConstantBytes);
-	for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
-	{
-		hasher << hash<ICPUDescriptorSetLayout>({
-			{
-				.asset = asset->getDescriptorSetLayout(i),
-				.patch = {}, // there's nothing to patch in a DS Layout
-			},
-			nextMistrustLevel
-		});
-	}
-}
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUPipelineCache>(core::blake3_hasher& hasher, const ICPUPipelineCache* asset, const patch_t<ICPUPipelineCache>& patch, const uint32_t nextMistrustLevel)
-{
-	for (const auto& entry : asset->getEntries())
-	{
-		hasher << entry.first.deviceAndDriverUUID;
-		if (entry.first.meta)
-			hasher.update(entry.first.meta->data(),entry.first.meta->size());
-	}
-	hasher << asset->getContentHash();
-}
-
-template<>
-void CAssetConverter::CHashCache::hash_impl<ICPUComputePipeline>(core::blake3_hasher& hasher, const ICPUComputePipeline* asset, const patch_t<ICPUComputePipeline>& patch, const uint32_t nextMistrustLevel)
-{
-	hash<ICPUPipelineLayout>({
-		{
-			.asset = asset->getLayout(),
-			.patch = {}, // TODO: how to get!?
-		},
-		nextMistrustLevel
-	});
-	hash<ICPUShader>({
-		{
-			.asset = asset->getSpecInfo().shader,
-			.patch = {}, // TODO: how to get!?
-		},
-		nextMistrustLevel
-	});
 }
 
 
@@ -365,6 +218,31 @@ struct dfs_cache_hash_and_equals
 };
 template<asset::Asset AssetType>
 using dfs_cache_t = core::unordered_multiset<dfs_result_t<AssetType>,dfs_cache_hash_and_equals<AssetType>,dfs_cache_hash_and_equals<AssetType>>;
+
+//
+struct PatchGetter
+{
+	template<asset::Asset AssetType>
+	inline const CAssetConverter::patch_t<AssetType>& operator()(const AssetType* asset)
+	{
+		uniqueCopyGroupID = p_inputs->getDependantUniqueCopyGroupID(uniqueCopyGroupID,user,asset);
+		user = asset;
+		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(*p_dfsCaches);
+		const auto range = dfsCache.equal_range(dfs_entry_t{
+			.asset = asset,
+			.instance = {.uniqueCopyGroupID = uniqueCopyGroupID}
+		});
+// TODO: actually do some thinking here
+		return std::get<patch_vector_t<AssetType>>(*p_patchStorages)[range.first->canonical.meta.patchIndex];
+	}
+
+	const CAssetConverter::SInputs* const p_inputs;
+	const core::tuple_transform_t<patch_vector_t,CAssetConverter::supported_asset_types>* const p_patchStorages;
+	const core::tuple_transform_t<dfs_cache_t,CAssetConverter::supported_asset_types>* const p_dfsCaches;
+	// progressive state
+	size_t uniqueCopyGroupID;
+	const IAsset* user;
+};
 
 //
 template<asset::Asset AssetType>
@@ -656,12 +534,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					continue;
 				const auto patchIx = canonical.meta.patchIndex;
 				// compute the hash or look it up if it exists
-				entry.contentHash = hashCache->hash<AssetType>({
-					{.asset=canonical.asset,.patch=pPatches+patchIx},
-					// We mistrust every dependency such that the eject/update if needed.
-					// Its really important that the Deduplication gets performed Bottom-Up
-					/*.mistrustLevel = */1
-				});
+				// We mistrust every dependency such that the eject/update if needed.
+				// Its really important that the Deduplication gets performed Bottom-Up
+				entry.contentHash = hashCache->hash<AssetType>(canonical.asset,PatchGetter{&inputs,&finalPatchStorage,&dfsCaches,0xdeadbeefu,nullptr},/*.mistrustLevel = */1);
 				// if we have a read cache, lets retry looking the item up!
 				if (readCache)
 				{
@@ -1057,10 +932,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 // TODO:
 // how to get dependant while converting?
-	// - (A*,G) of dependant easily supplied, the group is done by calling `inputs` again
 	// - how to find patch? first compatible!
 		// + compatible with what? derived patch? asset usage?
-			// * Maybe lets store original patch in YAC?
 	}
 
 	// write out results
@@ -1078,7 +951,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		if (auto asset=assets[i]; asset && metadata[i].patchIndex<patchCount)
 		{
 			// The Content Hash and GPU object are in the dfsCache
-			auto range = dfsCache.equal_range(dfs_entry_t{.asset=asset,.instance=metadata[i]});
+			const auto range = dfsCache.equal_range(dfs_entry_t{.asset=asset,.instance=metadata[i]});
 			// we'll find the correct patch from metadata
 			auto found = std::find_if(range.first,range.second,[&](const auto& entry)->bool{return entry.canonical.meta.patchIndex==metadata[i].patchIndex;});
 			// unless ofc the patch was invalid

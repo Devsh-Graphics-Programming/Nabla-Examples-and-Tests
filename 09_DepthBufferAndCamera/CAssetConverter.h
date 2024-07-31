@@ -220,22 +220,6 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 		};
 #define NBL_API
-#if 0
-		//
-		template<asset::Asset AssetType>
-		struct patch_callback_t
-		{
-			static inline patch_t<AssetType> operator()(const IAsset* user, const AssetType* dependant, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
-			{
-				if (underlying)
-					return underlying();
-				else
-					return patch_t<AssetType>(dependant,features,limits);
-			}
-
-			std::function<patch_t<AssetType>(const IAsset*, const AssetType*)> underlying = {};
-		};
-#endif
 		// A class to accelerate our hash computations
 		class CHashCache final : public core::IReferenceCounted
 		{
@@ -246,7 +230,6 @@ class CAssetConverter : public core::IReferenceCounted
 				{
 					inline bool valid() const
 					{
-						//return asset && features && limits && patch && patch->valid();
 						return asset && patch && patch->valid();
 					}
 
@@ -316,51 +299,44 @@ class CAssetConverter : public core::IReferenceCounted
 					return std::get<container_t<AssetType>>(m_containers).end();
 				}
 
-				//
-				template<asset::Asset AssetType>
-				struct hash_request_t : lookup_t<AssetType>
+				// `cacheMistrustLevel` is how deep from `asset` do we start trusting the cache to contain correct non stale hashes
+				template<asset::Asset AssetType, typename PatchGetter>
+				inline core::blake3_hash_t hash(const AssetType* asset, PatchGetter patchGet, const uint32_t cacheMistrustLevel=0)
 				{
-					// the callbacks are only called on dependants to construct/retrieve correct patches
-#if 0
-					const SPhysicalDeviceFeatures* features = nullptr;
-					const SPhysicalDeviceLimits* limits = nullptr;
-					core::tuple_transform_t<patch_callback_t,supported_asset_types> patchCallbacks = {};
-#endif
-					// how deep from `asset` do we start trusting the cache to contain correct non stale hashes
-					uint32_t cacheMistrustLevel = 0;
-				};
-				template<asset::Asset AssetType>
-				inline core::blake3_hash_t hash(const hash_request_t<AssetType>& toHash)
-				{
-					assert(toHash.valid());
+					if (!asset)
+					{
+						static const auto NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
+						return NoContentHash;
+					}
+					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
+					const patch_t<AssetType>& patch = patchGet(asset);
 					// consult cache
-					auto foundIt = find(toHash);
+					const lookup_t<AssetType> lookup = {asset,&patch};
+					auto foundIt = find(lookup);
 					auto& container = std::get<container_t<AssetType>>(m_containers);
 					const bool found = foundIt!=container.end();
 					// if found and we trust then return the cached hash
-					if (toHash.cacheMistrustLevel==0 && found)
+					if (cacheMistrustLevel==0 && found)
 						return foundIt->second;
 					// proceed with full hash computation
-					core::blake3_hasher hasher;
-					{
-						// We purposefully don't hash asset pointer, we hash the contents instead
-						//core::blake3_hasher_update(hasher,toHash.asset);
-						const auto nextMistrustLevel = toHash.cacheMistrustLevel ? (toHash.cacheMistrustLevel-1):0;
-						hash_impl(hasher,toHash.asset,*toHash.patch,nextMistrustLevel);
-					}
-					// don't call finalize twice for no reason
-					const auto retval = static_cast<core::blake3_hash_t>(hasher);
+					//! We purposefully don't hash asset pointer, we hash the contents instead
+					const auto nextMistrustLevel = cacheMistrustLevel ? (cacheMistrustLevel-1):0;
+					const auto retval = static_cast<core::blake3_hash_t>(
+						hash_impl<AssetType,PatchGetter>::_call({
+							this,asset,patch,patchGet,nextMistrustLevel
+						})
+					);
 					if (found) // replace stale entry
 						foundIt->second = retval;
 					else // insert new entry
 					{
 						auto insertIt = container.insert(foundIt,{
 							{
-								.asset = core::smart_refctd_ptr<const AssetType>(toHash.asset),
-								.patch = *toHash.patch
+								.asset = core::smart_refctd_ptr<const AssetType>(asset),
+								.patch = patch
 							},
 						retval});
-						assert(HashEquals<AssetType>()(insertIt->first,toHash) && insertIt->second==retval);
+						assert(HashEquals<AssetType>()(insertIt->first,lookup) && insertIt->second==retval);
 					}
 					return retval;
 				}
@@ -385,7 +361,44 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 // TODO: `eraseStale(const IAsset*)` which erases a subgraph?
 				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
-				NBL_API void eraseStale();
+				template<typename PatchGetter>
+				inline void eraseStale(const PatchGetter& patchGet)
+				{
+					auto rehash = [&]<typename AssetType>() -> void
+					{
+						auto& container = std::get<container_t<AssetType>>(m_containers);
+						core::erase_if(container,[this](const auto& entry)->bool
+							{
+								// backup because `hash(lookup)` call will update it
+								const auto oldHash = entry.second;
+								const auto& key = entry.first;
+								// can re-use cached hashes for dependants if we start ejecting in the correct order
+								return hash(key.asset.get(),patchGet,/*.cacheMistrustLevel = */1) != oldHash;
+							}
+						);
+					};
+					// to make the process more efficient we start ejecting from "lowest level" assets
+					rehash.operator()<asset::ICPUSampler>();
+					rehash.operator()<asset::ICPUDescriptorSetLayout>();
+					rehash.operator()<asset::ICPUPipelineLayout>();
+					// shaders and images depend on buffers for data sourcing
+					rehash.operator()<asset::ICPUBuffer>();
+				//	rehash.operator()<ICPUBufferView>();
+				//	rehash.operator()<ICPUImage>();
+				//	rehash.operator()<ICPUImageView>();
+				//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
+				//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
+					// only once all the descriptor types have been hashed, we can hash sets
+				//	rehash.operator()<ICPUDescriptorSet>();
+					// naturally any pipeline depends on shaders and pipeline cache
+					rehash.operator()<asset::ICPUShader>();
+					rehash.operator()<asset::ICPUPipelineCache>();
+					rehash.operator()<asset::ICPUComputePipeline>();
+					// graphics pipeline needs a renderpass
+				//	rehash.operator()<ICPURenderpass>();
+				//	rehash.operator()<ICPUGraphicsPipeline>();
+				//	rehash.operator()<ICPUFramebuffer>();
+				}
 				// Clear the cache for a given type
 				template<asset::Asset AssetType>
 				inline void clear()
@@ -402,8 +415,23 @@ class CAssetConverter : public core::IReferenceCounted
 				inline ~CHashCache() = default;
 
 				//
-				template<asset::Asset AssetType>
-				void hash_impl(core::blake3_hasher& hasher, const AssetType* asset, const patch_t<AssetType>& patch, const uint32_t nextMistrustLevel);
+				template<asset::Asset AssetType, typename PatchGetter>
+				struct hash_impl;
+				template<asset::Asset AssetType, typename PatchGetter>
+				struct hash_impl_args final
+				{
+					template<asset::Asset DepAssetType>
+					inline core::blake3_hash_t depHash(const DepAssetType* dep)
+					{
+						return _this->hash(dep,patchGet,nextMistrustLevel);
+					}
+
+					CHashCache* _this;
+					const AssetType* const asset;
+					const patch_t<AssetType>& patch;
+					const PatchGetter& patchGet;
+					const uint32_t nextMistrustLevel;
+				};
 
 				//
 				core::tuple_transform_t<container_t,supported_asset_types> m_containers;
@@ -649,6 +677,145 @@ class CAssetConverter : public core::IReferenceCounted
 
         SCreationParams m_params;
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
+};
+
+
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUSampler,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUSampler,PatchGetter>&& args)
+	{
+		auto patchedParams = args.asset->getParams();
+		patchedParams.AnisotropicFilter = args.patch.anisotropyLevelLog2;
+		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams));
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUShader,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUShader,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		hasher << args.patch.stage;
+		const auto type = asset->getContentType();
+		hasher << type;
+		// if not SPIR-V then own path matters
+		if (type!=asset::ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
+			hasher << asset->getFilepathHint();
+		const auto* content = asset->getContent();
+		// we're not using the buffer directly, just its contents
+		hasher << content->getContentHash();
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBuffer,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBuffer,PatchGetter>&& args)
+	{
+		auto patchedParams = args.asset->getCreationParams();
+		assert(args.patch.usage.hasFlags(patchedParams.usage));
+		patchedParams.usage = args.patch.usage;
+		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams)) << args.asset->getContentHash();
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSetLayout,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSetLayout,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		using storage_range_index_t = asset::ICPUDescriptorSetLayout::CBindingRedirect::storage_range_index_t;
+		for (uint32_t t=0u; t<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); t++)
+		{
+			const auto type = static_cast<asset::IDescriptor::E_TYPE>(t);
+			hasher << type;
+			const auto& redirect = asset->getDescriptorRedirect(type);
+			const auto count = redirect.getBindingCount();
+			for (auto i=0u; i<count; i++)
+			{
+				const storage_range_index_t storageRangeIx(i);
+				hasher << redirect.getBinding(storageRangeIx).data;
+				hasher << redirect.getCreateFlags(storageRangeIx);
+				hasher << redirect.getStageFlags(storageRangeIx);
+				hasher << redirect.getCount(storageRangeIx);
+			}
+		}
+		const auto& immutableSamplerRedirects = asset->getImmutableSamplerRedirect();
+		const auto count = immutableSamplerRedirects.getBindingCount();
+		for (auto i=0u; i<count; i++)
+		{
+			const storage_range_index_t storageRangeIx(i);
+			hasher << immutableSamplerRedirects.getBinding(storageRangeIx).data;
+		}
+		for (const auto& immutableSampler : asset->getImmutableSamplers())
+		{
+			hasher << args.depHash(immutableSampler.get());
+		}
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineLayout,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineLayout,PatchGetter>&& args)
+	{
+		core::blake3_hasher hasher;
+		hasher << std::span(args.patch.pushConstantBytes);
+		for (auto i=0; i<asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+			hasher << args.depHash(args.asset->getDescriptorSetLayout(i));
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineCache,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineCache,PatchGetter>&& args)
+	{
+		core::blake3_hasher hasher;
+		for (const auto& entry : args.asset->getEntries())
+		{
+			hasher << entry.first.deviceAndDriverUUID;
+			if (entry.first.meta)
+				hasher.update(entry.first.meta->data(),entry.first.meta->size());
+		}
+		hasher << args.asset->getContentHash();
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUComputePipeline,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		hasher << args.depHash(asset->getLayout());
+		const auto& specInfo = asset->getSpecInfo();
+		hasher << specInfo.entryPoint;
+		hasher << args.depHash(specInfo.shader);
+		if (specInfo.entries)
+		for (const auto& specConstant : *specInfo.entries)
+		{
+			hasher << specConstant.first;
+			hasher.update(specConstant.second.data,specConstant.second.size);
+		}
+		hasher << specInfo.requiredSubgroupSize;
+		hasher << specInfo.requireFullSubgroups;
+		return hasher;
+	}
 };
 
 }
