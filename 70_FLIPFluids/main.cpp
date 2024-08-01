@@ -255,6 +255,21 @@ public:
 		gridData.worldMax = simAreaSize * 0.5f;
 		numParticles = gridData.particleInitSize.x * gridData.particleInitSize.y * gridData.particleInitSize.z * particlesPerCell;
 
+		SParticleRenderParams pRenderParams{};
+		{
+			float zNear = 0.1f, zFar = 10000.f;
+			core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+			core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+
+			pRenderParams.zNear = zNear;
+			pRenderParams.zFar = zFar;
+		}
+
+		pRenderParams.radius = gridData.gridCellSize * 0.4f;
+
+		// create buffers
 		video::IGPUBuffer::SCreationParams params = {};
 		params.size = sizeof(SGridData);
 		params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
@@ -372,6 +387,12 @@ public:
 			};
 			cmdbuf->updateBuffer(gridDataRange, &gridData);
 
+			SBufferRange<IGPUBuffer> pParamsRange{
+				.size = pParamsBuffer->getSize(),
+				.buffer = pParamsBuffer,
+			};
+			cmdbuf->updateBuffer(pParamsRange, &pRenderParams);
+
 			cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, m_initParticleDs.size(), &m_initParticleDs.begin()->get());
 			cmdbuf->dispatch(numParticles, 1, 1);
@@ -403,13 +424,6 @@ public:
 			return logFail("DWORD at position %d doesn't match!\n",i);
 		allocation.memory->unmap();
 		*/
-
-		{
-			core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-			core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, 0.1, 10000);
-			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
-		}
 
 		m_winMgr->show(m_window.get());
 
@@ -476,10 +490,10 @@ public:
 
 			auto modelMat = core::concatenateBFollowedByA(core::matrix4SIMD(), modelMatrix);
 
-			const auto camPos = camera.getPosition();
+			const core::vector3df camPos = camera.getPosition().getAsVector3df();
 
 			SMVPParams camData;
-			memcpy(camData.cameraPosition, camPos.pointer(), sizeof(camData.cameraPosition));
+			camPos.getAs4Values(camData.cameraPosition);
 			memcpy(camData.MVP, modelViewProjectionMatrix.pointer(), sizeof(camData.MVP));
 			memcpy(camData.M, modelMat.pointer(), sizeof(camData.M));
 			memcpy(camData.V, viewMatrix.pointer(), sizeof(camData.V));
@@ -551,7 +565,7 @@ public:
 
 		// put into renderFluid();		// TODO: mesh or particles?
 		cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
-		//cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 1, 1, &m_renderDs.get());
+		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 1, m_renderDs.size(), &m_renderDs.begin()->get());
 		//cmdbuf->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
 
 		//const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = vertexBuffer} };
@@ -878,8 +892,8 @@ private:
 				return m_device->createShader(shaderSrc.get());
 			};
 		auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
-		auto gs = compileShader("app_resources/fluidParticles.geom.hlsl", IShader::E_SHADER_STAGE::ESS_GEOMETRY);
 		auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+		auto gs = compileShader("app_resources/fluidParticles.geom.hlsl", IShader::E_SHADER_STAGE::ESS_GEOMETRY);
 
 		smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1, descriptorSetLayout2;
 		{
@@ -941,8 +955,8 @@ private:
 		{
 			IGPUShader::SSpecInfo specInfo[3] = {
 				{.shader = vs.get()},
-				{.shader = gs.get()},
-				{.shader = fs.get()}
+				{.shader = fs.get()},
+				{.shader = gs.get()}
 			};
 
 			const auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), smart_refctd_ptr(descriptorSetLayout2), nullptr);
@@ -955,7 +969,10 @@ private:
 			params[0].layout = pipelineLayout.get();
 			params[0].shaders = specInfo;
 			params[0].cached = {
-				.vertexInput = {},
+				.vertexInput = {
+					.enabledAttribFlags = 0,
+					.enabledBindingFlags = 0
+				},
 				.primitiveAssembly = {
 					.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
 				},

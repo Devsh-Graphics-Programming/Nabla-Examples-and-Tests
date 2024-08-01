@@ -12,7 +12,7 @@ cbuffer CameraData
 
 [[vk::binding(1, 1)]] RWStructuredBuffer<Particle> particleBuffer;
 
-PSInput main(uint vertexID : SV_VertexID)
+GSInput main(uint vertexID : SV_VertexID)
 {
     GSInput output;
 
