@@ -57,13 +57,11 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        /*emulated_float64_t<false, true> asdfasdf1 = emulated_float64_t<false, true>::create(58559.685071);
-        emulated_float64_t<false, true> asdfasdf2 = emulated_float64_t<false, true>::create(44815.876656);
+        emulated_float64_t<false, true> asdfasdf1 = emulated_float64_t<false, true>::create(26057.268808);
+        emulated_float64_t<false, true> asdfasdf2 = emulated_float64_t<false, true>::create(-12548.961076);
         
-        emulated_float64_t<false, true> result = asdfasdf1 * asdfasdf2;
-        bool result2 = asdfasdf1 < asdfasdf2;
-
-        std::cout << reinterpret_cast<double&>(result) << std::endl;*/
+        emulated_float64_t<false, true> result = asdfasdf1 / asdfasdf2;
+        std::cout << reinterpret_cast<double&>(result) << std::endl;
 
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
@@ -428,7 +426,7 @@ private:
 
     bool m_keepRunning = true;
 
-    constexpr static inline uint32_t EmulatedFloat64TestIterations = 1u;
+    constexpr static inline uint32_t EmulatedFloat64TestIterations = 10u;
     
     template<bool FastMath, bool FlushDenormToZero>
     bool compareEmulatedFloat64TestValues(const TestValues<FastMath, FlushDenormToZero>& expectedValues, const TestValues<FastMath, FlushDenormToZero>& testValues)
@@ -535,8 +533,8 @@ private:
         }
         if (calcULPError(expectedValues.divisionVal, testValues.divisionVal) > 2u)  // TODO: only 1 upl error allowed
         {
-            //printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
-            //success = false;
+            printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
+            success = false;
         }
         if (expectedValues.lessOrEqualVal != testValues.lessOrEqualVal)
         {
@@ -572,142 +570,204 @@ private:
         return success;
     };
 
-    bool emulated_float64_shared_tests()
+    class EF64Submitter
     {
-        nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
-        const uint32_t queueFamily = getComputeQueue()->getFamilyIndex();
-        smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdbuf;
-        smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queueFamily, IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-        smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
-        if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
-            return logFail("Failed to create Command Buffers!\n");
-
-        // Load shaders, set up pipeline
+    public:
+        EF64Submitter(CompatibilityTest& base)
+            :m_base(base), m_pushConstants({}), m_semaphoreCounter(0)
         {
-            smart_refctd_ptr<IGPUShader> shader;
+            // setting up pipeline in the constructor
+            m_queueFamily = base.getComputeQueue()->getFamilyIndex();
+            m_semaphore = base.m_device->createSemaphore(0);
+            m_cmdpool = base.m_device->createCommandPool(m_queueFamily, IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+            if (!m_cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &m_cmdbuf))
+                base.logFail("Failed to create Command Buffers!\n");
+
+            // Load shaders, set up pipeline
             {
-                IAssetLoader::SAssetLoadParams lp = {};
-                lp.logger = m_logger.get();
-                lp.workingDirectory = ""; // virtual root
-                // this time we load a shader directly from a file
-                auto assetBundle = m_assetMgr->getAsset("app_resources/emulated_float64_t_test/test.comp.hlsl", lp);
-                const auto assets = assetBundle.getContents();
-                if (assets.empty())
+                smart_refctd_ptr<IGPUShader> shader;
                 {
-                    logFail("Could not load shader!");
-                    assert(0);
+                    IAssetLoader::SAssetLoadParams lp = {};
+                    lp.logger = base.m_logger.get();
+                    lp.workingDirectory = ""; // virtual root
+                    // this time we load a shader directly from a file
+                    auto assetBundle = base.m_assetMgr->getAsset("app_resources/emulated_float64_t_test/test.comp.hlsl", lp);
+                    const auto assets = assetBundle.getContents();
+                    if (assets.empty())
+                    {
+                        base.logFail("Could not load shader!");
+                        assert(0);
+                    }
+
+                    // It would be super weird if loading a shader from a file produced more than 1 asset
+                    assert(assets.size() == 1);
+                    smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+
+                    auto* compilerSet = base.m_assetMgr->getCompilerSet();
+
+                    nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+                    options.stage = source->getStage();
+                    options.targetSpirvVersion = base.m_device->getPhysicalDevice()->getLimits().spirvVersion;
+                    options.spirvOptimizer = nullptr;
+                    options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
+                    options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
+                    options.preprocessorOptions.logger = base.m_logger.get();
+                    options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
+
+                    auto spirv = compilerSet->compileToSPIRV(source.get(), options);
+
+                    ILogicalDevice::SShaderCreationParameters params{};
+                    params.cpushader = spirv.get();
+                    shader = base.m_device->createShader(params);
                 }
 
-                // It would be super weird if loading a shader from a file produced more than 1 asset
-                assert(assets.size() == 1);
-                smart_refctd_ptr<ICPUShader> source = IAsset::castDown<ICPUShader>(assets[0]);
+                if (!shader)
+                    base.logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
 
-                auto* compilerSet = m_assetMgr->getCompilerSet();
+                nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+                    {
+                        .binding = 0,
+                        .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+                        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+                        .stageFlags = ShaderStage::ESS_COMPUTE,
+                        .count = 1
+                    }
+                };
+                smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = base.m_device->createDescriptorSetLayout(bindings);
+                if (!dsLayout)
+                    base.logFail("Failed to create a Descriptor Layout!\n");
 
-                nbl::asset::IShaderCompiler::SCompilerOptions options = {};
-                options.stage = source->getStage();
-                options.targetSpirvVersion = m_device->getPhysicalDevice()->getLimits().spirvVersion;
-                options.spirvOptimizer = nullptr;
-                options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
-                options.preprocessorOptions.sourceIdentifier = source->getFilepathHint();
-                options.preprocessorOptions.logger = m_logger.get();
-                options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(source->getContentType())->getDefaultIncludeFinder();
-
-                auto spirv = compilerSet->compileToSPIRV(source.get(), options);
-
-                ILogicalDevice::SShaderCreationParameters params{};
-                params.cpushader = spirv.get();
-                shader = m_device->createShader(params);
-            }
-
-            if (!shader)
-                return logFail("Failed to create a GPU Shader, seems the Driver doesn't like the SPIR-V we're feeding it!\n");
-
-            nbl::video::IGPUDescriptorSetLayout::SBinding bindings[1] = {
+                SPushConstantRange pushConstantRanges[] = {
                 {
-                    .binding = 0,
-                    .type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
-                    .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
                     .stageFlags = ShaderStage::ESS_COMPUTE,
-                    .count = 1
+                    .offset = 0,
+                    .size = sizeof(PushConstants)
                 }
-            };
-            smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout = m_device->createDescriptorSetLayout(bindings);
-            if (!dsLayout)
-                return logFail("Failed to create a Descriptor Layout!\n");
+                };
+                m_pplnLayout = base.m_device->createPipelineLayout(pushConstantRanges, smart_refctd_ptr(dsLayout));
+                if (!m_pplnLayout)
+                    base.logFail("Failed to create a Pipeline Layout!\n");
 
-            smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout({}, smart_refctd_ptr(dsLayout));
-            if (!pplnLayout)
-                return logFail("Failed to create a Pipeline Layout!\n");
-
-            smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
-            {
-                IGPUComputePipeline::SCreationParams params = {};
-                params.layout = pplnLayout.get();
-                params.shader.entryPoint = "main";
-                params.shader.shader = shader.get();
-                if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
-                    return logFail("Failed to create pipelines (compile & link shaders)!\n");
-            }
-
-            // Allocate the memory
-            {
-                constexpr size_t BufferSize = sizeof(TestValues<true, true>);
-
-                nbl::video::IGPUBuffer::SCreationParams params = {};
-                params.size = BufferSize;
-                params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-                smart_refctd_ptr<IGPUBuffer> outputBuff = m_device->createBuffer(std::move(params));
-                if (!outputBuff)
-                    return logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
-
-                outputBuff->setObjectDebugName("emulated_float64_t output buffer");
-
-                nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
-                reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
-
-                allocation = m_device->allocate(reqs, outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
-                if (!allocation.isValid())
-                    return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
-
-                assert(outputBuff->getBoundMemory().memory == allocation.memory.get());
-                smart_refctd_ptr<nbl::video::IDescriptorPool> pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
-
-                ds = pool->createDescriptorSet(std::move(dsLayout));
                 {
-                    IGPUDescriptorSet::SDescriptorInfo info[1];
-                    info[0].desc = smart_refctd_ptr(outputBuff);
-                    info[0].info.buffer = { .offset = 0,.size = BufferSize };
-                    IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-                        {.dstSet = ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
-                    };
-                    m_device->updateDescriptorSets(writes, {});
+                    IGPUComputePipeline::SCreationParams params = {};
+                    params.layout = m_pplnLayout.get();
+                    params.shader.entryPoint = "main";
+                    params.shader.shader = shader.get();
+                    if (!base.m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
+                        base.logFail("Failed to create pipelines (compile & link shaders)!\n");
                 }
+
+                // Allocate the memory
+                {
+                    constexpr size_t BufferSize = sizeof(TestValues<true, true>);
+
+                    nbl::video::IGPUBuffer::SCreationParams params = {};
+                    params.size = BufferSize;
+                    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+                    smart_refctd_ptr<IGPUBuffer> outputBuff = base.m_device->createBuffer(std::move(params));
+                    if (!outputBuff)
+                        base.logFail("Failed to create a GPU Buffer of size %d!\n", params.size);
+
+                    outputBuff->setObjectDebugName("emulated_float64_t output buffer");
+
+                    nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = outputBuff->getMemoryReqs();
+                    reqs.memoryTypeBits &= base.m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+                    m_allocation = base.m_device->allocate(reqs, outputBuff.get(), nbl::video::IDeviceMemoryAllocation::EMAF_NONE);
+                    if (!m_allocation.isValid())
+                        base.logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+                    assert(outputBuff->getBoundMemory().memory == m_allocation.memory.get());
+                    smart_refctd_ptr<nbl::video::IDescriptorPool> pool = base.m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, { &dsLayout.get(),1 });
+
+                    m_ds = pool->createDescriptorSet(std::move(dsLayout));
+                    {
+                        IGPUDescriptorSet::SDescriptorInfo info[1];
+                        info[0].desc = smart_refctd_ptr(outputBuff);
+                        info[0].info.buffer = { .offset = 0,.size = BufferSize };
+                        IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+                            {.dstSet = m_ds.get(),.binding = 0,.arrayElement = 0,.count = 1,.info = info}
+                        };
+                        base.m_device->updateDescriptorSets(writes, {});
+                    }
+                }
+
+                if (!m_allocation.memory->map({ 0ull,m_allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+                    base.logFail("Failed to map the Device Memory!\n");
             }
 
-            if (!allocation.memory->map({ 0ull,allocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
-                return logFail("Failed to map the Device Memory!\n");
+            // if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
+            const ILogicalDevice::MappedMemoryRange memoryRange(m_allocation.memory.get(), 0ull, m_allocation.memory->getAllocationSize());
+            if (!m_allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+                base.m_device->invalidateMappedMemoryRanges(1, &memoryRange);
 
-            cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-            cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
-            cmdbuf->bindComputePipeline(pipeline.get());
-            cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, pplnLayout.get(), 0, 1, &ds.get());
-            cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
-            cmdbuf->endDebugMarker();
-            cmdbuf->end();
+            assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues<true, true>));
+
+            m_queue = m_base.m_device->getQueue(m_queueFamily, 0);
         }
 
-        // if the mapping is not coherent the range needs to be invalidated to pull in new data for the CPU's caches
-        const ILogicalDevice::MappedMemoryRange memoryRange(allocation.memory.get(), 0ull, allocation.memory->getAllocationSize());
-        if (!allocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-            m_device->invalidateMappedMemoryRanges(1, &memoryRange);
+        ~EF64Submitter() 
+        {
+            m_allocation.memory->unmap();
+        }
 
-        assert(memoryRange.valid() && memoryRange.length >= sizeof(TestValues<true, true>));
+        void setPushConstants(PushConstants& pc)
+        {
+            m_pushConstants = pc;
+        }
 
-        IQueue* queue = m_device->getQueue(queueFamily, 0);
+        TestValues<false, true> submitGetGPUTestValues()
+        {
+            // record command buffer
+            m_cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+            m_cmdbuf->begin(IGPUCommandBuffer::USAGE::NONE);
+            m_cmdbuf->beginDebugMarker("emulated_float64_t compute dispatch", vectorSIMDf(0, 1, 0, 1));
+            m_cmdbuf->bindComputePipeline(m_pipeline.get());
+            m_cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_pplnLayout.get(), 0, 1, &m_ds.get());
+            m_cmdbuf->pushConstants(m_pplnLayout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(PushConstants), &m_pushConstants);
+            m_cmdbuf->dispatch(WORKGROUP_SIZE, 1, 1);
+            m_cmdbuf->endDebugMarker();
+            m_cmdbuf->end();
+
+            IQueue::SSubmitInfo submitInfos[1] = {};
+            const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = m_cmdbuf.get()}};
+            submitInfos[0].commandBuffers = cmdbufs;
+            const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = m_semaphore.get(), .value = ++m_semaphoreCounter, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
+            submitInfos[0].signalSemaphores = signals;
+
+            m_queue->startCapture();
+            m_queue->submit(submitInfos);
+            m_queue->endCapture();
+
+            m_base.m_device->waitIdle();
+            TestValues<false, true> output;
+            std::memcpy(&output, static_cast<TestValues<false, true>*>(m_allocation.memory->getMappedPointer()), sizeof(TestValues<false, true>));
+            m_base.m_device->waitIdle();
+
+            return output;
+        }
+
+    private:
+        uint32_t m_queueFamily;
+        nbl::video::IDeviceMemoryAllocator::SAllocation m_allocation = {};
+        smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_cmdbuf = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUCommandPool> m_cmdpool = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_ds = nullptr;
+        smart_refctd_ptr<nbl::video::IGPUPipelineLayout> m_pplnLayout = nullptr;
+        PushConstants m_pushConstants;
+        CompatibilityTest& m_base;
+        smart_refctd_ptr<nbl::video::IGPUComputePipeline> m_pipeline;
+        smart_refctd_ptr<ISemaphore> m_semaphore;
+        IQueue* m_queue;
+        uint64_t m_semaphoreCounter;
+    };
+
+    void emulated_float64_shared_tests()
+    {
+        EF64Submitter submitter(*this);
 
         auto printTestOutput = [this](const std::string& functionName, const EmulatedFloat64TestOutput& testResult)
-        {
+            {
                 std::cout << functionName << ": " << std::endl;
 
                 if (!testResult.cpuTestsSucceed)
@@ -719,23 +779,18 @@ private:
                     logFail("Incorrect GPU determinated values!");
                 else
                     m_logger->log("Correct GPU determinated values!", ILogger::ELL_PERFORMANCE);
-        };
+            };
 
         // TODO: Test case when lhs is +-0 and rhs is +-inf and vice versa
-
-        printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(cmdbuf.get(), queue, memoryRange));
-        std::cout << "done\n";
-        exit(0);
-        printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64BInfTest(cmdbuf.get(), queue, memoryRange));
-        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64BNegInfTest(cmdbuf.get(), queue, memoryRange));
+        printTestOutput("emulatedFloat64RandomValuesTest", emulatedFloat64RandomValuesTest(submitter));
+        printTestOutput("emulatedFloat64NegAndPosZeroTest", emulatedFloat64NegAndPosZeroTest(submitter));
+        printTestOutput("emulatedFloat64BothValuesInfTest", emulatedFloat64BothValuesInfTest(submitter));
+        printTestOutput("emulatedFloat64BothValuesNegInfTest", emulatedFloat64BothValuesNegInfTest(submitter));
+        printTestOutput("emulatedFloat64BNaNTest", emulatedFloat64BNaNTest(submitter));
+        printTestOutput("emulatedFloat64BInfTest", emulatedFloat64BInfTest(submitter));
+        printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64BNegInfTest(submitter));
 
         //TODO: test quick math
-
-        allocation.memory->unmap();
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -784,7 +839,7 @@ private:
         bool gpuTestsSucceed;
     };
 
-    EmulatedFloat64TestOutput emulatedFloat64RandomValuesTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64RandomValuesTest(EF64Submitter& submitter)
     {
         EmulatedFloat64TestOutput output = { true, true };
 
@@ -815,7 +870,7 @@ private:
             testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
 
             if (!singleTestOutput.cpuTestsSucceed)
                 output.cpuTestsSucceed = false;
@@ -826,8 +881,10 @@ private:
         return output;
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64BothValuesNaNTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64BothValuesNaNTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t nan32 = std::numeric_limits<float32_t>::quiet_NaN();
         const float64_t nan64 = std::numeric_limits<float64_t>::quiet_NaN();
@@ -843,22 +900,26 @@ private:
         };
 
         testValInfo.fillExpectedTestValues();
-        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        return performEmulatedFloat64Tests(testValInfo, submitter);
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64NegAndPosZeroTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64NegAndPosZeroTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(-0.0));
         testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(0.0));
         testValInfo.constrTestValues = {};
 
         testValInfo.fillExpectedTestValues();
-        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        return performEmulatedFloat64Tests(testValInfo, submitter);
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64BothValuesInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64BothValuesInfTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t inf32 = std::numeric_limits<float64_t>::infinity();
         const float64_t inf64 = std::numeric_limits<float64_t>::infinity();
@@ -874,11 +935,13 @@ private:
         };
 
         testValInfo.fillExpectedTestValues();
-        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        return performEmulatedFloat64Tests(testValInfo, submitter);
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64BothValuesNegInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64BothValuesNegInfTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t inf32 = -std::numeric_limits<float64_t>::infinity();
         const float64_t inf64 = -std::numeric_limits<float64_t>::infinity();
@@ -894,11 +957,13 @@ private:
         };
 
         testValInfo.fillExpectedTestValues();
-        return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+        return performEmulatedFloat64Tests(testValInfo, submitter);
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64BNaNTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64BNaNTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
         {
             std::random_device rd;
@@ -924,12 +989,14 @@ private:
             testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+            return performEmulatedFloat64Tests(testValInfo, submitter);
         }
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64BInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64BInfTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
         {
             std::random_device rd;
@@ -955,12 +1022,14 @@ private:
             testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+            return performEmulatedFloat64Tests(testValInfo, submitter);
         }
     }
 
-    EmulatedFloat64TestOutput emulatedFloat64BNegInfTest(IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput emulatedFloat64BNegInfTest(EF64Submitter& submitter)
     {
+        smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
+
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
         {
             std::random_device rd;
@@ -986,15 +1055,15 @@ private:
             testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, cmdBuff, queue, memoryRange);
+            return performEmulatedFloat64Tests(testValInfo, submitter);
         }
     }
 
     template <bool FastMath, bool FlushDenormToZero>
-    EmulatedFloat64TestOutput performEmulatedFloat64Tests(EmulatedFloat64TestValuesInfo<FastMath, FlushDenormToZero>& testValInfo, IGPUCommandBuffer* cmdBuff, IQueue* queue, const ILogicalDevice::MappedMemoryRange& memoryRange)
+    EmulatedFloat64TestOutput performEmulatedFloat64Tests(EmulatedFloat64TestValuesInfo<FastMath, FlushDenormToZero>& testValInfo, EF64Submitter& submitter)
     {
-        emulated_float64_t a = testValInfo.a;
-        emulated_float64_t b = testValInfo.b;
+        emulated_float64_t<false, true> a = testValInfo.a;
+        emulated_float64_t<false, true> b = testValInfo.b;
 
         const TestValues<FastMath, FlushDenormToZero> cpuTestValues = {
             //.int16CreateVal = 0, //emulated_float64_t::create(reinterpret_cast<uint16_t&>(testValue16)).data,
@@ -1025,20 +1094,15 @@ private:
         output.cpuTestsSucceed = compareEmulatedFloat64TestValues<false, true>(testValInfo.expectedTestValues, cpuTestValues);
 
         // gpu validation
-        IQueue::SSubmitInfo submitInfos[1] = {};
-        const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = { {.cmdbuf = cmdBuff} };
-        submitInfos[0].commandBuffers = cmdbufs;
-        submitInfos[0].signalSemaphores = {};
+        PushConstants pc;
+        pc.a = reinterpret_cast<uint64_t&>(a);
+        pc.b = reinterpret_cast<uint64_t&>(b);
+        pc.constrTestVals = testValInfo.constrTestValues;
+        
+        submitter.setPushConstants(pc);
+        auto gpuTestValues = submitter.submitGetGPUTestValues();
 
-        queue->startCapture();
-        queue->submit(submitInfos);
-        queue->endCapture();
-
-        m_device->waitIdle();
-        TestValues<FastMath, FlushDenormToZero>* gpuTestValues = static_cast<TestValues<FastMath, FlushDenormToZero>*>(memoryRange.memory->getMappedPointer());
-        m_device->waitIdle();
-
-        output.gpuTestsSucceed = compareEmulatedFloat64TestValues(testValInfo.expectedTestValues, *gpuTestValues);
+        output.gpuTestsSucceed = compareEmulatedFloat64TestValues<false, true>(testValInfo.expectedTestValues, gpuTestValues);
 
         return output;
     }

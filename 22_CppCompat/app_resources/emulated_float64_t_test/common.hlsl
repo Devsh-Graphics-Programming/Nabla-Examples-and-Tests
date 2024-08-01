@@ -20,6 +20,13 @@ struct ConstructorTestValues
     float64_t float64;
 };
 
+struct PushConstants
+{
+    uint64_t a;
+    uint64_t b;
+    ConstructorTestValues constrTestVals;
+};
+
 template<bool FastMath, bool FlushDenormToZero>
 struct TestValues
 {
