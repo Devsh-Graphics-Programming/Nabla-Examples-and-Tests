@@ -506,12 +506,14 @@ PSInput main(uint vertexID : SV_VertexID)
         const float2 offsetVec = vx * undilatedCornerNDC.x + vy * undilatedCornerNDC.y;
         const float2 coord = screenTopLeft + corner.x * screenDirU + corner.y * screenDirV + offsetVec;
 
-        // If aspect ratio of the dimensions and glyph inside the texture are the same -->
-        // it doesn't matter which component (x or y) to use to compute screenPxRange.
+        // If aspect ratio of the dimensions and glyph inside the texture are the same then screenPxRangeX === screenPxRangeY
         // but if the glyph box is stretched in any way then we won't get correct msdf
-        // We compute this value using the ration of our screenspace extent to the texel space our glyph takes inside the texture
+        // in that case we need to take the max(screenPxRangeX, screenPxRangeY) to avoid blur due to underexaggerated distances
+        // We compute screenPxRange using the ratio of our screenspace extent to the texel space our glyph takes inside the texture
         // Our glyph is centered inside the texture, so `maxUV = 1.0 - minUV` and `glyphTexelSize = (1.0-2.0*minUV) * MSDFSize
-        const float screenPxRange = max(screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x) * MSDFSize), 1.0);
+        const float screenPxRangeX = screenSpaceAabbExtents.x / ((1.0 - 2.0 * minUV.x) * MSDFSize);
+        const float screenPxRangeY = screenSpaceAabbExtents.y / ((1.0 - 2.0 * minUV.y) * MSDFSize);
+        const float screenPxRange = max(max(screenPxRangeX, screenPxRangeY), 1.0);
         
         // In order to keep the shape scale constant with any dilation values:
         // We compute the new dilated minUV that gets us minUV when interpolated on the previous undilated top left
@@ -524,8 +526,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUV(uv);
         outV.setFontGlyphTextureId(textureID);
-        outV.setFontGlyphScreenPxRange(screenPxRange);
-    }
+        outV.setFontGlyphScreenPxRange(screenPxRange);    }
     else if (objType == ObjectType::IMAGE)
     {
         float64_t2 topLeft = vk::RawBufferLoad<double2>(drawObj.geometryAddress, 8u);

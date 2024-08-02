@@ -3,14 +3,17 @@
 SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text)
 {
 	m_face = std::move(face);
-	glyphBoxes.reserve(text.length());
+	m_glyphBoxes.reserve(text.length());
+
+	m_boundingBox.min = float64_t2(0.0, 0.0);
+	m_boundingBox.max = float64_t2(0.0, 0.0);
 
 	// Position transform
 	float64_t2 currentPos = float32_t2(0.0, 0.0);
 	for (uint32_t i = 0; i < text.length(); i++)
 	{
 		const auto glyphIndex = m_face->getGlyphIndex(wchar_t(text.at(i)));
-		const auto glyphMetrics = m_face->getGlyphMetricss(glyphIndex);
+		const auto glyphMetrics = m_face->getGlyphMetrics(glyphIndex);
 		const bool skipGenerateGlyph = (glyphIndex == 0 || (glyphMetrics.size.x == 0.0 && glyphMetrics.size.y == 0.0));
 
 		if (!skipGenerateGlyph)
@@ -25,7 +28,13 @@ SingleLineText::SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::F
 				.size = glyphMetrics.size,
 				.glyphIdx = glyphIndex,
 			};
-			glyphBoxes.push_back(glyphBbox);
+
+			m_boundingBox.min.x = nbl::core::min(m_boundingBox.min.x, glyphBbox.topLeft.x);
+			m_boundingBox.min.y = nbl::core::min(m_boundingBox.min.y, glyphBbox.topLeft.y - glyphBbox.size.y);
+			m_boundingBox.max.x = nbl::core::max(m_boundingBox.max.x, glyphBbox.topLeft.x + glyphBbox.size.x);
+			m_boundingBox.max.y = nbl::core::max(m_boundingBox.max.y, glyphBbox.topLeft.y);
+
+			m_glyphBoxes.push_back(glyphBbox);
 		}
 		currentPos += glyphMetrics.advance;
 	}
@@ -36,7 +45,8 @@ void SingleLineText::Draw(
 	SIntendedSubmitInfo& intendedNextSubmit,
 	const float64_t2& baselineStart,
 	const float32_t2& scale,
-	const float32_t& rotateAngle)
+	const float32_t& rotateAngle,
+	const float32_t4& color) const
 {
 	float32_t2 vec(cos(rotateAngle), sin(rotateAngle));
 	float64_t3x3 rotationMulScaleMat =
@@ -54,11 +64,11 @@ void SingleLineText::Draw(
 	float64_t3x3 transformation = mul(translationMat, rotationMulScaleMat);
 
 	LineStyleInfo lineStyle = {};
-	lineStyle.color = float32_t4(1.0, 1.0, 1.0, 1.0);
+	lineStyle.color = color;
 	const uint32_t styleIdx = drawResourcesFiller.addLineStyle_SubmitIfNeeded(lineStyle, intendedNextSubmit);
 	auto glyphObjectIdx = drawResourcesFiller.addMainObject_SubmitIfNeeded(styleIdx, intendedNextSubmit);
 
-	for (const auto& glyphBox : glyphBoxes)
+	for (const auto& glyphBox : m_glyphBoxes)
 	{
 		const float64_t2 topLeft = mul(transformation, float64_t3(glyphBox.topLeft, 1.0)).xy;
 		const float64_t2 dirU = mul(transformation, float64_t3(glyphBox.size.x, 0.0, 0.0)).xy;
@@ -71,4 +81,3 @@ void SingleLineText::Draw(
 	}
 
 }
-
