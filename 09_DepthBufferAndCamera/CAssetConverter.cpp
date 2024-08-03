@@ -766,7 +766,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					{
 						pcRanges.resize(0);
 						asset::SPushConstantRange prev = {
-							.stageFlags = IGPUShader::ESS_UNKNOWN,
+							.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_UNKNOWN,
 							.offset = 0,
 							.size = 0
 						};

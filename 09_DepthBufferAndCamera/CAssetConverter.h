@@ -131,16 +131,17 @@ class CAssetConverter : public core::IReferenceCounted
 
 				inline bool valid() const {return hlsl::bitCount(static_cast<std::underlying_type_t<IGPUShader::E_SHADER_STAGE>>(stage))!=1;}
 
-				IGPUShader::E_SHADER_STAGE stage = IGPUShader::ESS_UNKNOWN;
+				using shader_stage_t = asset::IShader::E_SHADER_STAGE;
+				shader_stage_t stage = shader_stage_t::ESS_UNKNOWN;
 
 			protected:
 				inline this_t combine(const this_t& other) const
 				{
 					if (stage != other.stage)
 					{
-						if (stage == IGPUShader::ESS_UNKNOWN)
+						if (stage == shader_stage_t::ESS_UNKNOWN)
 							return other; // return the other whether valid or not
-						else if (other.stage != IGPUShader::ESS_UNKNOWN)
+						else if (other.stage != shader_stage_t::ESS_UNKNOWN)
 							return {}; // invalid
 						// other is UNKNOWN so fallthrough and return us whether valid or not
 					}
@@ -174,7 +175,8 @@ class CAssetConverter : public core::IReferenceCounted
 
 				inline bool valid() const {return !invalid;}
 
-				std::array<core::bitflag<IGPUShader::E_SHADER_STAGE>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {IGPUShader::ESS_UNKNOWN};
+				using shader_stage_t = asset::IShader::E_SHADER_STAGE;
+				std::array<core::bitflag<shader_stage_t>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {shader_stage_t::ESS_UNKNOWN};
 				bool invalid = true;
 				
 			protected:
