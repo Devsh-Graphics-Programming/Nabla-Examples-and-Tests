@@ -603,20 +603,7 @@ class CAssetConverter : public core::IReferenceCounted
 				
 				// we don't insert into the writeCache until conversions are successful
 				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCaches;
-#if 0
-				//
-				template<asset::Asset AssetType>
-				struct reservation_t
-				{
-					patch_t<AssetType> patch = {};
-					const AssetType* asset = nullptr;
-					// index to write into `m_gpuObjects`, if past the end the reservation is for an implicit item
-					size_t outputIndex = ~0x0ull;
-				};
-				template<asset::Asset AssetType>
-				using reservation_container_t = core::unordered_map<core::blake3_hash_t,reservation_t<AssetType>>;
-				core::tuple_transform_t<reservation_container_t,supported_asset_types> m_reservations;
-#endif
+
 				//
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
         };
