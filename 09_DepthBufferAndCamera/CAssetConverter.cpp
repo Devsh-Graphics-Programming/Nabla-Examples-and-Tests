@@ -230,6 +230,8 @@ struct PatchGetter
 		if (range.first==range.second)
 			return nullptr;
 // TODO: actually do some thinking here
+	// - how to find patch? first compatible!
+		// + compatible with what? derived patch? asset usage?
 		return std::get<patch_vector_t<AssetType>>(*p_patchStorages).data()+range.first->first.meta.patchIndex;
 	}
 
@@ -312,9 +314,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					const auto patchIndex = it->first.meta.patchIndex;
 					const auto& candidate = patchStorage[patchIndex];
 					// found a thing, try-combine the patches
-					auto combined = candidate.combine(patch);
+					auto [success,combined] = candidate.combine(patch);
 					// check whether the item is creatable after patching
-					if (combined.valid())
+					if (success)
 					{
 						// change the patch to a combined version
 						patchStorage[patchIndex] = std::move(combined);
@@ -864,12 +866,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 //		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
 //		dedupCreateProp.operator()<ICPUDescriptorSet>();
 //		dedupCreateProp.operator()<ICPUFramebuffer>();
-
-
-// TODO:
-// how to get dependant while converting?
-	// - how to find patch? first compatible!
-		// + compatible with what? derived patch? asset usage?
 	}
 
 	// write out results

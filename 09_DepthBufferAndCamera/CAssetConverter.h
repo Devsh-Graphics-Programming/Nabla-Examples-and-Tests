@@ -97,10 +97,10 @@ class CAssetConverter : public core::IReferenceCounted
 				inline bool valid() const {return true;}
 
 			protected:
-				// there's nothing to combine, so combining always produces the input
-				inline this_t combine(const this_t& other) const
+				// there's nothing to combine, so combining always produces the input successfully
+				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
-					return *this;
+					return {true,*this};
 				}
 		};
 		template<>
@@ -114,13 +114,13 @@ class CAssetConverter : public core::IReferenceCounted
 				uint8_t anisotropyLevelLog2 = 6;
 				
 			protected:
-				inline this_t combine(const this_t& other) const
+				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
 					// The only reason why someone would have a different level to creation parameters is
 					// because the HW doesn't support that level and the level gets clamped. So must be same.
-					if (anisotropyLevelLog2 != other.anisotropyLevelLog2)
-						return {}; // invalid
-					return *this;
+					if (anisotropyLevelLog2!=other.anisotropyLevelLog2)
+						return {false,{}}; // invalid
+					return {true,*this};
 				}
 		};
 		template<>
@@ -135,17 +135,10 @@ class CAssetConverter : public core::IReferenceCounted
 				shader_stage_t stage = shader_stage_t::ESS_UNKNOWN;
 
 			protected:
-				inline this_t combine(const this_t& other) const
+				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
-					if (stage != other.stage)
-					{
-						if (stage == shader_stage_t::ESS_UNKNOWN)
-							return other; // return the other whether valid or not
-						else if (other.stage != shader_stage_t::ESS_UNKNOWN)
-							return {}; // invalid
-						// other is UNKNOWN so fallthrough and return us whether valid or not
-					}
-					return *this;
+					// because of the assumption that we'll only be combining valid patches, we can't have the stages differ
+					return {stage!=other.stage,*this};
 				}
 		};
 		template<>
@@ -160,11 +153,11 @@ class CAssetConverter : public core::IReferenceCounted
 				core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
 
 			protected:
-				inline this_t combine(const this_t& other) const
+				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
 					this_t retval = *this;
 					retval.usage |= other.usage;
-					return *this;
+					return {true,retval};
 				}
 		};
 		template<>
@@ -180,14 +173,12 @@ class CAssetConverter : public core::IReferenceCounted
 				bool invalid = true;
 				
 			protected:
-				inline this_t combine(const this_t& other) const
+				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
-					if (invalid || other.invalid)
-						return {};
 					this_t retval = *this;
 					for (auto byte=0; byte!=pushConstantBytes.size(); byte++)
 						retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
-					return retval;
+					return {true,retval};
 				}
 		};
 #undef PATCH_IMPL_BOILERPLATE
@@ -209,9 +200,10 @@ class CAssetConverter : public core::IReferenceCounted
 			inline this_t& operator=(const this_t& other) = default;
 			inline this_t& operator=(this_t&& other) = default;
 
-			// "unhide" this method
-			inline this_t combine(const this_t& other) const
+			// The assumption is we'll only ever be combining valid patches together.
+			inline std::pair<bool,this_t> combine(const this_t& other) const
 			{
+				assert(base_t::valid() && other.valid());
 				return base_t::combine(other);
 			}
 
@@ -230,11 +222,6 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				struct lookup_t
 				{
-					inline bool valid() const
-					{
-						return asset && patch && patch->valid();
-					}
-
 					const AssetType* asset = nullptr;
 					const patch_t<AssetType>* patch = {};
 				};
@@ -313,7 +300,7 @@ class CAssetConverter : public core::IReferenceCounted
 					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
 					const patch_t<AssetType>* patch = patchGet(asset);
 					// failed to provide us with a patch, so fail the hash
-					if (!patch)
+					if (!patch || !patch->valid())
 						return NoContentHash;
 
 					// consult cache
