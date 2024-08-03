@@ -1,5 +1,5 @@
-#include "common.hlsl"
-#include "gridUtils.hlsl"
+#include "../common.hlsl"
+#include "../gridUtils.hlsl"
 
 [[vk::binding(0, 1)]]
 cbuffer GridData

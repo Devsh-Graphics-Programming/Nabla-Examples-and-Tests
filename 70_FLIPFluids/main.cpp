@@ -204,6 +204,13 @@ public:
 	inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
+	inline virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
+	{
+		auto retval = device_base_t::getRequiredDeviceFeatures();
+		retval.geometryShader = true;
+		return retval;
+	}
+
 	inline core::vector<video::SPhysicalDeviceFilter::SurfaceCompatibility> getSurfaces() const override
 	{
 		if (!m_surface)
@@ -572,7 +579,7 @@ public:
 		//const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
 
 		//cmdbuf->bindVertexBuffers(0, 1, bVertices);
-		cmdbuf->draw(3, 1, 0, 0);	// TODO: check how many, num of particles?
+		cmdbuf->draw(numParticles, 1, 0, 0);	// TODO: check how many, num of particles?
 
 		cmdbuf->endRenderPass();
 		cmdbuf->end();

@@ -1,10 +1,6 @@
 #pragma shader_stage(fragment)
 
-struct PSInput
-{
-	float4 position : SV_Position;
-	float4 color : COLOR0;
-};
+#include "render_common.hlsl"
 
 float4 main(PSInput input) : SV_TARGET
 {

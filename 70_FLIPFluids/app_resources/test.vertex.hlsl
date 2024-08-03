@@ -1,12 +1,7 @@
 #pragma shader_stage(vertex)
 
 #include "common.hlsl"
-
-struct PSInput
-{
-	float4 position : SV_Position;
-	float4 color : COLOR0;
-};
+#include "render_common.hlsl"
 
 // set 1, binding 0
 [[vk::binding(0, 1)]]
@@ -20,8 +15,8 @@ PSInput main(uint vertexID : SV_VertexID)
     PSInput output;
 
     const float4 position[3] = {
-		float4(0.5,-0.5,0,1),
-		float4(0,0.5,0,1),
+		float4(-0.5,0.5,0,1),
+		float4(0.5,0.5,0,1),
 		float4(-0.5,-0.5,0,1),
 	};
 

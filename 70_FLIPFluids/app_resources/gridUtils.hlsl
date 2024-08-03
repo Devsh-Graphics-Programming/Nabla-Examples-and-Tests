@@ -2,6 +2,10 @@
 #define _FLIP_EXAMPLE_GRID_UTILS_HLSL
 
 #ifdef __HLSL_VERSION
+static const uint CM_AIR = 0;
+static const uint CM_FLUID = 1;
+static const uint CM_SOLID = 2;
+
 struct SGridData
 {
     float gridCellSize;
