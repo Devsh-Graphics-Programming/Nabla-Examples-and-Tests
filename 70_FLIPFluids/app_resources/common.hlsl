@@ -17,9 +17,11 @@ struct Particle
 
 struct SMVPParams
 {
+    float4 camPos;
+
 	float4x4 MVP;
-	float3x4 MV;
-	float3x3 normalMat;
+	float4x4 M;
+	float4x4 V;
 };
 #endif
 

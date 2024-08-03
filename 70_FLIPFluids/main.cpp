@@ -298,7 +298,7 @@ public:
 
 		{
 			// init compute shaders and pipeline
-			auto piPipeline = createComputePipelineFromShader("app_resources/particlesInit.comp.hlsl");
+			auto piPipeline = createComputePipelineFromShader("app_resources/compute/particlesInit.comp.hlsl");
 			m_initParticlePipeline = piPipeline.first;
 			IGPUDescriptorSetLayoutArray initParticleDsLayouts = piPipeline.second;
 
@@ -572,7 +572,7 @@ public:
 
 		// put into renderFluid();		// TODO: mesh or particles?
 		cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 1, m_renderDs.size(), &m_renderDs.begin()->get());
+		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 0, m_renderDs.size(), &m_renderDs.begin()->get());
 		//cmdbuf->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
 
 		//const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = vertexBuffer} };
@@ -946,8 +946,27 @@ private:
 				descriptorSetLayout2.get(),
 				nullptr
 			};
-			m_renderDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
+			m_renderDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
 			m_renderDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_renderDs.data());
+		}
+
+		// write descriptors
+		{
+			IGPUDescriptorSet::SDescriptorInfo camInfo;
+			camInfo.desc = smart_refctd_ptr(cameraBuffer);
+			camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
+			IGPUDescriptorSet::SDescriptorInfo particleInfo;
+			particleInfo.desc = smart_refctd_ptr(particleBuffer);
+			particleInfo.info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+			IGPUDescriptorSet::SDescriptorInfo pParamsInfo;
+			pParamsInfo.desc = smart_refctd_ptr(pParamsBuffer);
+			pParamsInfo.info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
+			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+				{.dstSet = m_renderDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo},
+				{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &particleInfo},
+				{.dstSet = m_renderDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &pParamsInfo}
+			};
+			m_device->updateDescriptorSets(std::span(writes, 3), {});
 		}
 
 		SBlendParams blendParams = {};
@@ -990,25 +1009,6 @@ private:
 
 			if (!m_device->createGraphicsPipelines(nullptr, params, &m_graphicsPipeline))
 				return logFail("Graphics pipeline creation failed");
-		}
-
-		// write descriptors
-		{
-			IGPUDescriptorSet::SDescriptorInfo camInfo;
-			camInfo.desc = smart_refctd_ptr(cameraBuffer);
-			camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
-			IGPUDescriptorSet::SDescriptorInfo particleInfo;
-			particleInfo.desc = smart_refctd_ptr(particleBuffer);
-			particleInfo.info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-			IGPUDescriptorSet::SDescriptorInfo pParamsInfo;
-			pParamsInfo.desc = smart_refctd_ptr(pParamsBuffer);
-			pParamsInfo.info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-				{.dstSet = m_renderDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo},
-				{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &particleInfo},
-				{.dstSet = m_renderDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &pParamsInfo}
-			};
-			m_device->updateDescriptorSets(std::span(writes, 3), {});
 		}
 
 		return true;

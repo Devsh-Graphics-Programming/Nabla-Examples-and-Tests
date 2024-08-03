@@ -2,10 +2,26 @@
 #define _FLIP_EXAMPLE_RENDER_COMMON_HLSL
 
 #ifdef __HLSL_VERSION
+struct GSInput
+{
+	float4 particle : TEXCOORD0;
+};
+
 struct PSInput
 {
 	float4 position : SV_Position;
-	float4 color : COLOR0;
+	float3 vsPos : TEXCOORD0;
+	nointerpolation float3 vsSpherePos : TEXCOORD1;
+    nointerpolation float radius : TEXCOORD2;
+    nointerpolation float4 color : TEXCOORD3;
+};
+
+struct SParticleRenderParams
+{
+    float radius;
+    float zNear;
+    float zFar;
+    float pad;
 };
 #endif
 

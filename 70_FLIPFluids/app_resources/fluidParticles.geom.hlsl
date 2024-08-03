@@ -25,10 +25,10 @@ static const float4 quadVertices[4] = {
 [maxvertexcount(4)]
 void main(point GSInput input[1], inout TriangleStream<PSInput> outStream)
 {
-    float3 wsSpherePos = input[0].position.xyz;
+    float3 wsSpherePos = input[0].particle.xyz;
     float radius = pParams.radius;
 
-    float3 wsCamPos = camParams.camPos;
+    float3 wsCamPos = camParams.camPos.xyz;
     float3 viewDir = wsCamPos - wsSpherePos;
     float dist = length(viewDir);
 
