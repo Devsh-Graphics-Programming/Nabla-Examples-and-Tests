@@ -23,6 +23,9 @@ struct core::blake3_hasher::update_impl<video::CAssetConverter::patch_t<AssetTyp
 
 namespace video
 {
+// No asset has a 0 length input to the hash function
+const core::blake3_hash_t CAssetConverter::CHashCache::NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
+
 CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
 	const ICPUSampler* sampler,
 	const SPhysicalDeviceFeatures& features,
@@ -214,7 +217,7 @@ using dfs_cache_t = core::unordered_multimap<instance_t<AssetType>,created_t<Ass
 struct PatchGetter
 {
 	template<asset::Asset AssetType>
-	inline const CAssetConverter::patch_t<AssetType>& operator()(const AssetType* asset)
+	inline const CAssetConverter::patch_t<AssetType>* operator()(const AssetType* asset)
 	{
 		uniqueCopyGroupID = p_inputs->getDependantUniqueCopyGroupID(uniqueCopyGroupID,user,asset);
 		user = asset;
@@ -225,9 +228,9 @@ struct PatchGetter
 		});
 		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable 
 		if (range.first==range.second)
-			return {};
+			return nullptr;
 // TODO: actually do some thinking here
-		return std::get<patch_vector_t<AssetType>>(*p_patchStorages)[range.first->first.meta.patchIndex];
+		return std::get<patch_vector_t<AssetType>>(*p_patchStorages).data()+range.first->first.meta.patchIndex;
 	}
 
 	const CAssetConverter::SInputs* const p_inputs;
@@ -262,9 +265,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		return {};
 
 	SResults retval = {};
-
-	// No asset has a 0 length input to the hash function
-	const auto NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
 	
 	// this will allow us to look up the conversion parameter (actual patch for an asset) and therefore write the GPUObject to the correct place in the return value
 	core::vector<instance_metadata_t> inputsMetadata[core::type_list_size_v<supported_asset_types>];
@@ -331,7 +331,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// Only when we a compatible patch entry do we carry on with the DFS
 				if (asset_traits<AssetType>::HasChildren)
 					dfsStack.emplace(record);
-				dfsCache.emplace_hint(dfsCachedRange.second,record,created_t<AssetType>{NoContentHash,asset_cached_t<AssetType>{}});
+				dfsCache.emplace_hint(dfsCachedRange.second,record,created_t<AssetType>{CHashCache::NoContentHash,asset_cached_t<AssetType>{}});
 				return record.meta;
 			};
 			// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
@@ -428,12 +428,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		//! `finalPatchStorage` is now constant!
 		//! `dfsCache` is now semi-constant!
 
-		// can now spawn our own hash cache if one wasn't provided
-		core::smart_refctd_ptr<CHashCache> hashCache;
-		if (inputs.hashCache)
-			hashCache = core::smart_refctd_ptr<CHashCache>(inputs.hashCache);
-		else
-			hashCache = core::make_smart_refctd_ptr<CHashCache>();
+		// can now spawn our own hash cache
+		retval.m_hashCache = core::make_smart_refctd_ptr<CHashCache>();
 
 		// Deduplication, Creation and Propagation
 		auto dedupCreateProp = [&]<Asset AssetType>()->void
@@ -455,7 +451,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// We mistrust every dependency such that the eject/update if needed.
 				// Its really important that the Deduplication gets performed Bottom-Up
 				auto& contentHash = entry.second.contentHash;
-				contentHash = hashCache->hash<AssetType>(instance.asset,PatchGetter{&inputs,&finalPatchStorage,&dfsCaches,0xdeadbeefu,nullptr},/*.mistrustLevel = */1);
+				contentHash = retval.getHashCache()->hash<AssetType>(instance.asset,PatchGetter{&inputs,&finalPatchStorage,&dfsCaches,0xdeadbeefBADC0FFEull,nullptr},/*.mistrustLevel = */1);
+				// failed to hash alltogehter (only possible reason is failure of `PatchGetter` to provide a valid patch)
+				if (contentHash==CHashCache::NoContentHash)
+					continue;
 				// if we have a read cache, lets retry looking the item up!
 				if (readCache)
 				{
@@ -501,12 +500,22 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// now assign storage offsets via exclusive scan and put the `uniqueGroupID` mappings in sorted order
 				retval.resize(exclScanConvReqs());
 				for (auto& entry : dfsCache)
-				if (entry.first.asset && !entry.second.gpuObj) // not found in readCache
 				{
-					auto found = conversionRequests.find(entry.second.contentHash);
-					// may not find things because of unconverted dummy deps
-					if (found!=conversionRequests.end())
-						retval[found->second.firstCopyIx++] = entry.first.meta.uniqueCopyGroupID;
+					const auto& instance = entry.first;
+					if (instance.asset && !entry.second.gpuObj) // not found in readCache
+					{
+						auto found = conversionRequests.find(entry.second.contentHash);
+						// may not find things because of unconverted dummy deps
+						if (found!=conversionRequests.end())
+							retval[found->second.firstCopyIx++] = instance.meta.uniqueCopyGroupID;
+						else
+						{
+							inputs.logger.log(
+								"No conversion request made for Asset %p in group %d, its impossible either to hash or to convert.",
+								system::ILogger::ELL_ERROR,instance.asset,instance.meta.uniqueCopyGroupID
+							);
+						}
+					}
 				}
 				// `{conversionRequests}.firstCopyIx` needs to be brought back down to exclusive scan form
 				exclScanConvReqs();
@@ -795,12 +804,15 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					if (found==conversionRequests.end())
 					{
 						const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
-						inputs.logger.log(
-							"Could not find GPU Object for Asset %p in group %ull with Content Hash %8llx%8llx%8llx%8llx",
-							system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
-						);
+						if (contentHash!=CHashCache::NoContentHash)
+							inputs.logger.log(
+								"Could not find GPU Object for Asset %p in group %ull with Content Hash %8llx%8llx%8llx%8llx",
+								system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+							);
 						continue;
 					}
+					// unhashables were not supposed to be added to conversion requests
+					assert(contentHash!=CHashCache::NoContentHash);
 
 					const auto copyIx = found->second.firstCopyIx++;
 					// the counting sort was stable

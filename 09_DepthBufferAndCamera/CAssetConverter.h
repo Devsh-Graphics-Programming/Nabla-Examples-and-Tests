@@ -282,6 +282,8 @@ class CAssetConverter : public core::IReferenceCounted
 				using container_t = core::unordered_map<key_t<AssetType>,core::blake3_hash_t,HashEquals<AssetType>,HashEquals<AssetType>>;
 
 			public:
+				static const core::blake3_hash_t NoContentHash;
+
 				inline CHashCache() = default;
 
 				//
@@ -306,14 +308,16 @@ class CAssetConverter : public core::IReferenceCounted
 				inline core::blake3_hash_t hash(const AssetType* asset, PatchGetter patchGet, const uint32_t cacheMistrustLevel=0)
 				{
 					if (!asset)
-					{
-						static const auto NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
 						return NoContentHash;
-					}
+
 					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
-					const patch_t<AssetType>& patch = patchGet(asset);
+					const patch_t<AssetType>* patch = patchGet(asset);
+					// failed to provide us with a patch, so fail the hash
+					if (!patch)
+						return NoContentHash;
+
 					// consult cache
-					const lookup_t<AssetType> lookup = {asset,&patch};
+					const lookup_t<AssetType> lookup = {asset,patch};
 					auto foundIt = find(lookup);
 					auto& container = std::get<container_t<AssetType>>(m_containers);
 					const bool found = foundIt!=container.end();
@@ -328,6 +332,11 @@ class CAssetConverter : public core::IReferenceCounted
 							this,asset,patch,patchGet,nextMistrustLevel
 						})
 					);
+					// failed to hash (missing required deps), so return invalid hash
+					// but don't eject stale entry, this may have been a mistake
+					if (retval==NoContentHash)
+						return NoContentHash;
+
 					if (found) // replace stale entry
 						foundIt->second = retval;
 					else // insert new entry
@@ -335,7 +344,7 @@ class CAssetConverter : public core::IReferenceCounted
 						auto insertIt = container.insert(foundIt,{
 							{
 								.asset = core::smart_refctd_ptr<const AssetType>(asset),
-								.patch = patch
+								.patch = *patch
 							},
 						retval});
 						assert(HashEquals<AssetType>()(insertIt->first,lookup) && insertIt->second==retval);
@@ -343,7 +352,7 @@ class CAssetConverter : public core::IReferenceCounted
 					return retval;
 				}
 
-				// The `hashTrust` level gets ignored (TODO: shall we use it to recurse?)
+				// Its fastest to erase if you know your patch
 				template<asset::Asset AssetType>
 				inline bool erase(const lookup_t<AssetType>& what)
 				{
@@ -353,7 +362,7 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				inline bool erase(const AssetType* asset)
 				{
-					// TODO: improve by cycling through possible patches
+					// TODO: improve by cycling through possible patches when the set of possibilities is small
 					return core::erase_if(std::get<container_t<AssetType>>(m_containers),[asset](const auto& entry)->bool
 						{
 							auto const& [key,value] = entry;
@@ -361,7 +370,7 @@ class CAssetConverter : public core::IReferenceCounted
 						}
 					);
 				}
-// TODO: `eraseStale(const IAsset*)` which erases a subgraph?
+				// TODO: `eraseStale(const IAsset*)` which erases a subgraph?
 				// An asset being pointed to can mutate and that would invalidate the hash, this recomputes all hashes.
 				template<typename PatchGetter>
 				inline void eraseStale(const PatchGetter& patchGet)
@@ -375,7 +384,8 @@ class CAssetConverter : public core::IReferenceCounted
 								const auto oldHash = entry.second;
 								const auto& key = entry.first;
 								// can re-use cached hashes for dependants if we start ejecting in the correct order
-								return hash(key.asset.get(),patchGet,/*.cacheMistrustLevel = */1) != oldHash;
+								const auto newHash = hash(key.asset.get(),patchGet,/*.cacheMistrustLevel = */1);
+								return newHash!=oldHash || newHash==NoContentHash;
 							}
 						);
 					};
@@ -430,7 +440,7 @@ class CAssetConverter : public core::IReferenceCounted
 
 					CHashCache* _this;
 					const AssetType* const asset;
-					const patch_t<AssetType>& patch;
+					const patch_t<AssetType>* patch;
 					const PatchGetter& patchGet;
 					const uint32_t nextMistrustLevel;
 				};
@@ -540,7 +550,7 @@ class CAssetConverter : public core::IReferenceCounted
 			// You need to tell us if an asset needs multiple copies, separate for each user. The return value of this function dictates what copy of the asset each user gets.
 			// Each unique integer value returned for a given input `dependant` "spawns" a new copy.
 			// Note that the group ID is the same size as a pointer, so you can e.g. cast a pointer of the user (parent reference) to size_t and use that for a unique copy for the user.
-			// Note that we also call it with `user=={nullptr,0}` for each entry in `SInputs::assets`.
+			// Note that we also call it with `user=={nullptr,0xdeadbeefBADC0FFEull}` for each entry in `SInputs::assets`.
 			// NOTE: You might get extra copies within the same group ID due to inability to patch entries
 			virtual inline size_t getDependantUniqueCopyGroupID(const size_t usersGroupCopyID, const asset::IAsset* user, const asset::IAsset* dependant) const
 			{
@@ -568,11 +578,6 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::IShaderCompiler::CCache* readShaderCache = nullptr;
 			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
 			IGPUPipelineCache* pipelineCache = nullptr;
-
-			// Leave this as `nullptr` unless you know what you're doing. If you supply a hash cache,
-			// and it has stale hashes (asset or its dependants mutated since hash computed),
-			// then you can get hash mismatches which will lead to UB or conversion failures.
-			CHashCache* hashCache = nullptr;
         };
         struct SResults
         {
@@ -590,11 +595,20 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				std::span<const asset_cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
 
+				// If you ever need to look up the content hashes of the assets AT THE TIME you converted them
+				// REMEMBER it can have stale hashes (asset or its dependants mutated since hash computed),
+				// then you can get hash mismatches or plain wrong hashes.
+				CHashCache* getHashCache() {return m_hashCache.get();}
+				const CHashCache* getHashCache() const {return m_hashCache.get();}
+
 			private:
 				friend class CAssetConverter;
 				friend struct SConvertParams;
 
 				inline SResults() = default;
+
+				//
+				core::smart_refctd_ptr<CHashCache> m_hashCache = nullptr;
 
 				// for every entry in the input array, we have this mapped 1:1
 				template<asset::Asset AssetType>
@@ -676,7 +690,7 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUSampler,PatchGetter>
 	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUSampler,PatchGetter>&& args)
 	{
 		auto patchedParams = args.asset->getParams();
-		patchedParams.AnisotropicFilter = args.patch.anisotropyLevelLog2;
+		patchedParams.AnisotropicFilter = args.patch->anisotropyLevelLog2;
 		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams));
 	}
 };
@@ -689,7 +703,7 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUShader,PatchGetter>
 		const auto* asset = args.asset;
 
 		core::blake3_hasher hasher;
-		hasher << args.patch.stage;
+		hasher << args.patch->stage;
 		const auto type = asset->getContentType();
 		hasher << type;
 		// if not SPIR-V then own path matters
@@ -708,8 +722,8 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBuffer,PatchGetter>
 	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBuffer,PatchGetter>&& args)
 	{
 		auto patchedParams = args.asset->getCreationParams();
-		assert(args.patch.usage.hasFlags(patchedParams.usage));
-		patchedParams.usage = args.patch.usage;
+		assert(args.patch->usage.hasFlags(patchedParams.usage));
+		patchedParams.usage = args.patch->usage;
 		return core::blake3_hasher().update(&patchedParams,sizeof(patchedParams)) << args.asset->getContentHash();
 	}
 };
@@ -747,7 +761,10 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSetLayout,Pat
 		}
 		for (const auto& immutableSampler : asset->getImmutableSamplers())
 		{
-			hasher << args.depHash(immutableSampler.get());
+			const auto samplerHash = args.depHash(immutableSampler.get());
+			if (samplerHash==NoContentHash)
+				return {};
+			hasher << samplerHash;
 		}
 		return hasher;
 	}
@@ -759,9 +776,14 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineLayout,PatchGet
 	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUPipelineLayout,PatchGetter>&& args)
 	{
 		core::blake3_hasher hasher;
-		hasher << std::span(args.patch.pushConstantBytes);
-		for (auto i=0; i<asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
-			hasher << args.depHash(args.asset->getDescriptorSetLayout(i));
+		hasher << std::span(args.patch->pushConstantBytes);
+		for (auto i = 0; i < asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
+		{
+			const auto dsLayoutHash = args.depHash(args.asset->getDescriptorSetLayout(i));
+			if (dsLayoutHash==NoContentHash)
+				return {};
+			hasher << dsLayoutHash;
+		}
 		return hasher;
 	}
 };
@@ -791,10 +813,20 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGe
 		const auto* asset = args.asset;
 
 		core::blake3_hasher hasher;
-		hasher << args.depHash(asset->getLayout());
+		{
+			const auto layoutHash = args.depHash(asset->getLayout());
+			if (layoutHash==NoContentHash)
+				return {};
+			hasher << layoutHash;
+		}
 		const auto& specInfo = asset->getSpecInfo();
 		hasher << specInfo.entryPoint;
-		hasher << args.depHash(specInfo.shader);
+		{
+			const auto shaderHash = args.depHash(specInfo.shader);
+			if (shaderHash==NoContentHash)
+				return {};
+			hasher << shaderHash;
+		}
 		if (specInfo.entries)
 		for (const auto& specConstant : *specInfo.entries)
 		{
