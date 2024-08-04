@@ -136,8 +136,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgInfo.format = msdfFormat;
 		imgInfo.type = IGPUImage::ET_2D;
 		imgInfo.extent = MSDFsExtent;
-		// TODO: I hardcoded the number of mip levels here to 4 according to our convo on Discord, but maybe this should be automatic
-		imgInfo.mipLevels = 4u; 
+		imgInfo.mipLevels = MSDFMips; 
 		imgInfo.arrayLayers = maxMSDFs;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
