@@ -5,12 +5,8 @@
 // always include nabla first before std:: headers
 #include "nabla.h"
 
-#include "nbl/system/CStdoutLogger.h"
-#include "nbl/system/CFileLogger.h"
-#include "nbl/system/CColoredStdoutLoggerWin32.h"
 #include "nbl/system/IApplicationFramework.h"
 
-#include "blake3.h"
 #include <iostream>
 #include <cstdio>
 #include <errno.h>
@@ -257,37 +253,6 @@ int main(int argc, char** argv)
 		wp.workingDirectory = CWD;
 		assetManager->writeAsset("pngWriteSuccessful.png", wp);
 	}
-
-#ifdef NBL_ENABLE_BLAKE_TEST
-	// blake3 hash. TODO: use with Nabla
-	{
-		// Initialize the hasher.
-		blake3_hasher hasher;
-		blake3_hasher_init(&hasher);
-
-		std::array<unsigned char, 65536> buf;
-		while (true) 
-		{
-			std::cin.getline(reinterpret_cast<char*>(buf.data()), buf.size());
-			std::streamsize n = std::cin.gcount();
-
-			if (n < 2 || std::cin.eof())
-				break;
-			else
-				blake3_hasher_update(&hasher, buf.data(), n);
-		}
-
-		// Finalize the hash. BLAKE3_OUT_LEN is the default output length, 32 bytes.
-		uint8_t output[BLAKE3_OUT_LEN];
-		blake3_hasher_finalize(&hasher, output, BLAKE3_OUT_LEN);
-
-		// Print the hash as hexadecimal.
-		for (size_t i = 0; i < BLAKE3_OUT_LEN; i++) {
-			printf("%02x", output[i]);
-		}
-		printf("\n");
-	}
-#endif // NBL_ENABLE_BLAKE_TEST
 
 	//JPEG loader test
 	if (auto cpuImage = checkedLoad.operator()<nbl::asset::ICPUImage>("dwarf.jpg"))
