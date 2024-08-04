@@ -214,21 +214,25 @@ using dfs_cache_t = core::unordered_multimap<instance_t<AssetType>,created_t<Ass
 struct PatchGetter
 {
 	template<asset::Asset AssetType>
-	inline const CAssetConverter::patch_t<AssetType>* operator()(const AssetType* asset)
+	inline dfs_cache_t<AssetType>::const_iterator findDFSEntry(const AssetType* asset)
 	{
 		assert(asset);
 		uniqueCopyGroupID = p_inputs->getDependantUniqueCopyGroupID(uniqueCopyGroupID,user,asset);
 		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(*p_dfsCaches);
 		const auto range = dfsCache.equal_range(instance_t<AssetType>{
 			.asset = asset,
-			.meta = {.uniqueCopyGroupID = uniqueCopyGroupID}
+			.meta = {.uniqueCopyGroupID=uniqueCopyGroupID}
 		});
 		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable 
 		if (range.first!=range.second)
 		{
 			CAssetConverter::patch_t<AssetType> requiredSubset(asset);
-			// TODO: derive patch from user & asset relationship
-			// no need to check for validity because everything that is in `dfsCache` is valid and `requiredSubset` must have been valid too
+			{
+// TODO: derive patch from user & asset relationship
+			}
+			// No need to check for validity because everything that is in `dfsCache` is valid and `requiredSubset` must have been valid too.
+			// Returning the first compatible patch is correct, as back when building the dfsCache you merge with the first compatible patch.
+			// (assuming insertion order into the same bucket is stable)
 			const auto* pPatches = std::get<patch_vector_t<AssetType>>(*p_patchStorages).data();
 			auto found = std::find_if(
 				range.first,range.second,
@@ -238,9 +242,18 @@ struct PatchGetter
 				}
 			);
 			user = asset;
-			return pPatches+found->first.meta.patchIndex;
+			return found;
 		}
 		user = asset;
+		return dfsCache.end();
+	}
+
+	template<asset::Asset AssetType>
+	inline const CAssetConverter::patch_t<AssetType>* operator()(const AssetType* asset)
+	{
+		auto found = findDFSEntry<AssetType>(asset);
+		if (found!=std::get<dfs_cache_t<AssetType>>(*p_dfsCaches).end())
+			return std::get<patch_vector_t<AssetType>>(*p_patchStorages).data()+found->first.meta.patchIndex;
 		return nullptr;
 	}
 
@@ -562,19 +575,17 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				if (!depAsset)
 					return {};
-// TODO: Use the PatchGetter?
-				const auto candidates = std::get<dfs_cache_t<DepAssetType>>(dfsCaches).equal_range(
-					instance_t<DepAssetType>
-					{
-						.asset = depAsset,
-						.meta = {
-							.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(usersCopyGroupID,user,depAsset)
-						}
-					}
-				);
-				const auto chosen = std::find_if(candidates.first,candidates.second,pred);
-				if (chosen!=candidates.second)
-					return chosen->second.gpuObj.value;
+				auto found = PatchGetter{
+					&features,
+					&limits,
+					&inputs,
+					&finalPatchStorage,
+					&dfsCaches,
+					usersCopyGroupID,
+					user
+				}.findDFSEntry<DepAssetType>(depAsset);
+				if (found!=std::get<dfs_cache_t<DepAssetType>>(dfsCaches).end())
+					return found->second.gpuObj.value;
 				failed = true;
 				return {};
 			};
