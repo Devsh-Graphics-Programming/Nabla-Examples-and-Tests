@@ -214,6 +214,64 @@ using dfs_cache_t = core::unordered_multimap<instance_t<AssetType>,created_t<Ass
 struct PatchGetter
 {
 	template<asset::Asset AssetType>
+	static inline CAssetConverter::patch_t<AssetType> ConstructPatch(const IAsset* user, const AssetType* asset)
+	{
+		CAssetConverter::patch_t<AssetType> patch(asset);
+		switch (user->getAssetType())
+		{
+			case ICPUDescriptorSetLayout::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUDescriptorSetLayout*>(user);
+				if constexpr(std::is_same_v<AssetType,ICPUSampler>)
+				{
+					// nothing special to do
+					return patch;
+				}
+				break;
+			}
+			case ICPUPipelineLayout::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUPipelineLayout*>(user);
+				if constexpr(std::is_same_v<AssetType,ICPUDescriptorSetLayout>)
+				{
+					// nothing special to do either
+					return patch;
+				}
+				break;
+			}
+			case ICPUComputePipeline::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUComputePipeline*>(user);
+				if constexpr(std::is_same_v<AssetType,ICPUPipelineLayout>)
+				{
+					// nothing special to do
+					return patch;
+				}
+				if constexpr(std::is_same_v<AssetType,ICPUShader>)
+				{
+					patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
+					return patch;
+				}
+				break;
+			}
+			case ICPUBufferView::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUBufferView*>(user);
+				if constexpr(std::is_same_v<AssetType,ICPUBuffer>)
+				{
+					// we have no clue how this will be used, so we mark both usages
+					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+					return patch;
+				}
+				break;
+			}
+			default:
+				break;
+		}
+		return {};
+	}
+
+	template<asset::Asset AssetType>
 	inline dfs_cache_t<AssetType>::const_iterator findDFSEntry(const AssetType* asset)
 	{
 		assert(asset);
@@ -226,10 +284,7 @@ struct PatchGetter
 		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable 
 		if (range.first!=range.second)
 		{
-			CAssetConverter::patch_t<AssetType> requiredSubset(asset);
-			{
-// TODO: derive patch from user & asset relationship
-			}
+			auto requiredSubset = ConstructPatch(user,asset);
 			// No need to check for validity because everything that is in `dfsCache` is valid and `requiredSubset` must have been valid too.
 			// Returning the first compatible patch is correct, as back when building the dfsCache you merge with the first compatible patch.
 			// (assuming insertion order into the same bucket is stable)
@@ -402,6 +457,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				dfsStack.pop();
 				// everything we popped has already been cached in dfsCache, now time to go over dependents
 				const auto* user = entry.asset;
+				// TODO: could potentially use PatchGetter to remove a patch arg from the `cache` lambda, but only if can be done amnesiacally/statelessly
 				switch (user->getAssetType())
 				{
 					case ICPUDescriptorSetLayout::AssetType:
