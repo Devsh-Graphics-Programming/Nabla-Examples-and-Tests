@@ -458,15 +458,18 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 		auto& textureCopy = textureCopies[i];
 		for (uint32_t mip = 0; mip < textureCopy.buffers.size(); mip++)
 		{
+			uint32_t mipW = textureCopy.imageExtent.x / (1 << mip);
+			uint32_t mipH = textureCopy.imageExtent.y / (1 << mip);
+
 			asset::IImage::SBufferCopy region = {};
 			region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
 			region.imageSubresource.mipLevel = mip;
 			region.imageSubresource.baseArrayLayer = textureCopy.index;
 			region.imageSubresource.layerCount = 1u;
 			region.bufferOffset = 0u;
-			region.bufferRowLength = textureCopy.imageExtent.x;
+			region.bufferRowLength = mipW;
 			region.bufferImageHeight = 0u;
-			region.imageExtent = { textureCopy.imageExtent.x, textureCopy.imageExtent.y, textureCopy.imageExtent.z };
+			region.imageExtent = { mipW, mipH, textureCopy.imageExtent.z };
 			region.imageOffset = { 0u, 0u, 0u };
 
 			m_utilities->updateImageViaStagingBuffer(
