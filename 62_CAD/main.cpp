@@ -23,6 +23,7 @@ using namespace video;
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
+#include "SingleLineText.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -38,7 +39,7 @@ using namespace video;
 
 static constexpr bool DebugModeWireframe = false;
 static constexpr bool DebugRotatingViewProj = false;
-static constexpr bool FragmentShaderPixelInterlock = false;
+static constexpr bool FragmentShaderPixelInterlock = true;
 
 enum class ExampleMode
 {
@@ -479,7 +480,9 @@ public:
 		
 		// Create the Semaphores
 		m_renderSemaphore = m_device->createSemaphore(0ull);
+		m_renderSemaphore->setObjectDebugName("m_renderSemaphore");
 		m_overflowSubmitScratchSemaphore = m_device->createSemaphore(0ull);
+		m_overflowSubmitScratchSemaphore->setObjectDebugName("m_overflowSubmitScratchSemaphore");
 		if (!m_renderSemaphore || !m_overflowSubmitScratchSemaphore)
 			return logFail("Failed to Create Semaphores!");
 		
@@ -508,7 +511,7 @@ public:
 
 		m_framesInFlight = min(m_surface->getMaxFramesInFlight(), MaxFramesInFlight);
 
-		allocateResources(40960u);
+		allocateResources(256u);
 
 		const bitflag<IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS> bindlessTextureFlags =
 			IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT |
@@ -697,8 +700,6 @@ public:
 			constexpr auto debugfragmentShaderPath = "../fragment_shader_debug.hlsl";
 			constexpr auto resolveAlphasShaderPath = "../resolve_alphas.hlsl";
 #if defined(SHADER_CACHE_TEST_COMPILATION_CACHE_STORE)
-			
-
 			auto cache = core::make_smart_refctd_ptr<IShaderCompiler::CCache>();
 
 			// Load Custom Shader
@@ -742,7 +743,6 @@ public:
 			const bool success = bool(succ);
 			assert(success);
 #elif defined(SHADER_CACHE_TEST_CACHE_RETRIEVE)
-
 			auto savePath = localOutputCWD / "cache.bin";
 
 			core::smart_refctd_ptr<system::IFile> f;
@@ -1316,7 +1316,10 @@ public:
 
 		if (inBetweenSubmit)
 		{
-			intendedSubmitInfo.overflowSubmit();
+			if (intendedSubmitInfo.overflowSubmit() != IQueue::RESULT::SUCCESS)
+			{
+				m_logger->log("overflow submit failed.", ILogger::ELL_ERROR);
+			}
 		}
 		else
 		{
@@ -1336,6 +1339,10 @@ public:
 				// the stages for a wait semaphore operation are about what stage you WAIT in, not what stage you wait for
 				presentWait.stageMask = PIPELINE_STAGE_FLAGS::NONE; // top of pipe, there's no explicit presentation engine stage
 				m_surface->present(m_currentImageAcquire.imageIndex,{&presentWait,1});
+			}
+			else
+			{
+				m_logger->log("regular submit failed.", ILogger::ELL_ERROR);
 			}
 		}
 	}
@@ -1372,6 +1379,14 @@ public:
 		return retval;
 	}
 		
+	virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable() override
+	{
+		auto retval = base_t::getAPIFeaturesToEnable();
+		// We only support one swapchain mode, surface, the other one is Display which we have not implemented yet.
+		retval.swapchainMode = video::E_SWAPCHAIN_MODE::ESM_SURFACE;
+		retval.validations = true;
+		return retval;
+	}
 protected:
 	
 	void addObjects(SIntendedSubmitInfo& intendedNextSubmit)
@@ -2909,7 +2924,7 @@ protected:
 				{
 					char k = TestString[i];
 					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
+					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;

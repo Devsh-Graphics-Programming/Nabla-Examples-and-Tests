@@ -1,9 +1,10 @@
+#pragma once
 #include "Polyline.h"
 #include "Hatch.h"
 #include "IndexAllocator.h"
 #include <nbl/video/utilities/SIntendedSubmitInfo.h>
 #include <nbl/core/containers/LRUCache.h>  
-#include "nbl/ext/TextRendering/TextRendering.h"
+#include <nbl/ext/TextRendering/TextRendering.h>
 
 using namespace nbl;
 using namespace nbl::video;
@@ -387,34 +388,5 @@ protected:
 	static constexpr asset::E_FORMAT	MSDFTextureFormat = asset::E_FORMAT::EF_R8G8B8_SNORM;
 
 	bool m_hasInitializedMSDFTextureArrays = false;
-};
-
-class SingleLineText
-{
-public:
-	// constructs and fills the `glyphBoxes`
-	SingleLineText(core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace>&& face, const std::string& text);
-
-	// iterates over `glyphBoxes` generates textures msdfs if failed to add to cache (through that lambda you put)
-	// void Draw(DrawResourcesFiller& drawResourcesFiller, SIntendedSubmitInfo& intendedNextSubmit);
-	void Draw(
-		DrawResourcesFiller& drawResourcesFiller,
-		SIntendedSubmitInfo& intendedNextSubmit,
-		const float64_t2& baselineStart = float64_t2(0.0,0.0),
-		const float32_t2& scale = float64_t2(1.0, 1.0),
-		const float32_t& rotateAngle = 0);
-
-protected:
-	
-	struct GlyphBox
-	{
-		float64_t2 topLeft;
-		float32_t2 size;
-		uint32_t glyphIdx;
-		uint32_t pad;
-	};
-
-	std::vector<GlyphBox> glyphBoxes;
-	core::smart_refctd_ptr<nbl::ext::TextRendering::FontFace> m_face;
 };
 
