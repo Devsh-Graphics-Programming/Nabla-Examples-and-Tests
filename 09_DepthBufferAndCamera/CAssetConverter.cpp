@@ -26,47 +26,43 @@ namespace video
 // No asset has a 0 length input to the hash function
 const core::blake3_hash_t CAssetConverter::CHashCache::NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
 
-CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(
-	const ICPUSampler* sampler,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter)
+CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(const ICPUSampler* sampler) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter) {}
+bool CAssetConverter::patch_impl_t<ICPUSampler>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
 {
+	if (anisotropyLevelLog2>5) // unititialized
+		return false;
 	if (anisotropyLevelLog2>limits.maxSamplerAnisotropyLog2)
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
+	return true;
 }
 
-CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
-	const ICPUShader* shader,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-)
+CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(const ICPUShader* shader) : stage(shader->getStage()) {}
+bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
 {
-	const auto _stage = shader->getStage();
-	switch (_stage)
+	switch (stage)
 	{
 		// supported always
 		case IGPUShader::E_SHADER_STAGE::ESS_VERTEX:
 		case IGPUShader::E_SHADER_STAGE::ESS_FRAGMENT:
 		case IGPUShader::E_SHADER_STAGE::ESS_COMPUTE:
-			stage = _stage;
+			return true;
 			break;
 		case IGPUShader::E_SHADER_STAGE::ESS_TESSELLATION_CONTROL:
 		case IGPUShader::E_SHADER_STAGE::ESS_TESSELLATION_EVALUATION:
 			if (features.tessellationShader)
-				stage = _stage;
+				return true;
 			break;
 		case IGPUShader::E_SHADER_STAGE::ESS_GEOMETRY:
 			if (features.geometryShader)
-				stage = _stage;
+				return true;
 			break;
 		case IGPUShader::E_SHADER_STAGE::ESS_TASK:
 //			if (features.taskShader)
-//				stage = _stage;
+//				return true;
 			break;
 		case IGPUShader::E_SHADER_STAGE::ESS_MESH:
 //			if (features.meshShader)
-//				stage = _stage;
+//				return true;
 			break;
 		case IGPUShader::E_SHADER_STAGE::ESS_RAYGEN:
 		case IGPUShader::E_SHADER_STAGE::ESS_ANY_HIT:
@@ -75,49 +71,50 @@ CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(
 		case IGPUShader::E_SHADER_STAGE::ESS_INTERSECTION:
 		case IGPUShader::E_SHADER_STAGE::ESS_CALLABLE:
 			if (features.rayTracingPipeline)
-				stage = _stage;
+				return true;
 			break;
 		default:
 			break;
 	}
+	return false;
 }
 
-CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(
-	const ICPUBuffer* buffer,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-)
+CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(const ICPUBuffer* buffer) : usage(buffer->getUsageFlags()) {}
+bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
 {
-	const auto _usage = buffer->getUsageFlags();
-	if (_usage.hasFlags(usage_flags_t::EUF_CONDITIONAL_RENDERING_BIT_EXT) && !features.conditionalRendering)
-		return;
-	if ((_usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT)||_usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT)) && !features.accelerationStructure)
-		return;
-	if (_usage.hasFlags(usage_flags_t::EUF_SHADER_BINDING_TABLE_BIT) && !features.rayTracingPipeline)
-		return;
-	usage = _usage;
+	if (usage.hasFlags(usage_flags_t::EUF_CONDITIONAL_RENDERING_BIT_EXT) && !features.conditionalRendering)
+		return false;
+	if ((usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT)||usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT)) && !features.accelerationStructure)
+		return false;
+	if (usage.hasFlags(usage_flags_t::EUF_SHADER_BINDING_TABLE_BIT) && !features.rayTracingPipeline)
+		return false;
 	// good default
 	usage |= usage_flags_t::EUF_INLINE_UPDATE_VIA_CMDBUF;
+	return true;
 }
 
-CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(
-	const ICPUPipelineLayout* pplnLayout,
-	const SPhysicalDeviceFeatures& features,
-	const SPhysicalDeviceLimits& limits
-) : patch_impl_t()
+CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(const ICPUPipelineLayout* pplnLayout) : patch_impl_t()
 {
 	const auto pc = pplnLayout->getPushConstantRanges();
 	for (auto it=pc.begin(); it!=pc.end(); it++)
+	if (it->stageFlags!=shader_stage_t::ESS_UNKNOWN)
 	{
-		if (it->offset>=limits.maxPushConstantsSize)
+		if (it->offset>=pushConstantBytes.size())
 			return;
 		const auto end = it->offset+it->size;
-		if (end<it->offset || end>limits.maxPushConstantsSize)
+		if (end<it->offset || end>pushConstantBytes.size())
 			return;
 		for (auto byte=it->offset; byte<end; byte++)
 			pushConstantBytes[byte] = it->stageFlags;
 	}
 	invalid = false;
+}
+bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+{
+	for (auto byte=limits.maxPushConstantsSize; byte<pushConstantBytes.size(); byte++)
+	if (pushConstantBytes[byte]!=shader_stage_t::ESS_UNKNOWN)
+		return false;
+	return true;
 }
 
 
@@ -219,28 +216,42 @@ struct PatchGetter
 	template<asset::Asset AssetType>
 	inline const CAssetConverter::patch_t<AssetType>* operator()(const AssetType* asset)
 	{
+		assert(asset);
 		uniqueCopyGroupID = p_inputs->getDependantUniqueCopyGroupID(uniqueCopyGroupID,user,asset);
-		user = asset;
 		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(*p_dfsCaches);
 		const auto range = dfsCache.equal_range(instance_t<AssetType>{
 			.asset = asset,
 			.meta = {.uniqueCopyGroupID = uniqueCopyGroupID}
 		});
 		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable 
-		if (range.first==range.second)
-			return nullptr;
-// TODO: actually do some thinking here
-	// - how to find patch? first compatible!
-		// + compatible with what? derived patch? asset usage?
-		return std::get<patch_vector_t<AssetType>>(*p_patchStorages).data()+range.first->first.meta.patchIndex;
+		if (range.first!=range.second)
+		{
+			CAssetConverter::patch_t<AssetType> requiredSubset(asset);
+			// TODO: derive patch from user & asset relationship
+			// no need to check for validity because everything that is in `dfsCache` is valid and `requiredSubset` must have been valid too
+			const auto* pPatches = std::get<patch_vector_t<AssetType>>(*p_patchStorages).data();
+			auto found = std::find_if(
+				range.first,range.second,
+				[&requiredSubset,pPatches](const auto& entry)->bool
+				{
+					return std::get<bool>(pPatches[entry.first.meta.patchIndex].combine(requiredSubset));
+				}
+			);
+			user = asset;
+			return pPatches+found->first.meta.patchIndex;
+		}
+		user = asset;
+		return nullptr;
 	}
 
+	const SPhysicalDeviceFeatures* pFeatures;
+	const SPhysicalDeviceLimits* pLimits;
 	const CAssetConverter::SInputs* const p_inputs;
 	const core::tuple_transform_t<patch_vector_t,CAssetConverter::supported_asset_types>* const p_patchStorages;
 	const core::tuple_transform_t<dfs_cache_t,CAssetConverter::supported_asset_types>* const p_dfsCaches;
 	// progressive state
-	size_t uniqueCopyGroupID;
-	const IAsset* user;
+	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
+	const IAsset* user = nullptr;
 };
 
 //
@@ -277,6 +288,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	core::tuple_transform_t<dfs_cache_t,supported_asset_types> dfsCaches = {};
 
 	{
+		// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
+		const auto& features = device->getEnabledFeatures();
+		const auto& limits = device->getPhysicalDevice()->getLimits();
+
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
 		// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 		{
@@ -287,7 +302,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				assert(asset);
 				// skip invalid inputs silently
-				if (!patch.valid())
+				if (!patch.valid(features,limits))
 					return {};
 
 				// get unique group
@@ -336,9 +351,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				dfsCache.emplace_hint(dfsCachedRange.second,record,created_t<AssetType>{CHashCache::NoContentHash,asset_cached_t<AssetType>{}});
 				return record.meta;
 			};
-			// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
-			const auto& features = device->getEnabledFeatures();
-			const auto& limits = device->getPhysicalDevice()->getLimits();
 			// initialize stacks
 			auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
 			{
@@ -352,9 +364,19 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				for (size_t i=0; i<count; i++)
 				if (auto asset=assets[i]; asset) // skip invalid inputs silently
 				{
-					// for explicitly given patches we don't try to create implicit patch and merge that with the explicit
-					// we trust the implicit patches are correct/feasible
-					patch_t<AssetType> patch = i<patches.size() ? patches[i]:patch_t<AssetType>(asset,features,limits);
+					patch_t<AssetType> patch(asset);
+					if (i<patches.size())
+					{
+						if (!patch.valid(features,limits))
+							continue;
+						auto overidepatch = patches[i];
+						if (!overidepatch.valid(features,limits))
+							continue;
+						bool combineSuccess;
+						std::tie(combineSuccess,patch) = patch.combine(overidepatch);
+						if (!combineSuccess)
+							continue;
+					}
 					metadata[i] = cache({},asset,std::move(patch));
 				}
 			};
@@ -374,7 +396,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
 						for (const auto& sampler : layout->getImmutableSamplers())
 						if (sampler)
-							cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get(),features,limits});
+							cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get()});
 						break;
 					}
 					case ICPUPipelineLayout::AssetType:
@@ -382,16 +404,16 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
 						for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 						if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
-							cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout,features,limits});
+							cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout});
 						break;
 					}
 					case ICPUComputePipeline::AssetType:
 					{
 						auto compPpln = static_cast<const ICPUComputePipeline*>(user);
 						const auto* layout = compPpln->getLayout();
-						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout,features,limits});
+						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout});
 						const auto* shader = compPpln->getSpecInfo().shader;
-						patch_t<ICPUShader> patch = {shader,features,limits};
+						patch_t<ICPUShader> patch = {shader};
 						patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
 						cache.operator()<ICPUShader>(entry,shader,std::move(patch));
 						break;
@@ -412,7 +434,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						const auto buffer = view->getUnderlyingBuffer();
 						if (buffer)
 						{
-							patch_t<ICPUBuffer> patch = {buffer,features,limits};
+							patch_t<ICPUBuffer> patch = {buffer};
 							// we have no clue how this will be used, so we mark both usages
 							patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
 							cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
@@ -453,7 +475,17 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// We mistrust every dependency such that the eject/update if needed.
 				// Its really important that the Deduplication gets performed Bottom-Up
 				auto& contentHash = entry.second.contentHash;
-				contentHash = retval.getHashCache()->hash<AssetType>(instance.asset,PatchGetter{&inputs,&finalPatchStorage,&dfsCaches,0xdeadbeefBADC0FFEull,nullptr},/*.mistrustLevel = */1);
+				contentHash = retval.getHashCache()->hash<AssetType>(
+					instance.asset,
+					PatchGetter{
+						&features,
+						&limits,
+						&inputs,
+						&finalPatchStorage,
+						&dfsCaches
+					},
+					/*.mistrustLevel = */1
+				);
 				// failed to hash alltogehter (only possible reason is failure of `PatchGetter` to provide a valid patch)
 				if (contentHash==CHashCache::NoContentHash)
 					continue;

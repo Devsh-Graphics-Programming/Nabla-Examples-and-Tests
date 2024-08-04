@@ -82,19 +82,17 @@ class CAssetConverter : public core::IReferenceCounted
 		template<asset::Asset AssetType>
 		struct patch_impl_t
 		{
-#define PATCH_IMPL_BOILERPLATE(ASSET_TYPE,...) using this_t = patch_impl_t<ASSET_TYPE>; \
+#define PATCH_IMPL_BOILERPLATE(ASSET_TYPE) using this_t = patch_impl_t<ASSET_TYPE>; \
 			public: \
 				inline patch_impl_t() = default; \
 				inline patch_impl_t(const this_t& other) = default; \
 				inline patch_impl_t(this_t&& other) = default; \
 				inline this_t& operator=(const this_t& other) = default; \
 				inline this_t& operator=(this_t&& other) = default; \
-				__VA_ARGS__ patch_impl_t(const ASSET_TYPE* asset, const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+				patch_impl_t(const ASSET_TYPE* asset); \
+				bool valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
 
-				PATCH_IMPL_BOILERPLATE(AssetType,inline) {}
-
-				// always valid
-				inline bool valid() const {return true;}
+				PATCH_IMPL_BOILERPLATE(AssetType);
 
 			protected:
 				// there's nothing to combine, so combining always produces the input successfully
@@ -108,8 +106,6 @@ class CAssetConverter : public core::IReferenceCounted
 		{
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUSampler);
-
-				inline bool valid() const { return anisotropyLevelLog2>5; }
 
 				uint8_t anisotropyLevelLog2 = 6;
 				
@@ -128,8 +124,6 @@ class CAssetConverter : public core::IReferenceCounted
 		{
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUShader);
-
-				inline bool valid() const {return hlsl::bitCount(static_cast<std::underlying_type_t<IGPUShader::E_SHADER_STAGE>>(stage))!=1;}
 
 				using shader_stage_t = asset::IShader::E_SHADER_STAGE;
 				shader_stage_t stage = shader_stage_t::ESS_UNKNOWN;
@@ -203,7 +197,7 @@ class CAssetConverter : public core::IReferenceCounted
 			// The assumption is we'll only ever be combining valid patches together.
 			inline std::pair<bool,this_t> combine(const this_t& other) const
 			{
-				assert(base_t::valid() && other.valid());
+				//assert(base_t::valid() && other.valid());
 				return base_t::combine(other);
 			}
 
@@ -300,7 +294,7 @@ class CAssetConverter : public core::IReferenceCounted
 					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
 					const patch_t<AssetType>* patch = patchGet(asset);
 					// failed to provide us with a patch, so fail the hash
-					if (!patch || !patch->valid())
+					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device and features
 						return NoContentHash;
 
 					// consult cache
@@ -669,6 +663,13 @@ class CAssetConverter : public core::IReferenceCounted
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
 };
 
+
+// nothing to do
+template<asset::Asset AssetType>
+inline CAssetConverter::patch_impl_t<AssetType>::patch_impl_t(const AssetType* asset) {}
+// always valid
+template<asset::Asset AssetType>
+inline bool CAssetConverter::patch_impl_t<AssetType>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits) { return true; }
 
 
 template<typename PatchGetter>
