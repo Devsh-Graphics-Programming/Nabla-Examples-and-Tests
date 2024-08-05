@@ -14,35 +14,47 @@ uint32_t3 gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
 } } }
 
 struct SharedMemoryAccessor {
-	void set(uint32_t idx, nbl::hlsl::complex_t<input_t> x) {
-		sharedmem[idx] = x.real();
-		sharedmem[idx + WorkgroupSize] = x.imag();
+	void set(uint32_t idx, nbl::hlsl::complex_t<input_t> value) 
+	{
+		sharedmem[idx] = value.real();
+		sharedmem[idx + WorkgroupSize] = value.imag();
 	}
 	
-	nbl::hlsl::complex_t<input_t> get(uint32_t idx) {
-		nbl::hlsl::complex_t<input_t> retVal = {sharedmem[idx], sharedmem[idx + WorkgroupSize]};
-		return retVal;
+	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<input_t>) value) 
+	{
+		value.real(sharedmem[idx]);
+		value.imag(sharedmem[idx + WorkgroupSize]);
 	}
 
-	void workgroupExecutionAndMemoryBarrier() {
+	void workgroupExecutionAndMemoryBarrier() 
+	{
 		AllMemoryBarrierWithGroupSync();
     }
+
 };
 
 struct Accessor {
-	void set(uint32_t idx, nbl::hlsl::complex_t<input_t> x) {
-		vk::RawBufferStore< vector<input_t, 2> >(pushConstants.outputAddress + sizeof(vector<input_t, 2>) * idx, vector<input_t, 2>(x.real(), x.imag()));
+	void set(uint32_t idx, nbl::hlsl::complex_t<input_t> value) 
+	{
+		vk::RawBufferStore< vector<input_t, 2> >(pushConstants.outputAddress + sizeof(vector<input_t, 2>) * idx, vector<input_t, 2>(value.real(), value.imag()));
 	}
 	
-	nbl::hlsl::complex_t<input_t> get(uint32_t idx) {
+	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<input_t>) value) 
+	{
 		vector<input_t, 2> aux = vk::RawBufferLoad< vector<input_t, 2> >(pushConstants.inputAddress + sizeof(vector<input_t, 2>) * idx);
-		nbl::hlsl::complex_t<input_t> retVal = {aux.x, aux.y};
-		return retVal;
+		value.real(aux.x);
+		value.imag(aux.y);
 	}
 
-	void workgroupExecutionAndMemoryBarrier() {
+	void workgroupExecutionAndMemoryBarrier() 
+	{
 		AllMemoryBarrierWithGroupSync();
     }
+
+	void memoryBarrier() 
+	{
+		AllMemoryBarrier();
+	}
 };
 
 [numthreads(WorkgroupSize,1,1)]
@@ -54,8 +66,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	// Workgroup	
 
-	nbl::hlsl::workgroup::FFT<2, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	nbl::hlsl::workgroup::FFT<ElementsPerThread, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 	accessor.workgroupExecutionAndMemoryBarrier();
-	nbl::hlsl::workgroup::FFT<2, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
+	nbl::hlsl::workgroup::FFT<ElementsPerThread, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 
 }
