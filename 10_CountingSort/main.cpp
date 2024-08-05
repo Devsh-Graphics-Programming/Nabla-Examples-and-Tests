@@ -89,7 +89,7 @@ public:
 		}
 
 		// People love Reflection but I prefer Shader Sources instead!
-		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(CountingPushData) };
+		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(CountingPushData) };
 
 		// This time we'll have no Descriptor Sets or Layouts because our workload has a widely varying size
 		// and using traditional SSBO bindings would force us to update the Descriptor Set every frame.
@@ -229,7 +229,7 @@ public:
 		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdBuf->beginDebugMarker("Prefix Sum Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 		cmdBuf->bindComputePipeline(prefixSumPipeline.get());
-		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
+		cmdBuf->pushConstants(layout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
 		cmdBuf->dispatch(ceil((float)element_count / (elements_per_thread * WorkgroupSize)), 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
@@ -271,7 +271,7 @@ public:
 		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdBuf->beginDebugMarker("Scatter Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 		cmdBuf->bindComputePipeline(scatterPipeline.get());
-		cmdBuf->pushConstants(layout.get(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
+		cmdBuf->pushConstants(layout.get(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
 		cmdBuf->dispatch(ceil((float)element_count / (elements_per_thread * WorkgroupSize)), 1, 1);
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
