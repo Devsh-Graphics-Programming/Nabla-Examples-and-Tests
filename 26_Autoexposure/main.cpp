@@ -347,12 +347,15 @@ public:
 			queue->endCapture();
 		}
 
+		m_computeSubgroupSize = m_physicalDevice->getLimits().maxComputeWorkgroupSubgroups;
+
 		return true;
 	}
 
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+
 		// Acquire
 		auto acquire = m_surface->acquireNextImage();
 		if (!acquire)
@@ -483,6 +486,9 @@ protected:
 	// window
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
+
+	// constants
+	uint32_t m_computeSubgroupSize = 0;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)
