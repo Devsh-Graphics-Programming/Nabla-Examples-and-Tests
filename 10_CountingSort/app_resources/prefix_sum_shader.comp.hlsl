@@ -11,9 +11,9 @@ groupshared uint32_t sdata[BucketCount];
 
 struct SharedAccessor
 {
-    uint32_t get(const uint32_t index)
+    void get(const uint32_t index, NBL_REF_ARG(uint32_t) value)
     {
-        return sdata[index];
+        value = sdata[index];
     }
 
     void set(const uint32_t index, const uint32_t value)
@@ -46,7 +46,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     params.minimum = pushData.minimum;
     params.maximum = pushData.maximum;
 
-    using Counter = nbl::hlsl::sort::counting < WorkgroupSize, BucketCount, PtrAccessor, PtrAccessor, PtrAccessor, SharedAccessor>;
+    using Counter = nbl::hlsl::sort::counting < WorkgroupSize, BucketCount, PtrAccessor, PtrAccessor, PtrAccessor, SharedAccessor, PtrAccessor::type_t>;
     Counter counter = Counter::create(nbl::hlsl::glsl::gl_WorkGroupID().x);
 
     const Ptr input_ptr = Ptr::create(pushData.inputKeyAddress);

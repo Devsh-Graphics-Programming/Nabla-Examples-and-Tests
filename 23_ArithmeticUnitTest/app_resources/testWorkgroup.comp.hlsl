@@ -17,9 +17,9 @@ groupshared uint32_t scratch[ScratchSz];
 template<uint16_t offset>
 struct ScratchProxy
 {
-	uint32_t get(const uint32_t ix)
+	void get(const uint32_t ix, NBL_REF_ARG(uint32_t) value)
 	{
-		return scratch[ix+offset];
+		value = scratch[ix+offset];
 	}
 	void set(const uint32_t ix, const uint32_t value)
 	{
