@@ -23,9 +23,9 @@ struct SGridData
 
 static const float POSITION_EPSILON = 1e-4;
 
-void clampPosition(inout float4 position, float4 gridMin, float4 gridMax)
+float4 clampPosition(float4 position, float4 gridMin, float4 gridMax)
 {
-    position.xyz = clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON);
+    return float4(clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON), 1);
 }
 
 float4 gridPosToWorldPos(float4 position, SGridData data)

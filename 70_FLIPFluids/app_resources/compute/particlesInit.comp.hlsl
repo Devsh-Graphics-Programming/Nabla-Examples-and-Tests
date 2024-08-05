@@ -20,15 +20,11 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     int y = pid / (gridData.particleInitSize.x * 2) % (gridData.particleInitSize.y * 2);
     int z = pid / ((gridData.particleInitSize.x * 2) * (gridData.particleInitSize.y * 2));
     float4 position = gridPosToWorldPos(gridData.particleInitMin + 0.25f + float4(x, y, z, 1) * 0.5f, gridData);
-    clampPosition(position, gridData.worldMin, gridData.worldMax);
+    position = clampPosition(position, gridData.worldMin, gridData.worldMax);
 
-    // particleBuffer[pid].id = pid;
-    // particleBuffer[pid].position = float4(1, 0, 0, 1);
-    // particleBuffer[pid].velocity = position;
-
-    p.id = 1;
+    p.id = pid;
     p.position = position;
-    p.velocity = float4(0, 0, 0, 0);
+    p.velocity = position;  // temp for now
 
     particleBuffer[pid] = p;
 }

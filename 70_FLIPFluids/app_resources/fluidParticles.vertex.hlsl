@@ -10,7 +10,7 @@ cbuffer CameraData
     SMVPParams camParams;
 };
 
-[[vk::binding(1, 1)]] RWStructuredBuffer<Particle> particleBuffer;
+[[vk::binding(1, 1)]] StructuredBuffer<Particle> particleBuffer;
 
 GSInput main(uint vertexID : SV_VertexID)
 {

@@ -88,9 +88,9 @@ void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
         const Particle p = particleBuffer[pid];
 
         float3 weight;
-        weight.x = getWeight(p.position, posvx, _GridInvSpacing);
-        weight.y = getWeight(p.position, posvy, _GridInvSpacing);
-        weight.z = getWeight(p.position, posvz, _GridInvSpacing);
+        weight.x = getWeight(p.position, posvx, gridData.gridInvCellSize);
+        weight.y = getWeight(p.position, posvy, gridData.gridInvCellSize);
+        weight.z = getWeight(p.position, posvz, gridData.gridInvCellSize);
 
         totalWeight += weight;
         totalVel += weight * p.velocity;

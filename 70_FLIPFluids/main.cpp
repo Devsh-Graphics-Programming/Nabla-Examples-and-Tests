@@ -262,20 +262,6 @@ public:
 		gridData.worldMax = simAreaSize * 0.5f;
 		numParticles = gridData.particleInitSize.x * gridData.particleInitSize.y * gridData.particleInitSize.z * particlesPerCell;
 
-		SParticleRenderParams pRenderParams{};
-		{
-			float zNear = 0.1f, zFar = 10000.f;
-			core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-			core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
-			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
-
-			pRenderParams.zNear = zNear;
-			pRenderParams.zFar = zFar;
-		}
-
-		pRenderParams.radius = gridData.gridCellSize * 0.4f;
-
 		// create buffers
 		video::IGPUBuffer::SCreationParams params = {};
 		params.size = sizeof(SGridData);
@@ -371,58 +357,6 @@ public:
 		//params.usage = IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
 		//createBuffer(vertexBuffer, params);
 
-		// create command buffer and pool
-		smart_refctd_ptr<video::IGPUCommandBuffer> cmdbuf;
-		IQueue* const queue = getComputeQueue();
-		smart_refctd_ptr<video::IGPUCommandPool> cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
-		if (!cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf))
-		{
-			logFail("Failed to create command buffers!\n");
-			return false;
-		}
-
-		// update one-time buffers, init particles
-		constexpr auto StartedValue = 0;
-		constexpr auto FinishedValue = 45;
-		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(StartedValue);
-		{
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
-			SBufferRange<IGPUBuffer> gridDataRange{
-				.size = gridDataBuffer->getSize(),
-				.buffer = gridDataBuffer,
-			};
-			cmdbuf->updateBuffer(gridDataRange, &gridData);
-
-			SBufferRange<IGPUBuffer> pParamsRange{
-				.size = pParamsBuffer->getSize(),
-				.buffer = pParamsBuffer,
-			};
-			cmdbuf->updateBuffer(pParamsRange, &pRenderParams);
-
-			cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, m_initParticleDs.size(), &m_initParticleDs.begin()->get());
-			cmdbuf->dispatch(numParticles, 1, 1);
-
-			cmdbuf->end();
-
-			IQueue::SSubmitInfo submitInfo = {};
-			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufs[] = {{.cmdbuf = cmdbuf.get()}};
-			submitInfo.commandBuffers = cmdbufs;
-			const IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {{.semaphore = progress.get(), .value = FinishedValue, .stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT}};
-			submitInfo.signalSemaphores = signals;
-
-			queue->startCapture();
-			queue->submit({{submitInfo}});
-			queue->endCapture();
-		}
-
-		const ISemaphore::SWaitInfo waitInfos[] = {{
-				.semaphore = progress.get(),
-				.value = FinishedValue
-			}};
-		m_device->blockForSemaphores(waitInfos);
-
 		/*
 		auto buffData = reinterpret_cast<const uint32_t*>(allocation.memory->getMappedPointer());
 		assert(allocation.offset==0);
@@ -514,6 +448,27 @@ public:
 			}
 		}
 
+		bool bCaptureTestInitParticles = false;
+		if (m_shouldInitParticles)
+		{
+			bCaptureTestInitParticles = true;
+
+			SParticleRenderParams pRenderParams{};
+			{
+				float zNear = 0.1f, zFar = 10000.f;
+				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
+				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
+				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+
+				pRenderParams.zNear = zNear;
+				pRenderParams.zFar = zFar;
+			}
+			pRenderParams.radius = gridData.gridCellSize * 0.4f;
+
+			initializeParticles(cmdbuf, pRenderParams);
+		}
+
 		/*
 		for (uint32_t i = 0; i < m_substepsPerFrame; i++)
 		{
@@ -525,9 +480,6 @@ public:
 			dispatchAdvection();				// update/advect fluid
 		}
 		*/
-
-		// TODO: pipeline barrier for particles buffer
-
 
 		// draw particles
 		auto* queue = getGraphicsQueue();
@@ -548,6 +500,52 @@ public:
 			.extent = { m_window->getWidth(), m_window->getHeight() }
 		};
 		cmdbuf->setScissor(0u, 1u, &scissor);
+
+		// TODO: pipeline barrier for particles buffer
+		{
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::GEOMETRY_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = cameraBuffer->getSize(),
+					.buffer = cameraBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::GEOMETRY_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = pParamsBuffer->getSize(),
+					.buffer = pParamsBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = particleBuffer->getSize(),
+					.buffer = particleBuffer,
+				};
+			}
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+		}
 
 		{
 			const VkRect2D currentRenderArea =
@@ -606,8 +604,12 @@ public:
 					.commandBuffers = commandBuffers,
 					.signalSemaphores = rendered
 				}};
+				if (bCaptureTestInitParticles)
+					queue->startCapture();
 				if (queue->submit(infos)!=IQueue::RESULT::SUCCESS)
 					m_submitIx--;
+				if (bCaptureTestInitParticles)
+					queue->endCapture();
 			}
 		}
 
@@ -1026,6 +1028,31 @@ private:
 	}
 
 
+	// in-loop functions
+	void initializeParticles(IGPUCommandBuffer* cmdbuf, const SParticleRenderParams& pRenderParams)
+	{
+		{
+			SBufferRange<IGPUBuffer> gridDataRange{
+				.size = gridDataBuffer->getSize(),
+				.buffer = gridDataBuffer,
+			};
+			cmdbuf->updateBuffer(gridDataRange, &gridData);
+
+			SBufferRange<IGPUBuffer> pParamsRange{
+				.size = pParamsBuffer->getSize(),
+				.buffer = pParamsBuffer,
+			};
+			cmdbuf->updateBuffer(pParamsRange, &pRenderParams);
+
+			cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, m_initParticleDs.size(), &m_initParticleDs.begin()->get());
+			cmdbuf->dispatch(numParticles, 1, 1);
+		}
+
+		m_shouldInitParticles = false;
+	}
+
+
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_graphicsPipeline;
@@ -1060,6 +1087,8 @@ private:
 
 	Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), core::matrix4SIMD());
 	video::CDumbPresentationOracle oracle;
+
+	bool m_shouldInitParticles = true;
 
 	// simulation constants
 	uint32_t m_substepsPerFrame = 1;
