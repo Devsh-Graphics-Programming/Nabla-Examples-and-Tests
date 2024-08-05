@@ -17,8 +17,8 @@ cbuffer ParticleParams
 
 static const float4 quadVertices[4] = {
     float4(-1, -1, 0, 1),
-    float4(-1, 1, 0, 1),
     float4(1, -1, 0, 1),
+    float4(-1, 1, 0, 1),
     float4(1, 1, 0, 1)
 };
 
@@ -64,6 +64,7 @@ void main(point GSInput input[1], inout TriangleStream<PSInput> outStream)
         output.vsSpherePos = mul(camParams.V, float4(wsSpherePos, 1)).xyz;
 
         output.position = mul(camParams.MVP, float4(mul(vertMat, quadVertices[i]).xyz, 1));
+        //output.position.xyz = quadVertices[i].xyz * 0.5;
 
         output.color = float4(1, 1, 1, 1);
 

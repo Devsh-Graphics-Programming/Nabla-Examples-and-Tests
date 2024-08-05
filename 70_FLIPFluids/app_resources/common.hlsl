@@ -8,11 +8,11 @@ NBL_CONSTEXPR uint32_t WorkgroupSize = 128;
 #ifdef __HLSL_VERSION
 struct Particle
 {
-    float id;
-    float pad0[3];
-
     float4 position;
     float4 velocity;
+
+    uint32_t id;
+    uint3 pad;
 };
 
 struct SMVPParams

@@ -24,11 +24,11 @@ using namespace video;
 // struct Particle defined in shader???
 struct Particle
 {
-    float id;
-    float pad0[3];
-
-    float32_t4 position;
+	float32_t4 position;
     float32_t4 velocity;
+
+    uint32_t id;
+    uint32_t pad[3];
 };
 
 struct SGridData
@@ -254,7 +254,7 @@ public:
 		gridData.gridInvCellSize = 1.f / gridData.gridCellSize;
 		gridData.gridSize = int32_t4{128, 128, 128, 0};
 		gridData.particleInitMin = int32_t4{2, 2, 2, 0};
-		gridData.particleInitMax = int32_t4{64, 64, 64, 0};
+		gridData.particleInitMax = int32_t4{34, 34, 34, 0};
 		gridData.particleInitSize = gridData.particleInitMax - gridData.particleInitMin;
 		float32_t4 simAreaSize = gridData.gridSize;
 		simAreaSize *= gridData.gridCellSize;
@@ -970,13 +970,14 @@ private:
 		}
 
 		SBlendParams blendParams = {};
+		blendParams.logicOp = ELO_NO_OP;
 		blendParams.blendParams[0u].srcColorFactor = asset::EBF_SRC_ALPHA;
 		blendParams.blendParams[0u].dstColorFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
 		blendParams.blendParams[0u].colorBlendOp = asset::EBO_ADD;
-		blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE;
+		blendParams.blendParams[0u].srcAlphaFactor = asset::EBF_ONE_MINUS_SRC_ALPHA;
 		blendParams.blendParams[0u].dstAlphaFactor = asset::EBF_ZERO;
 		blendParams.blendParams[0u].alphaBlendOp = asset::EBO_ADD;
-		blendParams.blendParams[0u].colorWriteMask = (1u << 4u) - 1u;
+		blendParams.blendParams[0u].colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);
 
 		{
 			IGPUShader::SSpecInfo specInfo[3] = {

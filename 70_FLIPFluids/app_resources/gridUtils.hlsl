@@ -25,12 +25,12 @@ static const float POSITION_EPSILON = 1e-4;
 
 void clampPosition(inout float4 position, float4 gridMin, float4 gridMax)
 {
-    position = clamp(position, gridMin + POSITION_EPSILON, gridMax - POSITION_EPSILON);
+    position.xyz = clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON);
 }
 
 float4 gridPosToWorldPos(float4 position, SGridData data)
 {
-    return data.worldMin + position * data.gridCellSize;
+    return float4(data.worldMin.xyz + position.xyz * data.gridCellSize, 1);
 }
 #endif
 

@@ -11,6 +11,8 @@ float4 main(PSInput input) : SV_TARGET
     float aLen = length(a);
     float r = input.radius;
 
+    float4 outColor = input.color;
+
     float r2 = MdotA * MdotA - (aLen * aLen - r * r);
     if (r2 < 0)
         discard;
@@ -18,5 +20,5 @@ float4 main(PSInput input) : SV_TARGET
     float3 vsPos = (-MdotA - sqrt(r2)) * m;
     float depth = vsPos.z;
 
-    return input.color;
+    return outColor;
 }

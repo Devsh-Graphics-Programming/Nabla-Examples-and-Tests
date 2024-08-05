@@ -12,17 +12,23 @@ cbuffer GridData
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-    const uint pid = ID.x;
+    uint32_t pid = ID.x;
 
-    Particle p = (Particle)0;
+    Particle p;
 
-    p.id = pid;
+    int x = pid % (gridData.particleInitSize.x * 2);
+    int y = pid / (gridData.particleInitSize.x * 2) % (gridData.particleInitSize.y * 2);
+    int z = pid / ((gridData.particleInitSize.x * 2) * (gridData.particleInitSize.y * 2));
+    float4 position = gridPosToWorldPos(gridData.particleInitMin + 0.25f + float4(x, y, z, 1) * 0.5f, gridData);
+    clampPosition(position, gridData.worldMin, gridData.worldMax);
 
-    const int x = pid % (gridData.particleInitSize.x * 2);
-    const int y = pid / (gridData.particleInitSize.x * 2) % (gridData.particleInitSize.y * 2);
-    const int z = pid / ((gridData.particleInitSize.x * 2) * (gridData.particleInitSize.y * 2));
-    p.position = gridPosToWorldPos(gridData.particleInitMin + 0.25f + float4(x, y, z, 1) * 0.5f, gridData);
-    clampPosition(p.position, gridData.worldMin, gridData.worldMax);
+    // particleBuffer[pid].id = pid;
+    // particleBuffer[pid].position = float4(1, 0, 0, 1);
+    // particleBuffer[pid].velocity = position;
+
+    p.id = 1;
+    p.position = position;
+    p.velocity = float4(0, 0, 0, 0);
 
     particleBuffer[pid] = p;
 }
