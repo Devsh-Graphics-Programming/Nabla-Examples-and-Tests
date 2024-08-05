@@ -14,6 +14,7 @@ struct PushConstantData
 
 #define _NBL_HLSL_WORKGROUP_SIZE_ 128
 NBL_CONSTEXPR uint32_t WorkgroupSize = _NBL_HLSL_WORKGROUP_SIZE_;
-NBL_CONSTEXPR uint32_t complexElementCount = WorkgroupSize << 1;
+NBL_CONSTEXPR uint32_t ElementsPerThread = 4;
+NBL_CONSTEXPR uint32_t complexElementCount = WorkgroupSize * ElementsPerThread;
 
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"

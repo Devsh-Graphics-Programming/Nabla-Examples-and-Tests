@@ -124,7 +124,7 @@ public:
 		
 
 		// People love Reflection but I prefer Shader Sources instead!
-		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
+		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 
 		{
 			auto layout = m_device->createPipelineLayout({ &pcRange,1 });
@@ -192,19 +192,19 @@ public:
 			for (auto j = 0; j < complexElementCount; j++)
 			{
 				//Random array
-				/*
+				
 				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
-				*/
+				
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
 				/*
 				float x = j > 0 ? 0.f : 1.f;
 				float y = 0;
 				*/
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
-				
+				/*
 				float x = 2.f;
 				float y = 0.f;
-				
+				*/
 				inputPtr[2 * j] = x;
 				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
@@ -249,7 +249,7 @@ public:
 			copyInfo.dstOffset = 0;
 			copyInfo.size = m_deviceLocalBuffer->getSize();
 			cmdbuf->copyBuffer(m_upStreamingBuffer->getBuffer(), m_deviceLocalBuffer.get(), 1, &copyInfo);
-			cmdbuf->pushConstants(m_pipeline->getLayout(), IShader::ESS_COMPUTE, 0u, sizeof(pc), &pc);
+			cmdbuf->pushConstants(m_pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
 			// Good old trick to get rounded up divisions, in case you're not familiar
 			cmdbuf->dispatch(1, 1, 1);
 
