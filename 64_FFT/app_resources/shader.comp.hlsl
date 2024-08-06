@@ -5,7 +5,8 @@
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
-groupshared input_t sharedmem[2 * WorkgroupSize];
+// careful: change size according to Scalar type
+groupshared uint32_t sharedmem[2 * WorkgroupSize];
 
 // Users MUST define this method for FFT to work
 namespace nbl { namespace hlsl { namespace glsl
@@ -14,16 +15,14 @@ uint32_t3 gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
 } } }
 
 struct SharedMemoryAccessor {
-	void set(uint32_t idx, nbl::hlsl::complex_t<input_t> value) 
+	void set(uint32_t idx, uint32_t value) 
 	{
-		sharedmem[idx] = value.real();
-		sharedmem[idx + WorkgroupSize] = value.imag();
+		sharedmem[idx] = value;
 	}
 	
-	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<input_t>) value) 
+	void get(uint32_t idx, NBL_REF_ARG(uint32_t) value) 
 	{
-		value.real(sharedmem[idx]);
-		value.imag(sharedmem[idx + WorkgroupSize]);
+		value = sharedmem[idx];
 	}
 
 	void workgroupExecutionAndMemoryBarrier() 
@@ -66,8 +65,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	// Workgroup	
 
-	nbl::hlsl::workgroup::FFT<ElementsPerThread, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
-	accessor.workgroupExecutionAndMemoryBarrier();
+	//nbl::hlsl::workgroup::FFT<ElementsPerThread, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	//accessor.workgroupExecutionAndMemoryBarrier();
 	nbl::hlsl::workgroup::FFT<ElementsPerThread, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 
 }

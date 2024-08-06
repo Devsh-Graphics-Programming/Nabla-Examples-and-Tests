@@ -89,7 +89,7 @@ public:
 		// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
 		// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
 		// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
-		constexpr uint32_t DownstreamBufferSize = sizeof(output_t) << 23;
+		constexpr uint32_t DownstreamBufferSize = sizeof(input_t) << 23;
 		constexpr uint32_t UpstreamBufferSize = sizeof(input_t) << 23;
 
 		m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize, UpstreamBufferSize);
@@ -192,19 +192,19 @@ public:
 			for (auto j = 0; j < complexElementCount; j++)
 			{
 				//Random array
-				
-				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
-				
+				/*
+				input_t x = rng() / input_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / input_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+				*/
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
 				/*
-				float x = j > 0 ? 0.f : 1.f;
-				float y = 0;
+				input_t x = j > 0 ? 0.f : 1.f;
+				input_t y = 0;
 				*/
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
-				/*
-				float x = 2.f;
-				float y = 0.f;
-				*/
+				
+				input_t x = 1.f;
+				input_t y = 0.f;
+				
 				inputPtr[2 * j] = x;
 				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
@@ -319,7 +319,7 @@ public:
 				assert(dstOffset == 0 && size == outputSize);
 
 				std::cout << "Begin array GPU\n";
-				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
+				input_t* const data = reinterpret_cast<input_t*>(const_cast<void*>(bufSrc));
 				for (auto i = 0u; i < complexElementCount; i++) {
 					std::cout << "(" << data[2 * i] << ", " << data[2 * i + 1] << "), ";
 				}
