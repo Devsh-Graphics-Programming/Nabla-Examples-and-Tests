@@ -48,6 +48,12 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     float scaledRadius = dist * radius / sqrt(dist * dist - radius * radius);
 
+    const float4 color1 = float4(0, 0.35, 0.75, 1);
+    const float4 color2 = float4(0.6, 0.75, 0.92, 1);
+    float speed = length(p.velocity.xyz);
+    float factor = saturate((speed - 2.0) / 8.0);
+    float4 color = lerp(color1, color2, factor);
+
     float4x4 mat = 0;
     mat._m00_m10_m20 = x;
     mat._m01_m11_m21 = y;
@@ -75,7 +81,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
         vertex.position = mul(camParams.MVP, float4(mul(vertMat, quadVertices[vertexOrder[i]]).xyz, 1));
 
-        vertex.color = float4(0.1, 0.1, 0.8, 1);
+        vertex.color = color;//float4(0.1, 0.1, 0.8, 1);
 
         particleVertexBuffer[quadBeginIdx + i] = vertex;
     }

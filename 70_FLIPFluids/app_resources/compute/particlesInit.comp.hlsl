@@ -26,7 +26,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     p.id = pid;
     p.position = position;// float4(0, pid, 0, 1);//position;
-    p.velocity = position;  // temp for now
+    p.velocity = float4(0, 0, 0, 1);
 
     particleBuffer[pid] = p;
 }

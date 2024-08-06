@@ -22,6 +22,7 @@ struct SMVPParams
 	float4x4 MVP;
 	float4x4 M;
 	float4x4 V;
+    float4x4 P;
 };
 #endif
 

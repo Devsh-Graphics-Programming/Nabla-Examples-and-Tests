@@ -53,6 +53,7 @@ struct SMVPParams
 	float MVP[4*4];
 	float M[4*4];
     float V[4*4];
+	float P[4*4];
 };
 
 struct SParticleRenderParams
@@ -283,8 +284,8 @@ public:
 
 		{
 			float zNear = 0.1f, zFar = 10000.f;
-			core::vectorSIMDf cameraPosition(-6, 2.5, -4);
-			core::vectorSIMDf cameraTarget(-0, 0, 0);
+			core::vectorSIMDf cameraPosition(10, 5, 8);
+			core::vectorSIMDf cameraTarget(0, 0, 0);
 			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
 			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
 
@@ -440,6 +441,7 @@ public:
 		SBufferRange<IGPUBuffer> camDataRange;
 		{
 			const auto viewMatrix = camera.getViewMatrix();
+			const auto projectionMatrix = camera.getProjectionMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
 
 			core::matrix3x4SIMD modelMatrix;
@@ -457,6 +459,7 @@ public:
 			memcpy(camData.MVP, modelViewProjectionMatrix.pointer(), sizeof(camData.MVP));
 			memcpy(camData.M, modelMat.pointer(), sizeof(camData.M));
 			memcpy(camData.V, viewMatrix.pointer(), sizeof(camData.V));
+			memcpy(camData.P, projectionMatrix.pointer(), sizeof(camData.P));
 			{
 				camDataRange.buffer = cameraBuffer;
 				camDataRange.size = cameraBuffer->getSize();
@@ -980,13 +983,13 @@ private:
 		{
 			// init descriptors
 			video::IGPUDescriptorSetLayout::SBinding bindingsSet1[] = {
-				//{
-				//	.binding = 0u,
-				//	.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-				//	.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				//	.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_GEOMETRY,
-				//	.count = 1u,
-				//},
+				{
+					.binding = 0u,
+					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				},
 				{
 					.binding = 1u,
 					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
@@ -1026,9 +1029,9 @@ private:
 
 		// write descriptors
 		{
-			//IGPUDescriptorSet::SDescriptorInfo camInfo;
-			//camInfo.desc = smart_refctd_ptr(cameraBuffer);
-			//camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
+			IGPUDescriptorSet::SDescriptorInfo camInfo;
+			camInfo.desc = smart_refctd_ptr(cameraBuffer);
+			camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
 			//IGPUDescriptorSet::SDescriptorInfo particleInfo;
 			//particleInfo.desc = smart_refctd_ptr(particleBuffer);
 			//particleInfo.info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
@@ -1038,12 +1041,13 @@ private:
 			IGPUDescriptorSet::SDescriptorInfo verticesInfo;
 			verticesInfo.desc = smart_refctd_ptr(particleVertexBuffer);
 			verticesInfo.info.buffer = {.offset = 0, .size = particleVertexBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+			IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
+				{.dstSet = m_renderDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo},
 				{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &verticesInfo},
 				//{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &particleInfo},
 				//{.dstSet = m_renderDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &pParamsInfo}
 			};
-			m_device->updateDescriptorSets(std::span(writes, 1), {});
+			m_device->updateDescriptorSets(std::span(writes, 2), {});
 		}
 
 		SBlendParams blendParams = {};
