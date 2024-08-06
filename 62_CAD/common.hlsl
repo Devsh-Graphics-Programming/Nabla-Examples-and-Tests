@@ -2,6 +2,7 @@
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
 #include <nbl/builtin/hlsl/limits.hlsl>
+#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
@@ -12,7 +13,9 @@ enum class ObjectType : uint32_t
     LINE = 0u,
     QUAD_BEZIER = 1u,
     CURVE_BOX = 2u,
-    POLYLINE_CONNECTOR = 3u
+    POLYLINE_CONNECTOR = 3u,
+    FONT_GLYPH = 4u,
+    IMAGE = 5u
 };
 
 enum class MajorAxis : uint32_t
@@ -53,6 +56,56 @@ struct QuadraticBezierInfo
 static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 #endif
 
+struct GlyphInfo
+{
+    float64_t2 topLeft; // 2 * 8 = 16 bytes
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (32)
+    // unorm8 minU;
+    // unorm8 minV;
+    // uint16 textureId;
+    uint32_t minUV_textureID_packed; // 4 bytes (36)
+    
+#ifndef __HLSL_VERSION
+    GlyphInfo(float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
+        topLeft(topLeft),
+        dirU(dirU),
+        aspectRatio(aspectRatio)
+    {
+        assert(textureId < nbl::hlsl::numeric_limits<uint16_t>::max);
+        packMinUV_TextureID(minUV, textureId);
+    }
+#endif
+
+    void packMinUV_TextureID(float32_t2 minUV, uint16_t textureId)
+    {
+        minUV_textureID_packed = textureId;
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.x * 255.0f), 16, 8);
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.y * 255.0f), 24, 8);
+    }
+
+    float32_t2 getMinUV()
+    {
+        return float32_t2(
+            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 16, 8)) / 255.0,
+            float32_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 24, 8)) / 255.0
+        );
+    }
+
+    uint16_t getTextureID()
+    {
+        return uint16_t(nbl::hlsl::glsl::bitfieldExtract<uint32_t>(minUV_textureID_packed, 0, 16));
+    }
+};
+
+struct ImageObjectInfo
+{
+    float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    float32_t2 dirU; // 2 * 4 = 8 bytes (24)
+    float32_t aspectRatio; // 4 bytes (28)
+    uint32_t textureID; // 4 bytes (32)
+};
+
 struct PolylineConnector
 {
     float64_t2 circleCenter;
@@ -66,7 +119,7 @@ struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
     float64_t2 aabbMin; // 16
-    float64_t2 aabbMax; // 32
+    float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
     float32_t2 curveMin[3]; // 56
     float32_t2 curveMax[3]; // 80
 };
@@ -170,9 +223,12 @@ struct LineStyle
 #ifndef __HLSL_VERSION
 inline bool operator==(const LineStyle& lhs, const LineStyle& rhs)
 {
+    // Compare bits of the screen space line width values, as they may have been bit cast into integers
+    // for the texture IDs, and can't be compared when that results in a NaN or Infinity float
+    const int comparisonResult = std::memcmp(&lhs.screenSpaceLineWidth, &rhs.screenSpaceLineWidth, sizeof(float));
     const bool areParametersEqual =
         lhs.color == rhs.color &&
-        lhs.screenSpaceLineWidth == rhs.screenSpaceLineWidth &&
+        comparisonResult == 0 &&
         lhs.worldSpaceLineWidth == rhs.worldSpaceLineWidth &&
         lhs.stipplePatternSize == rhs.stipplePatternSize &&
         lhs.reciprocalStipplePatternLen == rhs.reciprocalStipplePatternLen &&
@@ -197,6 +253,9 @@ NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
+NBL_CONSTEXPR float MSDFPixelRange = 4.0;
+NBL_CONSTEXPR float MSDFSize = 32.0; 
+NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
 #ifdef __HLSL_VERSION
 
@@ -298,24 +357,55 @@ struct PSInput
     // Set functions used in vshader, get functions used in fshader
     // We have to do this because we don't have union in hlsl and this is the best way to alias
     
-    // data1 (w component reserved for later)
+    /* SHARED: ALL ObjectTypes */
     ObjectType getObjType() { return (ObjectType) data1.x; }
     uint getMainObjectIdx() { return data1.y; }
-    float getLineThickness() { return asfloat(data1.z); }
-    float getPatternStretch() { return asfloat(data1.w); }
     
     void setObjType(ObjectType objType) { data1.x = (uint) objType; }
     void setMainObjectIdx(uint mainObjIdx) { data1.y = mainObjIdx; }
+    
+    /* SHARED: LINE + QUAD_BEZIER (Curve Outlines) */
+    float getLineThickness() { return asfloat(data1.z); }
+    float getPatternStretch() { return asfloat(data1.w); }
+
     void setLineThickness(float lineThickness) { data1.z = asuint(lineThickness); }
     void setPatternStretch(float stretch) { data1.w = asuint(stretch); }
+
+    void setCurrentPhaseShift(float phaseShift)  { interp_data5.x = phaseShift; }
+    float getCurrentPhaseShift() { return interp_data5.x; }
+
+    void setCurrentWorldToScreenRatio(float worldToScreen) { interp_data5.y = worldToScreen; }
+    float getCurrentWorldToScreenRatio() { return interp_data5.y; }
     
-    // data2
+    /* LINE */
     float2 getLineStart() { return data2.xy; }
     float2 getLineEnd() { return data2.zw; }
-    
     void setLineStart(float2 lineStart) { data2.xy = lineStart; }
     void setLineEnd(float2 lineEnd) { data2.zw = lineEnd; }
     
+    /* QUAD_BEZIER */
+    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
+    }
+    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
+    {
+        data2.xy = quadratic.A;
+        data2.zw = quadratic.B;
+        data3.xy = quadratic.C;
+    }
+    
+    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
+    {
+        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
+        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
+    }
+    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
+    {
+        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
+    }
+    
+    /* CURVE_BOX */
     // Curves are split in the vertex shader based on their tmin and tmax
     // Min curve is smaller in the minor coordinate (e.g. in the default of y top to bottom sweep,
     // curveMin = smaller x / left, curveMax = bigger x / right)
@@ -360,64 +450,15 @@ struct PSInput
     }
 
     // Curve box value along minor & major axis
-    float getMinorBBoxUv() { return interp_data5.x; };
-    void setMinorBBoxUv(float minorBBoxUv) { interp_data5.x = minorBBoxUv; }
-    float getMajorBBoxUv() { return interp_data5.y; };
-    void setMajorBBoxUv(float majorBBoxUv) { interp_data5.y = majorBBoxUv; }
+    float getMinorBBoxUV() { return interp_data5.x; };
+    void setMinorBBoxUV(float minorBBoxUV) { interp_data5.x = minorBBoxUV; }
+    float getMajorBBoxUV() { return interp_data5.y; };
+    void setMajorBBoxUV(float majorBBoxUV) { interp_data5.y = majorBBoxUV; }
 
     float2 getCurveBoxScreenSpaceSize() { return asfloat(data1.zw); }
     void setCurveBoxScreenSpaceSize(float2 aabbSize) { data1.zw = asuint(aabbSize); }
-
-    // data2 + data3.xy
-    nbl::hlsl::shapes::Quadratic<float> getQuadratic()
-    {
-        return nbl::hlsl::shapes::Quadratic<float>::construct(data2.xy, data2.zw, data3.xy);
-    }
     
-    void setQuadratic(nbl::hlsl::shapes::Quadratic<float> quadratic)
-    {
-        data2.xy = quadratic.A;
-        data2.zw = quadratic.B;
-        data3.xy = quadratic.C;
-    }
-    
-    // data3.zw + data4
-    
-    void setQuadraticPrecomputedArcLenData(nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator preCompData) 
-    {
-        data3.zw = float2(preCompData.lenA2, preCompData.AdotB);
-        data4 = float4(preCompData.a, preCompData.b, preCompData.c, preCompData.b_over_4a);
-    }
-    
-    nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator getQuadraticArcLengthCalculator()
-    {
-        return nbl::hlsl::shapes::Quadratic<float>::ArcLengthCalculator::construct(data3.z, data3.w, data4.x, data4.y, data4.z, data4.w);
-    }
-
-    // data5.x
-
-    void setCurrentPhaseShift(float phaseShift)
-    {
-        interp_data5.x = phaseShift;
-    }
-
-    float getCurrentPhaseShift()
-    {
-        return interp_data5.x;
-    }
-    
-    // Use only for Lines and QuadBeziers, other objects use this slot of interp_data5.y
-    void setCurrentWorldToScreenRatio(float worldToScreen)
-    {
-        interp_data5.y = worldToScreen;
-    }
-
-    float getCurrentWorldToScreenRatio()
-    {
-        return interp_data5.y;
-    }
-    // POLYLINE_CONNECTOR data
-
+    /* POLYLINE_CONNECTOR */
     void setPolylineConnectorTrapezoidStart(float2 trapezoidStart) { data2.xy = trapezoidStart; }
     void setPolylineConnectorTrapezoidEnd(float2 trapezoidEnd) { data2.zw = trapezoidEnd; }
     void setPolylineConnectorTrapezoidShortBase(float shortBase) { data3.x = shortBase; }
@@ -429,6 +470,23 @@ struct PSInput
     float getPolylineConnectorTrapezoidShortBase() { return data3.x; }
     float getPolylineConnectorTrapezoidLongBase() { return data3.y; }
     float2 getPolylineConnectorCircleCenter() { return data3.zw; }
+    
+    /* FONT_GLYPH */
+    float2 getFontGlyphUV() { return interp_data5.xy; }
+    uint32_t getFontGlyphTextureId() { return asuint(data2.x); }
+    float getFontGlyphScreenPxRange() { return data2.y; }
+    
+    void setFontGlyphUV(float2 uv) { interp_data5.xy = uv; }
+    void setFontGlyphTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
+    void setFontGlyphScreenPxRange(float glyphScreenPxRange) { data2.y = glyphScreenPxRange; }
+    
+    
+    /* IMAGE */
+    float2 getImageUV() { return interp_data5.xy; }
+    uint32_t getImageTextureId() { return asuint(data2.x); }
+    
+    void setImageUV(float2 uv) { interp_data5.xy = uv; }
+    void setImageTextureId(uint32_t textureId) { data2.x = asfloat(textureId); }
 };
 
 // Set 0 - Scene Data and Globals, buffer bindings don't change the buffers only get updated
@@ -436,11 +494,17 @@ struct PSInput
 [[vk::binding(1, 0)]] StructuredBuffer<DrawObject> drawObjects : register(t0);
 [[vk::binding(2, 0)]] StructuredBuffer<MainObject> mainObjects : register(t1);
 [[vk::binding(3, 0)]] StructuredBuffer<LineStyle> lineStyles : register(t2);
-[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float4> msdfTextures : register(t3); // @Lucas, change `<float4>` to the number of components used in msdf texture
+
+[[vk::combinedImageSampler]][[vk::binding(4, 0)]] Texture2DArray<float3> msdfTextures : register(t3);
 [[vk::combinedImageSampler]][[vk::binding(4, 0)]] SamplerState msdfSampler : register(s3);
+
+[[vk::binding(5, 0)]] SamplerState textureSampler : register(s4);
+[[vk::binding(6, 0)]] Texture2D textures[128] : register(t4);
 
 // Set 1 - Window dependant data which has higher update frequency due to multiple windows and resize need image recreation and descriptor writes
 [[vk::binding(0, 1)]] globallycoherent RWTexture2D<uint> pseudoStencil : register(u0);
+// [[vk::binding(0, 2)]] globallycoherent RWTexture2D<uint> colorStorage : register(u1);
+
 #endif
 
 #endif

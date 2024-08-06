@@ -75,7 +75,7 @@ struct device_capabilities0
 {
     NBL_CONSTEXPR_STATIC_INLINE bool shaderFloat64 = true;
     NBL_CONSTEXPR_STATIC_INLINE bool shaderDrawParameters = true;
-    NBL_CONSTEXPR_STATIC_INLINE bool subgroupArithmetic = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
     NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
     NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
 };
@@ -89,7 +89,7 @@ struct device_capabilities1
 
 struct device_capabilities2
 {
-    NBL_CONSTEXPR_STATIC_INLINE bool subgroupArithmetic = true;
+    NBL_CONSTEXPR_STATIC_INLINE bool shaderSubgroupArithmetic = true;
     NBL_CONSTEXPR_STATIC_INLINE bool fragmentShaderPixelInterlock = true;
     NBL_CONSTEXPR_STATIC_INLINE uint16_t maxOptimallyResidentWorkgroupInvocations = 16;
     NBL_CONSTEXPR_STATIC_INLINE uint32_t extraRandomField = 42;
@@ -276,20 +276,19 @@ void main(uint3 invocationID : SV_DispatchThreadID)
 
 
     // fill(invocationID, 11);
-
-    // {
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::shaderFloat64 == device_capabilities0::shaderFloat64);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::subgroupArithmetic == device_capabilities0::subgroupArithmetic);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::fragmentShaderPixelInterlock == device_capabilities0::fragmentShaderPixelInterlock);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::maxOptimallyResidentWorkgroupInvocations == device_capabilities0::maxOptimallyResidentWorkgroupInvocations);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::shaderFloat64 == device_capabilities1::shaderFloat64);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::subgroupArithmetic == false);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::fragmentShaderPixelInterlock == device_capabilities1::fragmentShaderPixelInterlock);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::maxOptimallyResidentWorkgroupInvocations == device_capabilities1::maxOptimallyResidentWorkgroupInvocations);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::shaderFloat64 == false);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::subgroupArithmetic == device_capabilities2::subgroupArithmetic);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::fragmentShaderPixelInterlock == device_capabilities2::fragmentShaderPixelInterlock);
-    //     STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::maxOptimallyResidentWorkgroupInvocations == device_capabilities2::maxOptimallyResidentWorkgroupInvocations);
+    {
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::shaderFloat64 == device_capabilities0::shaderFloat64);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::shaderSubgroupArithmetic == device_capabilities0::shaderSubgroupArithmetic);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::fragmentShaderPixelInterlock == device_capabilities0::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities0>::maxOptimallyResidentWorkgroupInvocations == device_capabilities0::maxOptimallyResidentWorkgroupInvocations);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::shaderFloat64 == device_capabilities1::shaderFloat64);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::shaderSubgroupArithmetic == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::fragmentShaderPixelInterlock == device_capabilities1::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities1>::maxOptimallyResidentWorkgroupInvocations == device_capabilities1::maxOptimallyResidentWorkgroupInvocations);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::shaderFloat64 == false);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::shaderSubgroupArithmetic == device_capabilities2::shaderSubgroupArithmetic);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::fragmentShaderPixelInterlock == device_capabilities2::fragmentShaderPixelInterlock);
+        STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::maxOptimallyResidentWorkgroupInvocations == device_capabilities2::maxOptimallyResidentWorkgroupInvocations);
 
     // }
 
