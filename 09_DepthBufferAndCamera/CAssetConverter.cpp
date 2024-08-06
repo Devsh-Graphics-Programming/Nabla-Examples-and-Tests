@@ -125,8 +125,6 @@ bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const SPhysicalDev
 // have to pass the patch around
 
 
-template<asset::Asset AssetType>
-using patch_vector_t = core::vector<CAssetConverter::patch_t<AssetType>>;
 
 // not sure if useful enough to move to core utils
 template<typename T, typename TypeList>
@@ -141,6 +139,17 @@ template<typename T, typename TypeList>
 inline constexpr size_t index_of_v = index_of<T,TypeList>::value;
 
 //
+struct patch_index_t
+{
+	inline bool operator==(const patch_index_t&) const = default;
+	inline bool operator!=(const patch_index_t&) const = default;
+
+	explicit inline operator bool() const {return operator!=({});}
+
+	uint64_t value = 0xdeadbeefBADC0FFEull;
+};
+
+//
 struct input_metadata_t
 {
 	inline bool operator==(const input_metadata_t&) const = default;
@@ -149,7 +158,7 @@ struct input_metadata_t
 	explicit inline operator bool() const {return operator!=({});}
 
 	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
-	size_t patchIndex = 0xdeadbeefBADC0FFEull;
+	patch_index_t patchIndex = {};
 };
 
 //
@@ -169,47 +178,91 @@ struct instance_t
 };
 
 // This cache stops us traversing an asset with the same user group and patch more than once.
-// Maps `instance_t` to `patchIndex`, makes sure the find can handle polymorphism of assets
 template<asset::Asset AssetType>
-struct dfs_cache_hash_and_equals
+struct dfs_cache
 {
-	using is_transparent = void;
-
-	inline size_t operator()(const instance_t<IAsset>& entry) const
+	// Maps `instance_t` to `patchIndex`, makes sure the find can handle polymorphism of assets
+	struct HashEquals
 	{
-		return ptrdiff_t(entry.asset)^entry.uniqueCopyGroupID;
-	}
+		using is_transparent = void;
 
-	inline size_t operator()(const instance_t<AssetType>& entry) const
-	{
-		// its very important to cast the derived AssetType to IAsset because otherwise pointers won't match
-		return operator()(instance_t<IAsset>(entry));
-	}
+		inline size_t operator()(const instance_t<IAsset>& entry) const
+		{
+			return ptrdiff_t(entry.asset)^entry.uniqueCopyGroupID;
+		}
+
+		inline size_t operator()(const instance_t<AssetType>& entry) const
+		{
+			// its very important to cast the derived AssetType to IAsset because otherwise pointers won't match
+			return operator()(instance_t<IAsset>(entry));
+		}
 	
-	inline bool operator()(const instance_t<IAsset>& lhs, const instance_t<AssetType>& rhs) const
-	{
-		return lhs==instance_t<IAsset>(rhs);
-	}
-	inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<IAsset>& rhs) const
-	{
-		return instance_t<IAsset>(lhs)==rhs;
-	}
-	inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<AssetType>& rhs) const
-	{
-		return instance_t<IAsset>(lhs)==instance_t<IAsset>(rhs);
-	}
-};
+		inline bool operator()(const instance_t<IAsset>& lhs, const instance_t<AssetType>& rhs) const
+		{
+			return lhs==instance_t<IAsset>(rhs);
+		}
+		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<IAsset>& rhs) const
+		{
+			return instance_t<IAsset>(lhs)==rhs;
+		}
+		inline bool operator()(const instance_t<AssetType>& lhs, const instance_t<AssetType>& rhs) const
+		{
+			return instance_t<IAsset>(lhs)==instance_t<IAsset>(rhs);
+		}
+	};
+	using key_map_t = core::unordered_map<instance_t<AssetType>,patch_index_t,HashEquals,HashEquals>;
 
-template<asset::Asset AssetType>
-struct created_t
-{
-	uint64_t patchIndex = 0xdeadbeefBADC0FFEull;
-	core::blake3_hash_t contentHash = {};
-	asset_cached_t<AssetType> gpuObj = {};
-};
+	// Find the first node for an instance with a compatible patch
+	// For performance reasons you may want to defer the patch construction/deduction till after you know a matching instance exists
+	template<typename DeferredPatchGet>
+	inline std::pair<typename key_map_t::const_iterator,patch_index_t> find(const instance_t<AssetType>& instance, DeferredPatchGet patchGet) const
+	{
+		// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
+		auto found = instances.find(instance);
+		if (found!=instances.end())
+		{
+			const auto& requiredSubset = patchGet();
+			// we don't want to pass the device features and limits to this function, it just assumes the patch will be valid without touch-ups
+			//assert(requiredSubset.valid(deviceFeatures,deviceLimits));
+			auto createdIndex = found->second;
+			while (createdIndex)
+			{
+				const auto& candidate = nodes[createdIndex.value];
+				if (std::get<bool>(candidate.patch.combine(requiredSubset)))
+					break;
+				createdIndex = candidate.next;
+			}
+			return {found,createdIndex};
+		}
+		return {found,{}};
+	}
 
-template<asset::Asset AssetType>
-using dfs_cache_t = core::unordered_multimap<instance_t<AssetType>,created_t<AssetType>,dfs_cache_hash_and_equals<AssetType>,dfs_cache_hash_and_equals<AssetType>>;
+	template<typename What>
+	inline void for_each(What what)
+	{
+		for (auto& entry : instances)
+		{
+			const auto& instance = entry.first;
+			auto patchIx = entry.second;
+			assert(instance.asset || !patchIx);
+			for (; patchIx; patchIx=nodes[patchIx.value].next)
+				what(instance,nodes[patchIx.value]);
+		}
+	}
+
+	// not a multi-map anymore because order of insertion into an equal range needs to be stable, so I just make it a linked list explicitly
+	key_map_t instances;
+	// node struct
+	struct created_t
+	{
+		CAssetConverter::patch_t<AssetType> patch = {};
+		core::blake3_hash_t contentHash = {};
+		asset_cached_t<AssetType> gpuObj = {};
+		patch_index_t next = {};
+	};
+	// all entries refer to patch by index, so its stable against vector growth
+	core::vector<created_t> nodes;
+};
 
 //
 struct PatchGetter
@@ -273,53 +326,37 @@ struct PatchGetter
 	}
 
 	template<asset::Asset AssetType>
-	inline dfs_cache_t<AssetType>::const_iterator findDFSEntry(const AssetType* asset)
+	inline patch_index_t impl(const AssetType* asset)
 	{
-		assert(asset);
+		// don't advance `uniqueCopyGroupID` or `user` on purpose
+		if (!asset)
+			return {};
 		uniqueCopyGroupID = p_inputs->getDependantUniqueCopyGroupID(uniqueCopyGroupID,user,asset);
-		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(*p_dfsCaches);
-		const auto range = dfsCache.equal_range(instance_t<AssetType>{
-			.asset = asset,
-			.uniqueCopyGroupID=uniqueCopyGroupID
-		});
-		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable 
-		if (range.first!=range.second)
-		{
-			auto requiredSubset = ConstructPatch(user,asset);
-			// No need to check for validity because everything that is in `dfsCache` is valid and `requiredSubset` must have been valid too.
-			// if (requiredSubset.valid())
-			//    return dfsCache.end();
-			// Returning the first compatible patch is correct, as back when building the dfsCache you merge with the first compatible patch.
-			// (assuming insertion order into the same bucket is stable)
-			const auto* pPatches = std::get<patch_vector_t<AssetType>>(*p_patchStorages).data();
-			auto found = std::find_if(
-				range.first,range.second,
-				[&requiredSubset,pPatches](const auto& entry)->bool
-				{
-					return std::get<bool>(pPatches[entry.second.patchIndex].combine(requiredSubset));
-				}
-			);
-			user = asset;
-			return found;
-		}
+		const auto& dfsCache = std::get<dfs_cache<AssetType>>(*p_dfsCaches);
+		// Returning the first compatible patch is correct, as back when building the dfsCache you merge with the first compatible patch.
+		// (assuming insertion order into the same bucket is stable)
+		const auto found = dfsCache.find(
+			{.asset=asset,.uniqueCopyGroupID=uniqueCopyGroupID},
+			[&]()->CAssetConverter::patch_t<AssetType>{return ConstructPatch<AssetType>(user,asset);}
+		);
 		user = asset;
-		return dfsCache.end();
+		if (const auto foundIx=std::get<patch_index_t>(found); foundIx)
+			return foundIx;
+		// some dependency is not in DFS cache - wasn't explored, probably because it was unpatchable/uncreatable
+		return {};
 	}
-
+	
 	template<asset::Asset AssetType>
 	inline const CAssetConverter::patch_t<AssetType>* operator()(const AssetType* asset)
 	{
-		auto found = findDFSEntry<AssetType>(asset);
-		if (found!=std::get<dfs_cache_t<AssetType>>(*p_dfsCaches).end())
-			return std::get<patch_vector_t<AssetType>>(*p_patchStorages).data()+found->second.patchIndex;
-		return nullptr;
+		const patch_index_t foundIx = impl<AssetType>(asset);
+		return foundIx ? &(std::get<dfs_cache<AssetType>>(*p_dfsCaches).nodes[foundIx.value].patch) : nullptr;
 	}
 
 	const SPhysicalDeviceFeatures* pFeatures;
 	const SPhysicalDeviceLimits* pLimits;
 	const CAssetConverter::SInputs* const p_inputs;
-	const core::tuple_transform_t<patch_vector_t,CAssetConverter::supported_asset_types>* const p_patchStorages;
-	const core::tuple_transform_t<dfs_cache_t,CAssetConverter::supported_asset_types>* const p_dfsCaches;
+	const core::tuple_transform_t<dfs_cache,CAssetConverter::supported_asset_types>* const p_dfsCaches;
 	// progressive state
 	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
 	const IAsset* user = nullptr;
@@ -330,7 +367,7 @@ template<asset::Asset AssetType>
 struct unique_conversion_t
 {
 	const AssetType* canonicalAsset = nullptr;
-	size_t patchIndex = 0xdeadbeefBAull;
+	patch_index_t patchIndex = {};
 	size_t firstCopyIx : 40 = 0u;
 	size_t copyCount : 24 = 1u;
 };
@@ -352,11 +389,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	
 	// this will allow us to look up the conversion parameter (actual patch for an asset) and therefore write the GPUObject to the correct place in the return value
 	core::vector<input_metadata_t> inputsMetadata[core::type_list_size_v<supported_asset_types>];
-	// stop multiple copies of the patches floating around
-	core::tuple_transform_t<patch_vector_t,supported_asset_types> finalPatchStorage = {};
 	// One would think that we first need an (AssetPtr,Patch) -> ContentHash map and then a ContentHash -> GPUObj map to
 	// save ourselves iterating over redundant assets. The truth is that we going from a ContentHash to GPUObj is blazing fast.
-	core::tuple_transform_t<dfs_cache_t,supported_asset_types> dfsCaches = {};
+	core::tuple_transform_t<dfs_cache,supported_asset_types> dfsCaches = {};
 
 	{
 		// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
@@ -382,41 +417,46 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.uniqueCopyGroupID,user.asset,asset)
 				};
 
-				// all entries refer to patch by index, so its stable against vector growth
-				// NOTE: There's a 1:1 correspondence between `dfsCache` entries and `finalPatchStorage` entries!
-				auto& patchStorage = std::get<patch_vector_t<AssetType>>(finalPatchStorage);
-
 				// now see if we visited already
-				auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
+				auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
+				//
+				const patch_index_t newPatchIndex = {dfsCache.nodes.size()};
 				// get all the existing patches for the same (AssetType*,UniqueCopyGroupID)
-				auto dfsCachedRange = dfsCache.equal_range(record);
-
-				// iterate over all intended EXTRA copies of an asset
-				auto patchIndex = patchStorage.size();
-				for (auto it=dfsCachedRange.first; it!=dfsCachedRange.second; it++)
+				auto found = dfsCache.instances.find(record);
+				if (found!=dfsCache.instances.end())
 				{
-					// get our candidate patch
-					const auto& candidate = patchStorage[it->second.patchIndex];
-					// found a thing, try-combine the patches
-					auto [success,combined] = candidate.combine(patch);
-					// check whether the item is creatable after patching
-					if (success)
+					// iterate over linked list
+					patch_index_t* pIndex = &found->second;
+					while (*pIndex)
 					{
-						// change the patch to a combined version
-						patchIndex = it->second.patchIndex;
-						patchStorage[patchIndex] = std::move(combined);
-						return {.uniqueCopyGroupID=record.uniqueCopyGroupID,.patchIndex=patchIndex};
+						// get our candidate
+						auto& candidate = dfsCache.nodes[pIndex->value];
+						// found a thing, try-combine the patches
+						auto [success, combined] = candidate.patch.combine(patch);
+						// check whether the item is creatable after patching
+						if (success)
+						{
+							// change the patch to a combined version
+							candidate.patch = std::move(combined);
+							return { .uniqueCopyGroupID = record.uniqueCopyGroupID,.patchIndex=*pIndex};
+						}
+						// else try the next one
+						pIndex = &candidate.next;
 					}
-					// else try the next one
+					// nothing mergable found, make old TAIL point to new node about to be inserted
+					*pIndex = newPatchIndex;
 				}
-
+				else
+				{
+					// there isn't even a linked list head for this entry
+					dfsCache.instances.emplace_hint(found,record,newPatchIndex);
+				}
 				// Haven't managed to combine with anything, so push a new patch
-				patchStorage.push_back(std::move(patch));
-				// Only when we a compatible patch entry do we carry on with the DFS
+				dfsCache.nodes.emplace_back(std::move(patch),CHashCache::NoContentHash);
+				// Only when we don't find a compatible patch entry do we carry on with the DFS
 				if (asset_traits<AssetType>::HasChildren)
 					dfsStack.emplace(record);
-				dfsCache.emplace_hint(dfsCachedRange.second,record,created_t<AssetType>{patchIndex,CHashCache::NoContentHash,asset_cached_t<AssetType>{}});
-				return {.uniqueCopyGroupID=record.uniqueCopyGroupID,.patchIndex=patchIndex};
+				return {.uniqueCopyGroupID=record.uniqueCopyGroupID,.patchIndex=newPatchIndex};
 			};
 			// initialize stacks
 			auto initialize = [&]<typename AssetType>(const std::span<const AssetType* const> assets)->void
@@ -456,7 +496,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				dfsStack.pop();
 				// everything we popped has already been cached in dfsCache, now time to go over dependents
 				const auto* user = entry.asset;
-				// TODO: could potentially use PatchGetter to remove a patch arg from the `cache` lambda, but only if can be done amnesiacally/statelessly
 				switch (user->getAssetType())
 				{
 					case ICPUDescriptorSetLayout::AssetType:
@@ -517,8 +556,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 		}
 		//! `inputsMetadata` is now constant!
-		//! `finalPatchStorage` is now constant!
-		//! `dfsCache` is now semi-constant!
+		//! `dfsCache` keys are now constant!
 
 		// can now spawn our own hash cache
 		retval.m_hashCache = core::make_smart_refctd_ptr<CHashCache>();
@@ -526,64 +564,60 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		// Deduplication, Creation and Propagation
 		auto dedupCreateProp = [&]<Asset AssetType>()->void
 		{
-			auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
-			const auto* pPatches = std::get<patch_vector_t<AssetType>>(finalPatchStorage).data();
+			auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
 			// This map contains the assets by-hash, identical asset+patch hash the same.
 			conversions_t<AssetType> conversionRequests;
 
 			// We now go through the dfsCache and work out each entry's content hashes, so that we can carry out unique conversions.
 			const CCache<AssetType>* readCache = inputs.readCache ? (&std::get<CCache<AssetType>>(inputs.readCache->m_caches)):nullptr;
-			for (auto& entry : dfsCache)
-			{
-				const auto& instance = entry.first;
-				if (!instance.asset)
-					continue;
-				const auto patchIx = entry.second.patchIndex;
-				// compute the hash or look it up if it exists
-				// We mistrust every dependency such that the eject/update if needed.
-				// Its really important that the Deduplication gets performed Bottom-Up
-				auto& contentHash = entry.second.contentHash;
-				contentHash = retval.getHashCache()->hash<AssetType>(
-					instance.asset,
-					PatchGetter{
-						&features,
-						&limits,
-						&inputs,
-						&finalPatchStorage,
-						&dfsCaches
-					},
-					/*.mistrustLevel = */1
-				);
-				// failed to hash alltogehter (only possible reason is failure of `PatchGetter` to provide a valid patch)
-				if (contentHash==CHashCache::NoContentHash)
-					continue;
-				// if we have a read cache, lets retry looking the item up!
-				if (readCache)
+			dfsCache.for_each([&](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 				{
-					// We can't look up "near misses" (supersets of patches) because they'd have different hashes
-					// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
-					// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
-					const auto found = readCache->find({contentHash,instance.uniqueCopyGroupID});
-					if (found)
+					// compute the hash or look it up if it exists
+					// We mistrust every dependency such that the eject/update if needed.
+					// Its really important that the Deduplication gets performed Bottom-Up
+					auto& contentHash = created.contentHash;
+					contentHash = retval.getHashCache()->hash<AssetType>(
+						instance.asset,
+						PatchGetter{
+							&features,
+							&limits,
+							&inputs,
+							&dfsCaches
+						},
+						/*.mistrustLevel = */1
+					);
+					// failed to hash all together (only possible reason is failure of `PatchGetter` to provide a valid patch)
+					if (contentHash==CHashCache::NoContentHash)
+						return;
+					// if we have a read cache, lets retry looking the item up!
+					if (readCache)
 					{
-						entry.second.gpuObj = *found;
-						// no conversion needed
-						continue;
+						// We can't look up "near misses" (supersets of patches) because they'd have different hashes
+						// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
+						// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
+						const auto found = readCache->find({contentHash,instance.uniqueCopyGroupID});
+						if (found)
+						{
+							created.gpuObj = *found;
+							// no conversion needed
+							return;
+						}
+					}
+					// The conversion request we insert needs an instance asset without missing contents
+					if (IPreHashed::anyDependantDiscardedContents(instance.asset))
+						return;
+					// then de-duplicate the conversions needed
+					const patch_index_t patchIx = {static_cast<uint64_t>(std::distance(dfsCache.nodes.data(),&created))};
+					auto [inSetIt,inserted] = conversionRequests.emplace(contentHash,unique_conversion_t<AssetType>{.canonicalAsset=instance.asset,.patchIndex=patchIx});
+					if (!inserted)
+					{
+						// If an element prevented insertion, the patch must be identical!
+						// Because the conversions don't care about groupIDs, the patches may be identical but not the same object in memory.
+						assert(inSetIt->second.patchIndex==patchIx || dfsCache.nodes[inSetIt->second.patchIndex.value].patch==dfsCache.nodes[patchIx.value].patch);
+						inSetIt->second.copyCount++;
 					}
 				}
-				// The conversion request we insert needs an instance asset without missing contents
-				if (IPreHashed::anyDependantDiscardedContents(instance.asset))
-					continue;
-				// then de-duplicate the conversions needed
-				auto [inSetIt,inserted] = conversionRequests.emplace(contentHash,unique_conversion_t<AssetType>{.canonicalAsset=instance.asset,.patchIndex=patchIx});
-				if (!inserted)
-				{
-					// If an element prevented insertion, the patch must be identical!
-					// Because the conversions don't care about groupIDs, the patches may be identical but not the same object in memory.
-					assert(inSetIt->second.patchIndex==patchIx || pPatches[inSetIt->second.patchIndex]==pPatches[patchIx]);
-					inSetIt->second.copyCount++;
-				}
-			}
+			);
 			
 			// work out mapping of `conversionRequests` to multiple GPU objects and their copy groups via counting sort
 			auto exclScanConvReqs = [&]()->size_t
@@ -601,12 +635,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				core::vector<size_t> retval;
 				// now assign storage offsets via exclusive scan and put the `uniqueGroupID` mappings in sorted order
 				retval.resize(exclScanConvReqs());
-				for (auto& entry : dfsCache)
-				{
-					const auto& instance = entry.first;
-					if (instance.asset && !entry.second.gpuObj) // not found in readCache
+				//
+				dfsCache.for_each([&inputs,&retval,&conversionRequests](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 					{
-						auto found = conversionRequests.find(entry.second.contentHash);
+						if (!created.gpuObj)
+							return;
+						auto found = conversionRequests.find(created.contentHash);
 						// may not find things because of unconverted dummy deps
 						if (found!=conversionRequests.end())
 							retval[found->second.firstCopyIx++] = instance.uniqueCopyGroupID;
@@ -618,7 +652,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 							);
 						}
 					}
-				}
+				);
 				// `{conversionRequests}.firstCopyIx` needs to be brought back down to exclusive scan form
 				exclScanConvReqs();
 				return retval;
@@ -628,19 +662,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// small utility
 			auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const AssetType* user, const DepAssetType* depAsset, Pred pred, bool& failed)->asset_cached_t<DepAssetType>::type
 			{
-				if (!depAsset)
-					return {};
-				auto found = PatchGetter{
-					&features,
-					&limits,
-					&inputs,
-					&finalPatchStorage,
-					&dfsCaches,
-					usersCopyGroupID,
-					user
-				}.findDFSEntry<DepAssetType>(depAsset);
-				if (found!=std::get<dfs_cache_t<DepAssetType>>(dfsCaches).end())
-					return found->second.gpuObj.value;
+				const patch_index_t found = PatchGetter{&features,&limits,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
+				if (found)
+					return std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj.value;
 				failed = true;
 				return {};
 			};
@@ -684,7 +708,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				{
 					IGPUBuffer::SCreationParams params = {};
 					params.size = entry.second.canonicalAsset->getSize();
-					params.usage = pPatches[entry.second.patchIndex].usage;
+					params.usage = dfsCache.nodes[entry.second.patchIndex.value].patch.usage;
 					// TODO: make this configurable
 					params.queueFamilyIndexCount = 0;
 					params.queueFamilyIndices = nullptr;
@@ -790,7 +814,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				for (auto& entry : conversionRequests)
 				{
 					const ICPUPipelineLayout* asset = entry.second.canonicalAsset;
-					const auto& patch = std::get<patch_vector_t<ICPUPipelineLayout>>(finalPatchStorage)[entry.second.patchIndex];
+					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
 					// time for some RLE
 					{
 						pcRanges.resize(0);
@@ -891,15 +915,15 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
 			auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
-			for (auto& entry : dfsCache)
-			{
-				const auto* asset = entry.first.asset;
-				if (asset && !entry.second.gpuObj)
+			dfsCache.for_each([&](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 				{
-					const auto& contentHash = entry.second.contentHash;
-					auto found = conversionRequests.find(contentHash);
-					const auto uniqueCopyGroupID = entry.first.uniqueCopyGroupID;
+					if (created.gpuObj)
+						return;
 
+					const auto& contentHash = created.contentHash;
+					auto found = conversionRequests.find(contentHash);
+
+					const auto uniqueCopyGroupID = instance.uniqueCopyGroupID;
 					// can happen if deps were unconverted dummies
 					if (found==conversionRequests.end())
 					{
@@ -907,9 +931,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						if (contentHash!=CHashCache::NoContentHash)
 							inputs.logger.log(
 								"Could not find GPU Object for Asset %p in group %ull with Content Hash %8llx%8llx%8llx%8llx",
-								system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+								system::ILogger::ELL_ERROR,instance.asset,uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
 							);
-						continue;
+						return;
 					}
 					// unhashables were not supposed to be added to conversion requests
 					assert(contentHash!=CHashCache::NoContentHash);
@@ -934,9 +958,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					// insert into staging cache
 					stagingCache.insert({contentHash,uniqueCopyGroupID},gpuObj);
 					// propagate back to dfsCache
-					entry.second.gpuObj = std::move(gpuObj);
+					created.gpuObj = std::move(gpuObj);
 				}
-			}
+			);
 		};
 		// The order of these calls is super important to go BOTTOM UP in terms of hashing and conversion dependants.
 		// Both so we can hash in O(Depth) and not O(Depth^2) but also so we have all the possible dependants ready.
@@ -972,31 +996,26 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		const auto count = assets.size();
 		//
 		const auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
-		const auto& dfsCache = std::get<dfs_cache_t<AssetType>>(dfsCaches);
+		const auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
 		const auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
 		auto& results = std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects);
-		//
-		const auto patchCount = std::get<patch_vector_t<AssetType>>(finalPatchStorage).size();
 		for (size_t i=0; i<count; i++)
-		if (auto asset=assets[i]; asset && metadata[i].patchIndex<patchCount)
+		if (auto asset=assets[i]; asset)
 		{
-			// The Content Hash and GPU object are in the dfsCache
-			const auto range = dfsCache.equal_range(instance_t<AssetType>{.asset=asset,.uniqueCopyGroupID=metadata[i].uniqueCopyGroupID});
-			// we'll find the correct patch from metadata
-			auto found = std::find_if(range.first,range.second,[&](const auto& entry)->bool{return entry.second.patchIndex==metadata[i].patchIndex;});
-			// unless ofc the patch was invalid
 			const auto uniqueCopyGroupID = metadata[i].uniqueCopyGroupID;
-			if (found==range.second)
+			// simple and easy to find all the associated items
+			if (!metadata[i].patchIndex)
 			{
 				inputs.logger.log("No valid patch could be created for Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
 				continue;
 			}
+			const auto& found = dfsCache.nodes[metadata[i].patchIndex.value];
 			// write it out to the results
-			if (const auto& gpuObj=found->second.gpuObj; gpuObj) // found from the `input.readCache`
+			if (const auto& gpuObj=found.gpuObj; gpuObj) // found from the `input.readCache`
 			{
 				results[i] = gpuObj;
 				// if something with this content hash is in the stagingCache, then it must match the `found->gpuObj`
-				if (auto pGpuObj=stagingCache.find({found->second.contentHash,uniqueCopyGroupID}); pGpuObj)
+				if (auto pGpuObj=stagingCache.find({found.contentHash,uniqueCopyGroupID}); pGpuObj)
 				{
 					assert(pGpuObj->get()==gpuObj.get());
 				}
