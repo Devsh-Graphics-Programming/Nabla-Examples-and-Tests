@@ -253,8 +253,9 @@ NBL_CONSTEXPR uint32_t InvalidTextureIdx = nbl::hlsl::numeric_limits<uint32_t>::
 NBL_CONSTEXPR MajorAxis SelectedMajorAxis = MajorAxis::MAJOR_Y;
 // TODO: get automatic version working on HLSL
 NBL_CONSTEXPR MajorAxis SelectedMinorAxis = MajorAxis::MAJOR_X; //(MajorAxis) (1 - (uint32_t) SelectedMajorAxis);
-NBL_CONSTEXPR float MSDFPixelRange = 4.0;
+NBL_CONSTEXPR float MSDFPixelRange = 8.0;
 NBL_CONSTEXPR float MSDFSize = 32.0; 
+NBL_CONSTEXPR uint32_t MSDFMips = 4; 
 NBL_CONSTEXPR float HatchFillMSDFSceenSpaceSize = 8.0; 
 
 #ifdef __HLSL_VERSION

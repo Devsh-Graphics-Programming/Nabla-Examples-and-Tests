@@ -136,7 +136,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgInfo.format = msdfFormat;
 		imgInfo.type = IGPUImage::ET_2D;
 		imgInfo.extent = MSDFsExtent;
-		imgInfo.mipLevels = 1u; // TODO: MipMapping MSDFs?
+		imgInfo.mipLevels = MSDFMips; 
 		imgInfo.arrayLayers = maxMSDFs;
 		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
 		imgInfo.flags = asset::IImage::E_CREATE_FLAGS::ECF_NONE;
@@ -455,22 +455,28 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
 	{
 		auto& textureCopy = textureCopies[i];
-		asset::IImage::SBufferCopy region = {};
-		region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-		region.imageSubresource.mipLevel = 0u;
-		region.imageSubresource.baseArrayLayer = textureCopy.index;
-		region.imageSubresource.layerCount = 1u;
-		region.bufferOffset = 0u;
-		region.bufferRowLength = textureCopy.imageExtent.x;
-		region.bufferImageHeight = 0u;
-		region.imageExtent = { textureCopy.imageExtent.x, textureCopy.imageExtent.y, textureCopy.imageExtent.z };
-		region.imageOffset = { 0u, 0u, 0u };
+		for (uint32_t mip = 0; mip < textureCopy.buffers.size(); mip++)
+		{
+			uint32_t mipW = textureCopy.imageExtent.x / (1 << mip);
+			uint32_t mipH = textureCopy.imageExtent.y / (1 << mip);
 
-		m_utilities->updateImageViaStagingBuffer(
-			intendedNextSubmit, 
-			textureCopy.srcBuffer->getPointer(), nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
-			msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
-			{ &region, &region + 1 });
+			asset::IImage::SBufferCopy region = {};
+			region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
+			region.imageSubresource.mipLevel = mip;
+			region.imageSubresource.baseArrayLayer = textureCopy.index;
+			region.imageSubresource.layerCount = 1u;
+			region.bufferOffset = 0u;
+			region.bufferRowLength = mipW;
+			region.bufferImageHeight = 0u;
+			region.imageExtent = { mipW, mipH, textureCopy.imageExtent.z };
+			region.imageOffset = { 0u, 0u, 0u };
+
+			m_utilities->updateImageViaStagingBuffer(
+				intendedNextSubmit, 
+				textureCopy.buffers[mip]->getPointer(), nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
+				msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
+				{ &region, &region + 1 });
+		}
 	}
 		
 	// preparing images for use
@@ -842,7 +848,7 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
 	else return InvalidMSDFHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUBuffer>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -883,7 +889,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({
-			.srcBuffer = textureBuffer,
+			.buffers = textureBuffer,
 			.bufferOffset = 0u,
 			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
 			.index = inserted->alloc_idx,
@@ -895,7 +901,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 	return inserted->alloc_idx;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUBuffer> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(std::vector<core::smart_refctd_ptr<ICPUBuffer>> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	return addMSDFTexture(
 		[textureBuffer] { return textureBuffer; },
