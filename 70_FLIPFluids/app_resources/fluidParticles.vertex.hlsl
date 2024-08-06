@@ -3,20 +3,18 @@
 #include "common.hlsl"
 #include "render_common.hlsl"
 
-// set 1, binding 0
-[[vk::binding(0, 1)]]
-cbuffer CameraData
+[[vk::binding(1, 1)]] RWStructuredBuffer<VertexInfo> particleVertexBuffer;
+
+PSInput main(uint vertexID : SV_VertexID)
 {
-    SMVPParams camParams;
-};
+    PSInput output;
 
-[[vk::binding(1, 1)]] StructuredBuffer<Particle> particleBuffer;
+    output.position = particleVertexBuffer[vertexID].position;
+    output.vsPos = particleVertexBuffer[vertexID].vsPos.xyz;
+    output.vsSpherePos = particleVertexBuffer[vertexID].vsSpherePos.xyz;
 
-GSInput main(uint vertexID : SV_VertexID)
-{
-    GSInput output;
-
-    output.particle = particleBuffer[vertexID].position;
+    output.radius = particleVertexBuffer[vertexID].radius;
+    output.color = particleVertexBuffer[vertexID].color;
 
     return output;
 }

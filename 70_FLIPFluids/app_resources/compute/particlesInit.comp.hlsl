@@ -1,3 +1,5 @@
+#pragma shader_stage(compute)
+
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
 
@@ -23,7 +25,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     position = clampPosition(position, gridData.worldMin, gridData.worldMax);
 
     p.id = pid;
-    p.position = position;
+    p.position = position;// float4(0, pid, 0, 1);//position;
     p.velocity = position;  // temp for now
 
     particleBuffer[pid] = p;

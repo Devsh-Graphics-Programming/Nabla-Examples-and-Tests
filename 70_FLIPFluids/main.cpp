@@ -63,6 +63,18 @@ struct SParticleRenderParams
 	float pad;
 };
 
+struct VertexInfo
+{
+	float32_t4 position;
+	float32_t4 vsPos;
+	float32_t4 vsSpherePos;
+
+    float radius;
+    float pad;
+
+    float32_t4 color;
+};
+
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
 {
 	using scbase_t = CDefaultSwapchainFramebuffers;
@@ -207,7 +219,14 @@ public:
 	inline virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
 	{
 		auto retval = device_base_t::getRequiredDeviceFeatures();
-		retval.geometryShader = true;
+		//retval.geometryShader = true;
+		return retval;
+	}
+
+	inline virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable()
+	{
+		auto retval = device_base_t::getAPIFeaturesToEnable();
+		//retval.synchronizationValidation = true;
 		return retval;
 	}
 
@@ -250,17 +269,29 @@ public:
 			return false;
 
 		// init grid params
-		gridData.gridCellSize = 0.25f;
-		gridData.gridInvCellSize = 1.f / gridData.gridCellSize;
-		gridData.gridSize = int32_t4{128, 128, 128, 0};
-		gridData.particleInitMin = int32_t4{2, 2, 2, 0};
-		gridData.particleInitMax = int32_t4{34, 34, 34, 0};
-		gridData.particleInitSize = gridData.particleInitMax - gridData.particleInitMin;
-		float32_t4 simAreaSize = gridData.gridSize;
-		simAreaSize *= gridData.gridCellSize;
-		gridData.worldMin = -simAreaSize * 0.5f;
-		gridData.worldMax = simAreaSize * 0.5f;
-		numParticles = gridData.particleInitSize.x * gridData.particleInitSize.y * gridData.particleInitSize.z * particlesPerCell;
+		m_gridData.gridCellSize = 0.25f;
+		m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
+		m_gridData.gridSize = int32_t4{128, 128, 128, 0};
+		m_gridData.particleInitMin = int32_t4{2, 2, 2, 0};
+		m_gridData.particleInitMax = int32_t4{10, 10, 10, 0};
+		m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
+		float32_t4 simAreaSize = m_gridData.gridSize;
+		simAreaSize *= m_gridData.gridCellSize;
+		m_gridData.worldMin = float32_t4(0.f);
+		m_gridData.worldMax = simAreaSize;
+		numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
+
+		{
+			float zNear = 0.1f, zFar = 10000.f;
+			core::vectorSIMDf cameraPosition(-6, 2.5, -4);
+			core::vectorSIMDf cameraTarget(-0, 0, 0);
+			matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
+			camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
+
+			m_pRenderParams.zNear = zNear;
+			m_pRenderParams.zFar = zFar;
+		}
+		m_pRenderParams.radius = m_gridData.gridCellSize * 0.4f;
 
 		// create buffers
 		video::IGPUBuffer::SCreationParams params = {};
@@ -278,12 +309,15 @@ public:
 		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 		createBuffer(particleBuffer, params);
 
+		params.size = numParticles * 6 * sizeof(VertexInfo);
+		createBuffer(particleVertexBuffer, params);
+
 		// init render pipeline
 		if (!initGraphicsPipeline())
 			return logFail("Failed to initialize render pipeline!\n");
 
 		{
-			// init compute shaders and pipeline
+			// init particles pipeline
 			auto piPipeline = createComputePipelineFromShader("app_resources/compute/particlesInit.comp.hlsl");
 			m_initParticlePipeline = piPipeline.first;
 			IGPUDescriptorSetLayoutArray initParticleDsLayouts = piPipeline.second;
@@ -313,58 +347,42 @@ public:
 				m_device->updateDescriptorSets(std::span(writes, 2), {});
 			}
 		}
-
-		// init buffers
-		//constexpr size_t workgroupCount = 4096;
-		//constexpr size_t bufferSize = sizeof(uint32_t) * WorkgroupSize * workgroupCount;
-
-		//video::IDeviceMemoryAllocator::SAllocation allocation = {};
-
-		/*
 		{
-			video::IGPUBuffer::SCreationParams params = {};
-			params.size = bufferSize;
-			params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
-			smart_refctd_ptr<IGPUBuffer> testBuffer = m_device->createBuffer(std::move(params));
-			if (!testBuffer)
-				return logFail("Failed to create GPU buffer of size %d!\n", params.size);
+			// generate particle vertex pipeline
+			auto piPipeline = createComputePipelineFromShader("app_resources/compute/genParticleVertices.comp.hlsl");
+			m_genParticleVerticesPipeline = piPipeline.first;
+			IGPUDescriptorSetLayoutArray dsLayouts = piPipeline.second;
 
-			testBuffer->setObjectDebugName("test output buffer");
-
-			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = testBuffer->getMemoryReqs();
-			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
-
-			allocation = m_device->allocate(reqs, testBuffer.get(), video::IDeviceMemoryAllocation::EMAF_NONE);
-			if (!allocation.isValid())
-				return logFail("Failed to allocate device memory compatible with gpu buffer!\n");
+			constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
+			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
+				!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
+				!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
+				!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
+				!dsLayouts[3] ? nullptr : dsLayouts[3].get()
+			};
+			m_genVerticesPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
+			m_genVerticesPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_genVerticesDs.data());
 
 			{
-				IGPUDescriptorSet::SDescriptorInfo info[1];
-				info[0].desc = smart_refctd_ptr(testBuffer);
-				info[0].info.buffer = {.offset = 0, .size = bufferSize};
-				IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
-					{.dstSet = descriptorSets[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = info}
+				IGPUDescriptorSet::SDescriptorInfo inputInfos[3];
+				inputInfos[0].desc = smart_refctd_ptr(cameraBuffer);
+				inputInfos[0].info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
+				inputInfos[1].desc = smart_refctd_ptr(pParamsBuffer);
+				inputInfos[1].info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
+				inputInfos[2].desc = smart_refctd_ptr(particleBuffer);
+				inputInfos[2].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+				IGPUDescriptorSet::SDescriptorInfo outputInfo;
+				outputInfo.desc = smart_refctd_ptr(particleVertexBuffer);
+				outputInfo.info.buffer = {.offset = 0, .size = particleVertexBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_genVerticesDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
+					{.dstSet = m_genVerticesDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
+					{.dstSet = m_genVerticesDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &inputInfos[2]},
+					{.dstSet = m_genVerticesDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &outputInfo},
 				};
-				m_device->updateDescriptorSets(writes, {});
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
 		}
-
-		if (!allocation.memory->map({0ull, allocation.memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ))
-			return logFail("Failed to map the device memory!\n");
-		*/
-
-		//params.size = numParticles * sizeof(float32_t4);
-		//params.usage = IGPUBuffer::EUF_VERTEX_BUFFER_BIT;
-		//createBuffer(vertexBuffer, params);
-
-		/*
-		auto buffData = reinterpret_cast<const uint32_t*>(allocation.memory->getMappedPointer());
-		assert(allocation.offset==0);
-		for (auto i=0; i<WorkgroupSize * workgroupCount; i++)
-		if (buffData[i]!=i)
-			return logFail("DWORD at position %d doesn't match!\n",i);
-		allocation.memory->unmap();
-		*/
 
 		m_winMgr->show(m_window.get());
 
@@ -418,6 +436,8 @@ public:
 			camera.endInputProcessing(nextPresentationTimestamp);
 		}
 
+		SMVPParams camData;
+		SBufferRange<IGPUBuffer> camDataRange;
 		{
 			const auto viewMatrix = camera.getViewMatrix();
 			const auto viewProjectionMatrix = camera.getConcatenatedMatrix();
@@ -433,40 +453,38 @@ public:
 
 			const core::vector3df camPos = camera.getPosition().getAsVector3df();
 
-			SMVPParams camData;
 			camPos.getAs4Values(camData.cameraPosition);
 			memcpy(camData.MVP, modelViewProjectionMatrix.pointer(), sizeof(camData.MVP));
 			memcpy(camData.M, modelMat.pointer(), sizeof(camData.M));
 			memcpy(camData.V, viewMatrix.pointer(), sizeof(camData.V));
 			{
+				camDataRange.buffer = cameraBuffer;
+				camDataRange.size = cameraBuffer->getSize();
 
-				SBufferRange<IGPUBuffer> range;
-				range.buffer = cameraBuffer;
-				range.size = cameraBuffer->getSize();
-
-				cmdbuf->updateBuffer(range, &camData);
+				cmdbuf->updateBuffer(camDataRange, &camData);
 			}
 		}
 
 		bool bCaptureTestInitParticles = false;
+		SBufferRange<IGPUBuffer> gridDataRange;
+		SBufferRange<IGPUBuffer> pParamsRange;
 		if (m_shouldInitParticles)
 		{
 			bCaptureTestInitParticles = true;
 
-			SParticleRenderParams pRenderParams{};
 			{
-				float zNear = 0.1f, zFar = 10000.f;
-				core::vectorSIMDf cameraPosition(-5.81655884, 2.58630896, -4.23974705);
-				core::vectorSIMDf cameraTarget(-0.349590302, -0.213266611, 0.317821503);
-				matrix4SIMD projectionMatrix = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(60.0f), float(WIN_WIDTH) / WIN_HEIGHT, zNear, zFar);
-				camera = Camera(cameraPosition, cameraTarget, projectionMatrix, 1.069f, 0.4f);
-
-				pRenderParams.zNear = zNear;
-				pRenderParams.zFar = zFar;
+				gridDataRange.size = gridDataBuffer->getSize();
+				gridDataRange.buffer = gridDataBuffer;
 			}
-			pRenderParams.radius = gridData.gridCellSize * 0.4f;
+			cmdbuf->updateBuffer(gridDataRange, &m_gridData);
 
-			initializeParticles(cmdbuf, pRenderParams);
+			{
+				pParamsRange.size = pParamsBuffer->getSize();
+				pParamsRange.buffer = pParamsBuffer;
+			}
+			cmdbuf->updateBuffer(pParamsRange, &m_pRenderParams);
+
+			initializeParticles(cmdbuf);
 		}
 
 		/*
@@ -480,6 +498,69 @@ public:
 			dispatchAdvection();				// update/advect fluid
 		}
 		*/
+
+		{
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = cameraBuffer->getSize(),
+					.buffer = cameraBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = pParamsBuffer->getSize(),
+					.buffer = pParamsBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = particleBuffer->getSize(),
+					.buffer = particleBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = particleVertexBuffer->getSize(),
+					.buffer = particleVertexBuffer,
+				};
+			}
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+		}
+
+		// prepare particle vertices for render
+		cmdbuf->bindComputePipeline(m_genParticleVerticesPipeline.get());
+		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_genParticleVerticesPipeline->getLayout(), 0, m_genVerticesDs.size(), &m_genVerticesDs.begin()->get());
+		cmdbuf->dispatch(numParticles, 1, 1);
 
 		// draw particles
 		auto* queue = getGraphicsQueue();
@@ -499,44 +580,67 @@ public:
 			.offset = { 0, 0 },
 			.extent = { m_window->getWidth(), m_window->getHeight() }
 		};
-		cmdbuf->setScissor(0u, 1u, &scissor);
+		cmdbuf->setScissor(0u, 1u, &scissor);		
 
-		// TODO: pipeline barrier for particles buffer
+		IGPUCommandBuffer::SRenderpassBeginInfo beginInfo;
+		VkRect2D currentRenderArea;
+		const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+		const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
+		{
+			currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+	
+			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
+			beginInfo =
+			{
+				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
+				.colorClearValues = &clearValue,
+				.depthStencilClearValues = &depthValue,
+				.renderArea = currentRenderArea
+			};
+		}
+		cmdbuf->beginRenderPass(beginInfo, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+
 		{
 			uint32_t bufferBarriersCount = 0u;
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT | PIPELINE_STAGE_FLAGS::GEOMETRY_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = cameraBuffer->getSize(),
-					.buffer = cameraBuffer,
+					.size = particleVertexBuffer->getSize(),
+					.buffer = particleVertexBuffer,
 				};
 			}
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+		}
+
+		// put into renderFluid();		// TODO: mesh or particles?
+		cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
+		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 0, m_renderDs.size(), &m_renderDs.begin()->get());
+		//cmdbuf->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
+
+		cmdbuf->draw(numParticles * 6, 1, 0, 0);	// TODO: check how many, num of particles?
+
+		cmdbuf->endRenderPass();
+
+		{
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
 			{
 				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::GEOMETRY_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::UNIFORM_READ_BIT;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = pParamsBuffer->getSize(),
-					.buffer = pParamsBuffer,
-				};
-			}
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::VERTEX_SHADER_BIT;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				bufferBarrier.range =
 				{
 					.offset = 0u,
@@ -547,39 +651,7 @@ public:
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
 		}
 
-		{
-			const VkRect2D currentRenderArea =
-			{
-				.offset = {0,0},
-				.extent = {m_window->getWidth(),m_window->getHeight()}
-			};
-
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
-			const IGPUCommandBuffer::SClearDepthStencilValue depthValue = { .depth = 0.f };
-			auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
-			const IGPUCommandBuffer::SRenderpassBeginInfo info =
-			{
-				.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-				.colorClearValues = &clearValue,
-				.depthStencilClearValues = &depthValue,
-				.renderArea = currentRenderArea
-			};
-
-			cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-		}
-
-		// put into renderFluid();		// TODO: mesh or particles?
-		cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
-		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 0, m_renderDs.size(), &m_renderDs.begin()->get());
-		//cmdbuf->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
-
-		//const asset::SBufferBinding<const IGPUBuffer> bVertices[] = { {.offset = 0, .buffer = vertexBuffer} };
-		//const asset::SBufferBinding<const IGPUBuffer> bIndices = { .offset = 0, .buffer = hook.m_indexBuffer };
-
-		//cmdbuf->bindVertexBuffers(0, 1, bVertices);
-		cmdbuf->draw(numParticles, 1, 0, 0);	// TODO: check how many, num of particles?
-
-		cmdbuf->endRenderPass();
+		cmdbuf->endDebugMarker();
 		cmdbuf->end();
 
 		// submit
@@ -902,19 +974,19 @@ private:
 			};
 		auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
 		auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-		auto gs = compileShader("app_resources/fluidParticles.geom.hlsl", IShader::E_SHADER_STAGE::ESS_GEOMETRY);
+		//auto gs = compileShader("app_resources/fluidParticles.geom.hlsl", IShader::E_SHADER_STAGE::ESS_GEOMETRY);
 
 		smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1, descriptorSetLayout2;
 		{
 			// init descriptors
 			video::IGPUDescriptorSetLayout::SBinding bindingsSet1[] = {
-				{
-					.binding = 0u,
-					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_GEOMETRY,
-					.count = 1u,
-				},
+				//{
+				//	.binding = 0u,
+				//	.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+				//	.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				//	.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_VERTEX | asset::IShader::E_SHADER_STAGE::ESS_GEOMETRY,
+				//	.count = 1u,
+				//},
 				{
 					.binding = 1u,
 					.type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
@@ -927,25 +999,25 @@ private:
 			if (!descriptorSetLayout1)
 				return logFail("Failed to Create Render Descriptor Layout 1");
 
-			video::IGPUDescriptorSetLayout::SBinding bindingsSet2[] = {
-				{
-					.binding = 0u,
-					.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_GEOMETRY,
-					.count = 1u,
-				}
-			};
+			//video::IGPUDescriptorSetLayout::SBinding bindingsSet2[] = {
+			//	{
+			//		.binding = 0u,
+			//		.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+			//		.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+			//		.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_GEOMETRY,
+			//		.count = 1u,
+			//	}
+			//};
 
-			descriptorSetLayout2 = m_device->createDescriptorSetLayout(bindingsSet2);
-			if (!descriptorSetLayout2)
-				return logFail("Failed to Create Render Descriptor Layout 2");
+			//descriptorSetLayout2 = m_device->createDescriptorSetLayout(bindingsSet2);
+			//if (!descriptorSetLayout2)
+			//	return logFail("Failed to Create Render Descriptor Layout 2");
 
 			const auto maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
 			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
 				nullptr,
 				descriptorSetLayout1.get(),
-				descriptorSetLayout2.get(),
+				nullptr, //descriptorSetLayout2.get(),
 				nullptr
 			};
 			m_renderDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
@@ -954,21 +1026,24 @@ private:
 
 		// write descriptors
 		{
-			IGPUDescriptorSet::SDescriptorInfo camInfo;
-			camInfo.desc = smart_refctd_ptr(cameraBuffer);
-			camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
-			IGPUDescriptorSet::SDescriptorInfo particleInfo;
-			particleInfo.desc = smart_refctd_ptr(particleBuffer);
-			particleInfo.info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-			IGPUDescriptorSet::SDescriptorInfo pParamsInfo;
-			pParamsInfo.desc = smart_refctd_ptr(pParamsBuffer);
-			pParamsInfo.info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-				{.dstSet = m_renderDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo},
-				{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &particleInfo},
-				{.dstSet = m_renderDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &pParamsInfo}
+			//IGPUDescriptorSet::SDescriptorInfo camInfo;
+			//camInfo.desc = smart_refctd_ptr(cameraBuffer);
+			//camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
+			//IGPUDescriptorSet::SDescriptorInfo particleInfo;
+			//particleInfo.desc = smart_refctd_ptr(particleBuffer);
+			//particleInfo.info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+			//IGPUDescriptorSet::SDescriptorInfo pParamsInfo;
+			//pParamsInfo.desc = smart_refctd_ptr(pParamsBuffer);
+			//pParamsInfo.info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
+			IGPUDescriptorSet::SDescriptorInfo verticesInfo;
+			verticesInfo.desc = smart_refctd_ptr(particleVertexBuffer);
+			verticesInfo.info.buffer = {.offset = 0, .size = particleVertexBuffer->getSize()};
+			IGPUDescriptorSet::SWriteDescriptorSet writes[1] = {
+				{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &verticesInfo},
+				//{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &particleInfo},
+				//{.dstSet = m_renderDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &pParamsInfo}
 			};
-			m_device->updateDescriptorSets(std::span(writes, 3), {});
+			m_device->updateDescriptorSets(std::span(writes, 1), {});
 		}
 
 		SBlendParams blendParams = {};
@@ -985,7 +1060,7 @@ private:
 			IGPUShader::SSpecInfo specInfo[3] = {
 				{.shader = vs.get()},
 				{.shader = fs.get()},
-				{.shader = gs.get()}
+				//{.shader = gs.get()}
 			};
 
 			const auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), smart_refctd_ptr(descriptorSetLayout2), nullptr);
@@ -999,8 +1074,6 @@ private:
 			params[0].shaders = specInfo;
 			params[0].cached = {
 				.vertexInput = {
-					.enabledAttribFlags = 0,
-					.enabledBindingFlags = 0
 				},
 				.primitiveAssembly = {
 					.primitiveType = E_PRIMITIVE_TOPOLOGY::EPT_TRIANGLE_LIST,
@@ -1029,25 +1102,43 @@ private:
 
 
 	// in-loop functions
-	void initializeParticles(IGPUCommandBuffer* cmdbuf, const SParticleRenderParams& pRenderParams)
+	void initializeParticles(IGPUCommandBuffer* cmdbuf)
 	{
 		{
-			SBufferRange<IGPUBuffer> gridDataRange{
-				.size = gridDataBuffer->getSize(),
-				.buffer = gridDataBuffer,
-			};
-			cmdbuf->updateBuffer(gridDataRange, &gridData);
-
-			SBufferRange<IGPUBuffer> pParamsRange{
-				.size = pParamsBuffer->getSize(),
-				.buffer = pParamsBuffer,
-			};
-			cmdbuf->updateBuffer(pParamsRange, &pRenderParams);
-
-			cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, m_initParticleDs.size(), &m_initParticleDs.begin()->get());
-			cmdbuf->dispatch(numParticles, 1, 1);
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = gridDataBuffer->getSize(),
+					.buffer = gridDataBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = particleBuffer->getSize(),
+					.buffer = particleBuffer,
+				};
+			}
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
 		}
+		
+		cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
+		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, m_initParticleDs.size(), &m_initParticleDs.begin()->get());
+		cmdbuf->dispatch(numParticles, 1, 1);
 
 		m_shouldInitParticles = false;
 	}
@@ -1076,9 +1167,12 @@ private:
 	smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_advectParticlesPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_densityProjectPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_genParticleVerticesPipeline;
 
 	smart_refctd_ptr<video::IDescriptorPool> m_initParticlePool;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_initParticleDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_genVerticesPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_genVerticesDs;
 
 	// input system
 	smart_refctd_ptr<InputSystem> m_inputSystem;
@@ -1092,7 +1186,8 @@ private:
 
 	// simulation constants
 	uint32_t m_substepsPerFrame = 1;
-	SGridData gridData;
+	SGridData m_gridData;
+	SParticleRenderParams m_pRenderParams;
 	uint32_t particlesPerCell = 8;
 	uint32_t numParticles;
 
@@ -1101,6 +1196,7 @@ private:
 
 	smart_refctd_ptr<IGPUBuffer> particleBuffer;		// Particle
 	smart_refctd_ptr<IGPUBuffer> pParamsBuffer;			// SParticleRenderParams
+	smart_refctd_ptr<IGPUBuffer> particleVertexBuffer;	// VertexInfo * 6 vertices
 
 	smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		// SGridData
 	smart_refctd_ptr<IGPUBuffer> gridParticleIDBuffer;	// uint2
