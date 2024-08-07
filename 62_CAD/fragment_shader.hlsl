@@ -8,6 +8,7 @@
 #include <nbl/builtin/hlsl/math/geometry.hlsl>
 #include <nbl/builtin/hlsl/spirv_intrinsics/fragment_shader_pixel_interlock.hlsl>
 #include <nbl/builtin/hlsl/jit/device_capabilities.hlsl>
+#include <nbl/builtin/hlsl/text_rendering/msdf.hlsl>
 
 template<typename float_t>
 struct DefaultClipper
@@ -335,18 +336,26 @@ typedef StyleClipper< nbl::hlsl::shapes::Line<float> > LineStyleClipper;
 
 // We need to specialize color calculation based on FragmentShaderInterlock feature availability for our transparency algorithm
 // because there is no `if constexpr` in hlsl
+// @params
+// textureColor: color sampled from a texture
+// useStyleColor: instead of writing and reading from colorStorage, use main object Idx to find the style color for the object.
 template<bool FragmentShaderPixelInterlock>
-float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx);
+float32_t4 calculateFinalColor(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor);
 
 template<>
-float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<false>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor)
 {
-    float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
-    col.w *= localAlpha;
-    return float4(col);
+    if (useStyleColor)
+    {
+        float32_t4 col = lineStyles[mainObjects[currentMainObjectIdx].styleIdx].color;
+        col.w *= localAlpha;
+        return float4(col);
+    }
+    else
+        return float4(textureColor, localAlpha);
 }
 template<>
-float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx)
+float32_t4 calculateFinalColor<true>(const uint2 fragCoord, const float localAlpha, const uint32_t currentMainObjectIdx, float3 textureColor, bool useStyleColor)
 {
     nbl::hlsl::spirv::execution_mode::PixelInterlockOrderedEXT();
     nbl::hlsl::spirv::beginInvocationInterlockEXT();
@@ -377,10 +386,12 @@ float4 main(PSInput input) : SV_TARGET
     ObjectType objType = input.getObjType();
     float localAlpha = 0.0f;
     const uint32_t currentMainObjectIdx = input.getMainObjectIdx();
-
+    float3 textureColor = float3(0, 0, 0); // color sampled from a texture
+    
     // figure out local alpha with sdf
     if (objType == ObjectType::LINE || objType == ObjectType::QUAD_BEZIER || objType == ObjectType::POLYLINE_CONNECTOR)
     {
+        float distance = nbl::hlsl::numeric_limits<float>::max;
         if (objType == ObjectType::LINE)
         {
             const float2 start = input.getLineStart();
@@ -396,7 +407,6 @@ float4 main(PSInput input) : SV_TARGET
 
             LineStyle style = lineStyles[styleIdx];
 
-            float distance;
             if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
             {
                 distance = ClippedSignedDistance< nbl::hlsl::shapes::Line<float> >::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag);
@@ -406,9 +416,6 @@ float4 main(PSInput input) : SV_TARGET
                 LineStyleClipper clipper = LineStyleClipper::construct(lineStyles[styleIdx], lineSegment, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Line<float>, LineStyleClipper>::sdf(lineSegment, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
@@ -422,7 +429,6 @@ float4 main(PSInput input) : SV_TARGET
             const float worldToScreenRatio = input.getCurrentWorldToScreenRatio();
 
             LineStyle style = lineStyles[styleIdx];
-            float distance;
             if (!style.hasStipples() || stretch == InvalidStyleStretchValue)
             {
                 distance = ClippedSignedDistance< nbl::hlsl::shapes::Quadratic<float> >::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag);
@@ -432,14 +438,11 @@ float4 main(PSInput input) : SV_TARGET
                 BezierStyleClipper clipper = BezierStyleClipper::construct(lineStyles[styleIdx], quadratic, arcLenCalc, phaseShift, stretch, worldToScreenRatio);
                 distance = ClippedSignedDistance<nbl::hlsl::shapes::Quadratic<float>, BezierStyleClipper>::sdf(quadratic, input.position.xy, thickness, style.isRoadStyleFlag, clipper);
             }
-
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
         else if (objType == ObjectType::POLYLINE_CONNECTOR)
         {
             const float2 P = input.position.xy - input.getPolylineConnectorCircleCenter();
-            const float distance = miterSDF(
+            distance = miterSDF(
                 P,
                 input.getLineThickness(),
                 input.getPolylineConnectorTrapezoidStart(),
@@ -447,23 +450,22 @@ float4 main(PSInput input) : SV_TARGET
                 input.getPolylineConnectorTrapezoidLongBase(),
                 input.getPolylineConnectorTrapezoidShortBase());
 
-            const float antiAliasingFactor = globals.antiAliasingFactor;
-            localAlpha = 1.0f - smoothstep(-antiAliasingFactor, +antiAliasingFactor, distance);
         }
+        localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, distance);
     }
     else if (objType == ObjectType::CURVE_BOX) 
     {
-        const float minorBBoxUv = input.getMinorBBoxUv();
-        const float majorBBoxUv = input.getMajorBBoxUv();
+        const float minorBBoxUV = input.getMinorBBoxUV();
+        const float majorBBoxUV = input.getMajorBBoxUV();
 
         nbl::hlsl::math::equations::Quadratic<float> curveMinMinor = input.getCurveMinMinor();
         nbl::hlsl::math::equations::Quadratic<float> curveMinMajor = input.getCurveMinMajor();
         nbl::hlsl::math::equations::Quadratic<float> curveMaxMinor = input.getCurveMaxMinor();
         nbl::hlsl::math::equations::Quadratic<float> curveMaxMajor = input.getCurveMaxMajor();
 
-        //  TODO(Optimization): Can we ignore this majorBBoxUv clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
-        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUv, 0.0, 1.0));
-        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUv, 0.0, 1.0));
+        //  TODO(Optimization): Can we ignore this majorBBoxUV clamp and rely on the t clamp that happens next? then we can pass `PrecomputedRootFinder`s instead of computing the values per pixel.
+        nbl::hlsl::math::equations::Quadratic<float> minCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMinMajor.a, curveMinMajor.b, curveMinMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
+        nbl::hlsl::math::equations::Quadratic<float> maxCurveEquation = nbl::hlsl::math::equations::Quadratic<float>::construct(curveMaxMajor.a, curveMaxMajor.b, curveMaxMajor.c - clamp(majorBBoxUV, 0.0, 1.0));
 
         const float minT = clamp(PrecomputedRootFinder<float>::construct(minCurveEquation).computeRoots(), 0.0, 1.0);
         const float minEv = curveMinMinor.evaluate(minT);
@@ -471,8 +473,8 @@ float4 main(PSInput input) : SV_TARGET
         const float maxT = clamp(PrecomputedRootFinder<float>::construct(maxCurveEquation).computeRoots(), 0.0, 1.0);
         const float maxEv = curveMaxMinor.evaluate(maxT);
 
-        const bool insideMajor = majorBBoxUv >= 0.0 && majorBBoxUv <= 1.0;
-        const bool insideMinor = minorBBoxUv >= minEv && minorBBoxUv <= maxEv;
+        const bool insideMajor = majorBBoxUV >= 0.0 && majorBBoxUV <= 1.0;
+        const bool insideMinor = minorBBoxUV >= minEv && minorBBoxUV <= maxEv;
 
         if (insideMinor && insideMajor)
         {
@@ -489,9 +491,9 @@ float4 main(PSInput input) : SV_TARGET
 
 
             float closestDistanceSquared = MAX_DISTANCE_SQUARED;
-            const float2 pos = float2(minorBBoxUv, majorBBoxUv) * boxScreenSpaceSize;
+            const float2 pos = float2(minorBBoxUV, majorBBoxUV) * boxScreenSpaceSize;
 
-            if (minorBBoxUv < minEv)
+            if (minorBBoxUV < minEv)
             {
                 // DO SDF of Min Curve
                 nbl::hlsl::shapes::Quadratic<float> minCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
@@ -510,7 +512,7 @@ float4 main(PSInput input) : SV_TARGET
                         closestDistanceSquared = candidateDistanceSquared;
                 }
             }
-            else if (minorBBoxUv > maxEv)
+            else if (minorBBoxUV > maxEv)
             {
                 // Do SDF of Max Curve
                 nbl::hlsl::shapes::Quadratic<float> maxCurve = nbl::hlsl::shapes::Quadratic<float>::construct(
@@ -533,7 +535,7 @@ float4 main(PSInput input) : SV_TARGET
             {
                 const bool minLessThanMax = minEv < maxEv;
                 float2 majorDistVector = float2(MAX_DISTANCE_SQUARED, MAX_DISTANCE_SQUARED);
-                if (majorBBoxUv > 1.0)
+                if (majorBBoxUV > 1.0)
                 {
                     const float2 minCurveEnd = float2(minEv, 1.0) * boxScreenSpaceSize;
                     if (minLessThanMax)
@@ -558,12 +560,49 @@ float4 main(PSInput input) : SV_TARGET
             const float dist = sqrt(closestDistanceSquared);
             localAlpha = 1.0f - smoothstep(0.0, globals.antiAliasingFactor, dist);
         }
+
+        LineStyle style = lineStyles[mainObjects[currentMainObjectIdx].styleIdx];
+        uint32_t textureId = asuint(style.screenSpaceLineWidth);
+        if (textureId != InvalidTextureIdx)
+        {
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
+            localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
+        }
+    }
+    else if (objType == ObjectType::FONT_GLYPH) 
+    {
+        const float2 uv = input.getFontGlyphUV();
+        const uint32_t textureId = input.getFontGlyphTextureId();
+
+        if (textureId != InvalidTextureIdx)
+        {
+            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
+            
+            // localAlpha = smoothstep(-globals.antiAliasingFactor, 0.0, msdf); 
+            // IDK why but it looks best if aa is done on the inside of the shape too esp for curved and diagonal shapes, it may make the shape a tiny bit thinner but worth it
+            localAlpha = smoothstep(+globals.antiAliasingFactor, -globals.antiAliasingFactor, msdf); 
+        }
+    }
+    else if (objType == ObjectType::IMAGE) 
+    {
+        const float2 uv = input.getImageUV();
+        const uint32_t textureId = input.getImageTextureId();
+
+        if (textureId != InvalidTextureIdx)
+        {
+            float4 colorSample = textures[NonUniformResourceIndex(textureId)].Sample(textureSampler, float2(uv.x, uv.y));
+            textureColor = colorSample.rgb;
+            localAlpha = colorSample.a;
+        }
     }
 
     uint2 fragCoord = uint2(input.position.xy);
     
     if (localAlpha <= 0)
         discard;
-
-    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx);
+    
+    bool useStyleColor = (objType != ObjectType::IMAGE);
+    return calculateFinalColor<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(fragCoord, localAlpha, currentMainObjectIdx, textureColor, useStyleColor);
 }
