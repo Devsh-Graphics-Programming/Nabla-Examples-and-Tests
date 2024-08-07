@@ -8,7 +8,8 @@
 
 #include "../common/SimpleWindowedApplication.hpp"
 #include "../common/InputSystem.hpp"
-#include "../common/Camera.hpp"
+
+#include "nbl/api/CCamera.hpp"
 
 #include "this_example/spirv/builtin/CArchive.h"
 #include "this_example/spirv/builtin/builtinResources.h"
