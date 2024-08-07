@@ -20,11 +20,18 @@ cbuffer ParticleParams
 
 static const uint vertexOrder[6] = {0, 1, 2, 2, 1, 3};
 
+// static const float4 quadVertices[4] = {
+//     float4(-1, -1, 0, 1),
+//     float4(1, -1, 0, 1),
+//     float4(-1, 1, 0, 1),
+//     float4(1, 1, 0, 1)
+// };
+
 static const float4 quadVertices[4] = {
-    float4(-1, -1, 0, 1),
-    float4(1, -1, 0, 1),
-    float4(-1, 1, 0, 1),
-    float4(1, 1, 0, 1)
+    float4(-0.5f, -0.5f, 0.0f, 1.0f),
+    float4(0.5f, -0.5f, 0.0f, 1.0f),
+    float4(-0.5f, 0.5f, 0.0f, 1.0f),
+    float4(0.5f, 0.5f, 0.0f, 1.0f),
 };
 
 static const float2 quadUVs[4] = {
@@ -71,22 +78,19 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     mat._m33 = 1;
 
     float vertScale = (dist - radius) / dist;
-    float4x4 vertMat = mat;
-    vertMat._m00_m10_m20 *= vertScale;
-    vertMat._m01_m11_m21 *= vertScale;
-    vertMat._m03_m13_m23 += viewDir * radius / dist;
+    mat._m00_m10_m20 *= vertScale;
+    mat._m01_m11_m21 *= vertScale;
+    mat._m03_m13_m23 += viewDir * radius / dist;
 
     for (uint i = 0; i < 6; i++)
     {
         VertexInfo vertex;
 
         vertex.radius = radius;
-
-        float3 pos = mul(mat, quadVertices[vertexOrder[i]]).xyz;
-        vertex.vsPos = float4(mul(camParams.V, float4(pos, 1)).xyz, 1);
+        
         vertex.vsSpherePos = float4(mul(camParams.V, float4(wsSpherePos, 1)).xyz, 1);
 
-        vertex.position = mul(camParams.MVP, float4(mul(vertMat, quadVertices[vertexOrder[i]]).xyz, 1));
+        vertex.position = mul(camParams.MVP, float4(mul(mat, quadVertices[vertexOrder[i]]).xyz, 1));
 
         vertex.color = color;
 

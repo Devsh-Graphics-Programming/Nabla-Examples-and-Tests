@@ -67,13 +67,13 @@ struct SParticleRenderParams
 struct VertexInfo
 {
 	float32_t4 position;
-	float32_t4 vsPos;
 	float32_t4 vsSpherePos;
 
     float radius;
     float pad;
 
     float32_t4 color;
+	float32_t2 uv;
 };
 
 class CSwapchainFramebuffersAndDepth final : public nbl::video::CDefaultSwapchainFramebuffers
@@ -216,13 +216,6 @@ class FLIPFluidsApp final : public examples::SimpleWindowedApplication, public a
 public:
 	inline FLIPFluidsApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD)
 		: IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
-
-	inline virtual SPhysicalDeviceFeatures getRequiredDeviceFeatures() const override
-	{
-		auto retval = device_base_t::getRequiredDeviceFeatures();
-		//retval.geometryShader = true;
-		return retval;
-	}
 
 	inline virtual video::IAPIConnection::SFeatures getAPIFeaturesToEnable()
 	{
@@ -629,9 +622,8 @@ public:
 		// put into renderFluid();		// TODO: mesh or particles?
 		cmdbuf->bindGraphicsPipeline(m_graphicsPipeline.get());
 		cmdbuf->bindDescriptorSets(EPBP_GRAPHICS, m_graphicsPipeline->getLayout(), 0, m_renderDs.size(), &m_renderDs.begin()->get());
-		//cmdbuf->pushConstants(rawPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_VERTEX, 0, sizeof(PushConstants), &m_pc);
 
-		cmdbuf->draw(numParticles * 6, 1, 0, 0);	// TODO: check how many, num of particles?
+		cmdbuf->draw(numParticles * 6, 1, 0, 0);
 
 		cmdbuf->endRenderPass();
 
@@ -977,7 +969,6 @@ private:
 			};
 		auto vs = compileShader("app_resources/fluidParticles.vertex.hlsl", IShader::E_SHADER_STAGE::ESS_VERTEX);
 		auto fs = compileShader("app_resources/fluidParticles.fragment.hlsl", IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-		//auto gs = compileShader("app_resources/fluidParticles.geom.hlsl", IShader::E_SHADER_STAGE::ESS_GEOMETRY);
 
 		smart_refctd_ptr<video::IGPUDescriptorSetLayout> descriptorSetLayout1, descriptorSetLayout2;
 		{
@@ -1002,20 +993,6 @@ private:
 			if (!descriptorSetLayout1)
 				return logFail("Failed to Create Render Descriptor Layout 1");
 
-			//video::IGPUDescriptorSetLayout::SBinding bindingsSet2[] = {
-			//	{
-			//		.binding = 0u,
-			//		.type = asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-			//		.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-			//		.stageFlags = asset::IShader::E_SHADER_STAGE::ESS_GEOMETRY,
-			//		.count = 1u,
-			//	}
-			//};
-
-			//descriptorSetLayout2 = m_device->createDescriptorSetLayout(bindingsSet2);
-			//if (!descriptorSetLayout2)
-			//	return logFail("Failed to Create Render Descriptor Layout 2");
-
 			const auto maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
 			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
 				nullptr,
@@ -1032,20 +1009,12 @@ private:
 			IGPUDescriptorSet::SDescriptorInfo camInfo;
 			camInfo.desc = smart_refctd_ptr(cameraBuffer);
 			camInfo.info.buffer = {.offset = 0, .size = cameraBuffer->getSize()};
-			//IGPUDescriptorSet::SDescriptorInfo particleInfo;
-			//particleInfo.desc = smart_refctd_ptr(particleBuffer);
-			//particleInfo.info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
-			//IGPUDescriptorSet::SDescriptorInfo pParamsInfo;
-			//pParamsInfo.desc = smart_refctd_ptr(pParamsBuffer);
-			//pParamsInfo.info.buffer = {.offset = 0, .size = pParamsBuffer->getSize()};
 			IGPUDescriptorSet::SDescriptorInfo verticesInfo;
 			verticesInfo.desc = smart_refctd_ptr(particleVertexBuffer);
 			verticesInfo.info.buffer = {.offset = 0, .size = particleVertexBuffer->getSize()};
 			IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
 				{.dstSet = m_renderDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &camInfo},
 				{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &verticesInfo},
-				//{.dstSet = m_renderDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &particleInfo},
-				//{.dstSet = m_renderDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &pParamsInfo}
 			};
 			m_device->updateDescriptorSets(std::span(writes, 2), {});
 		}

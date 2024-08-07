@@ -5,15 +5,16 @@
 struct VertexInfo
 {
     float4 position;
-	float4 vsPos;
 	float4 vsSpherePos;
     
     float radius;
     float pad;
 
     float4 color;
+    float2 uv;
 };
 
+// obsolete
 struct GSInput
 {
 	float4 particle : TEXCOORD0;
@@ -22,12 +23,10 @@ struct GSInput
 struct PSInput
 {
 	float4 position : SV_Position;
-	float3 vsPos : TEXCOORD0;
+	float2 uv : TEXCOORD0;
 	nointerpolation float3 vsSpherePos : TEXCOORD1;
     nointerpolation float radius : TEXCOORD2;
     nointerpolation float4 color : TEXCOORD3;
-
-    float4 uv : TEXCOORD4;
 };
 
 struct SParticleRenderParams
