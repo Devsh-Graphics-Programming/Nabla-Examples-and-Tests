@@ -2,10 +2,6 @@
 #define _FLIP_EXAMPLE_GRID_UTILS_HLSL
 
 #ifdef __HLSL_VERSION
-static const uint CM_AIR = 0;
-static const uint CM_FLUID = 1;
-static const uint CM_SOLID = 2;
-
 struct SGridData
 {
     float gridCellSize;
@@ -28,7 +24,26 @@ float4 clampPosition(float4 position, float4 gridMin, float4 gridMax)
     return float4(clamp(position.xyz, gridMin.xyz + POSITION_EPSILON, gridMax.xyz - POSITION_EPSILON), 1);
 }
 
-float4 gridPosToWorldPos(float4 position, SGridData data)
+inline uint cellIdxToFlatIdx(int3 index, int4 gridSize)
+{
+    uint3 idxClamp = clamp(index, (int3)0, gridSize - 1);
+    return idxClamp.x + idxClamp.y * gridSize.x + idxClamp.z * gridSize.x * gridSize.y;
+}
+
+inline int3 flatIdxToCellIdx(uint id, int4 gridSize)
+{
+    int x = id % gridSize.x;
+    int y = id / gridSize.x % gridSize.y;
+    int z = id / (gridSize.x * gridSize.y);
+    return int3(x, y, z);
+}
+
+inline float3 cellIdxToWorldPos(int3 index, SGridData data)
+{
+    return data.worldMin.xyz + (index + 0.5f) * data.gridCellSize;
+}
+
+inline float4 gridPosToWorldPos(float4 position, SGridData data)
 {
     return float4(data.worldMin.xyz + position.xyz * data.gridCellSize, 1);
 }

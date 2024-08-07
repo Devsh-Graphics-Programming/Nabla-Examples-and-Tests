@@ -26,6 +26,8 @@ struct PSInput
 	nointerpolation float3 vsSpherePos : TEXCOORD1;
     nointerpolation float radius : TEXCOORD2;
     nointerpolation float4 color : TEXCOORD3;
+
+    float4 uv : TEXCOORD4;
 };
 
 struct SParticleRenderParams

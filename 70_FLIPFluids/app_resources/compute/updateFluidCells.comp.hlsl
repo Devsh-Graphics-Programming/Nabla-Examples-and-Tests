@@ -4,6 +4,8 @@
 
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
+#include "../cellUtils.hlsl"
+#include "../kernel.hlsl"
 
 [[vk::binding(0, 1)]]
 cbuffer GridData
@@ -24,7 +26,7 @@ static const kernel[6] = { -1, 1, -1, 1, -1, 1 };
 void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint tid = ID.x;
-    int3 cIdx = flatIdxToCellIdx(tid);
+    int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
 
     uint2 pid = gridParticleIDBuffer[tid];
     uint cType =
@@ -42,7 +44,7 @@ void updateFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint tid = ID.x;
-    int3 cIdx = flatIdxToCellIdx(tid);
+    int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
 
     uint thisCellMaterial = getCellMaterial(gridCellTypeBuffer[tid]);
     uint cellMaterial = 0;
@@ -73,7 +75,7 @@ void updateNeighborFluidCells(uint32_t3 ID : SV_DispatchThreadID)
 void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint tid = ID.x;
-    int3 cIdx = flatIdxToCellIdx(tid);
+    int3 cIdx = flatIdxToCellIdx(tid, gridData.gridSize);
 
     float3 position = cellIdxToWorldPos(cIdx);
     float3 posvx = position + float3(-0.5f * gridData.gridCellSize, 0.0f, 0.0f);
@@ -83,7 +85,7 @@ void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
     float3 totalWeight = 0;
     float3 totalVel = 0;
 
-    LOOP_PARTICLE_NEIGHBOR_CELLS_BEGIN(cIdx, pid, gridParticleIDBuffer, grid_range)
+    LOOP_PARTICLE_NEIGHBOR_CELLS_BEGIN(cIdx, pid, gridParticleIDBuffer, kernel, gridData.gridCellSize)
     {
         const Particle p = particleBuffer[pid];
 
