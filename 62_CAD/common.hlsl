@@ -4,6 +4,7 @@
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
+#include <nbl/builtin/hlsl/emulated_float64_t.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
 #endif
@@ -136,7 +137,10 @@ static_assert(sizeof(CurveBox) == 80u);
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    // TODO(emulated_float64_t): use emulated float instead
+    //float64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    float32_t3x3 projectionToNDC;
+    float32_t3x3 padding;
     float32_t2 minClipNDC; // 80
     float32_t2 maxClipNDC; // 88
 };
