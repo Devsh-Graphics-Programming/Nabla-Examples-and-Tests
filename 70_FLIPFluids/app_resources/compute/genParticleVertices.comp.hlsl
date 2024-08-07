@@ -27,6 +27,13 @@ static const float4 quadVertices[4] = {
     float4(1, 1, 0, 1)
 };
 
+static const float2 quadUVs[4] = {
+    float2(0, 0),
+    float2(1, 0),
+    float2(0, 1),
+    float2(1, 1)
+};
+
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
@@ -81,7 +88,9 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
         vertex.position = mul(camParams.MVP, float4(mul(vertMat, quadVertices[vertexOrder[i]]).xyz, 1));
 
-        vertex.color = color;//float4(0.1, 0.1, 0.8, 1);
+        vertex.color = color;
+
+        vertex.uv = quadUVs[vertexOrder[i]];
 
         particleVertexBuffer[quadBeginIdx + i] = vertex;
     }
