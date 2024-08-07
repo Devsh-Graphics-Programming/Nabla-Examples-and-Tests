@@ -5,7 +5,7 @@
 #define _NBL_STATIC_LIB_
 #include <nabla.h>
 
-#include "../common/Camera.hpp"
+#include "nbl/api/CCamera.hpp"
 #include "../common/CommonAPI.h"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 

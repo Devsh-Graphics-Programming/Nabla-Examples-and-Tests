@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <nabla.h>
 
-#include "../common/Camera.hpp"
+#include "nbl/api/CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 /*

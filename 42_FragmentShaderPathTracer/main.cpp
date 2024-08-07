@@ -6,7 +6,7 @@
 #include <nabla.h>
 
 #include "../common/CommonAPI.h"
-#include "../common/Camera.hpp"
+#include "nbl/api/CCamera.hpp"
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 #include "nbl/video/utilities/CDumbPresentationOracle.h"
 

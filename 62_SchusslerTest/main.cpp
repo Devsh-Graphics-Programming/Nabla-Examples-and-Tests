@@ -8,7 +8,7 @@
 #include <nabla.h>
 
 #include "nbl/asset/utils/CGeometryCreator.h"
-#include "../common/Camera.hpp"
+#include "nbl/api/CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;

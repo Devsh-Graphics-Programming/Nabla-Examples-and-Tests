@@ -1,5 +1,5 @@
 
-#include "../common/Camera.hpp"
+#include "nbl/api/CCamera.hpp"
 
 
 #include "nbl/nblpack.h"

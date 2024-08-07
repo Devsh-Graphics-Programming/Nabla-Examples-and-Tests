@@ -7,7 +7,7 @@
 
 #include "nbl/ext/ScreenShot/ScreenShot.h"
 
-#include "../common/Camera.hpp"
+#include "nbl/api/CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 #include "../3rdparty/portable-file-dialogs/portable-file-dialogs.h"

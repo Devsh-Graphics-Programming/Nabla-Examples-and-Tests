@@ -1,8 +1,8 @@
 ###########################################
-# TODO: the way it should work is following
+# TODO: the way it should work is following (remove the comment once all done!)
 # - one top PCH which includes <nabla.h> -> currently not done
 # - sources used only within examples splitted into "common libraries" (optional -> with options to toggle if include them to build tree), each common library should reuse the above top PCH
-# - op examples_tests CMake should loop over example targets and hook the interface library with NBL_HOOK_COMMON_API - temporary they need to use NBL_HOOK_COMMON_API themselves by hand (currently testing & don't want to compilate things - if any common library doesn't compile we have a trouble)
+# - examples_tests CMake loop over example targets and hook the interface library with NBL_HOOK_COMMON_API [done]
 # - each common library should declare ONLY interface and never expose source definition into headers nor any 3rdparty stuff!
 ##
 
@@ -22,7 +22,4 @@ add_subdirectory(CommonPCH EXCLUDE_FROM_ALL)
 #target_precompile_headers("${NBL_EXECUTABLE_COMMON_API_TARGET}" REUSE_FROM "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 ########## <-
 
-function(NBL_HOOK_COMMON_API NBL_TARGET)
-    target_include_directories(${NBL_TARGET} PRIVATE $<TARGET_PROPERTY:nblCommonAPI,INTERFACE_INCLUDE_DIRECTORIES>)
-    target_link_libraries(${NBL_TARGET} PRIVATE nblCommonAPI)
-endfunction()
+set(NBL_COMMON_API_TARGETS nblCommonAPI ${NBL_COMMON_API_TARGETS} ${NBL_EXECUTABLE_COMMON_API_TARGET} PARENT_SCOPE)

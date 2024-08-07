@@ -2,6 +2,23 @@
 # This file is part of the "Nabla Engine".
 # For conditions of distribution and use, see copyright notice in nabla.h
 
+function(NBL_HOOK_COMMON_API NBL_EXCLUDE_TARGETS_LIST)
+	if(NOT TARGET nblCommonAPI)
+		message(FATAL_ERROR "nblCommonAPI not defined!")
+	endif()
+
+    NBL_GET_ALL_TARGETS(NBL_TARGETS)
+
+    foreach(NBL_TARGET IN LISTS NBL_TARGETS)
+		# TODO: exclude builtin targets created by examples as well - doesn't impact anything at all now
+		if(NOT ${NBL_TARGET} IN_LIST NBL_EXCLUDE_TARGETS_LIST)
+
+			target_include_directories(${NBL_TARGET} PRIVATE $<TARGET_PROPERTY:nblCommonAPI,INTERFACE_INCLUDE_DIRECTORIES>)
+			target_link_libraries(${NBL_TARGET} PRIVATE nblCommonAPI)
+		endif()
+    endforeach()
+endfunction()
+
 # PCH & CommonAPI library for Nabla framework examples
 add_subdirectory(common EXCLUDE_FROM_ALL)
 
@@ -65,4 +82,6 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(62_CAD EXCLUDE_FROM_ALL)
 	add_subdirectory(62_SchusslerTest EXCLUDE_FROM_ALL)
 	add_subdirectory(0_ImportanceSamplingEnvMaps EXCLUDE_FROM_ALL) #TODO: integrate back into 42
+
+	NBL_HOOK_COMMON_API("${NBL_COMMON_API_TARGETS}")
 endif()
