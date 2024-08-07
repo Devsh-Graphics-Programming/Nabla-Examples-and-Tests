@@ -2,7 +2,7 @@
 
 // Unfortunately not every piece of C++14 metaprogramming syntax is available in HLSL 202x
 // https://github.com/microsoft/DirectXShaderCompiler/issues/5751#issuecomment-1800847954
-using input_t = nbl::hlsl::float64_t;
+using input_t = nbl::hlsl::float32_t;
 
 struct PushConstantData
 {

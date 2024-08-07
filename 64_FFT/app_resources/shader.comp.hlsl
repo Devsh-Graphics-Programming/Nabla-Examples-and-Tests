@@ -6,7 +6,7 @@
 [[vk::push_constant]] PushConstantData pushConstants;
 
 // careful: change size according to Scalar type
-groupshared uint32_t sharedmem[2 * WorkgroupSize];
+groupshared uint32_t sharedmem[4 * WorkgroupSize];
 
 // Users MUST define this method for FFT to work
 namespace nbl { namespace hlsl { namespace glsl
@@ -65,8 +65,8 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	// Workgroup	
 
-	//nbl::hlsl::workgroup::FFT<ElementsPerThread, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
-	//accessor.workgroupExecutionAndMemoryBarrier();
+	nbl::hlsl::workgroup::FFT<ElementsPerThread, true, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	accessor.workgroupExecutionAndMemoryBarrier();
 	nbl::hlsl::workgroup::FFT<ElementsPerThread, false, input_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 
 }
