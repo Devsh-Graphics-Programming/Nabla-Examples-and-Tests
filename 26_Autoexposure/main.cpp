@@ -227,6 +227,46 @@ public:
 			};
 		}
 
+		// Allocate and create buffer for Luma Gather
+		{
+			// Allocate memory
+			nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
+			smart_refctd_ptr<IGPUBuffer> buffer;
+			//smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
+			{
+				auto build_buffer = [this](
+					smart_refctd_ptr<ILogicalDevice> m_device,
+					nbl::video::IDeviceMemoryAllocator::SAllocation* allocation,
+					smart_refctd_ptr<IGPUBuffer>& buffer,
+					size_t buffer_size,
+					const char* label)
+				{
+					IGPUBuffer::SCreationParams params;
+					params.size = buffer_size;
+					params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+					buffer = m_device->createBuffer(std::move(params));
+					if (!buffer)
+						return logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
+
+					buffer->setObjectDebugName(label);
+
+					auto reqs = buffer->getMemoryReqs();
+					reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+					*allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+					if (!allocation->isValid())
+						return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+
+					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
+				};
+
+				auto x = m_physicalDevice->getLimits();
+
+				build_buffer(m_device, &allocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
+			}
+			m_lumaGatherBDA = buffer->getDeviceAddress();
+		}
+
 		// Allocate and Leave 1/4 for image uploads, to test image copy with small memory remaining
 		{
 			uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
@@ -346,8 +386,6 @@ public:
 
 			queue->endCapture();
 		}
-
-		m_computeSubgroupSize = m_physicalDevice->getLimits().maxComputeWorkgroupSubgroups;
 
 		return true;
 	}
@@ -487,8 +525,8 @@ protected:
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
 
-	// constants
-	uint32_t m_computeSubgroupSize = 0;
+	// luma gather
+	uint64_t m_lumaGatherBDA;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)
@@ -530,20 +568,6 @@ int main()
 	auto device = createDeviceEx(deviceParams);
 	if (!device)
 		return 1; // could not create selected driver.
-
-	QToQuitEventReceiver receiver;
-	device->setEventReceiver(&receiver);
-
-	IVideoDriver* driver = device->getVideoDriver();
-	
-	nbl::io::IFileSystem* filesystem = device->getFileSystem();
-	IAssetManager* am = device->getAssetManager();
-
-	IAssetLoader::SAssetLoadParams lp;
-	auto imageBundle = am->getAsset("../../media/noises/spp_benchmark_4k_512.exr", lp);
-
-	auto glslCompiler = am->getCompilerSet();
-	const auto inputColorSpace = std::make_tuple(inFormat,ECP_SRGB,EOTF_IDENTITY);
 
 	using LumaMeterClass = ext::LumaMeter::CLumaMeter;
 	constexpr auto MeterMode = LumaMeterClass::EMM_MEDIAN;

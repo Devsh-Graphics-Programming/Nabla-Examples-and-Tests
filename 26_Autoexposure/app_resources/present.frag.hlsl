@@ -8,8 +8,6 @@
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
 using namespace nbl::hlsl::ext::FullScreenTriangle;
 
-#include <nbl/builtin/hlsl/luma_meter/luma_meter.hlsl>
-
 [[vk::combinedImageSampler]] [[vk::binding(0, 3)]] Texture2D texture;
 [[vk::combinedImageSampler]] [[vk::binding(0, 3)]] SamplerState samplerState;
 
