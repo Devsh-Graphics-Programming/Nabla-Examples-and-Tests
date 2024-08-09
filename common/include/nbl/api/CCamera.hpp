@@ -49,7 +49,11 @@ public:
 	inline void setProjectionMatrix(const nbl::core::matrix4SIMD& projection)
 	{
 		projMatrix = projection;
-		leftHanded = true; // TODO: OK AT THIS POINT I FOUND WE NEED TO REFACTOR THIS CAMERA CLASS TO USE HLSL MATRICES AND UTILITIES FROM THIS NAMESPACE // hlsl::determinant(projMatrix) < 0.f;
+
+		const auto hlslMatMap = *reinterpret_cast<const nbl::hlsl::float32_t4x4*>(&projMatrix); // TEMPORARY TILL THE CAMERA CLASS IS REFACTORED TO WORK WITH HLSL MATRICIES!
+		{
+			leftHanded = nbl::hlsl::determinant(hlslMatMap) < 0.f;
+		}
 		concatMatrix = nbl::core::matrix4SIMD::concatenateBFollowedByAPrecisely(projMatrix, nbl::core::matrix4SIMD(viewMatrix));
 	}
 	

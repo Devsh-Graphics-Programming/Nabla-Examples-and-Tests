@@ -325,11 +325,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGuiIO& io = ImGui::GetIO();
 
 					if (isPerspective)
-						camera.setProjectionMatrix(matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, 0.1f, 10000.f));
+						camera.setProjectionMatrix(matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
 					else
 					{
 						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
-						camera.setProjectionMatrix(matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, 0.1f, 10000.f));
+						camera.setProjectionMatrix(matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar));
 					}
 
 					ImGuizmo::SetOrthographic(false);
@@ -362,12 +362,17 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (ImGui::RadioButton("Orthographic", !isPerspective))
 						isPerspective = false;
 
+					ImGui::Checkbox("Flip Y", &flipY);
+
 					if (isPerspective)
-						ImGui::SliderFloat("Fov", &fov, 20.f, 110.f);
+						ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
 					else
 						ImGui::SliderFloat("Ortho width", &viewWidth, 1, 20);
 
-					viewDirty |= ImGui::SliderFloat("Distance", &camDistance, 1.f, 10.f);
+					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
+					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
+
+					viewDirty |= ImGui::SliderFloat("Distance", &camDistance, 1.f, 69.f);
 
 					if (viewDirty || firstFrame)
 					{
@@ -455,8 +460,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
 					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
 					imguizmoM16InOut.world = objectMatrix[0];
+					{
+						if(flipY)
+							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 
-					EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.world, true);
+						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.world, true);
+					}
+					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // to Nabla view + update camera
+
 					ImGui::End();
 				}
 			);
@@ -649,8 +660,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		int lastUsing = 0;
 
 		// Camera projection
-		bool isPerspective = true;
-		float fov = 60.f;
+		bool isPerspective = true, flipY = true;
+		float fov = 60.f, zNear = 0.1f, zFar = 10000.f;
 		float viewWidth = 10.f; // for orthographic
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
