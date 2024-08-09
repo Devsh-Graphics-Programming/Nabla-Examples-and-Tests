@@ -1,7 +1,5 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
-//#include "nbl/builtin/hlsl/subgroup/fft.hlsl"
-#include "nbl/builtin/hlsl/glsl_compat/subgroup_basic.hlsl"
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
@@ -14,7 +12,8 @@ namespace nbl { namespace hlsl { namespace glsl
 uint32_t3 gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
 } } }
 
-struct SharedMemoryAccessor {
+struct SharedMemoryAccessor 
+{
 	void set(uint32_t idx, uint32_t value) 
 	{
 		sharedmem[idx] = value;
@@ -32,17 +31,16 @@ struct SharedMemoryAccessor {
 
 };
 
-struct Accessor {
+struct Accessor
+{
 	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value) 
 	{
-		vk::RawBufferStore< vector<scalar_t, 2> >(pushConstants.outputAddress + sizeof(vector<scalar_t, 2>) * idx, vector<scalar_t, 2>(value.real(), value.imag()));
+		vk::RawBufferStore< nbl::hlsl::complex_t<scalar_t> >(pushConstants.outputAddress + sizeof(nbl::hlsl::complex_t<scalar_t>) * idx, value);
 	}
 	
 	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value) 
 	{
-		vector<scalar_t, 2> aux = vk::RawBufferLoad< vector<scalar_t, 2> >(pushConstants.inputAddress + sizeof(vector<scalar_t, 2>) * idx);
-		value.real(aux.x);
-		value.imag(aux.y);
+		value = vk::RawBufferLoad< nbl::hlsl::complex_t<scalar_t> >(pushConstants.inputAddress + sizeof(nbl::hlsl::complex_t<scalar_t>) * idx);
 	}
 
 	void workgroupExecutionAndMemoryBarrier() 
@@ -59,7 +57,6 @@ struct Accessor {
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-
 	Accessor accessor;
 	SharedMemoryAccessor sharedmemAccessor;
 
