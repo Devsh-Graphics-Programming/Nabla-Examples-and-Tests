@@ -74,9 +74,9 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	{
 		if (ImGui::IsKeyPressed(ImGuiKey_T))
 			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
-		if (ImGui::IsKeyPressed(ImGuiKey_E))
+		if (ImGui::IsKeyPressed(ImGuiKey_R))
 			mCurrentGizmoOperation = ImGuizmo::ROTATE;
-		if (ImGui::IsKeyPressed(ImGuiKey_R)) // r Key
+		if (ImGui::IsKeyPressed(ImGuiKey_S))
 			mCurrentGizmoOperation = ImGuizmo::SCALE;
 		if (ImGui::RadioButton("Translate", mCurrentGizmoOperation == ImGuizmo::TRANSLATE))
 			mCurrentGizmoOperation = ImGuizmo::TRANSLATE;
@@ -103,7 +103,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 			if (ImGui::RadioButton("World", mCurrentGizmoMode == ImGuizmo::WORLD))
 				mCurrentGizmoMode = ImGuizmo::WORLD;
 		}
-		if (ImGui::IsKeyPressed(ImGuiKey_S))
+		if (ImGui::IsKeyPressed(ImGuiKey_S) && ImGui::IsKeyPressed(ImGuiKey_LeftShift))
 			useSnap = !useSnap;
 		ImGui::Checkbox("##UseSnap", &useSnap);
 		ImGui::SameLine();
@@ -362,6 +362,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (ImGui::RadioButton("Orthographic", !isPerspective))
 						isPerspective = false;
 
+					ImGui::Checkbox("Enable movement", &move);
+					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
+					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
+
 					ImGui::Checkbox("Flip Y", &flipY);
 
 					if (isPerspective)
@@ -466,7 +470,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.world, true);
 					}
-					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // to Nabla view + update camera
+					auto newView = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // to Nabla view + update camera
+					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = newView; // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 
 					ImGui::End();
 				}
@@ -475,6 +480,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			m_winMgr->setWindowSize(m_window.get(), WIN_W, WIN_H);
 			m_surface->recreateSwapchain();
 			m_winMgr->show(m_window.get());
+			oracle.reportBeginFrameRecord();
+			camera.mapKeysToArrows();
 
 			return true;
 		}
@@ -496,9 +503,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return;
 			}
 
-			m_currentImageAcquire = m_surface->acquireNextImage();
-			if (!m_currentImageAcquire)
-				return;
+			m_inputSystem->getDefaultMouse(&mouse);
+			m_inputSystem->getDefaultKeyboard(&keyboard);
+
+			auto updatePresentationTimestamp = [&]()
+			{
+				m_currentImageAcquire = m_surface->acquireNextImage();
+
+				oracle.reportEndFrameRecord();
+				const auto timestamp = oracle.getNextPresentationTimeStamp();
+				oracle.reportBeginFrameRecord();
+
+				return timestamp;
+			};
+
+			const auto nextPresentationTimestamp = updatePresentationTimestamp();
 
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
@@ -591,12 +610,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				std::vector<SKeyboardEvent> keyboard{};
 			} capturedEvents;
 
-			m_inputSystem->getDefaultMouse(&mouse);
-			m_inputSystem->getDefaultKeyboard(&keyboard);
-
-			mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
+			if (move) camera.beginInputProcessing(nextPresentationTimestamp);
+			{
+				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					for (const auto& e : events)
+					if(move)
+						camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
+
+					for (const auto& e : events) // here capture
 					{
 						if (e.timeStamp < previousEventTimestamp)
 							continue;
@@ -606,9 +627,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				}, m_logger.get());
 
-			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
-					for (const auto& e : events)
+					if (move)
+						camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
+
+					for (const auto& e : events) // here capture
 					{
 						if (e.timeStamp < previousEventTimestamp)
 							continue;
@@ -617,13 +641,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						capturedEvents.keyboard.emplace_back(e);
 					}
 				}, m_logger.get());
+			}
+			if (move) camera.endInputProcessing(nextPresentationTimestamp);
 
 			const auto mousePosition = m_window->getCursorControl()->getPosition();
-
 			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
 			ui->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
+			camera.setMoveSpeed(moveSpeed);
+			camera.setRotateSpeed(rotateSpeed);
 		}
 
 		inline bool keepRunning() override
@@ -656,12 +683,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
+		video::CDumbPresentationOracle oracle;
 
 		int lastUsing = 0;
 
-		// Camera projection
-		bool isPerspective = true, flipY = true;
-		float fov = 60.f, zNear = 0.1f, zFar = 10000.f;
+		bool isPerspective = true, flipY = true, move = false;
+		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f; // for orthographic
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
