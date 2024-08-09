@@ -11,18 +11,11 @@
 #include <fstream>
 #include <chrono>
 
-class Camera { 
+class Camera 
+{ 
 public:
 	Camera() = default;
-
-	Camera(const nbl::core::vectorSIMDf& position,
-			const nbl::core::vectorSIMDf& lookat,
-			const nbl::core::matrix4SIMD& projection,
-			float moveSpeed = 1.0f,
-			float rotateSpeed = 1.0f,
-			const nbl::core::vectorSIMDf& upVec = nbl::core::vectorSIMDf(0.0f, 1.0f, 0.0f),
-			const nbl::core::vectorSIMDf& backupUpVec = nbl::core::vectorSIMDf(0.5f, 1.0f, 0.0f)
-	) 
+	Camera(const nbl::core::vectorSIMDf& position, const nbl::core::vectorSIMDf& lookat, const nbl::core::matrix4SIMD& projection, float moveSpeed = 1.0f, float rotateSpeed = 1.0f, const nbl::core::vectorSIMDf& upVec = nbl::core::vectorSIMDf(0.0f, 1.0f, 0.0f), const nbl::core::vectorSIMDf& backupUpVec = nbl::core::vectorSIMDf(0.5f, 1.0f, 0.0f)) 
 		: position(position)
 		, initialPosition(position)
 		, target(lookat)
@@ -33,6 +26,7 @@ public:
 		, upVector(upVec)
 		, backupUpVector(backupUpVec)
 	{
+		initDefaultKeysMap();
 		allKeysUp();
 		setProjectionMatrix(projection);
 		recomputeViewMatrix();
@@ -40,11 +34,36 @@ public:
 
 	~Camera() = default;
 
-public:
+	enum E_CAMERA_MOVE_KEYS : uint8_t
+	{
+		ECMK_MOVE_FORWARD = 0,
+		ECMK_MOVE_BACKWARD,
+		ECMK_MOVE_LEFT,
+		ECMK_MOVE_RIGHT,
+		ECMK_COUNT,
+	};
+
+	inline void mapKeysToWASD()
+	{
+		keysMap[ECMK_MOVE_FORWARD] = nbl::ui::EKC_W;
+		keysMap[ECMK_MOVE_BACKWARD] = nbl::ui::EKC_S;
+		keysMap[ECMK_MOVE_LEFT] = nbl::ui::EKC_A;
+		keysMap[ECMK_MOVE_RIGHT] = nbl::ui::EKC_D;
+	}
+
+	inline void mapKeysToArrows()
+	{
+		keysMap[ECMK_MOVE_FORWARD] = nbl::ui::EKC_UP_ARROW;
+		keysMap[ECMK_MOVE_BACKWARD] = nbl::ui::EKC_DOWN_ARROW;
+		keysMap[ECMK_MOVE_LEFT] = nbl::ui::EKC_LEFT_ARROW;
+		keysMap[ECMK_MOVE_RIGHT] = nbl::ui::EKC_RIGHT_ARROW;
+	}
+
+	inline void mapKeysCustom(std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT>& map) { keysMap = map; }
 
 	inline const nbl::core::matrix4SIMD& getProjectionMatrix() const { return projMatrix; }
-	inline const nbl::core::matrix3x4SIMD & getViewMatrix() const {	return viewMatrix; }
-	inline const nbl::core::matrix4SIMD & getConcatenatedMatrix() const { return concatMatrix; }
+	inline const nbl::core::matrix3x4SIMD& getViewMatrix() const {	return viewMatrix; }
+	inline const nbl::core::matrix4SIMD& getConcatenatedMatrix() const { return concatMatrix; }
 
 	inline void setProjectionMatrix(const nbl::core::matrix4SIMD& projection)
 	{
@@ -65,20 +84,17 @@ public:
 	
 	inline const nbl::core::vectorSIMDf& getPosition() const { return position; }
 
-	inline void setTarget(const nbl::core::vectorSIMDf& pos) {
+	inline void setTarget(const nbl::core::vectorSIMDf& pos) 
+	{
 		target.set(pos);
 		recomputeViewMatrix();
 	}
 
 	inline const nbl::core::vectorSIMDf& getTarget() const { return target; }
 
-	inline void setUpVector(const nbl::core::vectorSIMDf& up) {
-		upVector = up;
-	}
+	inline void setUpVector(const nbl::core::vectorSIMDf& up) { upVector = up; }
 	
-	inline void setBackupUpVector(const nbl::core::vectorSIMDf& up) {
-		backupUpVector = up;
-	}
+	inline void setBackupUpVector(const nbl::core::vectorSIMDf& up) { backupUpVector = up; }
 
 	inline const nbl::core::vectorSIMDf& getUpVector() const { return upVector; }
 	
@@ -86,17 +102,14 @@ public:
 
 	inline const float getMoveSpeed() const { return moveSpeed; }
 
-	inline void setMoveSpeed(const float _moveSpeed) {
-		moveSpeed = _moveSpeed;
-	}
+	inline void setMoveSpeed(const float _moveSpeed) { moveSpeed = _moveSpeed; }
 
 	inline const float getRotateSpeed() const { return rotateSpeed; }
 
-	inline void setRotateSpeed(const float _rotateSpeed) {
-		rotateSpeed = _rotateSpeed;
-	}
+	inline void setRotateSpeed(const float _rotateSpeed) { rotateSpeed = _rotateSpeed; }
 
-	inline void recomputeViewMatrix() {
+	inline void recomputeViewMatrix() 
+	{
 		nbl::core::vectorSIMDf pos = position;
 		nbl::core::vectorSIMDf localTarget = nbl::core::normalize(target - pos);
 
@@ -106,9 +119,7 @@ public:
 		nbl::core::vectorSIMDf cross = nbl::core::cross(localTarget, up);
 		bool upVectorNeedsChange = nbl::core::lengthsquared(cross)[0] == 0;
 		if (upVectorNeedsChange)
-		{
 			up = nbl::core::normalize(backupUpVector);
-		}
 
 		if (leftHanded)
 			viewMatrix = nbl::core::matrix3x4SIMD::buildCameraLookAtMatrixLH(pos, target, up);
@@ -127,15 +138,14 @@ public:
 		{
 			auto ev = *eventIt;
 
-			if(ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON) {
-				if(ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_PRESSED) {
+			if(ev.type == nbl::ui::SMouseEvent::EET_CLICK && ev.clickEvent.mouseButton == nbl::ui::EMB_LEFT_BUTTON)
+				if(ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_PRESSED) 
 					mouseDown = true;
-				} else if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED) {
+				else if (ev.clickEvent.action == nbl::ui::SMouseEvent::SClickEvent::EA_RELEASED)
 					mouseDown = false;
-				}
-			}
 
-			if(ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown) {
+			if(ev.type == nbl::ui::SMouseEvent::EET_MOVEMENT && mouseDown) 
+			{
 				nbl::core::vectorSIMDf pos = getPosition();
 				nbl::core::vectorSIMDf localTarget = getTarget() - pos;
 
@@ -148,30 +158,24 @@ public:
 				constexpr float RotateSpeedScale = 0.003f; 
 				relativeRotationX -= ev.movementEvent.relativeMovementY * rotateSpeed * RotateSpeedScale * -1.0f;
 				float tmpYRot = ev.movementEvent.relativeMovementX * rotateSpeed * RotateSpeedScale * -1.0f;
+
 				if (leftHanded)
 					relativeRotationY -= tmpYRot;
 				else
 					relativeRotationY += tmpYRot;
 
 				const double MaxVerticalAngle = nbl::core::radians<float>(88.0f);
-				if (relativeRotationX > MaxVerticalAngle*2 &&
-					relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
-				{
+
+				if (relativeRotationX > MaxVerticalAngle*2 && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
 					relativeRotationX = 2 * nbl::core::PI<float>()-MaxVerticalAngle;
-				}
 				else
-				if (relativeRotationX > MaxVerticalAngle &&
-					relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
-				{
-					relativeRotationX = MaxVerticalAngle;
-				}
+					if (relativeRotationX > MaxVerticalAngle && relativeRotationX < 2 * nbl::core::PI<float>()-MaxVerticalAngle)
+						relativeRotationX = MaxVerticalAngle;
 
 				localTarget.set(0,0, nbl::core::max(1.f, nbl::core::length(pos)[0]), 1.f);
 
 				nbl::core::matrix3x4SIMD mat;
-				{
-					mat.setRotation(nbl::core::quaternion(relativeRotationX, relativeRotationY, 0));
-				}
+				mat.setRotation(nbl::core::quaternion(relativeRotationX, relativeRotationY, 0));
 				mat.transformVect(localTarget);
 				
 				setTarget(localTarget + pos);
@@ -181,80 +185,59 @@ public:
 
 	void keyboardProcess(const nbl::ui::IKeyboardEventChannel::range_t& events)
 	{
-		for(uint32_t k = 0; k < Keys::EKA_COUNT; ++k) {
+		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k)
 			perActionDt[k] = 0.0;
-		}
 
 		/*
 		* If a Key was already being held down from previous frames
 		* Compute with this assumption that the key will be held down for this whole frame as well,
 		* And If an UP event was sent It will get subtracted it from this value. (Currently Disabled Because we Need better Oracle)
 		*/
-		for(uint32_t k = 0; k < Keys::EKA_COUNT; ++k) {
-			if(keysDown[k] == true) {
+
+		for(uint32_t k = 0; k < E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++k) 
+			if(keysDown[k]) 
+			{
 				auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - lastVirtualUpTimeStamp).count();
 				assert(timeDiff >= 0);
 				perActionDt[k] += timeDiff;
 			}
-		}
 
 		for (auto eventIt=events.begin(); eventIt!=events.end(); eventIt++)
 		{
-			auto ev = *eventIt;
+			const auto ev = *eventIt;
 			
-			// Accumulate the periods for which a key was down
-			auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - ev.timeStamp).count();
+			// accumulate the periods for which a key was down
+			const auto timeDiff = std::chrono::duration_cast<std::chrono::milliseconds>(nextPresentationTimeStamp - ev.timeStamp).count();
 			assert(timeDiff >= 0);
 
-			if(ev.keyCode == nbl::ui::EKC_UP_ARROW || ev.keyCode == nbl::ui::EKC_W) {
-				if(ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && keysDown[Keys::EKA_MOVE_FORWARD] == false) {
-					perActionDt[Keys::EKA_MOVE_FORWARD] += timeDiff; 
-					keysDown[Keys::EKA_MOVE_FORWARD] = true;
-				} else if(ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) {
-					// perActionDt[Keys::EKA_MOVE_FORWARD] -= timeDiff; 
-					keysDown[Keys::EKA_MOVE_FORWARD] = false;
-				}
-			}
-
-			if(ev.keyCode == nbl::ui::EKC_DOWN_ARROW || ev.keyCode == nbl::ui::EKC_S) {
-				if(ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && keysDown[Keys::EKA_MOVE_BACKWARD] == false) {
-					perActionDt[Keys::EKA_MOVE_BACKWARD] += timeDiff; 
-					keysDown[Keys::EKA_MOVE_BACKWARD] = true;
-				} else if(ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) {
-					// perActionDt[Keys::EKA_MOVE_BACKWARD] -= timeDiff; 
-					keysDown[Keys::EKA_MOVE_BACKWARD] = false;
-				}
-			}
-
-			if(ev.keyCode == nbl::ui::EKC_LEFT_ARROW || ev.keyCode == nbl::ui::EKC_A) {
-				if(ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && keysDown[Keys::EKA_MOVE_LEFT] == false) {
-					perActionDt[Keys::EKA_MOVE_LEFT] += timeDiff; 
-					keysDown[Keys::EKA_MOVE_LEFT] = true;
-				} else if(ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) {
-					// perActionDt[Keys::EKA_MOVE_LEFT] -= timeDiff; 
-					keysDown[Keys::EKA_MOVE_LEFT] = false;
-				}
-			}
-
-			if(ev.keyCode == nbl::ui::EKC_RIGHT_ARROW || ev.keyCode == nbl::ui::EKC_D) {
-				if(ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && keysDown[Keys::EKA_MOVE_RIGHT] == false) {
-					perActionDt[Keys::EKA_MOVE_RIGHT] += timeDiff; 
-					keysDown[Keys::EKA_MOVE_RIGHT] = true;
-				} else if(ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) {
-					// perActionDt[Keys::EKA_MOVE_RIGHT] -= timeDiff; 
-					keysDown[Keys::EKA_MOVE_RIGHT] = false;
-				}
-			}
-
-			if (ev.keyCode == nbl::ui::EKC_HOME)
+			// handle camera movement
+			for (const auto logicalKey : { ECMK_MOVE_FORWARD, ECMK_MOVE_BACKWARD, ECMK_MOVE_LEFT, ECMK_MOVE_RIGHT })
 			{
+				const auto code = keysMap[logicalKey];
+
+				if (ev.keyCode == code)
+				{
+					if (ev.action == nbl::ui::SKeyboardEvent::ECA_PRESSED && !keysDown[logicalKey]) 
+					{
+						perActionDt[logicalKey] += timeDiff;
+						keysDown[logicalKey] = true;
+					}
+					else if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED) 
+					{
+						// perActionDt[logicalKey] -= timeDiff; 
+						keysDown[logicalKey] = false;
+					}
+				}
+			}
+
+			// handle reset to default state
+			if (ev.keyCode == nbl::ui::EKC_HOME)
 				if (ev.action == nbl::ui::SKeyboardEvent::ECA_RELEASED)
 				{
 					position = initialPosition;
 					target = initialTarget;
 					recomputeViewMatrix();
 				}
-			}
 		}
 	}
 
@@ -277,9 +260,8 @@ public:
 
 			constexpr float MoveSpeedScale = 0.02f; 
 
-			pos += movedir * perActionDt[Keys::EKA_MOVE_FORWARD] * moveSpeed * MoveSpeedScale;
-
-			pos -= movedir * perActionDt[Keys::EKA_MOVE_BACKWARD] * moveSpeed * MoveSpeedScale;
+			pos += movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_FORWARD] * moveSpeed * MoveSpeedScale;
+			pos -= movedir * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_BACKWARD] * moveSpeed * MoveSpeedScale;
 
 			// strafing
 		
@@ -301,9 +283,8 @@ public:
 
 			strafevect = nbl::core::normalize(strafevect);
 
-			pos += strafevect * perActionDt[Keys::EKA_MOVE_LEFT] * moveSpeed * MoveSpeedScale;
-
-			pos -= strafevect * perActionDt[Keys::EKA_MOVE_RIGHT] * moveSpeed * MoveSpeedScale;
+			pos += strafevect * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_LEFT] * moveSpeed * MoveSpeedScale;
+			pos -= strafevect * perActionDt[E_CAMERA_MOVE_KEYS::ECMK_MOVE_RIGHT] * moveSpeed * MoveSpeedScale;
 		}
 		else
 			firstUpdate = false;
@@ -315,54 +296,31 @@ public:
 	}
 
 private:
+
+	inline void initDefaultKeysMap() { mapKeysToWASD(); }
 	
-	void allKeysUp() {
-		for (uint32_t i=0; i< Keys::EKA_COUNT; ++i) {
+	inline void allKeysUp() 
+	{
+		for (uint32_t i=0; i< E_CAMERA_MOVE_KEYS::ECMK_COUNT; ++i)
 			keysDown[i] = false;
-		}
+
 		mouseDown = false;
 	}
 
 private:
-
-	nbl::core::vectorSIMDf initialPosition;
-	nbl::core::vectorSIMDf initialTarget;
-
-	nbl::core::vectorSIMDf position;
-	nbl::core::vectorSIMDf target;
-	nbl::core::vectorSIMDf upVector;
-	nbl::core::vectorSIMDf backupUpVector;
-	
+	nbl::core::vectorSIMDf initialPosition, initialTarget, position, target, upVector, backupUpVector; // TODO: make first 2 const + add default copy constructor
 	nbl::core::matrix3x4SIMD viewMatrix;
-	nbl::core::matrix4SIMD concatMatrix;
+	nbl::core::matrix4SIMD concatMatrix, projMatrix;
 
-	// actual projection matrix used
-	nbl::core::matrix4SIMD projMatrix;
-
-	bool leftHanded;
+	float moveSpeed, rotateSpeed;
+	bool leftHanded, firstUpdate = true, mouseDown = false;
 	
-	// Animation
-	
-	enum Keys {
-		EKA_MOVE_FORWARD = 0,
-		EKA_MOVE_BACKWARD,
-		EKA_MOVE_LEFT,
-		EKA_MOVE_RIGHT,
-		EKA_COUNT,
-	};
+	std::array<nbl::ui::E_KEY_CODE, ECMK_COUNT> keysMap = { {nbl::ui::EKC_NONE} }; // map camera E_CAMERA_MOVE_KEYS to corresponding Nabla key codes, by default camera uses WSAD to move
+	// TODO: make them use std::array
+	bool keysDown[E_CAMERA_MOVE_KEYS::ECMK_COUNT] = {};
+	double perActionDt[E_CAMERA_MOVE_KEYS::ECMK_COUNT] = {}; // durations for which the key was being held down from lastVirtualUpTimeStamp(=last "guessed" presentation time) to nextPresentationTimeStamp
 
-	bool keysDown[Keys::EKA_COUNT] = {};
-	// perActionDt is the duration which the key was being held down from lastVirtualUpTimeStamp(=last "guessed" presentation time) to nextPresentationTimeStamp
-	double perActionDt[Keys::EKA_COUNT] = {};
-
-	float moveSpeed;
-	float rotateSpeed;
-
-	bool firstUpdate = true;
-	bool mouseDown = false;
-
-	std::chrono::microseconds nextPresentationTimeStamp;
-	std::chrono::microseconds lastVirtualUpTimeStamp;
+	std::chrono::microseconds nextPresentationTimeStamp, lastVirtualUpTimeStamp;
 };
 
 #endif // _CAMERA_IMPL_
