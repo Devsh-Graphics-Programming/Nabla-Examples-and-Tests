@@ -74,43 +74,74 @@ public:
 			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
 			* field set to its default (nullptr).
 			*/
-		smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
+		smart_refctd_ptr<IGPUDescriptorSetLayout> lumaPresentDSLayout, tonemapperDSLayout;
 		{
-			auto defaultSampler = m_device->createSampler({
-				.AnisotropicFilter = 0
-				});
+			auto defaultSampler = m_device->createSampler(
+				{
+					.AnisotropicFilter = 0
+				}
+			);
 
-			const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
-				.binding = 0,
-				.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-				.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-				.count = 1,
-				.immutableSamplers = &defaultSampler
-			}
+			const IGPUDescriptorSetLayout::SBinding lumaPresentBindings[1] = {
+				{
+					.binding = 0,
+					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT | IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+					.immutableSamplers = &defaultSampler
+				}
 			};
-			dsLayout = m_device->createDescriptorSetLayout(bindings);
-			if (!dsLayout)
-				return logFail("Failed to Create Descriptor Layout");
+			lumaPresentDSLayout = m_device->createDescriptorSetLayout(lumaPresentBindings);
+			if (!lumaPresentDSLayout)
+				return logFail("Failed to Create Descriptor Layout: lumaPresentDSLayout");
 
+			const IGPUDescriptorSetLayout::SBinding tonemapperBindings[1] = {
+				{
+					.binding = 1,
+					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.count = 1,
+					.immutableSamplers = &defaultSampler
+				}
+			};
+			tonemapperDSLayout = m_device->createDescriptorSetLayout(tonemapperBindings);
+			if (!tonemapperDSLayout)
+				return logFail("Failed to Create Descriptor Layout: tonemapperDSLayout");
 		}
 
-		// Create semaphore
-		m_semaphore = m_device->createSemaphore(m_submitIx);
+		// Create semaphores
+		m_lumaMeterSemaphore = m_device->createSemaphore(m_submitIx);
+		m_tonemapperSemaphore = m_device->createSemaphore(m_submitIx);
+		m_presentSemaphore = m_device->createSemaphore(m_submitIx);
 
-		// create the descriptor set and with enough room for one image sampler
+		// create the descriptor sets and with enough room
 		{
-			const uint32_t setCount = 1;
-			auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, { &dsLayout.get(),1 }, &setCount);
-			if (!pool)
-				return logFail("Failed to Create Descriptor Pool");
+			constexpr uint32_t lumaPresentSetCount = 2, tonemapperSetCount = 1;
+			auto lumaPresentPool = m_device->createDescriptorPoolForDSLayouts(
+				IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,
+				{ &lumaPresentDSLayout.get(), 1 },
+				&lumaPresentSetCount
+			);
+			auto tonemapperPool = m_device->createDescriptorPoolForDSLayouts(
+				IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,
+				{ &tonemapperDSLayout.get(), 1 },
+				&tonemapperSetCount
+			);
 
-			m_descriptorSets[0] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
-			if (!m_descriptorSets[0])
-				return logFail("Could not create Descriptor Set!");
+			if (!lumaPresentPool || !tonemapperPool)
+				return logFail("Failed to Create Descriptor Pools");
+
+			m_lumaPresentDS[0] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
+			if (!m_lumaPresentDS[0])
+				return logFail("Could not create Descriptor Set: lumaPresentDS!");
+			m_tonemapperDS[0] = tonemapperPool->createDescriptorSet(core::smart_refctd_ptr(tonemapperDSLayout));
+			if (!m_tonemapperDS[0])
+				return logFail("Could not create Descriptor Set: tonemapperDS!");
+
 		}
 
-		auto ds = m_descriptorSets[0].get();
 		auto queue = getGraphicsQueue();
 
 		// Gather swapchain resources
@@ -184,13 +215,13 @@ public:
 			if (!fragmentShader)
 				return logFail("Failed to Load and Compile Fragment Shader!");
 
-			auto layout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
+			auto layout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout));
 			const IGPUShader::SSpecInfo fragSpec = {
 				.entryPoint = "main",
 				.shader = fragmentShader.get()
 			};
-			m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass());
-			if (!m_pipeline)
+			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass());
+			if (!m_presentPipeline)
 				return logFail("Could not create Graphics Pipeline!");
 		}
 
@@ -374,7 +405,7 @@ public:
 
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
-					.dstSet = ds,
+					.dstSet = m_lumaPresentDS[0].get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
@@ -385,6 +416,10 @@ public:
 			m_device->updateDescriptorSets(1, writeDescriptors, 0, nullptr);
 
 			queue->endCapture();
+		}
+
+		// Allocate and create texture for tonemapping
+		{
 		}
 
 		return true;
@@ -401,7 +436,7 @@ public:
 
 		auto queue = getGraphicsQueue();
 		auto cmdbuf = m_cmdBufs[0].get();
-		auto ds = m_descriptorSets[0].get();
+		auto ds = m_lumaPresentDS[0].get();
 
 		queue->startCapture();
 		// Render to the swapchain
@@ -437,8 +472,8 @@ public:
 				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			cmdbuf->bindGraphicsPipeline(m_pipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_pipeline->getLayout(), 3, 1, &ds);
+			cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 3, 1, &ds);
 			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 			cmdbuf->endRenderPass();
 
@@ -447,7 +482,7 @@ public:
 
 		// submit
 		const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
-			.semaphore = m_semaphore.get(),
+			.semaphore = m_presentSemaphore.get(),
 			.value = ++m_submitIx,
 			// just as we've outputted all pixels, signal
 			.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
@@ -482,7 +517,7 @@ public:
 		{
 			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
 				{
-					.semaphore = m_semaphore.get(),
+					.semaphore = m_presentSemaphore.get(),
 					.value = m_submitIx
 				}
 			};
@@ -506,27 +541,32 @@ public:
 	}
 
 protected:
-	smart_refctd_ptr<IGPUImage> m_gpuImg;
-	smart_refctd_ptr<IGPUImageView> m_gpuImgView;
+	uint64_t m_lumaGatherBDA;
+	smart_refctd_ptr<IGPUImage> m_gpuImg, m_gpuTonemapImg;
+	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_gpuTonemapImgView;
 
 	// for image uploads
 	smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 	SIntendedSubmitInfo m_intendedSubmit;
 
-	// Command Buffers and other resources
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_descriptorSets;
+	// Pipelines
+	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_lumaMeterPipeline, m_tonemapperPipeline;
+
+	// Descriptor Sets
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_lumaPresentDS, m_tonemapperDS;
+
+	// Command Buffers
 	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
-	smart_refctd_ptr<IGPUGraphicsPipeline> m_pipeline;
-	smart_refctd_ptr<ISemaphore> m_semaphore;
+
+	// Semaphores
+	smart_refctd_ptr<ISemaphore> m_lumaMeterSemaphore, m_tonemapperSemaphore, m_presentSemaphore;
 	uint64_t m_submitIx = 0;
 
 	// window
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CDefaultSwapchainFramebuffers>> m_surface;
-
-	// luma gather
-	uint64_t m_lumaGatherBDA;
 };
 
 NBL_MAIN_FUNC(AutoexposureApp)
