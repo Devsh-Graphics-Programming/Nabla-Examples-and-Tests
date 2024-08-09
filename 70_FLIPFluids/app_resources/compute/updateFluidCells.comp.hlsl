@@ -17,8 +17,8 @@ cbuffer GridData
 [[vk::binding(2, 1)]] StructuredBuffer<uint2> gridParticleIDBuffer;
 
 [[vk::binding(3, 1)]] RWStructuredBuffer<uint> gridCellTypeBuffer;
-[[vk::binding(4, 1)]] RWStructuredBuffer<float3> velocityFieldBuffer;
-[[vk::binding(5, 1)]] RWStructuredBuffer<float3> prevVelocityFieldBuffer;
+[[vk::binding(4, 1)]] RWStructuredBuffer<float4> velocityFieldBuffer;
+[[vk::binding(5, 1)]] RWStructuredBuffer<float4> prevVelocityFieldBuffer;
 
 static const kernel[6] = { -1, 1, -1, 1, -1, 1 };
 

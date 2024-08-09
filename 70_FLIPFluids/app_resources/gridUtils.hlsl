@@ -43,6 +43,11 @@ inline float3 cellIdxToWorldPos(int3 index, SGridData data)
     return data.worldMin.xyz + (index + 0.5f) * data.gridCellSize;
 }
 
+inline float3 worldPosToGridPos(float3 position, SGridData data)
+{
+    return (position - data.worldMin.xyz) * data.gridInvCellSize;
+}
+
 inline float4 gridPosToWorldPos(float4 position, SGridData data)
 {
     return float4(data.worldMin.xyz + position.xyz * data.gridCellSize, 1);

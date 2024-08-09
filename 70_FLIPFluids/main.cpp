@@ -804,7 +804,7 @@ private:
 	}
 
 	std::pair<smart_refctd_ptr<video::IGPUComputePipeline>, const IGPUDescriptorSetLayoutArray> createComputePipelineFromShader(
-		const std::string& filePath)
+		const std::string& filePath, const std::string& entryPoint = "main")
 	{
 		CSPIRVIntrospector introspector;
 		auto compiledShader = compileShaderAndIntrospect(filePath, introspector);
@@ -812,7 +812,7 @@ private:
 		auto shaderIntrospection = compiledShader.second;
 
 		ICPUShader::SSpecInfo specInfo;
-		specInfo.entryPoint = "main";
+		specInfo.entryPoint = entryPoint;
 		specInfo.shader = source.get();
 
 		smart_refctd_ptr<ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo); ///< what does this do?

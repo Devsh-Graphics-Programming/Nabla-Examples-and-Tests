@@ -4,6 +4,8 @@
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = 128;
+NBL_CONSTEXPR float ratioFLIPPIC = 0.95;
+NBL_CONSTEXPR float deltaTime = 1.0f / 60.0f;
 
 #ifdef __HLSL_VERSION
 struct Particle
