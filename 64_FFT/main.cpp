@@ -20,7 +20,7 @@ using namespace video;
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
-class StreamingAndBufferDeviceAddressApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
+class FFT_Test final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
 	using asset_base_t = application_templates::MonoAssetManagerAndBuiltinResourceApplication;
@@ -41,18 +41,13 @@ class StreamingAndBufferDeviceAddressApp final : public application_templates::M
 	// You can ask the `nbl::core::GeneralpurposeAddressAllocator` used internally by the Streaming Buffers give out offsets aligned to a certain multiple (not only Power of Two!)
 	uint32_t m_alignment;
 
-	// The pool cache is just a formalized way of round-robining command pools and resetting + reusing them after their most recent submit signals finished.
-	// Its a little more ergonomic to use if you don't have a 1:1 mapping between frames and pools.
-	smart_refctd_ptr<nbl::video::ICommandPoolCache> m_poolCache;
-
 	// This example really lets the advantages of a timeline semaphore shine through!
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t m_iteration = 0;
-	constexpr static inline uint64_t MaxIterations = 1;
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
-	StreamingAndBufferDeviceAddressApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
+	FFT_Test(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) :
 		system::IApplicationFramework(_localInputCWD, _localOutputCWD, _sharedInputCWD, _sharedOutputCWD) {}
 
 	// we stuff all our work here because its a "single shot" app
@@ -89,8 +84,8 @@ public:
 		// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
 		// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
 		// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
-		constexpr uint32_t DownstreamBufferSize = sizeof(output_t) << 23;
-		constexpr uint32_t UpstreamBufferSize = sizeof(input_t) << 23;
+		constexpr uint32_t DownstreamBufferSize = sizeof(scalar_t) << 23;
+		constexpr uint32_t UpstreamBufferSize = sizeof(scalar_t) << 23;
 
 		m_utils = make_smart_refctd_ptr<IUtilities>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), DownstreamBufferSize, UpstreamBufferSize);
 		if (!m_utils)
@@ -111,7 +106,7 @@ public:
 			
 			deviceLocalBufferParams.queueFamilyIndexCount = 1;
 			deviceLocalBufferParams.queueFamilyIndices = &queueFamilyIndex;
-			deviceLocalBufferParams.size = sizeof(input_t) * scalarElementCount;
+			deviceLocalBufferParams.size = sizeof(scalar_t) * scalarElementCount;
 			deviceLocalBufferParams.usage = nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_SRC_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT;
 			
 			m_deviceLocalBuffer = m_device->createBuffer(std::move(deviceLocalBufferParams));
@@ -145,32 +140,16 @@ public:
 		// and we also need to take into account BDA shader loads need to be aligned to the type being loaded.
 		m_alignment = core::max(deviceLimits.nonCoherentAtomSize, alignof(float));
 
-		// We'll allow subsequent iterations to overlap each other on the GPU, the only limiting factors are
-		// the amount of memory in the streaming buffers and the number of commandpools we can use simultaenously.
-		constexpr auto MaxConcurrency = 64;
-
-		// Since this time we don't throw the Command Pools away and we'll reset them instead, we don't create the pools with the transient flag
-		m_poolCache = ICommandPoolCache::create(core::smart_refctd_ptr(m_device), getComputeQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::NONE, MaxConcurrency);
-
 		// In contrast to fences, we just need one semaphore to rule all dispatches
 		m_timeline = m_device->createSemaphore(m_iteration);
 
-		return true;
-	}
-
-	// Ok this time we'll actually have a work loop (maybe just for the sake of future WASM so we don't timeout a Browser Tab with an unresponsive script)
-	bool keepRunning() override { return m_iteration < MaxIterations; }
-
-	// Finally the first actual work-loop
-	void workLoopBody() override
-	{
 		IQueue* const queue = getComputeQueue();
 
 		// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
 		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ m_iteration ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
 
 		const uint32_t scalarElementCount = 2 * complexElementCount;
-		const uint32_t inputSize = sizeof(input_t) * scalarElementCount;
+		const uint32_t inputSize = sizeof(scalar_t) * scalarElementCount;
 
 		// The allocators can do multiple allocations at once for efficiency
 		const uint32_t AllocationCount = 1;
@@ -186,24 +165,24 @@ public:
 		m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
 
 		// Generate our data in-place on the allocated staging buffer
-		{	
-			auto* const inputPtr = reinterpret_cast<input_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
+		{
+			auto* const inputPtr = reinterpret_cast<scalar_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
 			std::cout << "Begin array CPU\n";
 			for (auto j = 0; j < complexElementCount; j++)
 			{
 				//Random array
-				
-				float x = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / float(nbl::hlsl::numeric_limits<decltype(rng())>::max);
-				
+
+				scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
 				/*
-				float x = j > 0 ? 0.f : 1.f;
-				float y = 0;
+				scalar_t x = j > 0 ? 0.f : 1.f;
+				scalar_t y = 0;
 				*/
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
 				/*
-				float x = 2.f;
-				float y = 0.f;
+				scalar_t x = 1.f;
+				scalar_t y = 0.f;
 				*/
 				inputPtr[2 * j] = x;
 				inputPtr[2 * j + 1] = y;
@@ -219,13 +198,6 @@ public:
 			}
 		}
 
-		// Obtain our command pool once one gets recycled
-		uint32_t poolIx;
-		do
-		{
-			poolIx = m_poolCache->acquirePool();
-		} while (poolIx == ICommandPoolCache::invalid_index);
-
 		// finally allocate our output range
 		const uint32_t outputSize = inputSize;
 
@@ -234,7 +206,11 @@ public:
 
 		smart_refctd_ptr<IGPUCommandBuffer> cmdbuf;
 		{
-			m_poolCache->getPool(poolIx)->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf,1 }, core::smart_refctd_ptr(m_logger));
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdbuf)) {
+				return logFail("Failed to create Command Buffers!\n");
+			}
+			cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf,1 }, core::smart_refctd_ptr(m_logger));
 			// lets record, its still a one time submit because we have to re-record with different push constants each time
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_pipeline.get());
@@ -256,7 +232,7 @@ public:
 			// Pipeline barrier: wait for FFT shader to be done before copying to downstream buffer 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
 			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {};
-			pipelineBarrierInfo.bufBarriers = {&barrier, 1u};
+			pipelineBarrierInfo.bufBarriers = { &barrier, 1u };
 
 			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
@@ -268,8 +244,7 @@ public:
 			cmdbuf->end();
 		}
 
-
-		const auto savedIterNum = m_iteration++;
+		m_iteration++;
 		{
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
 			{
@@ -299,9 +274,6 @@ public:
 		// We let all latches know what semaphore and counter value has to be passed for the functors to execute
 		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),m_iteration };
 
-		// We can also actually latch our Command Pool reset and its return to the pool of free pools!
-		m_poolCache->releasePool(futureWait, poolIx);
-
 		// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
 		// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
 		m_upStreamingBuffer->multi_deallocate(AllocationCount, &inputOffset, &inputSize, futureWait);
@@ -319,7 +291,7 @@ public:
 				assert(dstOffset == 0 && size == outputSize);
 
 				std::cout << "Begin array GPU\n";
-				output_t* const data = reinterpret_cast<output_t*>(const_cast<void*>(bufSrc));
+				scalar_t* const data = reinterpret_cast<scalar_t*>(const_cast<void*>(bufSrc));
 				for (auto i = 0u; i < complexElementCount; i++) {
 					std::cout << "(" << data[2 * i] << ", " << data[2 * i + 1] << "), ";
 				}
@@ -333,8 +305,17 @@ public:
 		);
 		// We put a function we want to execute 
 		m_downStreamingBuffer->multi_deallocate(AllocationCount, &outputOffset, &outputSize, futureWait, &latchedConsumer.get());
+
+		return true;
 	}
 
+	// One-shot App
+	bool keepRunning() override { return false; }
+
+	// One-shot App
+	void workLoopBody() override{}
+
+	// Cleanup
 	bool onAppTerminated() override
 	{
 		// Need to make sure that there are no events outstanding if we want all lambdas to eventually execute before `onAppTerminated`
@@ -345,4 +326,4 @@ public:
 };
 
 
-NBL_MAIN_FUNC(StreamingAndBufferDeviceAddressApp)
+NBL_MAIN_FUNC(FFT_Test)
