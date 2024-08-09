@@ -30,6 +30,9 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
+	# showcase use of FFT for post-FX Bloom  effect
+	add_subdirectory(11_FFTBloom EXCLUDE_FROM_ALL)
+
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)

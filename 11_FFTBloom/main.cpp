@@ -32,9 +32,9 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	smart_refctd_ptr<IGPUComputePipeline> m_firstAxisIFFTPipeline;
 
 	// Descriptor Sets
-	smart_refctd_ptr<IGPUComputePipeline> m_firstAxisFFTDescriptorSet;
-	smart_refctd_ptr<IGPUComputePipeline> m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet;
-	smart_refctd_ptr<IGPUComputePipeline> m_lastAxisFFTDescriptorSet;
+	smart_refctd_ptr<IGPUDescriptorSet> m_firstAxisFFTDescriptorSet;
+	smart_refctd_ptr<IGPUDescriptorSet> m_lastAxisFFT_convolution_lastAxisIFFTDescriptorSet;
+	smart_refctd_ptr<IGPUDescriptorSet> m_lastAxisFFTDescriptorSet;
 
 	// Utils (might be useful, they stay for now)
 	smart_refctd_ptr<nbl::video::IUtilities> m_utils;
@@ -66,11 +66,10 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// This example really lets the advantages of a timeline semaphore shine through!
 	smart_refctd_ptr<ISemaphore> m_timeline;
 	uint64_t m_iteration = 0;
-	constexpr static inline uint64_t MaxIterations = 1;
 
 	smart_refctd_ptr<IGPUPipelineLayout> createPipelineLayout(const std::span<const IGPUDescriptorSetLayout::SBinding> bindings)
 	{
-		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
+		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 		return m_device->createPipelineLayout({ &pcRange,1 }, m_device->createDescriptorSetLayout(bindings));
 	}
 
@@ -287,7 +286,7 @@ public:
 					0u,
 					IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::ESS_COMPUTE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					1u,
 					nullptr
 				}
@@ -312,7 +311,7 @@ public:
 					0u,
 					IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::ESS_COMPUTE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					channelCountOverride,
 					samplers
 				}
@@ -329,9 +328,9 @@ public:
 					0u,
 					IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
 					IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					IShader::ESS_COMPUTE,
+					IShader::E_SHADER_STAGE::ESS_COMPUTE,
 					1,
-					nullptr
+					nullptr		
 				}
 			};
 			
