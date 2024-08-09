@@ -25,10 +25,23 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
+/*
+	ImGuizmo default example displaying debug grid & cubes 
+	refactored to be used with Nabla (UI extension, core & camera). 
+	
+	A few editor features has been added for camera control,
+	optimizations added for viewing debug geometry.
+
+	Note debug utils create & update geometry vertices on fly as part of UI,
+	rendering scene to a texture and sampling in specific part of the GUI 
+	is a different story & separate example.
+*/
+
 // https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/example/main.cpp
 // https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/LICENSE
 
 bool useWindow = true;
+int gizmoCount = 1;
 float camDistance = 8.f;
 static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
 
@@ -60,7 +73,7 @@ static const float identityMatrix[16] =
 	0.f, 0.f, 1.f, 0.f,
 	0.f, 0.f, 0.f, 1.f };
 
-void EditTransform(float* cameraView, const float* cameraProjection, float* matrix, bool editTransformDecomposition)
+void EditTransform(float* cameraView, const float* cameraProjection, float* matrix, bool editTransformDecomposition, int cubeId)
 {
 	static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
 	static bool useSnap = false;
@@ -155,8 +168,10 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
 	}
 
-	ImGuizmo::DrawGrid(cameraView, cameraProjection, identityMatrix, 100.f);
-	ImGuizmo::DrawCubes(cameraView, cameraProjection, &objectMatrix[0][0], 1);
+	if(cubeId == 0) // default imguizmo example is buggy because it draws the same grid a few times, lets optimize
+		ImGuizmo::DrawGrid(cameraView, cameraProjection, identityMatrix, 100.f);
+
+	ImGuizmo::DrawCubes(cameraView, cameraProjection, &objectMatrix[cubeId][0], 1); // it also drew gizmo count times amount of this function invocations.. lets give it ID and draw single cube
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
 
 	ImGuizmo::ViewManipulate(cameraView, camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
@@ -377,6 +392,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
 					viewDirty |= ImGui::SliderFloat("Distance", &camDistance, 1.f, 69.f);
+					ImGui::SliderInt("Gizmo count", &gizmoCount, 1, 4);
 
 					if (viewDirty || firstFrame)
 					{
@@ -409,7 +425,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::Text(ImGuizmo::IsOver(ImGuizmo::SCALE) ? "Over scale gizmo" : "");
 					}
 					ImGui::Separator();
-					ImGuizmo::SetID(0);
 
 					/*
 					* ImGuizmo expects view & perspective matrix to be column major both with 4x4 layout
@@ -458,18 +473,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					static struct
 					{
 						core::matrix4SIMD view, projection;
-						float* world = nullptr;
+						float* currentWorld = nullptr;
 					} imguizmoM16InOut;
 
-					imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-					imguizmoM16InOut.world = objectMatrix[0];
+					for (int matId = 0; matId < gizmoCount; matId++) // cubes + grid with ImGuizmo debug utilities
 					{
-						if(flipY)
-							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
+						ImGuizmo::SetID(matId);
 
-						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.world, true);
+						imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
+						imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
+						imguizmoM16InOut.currentWorld = objectMatrix[matId];
+						{
+							if (flipY)
+								imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
+
+							EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.currentWorld, lastUsing == matId, matId);
+						}
+						
+						if (ImGuizmo::IsUsing())
+							lastUsing = matId;
 					}
+
 					auto newView = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // to Nabla view + update camera
 					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = newView; // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 
