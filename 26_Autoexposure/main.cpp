@@ -8,6 +8,8 @@
 #include "nbl/asset/interchange/IAssetLoader.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
 
+#include "app_resources/common.hlsl"
+
 using namespace nbl;
 using namespace core;
 using namespace hlsl;
@@ -186,41 +188,90 @@ public:
 				return logFail("Failed to create Renderpass!");
 		}
 
-		// Load the shaders and create the pipeline
+		// Load the shaders and create the pipelines
 		{
+			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
+			{
+				IAssetLoader::SAssetLoadParams lp = {};
+				lp.logger = m_logger.get();
+				lp.workingDirectory = ""; // virtual root
+				auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+				const auto assets = assetBundle.getContents();
+				if (assets.empty())
+					return nullptr;
+
+				// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+				auto source = IAsset::castDown<ICPUShader>(assets[0]);
+				if (!source)
+					return nullptr;
+				const uint32_t workgroupSize = m_physicalDevice->getLimits().maxComputeWorkGroupInvocations;
+				const uint32_t subgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+				auto overriddenSource = CHLSLCompiler::createOverridenCopy(
+					source.get(),
+					"#define WorkgroupSize %d\n#define DeviceSubgroupSize %d\n",
+					workgroupSize,
+					subgroupSize
+				);
+
+				return m_device->createShader(overriddenSource.get());
+			};
+
+			auto createComputePipeline = [&](smart_refctd_ptr<IGPUShader> shader, smart_refctd_ptr<IGPUComputePipeline> pipeline) -> bool
+			{
+				const nbl::asset::SPushConstantRange pcRange = {
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.offset = 0,
+					.size = sizeof(AutoexposurePushData)
+				};
+
+				smart_refctd_ptr<IGPUPipelineLayout> layout;
+				{
+					layout = m_device->createPipelineLayout({ &pcRange,1 });
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = layout.get();
+					params.shader.shader = shader.get();
+					params.shader.entryPoint = "main";
+					params.shader.entries = nullptr;
+					params.shader.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
+						return logFail("Failed to create compute pipeline!\n");
+				}
+
+				return true;
+			};
+
+			// Luma Meter
+			auto lumaMeterShader = loadCompileAndCreateShader("app_resources/luma_meter.comp.hlsl");
+			if (!lumaMeterShader)
+				return logFail("Failed to Load and Compile Compute Shader: lumaMeterShader!");
+			auto lumaPresentLayout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout));
+			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline))
+				return logFail("Could not create Luma Meter Pipeline!");
+
+			// Tonemapper
+			auto tonemapperShader = loadCompileAndCreateShader("app_resources/tonemapper.comp.hlsl");
+			if (!tonemapperShader)
+				return logFail("Failed to Load and Compile Compute Shader: tonemapperShader!");
+			auto tonemapperLayout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(tonemapperDSLayout));
+			if (!createComputePipeline(tonemapperShader, m_tonemapperPipeline))
+				return logFail("Could not create Luma Meter Pipeline!");
+
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
 			if (!fsTriProtoPPln)
 				return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
-			// Load Custom Shader
-			auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
-
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
-					if (!source)
-						return nullptr;
-
-					return m_device->createShader(source.get());
-				};
-			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
+			// Load Fragment Shader
+			auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");;
 			if (!fragmentShader)
-				return logFail("Failed to Load and Compile Fragment Shader!");
+				return logFail("Failed to Load and Compile Fragment Shader: lumaMeterShader!");
 
-			auto layout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout));
 			const IGPUShader::SSpecInfo fragSpec = {
 				.entryPoint = "main",
 				.shader = fragmentShader.get()
 			};
-			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass());
+			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, lumaPresentLayout.get(), scResources->getRenderpass());
 			if (!m_presentPipeline)
 				return logFail("Could not create Graphics Pipeline!");
 		}
