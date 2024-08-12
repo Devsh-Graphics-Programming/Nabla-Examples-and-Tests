@@ -159,7 +159,7 @@ void DrawResourcesFiller::allocateMSDFTextures(ILogicalDevice* logicalDevice, ui
 		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
 		imgViewInfo.subresourceRange.baseMipLevel = 0u;
 		imgViewInfo.subresourceRange.layerCount = maxMSDFs;
-		imgViewInfo.subresourceRange.levelCount = 1u; // TODO: MipMapping MSDFs?
+		imgViewInfo.subresourceRange.levelCount = MSDFMips;
 
 		msdfTextureArray = logicalDevice->createImageView(std::move(imgViewInfo));
 	}
@@ -436,7 +436,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 				.subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
-					.levelCount = 1u,
+					.levelCount = msdfImage->getCreationParameters().mipLevels,
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},
@@ -496,7 +496,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 				.subresourceRange = {
 					.aspectMask = IImage::EAF_COLOR_BIT,
 					.baseMipLevel = 0u,
-					.levelCount = 1u,
+					.levelCount = msdfImage->getCreationParameters().mipLevels,
 					.baseArrayLayer = 0u,
 					.layerCount = msdfTextureArray->getCreationParameters().image->getCreationParameters().arrayLayers,
 				},

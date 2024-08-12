@@ -40,6 +40,8 @@ public:
 
 	typedef uint32_t index_buffer_type;
 
+	using msdf_hash = std::size_t;
+
 	DrawResourcesFiller();
 
 	DrawResourcesFiller(smart_refctd_ptr<IUtilities>&& utils, IQueue* copyQueue);
@@ -209,6 +211,9 @@ public:
 		return msdfTextureArray->getCreationParameters().image->getCreationParameters().mipLevels;
 	}
 
+	// TODO: Return to protected after testing
+	uint32_t addMSDFTexture(std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
+
 protected:
 	
 	struct TextureCopy
@@ -303,7 +308,6 @@ protected:
 
 	// MSDF Hashing and Caching Internal Functions 
 	static constexpr uint64_t InvalidMSDFHash = std::numeric_limits<uint64_t>::max();
-	using msdf_hash = std::size_t;
 	enum class MSDFType : uint8_t
 	{
 		HATCH_FILL_PATTERN,
@@ -343,8 +347,6 @@ protected:
 		}
 		return textureIdx;
 	}
-
-	uint32_t addMSDFTexture(std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 
 	uint32_t addMSDFTexture(std::vector<core::smart_refctd_ptr<ICPUBuffer>> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit);
 	

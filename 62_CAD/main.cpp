@@ -900,13 +900,12 @@ public:
 		
 		// Loading font stuff
 		m_textRenderer = nbl::core::make_smart_refctd_ptr<TextRenderer>();
-		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
 
-		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%¨&*()_+";
+		m_arialFont = nbl::core::make_smart_refctd_ptr<FontFace>(core::smart_refctd_ptr(m_textRenderer), std::string("C:\\Windows\\Fonts\\arial.ttf"));
+		const auto str = "MSDF: ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnoprstuvwxyz '1234567890-=\"!@#$%&*()_+";
 		singleLineText = std::unique_ptr<SingleLineText>(new SingleLineText(
 			core::smart_refctd_ptr<FontFace>(m_arialFont), 
 			std::string(str)));
-
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
 			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>>
@@ -2897,6 +2896,63 @@ protected:
 			{
 				float32_t rotation = 0.0; // nbl::core::PI<float>()* abs(cos(m_timeElapsed * 0.00005));
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-100.0), float32_t2(1.0, 1.0), rotation);
+				// Smaller text to test mip maps
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
+				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
+
+				DrawResourcesFiller::msdf_hash sampleSquareHash = 1234567u;
+				uint32_t texture = drawResourcesFiller.addMSDFTexture([&]()
+				{
+						float64_t FillPatternShapeExtent = 32.0;
+						std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>> buffers;
+						for (uint32_t mip = 0; mip < 4; mip++)
+						{
+							float32_t2 msdfExtents = float32_t2(32 / (1u << mip));
+							CPolyline polyline;
+							std::array<float64_t2, 5u> outerSquare = {
+								float64_t2(1.0, 1.0) / 8.0 * FillPatternShapeExtent,
+								float64_t2(1.0, 7.0) / 8.0 * FillPatternShapeExtent,
+								float64_t2(7.0, 7.0) / 8.0 * FillPatternShapeExtent,
+								float64_t2(7.0, 1.0) / 8.0 * FillPatternShapeExtent,
+								float64_t2(1.0, 1.0) / 8.0 * FillPatternShapeExtent,
+							};
+							polyline.addLinePoints(outerSquare);
+
+							// Generate MSDFgen Shape
+							msdfgen::Shape glyph;
+							nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(glyph);
+							for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
+							{
+								auto& section = polyline.getSectionInfoAt(sectorIdx);
+								if (section.type == ObjectType::LINE)
+								{
+									if (section.count == 0u) continue;
+
+									glyphShapeBuilder.moveTo(polyline.getLinePointAt(section.index).p);
+									for (uint32_t i = section.index + 1; i < section.index + section.count + 1; i++)
+										glyphShapeBuilder.lineTo(polyline.getLinePointAt(i).p);
+								}
+								else if (section.type == ObjectType::QUAD_BEZIER)
+								{
+									if (section.count == 0u) continue;
+									glyphShapeBuilder.moveTo(polyline.getQuadBezierInfoAt(section.index).shape.P0);
+									for (uint32_t i = section.index; i < section.index + section.count; i++)
+									{
+										const auto& bez = polyline.getQuadBezierInfoAt(i).shape;
+										glyphShapeBuilder.quadratic(bez.P1, bez.P2);
+									}
+								}
+							}
+							glyphShapeBuilder.finish();
+							glyph.normalize();
+
+							float scaleX = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.x);
+							float scaleY = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.y);
+							auto shapeMsdf = m_textRenderer->generateShapeMSDF(glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
+							buffers.push_back(shapeMsdf);
+						}
+						return buffers;
+				}, sampleSquareHash, intendedNextSubmit);
 			}
 
 			const bool drawTextHatches = true;
@@ -3111,7 +3167,9 @@ protected:
 	smart_refctd_ptr<IGPUImageView> pseudoStencilImageView;
 	smart_refctd_ptr<TextRenderer> m_textRenderer;
 	smart_refctd_ptr<FontFace> m_arialFont;
+	smart_refctd_ptr<FontFace> m_webdingsFont;
 	std::unique_ptr<SingleLineText> singleLineText = nullptr;
+	std::unique_ptr<SingleLineText> webdingsSquareText = nullptr;
 	
 	std::vector<std::unique_ptr<msdfgen::Shape>> m_shapeMSDFImages = {};
 
