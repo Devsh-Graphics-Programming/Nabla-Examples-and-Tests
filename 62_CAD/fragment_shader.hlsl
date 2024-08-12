@@ -565,7 +565,7 @@ float4 main(PSInput input) : SV_TARGET
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
-            float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
+            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId)), 0.0).xyz;
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
             localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
         }
@@ -579,12 +579,12 @@ float4 main(PSInput input) : SV_TARGET
         {
             float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
             float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)), mipLevel);
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange()) / float(1u << uint32_t(mipLevel));
-            float aaFactor = globals.antiAliasingFactor / float(1u << uint32_t(mipLevel));
-            //localAlpha = max(-(msdf / float(MSDFPixelRange)), 0.0);
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
+            float aaFactor = globals.antiAliasingFactor;
             
             // localAlpha = smoothstep(-globals.antiAliasingFactor, 0.0, msdf); 
             // IDK why but it looks best if aa is done on the inside of the shape too esp for curved and diagonal shapes, it may make the shape a tiny bit thinner but worth it
+            localAlpha = smoothstep(+aaFactor, -aaFactor, msdf); 
             localAlpha = smoothstep(+aaFactor, -aaFactor, msdf); 
         }
     }
