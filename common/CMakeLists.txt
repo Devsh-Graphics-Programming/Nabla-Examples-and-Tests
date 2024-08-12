@@ -7,8 +7,9 @@
 ##
 
 # interface libraries don't have build rules (except custom commands however it doesn't matter here) but properties
-add_library(nblCommonAPI INTERFACE) 
-target_include_directories(nblCommonAPI INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/include")
+add_library(nblCommonAPI INTERFACE)
+set(NBL_COMMON_API_INCLUDE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(nblCommonAPI INTERFACE "${NBL_COMMON_API_INCLUDE_DIRECTORY}")
 
 add_subdirectory(src EXCLUDE_FROM_ALL)
 

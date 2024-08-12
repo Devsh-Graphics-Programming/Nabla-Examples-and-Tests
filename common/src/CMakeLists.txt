@@ -1,5 +1,6 @@
 # we add common libraries
-# add_subdirectory(camera EXCLUDE_FROM_ALL)
+# add_subdirectory(camera EXCLUDE_FROM_ALL) # header only currently
+add_subdirectory(geometry EXCLUDE_FROM_ALL)
 
 # we get all available targets inclusive & below this directory
 NBL_GET_ALL_TARGETS(NBL_SUBDIRECTORY_TARGETS)

@@ -31,7 +31,7 @@
     }
 #endif // __HLSL_VERSION
 
-#include "common.hlsl"
+#include "nbl/api/hlsl/SBasicViewParameters.hlsl"
 
 #endif // _THIS_EXAMPLE_GRID_COMMON_HLSL_
 
