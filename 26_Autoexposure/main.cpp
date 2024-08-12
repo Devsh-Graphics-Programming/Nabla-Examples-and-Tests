@@ -471,6 +471,30 @@ public:
 
 		// Allocate and create texture for tonemapping
 		{
+			IGPUImage::SCreationParams imageParams = {};
+			imageParams = m_gpuImg->getCreationParameters();
+			// promote format because RGB8 and friends don't actually exist in HW
+			{
+				const IPhysicalDevice::SImageFormatPromotionRequest request = {
+					.originalFormat = imageParams.format,
+					.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
+				};
+				imageParams.format = m_physicalDevice->promoteImageFormat(request, imageParams.tiling);
+			}
+			if (imageParams.type == IGPUImage::ET_3D)
+				imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
+			m_gpuTonemapImg = m_device->createImage(std::move(imageParams));
+			if (!m_gpuTonemapImg || !m_device->allocate(m_gpuTonemapImg->getMemoryReqs(), m_gpuTonemapImg.get()).isValid())
+				return false;
+			m_gpuTonemapImg->setObjectDebugName("Autoexposure Tonemapper Image");
+
+			IGPUImageView::SCreationParams gpuTonemapImgViewParams = {
+				.image = m_gpuTonemapImg,
+				.viewType = IGPUImageView::ET_2D,
+				.format = m_gpuTonemapImg->getCreationParameters().format
+			};
+
+			m_gpuTonemapImgView = m_device->createImageView(std::move(gpuTonemapImgViewParams));
 		}
 
 		return true;
@@ -479,7 +503,6 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-
 		// Acquire
 		auto acquire = m_surface->acquireNextImage();
 		if (!acquire)
