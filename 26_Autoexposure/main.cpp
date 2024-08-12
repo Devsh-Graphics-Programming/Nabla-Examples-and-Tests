@@ -136,7 +136,8 @@ public:
 				return logFail("Failed to Create Descriptor Pools");
 
 			m_lumaPresentDS[0] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
-			if (!m_lumaPresentDS[0])
+			m_lumaPresentDS[1] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
+			if (!m_lumaPresentDS[0] || !m_lumaPresentDS[1])
 				return logFail("Could not create Descriptor Set: lumaPresentDS!");
 			m_tonemapperDS[0] = tonemapperPool->createDescriptorSet(core::smart_refctd_ptr(tonemapperDSLayout));
 			if (!m_tonemapperDS[0])
@@ -450,28 +451,8 @@ public:
 
 			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
 
-			IGPUDescriptorSet::SDescriptorInfo info = {};
-			info.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			info.desc = m_gpuImgView;
-
-			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
-				{
-					.dstSet = m_lumaPresentDS[0].get(),
-					.binding = 0,
-					.arrayElement = 0,
-					.count = 1,
-					.info = &info
-				}
-			};
-
-			m_device->updateDescriptorSets(1, writeDescriptors, 0, nullptr);
-
-			queue->endCapture();
-		}
-
-		// Allocate and create texture for tonemapping
-		{
-			IGPUImage::SCreationParams imageParams = {};
+			// Allocate and create texture for tonemapping
+			imageParams = {};
 			imageParams = m_gpuImg->getCreationParameters();
 			// promote format because RGB8 and friends don't actually exist in HW
 			{
@@ -495,6 +476,35 @@ public:
 			};
 
 			m_gpuTonemapImgView = m_device->createImageView(std::move(gpuTonemapImgViewParams));
+
+			IGPUDescriptorSet::SDescriptorInfo info1 = {};
+			info1.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			info1.desc = m_gpuImgView;
+
+			IGPUDescriptorSet::SDescriptorInfo info2 = {};
+			info2.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			info2.desc = m_gpuImgView;
+
+			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
+				{
+					.dstSet = m_lumaPresentDS[0].get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info1
+				},
+				{
+					.dstSet = m_lumaPresentDS[1].get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info2
+				}
+			};
+
+			m_device->updateDescriptorSets(2, writeDescriptors, 0, nullptr);
+
+			queue->endCapture();
 		}
 
 		return true;
@@ -510,7 +520,7 @@ public:
 
 		auto queue = getGraphicsQueue();
 		auto cmdbuf = m_cmdBufs[0].get();
-		auto ds = m_lumaPresentDS[0].get();
+		auto ds = m_lumaPresentDS[1].get();
 
 		queue->startCapture();
 		// Render to the swapchain
