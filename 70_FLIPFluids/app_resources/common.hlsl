@@ -8,6 +8,10 @@ NBL_CONSTEXPR float ratioFLIPPIC = 0.95;
 NBL_CONSTEXPR float deltaTime = 1.0f / 60.0f;
 
 #ifdef __HLSL_VERSION
+
+static const float FLT_MIN = 1.175494351e-38;
+static const float FLT_MAX = 3.402823466e+38;
+
 struct Particle
 {
     float4 position;

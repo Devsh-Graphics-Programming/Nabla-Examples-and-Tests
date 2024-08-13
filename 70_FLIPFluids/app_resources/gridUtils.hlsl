@@ -26,7 +26,7 @@ float4 clampPosition(float4 position, float4 gridMin, float4 gridMax)
 
 inline uint cellIdxToFlatIdx(int3 index, int4 gridSize)
 {
-    uint3 idxClamp = clamp(index, (int3)0, gridSize - 1);
+    uint3 idxClamp = clamp(index, (int3)0, gridSize.xyz - 1);
     return idxClamp.x + idxClamp.y * gridSize.x + idxClamp.z * gridSize.x * gridSize.y;
 }
 

@@ -5,6 +5,8 @@
 #include "../common/InputSystem.hpp"
 #include "../common/Camera.hpp"
 
+#include "gpuRadixSort.h"
+
 #include "glm/glm/glm.hpp"
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
@@ -274,6 +276,10 @@ public:
 		m_gridData.worldMin = float32_t4(0.f);
 		m_gridData.worldMax = simAreaSize;
 		numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
+		
+		WorkgroupCount = numParticles / WorkgroupSize;
+		if (numParticles % WorkgroupSize > 0)
+			WorkgroupCount++;
 
 		{
 			float zNear = 0.1f, zFar = 10000.f;
@@ -390,12 +396,13 @@ public:
 		}
 		{
 			// update fluid cells pipelines
-			std::string kernels[] = { "updateFluidCells", "updateNeighborFluidCells", "addParticlesToCells" };
+			const uint32_t numkernels = 3;
+			std::string kernels[numkernels] = { "updateFluidCells", "updateNeighborFluidCells", "addParticlesToCells" };
 			smart_refctd_ptr<IGPUComputePipeline> pipelines[] = { m_updateFluidCellsPipeline, m_updateNeighborFluidCellsPipeline, m_particlesToCellsPipeline };
 			smart_refctd_ptr<IDescriptorPool> pools[] = { m_updateCellsPool, m_updateNeighborCellsPool, m_particlesToCellsPool };
 			std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> sets[] = { m_updateCellsDs, m_updateNeighborCellsDs, m_particlesToCellsDs };
 
-			for (uint32_t i = 0; i < 3; i++)
+			for (uint32_t i = 0; i < numkernels; i++)
 			{
 				auto& pipeline = pipelines[i];
 				auto& pool = pools[i];
@@ -690,7 +697,7 @@ public:
 		// prepare particle vertices for render
 		cmdbuf->bindComputePipeline(m_genParticleVerticesPipeline.get());
 		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_genParticleVerticesPipeline->getLayout(), 0, m_genVerticesDs.size(), &m_genVerticesDs.begin()->get());
-		cmdbuf->dispatch(numParticles, 1, 1);
+		cmdbuf->dispatch(WorkgroupCount, 1, 1);
 
 		// draw particles
 		auto* queue = getGraphicsQueue();
@@ -857,7 +864,7 @@ public:
 
 private:
 	std::pair<smart_refctd_ptr<ICPUShader>, smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData>> compileShaderAndIntrospect(
-		const std::string& filePath, CSPIRVIntrospector& introspector)
+		const std::string& filePath, CSPIRVIntrospector& introspector, const std::string& entryPoint)
 	{
 		IAssetLoader::SAssetLoadParams lparams = {};
 		lparams.logger = m_logger.get();
@@ -890,7 +897,7 @@ private:
 
 			auto spirvUnspecialized = compilerSet->compileToSPIRV(shaderSrc.get(), options);
 			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspectParams = {
-				.entryPoint = "main",
+				.entryPoint = entryPoint,
 				.shader = spirvUnspecialized
 			};
 
@@ -941,7 +948,7 @@ private:
 		const std::string& filePath, const std::string& entryPoint = "main")
 	{
 		CSPIRVIntrospector introspector;
-		auto compiledShader = compileShaderAndIntrospect(filePath, introspector);
+		auto compiledShader = compileShaderAndIntrospect(filePath, introspector, entryPoint);
 		auto source = compiledShader.first;
 		auto shaderIntrospection = compiledShader.second;
 
@@ -1244,7 +1251,7 @@ private:
 		
 		cmdbuf->bindComputePipeline(m_initParticlePipeline.get());
 		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_initParticlePipeline->getLayout(), 0, m_initParticleDs.size(), &m_initParticleDs.begin()->get());
-		cmdbuf->dispatch(numParticles, 1, 1);
+		cmdbuf->dispatch(WorkgroupCount, 1, 1);
 
 		m_shouldInitParticles = false;
 	}
@@ -1303,6 +1310,7 @@ private:
 	bool m_shouldInitParticles = true;
 
 	// simulation constants
+	size_t WorkgroupCount;
 	uint32_t m_substepsPerFrame = 1;
 	SGridData m_gridData;
 	SParticleRenderParams m_pRenderParams;
