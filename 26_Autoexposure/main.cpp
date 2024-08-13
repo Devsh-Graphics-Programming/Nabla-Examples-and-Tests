@@ -149,7 +149,8 @@ public:
 
 		}
 
-		auto queue = getGraphicsQueue();
+		auto graphicsQueue = getGraphicsQueue();
+		auto computeQueue = getComputeQueue();
 
 		// Gather swapchain resources
 		std::unique_ptr<CDefaultSwapchainFramebuffers> scResources;
@@ -280,17 +281,23 @@ public:
 		}
 
 		// Init the surface and create the swapchain
-		if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
+		if (!m_surface || !m_surface->init(graphicsQueue, std::move(scResources), swapchainParams.sharedParams))
 			return logFail("Could not create Window & Surface or initialize the Surface!");
 
 		// need resetttable commandbuffers for the upload utility
 		{
-			m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			m_graphicsCmdPool = m_device->createCommandPool(graphicsQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+			m_computeCmdPool = m_device->createCommandPool(computeQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+
 			// create the commandbuffers
-			if (!m_cmdPool)
-				return logFail("Couldn't create Command Pool!");
-			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 3 }))
-				return logFail("Couldn't create Command Buffer!");
+			if (!m_graphicsCmdPool || !m_computeCmdPool)
+				return logFail("Couldn't create Command Pools!");
+
+			if (
+				!m_graphicsCmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_graphicsCmdBufs.data(), 1 }) ||
+				!m_computeCmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_computeCmdBufs.data(), 2 })
+			)
+				return logFail("Couldn't create Command Buffers!");
 		}
 
 		// things for IUtilities
@@ -300,7 +307,7 @@ public:
 				return logFail("Could not create Scratch Semaphore");
 			m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
 			// we don't want to overcomplicate the example with multi-queue
-			m_intendedSubmit.queue = queue;
+			m_intendedSubmit.queue = graphicsQueue;
 			// wait for nothing before upload
 			m_intendedSubmit.waitSemaphores = {};
 			m_intendedSubmit.waitSemaphores = {};
@@ -409,7 +416,7 @@ public:
 
 			// we don't want to overcomplicate the example with multi-queue
 			auto queue = getGraphicsQueue();
-			auto cmdbuf = m_cmdBufs[0].get();
+			auto cmdbuf = m_graphicsCmdBufs[0].get();
 			IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
 			m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
 
@@ -515,15 +522,11 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
-		// Acquire
-		//auto acquire = m_surface->acquireNextImage();
-		//if (!acquire)
-		//	return;
-
 		// Luma Meter
 		{
 			auto queue = getComputeQueue();
-			auto cmdbuf = m_cmdBufs[0].get();
+			auto cmdbuf = m_computeCmdBufs[0].get();
+			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_lumaPresentDS[0].get();
 
 			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
@@ -533,10 +536,46 @@ public:
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
 			cmdbuf->end();
+
+			{
+				IQueue::SSubmitInfo submit_infos[1];
+				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
+					{
+						.cmdbuf = cmdbuf
+					}
+				};
+				submit_infos[0].commandBuffers = cmdBufs;
+				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
+					{
+						.semaphore = m_lumaMeterSemaphore.get(),
+						.value = m_submitIx + 1,
+						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+					}
+				};
+				submit_infos[0].signalSemaphores = signals;
+
+				queue->submit(submit_infos);
+				queue->endCapture();
+			}
+
+			const ISemaphore::SWaitInfo wait_infos[] = {
+				{
+					.semaphore = m_lumaMeterSemaphore.get(),
+					.value = m_submitIx + 1
+				}
+			};
+			m_device->blockForSemaphores(wait_infos);
 		}
+
+		m_submitIx++;
+
+		// Acquire
+		//auto acquire = m_surface->acquireNextImage();
+		//if (!acquire)
+		//	return;
 
 		// Render to the swapchain
 		/*{
@@ -656,8 +695,8 @@ protected:
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_lumaPresentDS, m_tonemapperDS;
 
 	// Command Buffers
-	smart_refctd_ptr<IGPUCommandPool> m_cmdPool;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_cmdBufs;
+	smart_refctd_ptr<IGPUCommandPool> m_graphicsCmdPool, m_computeCmdPool;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_graphicsCmdBufs, m_computeCmdBufs;
 
 	// Semaphores
 	smart_refctd_ptr<ISemaphore> m_lumaMeterSemaphore, m_tonemapperSemaphore, m_presentSemaphore;
