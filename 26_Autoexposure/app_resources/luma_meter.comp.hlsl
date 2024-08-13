@@ -5,8 +5,8 @@
 #include "nbl/builtin/hlsl/luma_meter/luma_meter.hlsl"
 #include "app_resources/common.hlsl"
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 1)]] Texture2D texture;
-[[vk::combinedImageSampler]] [[vk::binding(0, 1)]] SamplerState samplerState;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D texture;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
 
 [[vk::push_constant]] AutoexposurePushData pushData;
 
