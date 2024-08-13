@@ -303,6 +303,17 @@ public:
 		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
 		createBuffer(particleBuffer, params);
 
+		int32_t numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
+		params.size = numGridCells * sizeof(uint32_t2);
+		createBuffer(gridParticleIDBuffer, params);
+
+		params.size = numGridCells * sizeof(uint32_t);
+		createBuffer(gridCellMaterialBuffer, params);
+
+		params.size = numGridCells * sizeof(float32_t4);
+		createBuffer(velocityFieldBuffer, params);
+		createBuffer(prevVelocityFieldBuffer, params);
+
 		params.size = numParticles * 6 * sizeof(VertexInfo);
 		createBuffer(particleVertexBuffer, params);
 
@@ -312,9 +323,9 @@ public:
 
 		{
 			// init particles pipeline
-			auto piPipeline = createComputePipelineFromShader("app_resources/compute/particlesInit.comp.hlsl");
-			m_initParticlePipeline = piPipeline.first;
-			IGPUDescriptorSetLayoutArray initParticleDsLayouts = piPipeline.second;
+			auto pipeline = createComputePipelineFromShader("app_resources/compute/particlesInit.comp.hlsl");
+			m_initParticlePipeline = pipeline.first;
+			IGPUDescriptorSetLayoutArray initParticleDsLayouts = pipeline.second;
 
 			// init and write descriptor
 			constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
@@ -343,9 +354,9 @@ public:
 		}
 		{
 			// generate particle vertex pipeline
-			auto piPipeline = createComputePipelineFromShader("app_resources/compute/genParticleVertices.comp.hlsl");
-			m_genParticleVerticesPipeline = piPipeline.first;
-			IGPUDescriptorSetLayoutArray dsLayouts = piPipeline.second;
+			auto pipeline = createComputePipelineFromShader("app_resources/compute/genParticleVertices.comp.hlsl");
+			m_genParticleVerticesPipeline = pipeline.first;
+			IGPUDescriptorSetLayoutArray dsLayouts = pipeline.second;
 
 			constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
 			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
@@ -375,6 +386,129 @@ public:
 					{.dstSet = m_genVerticesDs[2].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &outputInfo},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+		}
+		{
+			// update fluid cells pipelines
+			std::string kernels[] = { "updateFluidCells", "updateNeighborFluidCells", "addParticlesToCells" };
+			smart_refctd_ptr<IGPUComputePipeline> pipelines[] = { m_updateFluidCellsPipeline, m_updateNeighborFluidCellsPipeline, m_particlesToCellsPipeline };
+			smart_refctd_ptr<IDescriptorPool> pools[] = { m_updateCellsPool, m_updateNeighborCellsPool, m_particlesToCellsPool };
+			std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> sets[] = { m_updateCellsDs, m_updateNeighborCellsDs, m_particlesToCellsDs };
+
+			for (uint32_t i = 0; i < 3; i++)
+			{
+				auto& pipeline = pipelines[i];
+				auto& pool = pools[i];
+				auto& set = sets[i];
+
+				auto pipelineDs = createComputePipelineFromShader("app_resources/compute/updateFluidCells.comp.hlsl", kernels[i]);
+				pipeline = pipelineDs.first;
+				IGPUDescriptorSetLayoutArray dsLayouts = pipelineDs.second;
+
+				constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
+				const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
+					!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
+					!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
+					!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
+					!dsLayouts[3] ? nullptr : dsLayouts[3].get()
+				};
+				pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
+				pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), set.data());
+
+				{
+					IGPUDescriptorSet::SDescriptorInfo inputInfos[3];
+					inputInfos[0].desc = smart_refctd_ptr(gridDataBuffer);
+					inputInfos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+					inputInfos[1].desc = smart_refctd_ptr(particleBuffer);
+					inputInfos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+					inputInfos[2].desc = smart_refctd_ptr(gridParticleIDBuffer);
+					inputInfos[2].info.buffer = {.offset = 0, .size = gridParticleIDBuffer->getSize()};
+
+					IGPUDescriptorSet::SDescriptorInfo outputInfos[3];
+					outputInfos[0].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+					outputInfos[0].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+					outputInfos[1].desc = smart_refctd_ptr(velocityFieldBuffer);
+					outputInfos[1].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+					outputInfos[2].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
+					outputInfos[2].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
+					IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
+						{.dstSet = set[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
+						{.dstSet = set[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
+						{.dstSet = set[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &inputInfos[2]},
+						{.dstSet = set[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &outputInfos[0]},
+						{.dstSet = set[1].get(), .binding = 4, .arrayElement = 0, .count = 1, .info = &outputInfos[1]},
+						{.dstSet = set[1].get(), .binding = 5, .arrayElement = 0, .count = 1, .info = &outputInfos[2]},
+					};
+					m_device->updateDescriptorSets(std::span(writes, 6), {});
+				}
+			}
+		}
+		{
+			// extrapolate velocities pipeline
+			auto pipeline = createComputePipelineFromShader("app_resources/compute/extrapolateVelocities.comp.hlsl");
+			m_extrapolateVelPipeline = pipeline.first;
+			IGPUDescriptorSetLayoutArray dsLayouts = pipeline.second;
+
+			constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
+			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
+				!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
+				!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
+				!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
+				!dsLayouts[3] ? nullptr : dsLayouts[3].get()
+			};
+			m_extrapolateVelPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
+			m_extrapolateVelPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_extrapolateVelDs.data());
+
+			{
+				IGPUDescriptorSet::SDescriptorInfo inputInfos[2];
+				inputInfos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				inputInfos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				inputInfos[1].desc = smart_refctd_ptr(particleBuffer);
+				inputInfos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+				IGPUDescriptorSet::SDescriptorInfo outputInfos[2];
+				outputInfos[0].desc = smart_refctd_ptr(velocityFieldBuffer);
+				outputInfos[0].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				outputInfos[0].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
+				outputInfos[0].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_extrapolateVelDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
+					{.dstSet = m_extrapolateVelDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
+					{.dstSet = m_extrapolateVelDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &outputInfos[0]},
+					{.dstSet = m_extrapolateVelDs[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &outputInfos[1]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+		}
+		{
+			// extrapolate velocities pipeline
+			auto pipeline = createComputePipelineFromShader("app_resources/compute/advectParticles.comp.hlsl");
+			m_advectParticlesPipeline = pipeline.first;
+			IGPUDescriptorSetLayoutArray dsLayouts = pipeline.second;
+
+			constexpr uint32_t maxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
+			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
+				!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
+				!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
+				!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
+				!dsLayouts[3] ? nullptr : dsLayouts[3].get()
+			};
+			m_advectParticlesPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
+			m_advectParticlesPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), m_advectParticlesDs.data());
+
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(velocityFieldBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = m_advectParticlesDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_advectParticlesDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_advectParticlesDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
 			}
 		}
 
@@ -997,7 +1131,7 @@ private:
 			const std::array<IGPUDescriptorSetLayout*, maxDescriptorSets> dscLayoutPtrs = {
 				nullptr,
 				descriptorSetLayout1.get(),
-				nullptr, //descriptorSetLayout2.get(),
+				nullptr,
 				nullptr
 			};
 			m_renderDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
@@ -1033,7 +1167,6 @@ private:
 			IGPUShader::SSpecInfo specInfo[3] = {
 				{.shader = vs.get()},
 				{.shader = fs.get()},
-				//{.shader = gs.get()}
 			};
 
 			const auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), smart_refctd_ptr(descriptorSetLayout2), nullptr);
@@ -1134,6 +1267,8 @@ private:
 	// simulation compute shaders
 	smart_refctd_ptr<IGPUComputePipeline> m_initParticlePipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_updateFluidCellsPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_updateNeighborFluidCellsPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_particlesToCellsPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_applyBodyForcesPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_diffusionPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_applyPressurePipeline;
@@ -1144,6 +1279,16 @@ private:
 
 	smart_refctd_ptr<video::IDescriptorPool> m_initParticlePool;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_initParticleDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_updateCellsPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_updateCellsDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_updateNeighborCellsPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_updateNeighborCellsDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_particlesToCellsPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_particlesToCellsDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_extrapolateVelPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_extrapolateVelDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_advectParticlesPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_advectParticlesDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_genVerticesPool;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_genVerticesDs;
 
@@ -1173,9 +1318,9 @@ private:
 
 	smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		// SGridData
 	smart_refctd_ptr<IGPUBuffer> gridParticleIDBuffer;	// uint2
-	smart_refctd_ptr<IGPUBuffer> gridCellTypeBuffer;	// uint, fluid or solid
-	smart_refctd_ptr<IGPUBuffer> velocityFieldBuffer;	// float3
-	smart_refctd_ptr<IGPUBuffer> prevVelocityFieldBuffer;// float3
+	smart_refctd_ptr<IGPUBuffer> gridCellMaterialBuffer;	// uint, fluid or solid
+	smart_refctd_ptr<IGPUBuffer> velocityFieldBuffer;	// float4
+	smart_refctd_ptr<IGPUBuffer> prevVelocityFieldBuffer;// float4
 	smart_refctd_ptr<IGPUBuffer> gridDiffusionBuffer;	// float3
 	smart_refctd_ptr<IGPUBuffer> gridAxisTypeBuffer;	// uint3
 	smart_refctd_ptr<IGPUBuffer> divergenceBuffer;		// float
