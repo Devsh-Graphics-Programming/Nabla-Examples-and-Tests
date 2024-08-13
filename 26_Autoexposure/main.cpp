@@ -121,12 +121,15 @@ public:
 
 		// create the descriptor sets and with enough room
 		{
-			constexpr uint32_t lumaPresentSetCount = 2, tonemapperSetCount = 1;
-			auto lumaPresentPool = m_device->createDescriptorPoolForDSLayouts(
-				IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,
-				{ &lumaPresentDSLayout.get(), 1 },
-				&lumaPresentSetCount
-			);
+			constexpr uint32_t tonemapperSetCount = 1;
+
+			core::smart_refctd_ptr<IDescriptorPool> lumaPresentPool;
+			{
+				const video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, nullptr, nullptr, lumaPresentDSLayout.get() };
+				const uint32_t setCounts[] = { 0u, 0u, 0u, 1u }; // leaving you one for 3th set, but you can increase if you really want 2 separate DSs but I think you want single to be shared (then you also need to create 2 DSes as you did)
+				lumaPresentPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+			}
+
 			auto tonemapperPool = m_device->createDescriptorPoolForDSLayouts(
 				IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,
 				{ &tonemapperDSLayout.get(), 1 },
@@ -136,9 +139,9 @@ public:
 			if (!lumaPresentPool || !tonemapperPool)
 				return logFail("Failed to Create Descriptor Pools");
 
+			// why do you need 2 separate DSs for combined sampler? from stage flags it looks like you want them shared between compute & fragment
 			m_lumaPresentDS[0] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
-			m_lumaPresentDS[1] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
-			if (!m_lumaPresentDS[0] || !m_lumaPresentDS[1])
+			if (!m_lumaPresentDS[0])
 				return logFail("Could not create Descriptor Set: lumaPresentDS!");
 			m_tonemapperDS[0] = tonemapperPool->createDescriptorSet(core::smart_refctd_ptr(tonemapperDSLayout));
 			if (!m_tonemapperDS[0])
@@ -228,7 +231,8 @@ public:
 
 				smart_refctd_ptr<IGPUPipelineLayout> layout;
 				{
-					layout = m_device->createPipelineLayout({ &pcRange,1 });
+					layout = m_device->createPipelineLayout({ &pcRange,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout)); // dont forget your compute uses combinedImageSampler, cause of your cmd buffer errors is here
+
 					IGPUComputePipeline::SCreationParams params = {};
 					params.layout = layout.get();
 					params.shader.shader = shader.get();
@@ -483,10 +487,6 @@ public:
 			info1.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			info1.desc = m_gpuImgView;
 
-			IGPUDescriptorSet::SDescriptorInfo info2 = {};
-			info2.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			info2.desc = m_gpuImgView;
-
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
 					.dstSet = m_lumaPresentDS[0].get(),
@@ -494,17 +494,10 @@ public:
 					.arrayElement = 0,
 					.count = 1,
 					.info = &info1
-				},
-				{
-					.dstSet = m_lumaPresentDS[1].get(),
-					.binding = 0,
-					.arrayElement = 0,
-					.count = 1,
-					.info = &info2
 				}
 			};
 
-			m_device->updateDescriptorSets(2, writeDescriptors, 0, nullptr);
+			m_device->updateDescriptorSets(1, writeDescriptors, 0, nullptr);
 
 			queue->endCapture();
 		}
@@ -533,7 +526,7 @@ public:
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_lumaMeterPipeline->getLayout(), 0, 1, &ds);
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_lumaMeterPipeline->getLayout(), 3, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
 			cmdbuf->end();
 		}

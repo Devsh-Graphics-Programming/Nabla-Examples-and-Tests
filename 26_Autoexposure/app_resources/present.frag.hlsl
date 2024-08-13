@@ -8,6 +8,7 @@
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
 using namespace nbl::hlsl::ext::FullScreenTriangle;
 
+// shared accross frag & compute - binding 0 set 3
 [[vk::combinedImageSampler]] [[vk::binding(0, 3)]] Texture2D texture;
 [[vk::combinedImageSampler]] [[vk::binding(0, 3)]] SamplerState samplerState;
 
