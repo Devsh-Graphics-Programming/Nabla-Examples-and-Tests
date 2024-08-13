@@ -3,7 +3,7 @@
 
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
-class CEventCallback : public ISimpleManagedSurface::ICallback
+class CEventCallback : public nbl::video::ISimpleManagedSurface::ICallback
 {
 public:
 	CEventCallback(nbl::core::smart_refctd_ptr<InputSystem>&& m_inputSystem, nbl::system::logger_opt_smart_ptr&& logger) : m_inputSystem(std::move(m_inputSystem)), m_logger(std::move(logger)) {}

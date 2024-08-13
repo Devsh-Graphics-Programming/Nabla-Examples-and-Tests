@@ -163,13 +163,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SetNextWindowSize(ImVec2(320, 340), ImGuiCond_Appearing);
 					ImGui::Begin("Editor");
 
-					if (ImGui::RadioButton("Full view", !useWindow))
-						useWindow = false;
+					if (ImGui::RadioButton("Full view", !transformParams.useWindow))
+						transformParams.useWindow = false;
 
 					ImGui::SameLine();
 
-					if (ImGui::RadioButton("Window", useWindow))
-						useWindow = true;
+					if (ImGui::RadioButton("Window", transformParams.useWindow))
+						transformParams.useWindow = true;
 
 					ImGui::Text("Camera");
 					bool viewDirty = false;
@@ -196,12 +196,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zNear", &zNear, 0.1f, 100.f);
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
-					viewDirty |= ImGui::SliderFloat("Distance", &camDistance, 1.f, 69.f);
+					viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
 					ImGui::SliderInt("Gizmo count", &gizmoCount, 1, 4);
 
 					if (viewDirty || firstFrame)
 					{
-						core::vectorSIMDf cameraPosition(cosf(camYAngle)* cosf(camXAngle)* camDistance, sinf(camXAngle)* camDistance, sinf(camYAngle)* cosf(camXAngle)* camDistance);
+						core::vectorSIMDf cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
 						core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
 						const static core::vectorSIMDf up(0.f, 1.f, 0.f);
 
@@ -292,7 +292,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							if (flipY)
 								imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 
-							EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.currentWorld, lastUsing == matId, matId);
+
+							transformParams.drawGrid = false;
+							transformParams.editTransformDecomposition = lastUsing == matId;
+
+							if (matId == 0)
+								transformParams.drawGrid = true;
+
+							EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.currentWorld, transformParams);
 						}
 						
 						if (ImGuizmo::IsUsing())
@@ -515,7 +522,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
 
-		int lastUsing = 0, gizmoCount = 1;;
+		TransformRequestParams transformParams;
+
+		int lastUsing = 0, gizmoCount = 1;
 
 		bool isPerspective = true, flipY = true, move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
