@@ -28,6 +28,7 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 
 	constexpr static inline std::string_view DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
 	constexpr static inline std::array<int, 2> Dimensions = { 1280, 720 };
+	constexpr static inline std::array<int, 2> SampleCount = { 10000, 10000 };
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -100,7 +101,7 @@ public:
 
 			const IGPUDescriptorSetLayout::SBinding tonemapperBindings[1] = {
 				{
-					.binding = 1,
+					.binding = 0,
 					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
 					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -217,7 +218,7 @@ public:
 				return m_device->createShader(overriddenSource.get());
 			};
 
-			auto createComputePipeline = [&](smart_refctd_ptr<IGPUShader> shader, smart_refctd_ptr<IGPUComputePipeline> pipeline) -> bool
+			auto createComputePipeline = [&](smart_refctd_ptr<IGPUShader>& shader, smart_refctd_ptr<IGPUComputePipeline>& pipeline) -> bool
 			{
 				const nbl::asset::SPushConstantRange pcRange = {
 					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
@@ -287,7 +288,7 @@ public:
 			// create the commandbuffers
 			if (!m_cmdPool)
 				return logFail("Couldn't create Command Pool!");
-			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 1 }))
+			if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data(), 3 }))
 				return logFail("Couldn't create Command Buffer!");
 		}
 
@@ -300,6 +301,7 @@ public:
 			// we don't want to overcomplicate the example with multi-queue
 			m_intendedSubmit.queue = queue;
 			// wait for nothing before upload
+			m_intendedSubmit.waitSemaphores = {};
 			m_intendedSubmit.waitSemaphores = {};
 			// fill later
 			m_intendedSubmit.commandBuffers = {};
@@ -514,18 +516,31 @@ public:
 	inline void workLoopBody() override
 	{
 		// Acquire
-		auto acquire = m_surface->acquireNextImage();
-		if (!acquire)
-			return;
+		//auto acquire = m_surface->acquireNextImage();
+		//if (!acquire)
+		//	return;
 
-		auto queue = getGraphicsQueue();
-		auto cmdbuf = m_cmdBufs[0].get();
-		auto ds = m_lumaPresentDS[1].get();
-
-		queue->startCapture();
-		// Render to the swapchain
+		// Luma Meter
 		{
+			auto queue = getComputeQueue();
+			auto cmdbuf = m_cmdBufs[0].get();
+			auto ds = m_lumaPresentDS[0].get();
+
+			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+
+			queue->startCapture();
+
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+
+			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_lumaMeterPipeline->getLayout(), 0, 1, &ds);
+			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
+			cmdbuf->end();
+		}
+
+		// Render to the swapchain
+		/*{
+			cmdbuf3->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			const VkRect2D currentRenderArea =
 			{
@@ -539,9 +554,9 @@ public:
 					.width = float(m_window->getWidth()),
 					.height = float(m_window->getHeight())
 				};
-				cmdbuf->setViewport({ &viewport, 1 });
+				cmdbuf3->setViewport({ &viewport, 1 });
 			}
-			cmdbuf->setScissor({ &currentRenderArea, 1 });
+			cmdbuf3->setScissor({ &currentRenderArea, 1 });
 
 			// begin the renderpass
 			{
@@ -553,15 +568,15 @@ public:
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				cmdbuf3->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 3, 1, &ds);
-			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
-			cmdbuf->endRenderPass();
+			cmdbuf3->bindGraphicsPipeline(m_presentPipeline.get());
+			cmdbuf3->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 3, 1, &ds);
+			ext::FullScreenTriangle::recordDrawCall(cmdbuf3);
+			cmdbuf3->endRenderPass();
 
-			cmdbuf->end();
+			cmdbuf3->end();
 		}
 
 		// submit
@@ -574,7 +589,7 @@ public:
 		{
 			{
 				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-					.cmdbuf = cmdbuf
+					.cmdbuf = cmdbuf3
 				} };
 				// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = { {
@@ -607,7 +622,7 @@ public:
 			};
 			if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
 				return;
-		}
+		}*/
 	}
 
 	inline bool keepRunning() override
