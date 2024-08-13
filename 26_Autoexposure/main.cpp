@@ -125,8 +125,8 @@ public:
 
 			core::smart_refctd_ptr<IDescriptorPool> lumaPresentPool;
 			{
-				const video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, nullptr, nullptr, lumaPresentDSLayout.get() };
-				const uint32_t setCounts[] = { 0u, 0u, 0u, 1u }; // leaving you one for 3th set, but you can increase if you really want 2 separate DSs but I think you want single to be shared (then you also need to create 2 DSes as you did)
+				const video::IGPUDescriptorSetLayout* const layouts[] = { lumaPresentDSLayout.get(), lumaPresentDSLayout.get() };
+				const uint32_t setCounts[] = { 1u, 1u };
 				lumaPresentPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
 			}
 
@@ -139,9 +139,9 @@ public:
 			if (!lumaPresentPool || !tonemapperPool)
 				return logFail("Failed to Create Descriptor Pools");
 
-			// why do you need 2 separate DSs for combined sampler? from stage flags it looks like you want them shared between compute & fragment
 			m_lumaPresentDS[0] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
-			if (!m_lumaPresentDS[0])
+			m_lumaPresentDS[1] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
+			if (!m_lumaPresentDS[0] || !m_lumaPresentDS[1])
 				return logFail("Could not create Descriptor Set: lumaPresentDS!");
 			m_tonemapperDS[0] = tonemapperPool->createDescriptorSet(core::smart_refctd_ptr(tonemapperDSLayout));
 			if (!m_tonemapperDS[0])
@@ -221,20 +221,11 @@ public:
 				return m_device->createShader(overriddenSource.get());
 			};
 
-			auto createComputePipeline = [&](smart_refctd_ptr<IGPUShader>& shader, smart_refctd_ptr<IGPUComputePipeline>& pipeline) -> bool
+			auto createComputePipeline = [&](smart_refctd_ptr<IGPUShader>& shader, smart_refctd_ptr<IGPUComputePipeline>& pipeline, smart_refctd_ptr<IGPUPipelineLayout> pipelineLayout) -> bool
 			{
-				const nbl::asset::SPushConstantRange pcRange = {
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.offset = 0,
-					.size = sizeof(AutoexposurePushData)
-				};
-
-				smart_refctd_ptr<IGPUPipelineLayout> layout;
 				{
-					layout = m_device->createPipelineLayout({ &pcRange,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout)); // dont forget your compute uses combinedImageSampler, cause of your cmd buffer errors is here
-
 					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = layout.get();
+					params.layout = pipelineLayout.get();
 					params.shader.shader = shader.get();
 					params.shader.entryPoint = "main";
 					params.shader.entries = nullptr;
@@ -247,20 +238,26 @@ public:
 				return true;
 			};
 
+			const nbl::asset::SPushConstantRange pcRange = {
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+					.offset = 0,
+					.size = sizeof(AutoexposurePushData)
+			};
+
 			// Luma Meter
 			auto lumaMeterShader = loadCompileAndCreateShader("app_resources/luma_meter.comp.hlsl");
 			if (!lumaMeterShader)
 				return logFail("Failed to Load and Compile Compute Shader: lumaMeterShader!");
-			auto lumaPresentLayout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout));
-			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline))
+			auto lumaPresentLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(lumaPresentDSLayout), core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr);
+			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline, lumaPresentLayout))
 				return logFail("Could not create Luma Meter Pipeline!");
 
 			// Tonemapper
 			auto tonemapperShader = loadCompileAndCreateShader("app_resources/tonemapper.comp.hlsl");
 			if (!tonemapperShader)
 				return logFail("Failed to Load and Compile Compute Shader: tonemapperShader!");
-			auto tonemapperLayout = m_device->createPipelineLayout({}, nullptr, nullptr, nullptr, core::smart_refctd_ptr(tonemapperDSLayout));
-			if (!createComputePipeline(tonemapperShader, m_tonemapperPipeline))
+			auto tonemapperLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(tonemapperDSLayout), nullptr, nullptr, nullptr);
+			if (!createComputePipeline(tonemapperShader, m_tonemapperPipeline, tonemapperLayout))
 				return logFail("Could not create Luma Meter Pipeline!");
 
 			// Load FSTri Shader
@@ -321,7 +318,6 @@ public:
 			// Allocate memory
 			nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
 			smart_refctd_ptr<IGPUBuffer> buffer;
-			//smart_refctd_ptr<nbl::video::IGPUDescriptorSet> ds;
 			{
 				auto build_buffer = [this](
 					smart_refctd_ptr<ILogicalDevice> m_device,
@@ -487,6 +483,10 @@ public:
 			info1.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			info1.desc = m_gpuImgView;
 
+			IGPUDescriptorSet::SDescriptorInfo info2 = {};
+			info2.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			info2.desc = m_gpuTonemapImgView;
+
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
 					.dstSet = m_lumaPresentDS[0].get(),
@@ -494,10 +494,17 @@ public:
 					.arrayElement = 0,
 					.count = 1,
 					.info = &info1
+				},
+				{
+					.dstSet = m_lumaPresentDS[1].get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = &info2
 				}
 			};
 
-			m_device->updateDescriptorSets(1, writeDescriptors, 0, nullptr);
+			m_device->updateDescriptorSets(2, writeDescriptors, 0, nullptr);
 
 			queue->endCapture();
 		}
@@ -526,7 +533,7 @@ public:
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_lumaMeterPipeline->getLayout(), 3, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
 			cmdbuf->end();
 		}
