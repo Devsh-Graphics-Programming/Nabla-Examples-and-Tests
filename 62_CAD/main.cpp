@@ -1033,16 +1033,9 @@ public:
 		cb->begin(video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cb->beginDebugMarker("Frame");
 
-		float64_t3x3 _projectionToNDC;
-		_projectionToNDC = m_Camera.constructViewProjection();
-
-		// TODO(emulated_float64_t): remove this code, use emulated float instead
-		float32_t3x3 projectionToNDC;
-		projectionToNDC[0] = _projectionToNDC[0];
-		projectionToNDC[1] = _projectionToNDC[1];
-		projectionToNDC[2] = _projectionToNDC[2];
-
-
+		float64_t3x3 projectionToNDC;
+		projectionToNDC = m_Camera.constructViewProjection();
+		
 		Globals globalData = {};
 		globalData.antiAliasingFactor = 1.0;// +abs(cos(m_timeElapsed * 0.0008)) * 20.0f;
 		globalData.resolution = uint32_t2{ m_window->getWidth(), m_window->getHeight() };
@@ -2600,14 +2593,7 @@ protected:
 		else if (mode == ExampleMode::CASE_6)
 		{
 			// left half of screen should be red and right half should be green
-			const auto& _cameraProj = m_Camera.constructViewProjection();
-
-			// TODO(emulated_float64_t): remove this code, use emulated float instead
-			float32_t3x3 cameraProj;
-			cameraProj[0] = _cameraProj[0];
-			cameraProj[1] = _cameraProj[1];
-			cameraProj[2] = _cameraProj[2];
-
+			const auto& cameraProj = m_Camera.constructViewProjection();
 			ClipProjectionData showLeft = {};
 			showLeft.projectionToNDC = cameraProj;
 			showLeft.minClipNDC = float32_t2(-1.0, -1.0);
@@ -3069,15 +3055,6 @@ protected:
 		double idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
 		double idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
 		double det_2x2_mat = idx_0_0 * idx_1_1;
-		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
-	}
-
-	// TODO(emulated_float64_t): remove
-	float getScreenToWorldRatio(const float32_t3x3& viewProjectionMatrix, uint32_t2 windowSize)
-	{
-		float idx_0_0 = viewProjectionMatrix[0u][0u] * (windowSize.x / 2.0);
-		float idx_1_1 = viewProjectionMatrix[1u][1u] * (windowSize.y / 2.0);
-		float det_2x2_mat = idx_0_0 * idx_1_1;
 		return static_cast<float>(core::sqrt(core::abs(det_2x2_mat)));
 	}
 

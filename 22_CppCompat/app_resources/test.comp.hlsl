@@ -290,7 +290,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
         STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::fragmentShaderPixelInterlock == device_capabilities2::fragmentShaderPixelInterlock);
         STATIC_ASSERT(nbl::hlsl::device_capabilities_traits<device_capabilities2>::maxOptimallyResidentWorkgroupInvocations == device_capabilities2::maxOptimallyResidentWorkgroupInvocations);
 
-    // }
+    }
 
     // fill(invocationID, 12);
     // { NBL_CONSTEXPR_STATIC_INLINE int V = nbl::hlsl::has_member_x_with_type<S,int>::value;      STATIC_ASSERT(nbl::hlsl::e_member_presence::is_present == V); }
