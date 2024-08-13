@@ -27,8 +27,11 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 	using clock_t = std::chrono::steady_clock;
 
 	constexpr static inline std::string_view DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
-	constexpr static inline std::array<int, 2> Dimensions = { 1280, 720 };
-	constexpr static inline std::array<int, 2> SampleCount = { 10000, 10000 };
+	constexpr static inline std::array<uint32_t, 2> Dimensions = { 1280, 720 };
+	constexpr static inline std::array<uint32_t, 2> SampleCount = { 10000, 10000 };
+	constexpr static inline std::array<float, 2> MeteringWindowScale = { 0.5f, 0.5f };
+	constexpr static inline std::array<float, 2> MeteringWindowOffset = { 0.25f, 0.25f };
+	constexpr static inline std::array<float, 2> LumaMinMax = { 1.0f / 4096.0f, 32768.0f };
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -353,8 +356,6 @@ public:
 					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
 				};
 
-				auto x = m_physicalDevice->getLimits();
-
 				build_buffer(m_device, &allocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
 			}
 			m_lumaGatherBDA = buffer->getDeviceAddress();
@@ -531,13 +532,27 @@ public:
 			auto ds = m_lumaPresentDS[0].get();
 
 			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+			auto pc = AutoexposurePushData
+			{
+				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
+				.meteringWindowScaleY = MeteringWindowScale[1] * m_gpuImg->getCreationParameters().extent.height,
+				.meteringWindowOffsetX = MeteringWindowOffset[0] * m_gpuImg->getCreationParameters().extent.width,
+				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
+				.lumaMin = LumaMinMax[0],
+				.lumaMax = LumaMinMax[1],
+				.sampleCountX = SampleCount[0],
+				.sampleCountY = SampleCount[1],
+				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
+				.viewportSizeY = m_gpuImg->getCreationParameters().extent.height,
+				.lumaMeterBDA = m_lumaGatherBDA
+			};
 
 			queue->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-
 			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->pushConstants(m_lumaMeterPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
 			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
 			cmdbuf->end();
 
