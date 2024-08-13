@@ -249,8 +249,8 @@ public:
 			auto lumaMeterShader = loadCompileAndCreateShader("app_resources/luma_meter.comp.hlsl");
 			if (!lumaMeterShader)
 				return logFail("Failed to Load and Compile Compute Shader: lumaMeterShader!");
-			auto lumaPresentLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(lumaPresentDSLayout), core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr);
-			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline, lumaPresentLayout))
+			auto lumaLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr, nullptr);
+			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline, lumaLayout))
 				return logFail("Could not create Luma Meter Pipeline!");
 
 			// Tonemapper
@@ -275,7 +275,8 @@ public:
 				.entryPoint = "main",
 				.shader = fragmentShader.get()
 			};
-			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, lumaPresentLayout.get(), scResources->getRenderpass());
+			auto presentLayout = m_device->createPipelineLayout({ &pcRange, 1 }, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr);
+			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scResources->getRenderpass());
 			if (!m_presentPipeline)
 				return logFail("Could not create Graphics Pipeline!");
 		}
