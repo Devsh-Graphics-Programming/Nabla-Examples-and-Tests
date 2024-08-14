@@ -423,9 +423,15 @@ public:
 			m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
 
 			// there's no previous operation to wait for
-			const SMemoryBarrier toTransferBarrier = {
-				.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
-				.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+			const SMemoryBarrier transferBarriers[] = {
+				{
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+					.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+				},
+				{
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+					.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+				}
 			};
 
 			// upload image and write to descriptor set
@@ -433,20 +439,36 @@ public:
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			// change the layout of the image
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers[] = { {
-				.barrier = {
-					.dep = toTransferBarrier
-					// no ownership transfers
-				},
-				.image = m_gpuImg.get(),
-				// transition the whole view
-				.subresourceRange = cpuImgParams.subresourceRange,
-				// a wiping transition
-				.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
-			} };
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers });
-			// upload contents and submit right away
-			m_utils->updateImageViaStagingBufferAutoSubmit(
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
+				{
+					.barrier = {
+						.dep = transferBarriers[0]
+						// no ownership transfers
+					},
+					.image = m_gpuImg.get(),
+					// transition the whole view
+					.subresourceRange = cpuImgParams.subresourceRange,
+					// a wiping transition
+					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+				}
+			};
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
+				{
+					.barrier = {
+						.dep = transferBarriers[1]
+						// no ownership transfers
+					},
+					.image = m_gpuImg.get(),
+					// transition the whole view
+					.subresourceRange = cpuImgParams.subresourceRange,
+					// a wiping transition
+					.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+					.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+				}
+			};
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers1 });
+			// upload contents
+			m_utils->updateImageViaStagingBuffer(
 				m_intendedSubmit,
 				cpuImgParams.image->getBuffer(),
 				cpuImgParams.image->getCreationParameters().format,
@@ -454,6 +476,9 @@ public:
 				IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
 				cpuImgParams.image->getRegions()
 			);
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
+			m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
+
 			IGPUImageView::SCreationParams gpuImgViewParams = {
 				.image = m_gpuImg,
 				.viewType = IGPUImageView::ET_2D,
