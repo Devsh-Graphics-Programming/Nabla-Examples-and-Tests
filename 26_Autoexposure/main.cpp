@@ -494,7 +494,7 @@ public:
 
 			IGPUDescriptorSet::SDescriptorInfo info2 = {};
 			info2.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			info2.desc = m_gpuTonemapImgView;
+			info2.desc = m_gpuImgView; // FIXME: temporarily pass in input image
 
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
@@ -586,16 +586,41 @@ public:
 			m_device->blockForSemaphores(wait_infos);
 		}
 
-		m_submitIx++;
+		// Tonemapper
+		{
+		}
 
-		// Acquire
-		//auto acquire = m_surface->acquireNextImage();
-		//if (!acquire)
-		//	return;
+		// Render to swapchain
+		{
+			// Acquire
+			auto acquire = m_surface->acquireNextImage();
+			if (!acquire)
+				return;
 
-		// Render to the swapchain
-		/*{
-			cmdbuf3->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			auto queue = getGraphicsQueue();
+			auto cmdbuf = m_graphicsCmdBufs[0].get();
+			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+			auto ds = m_lumaPresentDS[1].get();
+
+			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+			auto pc = AutoexposurePushData
+			{
+				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
+				.meteringWindowScaleY = MeteringWindowScale[1] * m_gpuImg->getCreationParameters().extent.height,
+				.meteringWindowOffsetX = MeteringWindowOffset[0] * m_gpuImg->getCreationParameters().extent.width,
+				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
+				.lumaMin = LumaMinMax[0],
+				.lumaMax = LumaMinMax[1],
+				.sampleCountX = SampleCount[0],
+				.sampleCountY = SampleCount[1],
+				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
+				.viewportSizeY = m_gpuImg->getCreationParameters().extent.height,
+				.lumaMeterBDA = m_lumaGatherBDA
+			};
+
+			queue->startCapture();
+
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 
 			const VkRect2D currentRenderArea =
 			{
@@ -609,9 +634,9 @@ public:
 					.width = float(m_window->getWidth()),
 					.height = float(m_window->getHeight())
 				};
-				cmdbuf3->setViewport({ &viewport, 1 });
+				cmdbuf->setViewport({ &viewport, 1 });
 			}
-			cmdbuf3->setScissor({ &currentRenderArea, 1 });
+			cmdbuf->setScissor({ &currentRenderArea, 1 });
 
 			// begin the renderpass
 			{
@@ -623,28 +648,26 @@ public:
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
-				cmdbuf3->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				cmdbuf->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 			}
 
-			cmdbuf3->bindGraphicsPipeline(m_presentPipeline.get());
-			cmdbuf3->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 3, 1, &ds);
-			ext::FullScreenTriangle::recordDrawCall(cmdbuf3);
-			cmdbuf3->endRenderPass();
+			cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 1, 1, &ds);
+			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
+			cmdbuf->endRenderPass();
 
-			cmdbuf3->end();
-		}
+			cmdbuf->end();
 
-		// submit
-		const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
-			.semaphore = m_presentSemaphore.get(),
-			.value = ++m_submitIx,
-			// just as we've outputted all pixels, signal
-			.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
-		} };
-		{
+			// submit
+			const IQueue::SSubmitInfo::SSemaphoreInfo rendered[1] = { {
+				.semaphore = m_presentSemaphore.get(),
+				.value = m_submitIx + 1,
+				// just as we've outputted all pixels, signal
+				.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
+			} };
 			{
 				const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[1] = { {
-					.cmdbuf = cmdbuf3
+					.cmdbuf = cmdbuf
 				} };
 				// we don't need to wait for the transfer semaphore, because we submit everything to the same queue
 				const IQueue::SSubmitInfo::SSemaphoreInfo acquired[1] = { {
@@ -657,27 +680,28 @@ public:
 					.commandBuffers = commandBuffers,
 					.signalSemaphores = rendered
 				} };
-				// we won't signal the sema if no success
-				if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
-					m_submitIx--;
+
+				queue->submit(infos);
+			}
+
+			// Present
+			m_surface->present(acquire.imageIndex, rendered);
+			queue->endCapture();
+
+			// Wait for completion
+			{
+				const ISemaphore::SWaitInfo cmdbufDonePending[] = {
+					{
+						.semaphore = m_presentSemaphore.get(),
+						.value = m_submitIx
+					}
+				};
+				if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
+					return;
 			}
 		}
 
-		// Present
-		m_surface->present(acquire.imageIndex, rendered);
-		getGraphicsQueue()->endCapture();
-
-		// Wait for completion
-		{
-			const ISemaphore::SWaitInfo cmdbufDonePending[] = {
-				{
-					.semaphore = m_presentSemaphore.get(),
-					.value = m_submitIx
-				}
-			};
-			if (m_device->blockForSemaphores(cmdbufDonePending) != ISemaphore::WAIT_RESULT::SUCCESS)
-				return;
-		}*/
+		m_submitIx++;
 	}
 
 	inline bool keepRunning() override
