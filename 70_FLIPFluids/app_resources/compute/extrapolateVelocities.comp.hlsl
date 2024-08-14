@@ -18,13 +18,13 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
     Particle p = particleBuffer[pid];
 
-    float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer);
-    float3 gridVel = sampleVelocityAt(p.position.xyz, velocityFieldBuffer);
+    float3 gridPrevVel = sampleVelocityAt(p.position.xyz, prevVelocityFieldBuffer, gridData);
+    float3 gridVel = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, gridData);
 
     float3 picVel = gridVel;
-    float3 flipVel = p.velocity + gridVel - gridPrevVel;
+    float3 flipVel = p.velocity.xyz + gridVel - gridPrevVel;
 
-    p.velocity = lerp(picVel, flipVel, ratioFLIPPIC);
+    p.velocity.xyz = lerp(picVel, flipVel, ratioFLIPPIC);
 
     particleBuffer[pid] = p;
 }

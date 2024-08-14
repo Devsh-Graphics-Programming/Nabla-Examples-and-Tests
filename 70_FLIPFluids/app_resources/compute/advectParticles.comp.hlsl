@@ -20,13 +20,13 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
     Particle p = particleBuffer[pid];
 
     // use RK4
-    float3 k1 = sampleVelocityAt(p.position, velocityFieldBuffer, gridData);
-    float3 k2 = sampleVelocityAt(p.position + k1 * 0.5f * deltaTime, velocityFieldBuffer, gridData);
-    float3 k3 = sampleVelocityAt(p.position + k2 * 0.5f * deltaTime, velocityFieldBuffer, gridData);
-    float3 k4 = sampleVelocityAt(p.position + k3 * deltaTime, velocityFieldBuffer, gridData);
+    float3 k1 = sampleVelocityAt(p.position.xyz, velocityFieldBuffer, gridData);
+    float3 k2 = sampleVelocityAt(p.position.xyz + k1 * 0.5f * deltaTime, velocityFieldBuffer, gridData);
+    float3 k3 = sampleVelocityAt(p.position.xyz + k2 * 0.5f * deltaTime, velocityFieldBuffer, gridData);
+    float3 k4 = sampleVelocityAt(p.position.xyz + k3 * deltaTime, velocityFieldBuffer, gridData);
     float3 velocity = (k1 + 2.0f * k2 + 2.0f * k3 + k4) / 6.0f;
 
-    p.position += velocity * deltaTime;
+    p.position.xyz += velocity * deltaTime;
 
     p.position = clampPosition(p.position, gridData.worldMin, gridData.worldMax);
 

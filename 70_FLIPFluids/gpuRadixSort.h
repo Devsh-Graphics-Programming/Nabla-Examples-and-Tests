@@ -292,7 +292,6 @@ private:
         SPrefixSumParams finalSumParams;    // does this need to remain in scope?
         finalSumParams.numElements = numElements;
         finalSumParams.groupSumOffset = 0;
-        SBufferRange<IGPUBuffer> range;
         for (uint32_t i = 0; i < numWorkgroups; i += 65535)
         {
             finalSumParams.groupOffset = i;

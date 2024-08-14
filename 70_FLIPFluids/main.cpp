@@ -12,7 +12,6 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
 #include "app_resources/common.hlsl"
-#include "app_resources/gridUtils.hlsl"
 
 using namespace nbl::hlsl;
 using namespace nbl;
@@ -475,8 +474,8 @@ public:
 				IGPUDescriptorSet::SDescriptorInfo outputInfos[2];
 				outputInfos[0].desc = smart_refctd_ptr(velocityFieldBuffer);
 				outputInfos[0].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
-				outputInfos[0].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
-				outputInfos[0].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
+				outputInfos[1].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
+				outputInfos[1].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
 					{.dstSet = m_extrapolateVelDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
 					{.dstSet = m_extrapolateVelDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
@@ -878,14 +877,13 @@ private:
 		
 		const auto assets = bundle.getContents();
 		assert(assets.size() == 1);
-		smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<std::string>(assets[0]);
+		smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
 
 		smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspection;
 		{
-			//auto* compilerSet = m_assetMgr->getCompilerSet();
 			auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 
-			CHLSLCompiler::SCompilerOptions options = {};
+			CHLSLCompiler::SOptions options = {};
 			options.stage = shaderSrc->getStage();
 			if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
 				options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
@@ -894,7 +892,13 @@ private:
 			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
 			options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
 			options.preprocessorOptions.logger = m_logger.get();
-			//options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(shaderSrc->getContentType())->getDefaultIncludeFinder();
+			options.preprocessorOptions.includeFinder = compiler->getDefaultIncludeFinder();
+
+			std::string dxcOptionStr[] = {"-E " + entryPoint};
+			if (entryPoint != "main")
+			{
+				options.dxcOptions = std::span(dxcOptionStr);
+			}
 
 			auto spirvUnspecialized = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options);
 			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspectParams = {
@@ -1010,7 +1014,7 @@ private:
 		{
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = pipelineLayout.get();
-			params.shader.entryPoint = "main";
+			params.shader.entryPoint = entryPoint;
 			params.shader.shader = shader.get();
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
 			{
