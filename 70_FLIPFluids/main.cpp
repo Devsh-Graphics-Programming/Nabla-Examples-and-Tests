@@ -878,13 +878,14 @@ private:
 		
 		const auto assets = bundle.getContents();
 		assert(assets.size() == 1);
-		smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<ICPUShader>(assets[0]);
+		smart_refctd_ptr<ICPUShader> shaderSrc = IAsset::castDown<std::string>(assets[0]);
 
 		smart_refctd_ptr<const CSPIRVIntrospector::CStageIntrospectionData> introspection;
 		{
-			auto* compilerSet = m_assetMgr->getCompilerSet();
+			//auto* compilerSet = m_assetMgr->getCompilerSet();
+			auto compiler = make_smart_refctd_ptr<asset::CHLSLCompiler>(smart_refctd_ptr(m_system));
 
-			nbl::asset::IShaderCompiler::SCompilerOptions options = {};
+			CHLSLCompiler::SCompilerOptions options = {};
 			options.stage = shaderSrc->getStage();
 			if (!(options.stage == IShader::E_SHADER_STAGE::ESS_COMPUTE || options.stage == IShader::E_SHADER_STAGE::ESS_FRAGMENT))
 				options.stage = IShader::E_SHADER_STAGE::ESS_VERTEX;
@@ -893,9 +894,9 @@ private:
 			options.debugInfoFlags |= IShaderCompiler::E_DEBUG_INFO_FLAGS::EDIF_SOURCE_BIT;
 			options.preprocessorOptions.sourceIdentifier = shaderSrc->getFilepathHint();
 			options.preprocessorOptions.logger = m_logger.get();
-			options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(shaderSrc->getContentType())->getDefaultIncludeFinder();
+			//options.preprocessorOptions.includeFinder = compilerSet->getShaderCompiler(shaderSrc->getContentType())->getDefaultIncludeFinder();
 
-			auto spirvUnspecialized = compilerSet->compileToSPIRV(shaderSrc.get(), options);
+			auto spirvUnspecialized = compiler->compileToSPIRV((const char*)shaderSrc->getContent()->getPointer(), options);
 			const CSPIRVIntrospector::CStageIntrospectionData::SParams inspectParams = {
 				.entryPoint = entryPoint,
 				.shader = spirvUnspecialized
