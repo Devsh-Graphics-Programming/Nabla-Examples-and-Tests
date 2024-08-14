@@ -567,7 +567,7 @@ float4 main(PSInput input) : SV_TARGET
         {
             float3 msdfSample = msdfTextures.Sample(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId))).xyz;
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
-            localAlpha = smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
+            localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
     else if (objType == ObjectType::FONT_GLYPH) 

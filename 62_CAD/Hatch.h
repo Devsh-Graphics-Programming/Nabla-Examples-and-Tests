@@ -19,7 +19,7 @@ using namespace nbl;
 
 enum class HatchFillPattern: uint32_t
 {
-	SOLID_FILL,
+	SOLID_FILL = 0,
 	CHECKERED,
 	DIAMONDS,
 	CROSS_HATCH,

@@ -23,6 +23,7 @@ using namespace video;
 #include "Hatch.h"
 #include "Polyline.h"
 #include "DrawResourcesFiller.h"
+#include "SingleLineText.h"
 
 #include "nbl/video/surface/CSurfaceVulkan.h"
 #include "nbl/ext/FullScreenTriangle/FullScreenTriangle.h"
@@ -67,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_3;
+constexpr ExampleMode mode = ExampleMode::CASE_8;
 
 class Camera2D
 {
@@ -2921,7 +2922,7 @@ protected:
 				{
 					char k = TestString[i];
 					auto glyphIndex = m_arialFont->getGlyphIndex(wchar_t(k));
-					const auto glyphMetrics = m_arialFont->getGlyphMetricss(glyphIndex);
+					const auto glyphMetrics = m_arialFont->getGlyphMetrics(glyphIndex);
 					const float64_t2 baselineStart = currentBaselineStart;
 
 					currentBaselineStart += glyphMetrics.advance;
