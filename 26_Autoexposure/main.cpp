@@ -79,7 +79,7 @@ public:
 			* as evidenced by the name of the field in the SBinding.
 			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
 			* field set to its default (nullptr).
-		*/
+			*/
 		smart_refctd_ptr<IGPUDescriptorSetLayout> lumaPresentDSLayout, tonemapperDSLayout;
 		{
 			auto defaultSampler = m_device->createSampler(
@@ -613,64 +613,6 @@ public:
 
 		// Tonemapper
 		{
-			auto queue = getComputeQueue();
-			auto cmdbuf = m_computeCmdBufs[1].get();
-			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_tonemapperDS[0].get();
-
-			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
-			auto pc = AutoexposurePushData
-			{
-				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
-				.meteringWindowScaleY = MeteringWindowScale[1] * m_gpuImg->getCreationParameters().extent.height,
-				.meteringWindowOffsetX = MeteringWindowOffset[0] * m_gpuImg->getCreationParameters().extent.width,
-				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
-				.lumaMin = LumaMinMax[0],
-				.lumaMax = LumaMinMax[1],
-				.sampleCountX = SampleCount[0],
-				.sampleCountY = SampleCount[1],
-				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
-				.viewportSizeY = m_gpuImg->getCreationParameters().extent.height,
-				.lumaMeterBDA = m_lumaGatherBDA
-			};
-
-			queue->startCapture();
-
-			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cmdbuf->bindComputePipeline(m_tonemapperPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_tonemapperPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
-			cmdbuf->pushConstants(m_tonemapperPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
-			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
-			cmdbuf->end();
-
-			{
-				IQueue::SSubmitInfo submit_infos[1];
-				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
-					{
-						.cmdbuf = cmdbuf
-					}
-				};
-				submit_infos[0].commandBuffers = cmdBufs;
-				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
-					{
-						.semaphore = m_tonemapperSemaphore.get(),
-						.value = m_submitIx + 1,
-						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
-					}
-				};
-				submit_infos[0].signalSemaphores = signals;
-
-				queue->submit(submit_infos);
-				queue->endCapture();
-			}
-
-			const ISemaphore::SWaitInfo wait_infos[] = {
-				{
-					.semaphore = m_tonemapperSemaphore.get(),
-					.value = m_submitIx + 1
-				}
-			};
-			m_device->blockForSemaphores(wait_infos);
 		}
 
 		// Render to swapchain
