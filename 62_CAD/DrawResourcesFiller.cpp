@@ -455,7 +455,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 	for (uint32_t i = 0; i < textureCopies.size(); i++)
 	{
 		auto& textureCopy = textureCopies[i];
-		for (uint32_t mip = 0; mip < textureCopy.buffers.size(); mip++)
+		for (uint32_t mip = 0; mip < textureCopy.image->getCreationParameters().mipLevels; mip++)
 		{
 			uint32_t mipW = textureCopy.imageExtent.x / (1 << mip);
 			uint32_t mipH = textureCopy.imageExtent.y / (1 << mip);
@@ -471,9 +471,12 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 			region.imageExtent = { mipW, mipH, textureCopy.imageExtent.z };
 			region.imageOffset = { 0u, 0u, 0u };
 
+			auto buffer = reinterpret_cast<uint8_t*>(textureCopy.image->getBuffer());
+			auto bufferOffset = textureCopy.image->getRegion(mip, core::vectorSIMDu32(0u, 0u))->bufferOffset;
+
 			m_utilities->updateImageViaStagingBuffer(
 				intendedNextSubmit, 
-				textureCopy.buffers[mip]->getPointer(), nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
+				buffer + bufferOffset, nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat,
 				msdfImage.get(), IImage::LAYOUT::TRANSFER_DST_OPTIMAL, 
 				{ &region, &region + 1 });
 		}
@@ -848,7 +851,7 @@ uint32_t DrawResourcesFiller::getMSDFTextureIndex(msdf_hash hash)
 	else return InvalidMSDFHash;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::function<std::vector<core::smart_refctd_ptr<ICPUBuffer>>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_ptr<ICPUImage>()> createResourceIfEmpty, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	// TextureReferences hold the semaValue related to the "scratch semaphore" in IntendedSubmitInfo
 	// Every single submit increases this value by 1
@@ -881,7 +884,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<std::vector<core::sma
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
-		auto textureBuffer = createResourceIfEmpty();
+		auto cpuBuffer = createResourceIfEmpty();
 
 		// New insertion == cache miss happened and insertion was successfull
 		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
@@ -889,7 +892,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<std::vector<core::sma
 
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({
-			.buffers = textureBuffer,
+			.image = cpuBuffer,
 			.bufferOffset = 0u,
 			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
 			.index = inserted->alloc_idx,
@@ -901,7 +904,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<std::vector<core::sma
 	return inserted->alloc_idx;
 }
 
-uint32_t DrawResourcesFiller::addMSDFTexture(std::vector<core::smart_refctd_ptr<ICPUBuffer>> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
+uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	return addMSDFTexture(
 		[textureBuffer] { return textureBuffer; },

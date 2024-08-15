@@ -908,18 +908,45 @@ public:
 			std::string(str)));
 
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
-			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>>
+			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
 				return face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), 4);
 			}
 		);
 
 		drawResourcesFiller.setHatchFillMSDFTextureFunction(
-			[&](HatchFillPattern pattern) -> std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>>
+			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
-				std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>> buffers;
-				buffers.push_back(Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution()));
-				return buffers;
+				ICPUImage::SCreationParams imgParams;
+				{
+					imgParams.flags = static_cast<ICPUImage::E_CREATE_FLAGS>(0u); // no flags
+					imgParams.type = ICPUImage::ET_2D;
+					imgParams.format = TextRenderer::MSDFTextureFormat;
+					imgParams.extent = { uint32_t(MSDFSize), uint32_t(MSDFSize), 1 };
+					imgParams.mipLevels = 1u;
+					imgParams.arrayLayers = 1u;
+					imgParams.samples = ICPUImage::ESCF_1_BIT;
+				}
+
+				auto buffer = Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
+				auto image = ICPUImage::create(std::move(imgParams));
+				auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
+
+				{
+					auto& region = regions->front();
+					region.bufferOffset = 0u;
+					region.bufferRowLength = 0u;
+					region.bufferImageHeight = 0u;
+					region.imageSubresource.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+					region.imageSubresource.mipLevel = 0u;
+					region.imageSubresource.baseArrayLayer = 0u;
+					region.imageSubresource.layerCount = 1u;
+					region.imageOffset = { 0u,0u,0u };
+					region.imageExtent = { uint32_t(MSDFSize), uint32_t(MSDFSize), 1 };
+				}
+				image->setBufferAndRegions(std::move(buffer), std::move(regions));
+
+				return image;
 			}
 		);
 		return true;
@@ -2899,60 +2926,6 @@ protected:
 				// Smaller text to test mip maps
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-130.0), float32_t2(0.4, 0.4), rotation);
 				singleLineText->Draw(drawResourcesFiller, intendedNextSubmit, float64_t2(0.0,-150.0), float32_t2(0.2, 0.2), rotation);
-
-				DrawResourcesFiller::msdf_hash sampleSquareHash = 1234567u;
-				uint32_t texture = drawResourcesFiller.addMSDFTexture([&]()
-				{
-						float64_t FillPatternShapeExtent = 32.0;
-						std::vector<core::smart_refctd_ptr<asset::ICPUBuffer>> buffers;
-						for (uint32_t mip = 0; mip < 4; mip++)
-						{
-							float32_t2 msdfExtents = float32_t2(32 / (1u << mip));
-							CPolyline polyline;
-							std::array<float64_t2, 5u> outerSquare = {
-								float64_t2(1.0, 1.0) / 8.0 * FillPatternShapeExtent,
-								float64_t2(1.0, 7.0) / 8.0 * FillPatternShapeExtent,
-								float64_t2(7.0, 7.0) / 8.0 * FillPatternShapeExtent,
-								float64_t2(7.0, 1.0) / 8.0 * FillPatternShapeExtent,
-								float64_t2(1.0, 1.0) / 8.0 * FillPatternShapeExtent,
-							};
-							polyline.addLinePoints(outerSquare);
-
-							// Generate MSDFgen Shape
-							msdfgen::Shape glyph;
-							nbl::ext::TextRendering::GlyphShapeBuilder glyphShapeBuilder(glyph);
-							for (uint32_t sectorIdx = 0; sectorIdx < polyline.getSectionsCount(); sectorIdx++)
-							{
-								auto& section = polyline.getSectionInfoAt(sectorIdx);
-								if (section.type == ObjectType::LINE)
-								{
-									if (section.count == 0u) continue;
-
-									glyphShapeBuilder.moveTo(polyline.getLinePointAt(section.index).p);
-									for (uint32_t i = section.index + 1; i < section.index + section.count + 1; i++)
-										glyphShapeBuilder.lineTo(polyline.getLinePointAt(i).p);
-								}
-								else if (section.type == ObjectType::QUAD_BEZIER)
-								{
-									if (section.count == 0u) continue;
-									glyphShapeBuilder.moveTo(polyline.getQuadBezierInfoAt(section.index).shape.P0);
-									for (uint32_t i = section.index; i < section.index + section.count; i++)
-									{
-										const auto& bez = polyline.getQuadBezierInfoAt(i).shape;
-										glyphShapeBuilder.quadratic(bez.P1, bez.P2);
-									}
-								}
-							}
-							glyphShapeBuilder.finish();
-							glyph.normalize();
-
-							float scaleX = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.x);
-							float scaleY = (1.0 / float(FillPatternShapeExtent)) * float(msdfExtents.y);
-							auto shapeMsdf = m_textRenderer->generateShapeMSDF(glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
-							buffers.push_back(shapeMsdf);
-						}
-						return buffers;
-				}, sampleSquareHash, intendedNextSubmit);
 			}
 
 			const bool drawTextHatches = true;
