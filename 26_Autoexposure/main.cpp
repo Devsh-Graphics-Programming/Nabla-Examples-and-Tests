@@ -18,8 +18,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-//#include "app_resources/push_constants.hlsl"
-
 class AutoexposureApp final : public examples::SimpleWindowedApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -80,7 +78,7 @@ public:
 			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
 			* field set to its default (nullptr).
 			*/
-		smart_refctd_ptr<IGPUDescriptorSetLayout> lumaPresentDSLayout, tonemapperDSLayout;
+		smart_refctd_ptr<IGPUDescriptorSetLayout> lumaPresentDSLayout;
 		{
 			auto defaultSampler = m_device->createSampler(
 				{
@@ -101,31 +99,14 @@ public:
 			lumaPresentDSLayout = m_device->createDescriptorSetLayout(lumaPresentBindings);
 			if (!lumaPresentDSLayout)
 				return logFail("Failed to Create Descriptor Layout: lumaPresentDSLayout");
-
-			const IGPUDescriptorSetLayout::SBinding tonemapperBindings[1] = {
-				{
-					.binding = 0,
-					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.count = 1,
-					.immutableSamplers = &defaultSampler
-				}
-			};
-			tonemapperDSLayout = m_device->createDescriptorSetLayout(tonemapperBindings);
-			if (!tonemapperDSLayout)
-				return logFail("Failed to Create Descriptor Layout: tonemapperDSLayout");
 		}
 
 		// Create semaphores
 		m_lumaMeterSemaphore = m_device->createSemaphore(m_submitIx);
-		m_tonemapperSemaphore = m_device->createSemaphore(m_submitIx);
 		m_presentSemaphore = m_device->createSemaphore(m_submitIx);
 
 		// create the descriptor sets and with enough room
 		{
-			constexpr uint32_t tonemapperSetCount = 1;
-
 			core::smart_refctd_ptr<IDescriptorPool> lumaPresentPool;
 			{
 				const video::IGPUDescriptorSetLayout* const layouts[] = { lumaPresentDSLayout.get(), lumaPresentDSLayout.get() };
@@ -133,23 +114,13 @@ public:
 				lumaPresentPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
 			}
 
-			auto tonemapperPool = m_device->createDescriptorPoolForDSLayouts(
-				IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,
-				{ &tonemapperDSLayout.get(), 1 },
-				&tonemapperSetCount
-			);
-
-			if (!lumaPresentPool || !tonemapperPool)
+			if (!lumaPresentPool)
 				return logFail("Failed to Create Descriptor Pools");
 
 			m_lumaPresentDS[0] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
 			m_lumaPresentDS[1] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
 			if (!m_lumaPresentDS[0] || !m_lumaPresentDS[1])
 				return logFail("Could not create Descriptor Set: lumaPresentDS!");
-			m_tonemapperDS[0] = tonemapperPool->createDescriptorSet(core::smart_refctd_ptr(tonemapperDSLayout));
-			if (!m_tonemapperDS[0])
-				return logFail("Could not create Descriptor Set: tonemapperDS!");
-
 		}
 
 		auto graphicsQueue = getGraphicsQueue();
@@ -254,14 +225,6 @@ public:
 				return logFail("Failed to Load and Compile Compute Shader: lumaMeterShader!");
 			auto lumaLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr, nullptr);
 			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline, lumaLayout))
-				return logFail("Could not create Luma Meter Pipeline!");
-
-			// Tonemapper
-			auto tonemapperShader = loadCompileAndCreateShader("app_resources/tonemapper.comp.hlsl");
-			if (!tonemapperShader)
-				return logFail("Failed to Load and Compile Compute Shader: tonemapperShader!");
-			auto tonemapperLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(tonemapperDSLayout), nullptr, nullptr, nullptr);
-			if (!createComputePipeline(tonemapperShader, m_tonemapperPipeline, tonemapperLayout))
 				return logFail("Could not create Luma Meter Pipeline!");
 
 			// Load FSTri Shader
@@ -487,32 +450,6 @@ public:
 
 			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
 
-			// Allocate and create texture for tonemapping
-			imageParams = {};
-			imageParams = m_gpuImg->getCreationParameters();
-			// promote format because RGB8 and friends don't actually exist in HW
-			{
-				const IPhysicalDevice::SImageFormatPromotionRequest request = {
-					.originalFormat = imageParams.format,
-					.usages = IPhysicalDevice::SFormatImageUsages::SUsage(imageParams.usage)
-				};
-				imageParams.format = m_physicalDevice->promoteImageFormat(request, imageParams.tiling);
-			}
-			if (imageParams.type == IGPUImage::ET_3D)
-				imageParams.flags |= IGPUImage::ECF_2D_ARRAY_COMPATIBLE_BIT;
-			m_gpuTonemapImg = m_device->createImage(std::move(imageParams));
-			if (!m_gpuTonemapImg || !m_device->allocate(m_gpuTonemapImg->getMemoryReqs(), m_gpuTonemapImg.get()).isValid())
-				return false;
-			m_gpuTonemapImg->setObjectDebugName("Autoexposure Tonemapper Image");
-
-			IGPUImageView::SCreationParams gpuTonemapImgViewParams = {
-				.image = m_gpuTonemapImg,
-				.viewType = IGPUImageView::ET_2D,
-				.format = m_gpuTonemapImg->getCreationParameters().format
-			};
-
-			m_gpuTonemapImgView = m_device->createImageView(std::move(gpuTonemapImgViewParams));
-
 			IGPUDescriptorSet::SDescriptorInfo info1 = {};
 			info1.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 			info1.desc = m_gpuImgView;
@@ -609,10 +546,6 @@ public:
 				}
 			};
 			m_device->blockForSemaphores(wait_infos);
-		}
-
-		// Tonemapper
-		{
 		}
 
 		// Render to swapchain
@@ -745,8 +678,8 @@ public:
 
 protected:
 	uint64_t m_lumaGatherBDA;
-	smart_refctd_ptr<IGPUImage> m_gpuImg, m_gpuTonemapImg;
-	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_gpuTonemapImgView;
+	smart_refctd_ptr<IGPUImage> m_gpuImg;
+	smart_refctd_ptr<IGPUImageView> m_gpuImgView;
 
 	// for image uploads
 	smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
@@ -754,17 +687,17 @@ protected:
 
 	// Pipelines
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_lumaMeterPipeline, m_tonemapperPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_lumaMeterPipeline;
 
 	// Descriptor Sets
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_lumaPresentDS, m_tonemapperDS;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_lumaPresentDS;
 
 	// Command Buffers
 	smart_refctd_ptr<IGPUCommandPool> m_graphicsCmdPool, m_computeCmdPool;
 	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_graphicsCmdBufs, m_computeCmdBufs;
 
 	// Semaphores
-	smart_refctd_ptr<ISemaphore> m_lumaMeterSemaphore, m_tonemapperSemaphore, m_presentSemaphore;
+	smart_refctd_ptr<ISemaphore> m_lumaMeterSemaphore, m_presentSemaphore;
 	uint64_t m_submitIx = 0;
 
 	// window
