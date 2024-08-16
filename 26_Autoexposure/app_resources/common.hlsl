@@ -12,6 +12,7 @@ struct AutoexposurePushData
     float meteringWindowScaleX, meteringWindowScaleY;
     float meteringWindowOffsetX, meteringWindowOffsetY;
     float lumaMin, lumaMax;
+    float EV;
     uint32_t sampleCountX, sampleCountY;
     uint32_t viewportSizeX, viewportSizeY;
     uint64_t lumaMeterBDA;

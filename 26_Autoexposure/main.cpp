@@ -290,7 +290,7 @@ public:
 		// Allocate and create buffer for Luma Gather
 		{
 			// Allocate memory
-			nbl::video::IDeviceMemoryAllocator::SAllocation allocation = {};
+			m_lumaGatherAllocation = {};
 			smart_refctd_ptr<IGPUBuffer> buffer;
 			{
 				auto build_buffer = [this](
@@ -319,9 +319,13 @@ public:
 					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
 				};
 
-				build_buffer(m_device, &allocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
+				build_buffer(m_device, &m_lumaGatherAllocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
 			}
 			m_lumaGatherBDA = buffer->getDeviceAddress();
+
+			auto mapped_memory = m_lumaGatherAllocation.memory->map({ 0ull, m_lumaGatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
+			if (!mapped_memory)
+				return logFail("Failed to map the Device Memory!\n");
 		}
 
 		// Allocate and Leave 1/4 for image uploads, to test image copy with small memory remaining
@@ -486,6 +490,8 @@ public:
 	// We do a very simple thing, display an image and wait `DisplayImageMs` to show it
 	inline void workLoopBody() override
 	{
+		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+
 		// Luma Meter
 		{
 			auto queue = getComputeQueue();
@@ -493,7 +499,6 @@ public:
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_lumaPresentDS[0].get();
 
-			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 			auto pc = AutoexposurePushData
 			{
 				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
@@ -502,6 +507,7 @@ public:
 				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
 				.lumaMin = LumaMinMax[0],
 				.lumaMax = LumaMinMax[1],
+				.EV = 0.0f,
 				.sampleCountX = SampleCount[0],
 				.sampleCountY = SampleCount[1],
 				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
@@ -548,6 +554,27 @@ public:
 			m_device->blockForSemaphores(wait_infos);
 		}
 
+		// Get EV
+		{
+			const auto memory_range = ILogicalDevice::MappedMemoryRange(
+				m_lumaGatherAllocation.memory.get(),
+				0ull,
+				m_lumaGatherAllocation.memory->getAllocationSize()
+			);
+
+			if (!m_lumaGatherAllocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+				m_device->invalidateMappedMemoryRanges(1, &memory_range);
+
+			const uint32_t* buffData = reinterpret_cast<const uint32_t*>(m_lumaGatherAllocation.memory->getMappedPointer());
+
+			assert(m_lumaGatherAllocation.offset == 0); // simpler than writing out all the pointer arithmetic
+
+			m_EV = 0.0f;
+			for (int index = 0; index < SubgroupSize; index++) {
+				m_EV += buffData[index];
+			}
+		}
+
 		// Render to swapchain
 		{
 			// Acquire
@@ -560,7 +587,6 @@ public:
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
 			auto ds = m_lumaPresentDS[1].get();
 
-			const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 			auto pc = AutoexposurePushData
 			{
 				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
@@ -569,6 +595,7 @@ public:
 				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
 				.lumaMin = LumaMinMax[0],
 				.lumaMax = LumaMinMax[1],
+				.EV = m_EV,
 				.sampleCountX = SampleCount[0],
 				.sampleCountY = SampleCount[1],
 				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
@@ -677,7 +704,9 @@ public:
 	}
 
 protected:
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_lumaGatherAllocation;
 	uint64_t m_lumaGatherBDA;
+	float m_EV = 0;
 	smart_refctd_ptr<IGPUImage> m_gpuImg;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView;
 
