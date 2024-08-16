@@ -1,4 +1,4 @@
-﻿// Copyright (C) 2024-2024 - DevSH Graphics Programming Sp. z O.O.
+// Copyright (C) 2024-2024 - DevSH Graphics Programming Sp. z O.O.
 // This file is part of the "Nabla Engine".
 #include "CAssetConverter.h"
 
