@@ -571,8 +571,9 @@ public:
 
 			m_EV = 0.0f;
 			for (int index = 0; index < SubgroupSize; index++) {
-				m_EV += buffData[index];
+				m_EV += static_cast<float>(buffData[index]) / (log2(LumaMinMax[1]) - log2(LumaMinMax[0])) + log2(LumaMinMax[0]);
 			}
+			m_EV /= (SampleCount[0] * SampleCount[1]);
 		}
 
 		// Render to swapchain
