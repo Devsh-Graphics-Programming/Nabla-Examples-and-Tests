@@ -126,6 +126,7 @@ public:
 			IGPUComputePipeline::SCreationParams params = {};
 			params.layout = layout.get();
 			params.shader.shader = shader.get();
+			params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(hlsl::findMSB(m_physicalDevice->getLimits().maxSubgroupSize));
 			params.shader.requireFullSubgroups = true;
 			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &m_pipeline))
 				return logFail("Failed to create compute pipeline!\n");
@@ -231,7 +232,7 @@ public:
 
 			// Pipeline barrier: wait for FFT shader to be done before copying to downstream buffer 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
-			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {};
+			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {}; // TODO: ACTUALLY FILL THIS OUT, YOURE CRASHING BECAUSE OF PIPELINE BARRIER ON A NULL BUFFER!
 			pipelineBarrierInfo.bufBarriers = { &barrier, 1u };
 
 			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
