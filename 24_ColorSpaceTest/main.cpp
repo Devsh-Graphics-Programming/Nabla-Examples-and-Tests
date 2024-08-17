@@ -213,8 +213,6 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					if (!dsLayout)
 						return logFail("Failed to Create Descriptor Layout");
 
-				}
-
 				ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
 				// Need to choose a surface format
 				if (!swapchainParams.deduceFormat(m_physicalDevice))

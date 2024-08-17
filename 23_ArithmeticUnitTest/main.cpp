@@ -107,7 +107,7 @@ public:
 			{
 				IGPUDescriptorSetLayout::SBinding binding[2];
 				for (uint32_t i = 0u; i < 2; i++)
-					binding[i] = { i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER, IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE, IShader::ESS_COMPUTE, 1u, nullptr };
+					binding[i] = {{},i,IDescriptor::E_TYPE::ET_STORAGE_BUFFER,IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,IShader::E_SHADER_STAGE::ESS_COMPUTE,1u,nullptr };
 				binding[1].count = OutputBufferCount;
 				dsLayout = m_device->createDescriptorSetLayout(binding);
 			}
