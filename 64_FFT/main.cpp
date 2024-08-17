@@ -17,6 +17,7 @@ using namespace video;
 
 #include "app_resources/common.hlsl"
 #include "nbl/builtin/hlsl/bit.hlsl"
+#include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
