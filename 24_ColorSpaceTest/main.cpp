@@ -107,13 +107,13 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 				}
 			}
 
-			if(!options.tests.enabled)
+			if (!options.tests.enabled)
 			{
 				// Remember to call the base class initialization!
 				if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
 					return false;
 			}
-	
+
 			if (!asset_base_t::onAppInitialized(std::move(system)))
 				return false;
 
@@ -126,7 +126,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					exit(0x45);
 				}
 			}
-			
+
 			// get custom input list of files to execute the program with
 			system::path m_loadCWD = DefaultImagePathsFile;
 			{
@@ -156,49 +156,49 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 			if (!options.tests.enabled)
 			{
 				// Load FSTri Shader
-				ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(),m_device.get(),m_logger.get());
+				ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
 				if (!fsTriProtoPPln)
 					return logFail("Failed to create Full Screen Triangle protopipeline or load its vertex shader!");
 
 				// Load Custom Shader
 				auto loadCompileAndCreateShader = [&](const std::string& relPath) -> smart_refctd_ptr<IGPUShader>
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetMgr->getAsset(relPath,lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-						return nullptr;
+					{
+						IAssetLoader::SAssetLoadParams lp = {};
+						lp.logger = m_logger.get();
+						lp.workingDirectory = ""; // virtual root
+						auto assetBundle = m_assetMgr->getAsset(relPath, lp);
+						const auto assets = assetBundle.getContents();
+						if (assets.empty())
+							return nullptr;
 
-					// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
-					if (!source)
-						return nullptr;
+						// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+						auto source = IAsset::castDown<ICPUShader>(assets[0]);
+						if (!source)
+							return nullptr;
 
-					return m_device->createShader(source.get());
-				};
+						return m_device->createShader(source.get());
+					};
 				auto fragmentShader = loadCompileAndCreateShader("app_resources/present.frag.hlsl");
 				if (!fragmentShader)
 					return logFail("Failed to Load and Compile Fragment Shader!");
-			
+
 				// Now surface indep resources
 				m_semaphore = m_device->createSemaphore(m_submitIx);
 				if (!m_semaphore)
 					return logFail("Failed to Create a Semaphore!");
 
-				/* 
-				* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding. 
+				/*
+				* We'll be using a combined image sampler for this example, which lets us assign both a sampled image and a sampler to the same binding.
 				* In this example we provide a sampler at descriptor set creation time, via the SBinding struct below. This specifies that the sampler for this binding is immutable,
-				* as evidenced by the name of the field in the SBinding. 
+				* as evidenced by the name of the field in the SBinding.
 				* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
-				* field set to its default (nullptr). 
+				* field set to its default (nullptr).
 				*/
 				smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout;
 				{
 					auto defaultSampler = m_device->createSampler({
 						.AnisotropicFilter = 0
-					});
+						});
 
 					const IGPUDescriptorSetLayout::SBinding bindings[1] = { {
 						.binding = 0,
@@ -213,7 +213,9 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					if (!dsLayout)
 						return logFail("Failed to Create Descriptor Layout");
 
-				ISwapchain::SCreationParams swapchainParams = {.surface=m_surface->getSurface()};
+				}
+
+				ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
 				// Need to choose a surface format
 				if (!swapchainParams.deduceFormat(m_physicalDevice))
 					return logFail("Could not choose a Surface Format for the Swapchain!");
@@ -224,15 +226,15 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						.srcSubpass = IGPURenderpass::SCreationParams::SSubpassDependency::External,
 						.dstSubpass = 0,
 						.memoryBarrier = {
-							// since we're uploading the image data we're about to draw 
-							.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
-							.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
-							.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-							// because we clear and don't blend
-							.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-						}
-						// leave view offsets and flags default
-					},
+						// since we're uploading the image data we're about to draw 
+						.srcStageMask = asset::PIPELINE_STAGE_FLAGS::COPY_BIT,
+						.srcAccessMask = asset::ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						.dstStageMask = asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+						// because we clear and don't blend
+						.dstAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+					}
+					// leave view offsets and flags default
+				},
 					// ATTACHMENT_OPTIMAL to PRESENT_SRC
 					{
 						.srcSubpass = 0,
@@ -242,11 +244,11 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 							.srcAccessMask = asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 							// we can have NONE as the Destinations because the spec says so about presents
 						}
-						// leave view offsets and flags default
-					},
-					IGPURenderpass::SCreationParams::DependenciesEnd
+					// leave view offsets and flags default
+				},
+				IGPURenderpass::SCreationParams::DependenciesEnd
 				};
-				auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(),swapchainParams.surfaceFormat.format,dependencies);
+				auto scResources = std::make_unique<CDefaultSwapchainFramebuffers>(m_device.get(), swapchainParams.surfaceFormat.format, dependencies);
 				if (!scResources->getRenderpass())
 					return logFail("Failed to create Renderpass!");
 
@@ -257,45 +259,45 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 						.offset = 0,
 						.size = sizeof(push_constants_t)
 					};
-					auto layout = m_device->createPipelineLayout({&range,1},nullptr,nullptr,nullptr,core::smart_refctd_ptr(dsLayout));
+					auto layout = m_device->createPipelineLayout({ &range,1 }, nullptr, nullptr, nullptr, core::smart_refctd_ptr(dsLayout));
 					const IGPUShader::SSpecInfo fragSpec = {
 						.entryPoint = "main",
 						.shader = fragmentShader.get()
 					};
-					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec,layout.get(),scResources->getRenderpass()/*,default is subpass 0*/);
+					m_pipeline = fsTriProtoPPln.createPipeline(fragSpec, layout.get(), scResources->getRenderpass()/*,default is subpass 0*/);
 					if (!m_pipeline)
 						return logFail("Could not create Graphics Pipeline!");
 				}
 
 				auto queue = getGraphicsQueue();
 				// Let's just use the same queue since there's no need for async present
-				if (!m_surface || !m_surface->init(queue,std::move(scResources),swapchainParams.sharedParams))
+				if (!m_surface || !m_surface->init(queue, std::move(scResources), swapchainParams.sharedParams))
 					return logFail("Could not create Window & Surface or initialize the Surface!");
 				m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
 
 				// create the descriptor sets, 1 per FIF and with enough room for one image sampler
 				{
 					const uint32_t setCount = m_maxFramesInFlight;
-					auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE,{&dsLayout.get(),1},&setCount);
+					auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, { &dsLayout.get(),1 }, &setCount);
 					if (!pool)
 						return logFail("Failed to Create Descriptor Pool");
 
-					for (auto i=0u; i<m_maxFramesInFlight; i++)
+					for (auto i = 0u; i < m_maxFramesInFlight; i++)
 					{
 						m_descriptorSets[i] = pool->createDescriptorSet(core::smart_refctd_ptr(dsLayout));
 						if (!m_descriptorSets[i])
 							return logFail("Could not create Descriptor Set!");
 					}
 				}
-			
+
 				// need resetttable commandbuffers for the upload utility
-				m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(),IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+				m_cmdPool = m_device->createCommandPool(queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 				// create the commandbuffers
-				for (auto i=0u; i<m_maxFramesInFlight; i++)
+				for (auto i = 0u; i < m_maxFramesInFlight; i++)
 				{
 					if (!m_cmdPool)
 						return logFail("Couldn't create Command Pool!");
-					if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY,{m_cmdBufs.data()+i,1}))
+					if (!m_cmdPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { m_cmdBufs.data() + i,1 }))
 						return logFail("Couldn't create Command Buffer!");
 				}
 
@@ -321,7 +323,7 @@ class ColorSpaceTestSampleApp final : public examples::SimpleWindowedApplication
 					uint32_t localOffset = video::StreamingTransientDataBufferMT<>::invalid_value;
 					uint32_t maxFreeBlock = m_utils->getDefaultUpStreamingBuffer()->max_size();
 					const uint32_t allocationAlignment = 64u;
-					const uint32_t allocationSize = (maxFreeBlock/4)*3;
+					const uint32_t allocationSize = (maxFreeBlock / 4) * 3;
 					m_utils->getDefaultUpStreamingBuffer()->multi_allocate(std::chrono::steady_clock::now() + std::chrono::microseconds(500u), 1u, &localOffset, &allocationSize, &allocationAlignment);
 				}
 			}
