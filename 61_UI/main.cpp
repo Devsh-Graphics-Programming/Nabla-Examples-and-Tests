@@ -17,11 +17,8 @@ using namespace video;
 	refactored to be used with Nabla (UI extension, core & camera). 
 	
 	A few editor features has been added for camera control,
-	optimizations added for viewing debug geometry.
-
-	Note debug utils create & update geometry vertices on fly as part of UI,
-	rendering scene to a texture and sampling in specific part of the GUI 
-	is a different story & separate example.
+	optimizations added for viewing debug geometry, rendering
+	scene to a texture & then sample to render GUI scene part.
 */
 
 // https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/example/main.cpp
@@ -139,8 +136,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
-			ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
-			ui->registerListener([this]() -> void 
+			pass.scene = core::make_smart_refctd_ptr<CScene>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), geometry);
+			pass.ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
+			pass.ui->registerListener([this]() -> void
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
@@ -372,14 +370,24 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				viewport.height = WIN_H;
 			}
 			cb->setViewport(0u, 1u, &viewport);
-			{
-				const VkRect2D currentRenderArea =
-				{
-					.offset = {0,0},
-					.extent = {m_window->getWidth(),m_window->getHeight()}
-				};
 
-				const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+			const VkRect2D currentRenderArea =
+			{
+				.offset = {0,0},
+				.extent = {m_window->getWidth(),m_window->getHeight()}
+			};
+			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
+
+			// TODO: First Scene Renderpass
+			{
+
+			}
+			// TODO: Pipeline Barier + Semaphore
+			{
+
+			}
+			// Second UI Renderpass
+			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
 				{
@@ -389,12 +397,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					.renderArea = currentRenderArea
 				};
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				pass.ui->render(cb, resourceIx);
+				cb->endRenderPass();
 			}
 
 			// TODO: Use real deltaTime instead
 			float deltaTimeInSec = 0.1f;
-			ui->render(cb, resourceIx);
-			cb->endRenderPass();
+			
 			cb->end();
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] = 
@@ -484,7 +493,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
-			ui->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
+			pass.ui->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
 			camera.setMoveSpeed(moveSpeed);
 			camera.setRotateSpeed(rotateSpeed);
 		}
@@ -514,10 +523,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		ISimpleManagedSurface::SAcquireResult m_currentImageAcquire = {};
 
 		smart_refctd_ptr<nbl::asset::IAssetManager> m_assetManager;
-		nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> ui;
 		core::smart_refctd_ptr<InputSystem> m_inputSystem;
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
+
+		struct E_APP_PASS
+		{
+			nbl::core::smart_refctd_ptr<CScene> scene;
+			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> ui;
+		} pass;
 
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;

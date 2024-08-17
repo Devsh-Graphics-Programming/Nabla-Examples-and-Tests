@@ -2,8 +2,6 @@
 #define __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
 
 #include <nabla.h>
-#include "nbl/asset/utils/CGeometryCreator.h"
-
 #include "nbl/api/CCamera.hpp"
 
 // TODO: should be in new common api
