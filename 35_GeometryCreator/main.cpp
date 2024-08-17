@@ -246,6 +246,7 @@ class GeometryCreatorApp final : public examples::SimpleWindowedApplication
 			};
 
 			auto scResources = std::make_unique<CSwapchainFramebuffersAndDepth>(m_device.get(), EF_D16_UNORM, swapchainParams.surfaceFormat.format, dependencies);
+
 			auto* renderpass = scResources->getRenderpass();
 
 			if (!renderpass)
