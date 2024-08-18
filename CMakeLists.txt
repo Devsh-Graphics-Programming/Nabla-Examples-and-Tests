@@ -30,6 +30,8 @@ if(NBL_BUILD_EXAMPLES)
 	add_subdirectory(09_DepthBufferAndCamera EXCLUDE_FROM_ALL)
   # demonstrate the counting sort utility
 	add_subdirectory(10_CountingSort EXCLUDE_FROM_ALL)
+	add_subdirectory(13_BitonicSort EXCLUDE_FROM_ALL)
+
 
 	# Waiting for a refactor
 	#add_subdirectory(27_PLYSTLDemo EXCLUDE_FROM_ALL)
