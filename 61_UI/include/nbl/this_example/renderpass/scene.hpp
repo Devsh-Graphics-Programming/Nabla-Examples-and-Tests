@@ -305,10 +305,10 @@ private:
 							.samples = SAMPLES,
 							.mayAlias = false
 						},
-						/*.loadOp = */nbl::video::IGPURenderpass::LOAD_OP::CLEAR,
-						/*.storeOp = */nbl::video::IGPURenderpass::STORE_OP::STORE,
-						/*.initialLayout = */nbl::video::IGPUImage::LAYOUT::UNDEFINED, // because we clear we don't care about contents when we grab the triple buffer img again
-						/*.finalLayout = */nbl::video::IGPUImage::LAYOUT::TRANSFER_SRC_OPTIMAL // put it already in the correct layout for the blit operation
+						/* .loadOp = */ nbl::video::IGPURenderpass::LOAD_OP::CLEAR,
+						/* .storeOp = */ nbl::video::IGPURenderpass::STORE_OP::STORE,
+						/* .initialLayout = */ nbl::video::IGPUImage::LAYOUT::UNDEFINED,
+						/* .finalLayout = */ nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL
 					}
 				},
 				nbl::video::IGPURenderpass::SCreationParams::ColorAttachmentsEnd
@@ -323,10 +323,10 @@ private:
 							.samples = SAMPLES,
 							.mayAlias = false
 						},
-						/*.loadOp = */{nbl::video::IGPURenderpass::LOAD_OP::CLEAR},
-						/*.storeOp = */{nbl::video::IGPURenderpass::STORE_OP::STORE},
-						/*.initialLayout = */{nbl::video::IGPUImage::LAYOUT::UNDEFINED}, // because we clear we don't care about contents
-						/*.finalLayout = */{nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL} // transition to presentation right away so we can skip a barrier
+						/* .loadOp = */ {nbl::video::IGPURenderpass::LOAD_OP::CLEAR},
+						/* .storeOp = */ {nbl::video::IGPURenderpass::STORE_OP::STORE},
+						/* .initialLayout = */ {nbl::video::IGPUImage::LAYOUT::UNDEFINED},
+						/* .finalLayout = */ {nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
 					}
 				},
 				nbl::video::IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
@@ -397,38 +397,57 @@ private:
 
 	bool createOfflineSceneFramebuffer()
 	{
-		auto createGPUImageView = [&](nbl::asset::E_FORMAT format)
+		auto createGPUImageView = [&]<nbl::asset::E_FORMAT format>() -> nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView>
 		{
+			constexpr bool IS_DEPTH = nbl::asset::isDepthOrStencilFormat<format>();
+			constexpr auto USAGE = [](const bool isDepth)
 			{
-				nbl::video::IGPUImage::SCreationParams imgInfo;
-				imgInfo.format = format;
-				imgInfo.type = nbl::video::IGPUImage::ET_2D;
-				imgInfo.extent.width = FRAMEBUFFER_W;
-				imgInfo.extent.height = FRAMEBUFFER_H;
-				imgInfo.extent.depth = 1u;
-				imgInfo.mipLevels = 1u;
-				imgInfo.arrayLayers = 1u;
-				imgInfo.samples = nbl::asset::ICPUImage::ESCF_1_BIT;
-				imgInfo.flags = static_cast<nbl::asset::IImage::E_CREATE_FLAGS>(0u);
+				nbl::core::bitflag<nbl::video::IGPUImage::E_USAGE_FLAGS> usage = nbl::video::IGPUImage::EUF_RENDER_ATTACHMENT_BIT; // note both are our offline framebuffer attachments
+					
+				if (!isDepth)
+					usage |= nbl::video::IGPUImage::EUF_SAMPLED_BIT;
 
-				auto image = m_device->createImage(std::move(imgInfo));
+				return usage;
+			}(IS_DEPTH);
+			constexpr auto ASPECT = IS_DEPTH ? nbl::asset::IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : nbl::asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
+			{
+				auto image = m_device->createImage({ nbl::asset::IImage::SCreationParams {
+					.type = nbl::video::IGPUImage::ET_2D,
+					.samples = SAMPLES,
+					.format = format,
+					.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
+					.mipLevels = 1u,
+					.arrayLayers = 1u,
+					.usage = USAGE
+				} });
 
-				nbl::video::IGPUImageView::SCreationParams imgViewInfo;
-				imgViewInfo.image = std::move(image);
-				imgViewInfo.format = format;
-				imgViewInfo.viewType = nbl::video::IGPUImageView::ET_2D;
-				imgViewInfo.flags = static_cast<nbl::video::IGPUImageView::E_CREATE_FLAGS>(0u);
-				imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-				imgViewInfo.subresourceRange.baseMipLevel = 0u;
-				imgViewInfo.subresourceRange.layerCount = 1u;
-				imgViewInfo.subresourceRange.levelCount = 1u;
+				image->setObjectDebugName(DEBUG_NAME.data());
 
-				return m_device->createImageView(std::move(imgViewInfo));
+				if (!m_device->allocate(image->getMemoryReqs(), image.get()).isValid())
+				{
+					m_logger->log("Could not allocate memory for an image!", nbl::system::ILogger::ELL_ERROR);
+					return {};
+				}
+
+				return m_device->createImageView( {
+					.flags = nbl::video::IGPUImageView::ECF_NONE,
+					.subUsages = USAGE,
+					.image = std::move(image),
+					.viewType = nbl::video::IGPUImageView::ET_2D,
+					.format = format,
+					.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u}
+				});
 			}
 		};
 
-		m_colorAttachment = createGPUImageView(COLOR_FBO_ATTACHMENT_FORMAT);
-		m_depthAttachment = createGPUImageView(DEPTH_FBO_ATTACHMENT_FORMAT);
+		m_colorAttachment = createGPUImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > ();
+		m_depthAttachment = createGPUImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > ();
+
+		bool allocated = m_colorAttachment && m_depthAttachment;
+
+		if (!allocated)
+			return false;
 
 		nbl::video::IGPUFramebuffer::SCreationParams params =
 		{ 
