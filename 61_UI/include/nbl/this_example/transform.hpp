@@ -5,22 +5,16 @@
 #include "nbl/ext/ImGui/ImGui.h"
 #include "imgui/imgui_internal.h"
 #include "imguizmo/ImGuizmo.h"
+#include "renderpass/scene.hpp"
 
 struct TransformRequestParams
 {
-	bool useWindow = true, editTransformDecomposition = false, drawGrid = false;
+	bool useWindow = true, editTransformDecomposition = false;
 	float camDistance = 8.f;
 };
 
 void EditTransform(float* cameraView, const float* cameraProjection, float* matrix, const TransformRequestParams& params)
 {
-	// debug grid
-	static const float identityMatrix[16] =
-		{ 1.f, 0.f, 0.f, 0.f,
-		0.f, 1.f, 0.f, 0.f,
-		0.f, 0.f, 1.f, 0.f,
-		0.f, 0.f, 0.f, 1.f };
-
 	static ImGuizmo::OPERATION mCurrentGizmoOperation(ImGuizmo::TRANSLATE);
 	static ImGuizmo::MODE mCurrentGizmoMode(ImGuizmo::LOCAL);
 	static bool useSnap = false;
@@ -95,6 +89,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	float viewManipulateRight = io.DisplaySize.x;
 	float viewManipulateTop = 0;
 	static ImGuiWindowFlags gizmoWindowFlags = 0;
+
 	if (params.useWindow)
 	{
 		ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
@@ -105,6 +100,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		float windowWidth = (float)ImGui::GetWindowWidth();
 		float windowHeight = (float)ImGui::GetWindowHeight();
 		ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
+		ImGui::Image(CScene::NBL_SCENE_ATLAS_TEX_ID, { windowWidth, windowHeight });
 		viewManipulateRight = ImGui::GetWindowPos().x + windowWidth;
 		viewManipulateTop = ImGui::GetWindowPos().y;
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -113,14 +109,10 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	else
 	{
 		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
+		ImGui::Image(CScene::NBL_SCENE_ATLAS_TEX_ID, { io.DisplaySize.x, io.DisplaySize.y });
 	}
 
-	if(params.drawGrid) // default imguizmo example is buggy because it draws the same grid a few times, lets optimize
-		ImGuizmo::DrawGrid(cameraView, cameraProjection, identityMatrix, 100.f);
-
-	//ImGuizmo::DrawCubes(cameraView, cameraProjection, &objectMatrix[cubeId][0], 1); // it also drew gizmo count times amount of this function invocations.. lets give it ID and draw single cube
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
-
 	ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
 
 	if (params.useWindow)

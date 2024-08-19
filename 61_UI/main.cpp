@@ -137,8 +137,74 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 
 			pass.scene = core::make_smart_refctd_ptr<CScene>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), geometry);
-			pass.ui = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
-			pass.ui->registerListener([this]() -> void
+			{
+				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
+
+				IGPUSampler::SParams samplerParams{};
+				samplerParams.MinLod = -1000;
+				samplerParams.MaxLod = 1000;
+				samplerParams.AnisotropicFilter = 1.0f;
+				samplerParams.TextureWrapU = ISampler::ETC_REPEAT;
+				samplerParams.TextureWrapV = ISampler::ETC_REPEAT;
+				samplerParams.TextureWrapW = ISampler::ETC_REPEAT;
+
+				pass.ui.sampler = m_device->createSampler(samplerParams);
+				pass.ui.sampler->setObjectDebugName("Nabla UI Font Atlas Sampler");
+
+				const IGPUDescriptorSetLayout::SBinding bindings[] =
+				{
+					{
+						.binding = 0u,
+						.type = IDescriptor::E_TYPE::ET_SAMPLED_IMAGE,
+						.createFlags = core::bitflag(binding_flags_t::ECF_UPDATE_AFTER_BIND_BIT) | binding_flags_t::ECF_PARTIALLY_BOUND_BIT | binding_flags_t::ECF_UPDATE_UNUSED_WHILE_PENDING_BIT,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.count = 69
+					},
+					{
+						.binding = 1u,
+						.type = IDescriptor::E_TYPE::ET_SAMPLER,
+						.createFlags = binding_flags_t::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.count = 1u,
+						.immutableSamplers = &pass.ui.sampler
+					}
+				};
+
+				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
+
+				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 1u;
+				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLED_IMAGE)] = 69;
+				descriptorPoolInfo.maxSets = 1u;
+				descriptorPoolInfo.flags = IDescriptorPool::E_CREATE_FLAGS::ECF_UPDATE_AFTER_BIND_BIT;
+
+				m_descriptorSetPool = m_device->createDescriptorPool(std::move(descriptorPoolInfo));
+				assert(m_descriptorSetPool);
+
+				pass.ui.descriptorSet = m_descriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
+				assert(pass.ui.descriptorSet);
+
+				// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
+				std::array<IGPUDescriptorSet::SDescriptorInfo, TEXTURES_AMOUNT> descriptorInfo;
+				IGPUDescriptorSet::SWriteDescriptorSet writes[1u];
+
+				descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = pass.ui.manager->getFontAtlasView();
+
+				descriptorInfo[CScene::NBL_SCENE_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL; //IImage::LAYOUT::ATTACHMENT_OPTIMAL; TODO! I need to have proper transition, my fbo attachment is ATTACHMENT_OPTIMAL
+				descriptorInfo[CScene::NBL_SCENE_ATLAS_TEX_ID].desc = pass.scene->m_colorAttachment;
+				
+				writes->dstSet = pass.ui.descriptorSet.get();
+				writes->binding = 0u;
+				writes->arrayElement = 0;
+				writes->count = 2;
+				writes->info = descriptorInfo.data();
+
+				m_device->updateDescriptorSets(writes, {});
+			}
+			pass.ui.manager->registerListener([this]() -> void
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
@@ -195,7 +261,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("zFar", &zFar, 110.f, 10000.f);
 
 					viewDirty |= ImGui::SliderFloat("Distance", &transformParams.camDistance, 1.f, 69.f);
-					ImGui::SliderInt("Gizmo count", &gizmoCount, 1, 4);
 
 					if (viewDirty || firstFrame)
 					{
@@ -275,37 +340,26 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					static struct
 					{
-						core::matrix4SIMD view, projection;
-						float* currentWorld = nullptr;
+						core::matrix4SIMD view, projection, model;
 					} imguizmoM16InOut;
 
-					for (int matId = 0; matId < gizmoCount; matId++) // cubes + grid with ImGuizmo debug utilities
+					ImGuizmo::SetID(0u);
+
+					imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
+					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
+					imguizmoM16InOut.model = core::transpose(core::matrix4SIMD(pass.scene->object.model));
 					{
-						ImGuizmo::SetID(matId);
+						if (flipY)
+							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
 
-						imguizmoM16InOut.view = core::transpose(matrix4SIMD(camera.getViewMatrix()));
-						imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
-						imguizmoM16InOut.currentWorld = objectMatrix[matId];
-						{
-							if (flipY)
-								imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
+						transformParams.editTransformDecomposition = true;
 
-
-							transformParams.drawGrid = false;
-							transformParams.editTransformDecomposition = lastUsing == matId;
-
-							if (matId == 0)
-								transformParams.drawGrid = true;
-
-							EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.currentWorld, transformParams);
-						}
-						
-						if (ImGuizmo::IsUsing())
-							lastUsing = matId;
+						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
 					}
 
-					auto newView = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // to Nabla view + update camera
-					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = newView; // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					// to Nabla + update matrices
+					pass.scene->object.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 
 					ImGui::End();
 				}
@@ -337,26 +391,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return;
 			}
 
-			m_inputSystem->getDefaultMouse(&mouse);
-			m_inputSystem->getDefaultKeyboard(&keyboard);
-
-			auto updatePresentationTimestamp = [&]()
-			{
-				m_currentImageAcquire = m_surface->acquireNextImage();
-
-				oracle.reportEndFrameRecord();
-				const auto timestamp = oracle.getNextPresentationTimeStamp();
-				oracle.reportBeginFrameRecord();
-
-				return timestamp;
-			};
-
-			const auto nextPresentationTimestamp = updatePresentationTimestamp();
-
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cb->beginDebugMarker("UISampleApp Frame");
+
+			update(cb);
 
 			auto* queue = getGraphicsQueue();
 
@@ -376,34 +416,45 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.offset = {0,0},
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
-			const IGPUCommandBuffer::SClearColorValue clearValue = { .float32 = {0.f,0.f,0.f,1.f} };
 
-			// TODO: First Scene Renderpass
+			NBL_CONSTEXPR_STATIC struct CLEAR_VALUES
 			{
+				IGPUCommandBuffer::SClearColorValue color = { .float32 = {0.f,0.f,0.f,1.f} };
+				IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
+			} clear;
 
+			// Scene render pass, TODO: another command buffer
+			{
+				const IGPUCommandBuffer::SRenderpassBeginInfo info =
+				{
+					.framebuffer = pass.scene->getFrameBuffer(),
+					.colorClearValues = &clear.color,
+					.depthStencilClearValues = &clear.depth,
+					.renderArea = currentRenderArea // TODO
+				};
+
+				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+				pass.scene->render(cb);
+				cb->endRenderPass();
 			}
 			// TODO: Pipeline Barier + Semaphore
 			{
 
 			}
-			// Second UI Renderpass
+			// UI render pass
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
 				const IGPUCommandBuffer::SRenderpassBeginInfo info = 
 				{
 					.framebuffer = scRes->getFramebuffer(m_currentImageAcquire.imageIndex),
-					.colorClearValues = &clearValue,
+					.colorClearValues = &clear.color,
 					.depthStencilClearValues = nullptr,
 					.renderArea = currentRenderArea
 				};
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui->render(cb, resourceIx);
+				pass.ui.manager->render(cb, pass.ui.descriptorSet.get(), resourceIx);
 				cb->endRenderPass();
 			}
-
-			// TODO: Use real deltaTime instead
-			float deltaTimeInSec = 0.1f;
-			
 			cb->end();
 			{
 				const IQueue::SSubmitInfo::SSemaphoreInfo rendered[] = 
@@ -446,8 +497,43 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				m_window->setCaption("[Nabla Engine] UI App Test Demo");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
+		}
 
+		inline bool keepRunning() override
+		{
+			if (m_surface->irrecoverable())
+				return false;
+
+			return true;
+		}
+
+		inline bool onAppTerminated() override
+		{
+			return device_base_t::onAppTerminated();
+		}
+
+		inline void update(nbl::video::IGPUCommandBuffer* commandBuffer)
+		{
 			static std::chrono::microseconds previousEventTimestamp{};
+
+			// TODO: Use real deltaTime instead
+			static float deltaTimeInSec = 0.1f;
+
+			m_inputSystem->getDefaultMouse(&mouse);
+			m_inputSystem->getDefaultKeyboard(&keyboard);
+
+			auto updatePresentationTimestamp = [&]()
+				{
+					m_currentImageAcquire = m_surface->acquireNextImage();
+
+					oracle.reportEndFrameRecord();
+					const auto timestamp = oracle.getNextPresentationTimeStamp();
+					oracle.reportBeginFrameRecord();
+
+					return timestamp;
+				};
+
+			const auto nextPresentationTimestamp = updatePresentationTimestamp();
 
 			struct
 			{
@@ -459,7 +545,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			{
 				mouse.consumeEvents([&](const IMouseEventChannel::range_t& events) -> void
 				{
-					if(move)
+					if (move)
 						camera.mouseProcess(events); // don't capture the events, only let camera handle them with its impl
 
 					for (const auto& e : events) // here capture
@@ -472,7 +558,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					}
 				}, m_logger.get());
 
-				keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
+			keyboard.consumeEvents([&](const IKeyboardEventChannel::range_t& events) -> void
 				{
 					if (move)
 						camera.keyboardProcess(events); // don't capture the events, only let camera handle them with its impl
@@ -493,22 +579,11 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
-			pass.ui->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
+			pass.ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
+			pass.scene->update(commandBuffer, camera.getViewMatrix(), camera.getProjectionMatrix());
+
 			camera.setMoveSpeed(moveSpeed);
 			camera.setRotateSpeed(rotateSpeed);
-		}
-
-		inline bool keepRunning() override
-		{
-			if (m_surface->irrecoverable())
-				return false;
-
-			return true;
-		}
-
-		inline bool onAppTerminated() override
-		{
-			return device_base_t::onAppTerminated();
 		}
 
 	private:
@@ -527,10 +602,23 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
+		NBL_CONSTEXPR_STATIC_INLINE auto TEXTURES_AMOUNT = 2u;
+
+		core::smart_refctd_ptr<IDescriptorPool> m_descriptorSetPool;
+
+		struct C_UI
+		{
+			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
+
+			core::smart_refctd_ptr<video::IGPUSampler> sampler;
+			core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSet;
+
+		};
+
 		struct E_APP_PASS
 		{
 			nbl::core::smart_refctd_ptr<CScene> scene;
-			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> ui;
+			C_UI ui;
 		} pass;
 
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
@@ -547,29 +635,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		float camXAngle = 32.f / 180.f * 3.14159f;
 
 		bool firstFrame = true;
-
-		// tmp
-		float objectMatrix[4][16] = {
-  { 1.f, 0.f, 0.f, 0.f,
-	0.f, 1.f, 0.f, 0.f,
-	0.f, 0.f, 1.f, 0.f,
-	0.f, 0.f, 0.f, 1.f },
-
-  { 1.f, 0.f, 0.f, 0.f,
-  0.f, 1.f, 0.f, 0.f,
-  0.f, 0.f, 1.f, 0.f,
-  2.f, 0.f, 0.f, 1.f },
-
-  { 1.f, 0.f, 0.f, 0.f,
-  0.f, 1.f, 0.f, 0.f,
-  0.f, 0.f, 1.f, 0.f,
-  2.f, 0.f, 2.f, 1.f },
-
-  { 1.f, 0.f, 0.f, 0.f,
-  0.f, 1.f, 0.f, 0.f,
-  0.f, 0.f, 1.f, 0.f,
-  0.f, 0.f, 2.f, 1.f }
-		};
 };
 
 NBL_MAIN_FUNC(UISampleApp)

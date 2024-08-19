@@ -4,18 +4,58 @@
 #include <nabla.h>
 
 #include "nbl/asset/utils/CGeometryCreator.h"
+#include "nbl/api/hlsl/SBasicViewParameters.hlsl"
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"
 
 /*
 	Rendering to offline framebuffer which we don't present, color 
 	scene attachment texture we use for second UI renderpass 
-	sampling it & rendering into desired GUI area
+	sampling it & rendering into desired GUI area.
+
+	The scene can be created from simple geometry
+	using our Geomtry Creator class.
 */
 
 class CScene final : public nbl::core::IReferenceCounted
 {
 public:
+
+	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_SCENE_ATLAS_TEX_ID = 1u;
+
+	enum E_OBJECT_TYPE : uint8_t
+	{
+		EOT_CUBE,
+		EOT_SPHERE,
+		EOT_CYLINDER,
+		EOT_RECTANGLE,
+		EOT_DISK,
+		EOT_ARROW,
+		EOT_CONE,
+		EOT_ICOSPHERE
+	};
+
+	struct OBJECT_META
+	{
+		E_OBJECT_TYPE type = EOT_CUBE;
+		std::string_view name = "Cube";
+	};
+
+	struct OBJECT_DRAW_HOOK_CPU
+	{
+		nbl::core::matrix3x4SIMD model;
+		OBJECT_META meta;
+
+		private:
+			nbl::asset::SBasicViewParameters params;
+
+		friend class CScene;
+	};
+
+	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
+
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_colorAttachment, m_depthAttachment;
+
 	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, const nbl::asset::IGeometryCreator* _geometryCreator)
 		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger))
 	{
@@ -27,7 +67,7 @@ public:
 		{
 			const nbl::asset::IGeometryCreator* gc;
 
-			const std::vector<OBJECT_CPU> basic =
+			const std::vector<REFERENCE_OBJECT_CPU> basic =
 			{
 				{.meta = {.type = EOT_CUBE, .name = "Cube Mesh" }, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
 				{.meta = {.type = EOT_SPHERE, .name = "Sphere Mesh" }, .data = gc->createSphereMesh(2, 16, 16) },
@@ -44,7 +84,7 @@ public:
 			};
 		} geometries { .gc = _geometryCreator };
 
-		auto createBundleGPUData = [&]<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>(const std::vector<OBJECT_CPU>& objects) -> void
+		auto createBundleGPUData = [&]<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>(const std::vector<REFERENCE_OBJECT_CPU>& objects) -> void
 		{
 			SHADERS_GPU shaders;
 			{
@@ -75,42 +115,98 @@ public:
 			}
 		};
 
-		// we create vertex & index buffers for basic geometries + their pipelines
+		// vertex & index buffers for basic geometries + their pipelines
 		createBundleGPUData.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.basic);
 		createBundleGPUData.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.cone);		// note we reuse basic fragment shader
 		createBundleGPUData.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (geometries.ico);		// note we reuse basic fragment shader
+	
+		// gpu view params ubo
+		{
+			const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+			m_ubo = m_device->createBuffer({ {.size = sizeof(nbl::asset::SBasicViewParameters), .usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
+
+			for (auto it : { m_ubo })
+			{
+				nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
+				reqs.memoryTypeBits &= mask;
+
+				m_device->allocate(reqs, it.get());
+			}
+
+			{
+				nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
+				write.dstSet = m_gpuDescriptorSet.get();
+				write.binding = 0;
+				write.arrayElement = 0u;
+				write.count = 1u;
+
+				nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+				{
+					info.desc = nbl::core::smart_refctd_ptr(m_ubo);
+					info.info.buffer.offset = 0ull;
+					info.info.buffer.size = m_ubo->getSize();
+				}
+
+				write.info = &info;
+				m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
+			}
+		}
 	}
 	~CScene() {}
 
-	bool render()
+	inline void render(nbl::video::IGPUCommandBuffer* commandBuffer)
 	{
+		const auto& [hook, meta] = referenceObjects[object.meta.type];
+		auto* rawPipeline = hook.pipeline.get();
 
+		commandBuffer->bindGraphicsPipeline(rawPipeline);
+		commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
+
+		const nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertices = { .offset = 0, .buffer = hook.vertexBuffer }, indices = { .offset = 0, .buffer = hook.indexBuffer };
+
+		commandBuffer->bindVertexBuffers(0, 1, &vertices);
+
+		if (indices.buffer && hook.indexType != nbl::asset::EIT_UNKNOWN)
+		{
+			commandBuffer->bindIndexBuffer(indices, hook.indexType);
+			commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
+		}
+		else
+			commandBuffer->draw(hook.indexCount, 1, 0, 0);
 	}
+
+	// note, must be updated outside render pass
+	inline void update(nbl::video::IGPUCommandBuffer* commandBuffer, const nbl::core::matrix3x4SIMD& view, const nbl::core::matrix4SIMD& viewProjection)
+	{
+		auto& ubo = object.params;
+		
+		nbl::core::matrix3x4SIMD modelView = nbl::core::concatenateBFollowedByA(view, object.model);
+		nbl::core::matrix4SIMD modelViewProjection = nbl::core::concatenateBFollowedByA(viewProjection, object.model);
+		nbl::core::matrix3x4SIMD normal;
+		modelView.getSub3x3InverseTranspose(normal);
+
+		memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
+		memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
+		memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
+		{
+			nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
+			range.buffer = nbl::core::smart_refctd_ptr(m_ubo);
+			range.size = m_ubo->getSize();
+
+			commandBuffer->updateBuffer(range, &object.params);
+		}
+	}
+
+	inline nbl::video::IGPUFramebuffer* getFrameBuffer() { return m_frameBuffer.get(); }
+
 private:
 
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FRAMEBUFFER_W = 1280, FRAMEBUFFER_H = 720;
 	_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_D16_UNORM;
 	_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = nbl::video::IGPUImage::ESCF_1_BIT;
 
-	enum E_OBJECT_TYPE : uint8_t
-	{
-		EOT_CUBE,
-		EOT_SPHERE,
-		EOT_CYLINDER,
-		EOT_RECTANGLE,
-		EOT_DISK,
-		EOT_ARROW,
-		EOT_CONE,
-		EOT_ICOSPHERE
-	};
-
-	struct OBJECT_META
-	{
-		E_OBJECT_TYPE type;
-		std::string_view name;
-	};
-
-	struct OBJECT_GPU
+	struct REFERENCE_OBJECT_GPU
 	{
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUGraphicsPipeline> pipeline;
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> vertexBuffer, indexBuffer;
@@ -118,7 +214,7 @@ private:
 		uint32_t indexCount;
 	};
 
-	struct OBJECT_CPU
+	struct REFERENCE_OBJECT_CPU
 	{
 		OBJECT_META meta;
 		nbl::asset::CGeometryCreator::return_type data;
@@ -129,10 +225,10 @@ private:
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUShader> vertex, geometry, fragment;
 	};
 
-	using OBJECT_DATA = std::pair<OBJECT_GPU, OBJECT_META>;
+	using REFERENCE_DRAW_HOOK_GPU = std::pair<REFERENCE_OBJECT_GPU, OBJECT_META>;
 
 	template<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>
-	bool createGPUData(const OBJECT_CPU& inData, OBJECT_DATA& outData, const SHADERS_GPU& shaders, const nbl::video::IGPUPipelineLayout* pipelineLayout)
+	bool createGPUData(const REFERENCE_OBJECT_CPU& inData, REFERENCE_DRAW_HOOK_GPU& outData, const SHADERS_GPU& shaders, const nbl::video::IGPUPipelineLayout* pipelineLayout)
 	{
 		// meta
 		outData.second.name = inData.meta.name;
@@ -186,7 +282,7 @@ private:
 		}
 	}
 
-	bool createVIBuffers(const OBJECT_CPU& inData, OBJECT_DATA& outData)
+	bool createVIBuffers(const REFERENCE_OBJECT_CPU& inData, REFERENCE_DRAW_HOOK_GPU& outData)
 	{
 		const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
 
@@ -436,7 +532,7 @@ private:
 					.image = std::move(image),
 					.viewType = nbl::video::IGPUImageView::ET_2D,
 					.format = format,
-					.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u}
+					.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u }
 				});
 			}
 		};
@@ -472,16 +568,16 @@ private:
 		return true;
 	}
 
-	std::vector<OBJECT_DATA> referenceObjects; // all possible objects & their buffers
+	std::vector<REFERENCE_DRAW_HOOK_GPU> referenceObjects; // all possible objects & their buffers + pipelines
 
 	nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
 	nbl::core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_colorAttachment, m_depthAttachment;
 	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> m_descriptorPool;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_gpuDescriptorSet;
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_ubo;
 };
 
 #endif // __NBL_THIS_EXAMPLE_SCENE_H_INCLUDED__
