@@ -14,7 +14,7 @@ struct SPrefixSumParams
     uint groupOffset;
     uint groupSumOffset;
     uint pad;
-}
+};
 
 [[vk::binding(1, 0)]]
 cbuffer PrefixSumParams
@@ -25,10 +25,10 @@ cbuffer PrefixSumParams
 [[vk::binding(0, 1)]] RWStructuredBuffer<uint> dataBuffer;
 [[vk::binding(1, 1)]] RWStructuredBuffer<uint> groupSumBuffer;
 
-static const uint numGroupThreads = WorkgroupSize;
-static const uint numElemsPerGroup = 2u * WorkgroupSize;
+static const uint numGroupThreads = NUM_THREADS;
+static const uint numElemsPerGroup = 2u * NUM_THREADS;
 static const uint numElemsPerGroup1 = numElemsPerGroup - 1u;
-static const uint logNumElemsPerGroup = log2(numElemsPerGroup);
+static const uint logNumElemsPerGroup = 8; //log2(numElemsPerGroup);
 static const uint smaNumElemsPerGroup1 = SHARED_MEMORY_ADDRESS(numElemsPerGroup1);
 
 static const uint sharedSumLen = SHARED_MEMORY_ADDRESS(numElemsPerGroup);
@@ -50,7 +50,7 @@ void prefixSum(uint threadId : SV_GroupThreadID, uint groupId : SV_GroupID)
     uint globalEndIdx = globalStartIdx + numGroupThreads;
 
     sharedSum[startIdx] = globalStartIdx < params.numElements ? dataBuffer[globalStartIdx] : 0;
-    sharedSum[EndIdx] = globalEndIdx < params.numElements ? dataBuffer[globalEndIdx] : 0;
+    sharedSum[endIdx] = globalEndIdx < params.numElements ? dataBuffer[globalEndIdx] : 0;
 
     uint offset = 1u;
 
@@ -85,7 +85,7 @@ void prefixSum(uint threadId : SV_GroupThreadID, uint groupId : SV_GroupID)
 
         GroupMemoryBarrierWithGroupSync();
 
-        if (threadId < du)
+        if (threadId < dd)
         {
             uint startIdx_d = offset * ((threadId << 1u) + 1u) - 1u;
             uint endIdx_d = offset * ((threadId << 1u) + 2u) - 1u;

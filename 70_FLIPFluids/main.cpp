@@ -518,6 +518,10 @@ public:
 			}
 		}
 
+		radixSort.initialize(m_device, m_system, m_assetMgr, m_logger);
+
+		testSort();
+
 		m_winMgr->show(m_window.get());
 
 		return true;
@@ -1261,6 +1265,125 @@ private:
 		m_shouldInitParticles = false;
 	}
 
+	bool testSort()
+	{
+		const uint32_t numTestElements = 64;
+		smart_refctd_ptr<IGPUBuffer> testbuf;
+		IDeviceMemoryAllocator::SAllocation testbufAlloc;
+
+		void* testbufMem;
+
+		IGPUBuffer::SCreationParams params;
+		params.size = numTestElements * sizeof(uint32_t);
+		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
+		{
+			testbuf = m_device->createBuffer(std::move(params));
+
+			video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = testbuf->getMemoryReqs();
+			reqs.memoryTypeBits &= m_physicalDevice->getHostVisibleMemoryTypeBits();
+
+			testbufAlloc = m_device->allocate(reqs, testbuf.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
+
+			testbufMem = testbufAlloc.memory->map({0ull, testbufAlloc.memory->getAllocationSize()}, IDeviceMemoryAllocation::EMCAF_READ);
+		}
+
+		// generate random data
+		uint32_t bufferData[numTestElements];
+		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
+		std::mt19937 g(seed);
+
+		for (int i = 0; i < numTestElements; i++)
+		{
+			bufferData[i] = g() % 128;
+		}
+		memcpy(testbufMem, bufferData, numTestElements * sizeof(uint32_t));
+
+		std::string outBuffer;
+		for (auto i = 0; i < numTestElements; i++) {
+			outBuffer.append("{");
+			outBuffer.append(std::to_string(bufferData[i]));
+			outBuffer.append("} ");
+		}
+		outBuffer.append("\n");
+		outBuffer.append("Count: ");
+		outBuffer.append(std::to_string(numTestElements));
+		outBuffer.append("\n");
+		m_logger->log("Your input array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
+
+		smart_refctd_ptr<nbl::video::IGPUCommandBuffer> cmdBuf;
+		{
+			smart_refctd_ptr<nbl::video::IGPUCommandPool> cmdpool = m_device->createCommandPool(getComputeQueue()->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::TRANSIENT_BIT);
+			if (!cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, 1u, &cmdBuf))
+				return logFail("Failed to create Command Buffers!\n");
+		}
+
+		// run sort
+		constexpr uint64_t started_value = 0;
+		uint64_t timeline = started_value;
+		smart_refctd_ptr<ISemaphore> progress = m_device->createSemaphore(started_value);
+
+		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		cmdBuf->beginDebugMarker("Radix sort Dispatch", core::vectorSIMDf(0, 1, 0, 1));
+		
+		radixSort.sort(cmdBuf, testbuf, numTestElements);
+
+		cmdBuf->endDebugMarker();
+		cmdBuf->end();
+
+		// block till end
+		{
+			auto queue = getComputeQueue();
+
+			IQueue::SSubmitInfo submit_infos[1];
+			IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
+				{
+					.cmdbuf = cmdBuf.get()
+				}
+			};
+			submit_infos[0].commandBuffers = cmdBufs;
+			IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
+				{
+					.semaphore = progress.get(),
+					.value = ++timeline,
+					.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+				}
+			};
+			submit_infos[0].signalSemaphores = signals;
+
+			queue->startCapture();
+			queue->submit(submit_infos);
+			queue->endCapture();
+		}
+
+		const ISemaphore::SWaitInfo wait_infos[] = { {
+				.semaphore = progress.get(),
+				.value = timeline
+			} };
+		m_device->blockForSemaphores(wait_infos);
+
+		// check values
+		const ILogicalDevice::MappedMemoryRange range = ILogicalDevice::MappedMemoryRange(testbufAlloc.memory.get(), 0ull, testbufAlloc.memory->getAllocationSize());
+		if (!testbufAlloc.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
+			m_device->invalidateMappedMemoryRanges(1, &range);
+
+
+		const uint32_t* mappedBufData = (const uint32_t*)testbufAlloc.memory->getMappedPointer();
+		
+		outBuffer.clear();
+		for (auto i = 0; i < numTestElements; i++) {
+			outBuffer.append("{");
+			outBuffer.append(std::to_string(mappedBufData[i]));
+			outBuffer.append("} ");
+		}
+		outBuffer.append("\n");
+		outBuffer.append("Count: ");
+		outBuffer.append(std::to_string(numTestElements));
+		outBuffer.append("\n");
+		m_logger->log("Your output array is: \n" + outBuffer, ILogger::ELL_PERFORMANCE);
+
+		return true;
+	}
+
 
 	smart_refctd_ptr<IWindow> m_window;
 	smart_refctd_ptr<CSimpleResizeSurface<CSwapchainFramebuffersAndDepth>> m_surface;
@@ -1311,6 +1434,8 @@ private:
 
 	Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), core::matrix4SIMD());
 	video::CDumbPresentationOracle oracle;
+
+	GPURadixSort radixSort;
 
 	bool m_shouldInitParticles = true;
 

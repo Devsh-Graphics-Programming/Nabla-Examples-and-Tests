@@ -23,15 +23,15 @@ cbuffer SortParams
     SSortParams params;
 };
 
-[[vk::binding(0, 1)]] StructuredBuffer<uint2> inputBuffer;
+[[vk::binding(0, 1)]] RWStructuredBuffer<uint2> inputBuffer;
 [[vk::binding(1, 1)]] RWStructuredBuffer<uint2> outputBuffer;
 
 [[vk::binding(2, 1)]] RWStructuredBuffer<uint> firstIdxBuffer;
 [[vk::binding(3, 1)]] RWStructuredBuffer<uint> groupSumBuffer;
 [[vk::binding(4, 1)]] RWStructuredBuffer<uint> globalPrefixSumBuffer;
 
-static const uint numElemsPerGroup = WorkgroupSize;
-static const uint logNumElemsPerGroup = log2(numElemsPerGroup);
+static const uint numElemsPerGroup = NUM_THREADS;
+static const uint logNumElemsPerGroup = 7; //log2(numElemsPerGroup);
 static const uint numElemsPerGroup1 = numElemsPerGroup - 1u;
 
 static const uint nWay = 16u;
@@ -69,7 +69,7 @@ inline uint4 buildSharedScanData(uint key)
 
 
 [numthreads(WorkgroupSize, 1, 1)]
-void localRadixSort(uint threadID : SV_GroupThreadID, uint groupID, SV_GroupID)
+void localRadixSort(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
 {
     groupID += params.groupOffset;
     uint globalID = numElemsPerGroup * groupID + threadID;
@@ -82,7 +82,7 @@ void localRadixSort(uint threadID : SV_GroupThreadID, uint groupID, SV_GroupID)
         key4Bit = getKey4Bit(data);
     }
 
-    sharedScan[threadId] = buildSharedScanData(key4Bit);
+    sharedScan[threadID] = buildSharedScanData(key4Bit);
     GroupMemoryBarrierWithGroupSync();
 
     // build prefix sum
@@ -90,7 +90,7 @@ void localRadixSort(uint threadID : SV_GroupThreadID, uint groupID, SV_GroupID)
     for (uint offset = 1u;; offset <<= 1u)
     {
         uint4 sum = sharedScan[threadID];
-        if (threadId >= offset)
+        if (threadID >= offset)
         {
             sum += sharedScan[threadID - offset];
         }
@@ -99,7 +99,7 @@ void localRadixSort(uint threadID : SV_GroupThreadID, uint groupID, SV_GroupID)
         GroupMemoryBarrierWithGroupSync();
     }
 
-    uint4 total = sharedScan[numElemsPerGroup];
+    uint4 total = sharedScan[numElemsPerGroup1];
     uint4 firstIdx = 0;
     uint runningSum = 0;
 
@@ -124,14 +124,14 @@ void localRadixSort(uint threadID : SV_GroupThreadID, uint groupID, SV_GroupID)
     sharedData[newID] = data;
     GroupMemoryBarrierWithGroupSync();
 
-    if (globalID < params.numElems)
+    if (globalID < params.numElements)
     {
         outputBuffer[globalID] = sharedData[threadID];
     }
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
-void globalMerge(uint threadID : SV_GroupThreadID, uint groupID, SV_GroupID)
+void globalMerge(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
 {
     groupID += params.groupOffset;
     uint globalID = numElemsPerGroup * groupID + threadID;
