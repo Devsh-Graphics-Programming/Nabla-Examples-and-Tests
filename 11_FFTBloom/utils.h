@@ -29,7 +29,7 @@ static inline size_t getOutputBufferSize(const asset::VkExtent3D& inputDimension
 {
 	auto paddedDims = padDimensions(inputDimensions);
 	size_t retval = paddedDims.width * paddedDims.height * paddedDims.depth * numChannels;
-	return retval * (halfFloats ? sizeof(uint16_t) : sizeof(uint32_t));
+	return retval * (halfFloats ? sizeof(uint16_t) : sizeof(uint32_t)) * 2; // 2 because it's complex here
 }
 
 

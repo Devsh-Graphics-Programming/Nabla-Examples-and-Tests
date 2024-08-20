@@ -19,6 +19,7 @@ using namespace video;
 
 // Constants
 const unsigned int channelCountOverride = 3;
+const unsigned int WorkgroupSize = 64;
 
 // In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
 class FFTBloomApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -59,6 +60,7 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 	// Some parameters
 	float bloomScale = 1.f;
 	float useHalfFloats = false;
+	unsigned int elementsPerThread = 2; // MUST be power of two!!!
 	
 	// Other parameter-dependent variables
 	asset::VkExtent3D marginSrcDim;
@@ -146,6 +148,40 @@ class FFTBloomApp final : public application_templates::MonoDeviceApplication, p
 		info.info.combinedImageSampler.sampler = nullptr;
 
 		m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
+	}
+
+	inline core::smart_refctd_ptr<video::IGPUShader> createShader(
+		const char* includeMainName,
+		float kernelScale = 1.f)
+	{
+
+		const char* sourceFmt =
+		R"===(
+		#define _NBL_HLSL_WORKGROUP_SIZE_ %u
+		#define ELEMENTS_PER_THREAD %u
+		%s
+		
+		#define KERNEL_SCALE %f
+ 
+		#include "%s"
+
+		)===";
+
+		const size_t extraSize = 4u + 4u + 18u + 128u;
+
+		auto shader = core::make_smart_refctd_ptr<ICPUBuffer>(strlen(sourceFmt) + extraSize + 1u);
+		snprintf(
+			reinterpret_cast<char*>(shader->getPointer()), shader->getSize(), sourceFmt,
+			WorkgroupSize,
+			elementsPerThread,
+			useHalfFloats ? "USE_HALF_PRECISION" : "",
+			kernelScale,
+			includeMainName
+		);
+
+		auto CPUShader = core::make_smart_refctd_ptr<ICPUShader>(std::move(shader), IShader::E_SHADER_STAGE::ESS_COMPUTE, IShader::E_CONTENT_TYPE::ECT_HLSL, includeMainName);
+		assert(CPUShader);
+		return m_device->createShader(CPUShader.get());
 	}
 
 public:
@@ -347,7 +383,7 @@ public:
 					video::IGPUImage::SCreationParams imageParams;
 					imageParams.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
 					imageParams.type = asset::IImage::ET_2D;
-					imageParams.format = useHalfFloats ? EF_R16G16B16_SFLOAT : EF_R32G32B32_SFLOAT;
+					imageParams.format = useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
 					imageParams.extent = { paddedKerDim.width,paddedKerDim.height,1u };
 					imageParams.mipLevels = 1u;
 					imageParams.arrayLayers = 1u;
@@ -363,7 +399,7 @@ public:
 					viewParams.flags = static_cast<video::IGPUImageView::E_CREATE_FLAGS>(0u);
 					viewParams.image = kernelImg;
 					viewParams.viewType = video::IGPUImageView::ET_2D;
-					viewParams.format = useHalfFloats ? EF_R16G16B16_SFLOAT : EF_R32G32B32_SFLOAT;
+					viewParams.format = useHalfFloats ? EF_R16G16_SFLOAT : EF_R32G32_SFLOAT;
 					viewParams.components = {};
 					viewParams.subresourceRange = {};
 					viewParams.subresourceRange.levelCount = 1u;
