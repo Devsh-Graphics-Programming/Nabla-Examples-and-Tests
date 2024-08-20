@@ -20,7 +20,7 @@ using namespace video;
 #include "nbl/builtin/hlsl/random/xoroshiro.hlsl"
 
 
-// In this application we'll cover buffer streaming, Buffer Device Address (BDA) and push constants 
+// Simple showcase of how to run FFT on a 1D array
 class FFT_Test final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
 {
 	using device_base_t = application_templates::MonoDeviceApplication;
@@ -44,7 +44,7 @@ class FFT_Test final : public application_templates::MonoDeviceApplication, publ
 
 	// This example really lets the advantages of a timeline semaphore shine through!
 	smart_refctd_ptr<ISemaphore> m_timeline;
-	uint64_t m_iteration = 0;
+	uint64_t semaphorValue = 0;
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -71,20 +71,18 @@ public:
 			if (assets.empty())
 				return logFail("Could not load shader!");
 
-			// lets go straight from ICPUSpecializedShader to IGPUSpecializedShader
+			// Cast down the asset to its proper type
 			auto source = IAsset::castDown<ICPUShader>(assets[0]);
 			// The down-cast should not fail!
 			assert(source);
 
-			// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+			// Compile directly to IGPUShader
 			shader = m_device->createShader(source.get());
 			if (!shader)
 				return logFail("Creation of a GPU Shader to from CPU Shader source failed!");
 		}
 
-		// The StreamingTransientDataBuffers are actually composed on top of another useful utility called `CAsyncSingleBufferSubAllocator`
-		// The difference is that the streaming ones are made on top of ranges of `IGPUBuffer`s backed by mappable memory, whereas the
-		// `CAsyncSingleBufferSubAllocator` just allows you suballocate subranges of any `IGPUBuffer` range with deferred/latched frees.
+		// Create massive upload/download buffers
 		constexpr uint32_t DownstreamBufferSize = sizeof(scalar_t) << 23;
 		constexpr uint32_t UpstreamBufferSize = sizeof(scalar_t) << 23;
 
@@ -97,7 +95,6 @@ public:
 		m_downStreamingBufferAddress = m_downStreamingBuffer->getBuffer()->getDeviceAddress();
 
 		// Create device-local buffer
-		
 		{
 			const uint32_t scalarElementCount = 2 * complexElementCount;
 			IGPUBuffer::SCreationParams deviceLocalBufferParams = {};
@@ -118,8 +115,6 @@ public:
 			m_deviceLocalBufferAddress = m_deviceLocalBuffer.get()->getDeviceAddress();
 		}
 		
-
-		// People love Reflection but I prefer Shader Sources instead!
 		const nbl::asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,.offset = 0,.size = sizeof(PushConstantData) };
 
 		{
@@ -142,18 +137,18 @@ public:
 		// and we also need to take into account BDA shader loads need to be aligned to the type being loaded.
 		m_alignment = core::max(deviceLimits.nonCoherentAtomSize, alignof(float));
 
-		// In contrast to fences, we just need one semaphore to rule all dispatches
-		m_timeline = m_device->createSemaphore(m_iteration);
+		// Semaphor used here to know the FFT is done before download
+		m_timeline = m_device->createSemaphore(semaphorValue);
 
 		IQueue* const queue = getComputeQueue();
 
 		// Note that I'm using the sample struct with methods that have identical code which compiles as both C++ and HLSL
-		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ m_iteration ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
+		auto rng = nbl::hlsl::Xoroshiro64StarStar::construct({ semaphorValue ^ 0xdeadbeefu,std::hash<string>()(_NBL_APP_NAME_) });
 
 		const uint32_t scalarElementCount = 2 * complexElementCount;
 		const uint32_t inputSize = sizeof(scalar_t) * scalarElementCount;
 
-		// The allocators can do multiple allocations at once for efficiency
+		// Just need a single suballocation in this example
 		const uint32_t AllocationCount = 1;
 
 		// It comes with a certain drawback that you need to remember to initialize your "yet unallocated" offsets to the Invalid value
@@ -166,7 +161,7 @@ public:
 		// note that the API takes a time-point not a duration, because there are multiple waits and preemptions possible, so the durations wouldn't add up properly
 		m_upStreamingBuffer->multi_allocate(waitTill, AllocationCount, &inputOffset, &inputSize, &m_alignment);
 
-		// Generate our data in-place on the allocated staging buffer
+		// Generate our data in-place on the allocated staging buffer. Packing is interleaved in this example!
 		{
 			auto* const inputPtr = reinterpret_cast<scalar_t*>(reinterpret_cast<uint8_t*>(m_upStreamingBuffer->getBufferPointer()) + inputOffset);
 			std::cout << "Begin array CPU\n";
@@ -228,13 +223,16 @@ public:
 			copyInfo.size = m_deviceLocalBuffer->getSize();
 			cmdbuf->copyBuffer(m_upStreamingBuffer->getBuffer(), m_deviceLocalBuffer.get(), 1, &copyInfo);
 			cmdbuf->pushConstants(m_pipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0u, sizeof(pc), &pc);
-			// Good old trick to get rounded up divisions, in case you're not familiar
+			// Remember we do a single workgroup per 1D array in these parts
 			cmdbuf->dispatch(1, 1, 1);
 
 			// Pipeline barrier: wait for FFT shader to be done before copying to downstream buffer 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
+
 			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {}; // TODO: ACTUALLY FILL THIS OUT, YOURE CRASHING BECAUSE OF PIPELINE BARRIER ON A NULL BUFFER!
 			pipelineBarrierInfo.bufBarriers = { &barrier, 1u };
+
+			barrier.range.buffer = m_deviceLocalBuffer;
 
 			barrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
 			barrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_WRITE_BITS;
@@ -246,7 +244,7 @@ public:
 			cmdbuf->end();
 		}
 
-		m_iteration++;
+		semaphorValue++;
 		{
 			const IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo =
 			{
@@ -255,13 +253,10 @@ public:
 			const IQueue::SSubmitInfo::SSemaphoreInfo signalInfo =
 			{
 				.semaphore = m_timeline.get(),
-				.value = m_iteration,
+				.value = semaphorValue,
 				.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 			};
-			// Generally speaking we don't need to wait on any semaphore because in this example every dispatch gets its own clean piece of memory to use
-			// from the point of view of the GPU. Implicit domain operations between Host and Device happen upon a submit and a semaphore/fence signal operation,
-			// this ensures we can touch the input and get accurate values from the output memory using the CPU before and after respectively, each submit becoming PENDING.
-			// If we actually cared about this submit seeing the memory accesses of a previous dispatch we could add a semaphore wait
+
 			const IQueue::SSubmitInfo submitInfo = {
 				.waitSemaphores = {},
 				.commandBuffers = {&cmdbufInfo,1},
@@ -274,7 +269,7 @@ public:
 		}
 
 		// We let all latches know what semaphore and counter value has to be passed for the functors to execute
-		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),m_iteration };
+		const ISemaphore::SWaitInfo futureWait = { m_timeline.get(),semaphorValue };
 
 		// As promised, we can defer an upstreaming buffer deallocation until a fence is signalled
 		// You can also attach an additional optional IReferenceCounted derived object to hold onto until deallocation.
