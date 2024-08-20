@@ -942,10 +942,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					auto found = conversionRequests.find(contentHash);
 
 					const auto uniqueCopyGroupID = instance.uniqueCopyGroupID;
+
+					const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 					// can happen if deps were unconverted dummies
 					if (found==conversionRequests.end())
 					{
-						const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 						if (contentHash!=CHashCache::NoContentHash)
 							inputs.logger.log(
 								"Could not find GPU Object for Asset %p in group %ull with Content Hash %8llx%8llx%8llx%8llx",
@@ -961,6 +962,14 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					assert(uniqueCopyGroupID==gpuObjUniqueCopyGroupIDs[copyIx]);
 
 					auto& gpuObj = gpuObjects[copyIx];
+					if (!gpuObj)
+					{
+						inputs.logger.log(
+							"Conversion for Content Hash %8llx%8llx%8llx%8llx Copy Index %d from Canonical Asset %p Failed.",
+							system::ILogger::ELL_ERROR,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3],copyIx,found->second.canonicalAsset
+						);
+						return;
+					}
 					// set debug names on everything!
 					{
 						std::ostringstream debugName;
