@@ -11,16 +11,16 @@
 
 [[vk::push_constant]] AutoexposurePushData pushData;
 
-using Ptr = nbl::hlsl::bda::__ptr < uint32_t >;
-using PtrAccessor = nbl::hlsl::BdaAccessor < uint32_t >;
+using namespace nbl::hlsl;
+using Ptr = bda::__ptr < uint32_t >;
+using PtrAccessor = BdaAccessor < uint32_t >;
 
 groupshared float32_t sdata[WorkgroupSize];
-
 struct SharedAccessor
 {
-    uint32_t get(const uint32_t index)
+    void get(const uint32_t index, NBL_REF_ARG(uint32_t) value)
     {
-        return sdata[index];
+        value = sdata[index];
     }
 
     void set(const uint32_t index, const uint32_t value)
@@ -30,7 +30,7 @@ struct SharedAccessor
 
     void workgroupExecutionAndMemoryBarrier()
     {
-        nbl::hlsl::glsl::barrier();
+        glsl::barrier();
     }
 };
 
@@ -41,7 +41,7 @@ struct TexAccessor
     }
 };
 
-uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
+uint32_t3 glsl::gl_WorkGroupSize()
 {
     return uint32_t3(WorkgroupSize, 1, 1);
 }
@@ -49,7 +49,7 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 [numthreads(DeviceSubgroupSize, DeviceSubgroupSize, 1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
-    nbl::hlsl::luma_meter::MeteringWindow meter_window;
+    luma_meter::MeteringWindow meter_window;
     meter_window.meteringWindowScale = float32_t2(pushData.meteringWindowScaleX, pushData.meteringWindowScaleY);
     meter_window.meteringWindowOffset = float32_t2(pushData.meteringWindowOffsetX, pushData.meteringWindowOffsetY);
 
@@ -59,7 +59,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = nbl::hlsl::luma_meter::geom_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = luma_meter::geom_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(meter_window, pushData.lumaMin, pushData.lumaMax);
 
     uint32_t2 sampleCount = uint32_t2(pushData.sampleCountX, pushData.sampleCountY);

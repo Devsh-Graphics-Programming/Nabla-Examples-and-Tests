@@ -13,7 +13,8 @@
 
 // vertex shader is provided by the fullScreenTriangle extension
 #include <nbl/builtin/hlsl/ext/FullScreenTriangle/SVertexAttributes.hlsl>
-using namespace nbl::hlsl::ext::FullScreenTriangle;
+using namespace nbl::hlsl;
+using namespace ext::FullScreenTriangle;
 
 // binding 0 set 1
 [[vk::combinedImageSampler]] [[vk::binding(0, 1)]] Texture2D texture;
@@ -23,12 +24,12 @@ using namespace nbl::hlsl::ext::FullScreenTriangle;
 
 [[vk::location(0)]] float32_t4 main(SVertexAttributes vxAttr) : SV_Target0
 {
-    float32_t3 color = nbl::hlsl::colorspace::oetf::sRGB(texture.Sample(samplerState, vxAttr.uv).rgb);
-    float32_t3 CIEColor = mul(nbl::hlsl::colorspace::sRGBtoXYZ, color);
+    float32_t3 color = colorspace::oetf::sRGB(texture.Sample(samplerState, vxAttr.uv).rgb);
+    float32_t3 CIEColor = mul(colorspace::sRGBtoXYZ, color);
 
-    nbl::hlsl::tonemapper::ReinhardParams params = nbl::hlsl::tonemapper::ReinhardParams::create(pushData.EV);
+    tonemapper::ReinhardParams params = tonemapper::ReinhardParams::create(pushData.EV);
 
-    float32_t3 tonemappedColor = mul(nbl::hlsl::colorspace::decode::XYZtoscRGB, nbl::hlsl::tonemapper::reinhard(params, CIEColor));
+    float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, tonemapper::reinhard(params, CIEColor));
 
-    return float32_t4(nbl::hlsl::colorspace::eotf::sRGB(tonemappedColor), 1.0);
+    return float32_t4(colorspace::eotf::sRGB(tonemappedColor), 1.0);
 }
