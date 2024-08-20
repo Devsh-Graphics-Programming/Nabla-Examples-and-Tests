@@ -52,13 +52,13 @@ nbl::hlsl::ef64_t2 transformVectorNdc(Mat64_t3x3 transformation, nbl::hlsl::ef64
 float2 transformPointScreenSpace(Mat64_t3x3 transformation, nbl::hlsl::ef64_t2 point2d)
 {
     nbl::hlsl::ef64_t2 ndc = transformPointNdc(transformation, point2d);
-    nbl::hlsl::ef64_t2 result = (ndc + 1.0) * 0.5 * globals.resolution;
+    nbl::hlsl::ef64_t2 result = (ndc + 1.0f) * 0.5f * nbl::hlsl::ef64_t2::create(globals.resolution);
 
-    return float2(result.x.getAsFloat32(), result.x.getAsFloat32());
+    return float2(result.x.getAsFloat32(), result.y.getAsFloat32());
 }
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
-    return float4((pos.xy / globals.resolution) * 2.0 - 1.0, 0.0f, 1.0f);
+    return float4((pos.xy / globals.resolution) * 2.0f - 1.0f, 0.0f, 1.0f);
 }
 
 template<bool FragmentShaderPixelInterlock>
@@ -339,7 +339,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 }
             }
 
-            outV.position.xy = (outV.position.xy / globals.resolution) * 2.0 - 1.0;
+            outV.position.xy = (outV.position.xy / globals.resolution) * 2.0f - 1.0f;
         }
         else if (objType == ObjectType::POLYLINE_CONNECTOR)
         {
@@ -436,10 +436,10 @@ PSInput main(uint vertexID : SV_VertexID)
         dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
-        const nbl::hlsl::ef64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::emulated_float64_t<false, true>::create(1.0f) - 
-            nbl::hlsl::emulated_float64_t<false, true>::create(undilatedCorner)) + 
-            curveBox.aabbMax * nbl::hlsl::emulated_float64_t<false, true>::create(undilatedCorner);
-        const float2 coord = (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + dilateVec).getAsFloat2();
+        const nbl::hlsl::ef64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::ef64_t2::create(1.0f) - 
+            nbl::hlsl::ef64_t2::create(undilatedCorner)) + 
+            curveBox.aabbMax * nbl::hlsl::ef64_t2::create(undilatedCorner);
+        const float2 coord = (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::ef64_t2::create(dilateVec)).getAsFloat2();
 
         outV.position = float4(coord, 0.f, 1.f);
  

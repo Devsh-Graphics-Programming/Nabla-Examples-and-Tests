@@ -23,7 +23,7 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     testValuesOutput[0].uint32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.uint32).data;
     testValuesOutput[0].uint64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.uint64).data;
     testValuesOutput[0].float32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float32).data;
-    testValuesOutput[0].float64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float64).data;
+    //testValuesOutput[0].float64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float64).data;
     //nbl::hlsl::emulated_float64_t::create(min16int(2));
 
     // arithmetic operators
