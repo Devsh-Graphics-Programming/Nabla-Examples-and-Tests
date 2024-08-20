@@ -430,6 +430,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					.asset = asset,
 					.uniqueCopyGroupID = inputs.getDependantUniqueCopyGroupID(user.uniqueCopyGroupID,user.asset,asset)
 				};
+				inputs.logger.log("Asset (%p,%d) is used by (%p,%d)",system::ILogger::ELL_DEBUG,record.asset,record.uniqueCopyGroupID,user.asset,user.uniqueCopyGroupID);
 
 				// now see if we visited already
 				auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
@@ -605,6 +606,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					{
 						inputs.logger.log("Could not compute hash for asset %p in group %d, maybe an IPreHashed dependant's content hash is missing?",system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID);
 						return;
+					}
+					{
+						const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
+						inputs.logger.log("Asset (%p,%d) has hash %8llx%8llx%8llx%8llx",system::ILogger::ELL_DEBUG,instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]);
 					}
 					// if we have a read cache, lets retry looking the item up!
 					if (readCache)
