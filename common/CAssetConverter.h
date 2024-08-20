@@ -770,10 +770,16 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUPipelineLayout,PatchGet
 		hasher << std::span(args.patch->pushConstantBytes);
 		for (auto i = 0; i < asset::ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 		{
-			const auto dsLayoutHash = args.depHash(args.asset->getDescriptorSetLayout(i));
-			if (dsLayoutHash==NoContentHash)
-				return {};
-			hasher << dsLayoutHash;
+			auto dep = args.asset->getDescriptorSetLayout(i);
+			if (dep) // remember each layout is optional
+			{
+				const auto dsLayoutHash = args.depHash(dep);
+				if (dsLayoutHash==NoContentHash)
+					return {};
+				hasher << dsLayoutHash;
+			}
+			else
+				hasher << NoContentHash;
 		}
 		return hasher;
 	}
