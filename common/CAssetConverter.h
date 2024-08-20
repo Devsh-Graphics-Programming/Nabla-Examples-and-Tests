@@ -132,7 +132,7 @@ class CAssetConverter : public core::IReferenceCounted
 				inline std::pair<bool,this_t> combine(const this_t& other) const
 				{
 					// because of the assumption that we'll only be combining valid patches, we can't have the stages differ
-					return {stage!=other.stage,*this};
+					return {stage==other.stage,*this};
 				}
 		};
 		template<>

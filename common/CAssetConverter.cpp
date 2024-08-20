@@ -321,9 +321,9 @@ struct PatchGetter
 				break;
 			}
 			default:
-				break;
+				return {};
 		}
-		return {};
+		return patch;
 	}
 
 	template<asset::Asset AssetType>
@@ -873,7 +873,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						{
 							bool notAllDepsFound = false;
 							for (auto j=0u; j<4; j++)
-								dsLayouts[j] = getDependant(uniqueCopyGroupID,asset,asset->getDescriptorSetLayout(j),firstPatchMatch,notAllDepsFound);
+							if (auto dsLayout=asset->getDescriptorSetLayout(j); dsLayout) // remember layouts are optional
+								dsLayouts[j] = getDependant(uniqueCopyGroupID,asset,dsLayout,firstPatchMatch,notAllDepsFound);
 							if (notAllDepsFound)
 								continue;
 						}
@@ -1038,7 +1039,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// simple and easy to find all the associated items
 			if (!metadata[i].patchIndex)
 			{
-				inputs.logger.log("No valid patch could be created for Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
+				inputs.logger.log("No valid patch could be created for Root Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
 				continue;
 			}
 			const auto& found = dfsCache.nodes[metadata[i].patchIndex.value];
@@ -1053,7 +1054,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				}
 			}
 			else
-				inputs.logger.log("No valid patch could be created for Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
+				inputs.logger.log("No GPU Object could be found or created for Root Asset %p in group %d",system::ILogger::ELL_ERROR,asset,uniqueCopyGroupID);
 		}
 	};
 	core::for_each_in_tuple(inputs.assets,finalize);
