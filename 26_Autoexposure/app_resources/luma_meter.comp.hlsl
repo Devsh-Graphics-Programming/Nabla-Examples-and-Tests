@@ -59,7 +59,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     SharedAccessor sdata;
     TexAccessor tex;
 
-    using LumaMeter = nbl::hlsl::luma_meter::geom_luma_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
+    using LumaMeter = nbl::hlsl::luma_meter::geom_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(meter_window, pushData.lumaMin, pushData.lumaMax);
 
     uint32_t2 sampleCount = uint32_t2(pushData.sampleCountX, pushData.sampleCountY);
