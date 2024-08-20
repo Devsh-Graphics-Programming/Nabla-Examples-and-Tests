@@ -3,30 +3,7 @@
 
 [[vk::push_constant]] CountingPushData pushData;
 
-struct DoublePtrAccessor
-{
-    using type_t = uint32_t;
-
-    static DoublePtrAccessor create(const PtrAccessor input, const PtrAccessor output)
-    {
-        DoublePtrAccessor accessor;
-        accessor.input = input;
-        accessor.output = output;
-        return accessor;
-    }
-
-    void get(const uint64_t index, NBL_REF_ARG(uint32_t) value)
-    {
-        input.get(index,value);
-    }
-
-    void set(const uint64_t index, const uint32_t value)
-    {
-        output.set(index,value);
-    }
-
-    PtrAccessor input, output;
-};
+using DoublePtrAccessor = DoubleBdaAccessor<uint32_t>;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
@@ -47,12 +24,12 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     const Ptr output_value_ptr = Ptr::create(pushData.outputValueAddress);
 
     DoublePtrAccessor key_accessor = DoublePtrAccessor::create(
-        PtrAccessor::create(input_key_ptr),
-        PtrAccessor::create(output_key_ptr)
+        input_key_ptr,
+        output_key_ptr
     );
     DoublePtrAccessor value_accessor = DoublePtrAccessor::create(
-        PtrAccessor::create(input_value_ptr),
-        PtrAccessor::create(output_value_ptr)
+        input_value_ptr,
+        output_value_ptr
     );
     PtrAccessor histogram_accessor = PtrAccessor::create(histogram_ptr);
     SharedAccessor shared_accessor;
