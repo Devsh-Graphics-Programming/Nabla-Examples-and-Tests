@@ -322,13 +322,14 @@ class CAssetConverter : public core::IReferenceCounted
 						foundIt->second = retval;
 					else // insert new entry
 					{
-						auto insertIt = container.insert(foundIt,{
-							{
+						auto [insertIt,inserted] = container.emplace(
+							key_t<AssetType>{
 								.asset = core::smart_refctd_ptr<const AssetType>(asset),
 								.patch = *patch
 							},
-						retval});
-						assert(HashEquals<AssetType>()(insertIt->first,lookup) && insertIt->second==retval);
+							retval
+						);
+						assert(inserted && HashEquals<AssetType>()(insertIt->first,lookup) && insertIt->second==retval);
 					}
 					return retval;
 				}
@@ -698,6 +699,8 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUShader,PatchGetter>
 		if (type!=asset::ICPUShader::E_CONTENT_TYPE::ECT_SPIRV)
 			hasher << asset->getFilepathHint();
 		const auto* content = asset->getContent();
+		if (!content || content->getContentHash()==NoContentHash)
+			return {};
 		// we're not using the buffer directly, just its contents
 		hasher << content->getContentHash();
 		return hasher;
