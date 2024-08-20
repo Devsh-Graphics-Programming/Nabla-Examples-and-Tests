@@ -602,7 +602,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					);
 					// failed to hash all together (only possible reason is failure of `PatchGetter` to provide a valid patch)
 					if (contentHash==CHashCache::NoContentHash)
+					{
+						inputs.logger.log("Could not compute hash for asset %p in group %d, maybe an IPreHashed dependant's content hash is missing?",system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID);
 						return;
+					}
 					// if we have a read cache, lets retry looking the item up!
 					if (readCache)
 					{
@@ -661,7 +664,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						else
 						{
 							inputs.logger.log(
-								"No conversion request made for Asset %p in group %d, its impossible either to hash or to convert.",
+								"No conversion request made for Asset %p in group %d, its impossible to convert.",
 								system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID
 							);
 						}
@@ -931,6 +934,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
 			dfsCache.for_each([&](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 				{
+					// already found in read cache and not converted
 					if (created.gpuObj)
 						return;
 
