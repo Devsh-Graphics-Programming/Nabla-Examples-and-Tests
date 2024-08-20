@@ -271,6 +271,7 @@ struct PatchGetter
 	static inline CAssetConverter::patch_t<AssetType> ConstructPatch(const IAsset* user, const AssetType* asset)
 	{
 		CAssetConverter::patch_t<AssetType> patch(asset);
+		if (user) // only patch if there's a user
 		switch (user->getAssetType())
 		{
 			case ICPUDescriptorSetLayout::AssetType:
@@ -381,9 +382,15 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
 	auto* const device = m_params.device;
 	if (inputs.readCache && inputs.readCache->m_params.device!=m_params.device)
+	{
+		inputs.logger.log("Read Cache's owning device %p not compatible with this cache's owning device %p.",system::ILogger::ELL_ERROR,inputs.readCache->m_params.device,m_params.device);
 		return {};
+	}
 	if (inputs.pipelineCache && inputs.pipelineCache->getOriginDevice()!=device)
+	{
+		inputs.logger.log("Pipeline Cache's owning device %p not compatible with this cache's owning device %p.",system::ILogger::ELL_ERROR,inputs.pipelineCache->getOriginDevice(),m_params.device);
 		return {};
+	}
 
 	SResults retval = {};
 	
@@ -410,6 +417,13 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// skip invalid inputs silently
 				if (!patch.valid(features,limits))
 					return {};
+				//
+				if constexpr (std::is_same_v<AssetType,ICPUShader>)
+				if (asset->getContentType()==ICPUShader::E_CONTENT_TYPE::ECT_GLSL)
+				{
+					inputs.logger.log("Asset Converter doesn't support converting GLSL shaders! Asset %p won't be converted (GLSL is deprecated in Nabla)",system::ILogger::ELL_ERROR,asset);
+					return {};
+				}
 
 				// get unique group
 				instance_t<AssetType> record = {

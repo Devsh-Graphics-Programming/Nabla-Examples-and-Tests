@@ -5,8 +5,8 @@
 #define _EXAMPLES_COMMON_PCH_HPP_
 
 #include <nabla.h>
+#include <CAssetConverter.h>
 
-#include <CommonAPI.h>
 #include <InputSystem.hpp>
 #include <Camera.hpp>
 #include <SimpleWindowedApplication.hpp>
