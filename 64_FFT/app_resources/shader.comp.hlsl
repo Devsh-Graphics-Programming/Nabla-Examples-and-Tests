@@ -1,5 +1,6 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
+#include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
@@ -30,18 +31,8 @@ struct SharedMemoryAccessor
 
 };
 
-struct Accessor
+struct Accessor : DoubleBdaAccessor< complex_t<scalar_t> >
 {
-	void set(uint32_t idx, complex_t<scalar_t> value) 
-	{
-		vk::RawBufferStore<complex_t<scalar_t> >(pushConstants.outputAddress + sizeof(complex_t<scalar_t>) * idx, value);
-	}
-	
-	void get(uint32_t idx, NBL_REF_ARG(complex_t<scalar_t>) value) 
-	{
-		value = vk::RawBufferLoad<complex_t<scalar_t> >(pushConstants.inputAddress + sizeof(complex_t<scalar_t>) * idx);
-	}
-
 	// Note: Its a funny quirk of the SPIR-V Vulkan Env spec that `MemorySemanticsUniformMemoryMask` means SSBO as well :facepalm: (and probably BDA)
 	void workgroupExecutionAndMemoryBarrier() 
 	{
@@ -59,7 +50,9 @@ struct Accessor
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-	Accessor accessor;
+	bda::__ptr< complex_t<scalar_t> > inputPtr  = bda::__ptr< complex_t<scalar_t> >::create(pushConstants.inputAddress);
+	bda::__ptr< complex_t<scalar_t> > outputPtr = bda::__ptr< complex_t<scalar_t> >::create(pushConstants.outputAddress);
+	Accessor accessor = Accessor::create(inputPtr, outputPtr);
 	SharedMemoryAccessor sharedmemAccessor;
 
 	// Workgroup	
