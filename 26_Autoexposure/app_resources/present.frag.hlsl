@@ -27,9 +27,9 @@ using namespace ext::FullScreenTriangle;
     float32_t3 color = colorspace::oetf::sRGB(texture.Sample(samplerState, vxAttr.uv).rgb);
     float32_t3 CIEColor = mul(colorspace::sRGBtoXYZ, color);
 
-    tonemapper::ReinhardParams params = tonemapper::ReinhardParams::create(pushData.EV);
+    tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(pushData.EV);
 
-    float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, tonemapper::reinhard(params, CIEColor));
+    float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, reinhard(CIEColor));
 
     return float32_t4(colorspace::eotf::sRGB(tonemappedColor), 1.0);
 }
