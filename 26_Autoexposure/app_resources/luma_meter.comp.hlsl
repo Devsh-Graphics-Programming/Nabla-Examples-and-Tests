@@ -49,9 +49,9 @@ uint32_t3 nbl::hlsl::glsl::gl_WorkGroupSize()
 [numthreads(DeviceSubgroupSize, DeviceSubgroupSize, 1)]
 void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
 {
-    nbl::hlsl::luma_meter::LumaMeteringWindow luma_meter_window;
-    luma_meter_window.meteringWindowScale = float32_t2(pushData.meteringWindowScaleX, pushData.meteringWindowScaleY);
-    luma_meter_window.meteringWindowOffset = float32_t2(pushData.meteringWindowOffsetX, pushData.meteringWindowOffsetY);
+    nbl::hlsl::luma_meter::MeteringWindow meter_window;
+    meter_window.meteringWindowScale = float32_t2(pushData.meteringWindowScaleX, pushData.meteringWindowScaleY);
+    meter_window.meteringWindowOffset = float32_t2(pushData.meteringWindowOffsetX, pushData.meteringWindowOffsetY);
 
     const Ptr val_ptr = Ptr::create(pushData.lumaMeterBDA);
     PtrAccessor val_accessor = PtrAccessor::create(val_ptr);
@@ -60,7 +60,7 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     TexAccessor tex;
 
     using LumaMeter = nbl::hlsl::luma_meter::geom_luma_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
-    LumaMeter meter = LumaMeter::create(luma_meter_window, pushData.lumaMin, pushData.lumaMax);
+    LumaMeter meter = LumaMeter::create(meter_window, pushData.lumaMin, pushData.lumaMax);
 
     uint32_t2 sampleCount = uint32_t2(pushData.sampleCountX, pushData.sampleCountY);
     uint32_t2 viewportSize = uint32_t2(pushData.viewportSizeX, pushData.viewportSizeY);
