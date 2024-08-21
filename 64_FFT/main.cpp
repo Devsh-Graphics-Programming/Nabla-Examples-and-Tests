@@ -169,18 +169,22 @@ public:
 			{
 				//Random array
 
-				scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
+				//scalar_t x = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max), y = rng() / scalar_t(nbl::hlsl::numeric_limits<decltype(rng())>::max);
 
 				// FFT( (1,0), (0,0), (0,0),... ) = (1,0), (1,0), (1,0),...
-				/*
+				
+				
 				scalar_t x = j > 0 ? 0.f : 1.f;
 				scalar_t y = 0;
-				*/
+				
+				
 				// FFT( (c,0), (c,0), (c,0),... ) = (Nc,0), (0,0), (0,0),...
+				
 				/*
 				scalar_t x = 1.f;
 				scalar_t y = 0.f;
 				*/
+
 				inputPtr[2 * j] = x;
 				inputPtr[2 * j + 1] = y;
 				std::cout << "(" << x << ", " << y << "), ";
@@ -229,7 +233,7 @@ public:
 			// Pipeline barrier: wait for FFT shader to be done before copying to downstream buffer 
 			IGPUCommandBuffer::SPipelineBarrierDependencyInfo pipelineBarrierInfo = {};
 
-			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {}; // TODO: ACTUALLY FILL THIS OUT, YOURE CRASHING BECAUSE OF PIPELINE BARRIER ON A NULL BUFFER!
+			decltype(pipelineBarrierInfo)::buffer_barrier_t barrier = {}; 
 			pipelineBarrierInfo.bufBarriers = { &barrier, 1u };
 
 			barrier.range.buffer = m_deviceLocalBuffer;
