@@ -490,6 +490,7 @@ public:
 	inline void workLoopBody() override
 	{
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+
 		uint32_t2 viewportSize = { m_gpuImg->getCreationParameters().extent.width, m_gpuImg->getCreationParameters().extent.height };
 
 		// Luma Meter
@@ -514,7 +515,7 @@ public:
 			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->pushConstants(m_lumaMeterPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
-			cmdbuf->dispatch(viewportSize.x / SubgroupSize, viewportSize.y / SubgroupSize);
+			cmdbuf->dispatch(1 + (viewportSize.x - 1) / SubgroupSize, 1 + (viewportSize.y - 1) / SubgroupSize);
 			cmdbuf->end();
 
 			{
@@ -566,7 +567,10 @@ public:
 			for (int index = 0; index < SubgroupSize; index++) {
 				m_EV += static_cast<float32_t>(buffData[index]) / (log2(LumaMinMax[1]) - log2(LumaMinMax[0])) + log2(LumaMinMax[0]);
 			}
-			m_EV /= (viewportSize.x * viewportSize.y) / 4;
+			uint64_t sampleCount = (viewportSize.x * viewportSize.y) / 4;
+			uint64_t workgroupSize = SubgroupSize * SubgroupSize;
+			sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
+			m_EV /= sampleCount;
 		}
 
 		// Render to swapchain
