@@ -485,6 +485,8 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 
 			private:
+				friend class CAssetConverter;
+
 				struct ForwardHash
 				{
 					inline size_t operator()(const key_t& key) const
@@ -557,52 +559,7 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::IShaderCompiler::CCache* writeShaderCache = nullptr;
 			IGPUPipelineCache* pipelineCache = nullptr;
         };
-        struct SResults
-        {
-			public:
-				inline SResults(SResults&&) = default;
-				inline SResults(const SResults&) = delete;
-				inline ~SResults() = default;
-				inline SResults& operator=(const SResults&) = delete;
-				inline SResults& operator=(SResults&&) = default;
-
-				// What queues you'll need to run the submit
-				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
-
-				// until `convert` is called, this will only contain valid entries for items already found in `SInput::readCache`
-				template<asset::Asset AssetType>
-				std::span<const asset_cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
-
-				// If you ever need to look up the content hashes of the assets AT THE TIME you converted them
-				// REMEMBER it can have stale hashes (asset or its dependants mutated since hash computed),
-				// then you can get hash mismatches or plain wrong hashes.
-				CHashCache* getHashCache() {return m_hashCache.get();}
-				const CHashCache* getHashCache() const {return m_hashCache.get();}
-
-			private:
-				friend class CAssetConverter;
-				friend struct SConvertParams;
-
-				inline SResults() = default;
-
-				//
-				core::smart_refctd_ptr<CHashCache> m_hashCache = nullptr;
-
-				// for every entry in the input array, we have this mapped 1:1
-				template<asset::Asset AssetType>
-				using vector_t = core::vector<asset_cached_t<AssetType>>;
-				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
-				
-				// we don't insert into the writeCache until conversions are successful
-				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCaches;
-
-				//
-				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
-        };
-		// First Pass: Explore the DAG of Assets and "gather" patch infos and create equivalent GPU Objects.
-		NBL_API SResults reserve(const SInputs& inputs);
-
-		//
+		// Split off from inputs because only assets that build on IPreHashed need uploading
 		struct SConvertParams
 		{
 			// By default the compute queue will own everything after all transfer operations are complete.
@@ -619,16 +576,80 @@ class CAssetConverter : public core::IReferenceCounted
 			// submits the buffered up cals 
 			NBL_API ISemaphore::future_t<bool> autoSubmit();
 
-			// recommended you set this
-			system::logger_opt_ptr logger = nullptr;
 			// TODO: documentation (and allow same queue/same intended submit)
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
 		};
-		// Second Pass: Actually fill the GPU Objects with data
-		NBL_API bool convert(SResults&& reservations, SConvertParams& params);
+        struct SResults
+        {
+				template<asset::Asset AssetType>
+				using vector_t = core::vector<asset_cached_t<AssetType>>;
+
+			public:
+				inline SResults(SResults&&) = default;
+				inline SResults(const SResults&) = delete;
+				inline ~SResults() = default;
+				inline SResults& operator=(const SResults&) = delete;
+				inline SResults& operator=(SResults&&) = default;
+
+				// What queues you'll need to run the submit
+				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
+
+				//
+				inline operator bool() const {return bool(m_converter);}
+
+				// until `convert` is called, this will only contain valid entries for items already found in `SInput::readCache`
+				template<asset::Asset AssetType>
+				std::span<const asset_cached_t<AssetType>> getGPUObjects() const {return std::get<vector_t<AssetType>>(m_gpuObjects);}
+
+				// If you ever need to look up the content hashes of the assets AT THE TIME you converted them
+				// REMEMBER it can have stale hashes (asset or its dependants mutated since hash computed),
+				// then you can get hash mismatches or plain wrong hashes.
+				CHashCache* getHashCache() {return m_hashCache.get();}
+				const CHashCache* getHashCache() const {return m_hashCache.get();}
+
+				// You only get to call this once if successful
+				inline bool convert(SConvertParams& params)
+				{
+					if (m_converter->convert_impl(std::move(*this),params))
+					{
+						core::for_each_in_tuple(
+							m_stagingCaches,
+							[]<asset::Asset AssetType>(CCache<AssetType>& stagingCache)->void {stagingCache = {};}
+						);
+						m_converter = nullptr;
+						return true;
+					}
+					return false;
+				}
+
+			private:
+				friend class CAssetConverter;
+				friend struct SConvertParams;
+
+				inline SResults() = default;
+
+				// we need to remember a few things so that `convert` can work seamlessly
+				core::smart_refctd_ptr<CAssetConverter> m_converter = nullptr;
+				system::logger_opt_smart_ptr m_logger = nullptr;
+
+				//
+				core::smart_refctd_ptr<CHashCache> m_hashCache = nullptr;
+
+				// for every entry in the input array, we have this mapped 1:1
+				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
+				
+				// we don't insert into the writeCache until conversions are successful
+				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCaches;
+
+				//
+				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
+        };
+		// First Pass: Explore the DAG of Assets and "gather" patch infos and create equivalent GPU Objects.
+		NBL_API SResults reserve(const SInputs& inputs);
+
 #undef NBL_API
 
 		// Only const methods so others are not able to insert things made by e.g. different devices
@@ -655,6 +676,9 @@ class CAssetConverter : public core::IReferenceCounted
 		{
 			return std::get<CCache<AssetType>>(m_caches);
 		}
+
+		friend struct SResults;
+		bool convert_impl(SResults&& reservations, SConvertParams& params);
 
         SCreationParams m_params;
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;

@@ -1002,8 +1002,29 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 //		dedupCreateProp.operator()<ICPUImage>();
 		// Allocate Memory
 		{
+			core::unordered_map<uint64_t,core::vector<IDeviceMemoryBacked*>> allocationRequests;
 			// gather memory reqs
-			// allocate device memory
+			auto gatherMemoryReqs = [&]<Asset AssetType>()->void
+			{
+				static_assert(std::is_base_of_v<IDeviceMemoryBacked,typename asset_traits<AssetType>::video_t>);
+				const auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
+				for (auto entry : stagingCache.m_reverseMap)
+				{
+					const IDeviceMemoryBacked::SDeviceMemoryRequirements& memReqs = entry.first->getMemoryReqs();
+					if (memReqs.requiresDedicatedAllocation)
+					{
+						// allocate right away
+						continue;
+					}
+					// bin according to: memoryTypeBits, prefersDedicated Allocation
+				}
+			};
+			gatherMemoryReqs.operator()<ICPUBuffer>();
+//			gatherMemoryReqs.operator()<ICPUImage>();
+			// sort each bucket by alignment, then size from largest to smallest
+			// allocate device memory, from DEVICE_LOCAL to others (largest/least constrained heap first)
+				// grab allocations from buckets with least "extra" bits first
+
 		//	device->allocate(reqs,false);
 			// now bind it
 			// if fail, need to wipe the GPU Obj as a failure
@@ -1059,42 +1080,67 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 	};
 	core::for_each_in_tuple(inputs.assets,finalize);
 
+	retval.m_converter = core::smart_refctd_ptr<CAssetConverter>(this);
+	retval.m_logger = system::logger_opt_smart_ptr(core::smart_refctd_ptr<system::ILogger>(inputs.logger.get()));
 	return retval;
 }
 
 //
-bool CAssetConverter::convert(SResults&& reservations, SConvertParams& params)
+bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& params)
 {
-	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
-	// nothing to do!
-	if (reqQueueFlags.value==IQueue::FAMILY_FLAGS::NONE)
-		return true;
-
-	auto device = m_params.device;
-	if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
-		return false;
-
-	auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+	if (!reservations.m_converter)
 	{
-		if (!reqQueueFlags.hasFlags(flag))
+		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result!");
+		return false;
+	}
+	assert(reservations.m_converter.get()==this);
+
+	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
+	// Anything to do?
+	if (reqQueueFlags.value!=IQueue::FAMILY_FLAGS::NONE)
+	{
+		auto device = m_params.device;
+		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
 			return false;
-		if (!queue || queue->getOriginDevice()!=device)
-			return true;
-		const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
-		if (!qFamProps[queue->getFamilyIndex()].queueFlags.hasFlags(flag))
-			return true;
-		return false;
-	};
-	// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
-	if (invalidQueue(IQueue::FAMILY_FLAGS::TRANSFER_BIT,params.transfer.queue))
-		return false;
-	// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
-	if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
-		return false;
+
+		auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+		{
+			if (!reqQueueFlags.hasFlags(flag))
+				return false;
+			if (!queue || queue->getOriginDevice()!=device)
+				return true;
+			const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
+			if (!qFamProps[queue->getFamilyIndex()].queueFlags.hasFlags(flag))
+				return true;
+			return false;
+		};
+		// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
+		if (invalidQueue(IQueue::FAMILY_FLAGS::TRANSFER_BIT,params.transfer.queue))
+			return false;
+		// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
+		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
+			return false;
+
+		// tag any failures (or erase from `m_stagingCache`)
+
+		// TODO: upload Buffers
+
+		// TODO: upload Images
+
+		// TODO: compute mip-maps
+
+		// TODO: build BLASes and TLASes
+	}
 
 	// insert items into cache if overflows handled fine and commandbuffers ready to be recorded
-	// tag any failures
-	// TODO: rescan all the GPU objects and find out if they depend on anything that failed, if so add them to the failure set
+	core::for_each_in_tuple(reservations.m_stagingCaches,[&]<typename AssetType>(CCache<AssetType>& stagingCache)->void
+		{
+			// TODO: rescan all the GPU objects and find out if they depend on anything that failed, if so add them to the failure set
+				// TODO: knock out items from the `m_stagingCache` basically
+			// TODO: final pass knock out failures from `m_gpuObjects` as well
+			std::get<CCache<AssetType>>(m_caches).merge(stagingCache);
+		}
+	);
 
 	return true;
 }
