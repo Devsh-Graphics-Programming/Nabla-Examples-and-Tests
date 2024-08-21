@@ -25,11 +25,10 @@ class AutoexposureApp final : public examples::SimpleWindowedApplication, public
 	using clock_t = std::chrono::steady_clock;
 
 	constexpr static inline std::string_view DefaultImagePathsFile = "../../media/noises/spp_benchmark_4k_512.exr";
-	constexpr static inline std::array<uint32_t, 2> Dimensions = { 1280, 720 };
-	constexpr static inline std::array<uint32_t, 2> SampleCount = { 10000, 10000 };
-	constexpr static inline std::array<float, 2> MeteringWindowScale = { 0.5f, 0.5f };
-	constexpr static inline std::array<float, 2> MeteringWindowOffset = { 0.25f, 0.25f };
-	constexpr static inline std::array<float, 2> LumaMinMax = { 1.0f / 4096.0f, 32768.0f };
+	constexpr static inline uint32_t2 Dimensions = { 1280, 720 };
+	constexpr static inline float32_t2 MeteringWindowScale = { 0.5f, 0.5f };
+	constexpr static inline float32_t2 MeteringWindowOffset = { 0.25f, 0.25f };
+	constexpr static inline float32_t2 LumaMinMax = { 1.0f / 4096.0f, 32768.0f };
 
 public:
 	// Yay thanks to multiple inheritance we cannot forward ctors anymore
@@ -491,6 +490,7 @@ public:
 	inline void workLoopBody() override
 	{
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
+		uint32_t2 viewportSize = { m_gpuImg->getCreationParameters().extent.width, m_gpuImg->getCreationParameters().extent.height };
 
 		// Luma Meter
 		{
@@ -501,17 +501,10 @@ public:
 
 			auto pc = AutoexposurePushData
 			{
-				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
-				.meteringWindowScaleY = MeteringWindowScale[1] * m_gpuImg->getCreationParameters().extent.height,
-				.meteringWindowOffsetX = MeteringWindowOffset[0] * m_gpuImg->getCreationParameters().extent.width,
-				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
-				.lumaMin = LumaMinMax[0],
-				.lumaMax = LumaMinMax[1],
+				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
+				.lumaMinMax = LumaMinMax,
 				.EV = 0.0f,
-				.sampleCountX = SampleCount[0],
-				.sampleCountY = SampleCount[1],
-				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
-				.viewportSizeY = m_gpuImg->getCreationParameters().extent.height,
+				.viewportSize = viewportSize,
 				.lumaMeterBDA = m_lumaGatherBDA
 			};
 
@@ -521,7 +514,7 @@ public:
 			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->pushConstants(m_lumaMeterPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
-			cmdbuf->dispatch(1 + (SampleCount[0] - 1) / SubgroupSize, 1 + (SampleCount[1] - 1) / SubgroupSize);
+			cmdbuf->dispatch(viewportSize.x / SubgroupSize, viewportSize.y / SubgroupSize);
 			cmdbuf->end();
 
 			{
@@ -571,9 +564,9 @@ public:
 
 			m_EV = 0.0f;
 			for (int index = 0; index < SubgroupSize; index++) {
-				m_EV += static_cast<float>(buffData[index]) / (log2(LumaMinMax[1]) - log2(LumaMinMax[0])) + log2(LumaMinMax[0]);
+				m_EV += static_cast<float32_t>(buffData[index]) / (log2(LumaMinMax[1]) - log2(LumaMinMax[0])) + log2(LumaMinMax[0]);
 			}
-			m_EV /= (SampleCount[0] * SampleCount[1]);
+			m_EV /= (viewportSize.x * viewportSize.y) / 4;
 		}
 
 		// Render to swapchain
@@ -590,17 +583,10 @@ public:
 
 			auto pc = AutoexposurePushData
 			{
-				.meteringWindowScaleX = MeteringWindowScale[0] * m_gpuImg->getCreationParameters().extent.width,
-				.meteringWindowScaleY = MeteringWindowScale[1] * m_gpuImg->getCreationParameters().extent.height,
-				.meteringWindowOffsetX = MeteringWindowOffset[0] * m_gpuImg->getCreationParameters().extent.width,
-				.meteringWindowOffsetY = MeteringWindowOffset[1] * m_gpuImg->getCreationParameters().extent.height,
-				.lumaMin = LumaMinMax[0],
-				.lumaMax = LumaMinMax[1],
+				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
+				.lumaMinMax = LumaMinMax,
 				.EV = m_EV,
-				.sampleCountX = SampleCount[0],
-				.sampleCountY = SampleCount[1],
-				.viewportSizeX = m_gpuImg->getCreationParameters().extent.width,
-				.viewportSizeY = m_gpuImg->getCreationParameters().extent.height,
+				.viewportSize = viewportSize,
 				.lumaMeterBDA = m_lumaGatherBDA
 			};
 
@@ -617,8 +603,8 @@ public:
 			{
 				const asset::SViewport viewport =
 				{
-					.width = float(m_window->getWidth()),
-					.height = float(m_window->getHeight())
+					.width = float32_t(m_window->getWidth()),
+					.height = float32_t(m_window->getHeight())
 				};
 				cmdbuf->setViewport({ &viewport, 1 });
 			}
@@ -707,7 +693,7 @@ public:
 protected:
 	nbl::video::IDeviceMemoryAllocator::SAllocation m_lumaGatherAllocation;
 	uint64_t m_lumaGatherBDA;
-	float m_EV = 0;
+	float32_t m_EV = 0;
 	smart_refctd_ptr<IGPUImage> m_gpuImg;
 	smart_refctd_ptr<IGPUImageView> m_gpuImgView;
 

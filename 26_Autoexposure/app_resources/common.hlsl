@@ -6,16 +6,23 @@
 #define _AUTOEXPOSURE_COMMON_INCLUDED_
 
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
+#include "nbl/builtin/hlsl/luma_meter/common.hlsl"
+
+namespace nbl
+{
+namespace hlsl
+{
 
 struct AutoexposurePushData
 {
-    float meteringWindowScaleX, meteringWindowScaleY;
-    float meteringWindowOffsetX, meteringWindowOffsetY;
-    float lumaMin, lumaMax;
-    float EV;
-    uint32_t sampleCountX, sampleCountY;
-    uint32_t viewportSizeX, viewportSizeY;
+    nbl::hlsl::luma_meter::MeteringWindow window;
+    float32_t2 lumaMinMax;
+    float32_t EV;
+    uint32_t2 viewportSize;
     uint64_t lumaMeterBDA;
 };
+
+}
+}
 
 #endif
