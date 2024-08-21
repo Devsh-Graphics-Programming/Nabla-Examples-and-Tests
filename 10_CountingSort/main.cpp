@@ -112,13 +112,14 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 					nbl::video::IDeviceMemoryAllocator::SAllocation *allocation,
 					smart_refctd_ptr<IGPUBuffer>& buffer,
 					size_t buffer_size,
-					const char *label) {
+					const char *label
+				) -> void {
 					IGPUBuffer::SCreationParams params;
 					params.size = buffer_size;
 					params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 					buffer = m_device->createBuffer(std::move(params));
 					if (!buffer)
-						return logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
+						logFail("Failed to create GPU buffer of size %d!\n", buffer_size);
 
 					buffer->setObjectDebugName(label);
 
@@ -127,7 +128,7 @@ class CountingSortApp final : public application_templates::MonoDeviceApplicatio
 
 					*allocation = m_device->allocate(reqs, buffer.get(), IDeviceMemoryAllocation::EMAF_DEVICE_ADDRESS_BIT);
 					if (!allocation->isValid())
-						return logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
+						logFail("Failed to allocate Device Memory compatible with our GPU Buffer!\n");
 
 					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
 				};
