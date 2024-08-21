@@ -1,8 +1,6 @@
 #ifndef _FLIP_EXAMPLE_COMMON_HLSL
 #define _FLIP_EXAMPLE_COMMON_HLSL
 
-#include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
-
 #define NUM_THREADS 128
 
 NBL_CONSTEXPR uint32_t WorkgroupSize = NUM_THREADS;
