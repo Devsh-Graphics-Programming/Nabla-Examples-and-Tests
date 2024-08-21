@@ -139,20 +139,24 @@ public:
             m_device->createComputePipelines(nullptr, {&params, 1}, &m_buildHistogramPipeline);
         }
 
-        std::array<IGPUDescriptorSetLayout*, 1> dscLayoutPtrs = {
+        std::array<IGPUDescriptorSetLayout*, 2> dscLayoutPtrs = {
+				nullptr,
 				dsLayout1.get()
 			};
-		const uint32_t setCounts[2u] = { 2u, 2u };
+		const uint32_t setCounts[2u] = { 0u, 2u };
         histogramDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
-		histogramDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_histogramDs[0]);
-		histogramDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_histogramDs[1]);
+		m_histogramDs[0] = histogramDsPool->createDescriptorSet(dsLayout1);
+		m_histogramDs[1] = histogramDsPool->createDescriptorSet(dsLayout1);
 
 		dscLayoutPtrs = {
+				nullptr,
 				dsLayout2.get()
 			};
 		sortDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
-		sortDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_radixSortDs[0]);
-		sortDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_radixSortDs[1]);
+		//sortDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_radixSortDs[0]);
+		//sortDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_radixSortDs[1]);
+		m_radixSortDs[0] = sortDsPool->createDescriptorSet(dsLayout2);
+		m_radixSortDs[1] = sortDsPool->createDescriptorSet(dsLayout2);
     }
 
     void sort(smart_refctd_ptr<IGPUCommandBuffer> cmdbuf, smart_refctd_ptr<IGPUBuffer> dataBuffer, uint32_t numElements)
@@ -265,7 +269,7 @@ public:
 
             cmdbuf->bindComputePipeline(m_buildHistogramPipeline.get());
 			const IGPUDescriptorSet* histSet = m_histogramDs[i % 2].get();
-		    cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_buildHistogramPipeline->getLayout(), 0, 1, &histSet);
+		    cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_buildHistogramPipeline->getLayout(), 1, 1, &histSet);
 		    cmdbuf->dispatch(numWorkgroups, 1, 1);
 
             {
@@ -302,7 +306,7 @@ public:
 
 			cmdbuf->bindComputePipeline(m_radixSortPipeline.get());
 			const IGPUDescriptorSet* sortSet = m_radixSortDs[i % 2].get();
-		    cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_radixSortPipeline->getLayout(), 0, 1, &sortSet);
+		    cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_radixSortPipeline->getLayout(), 1, 1, &sortSet);
 		    cmdbuf->dispatch(numWorkgroups, 1, 1);
 
 			{
@@ -367,7 +371,7 @@ private:
 
 		    auto bufMem = m_device->allocate(reqs, tempDataBuffer.get());
         }
-		uint32_t bufSize = numWorkgroups * NUM_SORT_BINS * sizeof(uint32_t);
+		uint32_t bufSize = sizeof(uint32_t) * numWorkgroups * NUM_SORT_BINS;
 		if (!histogramBuffer || histogramBuffer->getSize() != bufSize)
 		{
 			video::IGPUBuffer::SCreationParams params = {};

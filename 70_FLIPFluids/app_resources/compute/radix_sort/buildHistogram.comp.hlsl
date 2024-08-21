@@ -1,5 +1,7 @@
 #include "sort_common.hlsl"
 
+using namespace nbl::hlsl;
+
 [[vk::binding(0, 1)]]
 cbuffer SortParams
 {
@@ -9,7 +11,7 @@ cbuffer SortParams
 [[vk::binding(1, 1)]] RWStructuredBuffer<DATA_TYPE> inputBuffer;
 [[vk::binding(2, 1)]] RWStructuredBuffer<uint> histograms;
 
-shared DATA_TYPE[NumSortBins] histogram;
+groupshared uint histogram[NumSortBins];
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 threadID : SV_GroupThreadID, uint32_t3 groupID : SV_GroupID)
@@ -19,18 +21,18 @@ void main(uint32_t3 threadID : SV_GroupThreadID, uint32_t3 groupID : SV_GroupID)
 
     if (l_id < NumSortBins)
         histogram[l_id] = 0u;
-    barrier();
+    glsl::barrier();
 
     for (uint i = 0; i < params.numThreadsPerGroup; i++)
     {
-        uint elementID = g_id * params.numThreadsPerGroup * WorkgroupSize + i * WorkgroupSize + l_id
+        uint elementID = g_id * params.numThreadsPerGroup * WorkgroupSize + i * WorkgroupSize + l_id;
         if (elementID < params.numElements)
         {
             uint bin = uint(GET_KEY(inputBuffer[elementID]) >> params.bitShift) & uint(NumSortBins - 1);
-            atomicAdd(histogram[bin], 1u);
+            glsl::atomicAdd(histogram[bin], 1u);
         }
     }
-    barrier();
+    glsl::barrier();
 
     if (l_id < NumSortBins)
         histograms[NumSortBins * g_id + l_id] = histogram[l_id];

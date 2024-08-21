@@ -1274,7 +1274,7 @@ private:
 		void* testbufMem;
 
 		IGPUBuffer::SCreationParams params;
-		params.size = numTestElements * sizeof(uint32_t);
+		params.size = 2 * numTestElements * sizeof(uint32_t);
 		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_SHADER_DEVICE_ADDRESS_BIT;
 		{
 			testbuf = m_device->createBuffer(std::move(params));
@@ -1288,20 +1288,22 @@ private:
 		}
 
 		// generate random data
-		uint32_t bufferData[numTestElements];
+		uint32_t bufferData[2 * numTestElements];
 		unsigned seed = std::chrono::system_clock::now().time_since_epoch().count();
 		std::mt19937 g(seed);
 
-		for (int i = 0; i < numTestElements; i++)
+		for (int i = 0; i < 2 * numTestElements; i++)
 		{
 			bufferData[i] = g() % 128;
 		}
-		memcpy(testbufMem, bufferData, numTestElements * sizeof(uint32_t));
+		memcpy(testbufMem, bufferData, 2 * numTestElements * sizeof(uint32_t));
 
 		std::string outBuffer;
 		for (auto i = 0; i < numTestElements; i++) {
 			outBuffer.append("{");
-			outBuffer.append(std::to_string(bufferData[i]));
+			outBuffer.append(std::to_string(bufferData[2 * i]));
+			outBuffer.append(",");
+			outBuffer.append(std::to_string(bufferData[2 * i + 1]));
 			outBuffer.append("} ");
 		}
 		outBuffer.append("\n");
@@ -1372,7 +1374,9 @@ private:
 		outBuffer.clear();
 		for (auto i = 0; i < numTestElements; i++) {
 			outBuffer.append("{");
-			outBuffer.append(std::to_string(mappedBufData[i]));
+			outBuffer.append(std::to_string(mappedBufData[2 * i]));
+			outBuffer.append(",");
+			outBuffer.append(std::to_string(mappedBufData[2 * i + 1]));
 			outBuffer.append("} ");
 		}
 		outBuffer.append("\n");

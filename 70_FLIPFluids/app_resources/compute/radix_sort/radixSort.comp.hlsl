@@ -1,5 +1,7 @@
 #include "sort_common.hlsl"
 
+using namespace nbl::hlsl;
+
 #define GET_KEY(s) s.x
 
 [[vk::binding(0, 1)]]
@@ -14,7 +16,7 @@ cbuffer SortParams
 [[vk::binding(3, 1)]] RWStructuredBuffer<uint> histograms;
 
 groupshared uint sums[NumSortBins / SubgroupSize];
-groupshared uint globalOffsets[sharedScanLen];
+groupshared uint globalOffsets[NumSortBins];
 
 struct BinFlags
 {
@@ -27,8 +29,8 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
 {
     uint g_id = groupID.x;
     uint l_id = threadID.x;
-    uint s_id = gl_SubgroupID();
-    uint ls_id = gl_SubgroupInvocationID();
+    uint s_id = glsl::gl_SubgroupID();
+    uint ls_id = glsl::gl_SubgroupInvocationID();
 
     uint localHistogram = 0;
     uint prefixSum = 0;
@@ -39,22 +41,22 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
         uint count = 0;
         for (uint i = 0; i < params.numWorkgroups; i++)
         {
-            const uint t = histograms[NumSortBins * j + l_id];
-            localHistogram = (j == g_id) ? count : localHistogram;
+            const uint t = histograms[NumSortBins * i + l_id];
+            localHistogram = (i == g_id) ? count : localHistogram;
             count += t;
         }
 
         histogramCount = count;
-        const uint sum = subgroupAdd(histogramCount);
-        prefixSum = subgroupExclusiveAdd(histogramCount);
-        if (subgroupElect())
+        const uint sum = glsl::subgroupAdd(histogramCount);
+        prefixSum = glsl::subgroupExclusiveAdd(histogramCount);
+        if (glsl::subgroupElect())
             sums[s_id] = sum;
     }
-    barrier();
+    glsl::barrier();
 
     if (l_id < NumSortBins)
     {
-        const uint totalPrefixSums = subgroupBroadcast(subgroupExclusiveAdd(sums[ls_id]), s_id);
+        const uint totalPrefixSums = glsl::subgroupBroadcast(glsl::subgroupExclusiveAdd(sums[ls_id]), s_id);
         const uint globalHistogram = totalPrefixSums + prefixSum;
         globalOffsets[l_id] = globalHistogram + localHistogram;
     }
@@ -73,7 +75,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
                 binFlags[l_id].flags[j] = 0u;
             }
         }
-        barrier();
+        glsl::barrier();
 
         DATA_TYPE e = 0;
         uint binID = 0;
@@ -83,9 +85,9 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
             e = inputBuffer[elementID];
             binID = uint(GET_KEY(e) >> params.bitShift) & uint(NumSortBins - 1);
             binOffset = globalOffsets[binID];
-            atomicAdd(binFlags[binID].flags[flagsBin], flagsBit);
+            glsl::atomicAdd(binFlags[binID].flags[flagsBin], flagsBit);
         }
-        barrier();
+        glsl::barrier();
 
         if (elementID < params.numElements)
         {
@@ -93,7 +95,7 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
             uint count = 0;
             for (uint j = 0; j < WorkgroupSize / 32; j++)
             {
-                const uint bits = binFlags[bindID].flags[j];
+                const uint bits = binFlags[binID].flags[j];
                 const uint fullCount = countbits(bits);
                 const uint partialCount = countbits(bits & (flagsBit - 1));
                 prefix += (j < flagsBin) ? fullCount : 0u;
@@ -102,8 +104,8 @@ void main(uint threadID : SV_GroupThreadID, uint groupID : SV_GroupID)
             }
             outputBuffer[binOffset + prefix] = e;
             if (prefix == count - 1)
-                atomicAdd(globalOffsets[binID], count);
+                glsl::atomicAdd(globalOffsets[binID], count);
         }
-        barrier();
+        glsl::barrier();
     }
 }
