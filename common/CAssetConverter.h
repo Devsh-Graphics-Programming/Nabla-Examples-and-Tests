@@ -4,12 +4,8 @@
 #define _NBL_VIDEO_C_ASSET_CONVERTER_INCLUDED_
 
 
-#if 1
-#include "nabla.h"
-#else
 #include "nbl/video/utilities/IUtilities.h"
 #include "nbl/video/asset_traits.h"
-#endif
 #include "nbl/builtin/hlsl/cpp_compat.hlsl"
 
 
