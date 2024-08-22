@@ -575,6 +575,58 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 		// can now spawn our own hash cache
 		retval.m_hashCache = core::make_smart_refctd_ptr<CHashCache>();
+		
+		// a somewhat structured uint64_t
+		struct MemoryRequirementBin
+		{
+			inline bool operator==(const MemoryRequirementBin&) const = default;
+
+			// We order our requirement bins from those that can be allocated from the most memory types to those that can only be allocated from one
+			inline bool operator<(const MemoryRequirementBin& other) const
+			{
+				if (needsDeviceAddress!=other.needsDeviceAddress)
+					return needsDeviceAddress;
+				return hlsl::bitCount(compatibileMemoryTypeBits)<hlsl::bitCount(other.compatibileMemoryTypeBits);
+			}
+
+			uint64_t compatibileMemoryTypeBits : 32 = 0;
+			uint64_t needsDeviceAddress : 1 = 0;
+		};
+		// Because we store node pointer we can both get the `IDeviceMemoryBacked*` to bind to, and also zero out the cache entry if allocation unsuccessful
+		using memory_backed_ptr_variant_t = std::variant<asset_cached_t<ICPUBuffer>*,asset_cached_t<ICPUImage>*>;
+		core::map<MemoryRequirementBin,core::vector<memory_backed_ptr_variant_t>> allocationRequests;
+		// for this we require that the data storage for the dfsCaches' nodes does not change
+		auto requestAllocation = [&inputs,device,&allocationRequests]<DeviceMemoryBacked DeviceMemoryBackedType>(asset_cached_t<DeviceMemoryBackedType>* pGpuObj)->bool
+		{
+			const auto* gpuObj = pGpuObj->get();
+			const IDeviceMemoryBacked::SDeviceMemoryRequirements& memReqs = gpuObj->getMemoryReqs();
+			// this shouldn't be possible
+			assert(memReqs.memoryTypeBits);
+			// allocate right away those that need their own allocation
+			if (memReqs.requiresDedicatedAllocation)
+			{
+				// allocate and bind right away
+				auto allocation = device->allocate(memReqs,gpuObj);
+				if (!allocation)
+				{
+					inputs.logger.log("Failed to allocate and bind dedicated memory for %s",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
+					return false;
+				}
+			}
+			else
+			{
+				// make the creation conditional upon allocation success
+				MemoryRequirementBin reqBin = {
+					.compatibileMemoryTypeBits = memReqs.memoryTypeBits,
+					// we ignore this for now, because we can't know how many `DeviceMemory` objects we have left to make, so just join everything by default
+					//.refersDedicatedAllocation = memReqs.prefersDedicatedAllocation
+				};
+				if constexpr (std::is_same_v<DeviceMemoryBackedType,IGPUBuffer>)
+					reqBin.needsDeviceAddress = gpuObj->getCreationParams().usage.hasFlags(IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT);
+				allocationRequests[reqBin].emplace_back(pGpuObj);
+			}
+			return true;
+		};
 
 		// Deduplication, Creation and Propagation
 		auto dedupCreateProp = [&]<Asset AssetType>()->void
@@ -992,6 +1044,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					stagingCache.insert({contentHash,uniqueCopyGroupID},gpuObj);
 					// propagate back to dfsCache
 					created.gpuObj = std::move(gpuObj);
+					// record if a device memory allocation will be needed
+					if constexpr (std::is_base_of_v<IDeviceMemoryBacked,AssetType>)
+						if (!requestAllocation(&created.gpuObj))
+							created.gpuObj = nullptr;
 				}
 			);
 		};
@@ -1000,34 +1056,205 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		// If two Asset chains are independent then we order them from most catastrophic failure to least.
 		dedupCreateProp.operator()<ICPUBuffer>();
 //		dedupCreateProp.operator()<ICPUImage>();
+// TODO: add backing buffers (not assets) for BLAS and TLAS builds
 		// Allocate Memory
 		{
-			core::unordered_map<uint64_t,core::vector<IDeviceMemoryBacked*>> allocationRequests;
-			// gather memory reqs
-			auto gatherMemoryReqs = [&]<Asset AssetType>()->void
+			auto getAsBase = [](const memory_backed_ptr_variant_t& var) -> const IDeviceMemoryBacked*
 			{
-				static_assert(std::is_base_of_v<IDeviceMemoryBacked,typename asset_traits<AssetType>::video_t>);
-				const auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
-				for (auto entry : stagingCache.m_reverseMap)
+				switch (var.index())
 				{
-					const IDeviceMemoryBacked::SDeviceMemoryRequirements& memReqs = entry.first->getMemoryReqs();
-					if (memReqs.requiresDedicatedAllocation)
-					{
-						// allocate right away
-						continue;
-					}
-					// bin according to: memoryTypeBits, prefersDedicated Allocation
+					case 0:
+						return std::get<asset_cached_t<ICPUBuffer>*>(var)->get();
+					case 1:
+						return std::get<asset_cached_t<ICPUImage>*>(var)->get();
+					default:
+						assert(false);
+						break;
 				}
+				return nullptr;
 			};
-			gatherMemoryReqs.operator()<ICPUBuffer>();
-//			gatherMemoryReqs.operator()<ICPUImage>();
-			// sort each bucket by alignment, then size from largest to smallest
-			// allocate device memory, from DEVICE_LOCAL to others (largest/least constrained heap first)
-				// grab allocations from buckets with least "extra" bits first
+			// sort each bucket by size from largest to smallest with pessimized allocation size due to alignment
+			for (auto& bin : allocationRequests)
+				std::sort(bin.second.begin(),bin.second.end(),[getAsBase](const memory_backed_ptr_variant_t& lhs, const memory_backed_ptr_variant_t& rhs)->bool
+					{
+						const auto& lhsReqs = getAsBase(lhs)->getMemoryReqs();
+						const auto& rhsReqs = getAsBase(rhs)->getMemoryReqs();
+						const size_t lhsWorstSize = lhsReqs.size+(0x1ull<<lhsReqs.alignmentLog2)-1;
+						const size_t rhsWorstSize = rhsReqs.size+(0x1ull<<rhsReqs.alignmentLog2)-1;
+						return lhsWorstSize<rhsWorstSize;
+					}
+				);
 
-		//	device->allocate(reqs,false);
-			// now bind it
-			// if fail, need to wipe the GPU Obj as a failure
+			// lets define our order of memory type usage
+			const auto& memoryProps = device->getPhysicalDevice()->getMemoryProperties();
+			core::vector<uint32_t> memoryTypePreference(memoryProps.memoryTypeCount);
+			std::iota(memoryTypePreference.begin(),memoryTypePreference.end(),0);
+			std::sort(memoryTypePreference.begin(),memoryTypePreference.end(),
+				[&memoryProps](const uint32_t leftIx, const uint32_t rightIx)->bool
+				{
+					const auto& leftType = memoryProps.memoryTypes[leftIx];
+					const auto& rightType = memoryProps.memoryTypes[rightIx];
+
+					using flags_t = IDeviceMemoryAllocation::E_MEMORY_PROPERTY_FLAGS;
+					const auto& leftTypeFlags = leftType.propertyFlags;
+					const auto& rightTypeFlags = rightType.propertyFlags;
+
+					// we want to try types that device local first, then non-device local
+					const bool leftDeviceLocal = leftTypeFlags.hasFlags(flags_t::EMPF_DEVICE_LOCAL_BIT);
+					const bool rightDeviceLocal = rightTypeFlags.hasFlags(flags_t::EMPF_DEVICE_LOCAL_BIT);
+					if (leftDeviceLocal!=rightDeviceLocal)
+						return leftDeviceLocal;
+
+					// then we want to allocate from largest heap to smallest
+					// TODO: actually query the amount of free memory using VK_EXT_memory_budget
+					const size_t leftHeapSize = memoryProps.memoryHeaps[leftType.heapIndex].size;
+					const size_t rightHeapSize = memoryProps.memoryHeaps[rightType.heapIndex].size;
+					if (leftHeapSize<rightHeapSize)
+						return true;
+					else if (leftHeapSize!=rightHeapSize)
+						return false;
+
+					// within those types we want to first do non-mappable
+					const bool leftMappable = leftTypeFlags.value&(flags_t::EMPF_HOST_READABLE_BIT|flags_t::EMPF_HOST_WRITABLE_BIT);
+					const bool rightMappable = rightTypeFlags.value&(flags_t::EMPF_HOST_READABLE_BIT|flags_t::EMPF_HOST_WRITABLE_BIT);
+					if (leftMappable!=rightMappable)
+						return rightMappable;
+
+					// then non-coherent
+					const bool leftCoherent = leftTypeFlags.hasFlags(flags_t::EMPF_HOST_COHERENT_BIT);
+					const bool rightCoherent = rightTypeFlags.hasFlags(flags_t::EMPF_HOST_COHERENT_BIT);
+					if (leftCoherent!=rightCoherent)
+						return rightCoherent;
+
+					// then non-cached
+					const bool leftCached = leftTypeFlags.hasFlags(flags_t::EMPF_HOST_CACHED_BIT);
+					const bool rightCached = rightTypeFlags.hasFlags(flags_t::EMPF_HOST_CACHED_BIT);
+					if (leftCached!=rightCached)
+						return rightCached;
+
+					// otherwise equal
+					return false;
+				}
+			);
+			
+			// go over our preferred memory types and try to service allocations from them
+			core::vector<size_t> offsetsTmp;
+			for (const auto memTypeIx : memoryTypePreference)
+			{
+				// we could try to service multiple requirements with the same allocation, but we probably don't need to try so hard
+				for (auto& reqBin : allocationRequests)
+				if (reqBin.first.compatibileMemoryTypeBits&(0x1<<memTypeIx))
+				{
+					using allocate_flags_t = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
+					IDeviceMemoryAllocator::SAllocateInfo info = {
+						.size = offsetsTmp.back(), // we have one more item in the array
+						.flags = reqBin.first.needsDeviceAddress ? allocate_flags_t::EMAF_DEVICE_ADDRESS_BIT:allocate_flags_t::EMAF_NONE,
+						.memoryTypeIndex = memTypeIx,
+						.dedication = nullptr
+					};
+
+					auto& binItems = reqBin.second;
+					const auto binItemCount = reqBin.second.size();
+					// the `std::exclusive_scan` syntax is more effort for this
+					{
+						offsetsTmp.resize(binItemCount+1);
+						offsetsTmp[0] = 0;
+						for (size_t i=0; i<binItemCount;)
+						{
+							const auto* memBacked = getAsBase(binItems[i]);
+							const auto& memReqs = memBacked->getMemoryReqs();
+							// round up the offset to get the correct alignment
+							offsetsTmp[++i] = core::roundUp(offsetsTmp[i],0x1ull<<memReqs.alignmentLog2)+memReqs.size;
+						}
+					}
+					// allocate in progression of combined allocations, while trying allocate as much as possible in a single allocation
+					auto itemsBegin = binItems.begin();
+					for (auto firstOffsetIt=offsetsTmp.begin(); firstOffsetIt!=offsetsTmp.end(); )
+					for (auto nextOffsetIt=offsetsTmp.end(); nextOffsetIt>firstOffsetIt; nextOffsetIt--)
+					{
+						const size_t combinedCount = std::distance(firstOffsetIt,nextOffsetIt);
+						const size_t lastIx = combinedCount-1;
+						// if we take `combinedCount` starting at `firstItem` their allocation would need this size
+						info.size = (firstOffsetIt[lastIx]-*firstOffsetIt)+getAsBase(itemsBegin[lastIx])->getMemoryReqs().size;
+						auto allocation = device->allocate(info);
+						if (allocation.isValid())
+						{
+							// bind everything
+							for (auto i=0; i<combinedCount; i++)
+							{
+								const auto& toBind = itemsBegin[i];
+								bool bindSuccess = false;
+								const IDeviceMemoryBacked::SMemoryBinding binding = {
+									.memory = allocation.memory.get(),
+									// base allocation offset, plus relative offset for this batch
+									.offset = allocation.offset+firstOffsetIt[i]-*firstOffsetIt
+								};
+								switch (toBind.index())
+								{
+									case 0:
+										{
+											const ILogicalDevice::SBindBufferMemoryInfo info =
+											{
+												.buffer = std::get<asset_cached_t<ICPUBuffer>*>(toBind)->get(),
+												.binding = binding
+											};
+											bindSuccess = device->bindBufferMemory(1,&info);
+										}
+										break;
+									case 1:
+										{
+											const ILogicalDevice::SBindImageMemoryInfo info =
+											{
+												.image = std::get<asset_cached_t<ICPUImage>*>(toBind)->get(),
+												.binding = binding
+											};
+											bindSuccess = device->bindImageMemory(1,&info);
+										}
+										break;
+									default:
+										break;
+								}
+								assert(bindSuccess);
+							}
+							// erase `combinedCount` items from bin
+							itemsBegin = binItems.erase(itemsBegin,itemsBegin+combinedCount);
+							// move onto next batch
+							firstOffsetIt = nextOffsetIt;
+							break;
+						}
+						// we're unable to allocate even for a single item with a dedicated allocation, skip trying then
+						else if ((nextOffsetIt-1)==firstOffsetIt)
+						{
+							firstOffsetIt = nextOffsetIt;
+							itemsBegin++;
+							break;
+						}
+					}
+				}
+			}
+
+			// If we failed to allocate and bind memory from any heap, need to wipe the GPU Obj as a failure
+			for (const auto& reqBin : allocationRequests)
+			for (auto& req : reqBin.second)
+			{
+				const auto asBacked = getAsBase(req);
+				if (asBacked->getBoundMemory().isValid())
+					continue;
+				switch (req.index())
+				{
+					case 0:
+						*std::get<asset_cached_t<ICPUBuffer>*>(req) = {};
+						break;
+					case 1:
+						*std::get<asset_cached_t<ICPUImage>*>(req) = {};
+						break;
+					default:
+						assert(false);
+						break;
+				}
+				inputs.logger.log("Allocation and Binding of Device Memory for \"%\" failed, deleting GPU object.",system::ILogger::ELL_ERROR,asBacked->getObjectDebugName());
+			}
+			allocationRequests.clear();
 		}
 //		dedupCreateProp.operator()<ICPUBottomLevelAccelerationStructure>();
 //		dedupCreateProp.operator()<ICPUTopLevelAccelerationStructure>();
