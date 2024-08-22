@@ -4,6 +4,7 @@
 
 #include "nbl/builtin/hlsl/luma_meter/luma_meter.hlsl"
 #include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
 #include "app_resources/common.hlsl"
 
 [[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D texture;
@@ -18,6 +19,7 @@ using PtrAccessor = BdaAccessor < uint32_t >;
 groupshared float32_t sdata[WorkgroupSize];
 struct SharedAccessor
 {
+    using type = float32_t;
     void get(const uint32_t index, NBL_REF_ARG(uint32_t) value)
     {
         value = sdata[index];
@@ -36,6 +38,10 @@ struct SharedAccessor
 
 struct TexAccessor
 {
+    static float32_t3 toXYZ(float32_t3 srgbColor) {
+        return dot(colorspace::sRGBtoXYZ[1], srgbColor);
+    }
+
     float32_t3 get(float32_t2 uv) {
         return texture.Sample(samplerState, uv).rgb;
     }
@@ -58,5 +64,5 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     using LumaMeter = luma_meter::geom_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMinMax);
 
-    meter.gatherLuma(pushData.window, val_accessor, tex, sdata, (float32_t2)(glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()));
+    meter.sampleLuma(pushData.window, val_accessor, tex, sdata, (float32_t2)(glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()));
 }
