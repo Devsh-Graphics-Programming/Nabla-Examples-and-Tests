@@ -28,9 +28,9 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     if (mainObj.clipProjectionAddress != InvalidClipProjectionAddress)
     {
         ClipProjectionData ret;
-        ret.projectionToNDC = vk::RawBufferLoad<Mat64_t3x3>(mainObj.clipProjectionAddress, 8u);
-        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(Mat64_t3x3), 8u);
-        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(Mat64_t3x3) + sizeof(float32_t2), 8u);
+        ret.projectionToNDC = vk::RawBufferLoad<nbl::hlsl::portable_matrix64_t3x3>(mainObj.clipProjectionAddress, 8u);
+        ret.minClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(nbl::hlsl::portable_matrix64_t3x3), 8u);
+        ret.maxClipNDC      = vk::RawBufferLoad<float32_t2>(mainObj.clipProjectionAddress + sizeof(nbl::hlsl::portable_matrix64_t3x3) + sizeof(float32_t2), 8u);
         return ret;
     }
     else
@@ -39,22 +39,23 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
     }
 }
 
-nbl::hlsl::ef64_t2 transformPointNdc(Mat64_t3x3 transformation, nbl::hlsl::ef64_t2 point2d)
+nbl::hlsl::portable_vector64_t2 transformPointNdc(nbl::hlsl::portable_matrix64_t3x3 transformation, nbl::hlsl::portable_vector64_t2 point2d)
 {
-    nbl::hlsl::ef64_t3 transformationResult = transformation * nbl::hlsl::ef64_t3::create(point2d, 1);
-    return nbl::hlsl::ef64_t2::create(transformationResult.x, transformationResult.y);
+    nbl::hlsl::portable_vector64_t3 transformationResult = transformation * nbl::hlsl::create_portable_vector64_t3(point2d.x, point2d.y, 1.0f);
+    return nbl::hlsl::create_portable_vector64_t2(transformationResult.x, transformationResult.y);
 }
-nbl::hlsl::ef64_t2 transformVectorNdc(Mat64_t3x3 transformation, nbl::hlsl::ef64_t2 vector2d)
+nbl::hlsl::portable_vector64_t2 transformVectorNdc(nbl::hlsl::portable_matrix64_t3x3 transformation, nbl::hlsl::portable_vector64_t2 vector2d)
 {
-    nbl::hlsl::ef64_t3 transformationResult = transformation * nbl::hlsl::ef64_t3::create(vector2d, 0);
-    return nbl::hlsl::ef64_t2::create(transformationResult.x, transformationResult.y);
+    nbl::hlsl::portable_vector64_t3 transformationResult = transformation * nbl::hlsl::create_portable_vector64_t3(vector2d.x, vector2d.y, 0.0f);
+    return nbl::hlsl::create_portable_vector64_t2(transformationResult.x, transformationResult.y);
 }
-float2 transformPointScreenSpace(Mat64_t3x3 transformation, nbl::hlsl::ef64_t2 point2d)
+float2 transformPointScreenSpace(nbl::hlsl::portable_matrix64_t3x3 transformation, nbl::hlsl::portable_vector64_t2 point2d)
 {
-    nbl::hlsl::ef64_t2 ndc = transformPointNdc(transformation, point2d);
-    nbl::hlsl::ef64_t2 result = (ndc + 1.0f) * 0.5f * nbl::hlsl::ef64_t2::create(globals.resolution);
+    nbl::hlsl::portable_vector64_t2 ndc = transformPointNdc(transformation, point2d);
+    nbl::hlsl::portable_vector64_t2 result = (ndc + 1.0f) * 0.5f * nbl::hlsl::create_portable_vector64_t2_from_2d_vec(globals.resolution);
 
-    return float2(result.x.getAsFloat32(), result.y.getAsFloat32());
+    float2 output = nbl::hlsl::convert_portable_vector64_t2_to_float32_t2(result);
+    return output;
 }
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
@@ -124,23 +125,23 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + float(lineStyle.worldSpaceLineWidth * globals.screenToWorldRatio.getAsFloat32());
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + nbl::hlsl::convert_portable_float64_t_to_float(nbl::hlsl::create_portable_float64_t(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
-            (nbl::hlsl::emulated_float64_t<false, true>::create(2.0) /
-            (clipProjectionData.projectionToNDC.columns[0].x * nbl::hlsl::emulated_float64_t<false, true>::create(globals.resolution.x))).getAsFloat32()
+            nbl::hlsl::convert_portable_float64_t_to_float((nbl::hlsl::create_portable_float64_t(2.0) /
+            (clipProjectionData.projectionToNDC.columns[0].x * nbl::hlsl::create_portable_float64_t(globals.resolution.x))))
         );
 
         if (objType == ObjectType::LINE)
         {
-            nbl::hlsl::ef64_t2 points[2u];
-            points[0u] = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
+            nbl::hlsl::portable_vector64_t2 points[2u];
+            points[0u] = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress + sizeof(LinePointInfo), 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2), 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
@@ -173,13 +174,13 @@ PSInput main(uint vertexID : SV_VertexID)
         }
         else if (objType == ObjectType::QUAD_BEZIER)
         {
-            nbl::hlsl::ef64_t2 points[3u];
-            points[0u] = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress, 8u);
-            points[1u] = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2), 8u);
-            points[2u] = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) * 2u, 8u);
+            nbl::hlsl::portable_vector64_t2 points[3u];
+            points[0u] = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
+            points[1u] = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 8u);
+            points[2u] = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2u, 8u);
 
-            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) * 3u, 8u);
-            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) * 3u + sizeof(float), 8u);
+            const float phaseShift = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 3u, 8u);
+            const float patternStretch = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 3u + sizeof(float), 8u);
             outV.setCurrentPhaseShift(phaseShift);
             outV.setPatternStretch(patternStretch);
 
@@ -348,9 +349,9 @@ PSInput main(uint vertexID : SV_VertexID)
 
             if (lineStyle.isRoadStyleFlag)
             {
-                const nbl::hlsl::ef64_t2 circleCenter = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress, 8u);
-                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2), 8u);
-                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) + sizeof(float2), 8u);
+                const nbl::hlsl::portable_vector64_t2 circleCenter = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
+                const float2 v = vk::RawBufferLoad<float2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 8u);
+                const float cosHalfAngleBetweenNormals = vk::RawBufferLoad<float>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float2), 8u);
 
                 const float2 circleCenterScreenSpace = transformPointScreenSpace(clipProjectionData.projectionToNDC, circleCenter);
                 outV.setPolylineConnectorCircleCenter(circleCenterScreenSpace);
@@ -410,16 +411,16 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::CURVE_BOX)
     {
         CurveBox curveBox;
-        curveBox.aabbMin = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress, 8u);
-        curveBox.aabbMax = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2), 8u);
+        curveBox.aabbMin = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
+        curveBox.aabbMax = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 8u);
         for (uint32_t i = 0; i < 3; i ++)
         {
-            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) * 2 + sizeof(float32_t2) * i, 4u);
-            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
+            curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * i, 4u);
+            curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        const float2 ndcAxisU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::ef64_t2::create(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin).getAsFloat2();
-        const float2 ndcAxisV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::ef64_t2::create(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin).getAsFloat2();
+        const float2 ndcAxisU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin).getAsFloat2();
+        const float2 ndcAxisV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin).getAsFloat2();
 
         const float2 screenSpaceAabbExtents = float2(length(ndcAxisU * float2(globals.resolution)) / 2.0, length(ndcAxisV * float2(globals.resolution)) / 2.0);
 
@@ -436,10 +437,10 @@ PSInput main(uint vertexID : SV_VertexID)
         dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
-        const nbl::hlsl::ef64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::ef64_t2::create(1.0f) - 
-            nbl::hlsl::ef64_t2::create(undilatedCorner)) + 
-            curveBox.aabbMax * nbl::hlsl::ef64_t2::create(undilatedCorner);
-        const float2 coord = (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::ef64_t2::create(dilateVec)).getAsFloat2();
+        const nbl::hlsl::portable_vector64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::create_portable_vector64_t2(1.0f) -
+            nbl::hlsl::create_portable_vector64_t2_from_2d_vec(undilatedCorner)) +
+            curveBox.aabbMax * nbl::hlsl::create_portable_vector64_t2_from_2d_vec(undilatedCorner);
+        const float2 coord = (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dilateVec)).getAsFloat2();
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -488,18 +489,18 @@ PSInput main(uint vertexID : SV_VertexID)
     else if (objType == ObjectType::FONT_GLYPH)
     {
         GlyphInfo glyphInfo;
-        glyphInfo.topLeft = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress, 8u);
-        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2), 4u);
-        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) + sizeof(float2), 4u);
-        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) + sizeof(float2) + sizeof(float), 4u);
+        glyphInfo.topLeft = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
+        glyphInfo.dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 4u);
+        glyphInfo.aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float2), 4u);
+        glyphInfo.minUV_textureID_packed = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         float32_t2 minUV = glyphInfo.getMinUV();
         uint16_t textureID = glyphInfo.getTextureID();
 
         const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
         const float2 screenTopLeft = transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft).getAsFloat2();
-        const float2 screenDirU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::ef64_t2::create(glyphInfo.dirU)).getAsFloat2();
-        const float2 screenDirV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::ef64_t2::create(dirV)).getAsFloat2();
+        const float2 screenDirU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(glyphInfo.dirU)).getAsFloat2();
+        const float2 screenDirV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)).getAsFloat2();
 
         const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
         const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
@@ -536,15 +537,15 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setFontGlyphScreenPxRange(screenPxRange);    }
     else if (objType == ObjectType::IMAGE)
     {
-        nbl::hlsl::ef64_t2 topLeft = vk::RawBufferLoad<nbl::hlsl::ef64_t2>(drawObj.geometryAddress, 8u);
-        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2), 4u);
-        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) + sizeof(float2), 4u);
-        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::ef64_t2) + sizeof(float2) + sizeof(float), 4u);
+        nbl::hlsl::portable_vector64_t2 topLeft = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
+        float32_t2 dirU = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 4u);
+        float32_t aspectRatio = vk::RawBufferLoad<float32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float2), 4u);
+        uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
         const float2 ndcTopLeft = transformPointNdc(clipProjectionData.projectionToNDC, topLeft).getAsFloat2();
-        const float2 ndcDirU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::ef64_t2::create(dirU)).getAsFloat2();
-        const float2 ndcDirV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::ef64_t2::create(dirV)).getAsFloat2();
+        const float2 ndcDirU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirU)).getAsFloat2();
+        const float2 ndcDirV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)).getAsFloat2();
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         float2 uv = corner; // non-dilated

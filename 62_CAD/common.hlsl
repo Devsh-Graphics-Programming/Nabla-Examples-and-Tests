@@ -1,25 +1,12 @@
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
-#include <nbl/builtin/hlsl/emulated_float64_t.hlsl>
+#include <nbl/builtin/hlsl/emulated_float64_t_utils.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
 #ifdef __HLSL_VERSION
 #include <nbl/builtin/hlsl/math/equations/quadratic.hlsl>
-#endif
-
-#ifndef __HLSL_VERSION
-// TODO(emulated_float64_t): Float64_t is not the best name i guess
-using Float64_t = double;
-using Float64_t2 = float64_t2;
-using Float64_t3 = float64_t3;
-using Mat64_t3x3 = float64_t3x3;
-#else
-using Float64_t = nbl::hlsl::emulated_float64_t<false, true>;
-using Float64_t2 = nbl::hlsl::ef64_t2;
-using Float64_t3 = nbl::hlsl::ef64_t3;
-using Mat64_t3x3 = nbl::hlsl::ef64_t3x3;
 #endif
 
 enum class ObjectType : uint32_t
@@ -55,14 +42,14 @@ struct DrawObject
 
 struct LinePointInfo
 {
-    Float64_t2 p;
+    nbl::hlsl::portable_vector64_t2 p;
     float32_t phaseShift;
     float32_t stretchValue;
 };
 
 struct QuadraticBezierInfo
 {
-    nbl::hlsl::shapes::QuadraticBezier<Float64_t> shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
+    nbl::hlsl::shapes::QuadraticBezier<nbl::hlsl::portable_float64_t<> > shape; // 48bytes = 3 (control points) x 16 (emulated_float64_t)
     float32_t phaseShift;
     float32_t stretchValue;
 };
@@ -72,7 +59,7 @@ static_assert(offsetof(QuadraticBezierInfo, phaseShift) == 48u);
 
 struct GlyphInfo
 {
-    Float64_t2 topLeft; // 2 * 8 = 16 bytes
+    nbl::hlsl::portable_vector64_t2 topLeft; // 2 * 8 = 16 bytes
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (32)
     // unorm8 minU;
@@ -81,7 +68,7 @@ struct GlyphInfo
     uint32_t minUV_textureID_packed; // 4 bytes (36)
     
 #ifndef __HLSL_VERSION
-    GlyphInfo(Float64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
+    GlyphInfo(nbl::hlsl::portable_vector64_t2 topLeft, float32_t2 dirU, float32_t aspectRatio, uint16_t textureId, float32_t2 minUV) :
         topLeft(topLeft),
         dirU(dirU),
         aspectRatio(aspectRatio)
@@ -114,7 +101,7 @@ struct GlyphInfo
 
 struct ImageObjectInfo
 {
-    Float64_t2 topLeft; // 2 * 8 = 16 bytes (16)
+    nbl::hlsl::portable_vector64_t2 topLeft; // 2 * 8 = 16 bytes (16)
     float32_t2 dirU; // 2 * 4 = 8 bytes (24)
     float32_t aspectRatio; // 4 bytes (28)
     uint32_t textureID; // 4 bytes (32)
@@ -122,7 +109,7 @@ struct ImageObjectInfo
 
 struct PolylineConnector
 {
-    Float64_t2 circleCenter;
+    nbl::hlsl::portable_vector64_t2 circleCenter;
     float32_t2 v;
     float32_t cosAngleDifferenceHalf;
     float32_t _reserved_pad;
@@ -132,8 +119,8 @@ struct PolylineConnector
 struct CurveBox
 {
     // will get transformed in the vertex shader, and will be calculated on the cpu when generating these boxes
-    Float64_t2 aabbMin; // 16
-    Float64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
+    nbl::hlsl::portable_vector64_t2 aabbMin; // 16
+    nbl::hlsl::portable_vector64_t2 aabbMax; // 32 , TODO: we know it's a square/box -> we save 8 bytes if we needed to store extra data
     float32_t2 curveMin[3]; // 56
     float32_t2 curveMax[3]; // 80
 };
@@ -150,7 +137,7 @@ static_assert(sizeof(CurveBox) == 80u);
 //      of course we could have the clip values to be in world units and also the matrix to transform to world instead of ndc but that requires extra computations(matrix multiplications) per vertex
 struct ClipProjectionData
 {
-    Mat64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
+    nbl::hlsl::portable_matrix64_t3x3 projectionToNDC; // 72 -> because we use scalar_layout
     float32_t2 minClipNDC; // 80
     float32_t2 maxClipNDC; // 88
 };
@@ -164,8 +151,8 @@ static_assert(offsetof(ClipProjectionData, maxClipNDC) == 80u);
 struct Globals
 {
     ClipProjectionData defaultClipProjection; // 88
-    Float64_t screenToWorldRatio; // 96
-    Float64_t worldToScreenRatio; // 100
+    nbl::hlsl::portable_float64_t<> screenToWorldRatio; // 96
+    nbl::hlsl::portable_float64_t<> worldToScreenRatio; // 100
     uint32_t2 resolution; // 108
     float antiAliasingFactor; // 112
     float miterLimit; // 116

@@ -468,6 +468,11 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
+		auto a = emulated_float64_t<false, true>::create(2.5f);
+		float b = a.getAsFloat32();
+		double aAsDouble = reinterpret_cast<double&>(a);
+		float aAsFloat = aAsDouble;
+
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
