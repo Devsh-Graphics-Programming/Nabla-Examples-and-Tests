@@ -486,7 +486,7 @@ public:
 			}
 		}
 		{
-			// extrapolate velocities pipeline
+			// advect particles pipeline
 			auto pipeline = createComputePipelineFromShader("app_resources/compute/advectParticles.comp.hlsl");
 			m_advectParticlesPipeline = pipeline.first;
 			IGPUDescriptorSetLayoutArray dsLayouts = pipeline.second;
@@ -1000,8 +1000,11 @@ private:
 			bindings[3].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[3]),
 		};
 
+		const auto& pushConstants = shaderIntrospection->getPushConstants();
+		const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = pushConstants.size };
+
 		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout(
-			{},
+			pushConstants.present() ? { &pcRange, 1} : {},
 			core::smart_refctd_ptr(dsLayouts[0]),
 			core::smart_refctd_ptr(dsLayouts[1]),
 			core::smart_refctd_ptr(dsLayouts[2]),
@@ -1265,6 +1268,24 @@ private:
 		m_shouldInitParticles = false;
 	}
 
+	void prepareGridExtrapolate(IGPUCommandBuffer* cmdbuf)
+	{
+		// make temp particle buffer for sort
+
+		// dispatch make particle-cell pairs
+
+		// dispatch sort pairs
+
+		// clear vel field
+		//SBufferRange<IGPUBuffer> range;
+		//cmdbuf->fillBuffer(range, 0ull);
+
+		// set ids in field
+
+		// rearrange particles using sorted pairs
+		//cmdbuf->copyBuffer particles to temp buf first
+	}
+
 	bool testSort()
 	{
 		const uint32_t numTestElements = 64;
@@ -1416,6 +1437,11 @@ private:
 	smart_refctd_ptr<IGPUComputePipeline> m_densityProjectPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_genParticleVerticesPipeline;
 
+	// -- some more helper compute shaders
+	smart_refctd_ptr<IGPUComputePipeline> m_particleCellPairsPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_gridParticleIDPipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_shuffleParticlesPipeline;
+
 	smart_refctd_ptr<video::IDescriptorPool> m_initParticlePool;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_initParticleDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_updateCellsPool;
@@ -1430,6 +1456,13 @@ private:
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_advectParticlesDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_genVerticesPool;
 	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_genVerticesDs;
+
+	smart_refctd_ptr<video::IDescriptorPool> m_particleCellPairsPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_particleCellPairsDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_gridParticleIDPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_gridParticleIDDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_shuffleParticlesPool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> m_shuffleParticlesDs;
 
 	// input system
 	smart_refctd_ptr<InputSystem> m_inputSystem;
