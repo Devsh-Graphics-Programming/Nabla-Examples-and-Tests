@@ -552,7 +552,7 @@ private:
 						// only write ops, reads can't be made available
 						.srcAccessMask = nbl::asset::ACCESS_FLAGS::SAMPLED_READ_BIT,
 						// destination needs to wait as early as possible
-						.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
+						.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 						// because of depth test needing a read and a write
 						.dstAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 					}

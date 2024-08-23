@@ -371,10 +371,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{
-				writes->dstSet = pass.ui.descriptorSet.get();
-				writes->binding = 0u;
-				writes->arrayElement = i;
-				writes->count = 1u;
+				writes[i].dstSet = pass.ui.descriptorSet.get();
+				writes[i].binding = 0u;
+				writes[i].arrayElement = i;
+				writes[i].count = 1u;
 			}
 			writes[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info = descriptorInfo.data() + nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID;
 			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
