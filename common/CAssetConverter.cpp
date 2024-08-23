@@ -999,7 +999,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 
 			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
-			auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
+			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
 			dfsCache.for_each([&](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 				{
 					// already found in read cache and not converted
@@ -1051,7 +1051,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						gpuObj.get()->setObjectDebugName(debugName.str().c_str());
 					}
 					// insert into staging cache
-					stagingCache.insert({contentHash,uniqueCopyGroupID},gpuObj);
+					stagingCache.emplace(gpuObj.get(),CCache<AssetType>::key_t(contentHash,uniqueCopyGroupID));
 					// propagate back to dfsCache
 					created.gpuObj = std::move(gpuObj);
 					// record if a device memory allocation will be needed
@@ -1299,7 +1299,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		//
 		const auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
 		const auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
-		const auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
+		const auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
 		auto& results = std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects);
 		for (size_t i=0; i<count; i++)
 		if (auto asset=assets[i]; asset)
@@ -1317,9 +1317,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				results[i] = gpuObj;
 				// if something with this content hash is in the stagingCache, then it must match the `found->gpuObj`
-				if (auto finalCacheIt=stagingCache.find({found.contentHash,uniqueCopyGroupID}); finalCacheIt!=stagingCache.forwardMapEnd())
+				if (auto finalCacheIt=stagingCache.find(gpuObj.get()); finalCacheIt!=stagingCache.end())
 				{
-					assert(finalCacheIt->second.get()==gpuObj.get());
+					const bool matches = finalCacheIt->second==CCache<AssetType>::key_t(found.contentHash,uniqueCopyGroupID);
+					assert(matches);
 				}
 			}
 			else
@@ -1370,11 +1371,11 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			return false;
 
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
-		auto makFailureInStaging = [&]<Asset AssetType>(const asset_traits<AssetType>::lookup_t gpuObj)->void
+		auto makFailureInStaging = [&]<Asset AssetType>(asset_traits<AssetType>::video_t* gpuObj)->void
 		{
-			auto& stagingCache = std::get<CCache<AssetType>>(reservations.m_stagingCaches);
+			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 			const auto found = stagingCache.find(gpuObj);
-			assert(found!=stagingCache.reverseMapEnd());
+			assert(found!=stagingCache.end());
 			// change the content hash on the reverse map to a NoContentHash
 			const_cast<core::blake3_hash_t&>(found->second.value) = {};
 		};
@@ -1387,7 +1388,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			// do the uploads
 			for (auto& item : buffersToUpload)
 			{
-				auto found = std::get<CCache<ICPUBuffer>>(reservations.m_stagingCaches).m_reverseMap.find(item.gpuObj);
+				auto found = std::get<SResults::staging_cache_t<ICPUBuffer>>(reservations.m_stagingCaches).find(item.gpuObj);
 				const SBufferRange<IGPUBuffer> range = {
 					.offset = 0,
 					.size = item.gpuObj->getCreationParams().size,
@@ -1492,21 +1493,21 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 	// want to check if deps successfully exist
 	auto missingDependent = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* dep)->bool
 	{
-		auto& stagingCache = std::get<CCache<AssetType>>(reservations.m_stagingCaches);
-		auto found = stagingCache.find(dep);
-		// dependent might be in readCache of one or more converters, so if in doubt assume its okay
-		if (found!=stagingCache.reverseMapEnd() && found->second.value==core::blake3_hash_t{})
+		auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+		auto found = stagingCache.find(const_cast<asset_traits<AssetType>::video_t*>(dep));
+		if (found!=stagingCache.end() && found->second.value==core::blake3_hash_t{})
 			return true;
+		// dependent might be in readCache of one or more converters, so if in doubt assume its okay
 		return false;
 	};
 	// insert items into cache if overflows handled fine and commandbuffers ready to be recorded
 	auto mergeCache = [&]<Asset AssetType>()->void
 	{
+		auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 		auto& cache = std::get<CCache<AssetType>>(m_caches);
-		auto& stagingCache = std::get<CCache<AssetType>>(reservations.m_stagingCaches);
 		cache.m_forwardMap.reserve(cache.m_forwardMap.size()+stagingCache.size());
 		cache.m_reverseMap.reserve(cache.m_reverseMap.size()+stagingCache.size());
-		for (auto& item : stagingCache.m_reverseMap)
+		for (auto& item : stagingCache)
 		if (item.second.value!=core::blake3_hash_t{}) // didn't get wiped
 		{
 			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
@@ -1526,9 +1527,8 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 				item.second.value = {};
 				continue;
 			}
-			cache.m_reverseMap.insert(item);
 			asset_cached_t<AssetType> cached;
-			cached.value = core::smart_refctd_ptr<typename asset_traits<AssetType>::video_t>(const_cast<asset_traits<AssetType>::video_t*>(item.first));
+			cached.value = core::smart_refctd_ptr<typename asset_traits<AssetType>::video_t>(item.first);
 			cache.m_forwardMap.emplace(item.second,std::move(cached));
 		}
 	};

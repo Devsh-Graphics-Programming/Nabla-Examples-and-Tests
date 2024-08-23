@@ -431,14 +431,6 @@ class CAssetConverter : public core::IReferenceCounted
         class CCache final
         {
 			public:
-				inline CCache() = default;
-				inline CCache(const CCache&) = default;
-				inline CCache(CCache&&) = default;
-				inline ~CCache() = default;
-
-				inline CCache& operator=(const CCache&) = default;
-				inline CCache& operator=(CCache&&) = default;
-
 				// Make it clear to users that we don't look up just by the asset content hash
 				struct key_t
 				{
@@ -455,6 +447,30 @@ class CAssetConverter : public core::IReferenceCounted
 					core::blake3_hash_t value;
 				};
 
+			private:
+				struct ForwardHash
+				{
+					inline size_t operator()(const key_t& key) const
+					{
+						return std::hash<core::blake3_hash_t>()(key.value);
+					}
+				};
+
+			public:
+				// typedefs
+				using forward_map_t = core::unordered_map<key_t,asset_cached_t<AssetType>,ForwardHash>;
+				using reverse_map_t = core::unordered_map<typename asset_traits<AssetType>::lookup_t,key_t>;
+
+
+				//
+				inline CCache() = default;
+				inline CCache(const CCache&) = default;
+				inline CCache(CCache&&) = default;
+				inline ~CCache() = default;
+
+				inline CCache& operator=(const CCache&) = default;
+				inline CCache& operator=(CCache&&) = default;
+
 				// no point returning iterators to inserted positions, they're not stable
 				inline bool insert(const key_t& _key, const asset_cached_t<AssetType>& _gpuObj)
 				{
@@ -466,20 +482,7 @@ class CAssetConverter : public core::IReferenceCounted
 					return true;
 				}
 
-			private:
-				friend class CAssetConverter;
-
-				struct ForwardHash
-				{
-					inline size_t operator()(const key_t& key) const
-					{
-						return std::hash<core::blake3_hash_t>()(key.value);
-					}
-				};
-				core::unordered_map<key_t,asset_cached_t<AssetType>,ForwardHash> m_forwardMap;
-				core::unordered_map<typename asset_traits<AssetType>::lookup_t,key_t> m_reverseMap;
-
-			public:
+				//
 				inline size_t size() const
 				{
 					assert(m_forwardMap.size()==m_reverseMap.size());
@@ -487,15 +490,15 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 
 				//
-				inline decltype(m_forwardMap)::const_iterator forwardMapEnd() const {return m_forwardMap.end();}
-				inline decltype(m_reverseMap)::const_iterator reverseMapEnd() const {return m_reverseMap.end();}
+				inline forward_map_t::const_iterator forwardMapEnd() const {return m_forwardMap.end();}
+				inline reverse_map_t::const_iterator reverseMapEnd() const {return m_reverseMap.end();}
 
 				// fastest lookup
-				inline decltype(m_forwardMap)::const_iterator find(const key_t& _key) const {return m_forwardMap.find(_key);}
-				inline decltype(m_reverseMap)::const_iterator find(asset_traits<AssetType>::lookup_t gpuObject) const {return m_reverseMap.find(gpuObject);}
+				inline forward_map_t::const_iterator find(const key_t& _key) const {return m_forwardMap.find(_key);}
+				inline reverse_map_t::const_iterator find(asset_traits<AssetType>::lookup_t gpuObject) const {return m_reverseMap.find(gpuObject);}
 
 				// fastest erase
-				inline bool erase(decltype(m_forwardMap)::const_iterator fit, decltype(m_reverseMap)::const_iterator rit)
+				inline bool erase(forward_map_t::const_iterator fit, reverse_map_t::const_iterator rit)
 				{
 					if (fit->first!=rit->second || fit->second.get()!=rit->first)
 						return false;
@@ -503,20 +506,27 @@ class CAssetConverter : public core::IReferenceCounted
 					m_forwardMap.erase(fit);
 					return true;
 				}
-				inline bool erase(decltype(m_forwardMap)::const_iterator it)
+				inline bool erase(forward_map_t::const_iterator it)
 				{
 					return erase(it,find(it->second));
 				}
-				inline bool erase(decltype(m_reverseMap)::const_iterator it)
+				inline bool erase(reverse_map_t::const_iterator it)
 				{
 					return erase(find(it->second),it);
 				}
 
+				//
 				inline void merge(const CCache<AssetType>& other)
 				{
 					m_forwardMap.insert(other.m_forwardMap.begin(),other.m_forwardMap.end());
 					m_reverseMap.insert(other.m_reverseMap.begin(),other.m_reverseMap.end());
 				}
+
+			private:
+				friend class CAssetConverter;
+
+				forward_map_t m_forwardMap;
+				reverse_map_t m_reverseMap;
         };
 
 		// A meta class to encompass all the Assets you might want to convert at once
@@ -599,6 +609,9 @@ class CAssetConverter : public core::IReferenceCounted
 				using vector_t = core::vector<asset_cached_t<AssetType>>;
 
 			public:
+				template<asset::Asset AssetType>
+				using staging_cache_t = core::unordered_map<typename asset_traits<AssetType>::video_t*,typename CCache<AssetType>::key_t>;
+
 				inline SResults(SResults&&) = default;
 				inline SResults(const SResults&) = delete;
 				inline ~SResults() = default;
@@ -623,17 +636,16 @@ class CAssetConverter : public core::IReferenceCounted
 
 				// useful for virtual function implementations in `SConvertParams`
 				template<asset::Asset AssetType>
-				const auto& getStagingCache() const {return std::get<CCache<AssetType>>(m_stagingCaches);}
+				const auto& getStagingCache() const {return std::get<staging_cache_t<AssetType>>(m_stagingCaches);}
 
 				// You only get to call this once if successful
 				inline bool convert(SConvertParams& params)
 				{
 					if (m_converter->convert_impl(std::move(*this),params))
 					{
-						core::for_each_in_tuple(
-							m_stagingCaches,
-							[]<asset::Asset AssetType>(CCache<AssetType>& stagingCache)->void {stagingCache = {};}
-						);
+						// wipe after success
+						core::for_each_in_tuple(m_stagingCaches,[](auto& stagingCache)->void{stagingCache.clear();});
+						// disallow a double run
 						m_converter = nullptr;
 						return true;
 					}
@@ -657,7 +669,7 @@ class CAssetConverter : public core::IReferenceCounted
 				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
 				
 				// we don't insert into the writeCache until conversions are successful
-				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCaches;
+				core::tuple_transform_t<staging_cache_t,supported_asset_types> m_stagingCaches;
 				// need a more explicit list of GPU objects that need device-assisted conversion
 				template<asset::Asset AssetType>
 				struct ConversionRequest
