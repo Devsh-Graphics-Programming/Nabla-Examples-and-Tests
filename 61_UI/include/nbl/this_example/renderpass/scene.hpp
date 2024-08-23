@@ -174,7 +174,7 @@ public:
 		m_commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		m_commandBuffer->beginDebugMarker("UISampleApp Offline Scene Frame");
 
-		transitionColorLayout(nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		//transitionColorLayout(nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
 		semaphore.progress = m_device->createSemaphore(semaphore.startedValue);
 	}
 
@@ -236,7 +236,7 @@ public:
 
 	inline void end()
 	{
-		transitionColorLayout(nbl::asset::IImage::LAYOUT::READ_ONLY_OPTIMAL, nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		//transitionColorLayout(nbl::asset::IImage::LAYOUT::READ_ONLY_OPTIMAL, nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
 		m_commandBuffer->end();
 	}
 
@@ -506,7 +506,7 @@ private:
 						/* .loadOp = */ nbl::video::IGPURenderpass::LOAD_OP::CLEAR,
 						/* .storeOp = */ nbl::video::IGPURenderpass::STORE_OP::STORE,
 						/* .initialLayout = */ nbl::video::IGPUImage::LAYOUT::UNDEFINED,
-						/* .finalLayout = */ nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL
+						/* .finalLayout = */ nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
 					}
 				},
 				nbl::video::IGPURenderpass::SCreationParams::ColorAttachmentsEnd
@@ -547,14 +547,14 @@ private:
 					.dstSubpass = 0,
 					.memoryBarrier = 
 					{
-						// last place where the depth can get modified in previous frame
-						.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::LATE_FRAGMENT_TESTS_BIT,
+						// 
+						.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
 						// only write ops, reads can't be made available
-						.srcAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+						.srcAccessMask = nbl::asset::ACCESS_FLAGS::SAMPLED_READ_BIT,
 						// destination needs to wait as early as possible
 						.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT,
 						// because of depth test needing a read and a write
-						.dstAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT
+						.dstAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
 					}
 					// leave view offsets and flags default
 				},
@@ -567,8 +567,12 @@ private:
 						// last place where the depth can get modified
 						.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
 						// only write ops, reads can't be made available
-						.srcAccessMask = nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-						// spec says nothing is needed when presentation is the destination
+						.srcAccessMask = nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
+						// 
+						.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+						//
+						.dstAccessMask = nbl::asset::ACCESS_FLAGS::SAMPLED_READ_BIT
+						// 
 					}
 					// leave view offsets and flags default
 				},
