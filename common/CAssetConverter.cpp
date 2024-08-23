@@ -421,11 +421,17 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// skip invalid inputs silently
 				if (!patch.valid(features,limits))
 					return {};
-				//
+				// special checks
 				if constexpr (std::is_same_v<AssetType,ICPUShader>)
 				if (asset->getContentType()==ICPUShader::E_CONTENT_TYPE::ECT_GLSL)
 				{
 					inputs.logger.log("Asset Converter doesn't support converting GLSL shaders! Asset %p won't be converted (GLSL is deprecated in Nabla)",system::ILogger::ELL_ERROR,asset);
+					return {};
+				}
+				if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
+				if (asset->getSize()>limits.maxBufferSize)
+				{
+					inputs.logger.log("Requested buffer size %zu is larger than the Physical Device's maxBufferSize Limit! Asset %p won't be converted",system::ILogger::ELL_ERROR,asset->getSize(),asset);
 					return {};
 				}
 
@@ -1058,8 +1064,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						}
 					}
 					//
-//					if constexpr (has_type<AssetType>(SResults::convertible_asset_types{}))
-					if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
+					if constexpr (has_type<AssetType>(SResults::convertible_asset_types{}))
 					{
 						auto& requests = std::get<SResults::conversion_requests_t<ICPUBuffer>>(retval.m_conversionRequests);
 						requests.emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
@@ -1364,15 +1369,14 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
 			return false;
 
-		// need to take a reference here because lambdas aren't the friends of SResults
-		auto& stagingCaches = reservations.m_stagingCaches;
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
-		auto wipeFailureFromStaging = [&]<Asset AssetType>(const asset_traits<AssetType>::lookup_t gpuObj)->void
+		auto makFailureInStaging = [&]<Asset AssetType>(const asset_traits<AssetType>::lookup_t gpuObj)->void
 		{
-			auto& stagingCache = std::get<CCache<AssetType>>(stagingCaches);
+			auto& stagingCache = std::get<CCache<AssetType>>(reservations.m_stagingCaches);
 			const auto found = stagingCache.find(gpuObj);
 			assert(found!=stagingCache.reverseMapEnd());
-			stagingCache.erase(found);
+			// change the content hash on the reverse map to a NoContentHash
+			const_cast<core::blake3_hash_t&>(found->second.value) = {};
 		};
 
 		// upload Buffers
@@ -1395,7 +1399,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 				if (!success)
 				{
 					reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-//					wipeFailureFromStaging.operator()<ICPUBuffer>(item.gpuObj);
+					makFailureInStaging.operator()<ICPUBuffer>(item.gpuObj);
 					continue;
 				}
 				// enqueue ownership release if necessary
@@ -1455,7 +1459,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			{
 				reservations.m_logger.log("Layout Transition to TRANSFER_DST_OPTIMAL failed for all images",system::ILogger::ELL_ERROR);
 				for (const auto& item : imagesToUpload) // wipe everything
-					wipeFailureFromStaging.operator()<ICPUImage>(item.gpuObj);
+					makFailureInStaging.operator()<ICPUImage>(item.gpuObj);
 			}
 			else // upload Images
 			{
@@ -1472,7 +1476,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 					if (!success)
 					{
 						reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
-						wipeFailureFromStaging.operator()<ICPUImage>(item.gpuObj);
+						makFailureInStaging.operator()<ICPUImage>(item.gpuObj);
 						continue;
 					}
 					// TODO: enqueue ownership release or layout transition if necessary
@@ -1485,21 +1489,65 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		// TODO: build BLASes and TLASes
 	}
 
+	// want to check if deps successfully exist
+	auto missingDependent = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* dep)->bool
+	{
+		auto& stagingCache = std::get<CCache<AssetType>>(reservations.m_stagingCaches);
+		auto found = stagingCache.find(dep);
+		// dependent might be in readCache of one or more converters, so if in doubt assume its okay
+		if (found!=stagingCache.reverseMapEnd() && found->second.value==core::blake3_hash_t{})
+			return true;
+		return false;
+	};
 	// insert items into cache if overflows handled fine and commandbuffers ready to be recorded
-	core::for_each_in_tuple(reservations.m_stagingCaches,[&]<typename AssetType>(CCache<AssetType>& stagingCache)->void
+	auto mergeCache = [&]<Asset AssetType>()->void
+	{
+		auto& cache = std::get<CCache<AssetType>>(m_caches);
+		auto& stagingCache = std::get<CCache<AssetType>>(reservations.m_stagingCaches);
+		cache.m_forwardMap.reserve(cache.m_forwardMap.size()+stagingCache.size());
+		cache.m_reverseMap.reserve(cache.m_reverseMap.size()+stagingCache.size());
+		for (auto& item : stagingCache.m_reverseMap)
+		if (item.second.value!=core::blake3_hash_t{}) // didn't get wiped
 		{
-			// TODO: rescan all the GPU objects and find out if they depend on anything that failed, if so add them to the failure set
-			if (false)
+			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
+			bool depsMissing = false;
+			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
 			{
-				//
+				for (auto dsLayout : item.first->getDescriptorSetLayouts())
+					depsMissing |= missingDependent.operator()<ICPUDescriptorSetLayout>(dsLayout);
 			}
-			//
-			if (true)
+			if constexpr (std::is_same_v<AssetType,ICPUComputePipeline>)
 			{
-				std::get<CCache<AssetType>>(m_caches).merge(stagingCache);
+				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
 			}
+			if (depsMissing)
+			{
+				// wipe self, to let users know
+				item.second.value = {};
+				continue;
+			}
+			cache.m_reverseMap.insert(item);
+			asset_cached_t<AssetType> cached;
+			cached.value = core::smart_refctd_ptr<typename asset_traits<AssetType>::video_t>(const_cast<asset_traits<AssetType>::video_t*>(item.first));
+			cache.m_forwardMap.emplace(item.second,std::move(cached));
 		}
-	);
+	};
+	// again, need to go bottom up so we can check dependencies being successes
+	mergeCache.operator()<ICPUBuffer>();
+//	mergeCache.operator()<ICPUImage>();
+//	mergeCache.operator()<ICPUBottomLevelAccelerationStructure>();
+//	mergeCache.operator()<ICPUTopLevelAccelerationStructure>();
+//	mergeCache.operator()<ICPUBufferView>();
+	mergeCache.operator()<ICPUShader>();
+	mergeCache.operator()<ICPUSampler>();
+	mergeCache.operator()<ICPUDescriptorSetLayout>();
+	mergeCache.operator()<ICPUPipelineLayout>();
+	mergeCache.operator()<ICPUPipelineCache>();
+	mergeCache.operator()<ICPUComputePipeline>();
+//	mergeCache.operator()<ICPURenderpass>();
+//	mergeCache.operator()<ICPUGraphicsPipeline>();
+//	mergeCache.operator()<ICPUDescriptorSet>();
+//	mergeCache.operator()<ICPUFramebuffer>();
 
 	return true;
 }

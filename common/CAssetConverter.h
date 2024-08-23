@@ -480,6 +480,13 @@ class CAssetConverter : public core::IReferenceCounted
 				core::unordered_map<typename asset_traits<AssetType>::lookup_t,key_t> m_reverseMap;
 
 			public:
+				inline size_t size() const
+				{
+					assert(m_forwardMap.size()==m_reverseMap.size());
+					return m_forwardMap.size();
+				}
+
+				//
 				inline decltype(m_forwardMap)::const_iterator forwardMapEnd() const {return m_forwardMap.end();}
 				inline decltype(m_reverseMap)::const_iterator reverseMapEnd() const {return m_reverseMap.end();}
 
@@ -490,7 +497,7 @@ class CAssetConverter : public core::IReferenceCounted
 				// fastest erase
 				inline bool erase(decltype(m_forwardMap)::const_iterator fit, decltype(m_reverseMap)::const_iterator rit)
 				{
-					if (fit->first!=rit->second || fit->second!=rit->first)
+					if (fit->first!=rit->second || fit->second.get()!=rit->first)
 						return false;
 					m_reverseMap.erase(rit);
 					m_forwardMap.erase(fit);
@@ -580,7 +587,7 @@ class CAssetConverter : public core::IReferenceCounted
 			// submits the buffered up cals 
 			NBL_API ISemaphore::future_t<bool> autoSubmit();
 
-			// TODO: documentation (and allow same queue/same intended submit)
+			// One queue is for copies, another is for mip map generation and Acceleration Structure building
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
