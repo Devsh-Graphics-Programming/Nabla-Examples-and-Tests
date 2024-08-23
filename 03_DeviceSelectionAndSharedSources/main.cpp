@@ -4,6 +4,7 @@
 
 #include "nbl/application_templates/MonoDeviceApplication.hpp"
 #include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
+#include "CommonPCH/PCH.hpp"
 
 using namespace nbl;
 using namespace core;
@@ -17,7 +18,7 @@ using namespace video;
 #include "app_resources/common.hlsl"
 #include "Testers.h"
 
-constexpr bool ENABLE_TESTS = true;
+constexpr bool ENABLE_TESTS = false;
 
 // This time we create the device in the base class and also use a base class to give us an Asset Manager and an already mounted built-in resource archive
 class DeviceSelectionAndSharedSourcesApp final : public application_templates::MonoDeviceApplication, public application_templates::MonoAssetManagerAndBuiltinResourceApplication
@@ -37,10 +38,6 @@ public:
 			return false;
 		if (!asset_base_t::onAppInitialized(std::move(system)))
 			return false;
-
-		// Just a check that out specialization info will match
-		//if (!introspection->canSpecializationlesslyCreateDescSetFrom())
-			//return logFail("Someone changed the shader and some descriptor binding depends on a specialization constant!");
 
 		if constexpr (ENABLE_TESTS)
 		{
@@ -67,72 +64,35 @@ public:
 		specInfo.entryPoint = "main";
 		specInfo.shader = source.get();
 
-		// TODO: cast to IGPUComputePipeline
 		smart_refctd_ptr<nbl::asset::ICPUComputePipeline> cpuPipeline = introspector.createApproximateComputePipelineFromIntrospection(specInfo);
 
-		smart_refctd_ptr<IGPUShader> shader = m_device->createShader(source.get());
-
-		std::array<std::vector<IGPUDescriptorSetLayout::SBinding>, IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> bindings;
-		for (uint32_t i = 0u; i < IGPUPipelineLayout::DESCRIPTOR_SET_COUNT; ++i)
-		{
-			const auto& introspectionBindings = shaderIntrospection->getDescriptorSetInfo(i);
-			bindings[i].resize(introspectionBindings.size());
-
-			for (const auto& introspectionBinding : introspectionBindings)
-			{
-				auto& binding = bindings[i].emplace_back();
-
-				binding.binding = introspectionBinding.binding;
-				binding.type = introspectionBinding.type;
-				binding.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE;
-				binding.stageFlags = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
-				assert(introspectionBinding.count.countMode == CSPIRVIntrospector::CIntrospectionData::SDescriptorArrayInfo::DESCRIPTOR_COUNT::STATIC);
-				binding.count = introspectionBinding.count.count;
-			}
-		}
-
-		const std::array<core::smart_refctd_ptr<IGPUDescriptorSetLayout>, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dsLayouts = { 
-			bindings[0].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[0]),
-			bindings[1].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[1]),
-			bindings[2].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[2]),
-			bindings[3].empty() ? nullptr : m_device->createDescriptorSetLayout(bindings[3])
-		};
-
-		// Nabla actually has facilities for SPIR-V Reflection and "guessing" pipeline layouts for a given SPIR-V which we'll cover in a different example
-		smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pplnLayout = m_device->createPipelineLayout(
-			{},
-			core::smart_refctd_ptr(dsLayouts[0]),
-			core::smart_refctd_ptr(dsLayouts[1]),
-			core::smart_refctd_ptr(dsLayouts[2]),
-			core::smart_refctd_ptr(dsLayouts[3])
-		);
-		if (!pplnLayout)
-			return logFail("Failed to create a Pipeline Layout!\n");
-
-		// We use strong typing on the pipelines (Compute, Graphics, Mesh, RT), since there's no reason to polymorphically switch between different pipelines
 		smart_refctd_ptr<nbl::video::IGPUComputePipeline> pipeline;
+		// Nabla hardcodes the Max number of Descriptor Sets to 4
+		std::array<smart_refctd_ptr<IGPUDescriptorSet>,IGPUPipelineLayout::DESCRIPTOR_SET_COUNT> ds;
+		// You can automate some of the IGPU object creation from ICPU using the Asset Converter
 		{
-			IGPUComputePipeline::SCreationParams params = {};
-			params.layout = pplnLayout.get();
-			// Theoretically a blob of SPIR-V can contain multiple named entry points and one has to be chosen, in practice most compilers only support outputting one (and glslang used to require it be called "main")
-			params.shader.entryPoint = "main";
-			params.shader.shader = shader.get();
-			// we'll cover the specialization constant API in another example
-			if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline))
-				return logFail("Failed to create pipelines (compile & link shaders)!\n");
-		}
+			// The Asset Converter keeps a local cache of already converted GPU objects.
+			// Because the asset converter converts "by content" and not "by handle" (content hashes are compared,
+			// functionally identical objects will convert to the same GPU Object, so you get free duplicate removal.
+			smart_refctd_ptr<nbl::video::CAssetConverter> converter = nbl::video::CAssetConverter::create({.device=m_device.get(),.optimizer={}});
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = m_logger.get();
+			// All dependant assets will be converted (or found in the `inputs.readCache`) 
+			std::get<CAssetConverter::SInputs::asset_span_t<ICPUComputePipeline>>(inputs.assets) = {&cpuPipeline.get(),1};
+			// Simple Objects that don't require any queue submissions (such as trasfer operations or Acceleration Structure builds) are created right away
+			CAssetConverter::SResults reservation = converter->reserve(inputs);
+			// There's a 1:1 mapping between `SInputs::assets` and `SReservation::m_gpuObjects`.
+			const auto pipelines = reservation.getGPUObjects<ICPUComputePipeline>();
+			// Anything that fails to convert is a nullptr in the span of GPU Objects
+			pipeline = pipelines[0].value;
+			if (!pipeline)
+				return logFail("Failed to convert CPU pipeline to GPU pipeline");
 
-		// Nabla hardcodes the maximum descriptor set count to 4
-		constexpr uint32_t MaxDescriptorSets = ICPUPipelineLayout::DESCRIPTOR_SET_COUNT;
-		const std::array<IGPUDescriptorSetLayout*, MaxDescriptorSets> dscLayoutPtrs = { 
-			!dsLayouts[0] ? nullptr : dsLayouts[0].get(),
-			!dsLayouts[1] ? nullptr : dsLayouts[1].get(),
-			!dsLayouts[2] ? nullptr : dsLayouts[2].get(),
-			!dsLayouts[3] ? nullptr : dsLayouts[3].get()
-		};
-		std::array<smart_refctd_ptr<IGPUDescriptorSet>, MaxDescriptorSets> ds;
-		auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()));
-		pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), ds.data());
+			// Create Descriptor Sets for the Layouts manually
+			const auto dscLayoutPtrs = pipeline->getLayout()->getDescriptorSetLayouts();
+			auto pool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_NONE,dscLayoutPtrs);
+			pool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), ds.data());
+		}
 
 		// Need to know input and output sizes by ourselves obviously
 		constexpr size_t WorkgroupCount = 4096;

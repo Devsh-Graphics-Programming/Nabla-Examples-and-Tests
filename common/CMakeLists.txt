@@ -15,7 +15,9 @@ add_subdirectory(src EXCLUDE_FROM_ALL)
 
 ########## <-
 # TODO: disable this CommonPCH thing! + DEPRICATED!
-nbl_create_ext_library_project(CommonAPI "${CMAKE_CURRENT_SOURCE_DIR}/CommonAPI.h" "${CMAKE_CURRENT_SOURCE_DIR}/CommonAPI.cpp" "" "" "")
+# TODO: move asset converer into separate library
+
+nbl_create_ext_library_project(CommonAPI "${CMAKE_CURRENT_SOURCE_DIR}/CAssetConverter.h" "${CMAKE_CURRENT_SOURCE_DIR}/CAssetConverter.cpp" "" "" "")
 set(NBL_EXECUTABLE_COMMON_API_TARGET "${LIB_NAME}" CACHE INTERNAL "")
 
 add_subdirectory(CommonPCH EXCLUDE_FROM_ALL)
