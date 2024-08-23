@@ -136,7 +136,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 
-			pass.scene = core::make_smart_refctd_ptr<CScene>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), geometry);
+			pass.scene = core::make_smart_refctd_ptr<CScene>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), gQueue, geometry);
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
 
@@ -149,7 +149,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				samplerParams.TextureWrapW = ISampler::ETC_REPEAT;
 
 				pass.ui.sampler = m_device->createSampler(samplerParams);
-				pass.ui.sampler->setObjectDebugName("Nabla UI Font Atlas Sampler");
+				pass.ui.sampler->setObjectDebugName("Nabla GUI Sampler");
 
 				const IGPUDescriptorSetLayout::SBinding bindings[] =
 				{
@@ -186,23 +186,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				pass.ui.descriptorSet = m_descriptorSetPool->createDescriptorSet(smart_refctd_ptr(descriptorSetLayout));
 				assert(pass.ui.descriptorSet);
 
-				// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
-				std::array<IGPUDescriptorSet::SDescriptorInfo, TEXTURES_AMOUNT> descriptorInfo;
-				IGPUDescriptorSet::SWriteDescriptorSet writes[1u];
-
-				descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-				descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = pass.ui.manager->getFontAtlasView();
-
-				descriptorInfo[CScene::NBL_SCENE_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL; //IImage::LAYOUT::ATTACHMENT_OPTIMAL; TODO! I need to have proper transition, my fbo attachment is ATTACHMENT_OPTIMAL
-				descriptorInfo[CScene::NBL_SCENE_ATLAS_TEX_ID].desc = pass.scene->m_colorAttachment;
-				
-				writes->dstSet = pass.ui.descriptorSet.get();
-				writes->binding = 0u;
-				writes->arrayElement = 0;
-				writes->count = 2;
-				writes->info = descriptorInfo.data();
-
-				m_device->updateDescriptorSets(writes, {});
 			}
 			pass.ui.manager->registerListener([this]() -> void
 				{
@@ -374,6 +357,31 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			return true;
 		}
 
+		bool updateGUIDescriptorSet()
+		{
+			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
+			static std::array<IGPUDescriptorSet::SDescriptorInfo, TEXTURES_AMOUNT> descriptorInfo;
+			static IGPUDescriptorSet::SWriteDescriptorSet writes[TEXTURES_AMOUNT];
+
+			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = pass.ui.manager->getFontAtlasView();
+
+			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].desc = pass.scene->m_colorAttachment;
+
+			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
+			{
+				writes->dstSet = pass.ui.descriptorSet.get();
+				writes->binding = 0u;
+				writes->arrayElement = i;
+				writes->count = 1u;
+			}
+			writes[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info = descriptorInfo.data() + nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID;
+			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
+
+			return m_device->updateDescriptorSets(writes, {});
+		}
+
 		inline void workLoopBody() override
 		{
 			const auto resourceIx = m_realFrameIx % m_maxFramesInFlight;
@@ -391,12 +399,22 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return;
 			}
 
+			// CPU events
+			update();
+
+			// render whole scene to offline frame buffer & submit
+			pass.scene->begin();
+			{
+				pass.scene->update(camera.getViewMatrix(), camera.getProjectionMatrix());
+				pass.scene->record();
+				pass.scene->end();
+			}
+			pass.scene->submit();
+
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cb->beginDebugMarker("UISampleApp Frame");
-
-			update(cb);
+			cb->beginDebugMarker("UISampleApp IMGUI Frame");
 
 			auto* queue = getGraphicsQueue();
 
@@ -417,30 +435,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
 
-			NBL_CONSTEXPR_STATIC struct CLEAR_VALUES
-			{
-				IGPUCommandBuffer::SClearColorValue color = { .float32 = {0.f,0.f,0.f,1.f} };
-				IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
-			} clear;
-
-			// Scene render pass, TODO: another command buffer
-			{
-				const IGPUCommandBuffer::SRenderpassBeginInfo info =
-				{
-					.framebuffer = pass.scene->getFrameBuffer(),
-					.colorClearValues = &clear.color,
-					.depthStencilClearValues = &clear.depth,
-					.renderArea = currentRenderArea // TODO
-				};
-
-				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.scene->render(cb);
-				cb->endRenderPass();
-			}
-			// TODO: Pipeline Barier + Semaphore
-			{
-
-			}
 			// UI render pass
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
@@ -489,6 +483,16 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 							} 
 						};
 
+						const nbl::video::ISemaphore::SWaitInfo waitInfos[] = 
+						{ {
+							.semaphore = pass.scene->semaphore.progress.get(),
+							.value = pass.scene->semaphore.finishedValue
+						} };
+						
+						m_device->blockForSemaphores(waitInfos);
+
+						updateGUIDescriptorSet();
+
 						if (queue->submit(infos) != IQueue::RESULT::SUCCESS)
 							m_realFrameIx--;
 					}
@@ -512,7 +516,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			return device_base_t::onAppTerminated();
 		}
 
-		inline void update(nbl::video::IGPUCommandBuffer* commandBuffer)
+		inline void update()
 		{
 			static std::chrono::microseconds previousEventTimestamp{};
 
@@ -523,15 +527,15 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			m_inputSystem->getDefaultKeyboard(&keyboard);
 
 			auto updatePresentationTimestamp = [&]()
-				{
-					m_currentImageAcquire = m_surface->acquireNextImage();
+			{
+				m_currentImageAcquire = m_surface->acquireNextImage();
 
-					oracle.reportEndFrameRecord();
-					const auto timestamp = oracle.getNextPresentationTimeStamp();
-					oracle.reportBeginFrameRecord();
+				oracle.reportEndFrameRecord();
+				const auto timestamp = oracle.getNextPresentationTimeStamp();
+				oracle.reportBeginFrameRecord();
 
-					return timestamp;
-				};
+				return timestamp;
+			};
 
 			const auto nextPresentationTimestamp = updatePresentationTimestamp();
 
@@ -580,7 +584,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
 			pass.ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
-			pass.scene->update(commandBuffer, camera.getViewMatrix(), camera.getProjectionMatrix());
 
 			camera.setMoveSpeed(moveSpeed);
 			camera.setRotateSpeed(rotateSpeed);

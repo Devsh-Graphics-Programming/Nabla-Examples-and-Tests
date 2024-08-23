@@ -8,6 +8,12 @@
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"
 
+NBL_CONSTEXPR_STATIC_INLINE struct CLEAR_VALUES
+{
+	nbl::video::IGPUCommandBuffer::SClearColorValue color = { .float32 = {0.f,0.f,0.f,1.f} };
+	nbl::video::IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
+} clear;
+
 /*
 	Rendering to offline framebuffer which we don't present, color 
 	scene attachment texture we use for second UI renderpass 
@@ -21,7 +27,7 @@ class CScene final : public nbl::core::IReferenceCounted
 {
 public:
 
-	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_SCENE_ATLAS_TEX_ID = 1u;
+	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u;
 
 	enum E_OBJECT_TYPE : uint8_t
 	{
@@ -56,9 +62,16 @@ public:
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_colorAttachment, m_depthAttachment;
 
-	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, const nbl::asset::IGeometryCreator* _geometryCreator)
-		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger))
+	struct
 	{
+		const uint32_t startedValue = 0, finishedValue = 0x45;
+		nbl::core::smart_refctd_ptr<nbl::video::ISemaphore> progress;
+	} semaphore;
+
+	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator)
+		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
+	{
+		bool status = createCommandBuffer();
 		auto pipelineLayout = createPipelineLayoutAndDS();
 		createOfflineSceneRenderPass();
 		createOfflineSceneFramebuffer();
@@ -155,29 +168,101 @@ public:
 	}
 	~CScene() {}
 
-	inline void render(nbl::video::IGPUCommandBuffer* commandBuffer)
+	inline void begin()
 	{
+		m_commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+		m_commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+		m_commandBuffer->beginDebugMarker("UISampleApp Offline Scene Frame");
+
+		transitionColorLayout(nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		semaphore.progress = m_device->createSemaphore(semaphore.startedValue);
+	}
+
+	inline void record()
+	{
+		nbl::asset::SViewport viewport;
+		{
+			viewport.minDepth = 1.f;
+			viewport.maxDepth = 0.f;
+			viewport.x = 0u;
+			viewport.y = 0u;
+			viewport.width = FRAMEBUFFER_W;
+			viewport.height = FRAMEBUFFER_H;
+		}
+
+		m_commandBuffer->setViewport(0u, 1u, &viewport);
+		
+		VkRect2D scissor = {};
+		scissor.offset = { 0, 0 };
+		scissor.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H };
+		m_commandBuffer->setScissor(0u, 1u, &scissor);
+
+		const VkRect2D renderArea =
+		{
+			.offset = { 0,0 },
+			.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H }
+		};
+
+		const nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo info =
+		{
+			.framebuffer = m_frameBuffer.get(),
+			.colorClearValues = &clear.color,
+			.depthStencilClearValues = &clear.depth,
+			.renderArea = renderArea
+		};
+
+		m_commandBuffer->beginRenderPass(info, nbl::video::IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
+
 		const auto& [hook, meta] = referenceObjects[object.meta.type];
 		auto* rawPipeline = hook.pipeline.get();
 
-		commandBuffer->bindGraphicsPipeline(rawPipeline);
-		commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
+		m_commandBuffer->bindGraphicsPipeline(rawPipeline);
+		m_commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
 
 		const nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertices = { .offset = 0, .buffer = hook.vertexBuffer }, indices = { .offset = 0, .buffer = hook.indexBuffer };
 
-		commandBuffer->bindVertexBuffers(0, 1, &vertices);
+		m_commandBuffer->bindVertexBuffers(0, 1, &vertices);
 
 		if (indices.buffer && hook.indexType != nbl::asset::EIT_UNKNOWN)
 		{
-			commandBuffer->bindIndexBuffer(indices, hook.indexType);
-			commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
+			m_commandBuffer->bindIndexBuffer(indices, hook.indexType);
+			m_commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
 		}
 		else
-			commandBuffer->draw(hook.indexCount, 1, 0, 0);
+			m_commandBuffer->draw(hook.indexCount, 1, 0, 0);
+
+		m_commandBuffer->endRenderPass();
+	}
+
+	inline void end()
+	{
+		transitionColorLayout(nbl::asset::IImage::LAYOUT::READ_ONLY_OPTIMAL, nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
+		m_commandBuffer->end();
+	}
+
+	inline bool submit()
+	{
+		const nbl::video::IQueue::SSubmitInfo::SCommandBufferInfo buffers[] =
+		{
+			{ .cmdbuf = m_commandBuffer.get() }
+		};
+
+		const nbl::video::IQueue::SSubmitInfo::SSemaphoreInfo signals[] = { {.semaphore = semaphore.progress.get(),.value = semaphore.finishedValue,.stageMask = nbl::asset::PIPELINE_STAGE_FLAGS::FRAMEBUFFER_SPACE_BITS} };
+
+		const nbl::video::IQueue::SSubmitInfo infos[] =
+		{
+			{
+				.waitSemaphores = {},
+				.commandBuffers = buffers,
+				.signalSemaphores = signals
+			}
+		};
+
+		return queue->submit(infos) == nbl::video::IQueue::RESULT::SUCCESS;
 	}
 
 	// note, must be updated outside render pass
-	inline void update(nbl::video::IGPUCommandBuffer* commandBuffer, const nbl::core::matrix3x4SIMD& view, const nbl::core::matrix4SIMD& viewProjection)
+	inline void update(const nbl::core::matrix3x4SIMD& view, const nbl::core::matrix4SIMD& viewProjection)
 	{
 		auto& ubo = object.params;
 		
@@ -194,11 +279,9 @@ public:
 			range.buffer = nbl::core::smart_refctd_ptr(m_ubo);
 			range.size = m_ubo->getSize();
 
-			commandBuffer->updateBuffer(range, &object.params);
+			m_commandBuffer->updateBuffer(range, &object.params);
 		}
 	}
-
-	inline nbl::video::IGPUFramebuffer* getFrameBuffer() { return m_frameBuffer.get(); }
 
 private:
 
@@ -340,6 +423,25 @@ private:
 			if (outData.first.indexBuffer)
 				if (!fillGPUBuffer(iBuffer, outData.first.indexBuffer))
 					return false;
+		}
+
+		return true;
+	}
+
+	bool createCommandBuffer()
+	{
+		m_commandPool = m_device->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+
+		if (!m_commandPool)
+		{
+			m_logger->log("Couldn't create Command Pool!", nbl::system::ILogger::ELL_ERROR);
+			return false;
+		}
+
+		if (!m_commandPool->createCommandBuffers(nbl::video::IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_commandBuffer , 1 }))
+		{
+			m_logger->log("Couldn't create Command Buffer!", nbl::system::ILogger::ELL_ERROR);
+			return false;
 		}
 
 		return true;
@@ -568,10 +670,34 @@ private:
 		return true;
 	}
 
+	bool transitionColorLayout(nbl::asset::IImage::LAYOUT toLayout, nbl::asset::IImage::LAYOUT fromLayout = nbl::asset::IImage::LAYOUT::UNDEFINED)
+	{
+		nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier> params = {};
+		params.subresourceRange = m_colorAttachment->getCreationParameters().subresourceRange;
+		params.oldLayout = fromLayout;
+		params.newLayout = toLayout;
+		params.barrier.dep.dstAccessMask = nbl::asset::ACCESS_FLAGS::MEMORY_WRITE_BITS;
+
+		std::array<nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>, 1u> imageLayoutTransitionBarriers =
+		{
+			params
+		};
+
+		imageLayoutTransitionBarriers[0].image = m_colorAttachment->getCreationParameters().image.get();
+		imageLayoutTransitionBarriers[0].barrier.dep.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::HOST_BIT | nbl::asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		imageLayoutTransitionBarriers[0].barrier.dep.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+
+		return m_commandBuffer->pipelineBarrier(nbl::asset::E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageLayoutTransitionBarriers });
+	}
+
 	std::vector<REFERENCE_DRAW_HOOK_GPU> referenceObjects; // all possible objects & their buffers + pipelines
 
 	nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
 	nbl::core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
+
+	nbl::video::CThreadSafeQueueAdapter* queue;
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> m_commandPool; // TODO: decide if we should reuse main app's pool to allocate the cmd
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_commandBuffer;
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;

@@ -100,7 +100,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		float windowWidth = (float)ImGui::GetWindowWidth();
 		float windowHeight = (float)ImGui::GetWindowHeight();
 		ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
-		ImGui::Image(CScene::NBL_SCENE_ATLAS_TEX_ID, { windowWidth, windowHeight });
+		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, { windowWidth, windowHeight });
 		viewManipulateRight = ImGui::GetWindowPos().x + windowWidth;
 		viewManipulateTop = ImGui::GetWindowPos().y;
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -109,7 +109,7 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	else
 	{
 		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-		ImGui::Image(CScene::NBL_SCENE_ATLAS_TEX_ID, { io.DisplaySize.x, io.DisplaySize.y });
+		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, { io.DisplaySize.x, io.DisplaySize.y });
 	}
 
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
