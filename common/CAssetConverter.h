@@ -616,7 +616,7 @@ class CAssetConverter : public core::IReferenceCounted
 
 				// useful for virtual function implementations in `SConvertParams`
 				template<asset::Asset AssetType>
-				const auto& getStagingCache() const {return set::get<CCache<AssetType>>(m_stagingCaches);}
+				const auto& getStagingCache() const {return std::get<CCache<AssetType>>(m_stagingCaches);}
 
 				// You only get to call this once if successful
 				inline bool convert(SConvertParams& params)
@@ -658,7 +658,7 @@ class CAssetConverter : public core::IReferenceCounted
 					// canonical asset (the one that provides content)
 					core::smart_refctd_ptr<const AssetType> canonical;
 					// gpu object to transfer canonical's data to or build it from
-					asset_traits<AssetType>::lookup_t gpuObj;
+					asset_traits<AssetType>::video_t* gpuObj;
 				};
 				template<asset::Asset AssetType>
 				using conversion_requests_t = core::vector<ConversionRequest<AssetType>>;
