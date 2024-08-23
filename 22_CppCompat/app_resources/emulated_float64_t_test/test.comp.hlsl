@@ -14,8 +14,8 @@ PushConstants pc;
 [numthreads(WORKGROUP_SIZE, 1, 1)]
 void main(uint3 invocationID : SV_DispatchThreadID)
 {
-    const nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t<false, true>::createPreserveBitPattern(pc.a);
-    const nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t<false, true>::createPreserveBitPattern(pc.b);
+    const nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::bit_cast<emulated_float64_t<false, true> >(pc.a);
+    const nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::bit_cast<emulated_float64_t<false, true> >(pc.b);
 
     // "constructors"
     testValuesOutput[0].int32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.int32).data;

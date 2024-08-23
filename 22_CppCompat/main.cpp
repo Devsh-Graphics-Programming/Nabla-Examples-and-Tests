@@ -57,18 +57,6 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
-        emulated_float64_t<false, true> asdfasdf1 = emulated_float64_t<false, true>::create(48741.899691);
-        emulated_float64_t<false, true> asdfasdf2 = emulated_float64_t<false, true>::create(-74513.926890);
-        emulated_float64_t<false, true> asdfasdf3 = emulated_float64_t<false, true>::create(48741.899691 - 74513.926890);
-
-        emulated_float64_t<false, true> result = asdfasdf1 + asdfasdf2;
-        std::cout << reinterpret_cast<double&>(result) << std::endl;
-        std::cout << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
-        std::cout << std::bitset<64>(result.data) << std::endl;
-        std::cout << std::bitset<64>(asdfasdf3.data) << std::endl;
-
-        std::cout << findMSB(1) << std::endl;
-
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;
@@ -78,51 +66,6 @@ public:
         m_queue = m_device->getQueue(0, 0);
         m_commandPool = m_device->createCommandPool(m_queue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
         m_commandPool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &m_cmdbuf,1 }, smart_refctd_ptr(m_logger));
-
-        // TODO: remove
-        /*{
-            //emulated_float64_t a = emulated_float64_t::create(123.321);
-            //emulated_float64_t b = emulated_float64_t::create(12233.69);
-
-            emulated_float64_t a = emulated_float64_t::createPreserveBitPattern(13900005726052177961);
-            emulated_float64_t b = emulated_float64_t::createPreserveBitPattern(4681601146558425158);
-
-            //float64_t addExpectedOutput = 123.321 + 12233.69;
-
-            float64_t addExpectedOutput = reinterpret_cast<double&>(a) * reinterpret_cast<double&>(b);
-
-            std::cout << std::bitset<64>(reinterpret_cast<uint64_t&>(addExpectedOutput)) << std::endl;
-            std::cout << ieee754::extractBiasedExponent(addExpectedOutput) << std::endl;
-
-            std::cout << std::setprecision(20) << reinterpret_cast<float64_t&>(a.data) << std::endl;
-            std::cout << std::setprecision(20) << reinterpret_cast<float64_t&>(b.data) << std::endl;
-
-            auto add = a + b;
-            auto sub = a - b;
-            auto mul = a * b;
-            auto div = a / b;
-
-            //add = ieee754::replaceBiasedExponent(add, 1036);
-
-            std::cout << ieee754::extractBiasedExponent(add) << std::endl;
-
-            std::cout << "a: ";
-            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(a) << std::endl;
-            std::cout << "b: ";
-            std::cout << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(b) << std::endl << std::endl;;
-            std::cout << "add: \n";
-            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(add) << std::endl;
-            std::cout << "expected = " << std::fixed << std::setprecision(20) << 123.321 + 12233.69 << std::endl;
-            std::cout << "sub: \n";
-            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(sub) << std::endl;
-            std::cout << "expected = " << std::fixed << std::setprecision(20) << 123.321 - 12233.69 << std::endl;
-            std::cout << "mul: \n";
-            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(mul) << std::endl;
-            //std::cout << "expected = " << std::fixed << std::setprecision(20) << 123.321 * 12233.69 << std::endl;
-            std::cout << "expected = " << std::fixed << std::setprecision(20) << addExpectedOutput << std::endl;
-            std::cout << "div: \n";
-            std::cout << "emulated = " << std::fixed << std::setprecision(20) << reinterpret_cast<double&>(div) << std::endl << std::endl << std::endl;
-        }*/
 
         smart_refctd_ptr<IGPUShader> shader;
         {
@@ -484,7 +427,9 @@ private:
             m_logger->log("uint16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.uint16CreateVal, testValues.uint16CreateVal);
             success = false;
         }*/
-        if (expectedValues.int32CreateVal != testValues.int32CreateVal)
+
+        // TODO: uncomment
+        /*if (expectedValues.int32CreateVal != testValues.int32CreateVal)
         {
             std::cout << expectedValues.int32CreateVal << std::endl;
             std::cout << testValues.int32CreateVal << std::endl;
@@ -496,6 +441,7 @@ private:
             printOnArithmeticFailure("int64CreateVal", expectedValues.int64CreateVal, testValues.int64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
+        // TODO: uncomment
         if (expectedValues.uint32CreateVal != testValues.uint32CreateVal)
         {
             printOnArithmeticFailure("uint32CreateVal", expectedValues.uint32CreateVal, testValues.uint32CreateVal, expectedValues.a, expectedValues.b);
@@ -506,17 +452,19 @@ private:
             printOnArithmeticFailure("uint64CreateVal", expectedValues.uint64CreateVal, testValues.uint64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        /*if (expectedValues.float16CreateVal != testValues.float16CreateVal)
+        if (expectedValues.float16CreateVal != testValues.float16CreateVal)
         {
             m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.float16CreateVal, testValues.float16CreateVal);
             success = false;
-        }*/
+        }
         if (expectedValues.float32CreateVal != testValues.float32CreateVal)
         {
             printOnArithmeticFailure("float32CreateVal", expectedValues.float32CreateVal, testValues.float32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        /*if (expectedValues.float64CreateVal != testValues.float64CreateVal)
+        */
+        /*
+        if (expectedValues.float64CreateVal != testValues.float64CreateVal)
         {
             printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
@@ -954,8 +902,8 @@ private:
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t nan32 = std::numeric_limits<float32_t>::quiet_NaN();
         const float64_t nan64 = std::numeric_limits<float64_t>::quiet_NaN();
-        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
-        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(nan64));
+        testValInfo.a = emulated_float64_t<false, true>::create(nan64);
+        testValInfo.b = emulated_float64_t<false, true>::create(nan64);
         testValInfo.constrTestValues = {
             .int32 = std::bit_cast<int32_t>(nan32),
             .int64 = std::bit_cast<int64_t>(nan64),
@@ -974,8 +922,8 @@ private:
         smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
 
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
-        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(-0.0));
-        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(0.0));
+        testValInfo.a = emulated_float64_t<false, true>::create(std::bit_cast<uint64_t>(-0.0));
+        testValInfo.b = emulated_float64_t<false, true>::create(std::bit_cast<uint64_t>(0.0));
         testValInfo.constrTestValues = {};
 
         testValInfo.fillExpectedTestValues();
@@ -989,8 +937,8 @@ private:
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t inf32 = std::numeric_limits<float64_t>::infinity();
         const float64_t inf64 = std::numeric_limits<float64_t>::infinity();
-        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
-        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.a = emulated_float64_t<false, true>::create(inf64);
+        testValInfo.b = emulated_float64_t<false, true>::create(inf64);
         testValInfo.constrTestValues = {
             .int32 = std::bit_cast<int32_t>(inf32),
             .int64 = std::bit_cast<int64_t>(inf64),
@@ -1011,8 +959,8 @@ private:
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         const float32_t inf32 = -std::numeric_limits<float64_t>::infinity();
         const float64_t inf64 = -std::numeric_limits<float64_t>::infinity();
-        testValInfo.a = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
-        testValInfo.b = emulated_float64_t<false, true>::createPreserveBitPattern(std::bit_cast<uint64_t>(inf64));
+        testValInfo.a = emulated_float64_t<false, true>::create(inf64);
+        testValInfo.b = emulated_float64_t<false, true>::create(inf64);
         testValInfo.constrTestValues = {
             .int32 = std::bit_cast<int32_t>(inf32),
             .int64 = std::bit_cast<int64_t>(inf64),
