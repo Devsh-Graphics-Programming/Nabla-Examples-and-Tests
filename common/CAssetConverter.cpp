@@ -716,8 +716,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						inputs.logger.log("Could not compute hash for asset %p in group %d, maybe an IPreHashed dependant's content hash is missing?",system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID);
 						return;
 					}
+					const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 					{
-						const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 						inputs.logger.log("Asset (%p,%d) has hash %8llx%8llx%8llx%8llx",system::ILogger::ELL_DEBUG,instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]);
 					}
 					// if we have a read cache, lets retry looking the item up!
@@ -730,13 +730,26 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						if (found!=readCache->forwardMapEnd())
 						{
 							created.gpuObj = found->second;
-							// no conversion needed
+							inputs.logger.log(
+								"Asset (%p,%d) with hash %8llx%8llx%8llx%8llx found its GPU Object in Read Cache",system::ILogger::ELL_DEBUG,
+								instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+							);
 							return;
 						}
 					}
-					// The conversion request we insert needs an instance asset without missing contents
-					if (IPreHashed::anyDependantDiscardedContents(instance.asset)) // TODO: only if the deps are not already converted!
+					// The conversion request we insert needs an instance asset whose unconverted dependencies don't have missing content
+					// SUPER SIMPLIFICATION: because we hash and search for readCache items bottom up (BFS), we don't need a stack (DFS) here!
+					// Any dependant that's not getting a GPU object due to missing content or GPU cache object for its cache, will show up later during `getDependant`
+					// An additional optimization would be to improve the `PatchGetter` to check dependants (only deps) during hashing for missing dfs cache gpu Object (no read cache) and no conversion request.
+					auto* isPrehashed = dynamic_cast<const IPreHashed*>(instance.asset);
+					if (isPrehashed && isPrehashed->missingContent())
+					{
+						inputs.logger.log(
+							"PreHashed Asset (%p,%d) with hash %8llx%8llx%8llx%8llx has missing content and no GPU Object in Read Cache!",system::ILogger::ELL_ERROR,
+							instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+						);
 						return;
+					}
 					// then de-duplicate the conversions needed
 					const patch_index_t patchIx = {static_cast<uint64_t>(std::distance(dfsCache.nodes.data(),&created))};
 					auto [inSetIt,inserted] = conversionRequests.emplace(contentHash,unique_conversion_t<AssetType>{.canonicalAsset=instance.asset,.patchIndex=patchIx});
@@ -795,7 +808,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				const patch_index_t found = PatchGetter{&features,&limits,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
 				if (found)
-					return std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj.value;
+				{
+					const auto& gpuObj = std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj;
+					if (gpuObj.value)
+						return gpuObj.value;
+				}
 				failed = true;
 				return {};
 			};

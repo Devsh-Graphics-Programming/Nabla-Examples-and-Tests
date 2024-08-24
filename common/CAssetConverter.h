@@ -292,7 +292,7 @@ class CAssetConverter : public core::IReferenceCounted
 					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
 					const patch_t<AssetType>* patch = patchGet(asset);
 					// failed to provide us with a patch, so fail the hash
-					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device and features
+					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device and features)
 						return NoContentHash;
 
 					// consult cache
