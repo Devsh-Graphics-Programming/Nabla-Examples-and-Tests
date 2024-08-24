@@ -208,13 +208,27 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				{
 					ImGuiIO& io = ImGui::GetIO();
 
-					if (isPerspective)
-						camera.setProjectionMatrix(matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar));
-					else
+					camera.setProjectionMatrix([&]() 
 					{
-						float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
-						camera.setProjectionMatrix(matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar));
-					}
+						static matrix4SIMD projection;
+
+						if (isPerspective)
+							if(isLH)
+								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+							else
+								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+						else
+						{
+							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+
+							if(isLH)
+								projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+							else
+								projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+						}
+
+						return projection;
+					}());
 
 					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
@@ -238,6 +252,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::Text("Camera");
 					bool viewDirty = false;
 
+					if (ImGui::RadioButton("LH", isLH))
+						isLH = true;
+
+					ImGui::SameLine();
+
+					if (ImGui::RadioButton("RH", !isLH))
+						isLH = false;
+
 					if (ImGui::RadioButton("Perspective", isPerspective))
 						isPerspective = true;
 
@@ -250,7 +272,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 
-					ImGui::Checkbox("Flip Y", &flipY);
+					ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY);
 
 					if (isPerspective)
 						ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
@@ -349,20 +371,39 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					imguizmoM16InOut.projection = core::transpose(camera.getProjectionMatrix());
 					imguizmoM16InOut.model = core::transpose(core::matrix4SIMD(pass.scene->object.model));
 					{
-						if (flipY)
-							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/
+						if (flipGizmoY) // note we allow to flip gizmo just to match our coordinates
+							imguizmoM16InOut.projection[1][1] *= -1.f; // https://johannesugb.github.io/gpu-programming/why-do-opengl-proj-matrices-fail-in-vulkan/	
 
 						transformParams.editTransformDecomposition = true;
-
 						EditTransform(imguizmoM16InOut.view.pointer(), imguizmoM16InOut.projection.pointer(), imguizmoM16InOut.model.pointer(), transformParams);
 					}
 
-					// to Nabla + update matrices
-					pass.scene->object.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+					// to Nabla + update camera & model matrices
 					const auto& view = camera.getViewMatrix();
 					const auto& projection = camera.getProjectionMatrix();
 
+					// TODO: make it nicely
 					const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					camera.setProjectionMatrix(projection); // update concatanated matrix
+					{
+						static nbl::core::matrix3x4SIMD modelView, normal;
+						static nbl::core::matrix4SIMD modelViewProjection;
+
+						auto& hook = pass.scene->object;
+						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+
+						auto& ubo = hook.viewParameters;
+
+						modelView = nbl::core::concatenateBFollowedByA(view, hook.model);
+						modelView.getSub3x3InverseTranspose(normal);
+						modelViewProjection = nbl::core::concatenateBFollowedByA(camera.getConcatenatedMatrix(), hook.model);
+
+						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
+						memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
+						memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
+					}
+					
+					// view matrices editor
 					{
 						ImGui::Begin("Matrices");
 
@@ -455,7 +496,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			// render whole scene to offline frame buffer & submit
 			pass.scene->begin();
 			{
-				pass.scene->update(camera.getViewMatrix(), camera.getProjectionMatrix());
+				pass.scene->update();
 				pass.scene->record();
 				pass.scene->end();
 			}
@@ -568,6 +609,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		inline void update()
 		{
+			camera.setMoveSpeed(moveSpeed);
+			camera.setRotateSpeed(rotateSpeed);
+
 			static std::chrono::microseconds previousEventTimestamp{};
 
 			// TODO: Use real deltaTime instead
@@ -634,9 +678,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
 			pass.ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
-
-			camera.setMoveSpeed(moveSpeed);
-			camera.setRotateSpeed(rotateSpeed);
 		}
 
 	private:
@@ -684,7 +725,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 		int lastUsing = 0, gizmoCount = 1;
 
-		bool isPerspective = true, flipY = true, move = false;
+		bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
 		float viewWidth = 10.f; // for orthographic
 		float camYAngle = 165.f / 180.f * 3.14159f;

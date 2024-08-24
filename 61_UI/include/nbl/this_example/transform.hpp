@@ -90,6 +90,15 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	float viewManipulateTop = 0;
 	static ImGuiWindowFlags gizmoWindowFlags = 0;
 
+	/*
+		for the "useWindow" case we just render to a gui area, 
+		otherwise to fake full screen transparent window
+
+		note that for both cases we make sure gizmo being 
+		rendered is aligned to our texture scene using 
+        imgui  "cursor" screen positions
+	*/
+
 	if (params.useWindow)
 	{
 		ImGui::SetNextWindowSize(ImVec2(800, 400), ImGuiCond_Appearing);
@@ -97,29 +106,42 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, (ImVec4)ImColor(0.35f, 0.3f, 0.3f));
 		ImGui::Begin("Gizmo", 0, gizmoWindowFlags);
 		ImGuizmo::SetDrawlist();
-		float windowWidth = (float)ImGui::GetWindowWidth();
-		float windowHeight = (float)ImGui::GetWindowHeight();
-		ImGuizmo::SetRect(ImGui::GetWindowPos().x, ImGui::GetWindowPos().y, windowWidth, windowHeight);
-		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, { windowWidth, windowHeight });
-		viewManipulateRight = ImGui::GetWindowPos().x + windowWidth;
-		viewManipulateTop = ImGui::GetWindowPos().y;
+
+		ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+		ImVec2 windowPos = ImGui::GetWindowPos();
+		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, contentRegionSize);
+		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+		viewManipulateRight = cursorPos.x + contentRegionSize.x;
+		viewManipulateTop = cursorPos.y;
+
 		ImGuiWindow* window = ImGui::GetCurrentWindow();
-		gizmoWindowFlags = ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0;
+		gizmoWindowFlags = (ImGui::IsWindowHovered() && ImGui::IsMouseHoveringRect(window->InnerRect.Min, window->InnerRect.Max) ? ImGuiWindowFlags_NoMove : 0);
 	}
 	else
 	{
-		ImGuizmo::SetRect(0, 0, io.DisplaySize.x, io.DisplaySize.y);
-		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, { io.DisplaySize.x, io.DisplaySize.y });
+		ImGui::SetNextWindowPos(ImVec2(0, 0));
+		ImGui::SetNextWindowSize(io.DisplaySize);
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0, 0, 0, 0)); // fully transparent fake window
+		ImGui::Begin("FullScreenWindow", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+
+		ImVec2 contentRegionSize = ImGui::GetContentRegionAvail();
+		ImVec2 cursorPos = ImGui::GetCursorScreenPos();
+
+		ImGui::Image(CScene::NBL_OFFLINE_SCENE_TEX_ID, contentRegionSize);
+		ImGuizmo::SetRect(cursorPos.x, cursorPos.y, contentRegionSize.x, contentRegionSize.y);
+
+		viewManipulateRight = cursorPos.x + contentRegionSize.x;
+		viewManipulateTop = cursorPos.y;
 	}
 
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
 	ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
 
-	if (params.useWindow)
-	{
-		ImGui::End();
-		ImGui::PopStyleColor(1);
-	}
+	ImGui::End();
+	ImGui::PopStyleColor();
 }
 
 #endif // __NBL_THIS_EXAMPLE_TRANSFORM_H_INCLUDED__

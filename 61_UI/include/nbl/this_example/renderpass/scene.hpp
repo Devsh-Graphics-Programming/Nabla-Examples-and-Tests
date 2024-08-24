@@ -27,7 +27,7 @@ class CScene final : public nbl::core::IReferenceCounted
 {
 public:
 
-	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u;
+	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u, FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
 
 	enum E_OBJECT_TYPE : uint8_t
 	{
@@ -50,12 +50,8 @@ public:
 	struct OBJECT_DRAW_HOOK_CPU
 	{
 		nbl::core::matrix3x4SIMD model;
+		nbl::asset::SBasicViewParameters viewParameters;
 		OBJECT_META meta;
-
-		private:
-			nbl::asset::SBasicViewParameters params;
-
-		friend class CScene;
 	};
 
 	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
@@ -174,7 +170,6 @@ public:
 		m_commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		m_commandBuffer->beginDebugMarker("UISampleApp Offline Scene Frame");
 
-		//transitionColorLayout(nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
 		semaphore.progress = m_device->createSemaphore(semaphore.startedValue);
 	}
 
@@ -236,7 +231,6 @@ public:
 
 	inline void end()
 	{
-		//transitionColorLayout(nbl::asset::IImage::LAYOUT::READ_ONLY_OPTIMAL, nbl::asset::IImage::LAYOUT::ATTACHMENT_OPTIMAL);
 		m_commandBuffer->end();
 	}
 
@@ -262,30 +256,16 @@ public:
 	}
 
 	// note, must be updated outside render pass
-	inline void update(const nbl::core::matrix3x4SIMD& view, const nbl::core::matrix4SIMD& viewProjection)
+	inline void update()
 	{
-		auto& ubo = object.params;
-		
-		nbl::core::matrix3x4SIMD modelView = nbl::core::concatenateBFollowedByA(view, object.model);
-		nbl::core::matrix4SIMD modelViewProjection = nbl::core::concatenateBFollowedByA(viewProjection, object.model);
-		nbl::core::matrix3x4SIMD normal;
-		modelView.getSub3x3InverseTranspose(normal);
+		nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
+		range.buffer = nbl::core::smart_refctd_ptr(m_ubo);
+		range.size = m_ubo->getSize();
 
-		memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
-		memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
-		memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
-		{
-			nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
-			range.buffer = nbl::core::smart_refctd_ptr(m_ubo);
-			range.size = m_ubo->getSize();
-
-			m_commandBuffer->updateBuffer(range, &object.params);
-		}
+		m_commandBuffer->updateBuffer(range, &object.viewParameters);
 	}
 
 private:
-
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FRAMEBUFFER_W = 1280, FRAMEBUFFER_H = 720;
 	_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_D16_UNORM;
 	_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = nbl::video::IGPUImage::ESCF_1_BIT;
 
@@ -672,26 +652,6 @@ private:
 		}
 
 		return true;
-	}
-
-	bool transitionColorLayout(nbl::asset::IImage::LAYOUT toLayout, nbl::asset::IImage::LAYOUT fromLayout = nbl::asset::IImage::LAYOUT::UNDEFINED)
-	{
-		nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier> params = {};
-		params.subresourceRange = m_colorAttachment->getCreationParameters().subresourceRange;
-		params.oldLayout = fromLayout;
-		params.newLayout = toLayout;
-		params.barrier.dep.dstAccessMask = nbl::asset::ACCESS_FLAGS::MEMORY_WRITE_BITS;
-
-		std::array<nbl::video::IGPUCommandBuffer::SImageMemoryBarrier<nbl::video::IGPUCommandBuffer::SOwnershipTransferBarrier>, 1u> imageLayoutTransitionBarriers =
-		{
-			params
-		};
-
-		imageLayoutTransitionBarriers[0].image = m_colorAttachment->getCreationParameters().image.get();
-		imageLayoutTransitionBarriers[0].barrier.dep.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::HOST_BIT | nbl::asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-		imageLayoutTransitionBarriers[0].barrier.dep.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
-
-		return m_commandBuffer->pipelineBarrier(nbl::asset::E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imageLayoutTransitionBarriers });
 	}
 
 	std::vector<REFERENCE_DRAW_HOOK_GPU> referenceObjects; // all possible objects & their buffers + pipelines
