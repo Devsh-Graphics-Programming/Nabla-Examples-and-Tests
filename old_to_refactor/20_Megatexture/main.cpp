@@ -8,7 +8,7 @@
 #include <nbl/video/utilities/IGPUVirtualTexture.h>
 #include <nabla.h>
 
-#include "nbl/api/CCamera.hpp"
+#include "CCamera.hpp"
 #include "../common/CommonAPI.h"
 
 using namespace nbl;

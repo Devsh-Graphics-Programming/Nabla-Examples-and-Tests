@@ -6,7 +6,7 @@
 #include <nabla.h>
 
 #include "../common/CommonAPI.h"
-#include "nbl/api/CCamera.hpp"
+#include "CCamera.hpp"
 
 #include <btBulletDynamicsCommon.h>
 #include "BulletCollision/NarrowPhaseCollision/btRaycastCallback.h"

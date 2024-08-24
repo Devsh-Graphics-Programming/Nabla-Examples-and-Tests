@@ -2,15 +2,14 @@
 #define __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
 
 #include <nabla.h>
-#include "nbl/api/CCamera.hpp"
 
-// TODO: should be in new common api
-#include "../common/SimpleWindowedApplication.hpp"
-#include "../common/InputSystem.hpp"
+// common api
+#include "CCamera.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "CEventCallback.hpp"
 
-#include "nbl/this_example/callback.hpp"
+// example's own headers
 #include "nbl/this_example/transform.hpp"
-
 #include "nbl/this_example/renderpass/scene.hpp"
 //#include "nbl/this_example/renderpass/ui.hpp"
 

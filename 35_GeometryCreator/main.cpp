@@ -6,11 +6,11 @@
 #include "nbl/asset/utils/CGeometryCreator.h"
 #include "nbl/video/utilities/CSimpleResizeSurface.h"
 
-#include "../common/SimpleWindowedApplication.hpp"
-#include "../common/InputSystem.hpp"
+#include "SimpleWindowedApplication.hpp"
+#include "InputSystem.hpp"
 
-#include "nbl/api/CCamera.hpp"
-#include "nbl/api/hlsl/SBasicViewParameters.hlsl"
+#include "CCamera.hpp"
+#include "SBasicViewParameters.hlsl"
 
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"

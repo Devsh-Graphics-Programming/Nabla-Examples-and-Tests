@@ -4,7 +4,7 @@
 #include <nabla.h>
 
 #include "nbl/asset/utils/CGeometryCreator.h"
-#include "nbl/api/hlsl/SBasicViewParameters.hlsl"
+#include "SBasicViewParameters.hlsl"
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"
 
