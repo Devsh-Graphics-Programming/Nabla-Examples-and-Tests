@@ -359,7 +359,40 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// to Nabla + update matrices
 					pass.scene->object.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
-					const_cast<core::matrix3x4SIMD&>(camera.getViewMatrix()) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					const auto& view = camera.getViewMatrix();
+					const auto& projection = camera.getProjectionMatrix();
+
+					const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
+					{
+						ImGui::Begin("Matrices");
+
+						auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
+						{
+							ImGui::Text(topText);
+							if (ImGui::BeginTable(tableName, columns))
+							{
+								for (int y = 0; y < rows; ++y)
+								{
+									ImGui::TableNextRow();
+									for (int x = 0; x < columns; ++x)
+									{
+										ImGui::TableSetColumnIndex(x);
+										ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+									}
+								}
+								ImGui::EndTable();
+							}
+
+							if (withSeparator)
+								ImGui::Separator();
+						};
+
+						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, pass.scene->object.model.pointer());
+						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
+						addMatrixTable("Camera View Projection Matrix", "ViewProjectionMatrixTable", 4, 4, projection.pointer(), false);
+
+						ImGui::End();
+					}
 
 					ImGui::End();
 				}
