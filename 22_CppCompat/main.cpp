@@ -57,6 +57,21 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        emulated_float64_t<false, true> a = emulated_float64_t<false, true>::create(1.5f);
+        emulated_float64_t<false, true> b = emulated_float64_t<false, true>::create(1.25f);
+
+        float c = _static_cast<float>(a + b);
+
+        emulated_vector_t2<emulated_float64_t<false, true>> vec;
+        vec.x = emulated_float64_t<false, true>::create(1.5f);
+        vec.y = emulated_float64_t<false, true>::create(1.25f);
+
+        float32_t2 vec2 = _static_cast<float32_t2>(vec);
+
+        //std::cout << c << std::endl;
+
+        std::cout << vec2.x << ' ' << vec2.y << std::endl;
+
         // Remember to call the base class initialization!
         if (!device_base_t::onAppInitialized(smart_refctd_ptr(system)))
             return false;

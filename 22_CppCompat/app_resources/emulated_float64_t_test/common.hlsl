@@ -4,6 +4,7 @@
 
 #include <nbl/builtin/hlsl/cpp_compat.hlsl>
 #include <nbl/builtin/hlsl/emulated_float64_t.hlsl>
+#include <nbl/builtin/hlsl/emulated_float64_t_utils.hlsl>
 
 NBL_CONSTEXPR uint32_t WORKGROUP_SIZE = 1;
 

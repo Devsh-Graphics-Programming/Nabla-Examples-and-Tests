@@ -125,12 +125,14 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + nbl::hlsl::convert_portable_float64_t_to_float(nbl::hlsl::create_portable_float64_t(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+        const nbl::hlsl::portable_float64_t<> asdf = nbl::hlsl::create_portable_float64_t(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio;
+        const float asdfasdf = nbl::hlsl::_static_cast<float, nbl::hlsl::portable_float64_t<> >(asdf);
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + asdfasdf;
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
-            nbl::hlsl::convert_portable_float64_t_to_float((nbl::hlsl::create_portable_float64_t(2.0) /
+            nbl::hlsl::_static_cast<float>((nbl::hlsl::create_portable_float64_t(2.0) /
             (clipProjectionData.projectionToNDC.columns[0].x * nbl::hlsl::create_portable_float64_t(globals.resolution.x))))
         );
 
@@ -419,8 +421,8 @@ PSInput main(uint vertexID : SV_VertexID)
             curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
 
-        const float2 ndcAxisU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin).getAsFloat2();
-        const float2 ndcAxisV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin).getAsFloat2();
+        const float2 ndcAxisU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin));
+        const float2 ndcAxisV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin));
 
         const float2 screenSpaceAabbExtents = float2(length(ndcAxisU * float2(globals.resolution)) / 2.0, length(ndcAxisV * float2(globals.resolution)) / 2.0);
 
@@ -440,7 +442,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const nbl::hlsl::portable_vector64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::create_portable_vector64_t2(1.0f) -
             nbl::hlsl::create_portable_vector64_t2_from_2d_vec(undilatedCorner)) +
             curveBox.aabbMax * nbl::hlsl::create_portable_vector64_t2_from_2d_vec(undilatedCorner);
-        const float2 coord = (transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dilateVec)).getAsFloat2();
+        const float2 coord = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dilateVec));
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -498,9 +500,9 @@ PSInput main(uint vertexID : SV_VertexID)
         uint16_t textureID = glyphInfo.getTextureID();
 
         const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
-        const float2 screenTopLeft = transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft).getAsFloat2();
-        const float2 screenDirU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(glyphInfo.dirU)).getAsFloat2();
-        const float2 screenDirV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)).getAsFloat2();
+        const float2 screenTopLeft = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
+        const float2 screenDirU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(glyphInfo.dirU)));
+        const float2 screenDirV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)));
 
         const float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1)); // corners of square from (0, 0) to (1, 1)
         const float2 undilatedCornerNDC = corner * 2.0 - 1.0; // corners of square from (-1, -1) to (1, 1)
@@ -543,9 +545,9 @@ PSInput main(uint vertexID : SV_VertexID)
         uint32_t textureID = vk::RawBufferLoad<uint32_t>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) + sizeof(float2) + sizeof(float), 4u);
 
         const float32_t2 dirV = float32_t2(dirU.y, -dirU.x) * aspectRatio;
-        const float2 ndcTopLeft = transformPointNdc(clipProjectionData.projectionToNDC, topLeft).getAsFloat2();
-        const float2 ndcDirU = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirU)).getAsFloat2();
-        const float2 ndcDirV = transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)).getAsFloat2();
+        const float2 ndcTopLeft = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, topLeft));
+        const float2 ndcDirU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirU)));
+        const float2 ndcDirV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)));
 
         float2 corner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         float2 uv = corner; // non-dilated
