@@ -45,8 +45,10 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUDescriptorSetLayout,
 			asset::ICPUPipelineLayout,
 			asset::ICPUPipelineCache,
-			asset::ICPUComputePipeline
-			// framebuffer, renderpass and graphics pipeline
+			asset::ICPUComputePipeline,
+			asset::ICPURenderpass,
+			asset::ICPUGraphicsPipeline
+			// framebuffer
 			// descriptor sets
 		>;
 
@@ -385,8 +387,8 @@ class CAssetConverter : public core::IReferenceCounted
 					rehash.operator()<asset::ICPUPipelineCache>();
 					rehash.operator()<asset::ICPUComputePipeline>();
 					// graphics pipeline needs a renderpass
-				//	rehash.operator()<ICPURenderpass>();
-				//	rehash.operator()<ICPUGraphicsPipeline>();
+					rehash.operator()<asset::ICPURenderpass>();
+					rehash.operator()<asset::ICPUGraphicsPipeline>();
 				//	rehash.operator()<ICPUFramebuffer>();
 				}
 				// Clear the cache for a given type
@@ -897,6 +899,244 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUComputePipeline,PatchGe
 		}
 		hasher << specInfo.requiredSubgroupSize;
 		hasher << specInfo.requireFullSubgroups;
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPURenderpass,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPURenderpass,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		hasher << asset->getDepthStencilAttachmentCount();
+		hasher << asset->getColorAttachmentCount();
+		hasher << asset->getSubpassCount();
+		hasher << asset->getDependencyCount();
+		hasher << asset->getViewMaskMSB();
+		const asset::ICPURenderpass::SCreationParams& params = asset->getCreationParameters();
+		{
+			auto hashLayout = [&](const asset::E_FORMAT format, const asset::IImage::SDepthStencilLayout& layout)->void
+			{
+				if (!asset::isStencilOnlyFormat(format))
+					hasher << layout.depth;
+				if (!asset::isDepthOnlyFormat(format))
+					hasher << layout.stencil;
+			};
+
+			for (auto i=0; i<asset->getDepthStencilAttachmentCount(); i++)
+			{
+				auto entry = params.depthStencilAttachments[i];
+				if (!entry.valid())
+					return {};
+				hasher << entry.format;
+				hasher << entry.samples;
+				hasher << entry.mayAlias;
+				auto hashOp = [&](const auto& op)->void
+				{
+					if (!asset::isStencilOnlyFormat(entry.format))
+						hasher << op.depth;
+					if (!asset::isDepthOnlyFormat(entry.format))
+						hasher << op.actualStencilOp();
+				};
+				hashOp(entry.loadOp);
+				hashOp(entry.storeOp);
+				hashLayout(entry.format,entry.initialLayout);
+				hashLayout(entry.format,entry.finalLayout);
+			}
+			for (auto i=0; i<asset->getColorAttachmentCount(); i++)
+			{
+				const auto& entry = params.colorAttachments[i];
+				if (!entry.valid())
+					return {};
+				hasher.update(&entry,sizeof(entry));
+			}
+			// subpasses
+			using SubpassDesc = asset::ICPURenderpass::SCreationParams::SSubpassDescription;
+			auto hashDepthStencilAttachmentRef = [&](const SubpassDesc::SDepthStencilAttachmentRef& ref)->void
+			{
+				hasher << ref.attachmentIndex;
+				hashLayout(params.depthStencilAttachments[ref.attachmentIndex].format,ref.layout);
+			};
+			for (auto i=0; i<asset->getSubpassCount(); i++)
+			{
+				const auto& entry = params.subpasses[i];
+				const auto depthStencilRenderAtt = entry.depthStencilAttachment.render;
+				if (depthStencilRenderAtt.used())
+				{
+					hashDepthStencilAttachmentRef(depthStencilRenderAtt);
+					if (entry.depthStencilAttachment.resolve.used())
+					{
+						hashDepthStencilAttachmentRef(entry.depthStencilAttachment.resolve);
+						hasher.update(&entry.depthStencilAttachment.resolveMode,sizeof(entry.depthStencilAttachment.resolveMode));
+					}
+				}
+				else // hash needs to care about which slots go unused
+					hasher << false;
+				// color attachments
+				for (const auto& colorAttachment : std::span(entry.colorAttachments))
+				{
+					if (colorAttachment.render.used())
+					{
+						hasher.update(&colorAttachment.render,sizeof(colorAttachment.render));
+						if (colorAttachment.resolve.used())
+							hasher.update(&colorAttachment.resolve,sizeof(colorAttachment.resolve));
+					}
+					else // hash needs to care about which slots go unused
+						hasher << false;
+				}
+				// input attachments
+				for (auto inputIt=entry.inputAttachments; *inputIt!=SubpassDesc::InputAttachmentsEnd; inputIt++)
+				{
+					if (inputIt->used())
+					{
+						hasher << inputIt->aspectMask;
+                        if (inputIt->aspectMask==asset::IImage::EAF_COLOR_BIT)
+							hashDepthStencilAttachmentRef(inputIt->asDepthStencil);
+						else
+							hasher.update(&inputIt->asColor,sizeof(inputIt->asColor));
+					}
+					else
+						hasher << false;
+				}
+				// preserve attachments
+				for (auto preserveIt=entry.preserveAttachments; *preserveIt!=SubpassDesc::PreserveAttachmentsEnd; preserveIt++)
+					hasher.update(preserveIt,sizeof(SubpassDesc::SPreserveAttachmentRef));
+				hasher << entry.viewMask;
+				hasher << entry.flags;
+			}
+			// TODO: we could sort these before hashing (and creating GPU objects)
+			hasher.update(params.dependencies,sizeof(asset::ICPURenderpass::SCreationParams::SSubpassDependency)*asset->getDependencyCount());
+		}
+		hasher.update(params.viewCorrelationGroup,sizeof(params.viewCorrelationGroup));
+
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUGraphicsPipeline,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUGraphicsPipeline,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		{
+			const auto layoutHash = args.depHash(asset->getLayout());
+			if (layoutHash==NoContentHash)
+				return {};
+			hasher << layoutHash;
+		}
+
+		{
+			const auto renderpassHash = args.depHash(asset->getRenderpass());
+			if (renderpassHash==NoContentHash)
+				return {};
+			hasher << renderpassHash;
+		}
+
+		using shader_stage_t = asset::ICPUShader::E_SHADER_STAGE;
+		auto hashStage = [&](const shader_stage_t stage, const bool required=false)->bool
+		{
+			const auto& specInfo = asset->getSpecInfo(stage);
+			if (!specInfo.shader) // fail only if required
+				return required;
+
+			hasher << specInfo.entryPoint;
+			{
+				const auto shaderHash = args.depHash(specInfo.shader);
+				// having a non-required shader at a stage but that shader failing hash, fails us
+				if (shaderHash==NoContentHash)
+					return true;
+				hasher << shaderHash;
+			}
+			if (specInfo.entries)
+			for (const auto& specConstant : *specInfo.entries)
+			{
+				hasher << specConstant.first;
+				hasher.update(specConstant.second.data,specConstant.second.size);
+			}
+			hasher << specInfo.requiredSubgroupSize;
+			return false;
+		};
+		if (hashStage(shader_stage_t::ESS_VERTEX,true) ||
+			hashStage(shader_stage_t::ESS_TESSELLATION_CONTROL) ||
+			hashStage(shader_stage_t::ESS_TESSELLATION_EVALUATION) ||
+			hashStage(shader_stage_t::ESS_GEOMETRY) ||
+			hashStage(shader_stage_t::ESS_FRAGMENT))
+			return {};
+
+		const auto& params = asset->getCachedCreationParams();
+		{
+			for (auto i=0; i<asset::SVertexInputParams::MAX_VERTEX_ATTRIB_COUNT; i++)
+			if (params.vertexInput.enabledAttribFlags&(0x1u<<i))
+			{
+				const auto& attribute = params.vertexInput.attributes[i];
+				hasher.update(&attribute,sizeof(asset::SVertexInputAttribParams));
+				hasher.update(&params.vertexInput.bindings+attribute.binding,sizeof(asset::SVertexInputBindingParams));
+			}
+			const auto& ass = params.primitiveAssembly;
+			hasher << ass.primitiveType;
+			hasher << ass.primitiveRestartEnable;
+			if (ass.primitiveType==asset::E_PRIMITIVE_TOPOLOGY::EPT_PATCH_LIST)
+				hasher << ass.tessPatchVertCount;
+			const auto& raster = params.rasterization;
+			if (!raster.rasterizerDiscard)
+			{
+				hasher << raster.viewportCount;
+				hasher << raster.samplesLog2;
+				hasher << raster.polygonMode;
+				//if (raster.polygonMode==asset::E_POLYGON_MODE::EPM_FILL) // do wireframes and point draw with face culling?
+				{
+					hasher << raster.faceCullingMode;
+					hasher << raster.frontFaceIsCCW;
+				}
+				const auto& rpassParam = asset->getRenderpass()->getCreationParameters();
+				const auto& depthStencilRef = rpassParam.subpasses[params.subpassIx].depthStencilAttachment.render;
+				if (depthStencilRef.used())
+				{
+					const auto attFormat = rpassParam.depthStencilAttachments[depthStencilRef.attachmentIndex].format;
+					if (!asset::isStencilOnlyFormat(attFormat))
+					{
+						hasher << raster.depthCompareOp;
+						hasher << raster.depthWriteEnable;
+						if (raster.depthTestEnable())
+						{
+							hasher << raster.depthClampEnable;
+							hasher << raster.depthBiasEnable;
+							hasher << raster.depthBoundsTestEnable;
+						}
+					}
+					if (raster.stencilTestEnable() && !asset::isDepthOnlyFormat(attFormat))
+					{
+						if ((raster.faceCullingMode&asset::E_FACE_CULL_MODE::EFCM_FRONT_BIT)==0)
+							hasher << raster.frontStencilOps;
+						if ((raster.faceCullingMode&asset::E_FACE_CULL_MODE::EFCM_BACK_BIT)==0)
+							hasher << raster.backStencilOps;
+					}
+				}
+				hasher << raster.alphaToCoverageEnable;
+				hasher << raster.alphaToOneEnable;
+				if (raster.samplesLog2)
+				{
+					hasher << raster.minSampleShadingUnorm;
+					hasher << (reinterpret_cast<const uint64_t&>(raster.sampleMask)&((0x1ull<<raster.samplesLog2)-1));
+				}
+			}
+			for (const auto& blend : std::span(params.blend.blendParams))
+			{
+				if (blend.blendEnabled())
+					hasher.update(&blend,sizeof(blend));
+				else
+					hasher << blend.colorWriteMask;
+			}
+			hasher << params.blend.logicOp;
+		}
+		hasher << params.subpassIx;
+
 		return hasher;
 	}
 };

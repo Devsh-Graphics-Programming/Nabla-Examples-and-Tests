@@ -117,6 +117,13 @@ bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const SPhysicalDev
 	return true;
 }
 
+// nothing in the compute pipeline can be patched
+
+// renderpass won't check for formats, resolve modes, sampler counts being supported because we don't patch them
+// most we could patch would be sample counts, but nobody will really profit from this right now
+
+// graphics pipeline can't really be patched just as a compute pipeline cannot be patched
+
 
 // question of propagating changes, image view and buffer view
 // if image view used as STORAGE, or SAMPLED have to change subUsage
@@ -305,6 +312,27 @@ struct PatchGetter
 				if constexpr(std::is_same_v<AssetType,ICPUShader>)
 				{
 					patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
+					return patch;
+				}
+				break;
+			}
+			case ICPUGraphicsPipeline::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUGraphicsPipeline*>(user);
+				if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
+				{
+					// nothing special to do
+					return patch;
+				}
+				if constexpr (std::is_same_v<AssetType,ICPUShader>)
+				{
+					using stage_t = ICPUShader::E_SHADER_STAGE;
+					for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+					if (typedUser->getSpecInfo(stage).shader==asset)
+					{
+						patch.stage = stage;
+						break;
+					}
 					return patch;
 				}
 				break;
@@ -550,6 +578,25 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						cache.operator()<ICPUShader>(entry,shader,std::move(patch));
 						break;
 					}
+					case ICPUGraphicsPipeline::AssetType:
+					{
+						auto gfxPpln = static_cast<const ICPUGraphicsPipeline*>(user);
+						const auto* layout = gfxPpln->getLayout();
+						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout});
+						const auto* rpass = gfxPpln->getRenderpass();
+						cache.operator()<ICPURenderpass>(entry,rpass,{rpass});
+						using stage_t = ICPUShader::E_SHADER_STAGE;
+						for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+						{
+							const auto* shader = gfxPpln->getSpecInfo(stage).shader;
+							if (!shader)
+								continue;
+							patch_t<ICPUShader> patch = {shader};
+							patch.stage = stage;
+							cache.operator()<ICPUShader>(entry,shader,std::move(patch));
+						}
+						break;
+					}
 					case ICPUDescriptorSet::AssetType:
 					{
 						_NBL_TODO();
@@ -688,7 +735,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						}
 					}
 					// The conversion request we insert needs an instance asset without missing contents
-					if (IPreHashed::anyDependantDiscardedContents(instance.asset))
+					if (IPreHashed::anyDependantDiscardedContents(instance.asset)) // TODO: only if the deps are not already converted!
 						return;
 					// then de-duplicate the conversions needed
 					const patch_index_t patchIx = {static_cast<uint64_t>(std::distance(dfsCache.nodes.data(),&created))};
@@ -997,6 +1044,68 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					}
 				}
 			}
+			if constexpr (std::is_same_v<AssetType,ICPURenderpass>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPURenderpass* asset = entry.second.canonicalAsset;
+					// there is no patching possible for this asset
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						// since we don't have dependants we don't care about our group ID
+						// we create threadsafe pipeline caches, because we have no idea how they may be used
+						assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createRenderpass(asset->getCreationParameters()));
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUGraphicsPipeline>)
+			{
+				core::vector<IGPUShader::SSpecInfo> tmpSpecInfo;
+				tmpSpecInfo.reserve(5);
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUGraphicsPipeline* asset = entry.second.canonicalAsset;
+					// there is no patching possible for this asset
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						// ILogicalDevice::createComputePipelines is rather aggressive on the spec constant validation, so we create one pipeline at a time
+						{
+							// no derivatives, special flags, etc.
+							IGPUGraphicsPipeline::SCreationParams params = {};
+							bool depNotFound = false;
+							{
+								// we choose whatever patch, because there should really only ever be one (all pipeline layouts merge their PC ranges seamlessly)
+								params.layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound).get();
+								// we choose whatever patch, because there should only ever be one (users don't influence patching)
+								params.renderpass = getDependant(uniqueCopyGroupID,asset,asset->getRenderpass(),firstPatchMatch,depNotFound).get();
+								// while there are patches possible for shaders, the only patch which can happen here is changing a stage from UNKNOWN to match the slot here
+								tmpSpecInfo.clear();
+								using stage_t = ICPUShader::E_SHADER_STAGE;
+								for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+								{
+									const auto& info = asset->getSpecInfo(stage);
+									if (info.shader)
+										tmpSpecInfo.push_back({
+											.entryPoint = info.entryPoint,
+											.shader = getDependant(uniqueCopyGroupID,asset,info.shader,firstPatchMatch,depNotFound).get(),
+											.entries = info.entries,
+											.requiredSubgroupSize = info.requiredSubgroupSize
+										});
+								}
+								params.shaders = tmpSpecInfo;
+							}
+							if (depNotFound)
+								continue;
+							params.cached = asset->getCachedCreationParams();
+							core::smart_refctd_ptr<IGPUGraphicsPipeline> ppln;
+							device->createGraphicsPipelines(inputs.pipelineCache,{&params,1},&ppln);
+							assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
+						}
+					}
+				}
+			}
 
 			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
 			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
@@ -1286,8 +1395,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		dedupCreateProp.operator()<ICPUPipelineLayout>();
 		dedupCreateProp.operator()<ICPUPipelineCache>();
 		dedupCreateProp.operator()<ICPUComputePipeline>();
-//		dedupCreateProp.operator()<ICPURenderpass>();
-//		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
+		dedupCreateProp.operator()<ICPURenderpass>();
+		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
 //		dedupCreateProp.operator()<ICPUDescriptorSet>();
 //		dedupCreateProp.operator()<ICPUFramebuffer>();
 	}
@@ -1520,6 +1629,12 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			if constexpr (std::is_same_v<AssetType,ICPUComputePipeline>)
 			{
 				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
+//				depsMissing |= missingDependent.operator()<ICPUShader>(item.first->().shader);
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUGraphicsPipeline>)
+			{
+				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
+//
 			}
 			if (depsMissing)
 			{
@@ -1544,8 +1659,8 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 	mergeCache.operator()<ICPUPipelineLayout>();
 	mergeCache.operator()<ICPUPipelineCache>();
 	mergeCache.operator()<ICPUComputePipeline>();
-//	mergeCache.operator()<ICPURenderpass>();
-//	mergeCache.operator()<ICPUGraphicsPipeline>();
+	mergeCache.operator()<ICPURenderpass>();
+	mergeCache.operator()<ICPUGraphicsPipeline>();
 //	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
