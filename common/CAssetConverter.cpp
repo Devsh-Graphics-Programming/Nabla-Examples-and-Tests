@@ -378,6 +378,10 @@ template<asset::Asset AssetType>
 using conversions_t = core::unordered_map<core::blake3_hash_t,unique_conversion_t<AssetType>>;
 
 //
+template<typename T, typename... U>
+constexpr bool has_type(core::type_list<U...>) {return (std::is_same_v<T,U> || ...);}
+
+//
 auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 {
 	auto* const device = m_params.device;
@@ -417,11 +421,17 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				// skip invalid inputs silently
 				if (!patch.valid(features,limits))
 					return {};
-				//
+				// special checks
 				if constexpr (std::is_same_v<AssetType,ICPUShader>)
 				if (asset->getContentType()==ICPUShader::E_CONTENT_TYPE::ECT_GLSL)
 				{
 					inputs.logger.log("Asset Converter doesn't support converting GLSL shaders! Asset %p won't be converted (GLSL is deprecated in Nabla)",system::ILogger::ELL_ERROR,asset);
+					return {};
+				}
+				if constexpr (std::is_same_v<AssetType,ICPUBuffer>)
+				if (asset->getSize()>limits.maxBufferSize)
+				{
+					inputs.logger.log("Requested buffer size %zu is larger than the Physical Device's maxBufferSize Limit! Asset %p won't be converted",system::ILogger::ELL_ERROR,asset->getSize(),asset);
 					return {};
 				}
 
@@ -670,9 +680,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						// and we can't afford to split hairs like finding overlapping buffer ranges, etc.
 						// Stuff like that would require a completely different hashing/lookup strategy (or multiple fake entries).
 						const auto found = readCache->find({contentHash,instance.uniqueCopyGroupID});
-						if (found)
+						if (found!=readCache->forwardMapEnd())
 						{
-							created.gpuObj = *found;
+							created.gpuObj = found->second;
 							// no conversion needed
 							return;
 						}
@@ -989,7 +999,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 
 			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
-			auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
+			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
 			dfsCache.for_each([&](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 				{
 					// already found in read cache and not converted
@@ -1041,13 +1051,24 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						gpuObj.get()->setObjectDebugName(debugName.str().c_str());
 					}
 					// insert into staging cache
-					stagingCache.insert({contentHash,uniqueCopyGroupID},gpuObj);
+					stagingCache.emplace(gpuObj.get(),CCache<AssetType>::key_t(contentHash,uniqueCopyGroupID));
 					// propagate back to dfsCache
 					created.gpuObj = std::move(gpuObj);
 					// record if a device memory allocation will be needed
 					if constexpr (std::is_base_of_v<IDeviceMemoryBacked,AssetType>)
+					{
 						if (!requestAllocation(&created.gpuObj))
+						{
 							created.gpuObj = nullptr;
+							continue;
+						}
+					}
+					//
+					if constexpr (has_type<AssetType>(SResults::convertible_asset_types{}))
+					{
+						auto& requests = std::get<SResults::conversion_requests_t<ICPUBuffer>>(retval.m_conversionRequests);
+						requests.emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
+					}
 				}
 			);
 		};
@@ -1278,7 +1299,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		//
 		const auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
 		const auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
-		const auto& stagingCache = std::get<CCache<AssetType>>(retval.m_stagingCaches);
+		const auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
 		auto& results = std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects);
 		for (size_t i=0; i<count; i++)
 		if (auto asset=assets[i]; asset)
@@ -1296,9 +1317,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				results[i] = gpuObj;
 				// if something with this content hash is in the stagingCache, then it must match the `found->gpuObj`
-				if (auto pGpuObj=stagingCache.find({found.contentHash,uniqueCopyGroupID}); pGpuObj)
+				if (auto finalCacheIt=stagingCache.find(gpuObj.get()); finalCacheIt!=stagingCache.end())
 				{
-					assert(pGpuObj->get()==gpuObj.get());
+					const bool matches = finalCacheIt->second==CCache<AssetType>::key_t(found.contentHash,uniqueCopyGroupID);
+					assert(matches);
 				}
 			}
 			else
@@ -1348,26 +1370,184 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
 			return false;
 
-		// tag any failures (or erase from `m_stagingCache`)
+		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
+		auto makFailureInStaging = [&]<Asset AssetType>(asset_traits<AssetType>::video_t* gpuObj)->void
+		{
+			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+			const auto found = stagingCache.find(gpuObj);
+			assert(found!=stagingCache.end());
+			// change the content hash on the reverse map to a NoContentHash
+			const_cast<core::blake3_hash_t&>(found->second.value) = {};
+		};
 
-		// TODO: upload Buffers
+		// upload Buffers
+		auto& buffersToUpload = std::get<SResults::conversion_requests_t<ICPUBuffer>>(reservations.m_conversionRequests);
+		{
+			core::vector<IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> ownershipTransfers;
+			ownershipTransfers.reserve(buffersToUpload.size());
+			// do the uploads
+			for (auto& item : buffersToUpload)
+			{
+				auto found = std::get<SResults::staging_cache_t<ICPUBuffer>>(reservations.m_stagingCaches).find(item.gpuObj);
+				const SBufferRange<IGPUBuffer> range = {
+					.offset = 0,
+					.size = item.gpuObj->getCreationParams().size,
+					.buffer = core::smart_refctd_ptr<IGPUBuffer>(item.gpuObj)
+				};
+				const bool success = params.utilities->updateBufferRangeViaStagingBuffer(params.transfer,range,item.canonical->getPointer());
+				// let go of canonical asset (may free RAM)
+				item.canonical = nullptr;
+				if (!success)
+				{
+					reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
+					makFailureInStaging.operator()<ICPUBuffer>(item.gpuObj);
+					continue;
+				}
+				// enqueue ownership release if necessary
+				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored && params.transfer.queue->getFamilyIndex()!=ownerQueueFamily)
+				{
+					ownershipTransfers.push_back({
+						.barrier = {
+							.dep = {
+								.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+								// leave rest empty, we can release whenever after the copies and before the semaphore signal
+							},
+							.ownershipOp = IGPUCommandBuffer::SOwnershipTransferBarrier::OWNERSHIP_OP::RELEASE,
+							.otherQueueFamilyIndex = ownerQueueFamily
+						},
+						.range = range
+					});
+				}
+			}
+			buffersToUpload.clear();
+			// release ownership
+			if (!params.transfer.getScratchCommandBuffer()->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
+				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
+		}
 
-		// TODO: upload Images
-
-		// TODO: compute mip-maps
+#if 0
+		auto& imagesToUpload = std::get<SResults::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
+		{
+			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> layoutTransitions;
+			layoutTransitions.reserve(imagesToUpload.size());
+			// first transition all images to dst-optimal layout
+			for (const auto& item : imagesToUpload)
+			{
+				const auto& creationParams = item.gpuObj->getCreationParameters();
+				layoutTransitions.push_back({
+						.barrier = {
+							.dep = {
+								// first usage doesn't need to sync against anything, so leave src default
+								.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+								.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+							}
+							// plain usage just acquires ownership (without content preservation though
+						},
+						.image = item.gpuObj,
+						.subresourceRange = {
+							.aspectMask = core::bitflag(IGPUImage::E_ASPECT_FLAGS::EAF_COLOR_BIT),
+							.baseMipLevel = 0u,
+							.levelCount = creationParams.mipLevels,
+							.baseArrayLayer = 0u,
+							.layerCount = creationParams.arrayLayers
+						},
+						.oldLayout = IGPUImage::LAYOUT::UNDEFINED,
+						.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+				});
+			}
+			if (!params.transfer.getScratchCommandBuffer()->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers={},.imgBarriers=layoutTransitions}))
+			{
+				reservations.m_logger.log("Layout Transition to TRANSFER_DST_OPTIMAL failed for all images",system::ILogger::ELL_ERROR);
+				for (const auto& item : imagesToUpload) // wipe everything
+					makFailureInStaging.operator()<ICPUImage>(item.gpuObj);
+			}
+			else // upload Images
+			{
+				for (const auto& item : imagesToUpload)
+				{
+					const bool success = params.utilities->updateImageViaStagingBuffer(
+						params.transfer,
+						item.canonical->getBuffer()->getPointer(),
+						item.canonical->getCreationParameters().format,
+						item.gpuObj,
+						IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						item.canonical->getRegions()
+					);
+					if (!success)
+					{
+						reservations.m_logger.log("Data upload failed for \"%s\"",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
+						makFailureInStaging.operator()<ICPUImage>(item.gpuObj);
+						continue;
+					}
+					// TODO: enqueue ownership release or layout transition if necessary
+				}
+				// TODO: layout transitions etc.
+			}
+		}
+#endif
 
 		// TODO: build BLASes and TLASes
 	}
 
+	// want to check if deps successfully exist
+	auto missingDependent = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* dep)->bool
+	{
+		auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+		auto found = stagingCache.find(const_cast<asset_traits<AssetType>::video_t*>(dep));
+		if (found!=stagingCache.end() && found->second.value==core::blake3_hash_t{})
+			return true;
+		// dependent might be in readCache of one or more converters, so if in doubt assume its okay
+		return false;
+	};
 	// insert items into cache if overflows handled fine and commandbuffers ready to be recorded
-	core::for_each_in_tuple(reservations.m_stagingCaches,[&]<typename AssetType>(CCache<AssetType>& stagingCache)->void
+	auto mergeCache = [&]<Asset AssetType>()->void
+	{
+		auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+		auto& cache = std::get<CCache<AssetType>>(m_caches);
+		cache.m_forwardMap.reserve(cache.m_forwardMap.size()+stagingCache.size());
+		cache.m_reverseMap.reserve(cache.m_reverseMap.size()+stagingCache.size());
+		for (auto& item : stagingCache)
+		if (item.second.value!=core::blake3_hash_t{}) // didn't get wiped
 		{
-			// TODO: rescan all the GPU objects and find out if they depend on anything that failed, if so add them to the failure set
-				// TODO: knock out items from the `m_stagingCache` basically
-			// TODO: final pass knock out failures from `m_gpuObjects` as well
-			std::get<CCache<AssetType>>(m_caches).merge(stagingCache);
+			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
+			bool depsMissing = false;
+			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
+			{
+				for (auto dsLayout : item.first->getDescriptorSetLayouts())
+					depsMissing |= missingDependent.operator()<ICPUDescriptorSetLayout>(dsLayout);
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUComputePipeline>)
+			{
+				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
+			}
+			if (depsMissing)
+			{
+				// wipe self, to let users know
+				item.second.value = {};
+				continue;
+			}
+			asset_cached_t<AssetType> cached;
+			cached.value = core::smart_refctd_ptr<typename asset_traits<AssetType>::video_t>(item.first);
+			cache.m_forwardMap.emplace(item.second,std::move(cached));
 		}
-	);
+	};
+	// again, need to go bottom up so we can check dependencies being successes
+	mergeCache.operator()<ICPUBuffer>();
+//	mergeCache.operator()<ICPUImage>();
+//	mergeCache.operator()<ICPUBottomLevelAccelerationStructure>();
+//	mergeCache.operator()<ICPUTopLevelAccelerationStructure>();
+//	mergeCache.operator()<ICPUBufferView>();
+	mergeCache.operator()<ICPUShader>();
+	mergeCache.operator()<ICPUSampler>();
+	mergeCache.operator()<ICPUDescriptorSetLayout>();
+	mergeCache.operator()<ICPUPipelineLayout>();
+	mergeCache.operator()<ICPUPipelineCache>();
+	mergeCache.operator()<ICPUComputePipeline>();
+//	mergeCache.operator()<ICPURenderpass>();
+//	mergeCache.operator()<ICPUGraphicsPipeline>();
+//	mergeCache.operator()<ICPUDescriptorSet>();
+//	mergeCache.operator()<ICPUFramebuffer>();
 
 	return true;
 }

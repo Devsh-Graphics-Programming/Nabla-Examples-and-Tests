@@ -431,14 +431,6 @@ class CAssetConverter : public core::IReferenceCounted
         class CCache final
         {
 			public:
-				inline CCache() = default;
-				inline CCache(const CCache&) = default;
-				inline CCache(CCache&&) = default;
-				inline ~CCache() = default;
-
-				inline CCache& operator=(const CCache&) = default;
-				inline CCache& operator=(CCache&&) = default;
-
 				// Make it clear to users that we don't look up just by the asset content hash
 				struct key_t
 				{
@@ -455,6 +447,30 @@ class CAssetConverter : public core::IReferenceCounted
 					core::blake3_hash_t value;
 				};
 
+			private:
+				struct ForwardHash
+				{
+					inline size_t operator()(const key_t& key) const
+					{
+						return std::hash<core::blake3_hash_t>()(key.value);
+					}
+				};
+
+			public:
+				// typedefs
+				using forward_map_t = core::unordered_map<key_t,asset_cached_t<AssetType>,ForwardHash>;
+				using reverse_map_t = core::unordered_map<typename asset_traits<AssetType>::lookup_t,key_t>;
+
+
+				//
+				inline CCache() = default;
+				inline CCache(const CCache&) = default;
+				inline CCache(CCache&&) = default;
+				inline ~CCache() = default;
+
+				inline CCache& operator=(const CCache&) = default;
+				inline CCache& operator=(CCache&&) = default;
+
 				// no point returning iterators to inserted positions, they're not stable
 				inline bool insert(const key_t& _key, const asset_cached_t<AssetType>& _gpuObj)
 				{
@@ -466,61 +482,51 @@ class CAssetConverter : public core::IReferenceCounted
 					return true;
 				}
 
+				//
+				inline size_t size() const
+				{
+					assert(m_forwardMap.size()==m_reverseMap.size());
+					return m_forwardMap.size();
+				}
+
+				//
+				inline forward_map_t::const_iterator forwardMapEnd() const {return m_forwardMap.end();}
+				inline reverse_map_t::const_iterator reverseMapEnd() const {return m_reverseMap.end();}
+
 				// fastest lookup
-				inline const asset_cached_t<AssetType>* find(const key_t& _key) const
-				{
-					const auto end = m_forwardMap.end();
-					const auto found = m_forwardMap.find(_key);
-					if (found!=end)
-						return &found->second;
-					return nullptr;
-				}
-				inline const key_t* find(asset_traits<AssetType>::lookup_t gpuObject) const
-				{
-					const auto end = m_reverseMap.end();
-					const auto found = m_reverseMap.find(gpuObject);
-					if (found!=end)
-						return &found->second;
-					return nullptr;
-				}
+				inline forward_map_t::const_iterator find(const key_t& _key) const {return m_forwardMap.find(_key);}
+				inline reverse_map_t::const_iterator find(asset_traits<AssetType>::lookup_t gpuObject) const {return m_reverseMap.find(gpuObject);}
 
-			private:
-				friend class CAssetConverter;
-
-				struct ForwardHash
-				{
-					inline size_t operator()(const key_t& key) const
-					{
-						return std::hash<core::blake3_hash_t>()(key.value);
-					}
-				};
-				core::unordered_map<key_t,asset_cached_t<AssetType>,ForwardHash> m_forwardMap;
-				core::unordered_map<typename asset_traits<AssetType>::lookup_t,key_t> m_reverseMap;
-
-			public:
 				// fastest erase
-				inline bool erase(decltype(m_forwardMap)::const_iterator fit, decltype(m_reverseMap)::const_iterator rit)
+				inline bool erase(forward_map_t::const_iterator fit, reverse_map_t::const_iterator rit)
 				{
-					if (fit->first!=rit->second || fit->second!=rit->first)
+					if (fit->first!=rit->second || fit->second.get()!=rit->first)
 						return false;
 					m_reverseMap.erase(rit);
 					m_forwardMap.erase(fit);
 					return true;
 				}
-				inline bool erase(decltype(m_forwardMap)::const_iterator it)
+				inline bool erase(forward_map_t::const_iterator it)
 				{
 					return erase(it,find(it->second));
 				}
-				inline bool erase(decltype(m_reverseMap)::const_iterator it)
+				inline bool erase(reverse_map_t::const_iterator it)
 				{
 					return erase(find(it->second),it);
 				}
 
+				//
 				inline void merge(const CCache<AssetType>& other)
 				{
 					m_forwardMap.insert(other.m_forwardMap.begin(),other.m_forwardMap.end());
 					m_reverseMap.insert(other.m_reverseMap.begin(),other.m_reverseMap.end());
 				}
+
+			private:
+				friend class CAssetConverter;
+
+				forward_map_t m_forwardMap;
+				reverse_map_t m_reverseMap;
         };
 
 		// A meta class to encompass all the Assets you might want to convert at once
@@ -562,10 +568,25 @@ class CAssetConverter : public core::IReferenceCounted
 		// Split off from inputs because only assets that build on IPreHashed need uploading
 		struct SConvertParams
 		{
-			// By default the compute queue will own everything after all transfer operations are complete.
-			virtual inline SIntendedSubmitInfo& getFinalOwnerSubmit(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
+			// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
+			// If you want to record a pipeline barrier that will release ownership to another family, override this
+			virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
 			{
-				return compute;
+				return IQueue::FamilyIgnored;
+			}
+			// You can choose what layout the images get transitioned to at the end of an upload
+			// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
+			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
+			{
+				using layout_t = IGPUImage::LAYOUT;
+				using flags_t = IGPUImage::E_USAGE_FLAGS;
+				const auto usages = image->getCreationParameters().usage;
+				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
+					return layout_t::READ_ONLY_OPTIMAL;
+				if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
+					return layout_t::ATTACHMENT_OPTIMAL;
+				// best guess
+				return layout_t::GENERAL;
 			}
 			// By default we always insert into the cache
 			virtual inline bool writeCache(const core::blake3_hash_t& createdFrom)
@@ -576,18 +597,21 @@ class CAssetConverter : public core::IReferenceCounted
 			// submits the buffered up cals 
 			NBL_API ISemaphore::future_t<bool> autoSubmit();
 
-			// TODO: documentation (and allow same queue/same intended submit)
+			// One queue is for copies, another is for mip map generation and Acceleration Structure building
 			SIntendedSubmitInfo transfer = {};
 			SIntendedSubmitInfo compute = {};
 			// required for Buffer or Image upload operations
 			IUtilities* utilities = nullptr;
 		};
-        struct SResults
+        struct SResults final
         {
 				template<asset::Asset AssetType>
 				using vector_t = core::vector<asset_cached_t<AssetType>>;
 
 			public:
+				template<asset::Asset AssetType>
+				using staging_cache_t = core::unordered_map<typename asset_traits<AssetType>::video_t*,typename CCache<AssetType>::key_t>;
+
 				inline SResults(SResults&&) = default;
 				inline SResults(const SResults&) = delete;
 				inline ~SResults() = default;
@@ -610,15 +634,18 @@ class CAssetConverter : public core::IReferenceCounted
 				CHashCache* getHashCache() {return m_hashCache.get();}
 				const CHashCache* getHashCache() const {return m_hashCache.get();}
 
+				// useful for virtual function implementations in `SConvertParams`
+				template<asset::Asset AssetType>
+				const auto& getStagingCache() const {return std::get<staging_cache_t<AssetType>>(m_stagingCaches);}
+
 				// You only get to call this once if successful
 				inline bool convert(SConvertParams& params)
 				{
 					if (m_converter->convert_impl(std::move(*this),params))
 					{
-						core::for_each_in_tuple(
-							m_stagingCaches,
-							[]<asset::Asset AssetType>(CCache<AssetType>& stagingCache)->void {stagingCache = {};}
-						);
+						// wipe after success
+						core::for_each_in_tuple(m_stagingCaches,[](auto& stagingCache)->void{stagingCache.clear();});
+						// disallow a double run
 						m_converter = nullptr;
 						return true;
 					}
@@ -642,7 +669,25 @@ class CAssetConverter : public core::IReferenceCounted
 				core::tuple_transform_t<vector_t,supported_asset_types> m_gpuObjects = {};
 				
 				// we don't insert into the writeCache until conversions are successful
-				core::tuple_transform_t<CCache,supported_asset_types> m_stagingCaches;
+				core::tuple_transform_t<staging_cache_t,supported_asset_types> m_stagingCaches;
+				// need a more explicit list of GPU objects that need device-assisted conversion
+				template<asset::Asset AssetType>
+				struct ConversionRequest
+				{
+					// canonical asset (the one that provides content)
+					core::smart_refctd_ptr<const AssetType> canonical;
+					// gpu object to transfer canonical's data to or build it from
+					asset_traits<AssetType>::video_t* gpuObj;
+				};
+				template<asset::Asset AssetType>
+				using conversion_requests_t = core::vector<ConversionRequest<AssetType>>;
+				using convertible_asset_types = core::type_list<
+					asset::ICPUBuffer/*,
+					asset::ICPUImage,
+					asset::ICPUBottomLevelAccelerationStructure,
+					asset::ICPUTopLevelAccelerationStructure*/
+				>;
+				core::tuple_transform_t<conversion_requests_t,convertible_asset_types> m_conversionRequests;
 
 				//
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
