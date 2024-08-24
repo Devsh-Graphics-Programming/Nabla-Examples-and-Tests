@@ -1621,20 +1621,14 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		{
 			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
 			bool depsMissing = false;
-			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
+			// only go over types we could actually break via missing upload/build (i.e. pipelines are unbreakable)
+//			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
+//				depMissing = missingDependent.operator()<ICPUBuffer>(item.first->getBuffer());
+//			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
+//				depMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
+			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
-				for (auto dsLayout : item.first->getDescriptorSetLayouts())
-					depsMissing |= missingDependent.operator()<ICPUDescriptorSetLayout>(dsLayout);
-			}
-			if constexpr (std::is_same_v<AssetType,ICPUComputePipeline>)
-			{
-				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
-//				depsMissing |= missingDependent.operator()<ICPUShader>(item.first->().shader);
-			}
-			if constexpr (std::is_same_v<AssetType,ICPUGraphicsPipeline>)
-			{
-				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
-//
+				// TODO
 			}
 			if (depsMissing)
 			{
