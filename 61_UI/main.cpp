@@ -13,16 +13,14 @@ using namespace ui;
 using namespace video;
 
 /*
-	ImGuizmo default example displaying debug grid & cubes 
-	refactored to be used with Nabla (UI extension, core & camera). 
-	
-	A few editor features has been added for camera control,
-	optimizations added for viewing debug geometry, rendering
-	scene to a texture & then sample to render GUI scene part.
-*/
+	Renders scene texture to an offline
+	framebuffer which color attachment
+	is then sampled into a imgui window.
 
-// https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/example/main.cpp
-// https://github.com/Devsh-Graphics-Programming/ImGuizmo/blob/master/LICENSE
+	Written with Nabla, it's UI extension
+	and got integrated with ImGuizmo to 
+	handle scene's object translations.
+*/
 
 class UISampleApp final : public examples::SimpleWindowedApplication
 {
@@ -268,11 +266,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					if (ImGui::RadioButton("Orthographic", !isPerspective))
 						isPerspective = false;
 
-					ImGui::Checkbox("Enable movement", &move);
+					ImGui::Checkbox("Enable \"view manipulate\"", &transformParams.enableViewManipulate);
+					ImGui::Checkbox("Enable camera movement", &move);
 					ImGui::SliderFloat("Move speed", &moveSpeed, 0.1f, 10.f);
 					ImGui::SliderFloat("Rotate speed", &rotateSpeed, 0.1f, 10.f);
 
-					ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY);
+					// ImGui::Checkbox("Flip Gizmo's Y axis", &flipGizmoY); // let's not expose it to be changed in UI but keep the logic in case
 
 					if (isPerspective)
 						ImGui::SliderFloat("Fov", &fov, 20.f, 150.f);
@@ -382,7 +381,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					const auto& view = camera.getViewMatrix();
 					const auto& projection = camera.getProjectionMatrix();
 
-					// TODO: make it nicely
+					// TODO: make it more nicely
 					const_cast<core::matrix3x4SIMD&>(view) = core::transpose(imguizmoM16InOut.view).extractSub3x4(); // a hack, correct way would be to use inverse matrix and get position + target because now it will bring you back to last position & target when switching from gizmo move to manual move (but from manual to gizmo is ok)
 					camera.setProjectionMatrix(projection); // update concatanated matrix
 					{
@@ -391,6 +390,14 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						auto& hook = pass.scene->object;
 						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
+						{
+							const auto& references = pass.scene->getReferenceObjects();
+							const auto type = static_cast<CScene::E_OBJECT_TYPE>(gcIndex);
+
+							const auto& [gpu, meta] = references[type];
+							hook.meta.type = type;
+							hook.meta.name = meta.name;
+						}
 
 						auto& ubo = hook.viewParameters;
 
@@ -401,6 +408,13 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						memcpy(ubo.MVP, modelViewProjection.pointer(), sizeof(ubo.MVP));
 						memcpy(ubo.MV, modelView.pointer(), sizeof(ubo.MV));
 						memcpy(ubo.NormalMat, normal.pointer(), sizeof(ubo.NormalMat));
+
+						// object meta display
+						{
+							ImGui::Begin("Object");
+							ImGui::Text("type: \"%s\"", hook.meta.name.data());
+							ImGui::End();
+						}
 					}
 					
 					// view matrices editor
@@ -653,6 +667,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 						previousEventTimestamp = e.timeStamp;
 						capturedEvents.mouse.emplace_back(e);
+
+						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(CScene::EOT_COUNT - (uint8_t)1u));
 					}
 				}, m_logger.get());
 
@@ -721,13 +738,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 		Camera camera = Camera(core::vectorSIMDf(0, 0, 0), core::vectorSIMDf(0, 0, 0), core::matrix4SIMD());
 		video::CDumbPresentationOracle oracle;
 
+		uint16_t gcIndex = {}; // note: this is dirty however since I assume only single object in scene I can leave it now, when this example is upgraded to support multiple objects this needs to be changed
+
 		TransformRequestParams transformParams;
-
-		int lastUsing = 0, gizmoCount = 1;
-
 		bool isPerspective = true, isLH = true, flipGizmoY = true, move = false;
 		float fov = 60.f, zNear = 0.1f, zFar = 10000.f, moveSpeed = 1.f, rotateSpeed = 1.f;
-		float viewWidth = 10.f; // for orthographic
+		float viewWidth = 10.f;
 		float camYAngle = 165.f / 180.f * 3.14159f;
 		float camXAngle = 32.f / 180.f * 3.14159f;
 

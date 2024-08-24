@@ -38,7 +38,8 @@ public:
 		EOT_DISK,
 		EOT_ARROW,
 		EOT_CONE,
-		EOT_ICOSPHERE
+		EOT_ICOSPHERE,
+		EOT_COUNT
 	};
 
 	struct OBJECT_META
@@ -54,7 +55,17 @@ public:
 		OBJECT_META meta;
 	};
 
-	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
+	struct REFERENCE_OBJECT_GPU
+	{
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUGraphicsPipeline> pipeline;
+		nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> vertexBuffer, indexBuffer;
+		nbl::asset::E_INDEX_TYPE indexType;
+		uint32_t indexCount;
+	};
+
+	using REFERENCE_DRAW_HOOK_GPU = std::pair<REFERENCE_OBJECT_GPU, OBJECT_META>;
+
+	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_colorAttachment, m_depthAttachment;
 
@@ -265,17 +276,14 @@ public:
 		m_commandBuffer->updateBuffer(range, &object.viewParameters);
 	}
 
+	inline const std::vector<REFERENCE_DRAW_HOOK_GPU>& getReferenceObjects()
+	{
+		return referenceObjects;
+	}
+
 private:
 	_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_D16_UNORM;
 	_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = nbl::video::IGPUImage::ESCF_1_BIT;
-
-	struct REFERENCE_OBJECT_GPU
-	{
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUGraphicsPipeline> pipeline;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> vertexBuffer, indexBuffer;
-		nbl::asset::E_INDEX_TYPE indexType;
-		uint32_t indexCount;
-	};
 
 	struct REFERENCE_OBJECT_CPU
 	{
@@ -287,8 +295,6 @@ private:
 	{
 		nbl::core::smart_refctd_ptr<nbl::video::IGPUShader> vertex, geometry, fragment;
 	};
-
-	using REFERENCE_DRAW_HOOK_GPU = std::pair<REFERENCE_OBJECT_GPU, OBJECT_META>;
 
 	template<nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath>
 	bool createGPUData(const REFERENCE_OBJECT_CPU& inData, REFERENCE_DRAW_HOOK_GPU& outData, const SHADERS_GPU& shaders, const nbl::video::IGPUPipelineLayout* pipelineLayout)

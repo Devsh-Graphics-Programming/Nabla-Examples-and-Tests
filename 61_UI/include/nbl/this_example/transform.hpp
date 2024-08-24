@@ -9,7 +9,7 @@
 
 struct TransformRequestParams
 {
-	bool useWindow = true, editTransformDecomposition = false;
+	bool useWindow = true, editTransformDecomposition = false, enableViewManipulate = false;
 	float camDistance = 8.f;
 };
 
@@ -138,7 +138,9 @@ void EditTransform(float* cameraView, const float* cameraProjection, float* matr
 	}
 
 	ImGuizmo::Manipulate(cameraView, cameraProjection, mCurrentGizmoOperation, mCurrentGizmoMode, matrix, NULL, useSnap ? &snap[0] : NULL, boundSizing ? bounds : NULL, boundSizingSnap ? boundsSnap : NULL);
-	ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
+
+	if(params.enableViewManipulate)
+		ImGuizmo::ViewManipulate(cameraView, params.camDistance, ImVec2(viewManipulateRight - 128, viewManipulateTop), ImVec2(128, 128), 0x10101010);
 
 	ImGui::End();
 	ImGui::PopStyleColor();
