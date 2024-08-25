@@ -27,18 +27,20 @@ namespace video
 const core::blake3_hash_t CAssetConverter::CHashCache::NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
 
 CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(const ICPUSampler* sampler) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter) {}
-bool CAssetConverter::patch_impl_t<ICPUSampler>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUSampler>::valid(const ILogicalDevice* device)
 {
 	if (anisotropyLevelLog2>5) // unititialized
 		return false;
+	const auto& limits = device->getPhysicalDevice()->getLimits();
 	if (anisotropyLevelLog2>limits.maxSamplerAnisotropyLog2)
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
 	return true;
 }
 
 CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(const ICPUShader* shader) : stage(shader->getStage()) {}
-bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const ILogicalDevice* device)
 {
+	const auto& features = device->getEnabledFeatures();
 	switch (stage)
 	{
 		// supported always
@@ -80,8 +82,9 @@ bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const SPhysicalDeviceFeatu
 }
 
 CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(const ICPUBuffer* buffer) : usage(buffer->getUsageFlags()) {}
-bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const ILogicalDevice* device)
 {
+	const auto& features = device->getEnabledFeatures();
 	if (usage.hasFlags(usage_flags_t::EUF_CONDITIONAL_RENDERING_BIT_EXT) && !features.conditionalRendering)
 		return false;
 	if ((usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT)||usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT)) && !features.accelerationStructure)
@@ -109,8 +112,9 @@ CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(const ICPUPipeli
 	}
 	invalid = false;
 }
-bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const ILogicalDevice* device)
 {
+	const auto& limits = device->getPhysicalDevice()->getLimits();
 	for (auto byte=limits.maxPushConstantsSize; byte<pushConstantBytes.size(); byte++)
 	if (pushConstantBytes[byte]!=shader_stage_t::ESS_UNKNOWN)
 		return false;
@@ -229,8 +233,8 @@ struct dfs_cache
 		if (found!=instances.end())
 		{
 			const auto& requiredSubset = patchGet();
-			// we don't want to pass the device features and limits to this function, it just assumes the patch will be valid without touch-ups
-			//assert(requiredSubset.valid(deviceFeatures,deviceLimits));
+			// we don't want to pass the device to this function, it just assumes the patch will be valid without touch-ups
+			//assert(requiredSubset.valid(device));
 			auto createdIndex = found->second;
 			while (createdIndex)
 			{
@@ -382,8 +386,7 @@ struct PatchGetter
 		return foundIx ? &(std::get<dfs_cache<AssetType>>(*p_dfsCaches).nodes[foundIx.value].patch) : nullptr;
 	}
 
-	const SPhysicalDeviceFeatures* pFeatures;
-	const SPhysicalDeviceLimits* pLimits;
+	const ILogicalDevice* device;
 	const CAssetConverter::SInputs* const p_inputs;
 	const core::tuple_transform_t<dfs_cache,CAssetConverter::supported_asset_types>* const p_dfsCaches;
 	// progressive state
@@ -434,7 +437,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 	{
 		// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
-		const auto& features = device->getEnabledFeatures();
 		const auto& limits = device->getPhysicalDevice()->getLimits();
 
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
@@ -447,7 +449,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				assert(asset);
 				// skip invalid inputs silently
-				if (!patch.valid(features,limits))
+				if (!patch.valid(device))
 					return {};
 				// special checks
 				if constexpr (std::is_same_v<AssetType,ICPUShader>)
@@ -527,10 +529,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					patch_t<AssetType> patch(asset);
 					if (i<patches.size())
 					{
-						if (!patch.valid(features,limits))
+						if (!patch.valid(device))
 							continue;
 						auto overidepatch = patches[i];
-						if (!overidepatch.valid(features,limits))
+						if (!overidepatch.valid(device))
 							continue;
 						bool combineSuccess;
 						std::tie(combineSuccess,patch) = patch.combine(overidepatch);
@@ -703,8 +705,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					contentHash = retval.getHashCache()->hash<AssetType>(
 						instance.asset,
 						PatchGetter{
-							&features,
-							&limits,
+							device,
 							&inputs,
 							&dfsCaches
 						},
@@ -806,7 +807,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// small utility
 			auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const AssetType* user, const DepAssetType* depAsset, Pred pred, bool& failed)->asset_cached_t<DepAssetType>::type
 			{
-				const patch_index_t found = PatchGetter{&features,&limits,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
+				const patch_index_t found = PatchGetter{device,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
 				if (found)
 				{
 					const auto& gpuObj = std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj;

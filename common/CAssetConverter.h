@@ -48,8 +48,8 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUComputePipeline,
 			asset::ICPURenderpass,
 			asset::ICPUGraphicsPipeline
-			// framebuffer
 			// descriptor sets
+			// framebuffer
 		>;
 
 		struct SCreationParams
@@ -88,7 +88,7 @@ class CAssetConverter : public core::IReferenceCounted
 				inline this_t& operator=(const this_t& other) = default; \
 				inline this_t& operator=(this_t&& other) = default; \
 				patch_impl_t(const ASSET_TYPE* asset); \
-				bool valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+				bool valid(const ILogicalDevice* device)
 
 				PATCH_IMPL_BOILERPLATE(AssetType);
 
@@ -139,7 +139,7 @@ class CAssetConverter : public core::IReferenceCounted
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUBuffer);
 
-				inline bool valid() const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
+				inline bool valid(const ILogicalDevice* device) const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
 
 				using usage_flags_t = IGPUBuffer::E_USAGE_FLAGS;
 				core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
@@ -158,7 +158,7 @@ class CAssetConverter : public core::IReferenceCounted
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUPipelineLayout);
 
-				inline bool valid() const {return !invalid;}
+				inline bool valid(const ILogicalDevice* device) const {return !invalid;}
 
 				using shader_stage_t = asset::IShader::E_SHADER_STAGE;
 				std::array<core::bitflag<shader_stage_t>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {shader_stage_t::ESS_UNKNOWN};
@@ -292,7 +292,7 @@ class CAssetConverter : public core::IReferenceCounted
 					// this is the only time a call to `patchGet` happens, which allows it to mutate its state only once
 					const patch_t<AssetType>* patch = patchGet(asset);
 					// failed to provide us with a patch, so fail the hash
-					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device and features)
+					if (!patch)// || !patch->valid()) we assume any patch gotten is valid (to not have a dependancy on the device)
 						return NoContentHash;
 
 					// consult cache
@@ -737,7 +737,7 @@ template<asset::Asset AssetType>
 inline CAssetConverter::patch_impl_t<AssetType>::patch_impl_t(const AssetType* asset) {}
 // always valid
 template<asset::Asset AssetType>
-inline bool CAssetConverter::patch_impl_t<AssetType>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits) { return true; }
+inline bool CAssetConverter::patch_impl_t<AssetType>::valid(const ILogicalDevice* device) { return true; }
 
 
 template<typename PatchGetter>
