@@ -27,18 +27,20 @@ namespace video
 const core::blake3_hash_t CAssetConverter::CHashCache::NoContentHash = static_cast<core::blake3_hash_t>(core::blake3_hasher());
 
 CAssetConverter::patch_impl_t<ICPUSampler>::patch_impl_t(const ICPUSampler* sampler) : anisotropyLevelLog2(sampler->getParams().AnisotropicFilter) {}
-bool CAssetConverter::patch_impl_t<ICPUSampler>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUSampler>::valid(const ILogicalDevice* device)
 {
 	if (anisotropyLevelLog2>5) // unititialized
 		return false;
+	const auto& limits = device->getPhysicalDevice()->getLimits();
 	if (anisotropyLevelLog2>limits.maxSamplerAnisotropyLog2)
 		anisotropyLevelLog2 = limits.maxSamplerAnisotropyLog2;
 	return true;
 }
 
 CAssetConverter::patch_impl_t<ICPUShader>::patch_impl_t(const ICPUShader* shader) : stage(shader->getStage()) {}
-bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const ILogicalDevice* device)
 {
+	const auto& features = device->getEnabledFeatures();
 	switch (stage)
 	{
 		// supported always
@@ -80,8 +82,9 @@ bool CAssetConverter::patch_impl_t<ICPUShader>::valid(const SPhysicalDeviceFeatu
 }
 
 CAssetConverter::patch_impl_t<ICPUBuffer>::patch_impl_t(const ICPUBuffer* buffer) : usage(buffer->getUsageFlags()) {}
-bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const ILogicalDevice* device)
 {
+	const auto& features = device->getEnabledFeatures();
 	if (usage.hasFlags(usage_flags_t::EUF_CONDITIONAL_RENDERING_BIT_EXT) && !features.conditionalRendering)
 		return false;
 	if ((usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT)||usage.hasFlags(usage_flags_t::EUF_ACCELERATION_STRUCTURE_STORAGE_BIT)) && !features.accelerationStructure)
@@ -109,13 +112,21 @@ CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(const ICPUPipeli
 	}
 	invalid = false;
 }
-bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const SPhysicalDeviceFeatures& features, const SPhysicalDeviceLimits& limits)
+bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const ILogicalDevice* device)
 {
+	const auto& limits = device->getPhysicalDevice()->getLimits();
 	for (auto byte=limits.maxPushConstantsSize; byte<pushConstantBytes.size(); byte++)
 	if (pushConstantBytes[byte]!=shader_stage_t::ESS_UNKNOWN)
 		return false;
 	return true;
 }
+
+// nothing in the compute pipeline can be patched
+
+// renderpass won't check for formats, resolve modes, sampler counts being supported because we don't patch them
+// most we could patch would be sample counts, but nobody will really profit from this right now
+
+// graphics pipeline can't really be patched just as a compute pipeline cannot be patched
 
 
 // question of propagating changes, image view and buffer view
@@ -222,8 +233,8 @@ struct dfs_cache
 		if (found!=instances.end())
 		{
 			const auto& requiredSubset = patchGet();
-			// we don't want to pass the device features and limits to this function, it just assumes the patch will be valid without touch-ups
-			//assert(requiredSubset.valid(deviceFeatures,deviceLimits));
+			// we don't want to pass the device to this function, it just assumes the patch will be valid without touch-ups
+			//assert(requiredSubset.valid(device));
 			auto createdIndex = found->second;
 			while (createdIndex)
 			{
@@ -309,6 +320,27 @@ struct PatchGetter
 				}
 				break;
 			}
+			case ICPUGraphicsPipeline::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUGraphicsPipeline*>(user);
+				if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
+				{
+					// nothing special to do
+					return patch;
+				}
+				if constexpr (std::is_same_v<AssetType,ICPUShader>)
+				{
+					using stage_t = ICPUShader::E_SHADER_STAGE;
+					for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+					if (typedUser->getSpecInfo(stage).shader==asset)
+					{
+						patch.stage = stage;
+						break;
+					}
+					return patch;
+				}
+				break;
+			}
 			case ICPUBufferView::AssetType:
 			{
 				const auto* typedUser = static_cast<const ICPUBufferView*>(user);
@@ -354,8 +386,7 @@ struct PatchGetter
 		return foundIx ? &(std::get<dfs_cache<AssetType>>(*p_dfsCaches).nodes[foundIx.value].patch) : nullptr;
 	}
 
-	const SPhysicalDeviceFeatures* pFeatures;
-	const SPhysicalDeviceLimits* pLimits;
+	const ILogicalDevice* device;
 	const CAssetConverter::SInputs* const p_inputs;
 	const core::tuple_transform_t<dfs_cache,CAssetConverter::supported_asset_types>* const p_dfsCaches;
 	// progressive state
@@ -406,7 +437,6 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 
 	{
 		// Need to look at ENABLED features and not Physical Device's AVAILABLE features.
-		const auto& features = device->getEnabledFeatures();
 		const auto& limits = device->getPhysicalDevice()->getLimits();
 
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
@@ -419,7 +449,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			{
 				assert(asset);
 				// skip invalid inputs silently
-				if (!patch.valid(features,limits))
+				if (!patch.valid(device))
 					return {};
 				// special checks
 				if constexpr (std::is_same_v<AssetType,ICPUShader>)
@@ -499,10 +529,10 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					patch_t<AssetType> patch(asset);
 					if (i<patches.size())
 					{
-						if (!patch.valid(features,limits))
+						if (!patch.valid(device))
 							continue;
 						auto overidepatch = patches[i];
-						if (!overidepatch.valid(features,limits))
+						if (!overidepatch.valid(device))
 							continue;
 						bool combineSuccess;
 						std::tie(combineSuccess,patch) = patch.combine(overidepatch);
@@ -548,6 +578,25 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						patch_t<ICPUShader> patch = {shader};
 						patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
 						cache.operator()<ICPUShader>(entry,shader,std::move(patch));
+						break;
+					}
+					case ICPUGraphicsPipeline::AssetType:
+					{
+						auto gfxPpln = static_cast<const ICPUGraphicsPipeline*>(user);
+						const auto* layout = gfxPpln->getLayout();
+						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout});
+						const auto* rpass = gfxPpln->getRenderpass();
+						cache.operator()<ICPURenderpass>(entry,rpass,{rpass});
+						using stage_t = ICPUShader::E_SHADER_STAGE;
+						for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+						{
+							const auto* shader = gfxPpln->getSpecInfo(stage).shader;
+							if (!shader)
+								continue;
+							patch_t<ICPUShader> patch = {shader};
+							patch.stage = stage;
+							cache.operator()<ICPUShader>(entry,shader,std::move(patch));
+						}
 						break;
 					}
 					case ICPUDescriptorSet::AssetType:
@@ -656,8 +705,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 					contentHash = retval.getHashCache()->hash<AssetType>(
 						instance.asset,
 						PatchGetter{
-							&features,
-							&limits,
+							device,
 							&inputs,
 							&dfsCaches
 						},
@@ -669,8 +717,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						inputs.logger.log("Could not compute hash for asset %p in group %d, maybe an IPreHashed dependant's content hash is missing?",system::ILogger::ELL_ERROR,instance.asset,instance.uniqueCopyGroupID);
 						return;
 					}
+					const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 					{
-						const auto hashAsU64 = reinterpret_cast<const uint64_t*>(contentHash.data);
 						inputs.logger.log("Asset (%p,%d) has hash %8llx%8llx%8llx%8llx",system::ILogger::ELL_DEBUG,instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]);
 					}
 					// if we have a read cache, lets retry looking the item up!
@@ -683,13 +731,26 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						if (found!=readCache->forwardMapEnd())
 						{
 							created.gpuObj = found->second;
-							// no conversion needed
+							inputs.logger.log(
+								"Asset (%p,%d) with hash %8llx%8llx%8llx%8llx found its GPU Object in Read Cache",system::ILogger::ELL_DEBUG,
+								instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+							);
 							return;
 						}
 					}
-					// The conversion request we insert needs an instance asset without missing contents
-					if (IPreHashed::anyDependantDiscardedContents(instance.asset))
+					// The conversion request we insert needs an instance asset whose unconverted dependencies don't have missing content
+					// SUPER SIMPLIFICATION: because we hash and search for readCache items bottom up (BFS), we don't need a stack (DFS) here!
+					// Any dependant that's not getting a GPU object due to missing content or GPU cache object for its cache, will show up later during `getDependant`
+					// An additional optimization would be to improve the `PatchGetter` to check dependants (only deps) during hashing for missing dfs cache gpu Object (no read cache) and no conversion request.
+					auto* isPrehashed = dynamic_cast<const IPreHashed*>(instance.asset);
+					if (isPrehashed && isPrehashed->missingContent())
+					{
+						inputs.logger.log(
+							"PreHashed Asset (%p,%d) with hash %8llx%8llx%8llx%8llx has missing content and no GPU Object in Read Cache!",system::ILogger::ELL_ERROR,
+							instance.asset,instance.uniqueCopyGroupID,hashAsU64[0],hashAsU64[1],hashAsU64[2],hashAsU64[3]
+						);
 						return;
+					}
 					// then de-duplicate the conversions needed
 					const patch_index_t patchIx = {static_cast<uint64_t>(std::distance(dfsCache.nodes.data(),&created))};
 					auto [inSetIt,inserted] = conversionRequests.emplace(contentHash,unique_conversion_t<AssetType>{.canonicalAsset=instance.asset,.patchIndex=patchIx});
@@ -746,9 +807,13 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			// small utility
 			auto getDependant = [&]<Asset DepAssetType, typename Pred>(const size_t usersCopyGroupID, const AssetType* user, const DepAssetType* depAsset, Pred pred, bool& failed)->asset_cached_t<DepAssetType>::type
 			{
-				const patch_index_t found = PatchGetter{&features,&limits,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
+				const patch_index_t found = PatchGetter{device,&inputs,&dfsCaches,usersCopyGroupID,user}.impl<DepAssetType>(depAsset);
 				if (found)
-					return std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj.value;
+				{
+					const auto& gpuObj = std::get<dfs_cache<DepAssetType>>(dfsCaches).nodes[found.value].gpuObj;
+					if (gpuObj.value)
+						return gpuObj.value;
+				}
 				failed = true;
 				return {};
 			};
@@ -992,6 +1057,68 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 								continue;
 							core::smart_refctd_ptr<IGPUComputePipeline> ppln;
 							device->createComputePipelines(inputs.pipelineCache,{&params,1},&ppln);
+							assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
+						}
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPURenderpass>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPURenderpass* asset = entry.second.canonicalAsset;
+					// there is no patching possible for this asset
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						// since we don't have dependants we don't care about our group ID
+						// we create threadsafe pipeline caches, because we have no idea how they may be used
+						assign.operator()<true>(entry.first,entry.second.firstCopyIx,i,device->createRenderpass(asset->getCreationParameters()));
+					}
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUGraphicsPipeline>)
+			{
+				core::vector<IGPUShader::SSpecInfo> tmpSpecInfo;
+				tmpSpecInfo.reserve(5);
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUGraphicsPipeline* asset = entry.second.canonicalAsset;
+					// there is no patching possible for this asset
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						// ILogicalDevice::createComputePipelines is rather aggressive on the spec constant validation, so we create one pipeline at a time
+						{
+							// no derivatives, special flags, etc.
+							IGPUGraphicsPipeline::SCreationParams params = {};
+							bool depNotFound = false;
+							{
+								// we choose whatever patch, because there should really only ever be one (all pipeline layouts merge their PC ranges seamlessly)
+								params.layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound).get();
+								// we choose whatever patch, because there should only ever be one (users don't influence patching)
+								params.renderpass = getDependant(uniqueCopyGroupID,asset,asset->getRenderpass(),firstPatchMatch,depNotFound).get();
+								// while there are patches possible for shaders, the only patch which can happen here is changing a stage from UNKNOWN to match the slot here
+								tmpSpecInfo.clear();
+								using stage_t = ICPUShader::E_SHADER_STAGE;
+								for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
+								{
+									const auto& info = asset->getSpecInfo(stage);
+									if (info.shader)
+										tmpSpecInfo.push_back({
+											.entryPoint = info.entryPoint,
+											.shader = getDependant(uniqueCopyGroupID,asset,info.shader,firstPatchMatch,depNotFound).get(),
+											.entries = info.entries,
+											.requiredSubgroupSize = info.requiredSubgroupSize
+										});
+								}
+								params.shaders = tmpSpecInfo;
+							}
+							if (depNotFound)
+								continue;
+							params.cached = asset->getCachedCreationParams();
+							core::smart_refctd_ptr<IGPUGraphicsPipeline> ppln;
+							device->createGraphicsPipelines(inputs.pipelineCache,{&params,1},&ppln);
 							assign(entry.first,entry.second.firstCopyIx,i,std::move(ppln));
 						}
 					}
@@ -1286,8 +1413,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		dedupCreateProp.operator()<ICPUPipelineLayout>();
 		dedupCreateProp.operator()<ICPUPipelineCache>();
 		dedupCreateProp.operator()<ICPUComputePipeline>();
-//		dedupCreateProp.operator()<ICPURenderpass>();
-//		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
+		dedupCreateProp.operator()<ICPURenderpass>();
+		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
 //		dedupCreateProp.operator()<ICPUDescriptorSet>();
 //		dedupCreateProp.operator()<ICPUFramebuffer>();
 	}
@@ -1339,28 +1466,37 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 {
 	if (!reservations.m_converter)
 	{
-		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result!");
+		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result!",system::ILogger::ELL_ERROR);
 		return false;
 	}
 	assert(reservations.m_converter.get()==this);
+	auto device = m_params.device;
 
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
 	// Anything to do?
 	if (reqQueueFlags.value!=IQueue::FAMILY_FLAGS::NONE)
 	{
-		auto device = m_params.device;
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
+		{
+			reservations.m_logger.log("Transfer Capability required for this conversion and no compatible `utilities` provided!", system::ILogger::ELL_ERROR);
 			return false;
+		}
 
-		auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+		auto invalidQueue = [reqQueueFlags,device,&reservations,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
 		{
 			if (!reqQueueFlags.hasFlags(flag))
 				return false;
 			if (!queue || queue->getOriginDevice()!=device)
+			{
+				reservations.m_logger.log("Provided Queue;s device %p doesn't match CAssetConverter's device %p!",system::ILogger::ELL_ERROR,queue->getOriginDevice(),device);
 				return true;
+			}
 			const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
 			if (!qFamProps[queue->getFamilyIndex()].queueFlags.hasFlags(flag))
+			{
+				reservations.m_logger.log("Provided Queue %p in Family %d does not have the required capabilities %d!",system::ILogger::ELL_ERROR,queue,queue->getFamilyIndex(),flag);
 				return true;
+			}
 			return false;
 		};
 		// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
@@ -1403,6 +1539,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 					makFailureInStaging.operator()<ICPUBuffer>(item.gpuObj);
 					continue;
 				}
+				params.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
 				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored && params.transfer.queue->getFamilyIndex()!=ownerQueueFamily)
 				{
@@ -1422,6 +1559,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			}
 			buffersToUpload.clear();
 			// release ownership
+			if (!ownershipTransfers.empty())
 			if (!params.transfer.getScratchCommandBuffer()->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
 				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
 		}
@@ -1512,24 +1650,29 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		{
 			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
 			bool depsMissing = false;
-			if constexpr (std::is_same_v<AssetType,ICPUPipelineLayout>)
+			// only go over types we could actually break via missing upload/build (i.e. pipelines are unbreakable)
+//			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
+//				depMissing = missingDependent.operator()<ICPUBuffer>(item.first->getBuffer());
+//			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
+//				depMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
+			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
-				for (auto dsLayout : item.first->getDescriptorSetLayouts())
-					depsMissing |= missingDependent.operator()<ICPUDescriptorSetLayout>(dsLayout);
-			}
-			if constexpr (std::is_same_v<AssetType,ICPUComputePipeline>)
-			{
-				depsMissing |= missingDependent.operator()<ICPUPipelineLayout>(item.first->getLayout());
+				// TODO
 			}
 			if (depsMissing)
 			{
+				const auto* hashAsU64 = reinterpret_cast<const uint64_t*>(item.second.value.data);
+				reservations.m_logger.log("GPU Obj %s not writing to final cache because conversion of a dependant failed!", system::ILogger::ELL_ERROR, item.first->getObjectDebugName());
 				// wipe self, to let users know
 				item.second.value = {};
 				continue;
 			}
+			if (!params.writeCache(item.second))
+				continue;
 			asset_cached_t<AssetType> cached;
 			cached.value = core::smart_refctd_ptr<typename asset_traits<AssetType>::video_t>(item.first);
 			cache.m_forwardMap.emplace(item.second,std::move(cached));
+			cache.m_reverseMap.emplace(item.first,item.second);
 		}
 	};
 	// again, need to go bottom up so we can check dependencies being successes
@@ -1544,19 +1687,13 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 	mergeCache.operator()<ICPUPipelineLayout>();
 	mergeCache.operator()<ICPUPipelineCache>();
 	mergeCache.operator()<ICPUComputePipeline>();
-//	mergeCache.operator()<ICPURenderpass>();
-//	mergeCache.operator()<ICPUGraphicsPipeline>();
+	mergeCache.operator()<ICPURenderpass>();
+	mergeCache.operator()<ICPUGraphicsPipeline>();
 //	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
+	params.device = device;
 	return true;
-}
-
-ISemaphore::future_t<bool> CAssetConverter::SConvertParams::autoSubmit()
-{
-	// TODO: transfer first, then compute
-
-	return {};
 }
 
 }
