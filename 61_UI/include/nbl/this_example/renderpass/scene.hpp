@@ -37,6 +37,75 @@ struct SPIRV_SHADERS_CPU
 	nbl::core::smart_refctd_ptr<nbl::asset::ICPUShader> vertex = nullptr, fragment = nullptr;
 };
 
+template<typename T, typename RENDERPASS_TYPE, typename IMAGE_VIEW_TYPE, typename IMAGE_TYPE>
+concept isResourceType = std::same_as<T, RENDERPASS_TYPE> || std::same_as<T, IMAGE_VIEW_TYPE> || std::same_as<T, IMAGE_TYPE>;
+
+template<bool withAssetConverter>
+class RESOURCE_BUILDER
+{
+public:
+	struct TYPES
+	{
+		using RENDERPASS = std::conditional_t<withAssetConverter, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>;
+		using IMAGE_VIEW = std::conditional_t<withAssetConverter, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>;
+		using IMAGE = std::conditional_t<withAssetConverter, nbl::asset::ICPUImage, nbl::video::IGPUImage>;
+	};
+
+	RESOURCE_BUILDER(nbl::video::ILogicalDevice* _device = nullptr)
+		: device(_device)
+	{
+		assert(device);
+	}
+
+	template<typename T, typename... Args>
+	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires isResourceType<T, typename TYPES::RENDERPASS, typename TYPES::IMAGE_VIEW, typename TYPES::IMAGE>
+	{
+		if constexpr (withAssetConverter)
+		{
+			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...);
+		}
+		else
+		{
+			if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
+			{
+				return device->createRenderpass(std::forward<Args>(args)...);
+			}
+			else if constexpr (std::same_as<T, typename TYPES::IMAGE_VIEW>)
+			{
+				return device->createImageView(std::forward<Args>(args)...);
+			}
+			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
+			{
+				return device->createImage(std::forward<Args>(args)...);
+			}
+			else
+			{
+				return nullptr;
+			}
+		}
+	}
+
+	void finalize()
+	{
+		// finalize resources - > if asset converter enabled then take created cpu instances and fire the converter to create gpu objects, if not we are already done
+	}
+
+	struct RESOURCES
+	{
+		nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
+
+		struct
+		{
+			nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW> color, depth;
+		} attachments;
+	} resources;
+
+	// TODO: add more resource I use
+
+private:
+	nbl::video::ILogicalDevice* device;
+};
+
 /*
 	Rendering to offline framebuffer which we don't present, color 
 	scene attachment texture we use for second UI renderpass 
@@ -107,7 +176,7 @@ public:
 		auto pipelineLayout = createPipelineLayoutAndDS();
 		
 		const auto geometries = GEOMETRIES_CPU(_geometryCreator);
-		createGPUData(geometries, pipelineLayout.get());
+		createGPUData<false>(geometries, pipelineLayout.get());
 		{
 			// descriptor write ubo
 			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -294,29 +363,39 @@ private:
 	};
 
 	// we will make this call templated - first instance will use our gpu creation as it was with a few improvements second will asset converter to create gpu resources
+	template<bool withAssetConverter>
 	void createGPUData(const GEOMETRIES_CPU& geometries, const nbl::video::IGPUPipelineLayout* pipelineLayout)
 	{
-		// gpu renderpass
+		using TYPES = ::RESOURCE_BUILDER<withAssetConverter>::TYPES;
+		RESOURCE_BUILDER<withAssetConverter> builder (m_device.get());
+
+		using namespace nbl;
+		using namespace asset;
+		using namespace video;
+
+		auto& resources = builder.resources; // it's some kind of scratch
+
+		// renderpass
 		{
-			_NBL_STATIC_INLINE_CONSTEXPR nbl::video::IGPURenderpass::SCreationParams::SColorAttachmentDescription colorAttachments[] =
+			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SColorAttachmentDescription colorAttachments[] =
 			{
 				{
 					{
 						{
 							.format = COLOR_FBO_ATTACHMENT_FORMAT,
-								.samples = SAMPLES,
-								.mayAlias = false
+							.samples = SAMPLES,
+							.mayAlias = false
 						},
-							/* .loadOp = */ nbl::video::IGPURenderpass::LOAD_OP::CLEAR,
-							/* .storeOp = */ nbl::video::IGPURenderpass::STORE_OP::STORE,
-							/* .initialLayout = */ nbl::video::IGPUImage::LAYOUT::UNDEFINED,
-							/* .finalLayout = */ nbl::video::IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+						/* .loadOp = */ TYPES::RENDERPASS::LOAD_OP::CLEAR,
+						/* .storeOp = */ TYPES::RENDERPASS::STORE_OP::STORE,
+						/* .initialLayout = */ TYPES::IMAGE::LAYOUT::UNDEFINED,
+						/* .finalLayout = */ TYPES::IMAGE::LAYOUT::READ_ONLY_OPTIMAL
 					}
 				},
-				nbl::video::IGPURenderpass::SCreationParams::ColorAttachmentsEnd
+				TYPES::RENDERPASS::SCreationParams::ColorAttachmentsEnd
 			};
 
-			_NBL_STATIC_INLINE_CONSTEXPR nbl::video::IGPURenderpass::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
+			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
 			{
 				{
 					{
@@ -325,29 +404,29 @@ private:
 							.samples = SAMPLES,
 							.mayAlias = false
 						},
-						/* .loadOp = */ {nbl::video::IGPURenderpass::LOAD_OP::CLEAR},
-						/* .storeOp = */ {nbl::video::IGPURenderpass::STORE_OP::STORE},
-						/* .initialLayout = */ {nbl::video::IGPUImage::LAYOUT::UNDEFINED},
-						/* .finalLayout = */ {nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL}
+						/* .loadOp = */ {TYPES::RENDERPASS::LOAD_OP::CLEAR},
+						/* .storeOp = */ {TYPES::RENDERPASS::STORE_OP::STORE},
+						/* .initialLayout = */ {TYPES::IMAGE::LAYOUT::UNDEFINED},
+						/* .finalLayout = */ {TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL}
 					}
 				},
-				nbl::video::IGPURenderpass::SCreationParams::DepthStencilAttachmentsEnd
+				TYPES::RENDERPASS::SCreationParams::DepthStencilAttachmentsEnd
 			};
 
-			nbl::video::IGPURenderpass::SCreationParams::SSubpassDescription subpasses[] =
+			typename TYPES::RENDERPASS::SCreationParams::SSubpassDescription subpasses[] =
 			{
 				{},
-				nbl::video::IGPURenderpass::SCreationParams::SubpassesEnd
+				TYPES::RENDERPASS::SCreationParams::SubpassesEnd
 			};
 
-			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL };
-			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = nbl::video::IGPUImage::LAYOUT::ATTACHMENT_OPTIMAL } };
+			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL };
+			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL } };
 
-			_NBL_STATIC_INLINE_CONSTEXPR nbl::video::IGPURenderpass::SCreationParams::SSubpassDependency dependencies[] =
+			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SSubpassDependency dependencies[] =
 			{
 				// wipe-transition of Color to ATTACHMENT_OPTIMAL
 				{
-					.srcSubpass = nbl::video::IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.srcSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
 					.dstSubpass = 0,
 					.memoryBarrier =
 					{
@@ -365,7 +444,7 @@ private:
 				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
 				{
 					.srcSubpass = 0,
-					.dstSubpass = nbl::video::IGPURenderpass::SCreationParams::SSubpassDependency::External,
+					.dstSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
 					.memoryBarrier =
 					{
 					// last place where the depth can get modified
@@ -380,102 +459,106 @@ private:
 					}
 				// leave view offsets and flags default
 				},
-				nbl::video::IGPURenderpass::SCreationParams::DependenciesEnd
+				TYPES::RENDERPASS::SCreationParams::DependenciesEnd
 			};
 
-			nbl::video::IGPURenderpass::SCreationParams params = {};
+			typename TYPES::RENDERPASS::SCreationParams params = {};
 			params.colorAttachments = colorAttachments;
 			params.depthStencilAttachments = depthAttachments;
 			params.subpasses = subpasses;
 			params.dependencies = dependencies;
 
-			m_renderpass = m_device->createRenderpass(params);
+			resources.renderpass = builder.create<typename TYPES::RENDERPASS>(params);
 
-			if (!m_renderpass)
+			if (!resources.renderpass)
 			{
 				m_logger->log("Could not create render pass!", nbl::system::ILogger::ELL_ERROR);
 				return;
 			}
 		}
 
-		// frame buffer
+		// frame buffer's attachments
 		{
-			auto createGPUImageView = [&]<nbl::asset::E_FORMAT format>() -> nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView>
+			auto createImageView = [&]<nbl::asset::E_FORMAT format>(nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW>& outView) -> nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW>
 			{
 				constexpr bool IS_DEPTH = nbl::asset::isDepthOrStencilFormat<format>();
 				constexpr auto USAGE = [](const bool isDepth)
 				{
-					nbl::core::bitflag<nbl::video::IGPUImage::E_USAGE_FLAGS> usage = nbl::video::IGPUImage::EUF_RENDER_ATTACHMENT_BIT; // note both are our offline framebuffer attachments
+					nbl::core::bitflag<TYPES::IMAGE::E_USAGE_FLAGS> usage = TYPES::IMAGE::EUF_RENDER_ATTACHMENT_BIT; // note both are our offline framebuffer attachments
 
 					if (!isDepth)
-						usage |= nbl::video::IGPUImage::EUF_SAMPLED_BIT;
+						usage |= TYPES::IMAGE::EUF_SAMPLED_BIT;
 
 					return usage;
 				}(IS_DEPTH);
 				constexpr auto ASPECT = IS_DEPTH ? nbl::asset::IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : nbl::asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 				constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
 				{
-					auto image = m_device->createImage({ nbl::asset::IImage::SCreationParams {
-						.type = nbl::video::IGPUImage::ET_2D,
-						.samples = SAMPLES,
-						.format = format,
-						.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
-						.mipLevels = 1u,
-						.arrayLayers = 1u,
-						.usage = USAGE
-					} });
-
-					image->setObjectDebugName(DEBUG_NAME.data());
-
-					if (!m_device->allocate(image->getMemoryReqs(), image.get()).isValid())
+					nbl::core::smart_refctd_ptr<typename TYPES::IMAGE> image;
 					{
-						m_logger->log("Could not allocate memory for an image!", nbl::system::ILogger::ELL_ERROR);
-						return {};
+						auto params = typename TYPES::IMAGE::SCreationParams(
+						{
+							.type = TYPES::IMAGE::ET_2D,
+							.samples = SAMPLES,
+							.format = format,
+							.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
+							.mipLevels = 1u,
+							.arrayLayers = 1u,
+							.usage = USAGE
+						});
+
+						image = builder.create<typename TYPES::IMAGE>(std::move(params));
 					}
 
-					return m_device->createImageView({
-						.flags = nbl::video::IGPUImageView::ECF_NONE,
+					if (!image)
+					{
+						m_logger->log("Could not create image!", nbl::system::ILogger::ELL_ERROR);
+						return nullptr;
+					}
+
+					if constexpr (!withAssetConverter) // valid only for gpu instance
+					{
+						image->setObjectDebugName(DEBUG_NAME.data());
+
+						if (!m_device->allocate(image->getMemoryReqs(), image.get()).isValid())
+						{
+							m_logger->log("Could not allocate memory for an image!", nbl::system::ILogger::ELL_ERROR);
+							return nullptr;
+						}
+					}
+
+					auto params = typename TYPES::IMAGE_VIEW::SCreationParams(
+					{
+						.flags = TYPES::IMAGE_VIEW::ECF_NONE,
 						.subUsages = USAGE,
 						.image = std::move(image),
-						.viewType = nbl::video::IGPUImageView::ET_2D,
+						.viewType = TYPES::IMAGE_VIEW::ET_2D,
 						.format = format,
 						.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u }
-						});
+					});
+
+					outView = builder.create<typename TYPES::IMAGE_VIEW>(std::move(params));
+
+					if (!outView)
+					{
+						m_logger->log("Could not create image view!", nbl::system::ILogger::ELL_ERROR);
+						return nullptr;
+					}
+
+					return nbl::core::smart_refctd_ptr(outView);
 				}
 			};
 
-			m_colorAttachment = createGPUImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > ();
-			m_depthAttachment = createGPUImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > ();
-
-			bool allocated = m_colorAttachment && m_depthAttachment;
+			const bool allocated = createImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > (resources.attachments.color) && createImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > (resources.attachments.depth);
 
 			if (!allocated)
 			{
 				m_logger->log("Could not allocate frame buffer's attachments!", nbl::system::ILogger::ELL_ERROR);
 				return;
 			}
-
-			nbl::video::IGPUFramebuffer::SCreationParams params =
-			{
-				{
-					.renderpass = nbl::core::smart_refctd_ptr(m_renderpass),
-					.depthStencilAttachments = &m_depthAttachment.get(),
-					.colorAttachments = &m_colorAttachment.get(),
-					.width = FRAMEBUFFER_W,
-					.height = FRAMEBUFFER_H,
-					.layers = 1u
-				}
-			};
-
-			m_frameBuffer = m_device->createFramebuffer(std::move(params));
-
-			if (!m_frameBuffer)
-			{
-				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
-				return;
-			}
 		}
 
+#if 0
 		// gpu shaders
 		std::array<SHADERS_GPU, GEOMETRIES_CPU::EGP_COUNT> shaders;
 		{
@@ -558,7 +641,7 @@ private:
 					gpu.vertexBuffer = nullptr;
 					gpu.indexBuffer = nullptr;
 					gpu.indexCount = 0u;
-					gpu.indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
+					gpu.indexType = nbl::asset::E_INDEX::EIT_UNKNOWN;
 					gpu.pipeline = nullptr;
 
 					continue;
@@ -580,6 +663,37 @@ private:
 				m_device->allocate(reqs, it.get());
 			}
 		}
+
+		//////////////////////////////
+		// TODO
+		// builder.finalize 
+		// (build's finalize calls asset converter or if we build without the converter we are already finalized)
+		// after the call we have all gpu instances
+
+		// frame buffer
+		{
+			// note there is no such a thing like cpu frame buffer, we assume we have finalized resources at this point and have gpu instances
+			nbl::video::IGPUFramebuffer::SCreationParams params =
+			{
+				{
+					.renderpass = nbl::core::smart_refctd_ptr(m_renderpass),
+					.depthStencilAttachments = &m_depthAttachment.get(),
+					.colorAttachments = &m_colorAttachment.get(),
+					.width = FRAMEBUFFER_W,
+					.height = FRAMEBUFFER_H,
+					.layers = 1u
+				}
+			};
+
+			m_frameBuffer = m_device->createFramebuffer(std::move(params));
+
+			if (!m_frameBuffer)
+			{
+				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
+				return;
+			}
+		}
+#endif
 	}
 
 	bool createVIBuffers(const GEOMETRIES_CPU::REFERENCE_OBJECT_CPU& inGeometry, REFERENCE_DRAW_HOOK_GPU& outData)
@@ -716,10 +830,11 @@ private:
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> m_commandPool; // TODO: decide if we should reuse main app's pool to allocate the cmd
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_commandBuffer;
 
-	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
 	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> m_descriptorPool;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_gpuDescriptorSet;
+
+	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_ubo;
 };
 
