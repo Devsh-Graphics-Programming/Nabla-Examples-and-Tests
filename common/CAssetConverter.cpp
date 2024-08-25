@@ -1466,28 +1466,37 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 {
 	if (!reservations.m_converter)
 	{
-		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result!");
+		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result!",system::ILogger::ELL_ERROR);
 		return false;
 	}
 	assert(reservations.m_converter.get()==this);
+	auto device = m_params.device;
 
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
 	// Anything to do?
 	if (reqQueueFlags.value!=IQueue::FAMILY_FLAGS::NONE)
 	{
-		auto device = m_params.device;
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
+		{
+			reservations.m_logger.log("Transfer Capability required for this conversion and no compatible `utilities` provided!", system::ILogger::ELL_ERROR);
 			return false;
+		}
 
-		auto invalidQueue = [reqQueueFlags,device,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+		auto invalidQueue = [reqQueueFlags,device,&reservations,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
 		{
 			if (!reqQueueFlags.hasFlags(flag))
 				return false;
 			if (!queue || queue->getOriginDevice()!=device)
+			{
+				reservations.m_logger.log("Provided Queue;s device %p doesn't match CAssetConverter's device %p!",system::ILogger::ELL_ERROR,queue->getOriginDevice(),device);
 				return true;
+			}
 			const auto& qFamProps = device->getPhysicalDevice()->getQueueFamilyProperties();
 			if (!qFamProps[queue->getFamilyIndex()].queueFlags.hasFlags(flag))
+			{
+				reservations.m_logger.log("Provided Queue %p in Family %d does not have the required capabilities %d!",system::ILogger::ELL_ERROR,queue,queue->getFamilyIndex(),flag);
 				return true;
+			}
 			return false;
 		};
 		// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
@@ -1530,6 +1539,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 					makFailureInStaging.operator()<ICPUBuffer>(item.gpuObj);
 					continue;
 				}
+				params.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
 				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored && params.transfer.queue->getFamilyIndex()!=ownerQueueFamily)
 				{
@@ -1549,6 +1559,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			}
 			buffersToUpload.clear();
 			// release ownership
+			if (!ownershipTransfers.empty())
 			if (!params.transfer.getScratchCommandBuffer()->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE,{.memBarriers={},.bufBarriers=ownershipTransfers}))
 				reservations.m_logger.log("Ownership Releases of Buffers Failed",system::ILogger::ELL_ERROR);
 		}
@@ -1650,13 +1661,18 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 			}
 			if (depsMissing)
 			{
+				const auto* hashAsU64 = reinterpret_cast<const uint64_t*>(item.second.value.data);
+				reservations.m_logger.log("GPU Obj %s not writing to final cache because conversion of a dependant failed!", system::ILogger::ELL_ERROR, item.first->getObjectDebugName());
 				// wipe self, to let users know
 				item.second.value = {};
 				continue;
 			}
+			if (!params.writeCache(item.second))
+				continue;
 			asset_cached_t<AssetType> cached;
 			cached.value = core::smart_refctd_ptr<typename asset_traits<AssetType>::video_t>(item.first);
 			cache.m_forwardMap.emplace(item.second,std::move(cached));
+			cache.m_reverseMap.emplace(item.first,item.second);
 		}
 	};
 	// again, need to go bottom up so we can check dependencies being successes
@@ -1676,14 +1692,8 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 //	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
+	params.device = device;
 	return true;
-}
-
-ISemaphore::future_t<bool> CAssetConverter::SConvertParams::autoSubmit()
-{
-	// TODO: transfer first, then compute
-
-	return {};
 }
 
 }

@@ -429,9 +429,8 @@ class CAssetConverter : public core::IReferenceCounted
 				core::tuple_transform_t<container_t,supported_asset_types> m_containers;
 		};
 		// Typed Cache (for a particular AssetType)
-		template<asset::Asset AssetType>
-        class CCache final
-        {
+		class CCacheBase
+		{
 			public:
 				// Make it clear to users that we don't look up just by the asset content hash
 				struct key_t
@@ -449,7 +448,7 @@ class CAssetConverter : public core::IReferenceCounted
 					core::blake3_hash_t value;
 				};
 
-			private:
+			protected:
 				struct ForwardHash
 				{
 					inline size_t operator()(const key_t& key) const
@@ -457,7 +456,10 @@ class CAssetConverter : public core::IReferenceCounted
 						return std::hash<core::blake3_hash_t>()(key.value);
 					}
 				};
-
+		};
+		template<asset::Asset AssetType>
+        class CCache final : public CCacheBase
+        {
 			public:
 				// typedefs
 				using forward_map_t = core::unordered_map<key_t,asset_cached_t<AssetType>,ForwardHash>;
@@ -570,40 +572,91 @@ class CAssetConverter : public core::IReferenceCounted
 		// Split off from inputs because only assets that build on IPreHashed need uploading
 		struct SConvertParams
 		{
-			// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
-			// If you want to record a pipeline barrier that will release ownership to another family, override this
-			virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
-			{
-				return IQueue::FamilyIgnored;
-			}
-			// You can choose what layout the images get transitioned to at the end of an upload
-			// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
-			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
-			{
-				using layout_t = IGPUImage::LAYOUT;
-				using flags_t = IGPUImage::E_USAGE_FLAGS;
-				const auto usages = image->getCreationParameters().usage;
-				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
-					return layout_t::READ_ONLY_OPTIMAL;
-				if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
-					return layout_t::ATTACHMENT_OPTIMAL;
-				// best guess
-				return layout_t::GENERAL;
-			}
-			// By default we always insert into the cache
-			virtual inline bool writeCache(const core::blake3_hash_t& createdFrom)
-			{
-				return true;
-			}
+			public:
+				// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
+				// If you want to record a pipeline barrier that will release ownership to another family, override this
+				virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
+				{
+					return IQueue::FamilyIgnored;
+				}
+				// You can choose what layout the images get transitioned to at the end of an upload
+				// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
+				virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
+				{
+					using layout_t = IGPUImage::LAYOUT;
+					using flags_t = IGPUImage::E_USAGE_FLAGS;
+					const auto usages = image->getCreationParameters().usage;
+					if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
+						return layout_t::READ_ONLY_OPTIMAL;
+					if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
+						return layout_t::ATTACHMENT_OPTIMAL;
+					// best guess
+					return layout_t::GENERAL;
+				}
+				// By default we always insert into the cache
+				virtual inline bool writeCache(const CCacheBase::key_t& createdFrom)
+				{
+					return true;
+				}
 
-			// submits the buffered up cals 
-			NBL_API ISemaphore::future_t<bool> autoSubmit();
+				// Submits the buffered up calls, unline IUtilities::autoSubmit, no patching, it complicates life too much, just please pass correct open SIntendedSubmits.
+				struct SAutoSubmitResult
+				{
+					ISemaphore::future_t<IQueue::RESULT> transfer = IQueue::RESULT::OTHER_ERROR;
+					ISemaphore::future_t<IQueue::RESULT> compute = IQueue::RESULT::OTHER_ERROR;
+				};
+				inline SAutoSubmitResult autoSubmit(
+					const std::span<IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
+					const std::span<IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
+				)
+				{
+					// invalid
+					if (!device)
+						return {};
+					// you only get one shot at this!
+					device = nullptr;
 
-			// One queue is for copies, another is for mip map generation and Acceleration Structure building
-			SIntendedSubmitInfo transfer = {};
-			SIntendedSubmitInfo compute = {};
-			// required for Buffer or Image upload operations
-			IUtilities* utilities = nullptr;
+					// first submit transfer
+					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
+					{
+						transfer.getScratchCommandBuffer()->end();
+						auto submit = transfer.popSubmit(extraTransferSignalSemaphores);
+						if (const auto error=transfer.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
+							return {error};
+					}
+					else
+					{
+						for (auto& sema : extraTransferSignalSemaphores)
+							sema.semaphore->signal(sema.value);
+					}
+					// then submit compute
+					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+					{
+						compute.getScratchCommandBuffer()->end();
+						auto submit = compute.popSubmit(extraComputeSignalSemaphores);
+						if (const auto error=compute.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
+							return {IQueue::RESULT::SUCCESS,error};
+					}
+					else
+					{
+						for (auto& sema : extraComputeSignalSemaphores)
+							sema.semaphore->signal(sema.value);
+					}
+
+					return {IQueue::RESULT::SUCCESS,IQueue::RESULT::SUCCESS};
+				}
+
+				// One queue is for copies, another is for mip map generation and Acceleration Structure building
+				SIntendedSubmitInfo transfer = {};
+				SIntendedSubmitInfo compute = {};
+				// required for Buffer or Image upload operations
+				IUtilities* utilities = nullptr;
+
+			private:
+				friend class CAssetConverter;
+				// these get set after a successful conversion
+				ILogicalDevice* device = nullptr;
+				core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
 		};
         struct SResults final
         {
@@ -640,10 +693,12 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				const auto& getStagingCache() const {return std::get<staging_cache_t<AssetType>>(m_stagingCaches);}
 
-				// You only get to call this once if successful
+				// You only get to call this once if successful, return value tells you whether you can submit the cmdbuffers
+				// NOTE: Just because this method returned true, DOESN'T MEAN the gpu objects are ready for use! You need to submit the intended submits for that first!
 				inline bool convert(SConvertParams& params)
 				{
-					if (m_converter->convert_impl(std::move(*this),params))
+					const bool enqueueSuccess = m_converter->convert_impl(std::move(*this),params);
+					if (enqueueSuccess)
 					{
 						// wipe after success
 						core::for_each_in_tuple(m_stagingCaches,[](auto& stagingCache)->void{stagingCache.clear();});
@@ -656,7 +711,6 @@ class CAssetConverter : public core::IReferenceCounted
 
 			private:
 				friend class CAssetConverter;
-				friend struct SConvertParams;
 
 				inline SResults() = default;
 
