@@ -54,8 +54,7 @@ float2 transformPointScreenSpace(nbl::hlsl::portable_matrix64_t3x3 transformatio
     nbl::hlsl::portable_vector64_t2 ndc = transformPointNdc(transformation, point2d);
     nbl::hlsl::portable_vector64_t2 result = (ndc + 1.0f) * 0.5f * nbl::hlsl::create_portable_vector64_t2_from_2d_vec(globals.resolution);
 
-    float2 output = nbl::hlsl::convert_portable_vector64_t2_to_float32_t2(result);
-    return output;
+    return nbl::hlsl::_static_cast<float2>(result);
 }
 float4 transformFromSreenSpaceToNdc(float2 pos)
 {
@@ -125,9 +124,7 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const nbl::hlsl::portable_float64_t<> asdf = nbl::hlsl::create_portable_float64_t(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio;
-        const float asdfasdf = nbl::hlsl::_static_cast<float, nbl::hlsl::portable_float64_t<> >(asdf);
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + asdfasdf;
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + nbl::hlsl::_static_cast<float>(nbl::hlsl::create_portable_float64_t(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
@@ -536,7 +533,8 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.position = float4(coord, 0.f, 1.f);
         outV.setFontGlyphUV(uv);
         outV.setFontGlyphTextureId(textureID);
-        outV.setFontGlyphScreenPxRange(screenPxRange);    }
+        outV.setFontGlyphScreenPxRange(screenPxRange);
+    }
     else if (objType == ObjectType::IMAGE)
     {
         nbl::hlsl::portable_vector64_t2 topLeft = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);

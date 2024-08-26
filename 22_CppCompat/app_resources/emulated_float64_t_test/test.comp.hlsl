@@ -26,6 +26,19 @@ void main(uint3 invocationID : SV_DispatchThreadID)
     //testValuesOutput[0].float64CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float64).data;
     //nbl::hlsl::emulated_float64_t::create(min16int(2));
 
+    portable_float64_t<> asdf = nbl::hlsl::emulated_float64_t<false, true>::create(pc.constrTestVals.float32);
+    float asdf2 = nbl::hlsl::_static_cast<float>(asdf);
+    testValuesOutput[0].float32CreateVal = nbl::hlsl::emulated_float64_t<false, true>::create(asdf2).data;
+
+    emulated_vector_t2<emulated_float64_t<false, true> > vec;
+    vec.x = emulated_float64_t<false, true>::create(1.5f);
+    vec.y = emulated_float64_t<false, true>::create(1.25f);
+
+    float2 asdf3 = nbl::hlsl::_static_cast<float2>(vec);
+
+    testValuesOutput[0].int32CreateVal = asdf3;
+    testValuesOutput[0].int64CreateVal = asdf3;
+
     // arithmetic operators
     testValuesOutput[0].additionVal = (a+b).data;
     testValuesOutput[0].substractionVal = (a-b).data;
