@@ -361,17 +361,28 @@ public:
 				return outShader;
 			};
 
-			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC], cone = scratch.shaders[GEOMETRIES_CPU::EGP_CONE], ico = scratch.shaders[GEOMETRIES_CPU::EGP_ICO];
-
 			// TODO: return value validation
+
+			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC];
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
 
+			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& cone = scratch.shaders[GEOMETRIES_CPU::EGP_CONE];
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
 
+			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& ico = scratch.shaders[GEOMETRIES_CPU::EGP_ICO];
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
+			
+			for (const auto& it : scratch.shaders)
+			{
+				if (!it.vertex || !it.fragment)
+				{
+					logger->log("Could not create shaders!", ILogger::ELL_ERROR);
+					return false;
+				}
+			}
 		}
 
 		// geometries
@@ -553,7 +564,7 @@ public:
 			if constexpr (withAssetConverter)
 			{
 				auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
-				scratch.ubo.binding = typename TYPES::BUFFER::SCreationParams({ .offset = 0u, .buffer = std::move(uboBuffer) });
+				scratch.ubo.binding = { .offset = 0u, .buffer = std::move(uboBuffer) };
 			}
 			else
 			{
@@ -568,6 +579,8 @@ public:
 
 					device->allocate(reqs, it.get());
 				}
+
+				scratch.ubo.binding = { .offset = 0u, .buffer = std::move(uboBuffer) };
 			}
 		}
 
