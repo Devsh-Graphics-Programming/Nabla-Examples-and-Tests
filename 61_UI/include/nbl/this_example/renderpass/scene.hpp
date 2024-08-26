@@ -9,39 +9,37 @@
 #include "geometry/creator/spirv/builtin/CArchive.h"
 #include "geometry/creator/spirv/builtin/builtinResources.h"
 
+enum E_OBJECT_TYPE : uint8_t
+{
+	EOT_CUBE,
+	EOT_SPHERE,
+	EOT_CYLINDER,
+	EOT_RECTANGLE,
+	EOT_DISK,
+	EOT_ARROW,
+	EOT_CONE,
+	EOT_ICOSPHERE,
+
+	EOT_COUNT
+};
+
+struct OBJECT_META
+{
+	E_OBJECT_TYPE type = EOT_CUBE;
+	std::string_view name = "Cube";
+};
+
 NBL_CONSTEXPR_STATIC_INLINE struct CLEAR_VALUES
 {
 	nbl::video::IGPUCommandBuffer::SClearColorValue color = { .float32 = {0.f,0.f,0.f,1.f} };
 	nbl::video::IGPUCommandBuffer::SClearDepthStencilValue depth = { .depth = 0.f };
 } clear;
 
-struct SPIRV_SHADERS_CPU
-{
-	template <nbl::core::StringLiteral vPath, nbl::core::StringLiteral fPath> 
-	static SPIRV_SHADERS_CPU create()
-	{
-		auto createShader = [](const nbl::system::SBuiltinFile& in, nbl::asset::IShader::E_SHADER_STAGE stage) -> nbl::core::smart_refctd_ptr<nbl::asset::ICPUShader>
-		{
-			const auto buffer = nbl::core::make_smart_refctd_ptr<nbl::asset::CCustomAllocatorCPUBuffer<nbl::core::null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, nbl::core::adopt_memory);
-			return nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUShader>(nbl::core::smart_refctd_ptr(buffer), stage, nbl::asset::IShader::E_CONTENT_TYPE::ECT_SPIRV, "");
-		};
-
-		auto spirv = SPIRV_SHADERS_CPU();
-
-		spirv.vertex = createShader(::geometry::creator::spirv::builtin::get_resource<vPath>(), nbl::asset::IShader::E_SHADER_STAGE::ESS_VERTEX);
-		spirv.fragment = createShader(::geometry::creator::spirv::builtin::get_resource<fPath>(), nbl::asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT);
-
-		return spirv;
-	}
-
-	nbl::core::smart_refctd_ptr<nbl::asset::ICPUShader> vertex = nullptr, fragment = nullptr;
-};
-
 template<typename T, typename... Types>
 concept _implIsResourceTypeC = (std::same_as<T, Types> || ...);
 
 template<typename T, typename Types>
-concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE>;
+concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE, typename Types::SHADER>;
 
 #define TYPES_IMPL_BOILERPLATE(WITH_CONVERTER) struct TYPES \
 { \
@@ -50,6 +48,7 @@ concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPT
 	using RENDERPASS = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
 	using IMAGE_VIEW = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
 	using IMAGE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
+	using SHADER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
 }
 
 template<bool withAssetConverter>
@@ -73,11 +72,12 @@ class RESOURCES_BUILDER
 public:
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	RESOURCES_BUILDER(nbl::video::ILogicalDevice* _device, nbl::system::ILogger* _logger)
-		: device(_device), logger(_logger)
+	RESOURCES_BUILDER(nbl::video::ILogicalDevice* const _device, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
+		: device(_device), logger(_logger), geometryCreator(_geometryCreator)
 	{
 		assert(device);
 		assert(logger);
+		assert(geometryCreator);
 	}
 
 	inline bool build()
@@ -316,6 +316,42 @@ public:
 			}
 		}
 
+		// shaders
+		{
+			auto createShader = [&]<nbl::core::StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename TYPES::SHADER>& outShader) -> smart_refctd_ptr<typename TYPES::SHADER>
+			{
+				const nbl::system::SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
+				const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
+				auto shader = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
+
+				if constexpr (withAssetConverter)
+					outShader = std::move(shader);
+				else
+					outShader = create<typename TYPES::SHADER>(shader.get()); // note: dependency between cpu object instance & gpu object creation, not sure if its our API design failure or maybe I'm just thinking too much
+
+				return outShader;
+			};
+
+			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC], cone = scratch.shaders[GEOMETRIES_CPU::EGP_CONE], ico = scratch.shaders[GEOMETRIES_CPU::EGP_ICO];
+
+			// TODO: return value validation
+			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
+			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
+
+			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
+			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
+
+			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
+			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
+		}
+
+		// geometries
+		{
+			auto geometries = GEOMETRIES_CPU(geometryCreator);
+
+			// TODO: move creation here
+		}
+
 		return true;
 	}
 
@@ -332,6 +368,48 @@ public:
 	}
 
 private:
+	struct GEOMETRIES_CPU
+	{
+		enum E_GEOMETRY_SHADER
+		{
+			EGP_BASIC = 0,
+			EGP_CONE,
+			EGP_ICO,
+
+			EGP_COUNT
+		};
+
+		struct REFERENCE_OBJECT_CPU
+		{
+			OBJECT_META meta;
+			E_GEOMETRY_SHADER shadersType;
+			nbl::asset::CGeometryCreator::return_type data;
+		};
+
+		GEOMETRIES_CPU(const nbl::asset::IGeometryCreator* _gc)
+			: gc(_gc),
+			objects
+			({
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CUBE, .name = "Cube Mesh" }, .shadersType = EGP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_SPHERE, .name = "Sphere Mesh" }, .shadersType = EGP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = EGP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = EGP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_DISK, .name = "Disk Mesh" }, .shadersType = EGP_BASIC, .data = gc->createDiskMesh(2, 30) },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_ARROW, .name = "Arrow Mesh" }, .shadersType = EGP_BASIC, .data = gc->createArrowMesh() },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CONE, .name = "Cone Mesh" }, .shadersType = EGP_CONE, .data = gc->createConeMesh(2, 3, 10) },
+				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = EGP_ICO, .data = gc->createIcoSphere(1, 3, true) }
+			})
+		{
+			gc = nullptr; // one shot
+		}
+
+	private:
+		const nbl::asset::IGeometryCreator* gc;
+
+	public:
+		const std::array<REFERENCE_OBJECT_CPU, EOT_COUNT> objects;
+	};
+
 	template<typename T, typename... Args>
 	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires RESOURCE_TYPE_CONCEPT<T, TYPES>
 	{
@@ -348,14 +426,34 @@ private:
 				return device->createImageView(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
 				return device->createImage(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::SHADER>)
+				return device->createShader(std::forward<Args>(args)...);
 			else
 				return nullptr;
 	}
 
-	nbl::video::ILogicalDevice* device;
-	nbl::system::ILogger* logger;
+	using RESOURCES_BUNDLE_BASE_T = RESOURCES_BUNDLE_BASE<withAssetConverter>;
 
-	RESOURCES_BUNDLE_BASE<withAssetConverter> scratch;
+	struct RESOURCES_BUNDLE_SCRATCH : public RESOURCES_BUNDLE_BASE_T
+	{
+		using TYPES = RESOURCES_BUNDLE_BASE_T::TYPES;
+
+		RESOURCES_BUNDLE_SCRATCH()
+			: RESOURCES_BUNDLE_BASE_T() {}
+
+		struct SHADERS
+		{
+			nbl::core::smart_refctd_ptr<typename TYPES::SHADER> vertex = nullptr, fragment = nullptr;
+		};
+
+		std::array<SHADERS, GEOMETRIES_CPU::EGP_COUNT> shaders; //! note, shaders differ from common interface creation rules and cpu-gpu constructors are different, gpu requires cpu shader to be constructed first anyway (so no interface shadered params!) 
+	};
+
+	RESOURCES_BUNDLE_SCRATCH scratch;
+
+	nbl::video::ILogicalDevice* const device;
+	nbl::system::ILogger* const logger;
+	const nbl::asset::IGeometryCreator* const geometryCreator;
 };
 
 #undef TYPES_IMPL_BOILERPLATE
@@ -374,26 +472,6 @@ class CScene final : public nbl::core::IReferenceCounted
 public:
 
 	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u;
-
-	enum E_OBJECT_TYPE : uint8_t
-	{
-		EOT_CUBE,
-		EOT_SPHERE,
-		EOT_CYLINDER,
-		EOT_RECTANGLE,
-		EOT_DISK,
-		EOT_ARROW,
-		EOT_CONE,
-		EOT_ICOSPHERE,
-
-		EOT_COUNT
-	};
-
-	struct OBJECT_META
-	{
-		E_OBJECT_TYPE type = EOT_CUBE;
-		std::string_view name = "Cube";
-	};
 
 	struct OBJECT_DRAW_HOOK_CPU
 	{
@@ -427,10 +505,43 @@ public:
 		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
 	{
 		_NBL_STATIC_INLINE_CONSTEXPR bool BUILD_WITH_CONVERTER = false; // tmp
+		using BUILDER = ::RESOURCES_BUILDER<BUILD_WITH_CONVERTER>;
 
 		bool status = createCommandBuffer();
-		const auto geometries = GEOMETRIES_CPU(_geometryCreator);
-		createGPUData<BUILD_WITH_CONVERTER>(geometries);
+		BUILDER builder (m_device.get(), m_logger.get(), _geometryCreator);
+
+		if (builder.build())
+		{
+			if (!builder.finalize(resources))
+				m_logger->log("Could not finalize to gpu objects!", nbl::system::ILogger::ELL_ERROR);
+		}
+		else
+			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
+
+#if 0
+		// gpu resources created, let's create descriptor set
+		{
+			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
+			const uint32_t setCounts[] = { 0u, 1u };
+
+			m_descriptorPool = m_device->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+
+			if (!m_descriptorPool)
+			{
+				m_logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
+				return nullptr;
+			}
+		}
+
+		m_gpuDescriptorSet = m_descriptorPool->createDescriptorSet(descriptorSetLayout);
+
+		if (!m_gpuDescriptorSet)
+		{
+			m_logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
+			return nullptr;
+		}
+#endif
+		
 		{
 			// descriptor write ubo
 			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -564,89 +675,11 @@ public:
 	}
 
 private:
-
-	struct GEOMETRIES_CPU
-	{
-		enum E_GEOMETRY_SHADER
-		{
-			EGP_BASIC = 0,
-			EGP_CONE,
-			EGP_ICO,
-
-			EGP_COUNT
-		};
-
-		struct REFERENCE_OBJECT_CPU
-		{
-			OBJECT_META meta;
-			E_GEOMETRY_SHADER shadersType;
-			nbl::asset::CGeometryCreator::return_type data;
-		};
-
-		GEOMETRIES_CPU(const nbl::asset::IGeometryCreator* _gc)
-			: gc(_gc),
-			objects
-			({
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CUBE, .name = "Cube Mesh" }, .shadersType = EGP_BASIC, .data = gc->createCubeMesh(nbl::core::vector3df(1.f, 1.f, 1.f)) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_SPHERE, .name = "Sphere Mesh" }, .shadersType = EGP_BASIC, .data = gc->createSphereMesh(2, 16, 16) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CYLINDER, .name = "Cylinder Mesh" }, .shadersType = EGP_BASIC, .data = gc->createCylinderMesh(2, 2, 20) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_RECTANGLE, .name = "Rectangle Mesh" }, .shadersType = EGP_BASIC, .data = gc->createRectangleMesh(nbl::core::vector2df_SIMD(1.5, 3)) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_DISK, .name = "Disk Mesh" }, .shadersType = EGP_BASIC, .data = gc->createDiskMesh(2, 30) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_ARROW, .name = "Arrow Mesh" }, .shadersType = EGP_BASIC, .data = gc->createArrowMesh() },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_CONE, .name = "Cone Mesh" }, .shadersType = EGP_CONE, .data = gc->createConeMesh(2, 3, 10) },
-				REFERENCE_OBJECT_CPU {.meta = {.type = EOT_ICOSPHERE, .name = "Icoshpere Mesh" }, .shadersType = EGP_ICO, .data = gc->createIcoSphere(1, 3, true) }
-			}),
-			shaders
-			({
-				SPIRV_SHADERS_CPU::create < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (),
-				SPIRV_SHADERS_CPU::create < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (),
-				SPIRV_SHADERS_CPU::create < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv"), NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > ()
-			})
-		{
-			gc = nullptr; // one shot
-		}
-
-	private:
-		const nbl::asset::IGeometryCreator* gc;
-
-	public:
-		const std::array<REFERENCE_OBJECT_CPU, EOT_COUNT> objects;
-		const std::array<SPIRV_SHADERS_CPU, EGP_COUNT> shaders;
-	};
-
-	struct SHADERS_GPU
-	{
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUShader> vertex, geometry, fragment;
-	};
-
+	#if 0
 	// we will make this call templated - first instance will use our gpu creation as it was with a few improvements second will asset converter to create gpu resources
 	template<bool withAssetConverter>
-	void createGPUData(const GEOMETRIES_CPU& geometries)
+	void createGPUResources(const GEOMETRIES_CPU& geometries)
 	{
-		using BUILDER = ::RESOURCES_BUILDER<withAssetConverter>;
-		BUILDER builder (m_device.get(), m_logger.get());
-
-		if (builder.build())
-		{
-			if (!builder.finalize(resources))
-				m_logger->log("Could not finalize to gpu objects!", nbl::system::ILogger::ELL_ERROR);
-		}
-		else
-			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
-
-#if 0
-		// gpu shaders
-		std::array<SHADERS_GPU, GEOMETRIES_CPU::EGP_COUNT> shaders;
-		{
-			for (uint32_t i = 0u; i < GEOMETRIES_CPU::EGP_COUNT; ++i)
-			{
-				const auto& reference = geometries.shaders[i];
-				auto& gpu = shaders[i];
-
-				gpu.vertex = m_device->createShader(reference.vertex.get());
-				gpu.fragment = m_device->createShader(reference.fragment.get());
-			}
-		}
 
 		// gpu geometries' pipelines & buffers
 		for (const auto& inGeometry : geometries.objects)
@@ -769,7 +802,6 @@ private:
 				return;
 			}
 		}
-#endif
 	}
 
 	bool createVIBuffers(const GEOMETRIES_CPU::REFERENCE_OBJECT_CPU& inGeometry, REFERENCE_DRAW_HOOK_GPU& outData)
@@ -834,6 +866,7 @@ private:
 
 		return true;
 	}
+#endif
 
 	bool createCommandBuffer()
 	{
@@ -854,39 +887,6 @@ private:
 		return true;
 	}
 
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUPipelineLayout> createPipelineLayoutAndDS()
-	{
-		// TODO: let's create it after finalize call
-
-#if 0
-		/////
-		{
-			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
-			const uint32_t setCounts[] = { 0u, 1u };
-
-			m_descriptorPool = m_device->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-
-			if (!m_descriptorPool)
-			{
-				m_logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
-				return nullptr;
-			}
-		}
-
-		m_gpuDescriptorSet = m_descriptorPool->createDescriptorSet(descriptorSetLayout);
-
-		if (!m_gpuDescriptorSet)
-		{
-			m_logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
-			return nullptr;
-		}
-
-		return pipelineLayout;
-#endif 
-
-		return {};
-	}
-
 	std::vector<REFERENCE_DRAW_HOOK_GPU> referenceObjects; // all possible objects & their buffers + pipelines
 
 	nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
@@ -899,10 +899,12 @@ private:
 	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> m_descriptorPool;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_gpuDescriptorSet;
 
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
+
 	RESOURCES_BUNDLE resources;
 
+	// TODO: TO REMOVE, those will be/are in resources
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_ubo;
 };
 

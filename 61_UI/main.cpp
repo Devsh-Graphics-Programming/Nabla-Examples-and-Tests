@@ -392,7 +392,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
 						{
 							const auto& references = pass.scene->getReferenceObjects();
-							const auto type = static_cast<CScene::E_OBJECT_TYPE>(gcIndex);
+							const auto type = static_cast<E_OBJECT_TYPE>(gcIndex);
 
 							const auto& [gpu, meta] = references[type];
 							hook.meta.type = type;
@@ -669,7 +669,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						capturedEvents.mouse.emplace_back(e);
 
 						if (e.type == nbl::ui::SMouseEvent::EET_SCROLL)
-							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(CScene::EOT_COUNT - (uint8_t)1u));
+							gcIndex = std::clamp<uint16_t>(int16_t(gcIndex) + int16_t(core::sign(e.scrollEvent.verticalScroll)), int64_t(0), int64_t(EOT_COUNT - (uint8_t)1u));
 					}
 				}, m_logger.get());
 
