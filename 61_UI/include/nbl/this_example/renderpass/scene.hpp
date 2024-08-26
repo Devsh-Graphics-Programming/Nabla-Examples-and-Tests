@@ -40,23 +40,255 @@ struct SPIRV_SHADERS_CPU
 template<typename T, typename RENDERPASS_TYPE, typename IMAGE_VIEW_TYPE, typename IMAGE_TYPE>
 concept isResourceType = std::same_as<T, RENDERPASS_TYPE> || std::same_as<T, IMAGE_VIEW_TYPE> || std::same_as<T, IMAGE_TYPE>;
 
+#define TYPES_IMPL_BOILERPLATE(WITH_CONVERTER) struct TYPES \
+{ \
+	using RENDERPASS = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
+	using IMAGE_VIEW = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
+	using IMAGE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
+}
+
 template<bool withAssetConverter>
-class RESOURCE_BUILDER
+struct RESOURCES_BUNDLE_BASE
+{
+	TYPES_IMPL_BOILERPLATE(withAssetConverter);
+
+	nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
+
+	struct
+	{
+		nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW> color, depth;
+	} attachments;
+};
+
+using RESOURCES_BUNDLE = RESOURCES_BUNDLE_BASE<false>;
+
+template<bool withAssetConverter>
+class RESOURCES_BUILDER
 {
 public:
-	struct TYPES
-	{
-		using RENDERPASS = std::conditional_t<withAssetConverter, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>;
-		using IMAGE_VIEW = std::conditional_t<withAssetConverter, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>;
-		using IMAGE = std::conditional_t<withAssetConverter, nbl::asset::ICPUImage, nbl::video::IGPUImage>;
-	};
+	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	RESOURCE_BUILDER(nbl::video::ILogicalDevice* _device = nullptr)
-		: device(_device)
+	RESOURCES_BUILDER(nbl::video::ILogicalDevice* _device, nbl::system::ILogger* _logger)
+		: device(_device), logger(_logger)
 	{
 		assert(device);
+		assert(logger);
 	}
 
+	inline bool build()
+	{
+		using namespace nbl;
+		using namespace core;
+		using namespace asset;
+		using namespace video;
+		using namespace scene;
+		using namespace system;
+
+		_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
+		_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = EF_D16_UNORM;
+		_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = IGPUImage::ESCF_1_BIT;
+
+		// TODO: build all
+		
+		// renderpass
+		{
+			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SColorAttachmentDescription colorAttachments[] =
+			{
+				{
+					{
+						{
+							.format = COLOR_FBO_ATTACHMENT_FORMAT,
+							.samples = SAMPLES,
+							.mayAlias = false
+						},
+						/* .loadOp = */ TYPES::RENDERPASS::LOAD_OP::CLEAR,
+						/* .storeOp = */ TYPES::RENDERPASS::STORE_OP::STORE,
+						/* .initialLayout = */ TYPES::IMAGE::LAYOUT::UNDEFINED,
+						/* .finalLayout = */ TYPES::IMAGE::LAYOUT::READ_ONLY_OPTIMAL
+					}
+				},
+				TYPES::RENDERPASS::SCreationParams::ColorAttachmentsEnd
+			};
+
+			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
+			{
+				{
+					{
+						{
+							.format = DEPTH_FBO_ATTACHMENT_FORMAT,
+							.samples = SAMPLES,
+							.mayAlias = false
+						},
+						/* .loadOp = */ {TYPES::RENDERPASS::LOAD_OP::CLEAR},
+						/* .storeOp = */ {TYPES::RENDERPASS::STORE_OP::STORE},
+						/* .initialLayout = */ {TYPES::IMAGE::LAYOUT::UNDEFINED},
+						/* .finalLayout = */ {TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL}
+					}
+				},
+				TYPES::RENDERPASS::SCreationParams::DepthStencilAttachmentsEnd
+			};
+
+			typename TYPES::RENDERPASS::SCreationParams::SSubpassDescription subpasses[] =
+			{
+				{},
+				TYPES::RENDERPASS::SCreationParams::SubpassesEnd
+			};
+
+			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL };
+			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL } };
+
+			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SSubpassDependency dependencies[] =
+			{
+				// wipe-transition of Color to ATTACHMENT_OPTIMAL
+				{
+					.srcSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
+					.dstSubpass = 0,
+					.memoryBarrier =
+					{
+					// 
+					.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+					// only write ops, reads can't be made available
+					.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,
+					// destination needs to wait as early as possible
+					.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					// because of depth test needing a read and a write
+					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+				}
+				// leave view offsets and flags default
+				},
+				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
+				{
+					.srcSubpass = 0,
+					.dstSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
+					.memoryBarrier =
+					{
+					// last place where the depth can get modified
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+					// only write ops, reads can't be made available
+					.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
+					// 
+					.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+					//
+					.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
+					// 
+					}
+				// leave view offsets and flags default
+				},
+				TYPES::RENDERPASS::SCreationParams::DependenciesEnd
+			};
+
+			typename TYPES::RENDERPASS::SCreationParams params = {};
+			params.colorAttachments = colorAttachments;
+			params.depthStencilAttachments = depthAttachments;
+			params.subpasses = subpasses;
+			params.dependencies = dependencies;
+
+			scratch.renderpass = create<typename TYPES::RENDERPASS>(params);
+
+			if (!scratch.renderpass)
+			{
+				logger->log("Could not create render pass!", ILogger::ELL_ERROR);
+				return false;
+			}
+		}
+
+		// frame buffer's attachments
+		{
+			auto createImageView = [&]<E_FORMAT format>(smart_refctd_ptr<typename TYPES::IMAGE_VIEW>& outView) -> smart_refctd_ptr<typename TYPES::IMAGE_VIEW>
+			{
+				constexpr bool IS_DEPTH = isDepthOrStencilFormat<format>();
+				constexpr auto USAGE = [](const bool isDepth)
+				{
+					bitflag<TYPES::IMAGE::E_USAGE_FLAGS> usage = TYPES::IMAGE::EUF_RENDER_ATTACHMENT_BIT;
+
+					if (!isDepth)
+						usage |= TYPES::IMAGE::EUF_SAMPLED_BIT;
+
+					return usage;
+				}(IS_DEPTH);
+				constexpr auto ASPECT = IS_DEPTH ? IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+				constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
+				{
+					smart_refctd_ptr<typename TYPES::IMAGE> image;
+					{
+						auto params = typename TYPES::IMAGE::SCreationParams(
+						{
+							.type = TYPES::IMAGE::ET_2D,
+							.samples = SAMPLES,
+							.format = format,
+							.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
+							.mipLevels = 1u,
+							.arrayLayers = 1u,
+							.usage = USAGE
+						});
+
+						image = create<typename TYPES::IMAGE>(std::move(params));
+					}
+
+					if (!image)
+					{
+						logger->log("Could not create image!", ILogger::ELL_ERROR);
+						return nullptr;
+					}
+
+					if constexpr (!withAssetConverter) // valid only for gpu instance
+					{
+						image->setObjectDebugName(DEBUG_NAME.data());
+
+						if (!device->allocate(image->getMemoryReqs(), image.get()).isValid())
+						{
+							logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
+							return nullptr;
+						}
+					}
+
+					auto params = typename TYPES::IMAGE_VIEW::SCreationParams(
+					{
+						.flags = TYPES::IMAGE_VIEW::ECF_NONE,
+						.subUsages = USAGE,
+						.image = std::move(image),
+						.viewType = TYPES::IMAGE_VIEW::ET_2D,
+						.format = format,
+						.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u }
+					});
+
+					outView = create<typename TYPES::IMAGE_VIEW>(std::move(params));
+
+					if (!outView)
+					{
+						logger->log("Could not create image view!", ILogger::ELL_ERROR);
+						return nullptr;
+					}
+
+					return smart_refctd_ptr(outView);
+				}
+			};
+
+			const bool allocated = createImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > (scratch.attachments.color) && createImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > (scratch.attachments.depth);
+
+			if (!allocated)
+			{
+				logger->log("Could not allocate frame buffer's attachments!", ILogger::ELL_ERROR);
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	inline bool finalize(RESOURCES_BUNDLE& output)
+	{
+		if constexpr (withAssetConverter)
+		{
+			// TODO: asset converter for input info, scratch at this point has ready to convert cpu resources
+		}
+		else
+			output = scratch; // scratch has all ready to use gpu resources, just assign to info
+
+		return true;
+	}
+
+private:
 	template<typename T, typename... Args>
 	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires isResourceType<T, typename TYPES::RENDERPASS, typename TYPES::IMAGE_VIEW, typename TYPES::IMAGE>
 	{
@@ -85,26 +317,13 @@ public:
 		}
 	}
 
-	void finalize()
-	{
-		// finalize resources - > if asset converter enabled then take created cpu instances and fire the converter to create gpu objects, if not we are already done
-	}
-
-	struct RESOURCES
-	{
-		nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
-
-		struct
-		{
-			nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW> color, depth;
-		} attachments;
-	} resources;
-
-	// TODO: add more resource I use
-
-private:
 	nbl::video::ILogicalDevice* device;
+	nbl::system::ILogger* logger;
+
+	RESOURCES_BUNDLE_BASE<withAssetConverter> scratch;
 };
+
+#undef TYPES_IMPL_BOILERPLATE
 
 /*
 	Rendering to offline framebuffer which we don't present, color 
@@ -119,7 +338,7 @@ class CScene final : public nbl::core::IReferenceCounted
 {
 public:
 
-	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u, FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
+	_NBL_STATIC_INLINE_CONSTEXPR auto NBL_OFFLINE_SCENE_TEX_ID = 1u;
 
 	enum E_OBJECT_TYPE : uint8_t
 	{
@@ -209,27 +428,32 @@ public:
 
 	inline void record()
 	{
+		const struct 
+		{
+			const uint32_t width, height;
+		} fbo = { .width = m_frameBuffer->getCreationParameters().width, .height = m_frameBuffer->getCreationParameters().height };
+
 		nbl::asset::SViewport viewport;
 		{
 			viewport.minDepth = 1.f;
 			viewport.maxDepth = 0.f;
 			viewport.x = 0u;
 			viewport.y = 0u;
-			viewport.width = FRAMEBUFFER_W;
-			viewport.height = FRAMEBUFFER_H;
+			viewport.width = fbo.width;
+			viewport.height = fbo.height;
 		}
 
 		m_commandBuffer->setViewport(0u, 1u, &viewport);
 		
 		VkRect2D scissor = {};
 		scissor.offset = { 0, 0 };
-		scissor.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H };
+		scissor.extent = { fbo.width, fbo.height };
 		m_commandBuffer->setScissor(0u, 1u, &scissor);
 
 		const VkRect2D renderArea =
 		{
 			.offset = { 0,0 },
-			.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H }
+			.extent = { fbo.width, fbo.height }
 		};
 
 		const nbl::video::IGPUCommandBuffer::SRenderpassBeginInfo info =
@@ -305,8 +529,6 @@ public:
 	}
 
 private:
-	_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_D16_UNORM;
-	_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = nbl::video::IGPUImage::ESCF_1_BIT;
 
 	struct GEOMETRIES_CPU
 	{
@@ -366,197 +588,16 @@ private:
 	template<bool withAssetConverter>
 	void createGPUData(const GEOMETRIES_CPU& geometries, const nbl::video::IGPUPipelineLayout* pipelineLayout)
 	{
-		using TYPES = ::RESOURCE_BUILDER<withAssetConverter>::TYPES;
-		RESOURCE_BUILDER<withAssetConverter> builder (m_device.get());
+		using BUILDER = ::RESOURCES_BUILDER<withAssetConverter>;
+		BUILDER builder (m_device.get(), m_logger.get());
 
-		using namespace nbl;
-		using namespace asset;
-		using namespace video;
-
-		auto& resources = builder.resources; // it's some kind of scratch
-
-		// renderpass
+		if (builder.build())
 		{
-			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SColorAttachmentDescription colorAttachments[] =
-			{
-				{
-					{
-						{
-							.format = COLOR_FBO_ATTACHMENT_FORMAT,
-							.samples = SAMPLES,
-							.mayAlias = false
-						},
-						/* .loadOp = */ TYPES::RENDERPASS::LOAD_OP::CLEAR,
-						/* .storeOp = */ TYPES::RENDERPASS::STORE_OP::STORE,
-						/* .initialLayout = */ TYPES::IMAGE::LAYOUT::UNDEFINED,
-						/* .finalLayout = */ TYPES::IMAGE::LAYOUT::READ_ONLY_OPTIMAL
-					}
-				},
-				TYPES::RENDERPASS::SCreationParams::ColorAttachmentsEnd
-			};
-
-			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
-			{
-				{
-					{
-						{
-							.format = DEPTH_FBO_ATTACHMENT_FORMAT,
-							.samples = SAMPLES,
-							.mayAlias = false
-						},
-						/* .loadOp = */ {TYPES::RENDERPASS::LOAD_OP::CLEAR},
-						/* .storeOp = */ {TYPES::RENDERPASS::STORE_OP::STORE},
-						/* .initialLayout = */ {TYPES::IMAGE::LAYOUT::UNDEFINED},
-						/* .finalLayout = */ {TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL}
-					}
-				},
-				TYPES::RENDERPASS::SCreationParams::DepthStencilAttachmentsEnd
-			};
-
-			typename TYPES::RENDERPASS::SCreationParams::SSubpassDescription subpasses[] =
-			{
-				{},
-				TYPES::RENDERPASS::SCreationParams::SubpassesEnd
-			};
-
-			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL };
-			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL } };
-
-			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SSubpassDependency dependencies[] =
-			{
-				// wipe-transition of Color to ATTACHMENT_OPTIMAL
-				{
-					.srcSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
-					.dstSubpass = 0,
-					.memoryBarrier =
-					{
-					// 
-					.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = nbl::asset::ACCESS_FLAGS::SAMPLED_READ_BIT,
-					// destination needs to wait as early as possible
-					.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// because of depth test needing a read and a write
-					.dstAccessMask = nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | nbl::asset::ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-				// leave view offsets and flags default
-				},
-				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-				{
-					.srcSubpass = 0,
-					.dstSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
-					.memoryBarrier =
-					{
-					// last place where the depth can get modified
-					.srcStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = nbl::asset::ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-					// 
-					.dstStageMask = nbl::asset::PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-					//
-					.dstAccessMask = nbl::asset::ACCESS_FLAGS::SAMPLED_READ_BIT
-					// 
-					}
-				// leave view offsets and flags default
-				},
-				TYPES::RENDERPASS::SCreationParams::DependenciesEnd
-			};
-
-			typename TYPES::RENDERPASS::SCreationParams params = {};
-			params.colorAttachments = colorAttachments;
-			params.depthStencilAttachments = depthAttachments;
-			params.subpasses = subpasses;
-			params.dependencies = dependencies;
-
-			resources.renderpass = builder.create<typename TYPES::RENDERPASS>(params);
-
-			if (!resources.renderpass)
-			{
-				m_logger->log("Could not create render pass!", nbl::system::ILogger::ELL_ERROR);
-				return;
-			}
+			if (!builder.finalize(resources))
+				m_logger->log("Could not finalize to gpu objects!", nbl::system::ILogger::ELL_ERROR);
 		}
-
-		// frame buffer's attachments
-		{
-			auto createImageView = [&]<nbl::asset::E_FORMAT format>(nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW>& outView) -> nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW>
-			{
-				constexpr bool IS_DEPTH = nbl::asset::isDepthOrStencilFormat<format>();
-				constexpr auto USAGE = [](const bool isDepth)
-				{
-					nbl::core::bitflag<TYPES::IMAGE::E_USAGE_FLAGS> usage = TYPES::IMAGE::EUF_RENDER_ATTACHMENT_BIT; // note both are our offline framebuffer attachments
-
-					if (!isDepth)
-						usage |= TYPES::IMAGE::EUF_SAMPLED_BIT;
-
-					return usage;
-				}(IS_DEPTH);
-				constexpr auto ASPECT = IS_DEPTH ? nbl::asset::IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : nbl::asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-				constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
-				{
-					nbl::core::smart_refctd_ptr<typename TYPES::IMAGE> image;
-					{
-						auto params = typename TYPES::IMAGE::SCreationParams(
-						{
-							.type = TYPES::IMAGE::ET_2D,
-							.samples = SAMPLES,
-							.format = format,
-							.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
-							.mipLevels = 1u,
-							.arrayLayers = 1u,
-							.usage = USAGE
-						});
-
-						image = builder.create<typename TYPES::IMAGE>(std::move(params));
-					}
-
-					if (!image)
-					{
-						m_logger->log("Could not create image!", nbl::system::ILogger::ELL_ERROR);
-						return nullptr;
-					}
-
-					if constexpr (!withAssetConverter) // valid only for gpu instance
-					{
-						image->setObjectDebugName(DEBUG_NAME.data());
-
-						if (!m_device->allocate(image->getMemoryReqs(), image.get()).isValid())
-						{
-							m_logger->log("Could not allocate memory for an image!", nbl::system::ILogger::ELL_ERROR);
-							return nullptr;
-						}
-					}
-
-					auto params = typename TYPES::IMAGE_VIEW::SCreationParams(
-					{
-						.flags = TYPES::IMAGE_VIEW::ECF_NONE,
-						.subUsages = USAGE,
-						.image = std::move(image),
-						.viewType = TYPES::IMAGE_VIEW::ET_2D,
-						.format = format,
-						.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u }
-					});
-
-					outView = builder.create<typename TYPES::IMAGE_VIEW>(std::move(params));
-
-					if (!outView)
-					{
-						m_logger->log("Could not create image view!", nbl::system::ILogger::ELL_ERROR);
-						return nullptr;
-					}
-
-					return nbl::core::smart_refctd_ptr(outView);
-				}
-			};
-
-			const bool allocated = createImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > (resources.attachments.color) && createImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > (resources.attachments.depth);
-
-			if (!allocated)
-			{
-				m_logger->log("Could not allocate frame buffer's attachments!", nbl::system::ILogger::ELL_ERROR);
-				return;
-			}
-		}
+		else
+			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
 
 #if 0
 		// gpu shaders
@@ -832,6 +873,8 @@ private:
 
 	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> m_descriptorPool;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_gpuDescriptorSet;
+
+	RESOURCES_BUNDLE resources;
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
