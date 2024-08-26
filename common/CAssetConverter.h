@@ -622,12 +622,19 @@ class CAssetConverter : public core::IReferenceCounted
 						return compute.wait();
 					}
 
+					inline operator bool() const
+					{
+						if (wait()!=ISemaphore::WAIT_RESULT::SUCCESS)
+							return false;
+						return transfer.copy()==IQueue::RESULT::SUCCESS && compute.copy()==IQueue::RESULT::SUCCESS;
+					}
+
 					ISemaphore::future_t<IQueue::RESULT> transfer = IQueue::RESULT::OTHER_ERROR;
 					ISemaphore::future_t<IQueue::RESULT> compute = IQueue::RESULT::OTHER_ERROR;
 				};
 				inline SAutoSubmitResult autoSubmit(
-					const std::span<IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
-					const std::span<IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
+					std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
+					std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
 				)
 				{
 					// invalid
@@ -643,10 +650,21 @@ class CAssetConverter : public core::IReferenceCounted
 					device = nullptr;
 
 					SAutoSubmitResult retval = {};
+					// patch tmps
+					core::smart_refctd_ptr<ISemaphore> patchSema;
+					IQueue::SSubmitInfo::SSemaphoreInfo patch;
 					// first submit transfer
 					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
 					{
 						transfer.getScratchCommandBuffer()->end();
+						// patch if needed
+						if (extraTransferSignalSemaphores.empty())
+						{
+							patchSema = device->createSemaphore(0);
+							patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS};
+							extraTransferSignalSemaphores = {&patch,1};
+						}
+						// submit
 						auto submit = transfer.popSubmit(extraTransferSignalSemaphores);
 						if (const auto error=transfer.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 							return {error};
@@ -661,6 +679,14 @@ class CAssetConverter : public core::IReferenceCounted
 					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
 					{
 						compute.getScratchCommandBuffer()->end();
+						// patch if needed
+						if (extraComputeSignalSemaphores.empty())
+						{
+							patchSema = device->createSemaphore(0);
+							patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS}; // might try just compute later
+							extraComputeSignalSemaphores = {&patch,1};
+						}
+						// submit
 						auto submit = compute.popSubmit(extraComputeSignalSemaphores);
 						if (const auto error=compute.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 							return {std::move(retval.transfer),error};

@@ -87,6 +87,14 @@ public:
 			pipeline = pipelines[0].value;
 			if (!pipeline)
 				return logFail("Failed to convert CPU pipeline to GPU pipeline");
+#if 1 // arek remove after you use it in ex 35
+			CAssetConverter::SConvertParams params = {};
+			if (!reservation.convert(params))
+				return logFail("Failed to submit conversions");
+			if (!params.autoSubmit())
+				return logFail("Failed to await conversions");
+			// TODO: if using multi-queue, then inherit from the `params` and override `getFinalOwnerQueueFamily`
+#endif
 
 			// Create Descriptor Sets for the Layouts manually
 			const auto dscLayoutPtrs = pipeline->getLayout()->getDescriptorSetLayouts();
