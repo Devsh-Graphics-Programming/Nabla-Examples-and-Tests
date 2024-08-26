@@ -391,7 +391,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						auto& hook = pass.scene->object;
 						hook.model = core::transpose(imguizmoM16InOut.model).extractSub3x4();
 						{
-							const auto& references = pass.scene->getReferenceObjects();
+							const auto& references = pass.scene->getResources().objects;
 							const auto type = static_cast<E_OBJECT_TYPE>(gcIndex);
 
 							const auto& [gpu, meta] = references[type];
@@ -472,7 +472,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = pass.ui.manager->getFontAtlasView();
 
 			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].desc = pass.scene->m_colorAttachment;
+
+			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].desc = pass.scene->getResources().attachments.color;
 
 			for (uint32_t i = 0; i < descriptorInfo.size(); ++i)
 			{

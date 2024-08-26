@@ -21,7 +21,7 @@ enum E_OBJECT_TYPE : uint8_t
 	EOT_ICOSPHERE,
 
 	EOT_COUNT,
-	EOT_UNKNOWN = ~0
+	EOT_UNKNOWN = std::numeric_limits<uint8_t>::max()
 };
 
 struct OBJECT_META
@@ -59,10 +59,22 @@ struct RESOURCES_BUNDLE_BASE
 {
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
+	struct BUFFER_AND_USAGE
+	{
+		nbl::asset::SBufferBinding<typename TYPES::BUFFER> binding;
+		nbl::core::bitflag<nbl::asset::IBuffer::E_USAGE_FLAGS> usage = nbl::asset::IBuffer::EUF_NONE;
+	};
+
 	struct REFERENCE_OBJECT
 	{
+		struct BUFFERS
+		{
+			BUFFER_AND_USAGE vertex, index;
+		};
+
 		nbl::core::smart_refctd_ptr<typename TYPES::GRAPHICS_PIPELINE> pipeline = nullptr;
-		nbl::core::smart_refctd_ptr<typename TYPES::BUFFER> vertexBuffer = nullptr, indexBuffer = nullptr;
+
+		BUFFERS buffers;
 		nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
 		uint32_t indexCount = {};
 	};
@@ -71,6 +83,7 @@ struct RESOURCES_BUNDLE_BASE
 
 	nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
 	std::array<REFERENCE_DRAW_HOOK, EOT_COUNT> objects;
+	BUFFER_AND_USAGE ubo;
 
 	struct
 	{
@@ -78,7 +91,13 @@ struct RESOURCES_BUNDLE_BASE
 	} attachments;
 };
 
-using RESOURCES_BUNDLE = RESOURCES_BUNDLE_BASE<false>;
+struct RESOURCES_BUNDLE : public RESOURCES_BUNDLE_BASE<false>
+{
+	using BASE_T = RESOURCES_BUNDLE_BASE<false>;
+
+	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool;
+	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet;
+};
 
 template<bool withAssetConverter>
 class RESOURCES_BUILDER
@@ -108,10 +127,7 @@ public:
 		_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = EF_D16_UNORM;
 		_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = IGPUImage::ESCF_1_BIT;
 
-		// TODO: build all
-
 		// descriptor set layout
-		smart_refctd_ptr<typename TYPES::DESCRIPTOR_SET_LAYOUT> descriptorSetLayout;
 		{
 			typename TYPES::DESCRIPTOR_SET_LAYOUT::SBinding bindings [] =
 			{
@@ -124,9 +140,9 @@ public:
 				}
 			};
 
-			descriptorSetLayout = create<typename TYPES::DESCRIPTOR_SET_LAYOUT>(bindings);
+			scratch.descriptorSetLayout = create<typename TYPES::DESCRIPTOR_SET_LAYOUT>(bindings);
 
-			if (!descriptorSetLayout)
+			if (!scratch.descriptorSetLayout)
 			{
 				logger->log("Could not descriptor set layout!", ILogger::ELL_ERROR);
 				return false;
@@ -134,13 +150,12 @@ public:
 		}
 
 		// pipeline layout
-		smart_refctd_ptr<typename TYPES::PIPELINE_LAYOUT> pipelineLayout;
 		{
 			const std::span<const SPushConstantRange> range = {};
 
-			pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(descriptorSetLayout));
+			scratch.pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout));
 
-			if (!pipelineLayout)
+			if (!scratch.pipelineLayout)
 			{
 				logger->log("Could not create pipeline layout!", ILogger::ELL_ERROR);
 				return false;
@@ -336,7 +351,7 @@ public:
 			{
 				const nbl::system::SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
 				const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
-				auto shader = nbl::core::make_smart_refctd_ptr<nbl::asset::ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
+				auto shader = nbl::core::make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
 
 				if constexpr (withAssetConverter)
 					outShader = std::move(shader);
@@ -363,7 +378,197 @@ public:
 		{
 			auto geometries = GEOMETRIES_CPU(geometryCreator);
 
-			// TODO: move creation here
+			for (uint32_t i = 0; i < geometries.objects.size(); ++i)
+			{
+				const auto& inGeometry = geometries.objects[i];
+				auto& [obj, meta] = scratch.objects[i];
+
+				bool status = true;
+
+				meta.name = inGeometry.meta.name;
+				meta.type = inGeometry.meta.type;
+
+				struct
+				{
+					SBlendParams blend;
+					SRasterizationParams rasterization;
+					typename TYPES::GRAPHICS_PIPELINE::SCreationParams pipeline;
+				} params;
+				
+				{
+					params.blend.logicOp = ELO_NO_OP;
+
+					auto& b = params.blend.blendParams[0];
+					b.srcColorFactor = EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
+					b.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+					b.colorBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
+					b.srcAlphaFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+					b.dstAlphaFactor = EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
+					b.alphaBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
+					b.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+				}
+
+				params.rasterization.faceCullingMode = EFCM_NONE;
+				{
+					const typename TYPES::SHADER::SSpecInfo info [] =
+					{
+						{.entryPoint = "VSMain", .shader = scratch.shaders[inGeometry.shadersType].vertex.get() },
+						{.entryPoint = "PSMain", .shader = scratch.shaders[inGeometry.shadersType].fragment.get() }
+					};
+
+					params.pipeline.layout = scratch.pipelineLayout.get();
+					params.pipeline.shaders = info;
+					params.pipeline.renderpass = scratch.renderpass.get();
+					params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
+
+					obj.indexCount = inGeometry.data.indexCount;
+					obj.indexType = inGeometry.data.indexType;
+
+					// TODO: cache pipeline & try lookup for existing one first maybe
+
+					// similar issue like with shaders again, in this case gpu contructor allows for extra cache parameters + there is no constructor you can use to fire make_smart_refctd_ptr yourself for cpu
+					if constexpr (withAssetConverter)
+						obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
+					else
+					{
+						const std::span<const IGPUGraphicsPipeline::SCreationParams> info = { { params.pipeline } };
+						create<typename TYPES::GRAPHICS_PIPELINE>(nullptr, info, &obj.pipeline);
+					}
+
+					if (!obj.pipeline)
+					{
+						logger->log("Could not create graphics pipeline for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+						status = false;
+					}
+
+					// object buffers
+					auto createVIBuffers = [&]() -> bool
+					{
+						using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+
+						// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
+						auto vBuffer = smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
+						obj.buffers.vertex.usage = bitflag(IBUFFER::EUF_VERTEX_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+						obj.buffers.vertex.binding.offset = 0u;
+						
+						auto iBuffer = smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
+						obj.buffers.index.usage = bitflag(IBUFFER::EUF_INDEX_BUFFER_BIT) | IBUFFER::EUF_VERTEX_BUFFER_BIT | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+						obj.buffers.index.binding.offset = 0u;
+
+						if constexpr (withAssetConverter)
+						{
+							obj.buffers.vertex.binding = { .offset = 0u, .buffer = vBuffer };
+							obj.buffers.index.binding = { .offset = 0u, .buffer = iBuffer };
+						}
+						else
+						{
+							auto vertexBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = vBuffer->getSize(), .usage = obj.buffers.vertex.usage }));
+							auto indexBuffer = iBuffer ? create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = iBuffer->getSize(), .usage = obj.buffers.index.usage })) : nullptr;
+
+							if (!vertexBuffer)
+								return false;
+
+							if (inGeometry.data.indexType != EIT_UNKNOWN)
+								if (!indexBuffer)
+									return false;
+
+							const auto mask = device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+							for (auto it : { vertexBuffer , indexBuffer })
+							{
+								if (it)
+								{
+									auto reqs = it->getMemoryReqs();
+									reqs.memoryTypeBits &= mask;
+
+									device->allocate(reqs, it.get());
+								}
+							}
+
+							auto fillGPUBuffer = [&logger = logger](smart_refctd_ptr<ICPUBuffer> cBuffer, smart_refctd_ptr<IGPUBuffer> gBuffer)
+							{
+								auto binding = gBuffer->getBoundMemory();
+
+								if (!binding.memory->map({ 0ull, binding.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
+								{
+									logger->log("Could not map device memory", ILogger::ELL_ERROR);
+									return false;
+								}
+
+								if (!binding.memory->isCurrentlyMapped())
+								{
+									logger->log("Buffer memory is not mapped!", system::ILogger::ELL_ERROR);
+									return false;
+								}
+
+								auto* mPointer = binding.memory->getMappedPointer();
+								memcpy(mPointer, cBuffer->getPointer(), gBuffer->getSize());
+								binding.memory->unmap();
+
+								return true;
+							};
+
+							if (!fillGPUBuffer(vBuffer, vertexBuffer))
+								return false;
+
+							if (indexBuffer)
+								if (!fillGPUBuffer(iBuffer, indexBuffer))
+									return false;
+
+							obj.buffers.vertex.binding = { .offset = 0u, .buffer = std::move(vertexBuffer) };
+							obj.buffers.index.binding = { .offset = 0u, .buffer = std::move(indexBuffer) };
+						}
+						
+						return true;
+					};
+
+					if (!createVIBuffers())
+					{
+						logger->log("Could not create buffers for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+						status = false;
+					}
+
+					if (!status)
+					{
+						logger->log("[%s] object will not be created!", ILogger::ELL_ERROR, meta.name.data());
+
+						obj.buffers.vertex = {};
+						obj.buffers.index = {};
+						obj.indexCount = 0u;
+						obj.indexType = E_INDEX_TYPE::EIT_UNKNOWN;
+						obj.pipeline = nullptr;
+
+						continue;
+					}
+				}
+			}
+		}
+
+		// view parameters ubo buffer
+		{
+			using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+
+			// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
+			scratch.ubo.usage = bitflag(IBUFFER::EUF_UNIFORM_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+
+			if constexpr (withAssetConverter)
+			{
+				auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
+				scratch.ubo.binding = typename TYPES::BUFFER::SCreationParams({ .offset = 0u, .buffer = std::move(uboBuffer) });
+			}
+			else
+			{
+				const auto mask = device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+				auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = scratch.ubo.usage }));
+
+				for (auto it : { uboBuffer })
+				{
+					video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
+					reqs.memoryTypeBits &= mask;
+
+					device->allocate(reqs, it.get());
+				}
+			}
 		}
 
 		return true;
@@ -373,10 +578,63 @@ public:
 	{
 		if constexpr (withAssetConverter)
 		{
-			// TODO: asset converter for input info, scratch at this point has ready to convert cpu resources
+			// TODO: asset converter, scratch at this point has ready to convert cpu resources
 		}
 		else
-			output = scratch; // scratch has all ready to use gpu resources, just assign to info
+			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use gpu resources with allocated memory, just give the output ownership
+
+		// gpu resources are created at this point, let's create left gpu objects
+		
+		// descriptor set
+		{
+			auto* descriptorSetLayout = output.objects.front().first.pipeline->getLayout()->getDescriptorSetLayout(1u); // let's just take any, the layout is shared across all possible pipelines
+
+			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout };
+			const uint32_t setCounts[] = { 0u, 1u };
+
+			output.descriptorPool = device->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+
+			if (!output.descriptorPool)
+			{
+				logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			// I think this could also be created with converter?
+			// TODO: once asset converter descriptor set conversion works update accordingly to work with the builder interface
+			output.descriptorPool->createDescriptorSets({{descriptorSetLayout}}, &output.descriptorSet);
+
+			if (!output.descriptorSet)
+			{
+				logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
+		}
+
+		// write the descriptor set
+		{
+			// descriptor write ubo
+			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
+			write.dstSet = output.descriptorSet.get();
+			write.binding = 0;
+			write.arrayElement = 0u;
+			write.count = 1u;
+
+			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+			{
+				info.desc = nbl::core::smart_refctd_ptr(output.ubo.binding.buffer);
+				info.info.buffer.offset = output.ubo.binding.offset;
+				info.info.buffer.size = output.ubo.binding.buffer->getSize();
+			}
+
+			write.info = &info;
+
+			if(!device->updateDescriptorSets(1u, &write, 0u, nullptr))
+			{
+				logger->log("Could not write descriptor set!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
+		}
 
 		return true;
 	}
@@ -440,10 +698,17 @@ private:
 				return device->createImageView(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
 				return device->createImage(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::BUFFER>)
+				return device->createBuffer(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::SHADER>)
 				return device->createShader(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::GRAPHICS_PIPELINE>)
+			{
+				bool status = device->createGraphicsPipelines(std::forward<Args>(args)...);
+				return nullptr; // I assume caller with use output from forwarded args, another inconsistency in our api imho
+			}
 			else
-				return nullptr;
+				return nullptr; // TODO: should static assert
 	}
 
 	using RESOURCES_BUNDLE_BASE_T = RESOURCES_BUNDLE_BASE<withAssetConverter>;
@@ -460,6 +725,8 @@ private:
 			nbl::core::smart_refctd_ptr<typename TYPES::SHADER> vertex = nullptr, fragment = nullptr;
 		};
 
+		nbl::core::smart_refctd_ptr<typename TYPES::DESCRIPTOR_SET_LAYOUT> descriptorSetLayout;
+		nbl::core::smart_refctd_ptr<typename TYPES::PIPELINE_LAYOUT> pipelineLayout;
 		std::array<SHADERS, GEOMETRIES_CPU::EGP_COUNT> shaders; //! note, shaders differ from common interface creation rules and cpu-gpu constructors are different, gpu requires cpu shader to be constructed first anyway (so no interface shadered params!) 
 	};
 
@@ -496,8 +763,6 @@ public:
 
 	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
 
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_colorAttachment, m_depthAttachment;
-
 	struct
 	{
 		const uint32_t startedValue = 0, finishedValue = 0x45;
@@ -513,6 +778,7 @@ public:
 		bool status = createCommandBuffer();
 		BUILDER builder (m_device.get(), m_logger.get(), _geometryCreator);
 
+		// gpu resources
 		if (builder.build())
 		{
 			if (!builder.finalize(resources))
@@ -521,47 +787,29 @@ public:
 		else
 			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
 
-#if 0
-		// gpu resources created, let's create descriptor set
+		// frame buffer
 		{
-			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
-			const uint32_t setCounts[] = { 0u, 1u };
+			const auto extent = resources.attachments.color->getCreationParameters().image->getCreationParameters().extent;
 
-			m_descriptorPool = m_device->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-
-			if (!m_descriptorPool)
+			nbl::video::IGPUFramebuffer::SCreationParams params =
 			{
-				m_logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
-				return nullptr;
-			}
-		}
+				{
+					.renderpass = nbl::core::smart_refctd_ptr(resources.renderpass),
+					.depthStencilAttachments = &resources.attachments.depth.get(),
+					.colorAttachments = &resources.attachments.color.get(),
+					.width = extent.width,
+					.height = extent.height,
+					.layers = 1u
+				}
+			};
 
-		m_gpuDescriptorSet = m_descriptorPool->createDescriptorSet(descriptorSetLayout);
+			m_frameBuffer = m_device->createFramebuffer(std::move(params));
 
-		if (!m_gpuDescriptorSet)
-		{
-			m_logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
-			return nullptr;
-		}
-#endif
-		
-		{
-			// descriptor write ubo
-			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
-			write.dstSet = m_gpuDescriptorSet.get();
-			write.binding = 0;
-			write.arrayElement = 0u;
-			write.count = 1u;
-
-			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
+			if (!m_frameBuffer)
 			{
-				info.desc = nbl::core::smart_refctd_ptr(m_ubo);
-				info.info.buffer.offset = 0ull;
-				info.info.buffer.size = m_ubo->getSize();
+				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
+				return;
 			}
-
-			write.info = &info;
-			m_device->updateDescriptorSets(1u, &write, 0u, nullptr);
 		}
 	}
 	~CScene() {}
@@ -618,16 +866,15 @@ public:
 		const auto& [hook, meta] = resources.objects[object.meta.type];
 		auto* rawPipeline = hook.pipeline.get();
 
+		nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertex = hook.buffers.vertex.binding, index = hook.buffers.index.binding;
+
 		m_commandBuffer->bindGraphicsPipeline(rawPipeline);
-		m_commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &m_gpuDescriptorSet.get());
+		m_commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
+		m_commandBuffer->bindVertexBuffers(0, 1, &vertex);
 
-		const nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertices = { .offset = 0, .buffer = hook.vertexBuffer }, indices = { .offset = 0, .buffer = hook.indexBuffer };
-
-		m_commandBuffer->bindVertexBuffers(0, 1, &vertices);
-
-		if (indices.buffer && hook.indexType != nbl::asset::EIT_UNKNOWN)
+		if (index.buffer && hook.indexType != nbl::asset::EIT_UNKNOWN)
 		{
-			m_commandBuffer->bindIndexBuffer(indices, hook.indexType);
+			m_commandBuffer->bindIndexBuffer(index, hook.indexType);
 			m_commandBuffer->drawIndexed(hook.indexCount, 1, 0, 0, 0);
 		}
 		else
@@ -662,215 +909,22 @@ public:
 		return queue->submit(infos) == nbl::video::IQueue::RESULT::SUCCESS;
 	}
 
-	// note, must be updated outside render pass
+	// note: must be updated outside render pass
 	inline void update()
 	{
 		nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
-		range.buffer = nbl::core::smart_refctd_ptr(m_ubo);
-		range.size = m_ubo->getSize();
+		range.buffer = nbl::core::smart_refctd_ptr(resources.ubo.binding.buffer);
+		range.size = resources.ubo.binding.buffer->getSize();
 
 		m_commandBuffer->updateBuffer(range, &object.viewParameters);
 	}
 
-	inline decltype(auto) getReferenceObjects()
+	inline decltype(auto) getResources()
 	{
-		return (resources.objects); // note: do not remove "()" - it makes the return type lvalue reference instead of copy 
+		return (resources); // note: do not remove "()" - it makes the return type lvalue reference instead of copy 
 	}
 
 private:
-	#if 0
-	// we will make this call templated - first instance will use our gpu creation as it was with a few improvements second will asset converter to create gpu resources
-	template<bool withAssetConverter>
-	void createGPUResources(const GEOMETRIES_CPU& geometries)
-	{
-
-		// gpu geometries' pipelines & buffers
-		for (const auto& inGeometry : geometries.objects)
-		{
-			auto& outData = referenceObjects.emplace_back();
-			auto& [gpu, meta] = outData;
-
-			bool status = true;
-
-			meta.name = inGeometry.meta.name;
-			meta.type = inGeometry.meta.type;
-
-			struct
-			{
-				nbl::asset::SBlendParams blend;
-				nbl::asset::SRasterizationParams rasterization;
-				nbl::video::IGPUGraphicsPipeline::SCreationParams pipeline;
-			} params;
-
-			{
-				params.blend.logicOp = nbl::asset::ELO_NO_OP;
-
-				auto& param = params.blend.blendParams[0];
-				param.srcColorFactor = nbl::asset::EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
-				param.dstColorFactor = nbl::asset::EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				param.colorBlendOp = nbl::asset::EBO_ADD;//VK_BLEND_OP_ADD;
-				param.srcAlphaFactor = nbl::asset::EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				param.dstAlphaFactor = nbl::asset::EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
-				param.alphaBlendOp = nbl::asset::EBO_ADD;//VK_BLEND_OP_ADD;
-				param.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-			}
-
-			params.rasterization.faceCullingMode = nbl::asset::EFCM_NONE;
-			{
-				const nbl::video::IGPUShader::SSpecInfo info [] =
-				{
-					{.entryPoint = "VSMain", .shader = shaders[inGeometry.shadersType].vertex.get() },
-					{.entryPoint = "PSMain", .shader = shaders[inGeometry.shadersType].fragment.get() }
-				};
-
-				params.pipeline.layout = pipelineLayout;
-				params.pipeline.shaders = info;
-				params.pipeline.renderpass = m_renderpass.get();
-				params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
-
-				gpu.indexCount = inGeometry.data.indexCount;
-				gpu.indexType = inGeometry.data.indexType;
-
-				// TODO: cache pipeline & try lookup for existing one first
-
-				if (!m_device->createGraphicsPipelines(nullptr, { { params.pipeline } }, &gpu.pipeline))
-				{
-					m_logger->log("Could not create GPU Graphics Pipeline for [%s] object!", nbl::system::ILogger::ELL_ERROR, meta.name.data());
-					status = false;
-				}
-
-				if (!createVIBuffers(inGeometry, outData))
-				{
-					m_logger->log("Could not create GPU buffers for [%s] object!", nbl::system::ILogger::ELL_ERROR, meta.name.data());
-					status = false;
-				}
-
-				if (!status)
-				{
-					m_logger->log("[%s] object will not be created!", nbl::system::ILogger::ELL_ERROR, meta.name.data());
-
-					gpu.valid = false;
-					gpu.vertexBuffer = nullptr;
-					gpu.indexBuffer = nullptr;
-					gpu.indexCount = 0u;
-					gpu.indexType = nbl::asset::E_INDEX::EIT_UNKNOWN;
-					gpu.pipeline = nullptr;
-
-					continue;
-				}
-			}
-		}
-
-		// gpu view params ubo buffer
-		{
-			const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-			m_ubo = m_device->createBuffer({ {.size = sizeof(nbl::asset::SBasicViewParameters), .usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_UNIFORM_BUFFER_BIT) | nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
-
-			for (auto it : { m_ubo })
-			{
-				nbl::video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
-				reqs.memoryTypeBits &= mask;
-
-				m_device->allocate(reqs, it.get());
-			}
-		}
-
-		//////////////////////////////
-		// TODO
-		// builder.finalize 
-		// (build's finalize calls asset converter or if we build without the converter we are already finalized)
-		// after the call we have all gpu instances
-
-		// frame buffer
-		{
-			// note there is no such a thing like cpu frame buffer, we assume we have finalized resources at this point and have gpu instances
-			nbl::video::IGPUFramebuffer::SCreationParams params =
-			{
-				{
-					.renderpass = nbl::core::smart_refctd_ptr(m_renderpass),
-					.depthStencilAttachments = &m_depthAttachment.get(),
-					.colorAttachments = &m_colorAttachment.get(),
-					.width = FRAMEBUFFER_W,
-					.height = FRAMEBUFFER_H,
-					.layers = 1u
-				}
-			};
-
-			m_frameBuffer = m_device->createFramebuffer(std::move(params));
-
-			if (!m_frameBuffer)
-			{
-				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
-				return;
-			}
-		}
-	}
-
-	bool createVIBuffers(const GEOMETRIES_CPU::REFERENCE_OBJECT_CPU& inGeometry, REFERENCE_DRAW_HOOK_GPU& outData)
-	{
-		const auto mask = m_device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-		auto vBuffer = nbl::core::smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
-		auto iBuffer = nbl::core::smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
-
-		outData.first.vertexBuffer = m_device->createBuffer({ {.size = vBuffer->getSize(), .usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT) | nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} });
-		outData.first.indexBuffer = iBuffer ? m_device->createBuffer({ {.size = iBuffer->getSize(), .usage = nbl::core::bitflag(nbl::asset::IBuffer::EUF_INDEX_BUFFER_BIT) | nbl::asset::IBuffer::EUF_VERTEX_BUFFER_BIT | nbl::asset::IBuffer::EUF_TRANSFER_DST_BIT | nbl::asset::IBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF} }) : nullptr;
-
-		if (!outData.first.vertexBuffer)
-			return false;
-
-		if (inGeometry.data.indexType != nbl::asset::EIT_UNKNOWN)
-			if (!outData.first.indexBuffer)
-				return false;
-
-		for (auto it : { outData.first.vertexBuffer , outData.first.indexBuffer })
-		{
-			if (it)
-			{
-				auto reqs = it->getMemoryReqs();
-				reqs.memoryTypeBits &= mask;
-
-				m_device->allocate(reqs, it.get());
-			}
-		}
-
-		{
-			auto fillGPUBuffer = [&m_logger = m_logger](nbl::core::smart_refctd_ptr<nbl::asset::ICPUBuffer> cBuffer, nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> gBuffer)
-			{
-				auto binding = gBuffer->getBoundMemory();
-
-				if (!binding.memory->map({ 0ull, binding.memory->getAllocationSize() }, nbl::video::IDeviceMemoryAllocation::EMCAF_READ))
-				{
-					m_logger->log("Could not map device memory", nbl::system::ILogger::ELL_ERROR);
-					return false;
-				}
-
-				if (!binding.memory->isCurrentlyMapped())
-				{
-					m_logger->log("Buffer memory is not mapped!", nbl::system::ILogger::ELL_ERROR);
-					return false;
-				}
-
-				auto* mPointer = binding.memory->getMappedPointer();
-				memcpy(mPointer, cBuffer->getPointer(), gBuffer->getSize());
-				binding.memory->unmap();
-
-				return true;
-			};
-
-			if (!fillGPUBuffer(vBuffer, outData.first.vertexBuffer))
-				return false;
-
-			if (outData.first.indexBuffer)
-				if (!fillGPUBuffer(iBuffer, outData.first.indexBuffer))
-					return false;
-		}
-
-		return true;
-	}
-#endif
-
 	bool createCommandBuffer()
 	{
 		m_commandPool = m_device->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
@@ -897,16 +951,9 @@ private:
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandPool> m_commandPool; // TODO: decide if we should reuse main app's pool to allocate the cmd
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUCommandBuffer> m_commandBuffer;
 
-	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> m_descriptorPool;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> m_gpuDescriptorSet;
-
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUFramebuffer> m_frameBuffer;
 
 	RESOURCES_BUNDLE resources;
-
-	// TODO: TO REMOVE, those will be/are in resources
-	nbl::core::smart_refctd_ptr<nbl::video::IGPURenderpass> m_renderpass;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> m_ubo;
 };
 
 #endif // __NBL_THIS_EXAMPLE_SCENE_H_INCLUDED__
