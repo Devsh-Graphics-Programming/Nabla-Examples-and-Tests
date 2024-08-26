@@ -37,11 +37,16 @@ struct SPIRV_SHADERS_CPU
 	nbl::core::smart_refctd_ptr<nbl::asset::ICPUShader> vertex = nullptr, fragment = nullptr;
 };
 
-template<typename T, typename RENDERPASS_TYPE, typename IMAGE_VIEW_TYPE, typename IMAGE_TYPE>
-concept isResourceType = std::same_as<T, RENDERPASS_TYPE> || std::same_as<T, IMAGE_VIEW_TYPE> || std::same_as<T, IMAGE_TYPE>;
+template<typename T, typename... Types>
+concept _implIsResourceTypeC = (std::same_as<T, Types> || ...);
+
+template<typename T, typename Types>
+concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE>;
 
 #define TYPES_IMPL_BOILERPLATE(WITH_CONVERTER) struct TYPES \
 { \
+	using DESCRIPTOR_SET_LAYOUT = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUDescriptorSetLayout, nbl::video::IGPUDescriptorSetLayout>; \
+	using PIPELINE_LAYOUT = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUPipelineLayout, nbl::video::IGPUPipelineLayout>; \
 	using RENDERPASS = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
 	using IMAGE_VIEW = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
 	using IMAGE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
@@ -84,11 +89,49 @@ public:
 		using namespace scene;
 		using namespace system;
 
+		// TODO: we could make those params templated with default values like below
 		_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
 		_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = EF_D16_UNORM;
 		_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = IGPUImage::ESCF_1_BIT;
 
 		// TODO: build all
+
+		// descriptor set layout
+		smart_refctd_ptr<typename TYPES::DESCRIPTOR_SET_LAYOUT> descriptorSetLayout;
+		{
+			typename TYPES::DESCRIPTOR_SET_LAYOUT::SBinding bindings [] =
+			{
+				{
+					.binding = 0u,
+					.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+					.createFlags = TYPES::DESCRIPTOR_SET_LAYOUT::SBinding::E_CREATE_FLAGS::ECF_NONE,
+					.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+					.count = 1u,
+				}
+			};
+
+			descriptorSetLayout = create<typename TYPES::DESCRIPTOR_SET_LAYOUT>(bindings);
+
+			if (!descriptorSetLayout)
+			{
+				logger->log("Could not descriptor set layout!", ILogger::ELL_ERROR);
+				return false;
+			}
+		}
+
+		// pipeline layout
+		smart_refctd_ptr<typename TYPES::PIPELINE_LAYOUT> pipelineLayout;
+		{
+			const std::span<const SPushConstantRange> range = {};
+
+			pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(descriptorSetLayout));
+
+			if (!pipelineLayout)
+			{
+				logger->log("Could not create pipeline layout!", ILogger::ELL_ERROR);
+				return false;
+			}
+		}
 		
 		// renderpass
 		{
@@ -290,31 +333,23 @@ public:
 
 private:
 	template<typename T, typename... Args>
-	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires isResourceType<T, typename TYPES::RENDERPASS, typename TYPES::IMAGE_VIEW, typename TYPES::IMAGE>
+	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires RESOURCE_TYPE_CONCEPT<T, TYPES>
 	{
 		if constexpr (withAssetConverter)
-		{
 			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...);
-		}
 		else
-		{
-			if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
-			{
+			if constexpr (std::same_as<T, typename TYPES::DESCRIPTOR_SET_LAYOUT>)
+				return device->createDescriptorSetLayout(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::PIPELINE_LAYOUT>)
+				return device->createPipelineLayout(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
 				return device->createRenderpass(std::forward<Args>(args)...);
-			}
 			else if constexpr (std::same_as<T, typename TYPES::IMAGE_VIEW>)
-			{
 				return device->createImageView(std::forward<Args>(args)...);
-			}
 			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
-			{
 				return device->createImage(std::forward<Args>(args)...);
-			}
 			else
-			{
 				return nullptr;
-			}
-		}
 	}
 
 	nbl::video::ILogicalDevice* device;
@@ -391,11 +426,11 @@ public:
 	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator)
 		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
 	{
+		_NBL_STATIC_INLINE_CONSTEXPR bool BUILD_WITH_CONVERTER = false; // tmp
+
 		bool status = createCommandBuffer();
-		auto pipelineLayout = createPipelineLayoutAndDS();
-		
 		const auto geometries = GEOMETRIES_CPU(_geometryCreator);
-		createGPUData<false>(geometries, pipelineLayout.get());
+		createGPUData<BUILD_WITH_CONVERTER>(geometries);
 		{
 			// descriptor write ubo
 			nbl::video::IGPUDescriptorSet::SWriteDescriptorSet write;
@@ -586,7 +621,7 @@ private:
 
 	// we will make this call templated - first instance will use our gpu creation as it was with a few improvements second will asset converter to create gpu resources
 	template<bool withAssetConverter>
-	void createGPUData(const GEOMETRIES_CPU& geometries, const nbl::video::IGPUPipelineLayout* pipelineLayout)
+	void createGPUData(const GEOMETRIES_CPU& geometries)
 	{
 		using BUILDER = ::RESOURCES_BUILDER<withAssetConverter>;
 		BUILDER builder (m_device.get(), m_logger.get());
@@ -821,18 +856,10 @@ private:
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUPipelineLayout> createPipelineLayoutAndDS()
 	{
-		nbl::video::IGPUDescriptorSetLayout::SBinding bindings[] =
-		{
-			{
-				.binding = 0u,
-				.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-				.createFlags = nbl::video::IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-				.stageFlags = nbl::asset::IShader::E_SHADER_STAGE::ESS_VERTEX | nbl::asset::IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-				.count = 1u,
-			}
-		};
+		// TODO: let's create it after finalize call
 
-		auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
+#if 0
+		/////
 		{
 			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout.get() };
 			const uint32_t setCounts[] = { 0u, 1u };
@@ -854,12 +881,10 @@ private:
 			return nullptr;
 		}
 
-		auto pipelineLayout = m_device->createPipelineLayout({}, nullptr, std::move(descriptorSetLayout));
-
-		if (!pipelineLayout)
-			m_logger->log("Could not create Pipeline Layout!", nbl::system::ILogger::ELL_ERROR);
-
 		return pipelineLayout;
+#endif 
+
+		return {};
 	}
 
 	std::vector<REFERENCE_DRAW_HOOK_GPU> referenceObjects; // all possible objects & their buffers + pipelines
