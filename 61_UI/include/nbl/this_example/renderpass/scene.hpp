@@ -20,13 +20,14 @@ enum E_OBJECT_TYPE : uint8_t
 	EOT_CONE,
 	EOT_ICOSPHERE,
 
-	EOT_COUNT
+	EOT_COUNT,
+	EOT_UNKNOWN = ~0
 };
 
 struct OBJECT_META
 {
-	E_OBJECT_TYPE type = EOT_CUBE;
-	std::string_view name = "Cube";
+	E_OBJECT_TYPE type = EOT_UNKNOWN;
+	std::string_view name = "Unknown";
 };
 
 NBL_CONSTEXPR_STATIC_INLINE struct CLEAR_VALUES
@@ -39,7 +40,7 @@ template<typename T, typename... Types>
 concept _implIsResourceTypeC = (std::same_as<T, Types> || ...);
 
 template<typename T, typename Types>
-concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE, typename Types::SHADER>;
+concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE, typename Types::BUFFER, typename Types::SHADER, typename Types::GRAPHICS_PIPELINE>;
 
 #define TYPES_IMPL_BOILERPLATE(WITH_CONVERTER) struct TYPES \
 { \
@@ -48,7 +49,9 @@ concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPT
 	using RENDERPASS = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPURenderpass, nbl::video::IGPURenderpass>; \
 	using IMAGE_VIEW = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImageView, nbl::video::IGPUImageView>; \
 	using IMAGE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUImage, nbl::video::IGPUImage>; \
+	using BUFFER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUBuffer, nbl::video::IGPUBuffer>; \
 	using SHADER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
+	using GRAPHICS_PIPELINE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUGraphicsPipeline, nbl::video::IGPUGraphicsPipeline>; \
 }
 
 template<bool withAssetConverter>
@@ -56,7 +59,18 @@ struct RESOURCES_BUNDLE_BASE
 {
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
+	struct REFERENCE_OBJECT
+	{
+		nbl::core::smart_refctd_ptr<typename TYPES::GRAPHICS_PIPELINE> pipeline = nullptr;
+		nbl::core::smart_refctd_ptr<typename TYPES::BUFFER> vertexBuffer = nullptr, indexBuffer = nullptr;
+		nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
+		uint32_t indexCount = {};
+	};
+
+	using REFERENCE_DRAW_HOOK = std::pair<REFERENCE_OBJECT, OBJECT_META>;
+
 	nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
+	std::array<REFERENCE_DRAW_HOOK, EOT_COUNT> objects;
 
 	struct
 	{
@@ -480,17 +494,6 @@ public:
 		OBJECT_META meta;
 	};
 
-	struct REFERENCE_OBJECT_GPU
-	{
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUGraphicsPipeline> pipeline;
-		nbl::core::smart_refctd_ptr<nbl::video::IGPUBuffer> vertexBuffer, indexBuffer;
-		nbl::asset::E_INDEX_TYPE indexType;
-		uint32_t indexCount;
-		bool valid = true;
-	};
-
-	using REFERENCE_DRAW_HOOK_GPU = std::pair<REFERENCE_OBJECT_GPU, OBJECT_META>;
-
 	OBJECT_DRAW_HOOK_CPU object; // TODO: this could be a vector (to not complicate the example I leave it single object), we would need a better system for drawing then to make only 1 max 2 indirect draw calls (indexed and not indexed objects)
 
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUImageView> m_colorAttachment, m_depthAttachment;
@@ -612,7 +615,7 @@ public:
 
 		m_commandBuffer->beginRenderPass(info, nbl::video::IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
 
-		const auto& [hook, meta] = referenceObjects[object.meta.type];
+		const auto& [hook, meta] = resources.objects[object.meta.type];
 		auto* rawPipeline = hook.pipeline.get();
 
 		m_commandBuffer->bindGraphicsPipeline(rawPipeline);
@@ -669,9 +672,9 @@ public:
 		m_commandBuffer->updateBuffer(range, &object.viewParameters);
 	}
 
-	inline const std::vector<REFERENCE_DRAW_HOOK_GPU>& getReferenceObjects()
+	inline decltype(auto) getReferenceObjects()
 	{
-		return referenceObjects;
+		return (resources.objects); // note: do not remove "()" - it makes the return type lvalue reference instead of copy 
 	}
 
 private:
@@ -886,8 +889,6 @@ private:
 
 		return true;
 	}
-
-	std::vector<REFERENCE_DRAW_HOOK_GPU> referenceObjects; // all possible objects & their buffers + pipelines
 
 	nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
 	nbl::core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
