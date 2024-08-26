@@ -5,7 +5,7 @@ struct SPushConstants
 {
     uint numElements;
     uint pad;
-}
+};
 
 [[vk::push_constant]] SPushConstants pc;
 
@@ -51,7 +51,7 @@ void setGridParticleID(uint32_t3 ID : SV_DispatchThreadID)
 void shuffleParticles(uint32_t3 ID : SV_DispatchThreadID)
 {
     uint currp_id = ID.x;
-    uint prevp_id = particleCellPairBuffer[p_id].y;
+    uint prevp_id = particleCellPairBuffer[currp_id].y;
 
-    particleOutBuffer[p_id] = particleInBuffer[prevp_id];
+    particleOutBuffer[currp_id] = particleInBuffer[prevp_id];
 }

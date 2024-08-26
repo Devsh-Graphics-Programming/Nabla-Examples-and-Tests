@@ -159,7 +159,7 @@ public:
 		m_radixSortDs[1] = sortDsPool->createDescriptorSet(dsLayout2);
     }
 
-    void sort(smart_refctd_ptr<IGPUCommandBuffer> cmdbuf, smart_refctd_ptr<IGPUBuffer> dataBuffer, uint32_t numElements)
+    void sort(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<IGPUBuffer> dataBuffer, uint32_t numElements)
     {
         uint32_t numWorkgroups = (numElements + numThreadsPerGroup - 1) / numThreadsPerGroup;
 
