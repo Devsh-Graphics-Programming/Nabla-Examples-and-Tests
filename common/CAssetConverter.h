@@ -602,48 +602,102 @@ class CAssetConverter : public core::IReferenceCounted
 				// Submits the buffered up calls, unline IUtilities::autoSubmit, no patching, it complicates life too much, just please pass correct open SIntendedSubmits.
 				struct SAutoSubmitResult
 				{
+					inline bool blocking() const {return transfer.blocking()||compute.blocking();}
+
+					inline bool ready() const {return transfer.ready()&&compute.ready();}
+
+					inline ISemaphore::WAIT_RESULT wait() const
+					{
+						if (transfer.blocking())
+						{
+							if (compute.blocking())
+							{
+								const ISemaphore::SWaitInfo waitInfos[2] = {transfer,compute};
+								auto* device = const_cast<ILogicalDevice*>(waitInfos[0].semaphore->getOriginDevice());
+								assert(waitInfos[1].semaphore->getOriginDevice()==device);
+								return device->blockForSemaphores(waitInfos,true);
+							}
+							return transfer.wait();
+						}
+						return compute.wait();
+					}
+
+					inline operator bool() const
+					{
+						if (wait()!=ISemaphore::WAIT_RESULT::SUCCESS)
+							return false;
+						return transfer.copy()==IQueue::RESULT::SUCCESS && compute.copy()==IQueue::RESULT::SUCCESS;
+					}
+
 					ISemaphore::future_t<IQueue::RESULT> transfer = IQueue::RESULT::OTHER_ERROR;
 					ISemaphore::future_t<IQueue::RESULT> compute = IQueue::RESULT::OTHER_ERROR;
 				};
 				inline SAutoSubmitResult autoSubmit(
-					const std::span<IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
-					const std::span<IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
+					std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
+					std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
 				)
 				{
 					// invalid
 					if (!device)
 						return {};
+					for (const auto& signal : extraTransferSignalSemaphores)
+					if (signal.semaphore->getOriginDevice()!=device)
+						return {};
+					for (const auto& signal : extraComputeSignalSemaphores)
+					if (signal.semaphore->getOriginDevice()!=device)
+						return {};
 					// you only get one shot at this!
 					device = nullptr;
 
+					SAutoSubmitResult retval = {};
+					// patch tmps
+					core::smart_refctd_ptr<ISemaphore> patchSema;
+					IQueue::SSubmitInfo::SSemaphoreInfo patch;
 					// first submit transfer
 					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
 					{
 						transfer.getScratchCommandBuffer()->end();
+						// patch if needed
+						if (extraTransferSignalSemaphores.empty())
+						{
+							patchSema = device->createSemaphore(0);
+							patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS};
+							extraTransferSignalSemaphores = {&patch,1};
+						}
+						// submit
 						auto submit = transfer.popSubmit(extraTransferSignalSemaphores);
 						if (const auto error=transfer.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
 							return {error};
+						retval.transfer.set({extraTransferSignalSemaphores.back().semaphore,extraTransferSignalSemaphores.back().value});
 					}
 					else
-					{
-						for (auto& sema : extraTransferSignalSemaphores)
-							sema.semaphore->signal(sema.value);
-					}
+					for (auto& sema : extraTransferSignalSemaphores)
+						sema.semaphore->signal(sema.value);
+					retval.transfer.set(IQueue::RESULT::SUCCESS);
+
 					// then submit compute
 					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
 					{
 						compute.getScratchCommandBuffer()->end();
+						// patch if needed
+						if (extraComputeSignalSemaphores.empty())
+						{
+							patchSema = device->createSemaphore(0);
+							patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS}; // might try just compute later
+							extraComputeSignalSemaphores = {&patch,1};
+						}
+						// submit
 						auto submit = compute.popSubmit(extraComputeSignalSemaphores);
 						if (const auto error=compute.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
-							return {IQueue::RESULT::SUCCESS,error};
+							return {std::move(retval.transfer),error};
+						retval.compute.set({extraComputeSignalSemaphores.back().semaphore,extraComputeSignalSemaphores.back().value});
 					}
 					else
-					{
-						for (auto& sema : extraComputeSignalSemaphores)
-							sema.semaphore->signal(sema.value);
-					}
+					for (auto& sema : extraComputeSignalSemaphores)
+						sema.semaphore->signal(sema.value);
+					retval.compute.set(IQueue::RESULT::SUCCESS);
 
-					return {IQueue::RESULT::SUCCESS,IQueue::RESULT::SUCCESS};
+					return retval;
 				}
 
 				// One queue is for copies, another is for mip map generation and Acceleration Structure building
