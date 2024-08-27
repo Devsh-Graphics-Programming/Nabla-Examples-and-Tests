@@ -134,7 +134,8 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					return logFail("Couldn't create Command Buffer!");
 			}
 			
-			pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), gQueue, geometry);
+			//pass.scene = CScene::create<CScene::CREATE_RESOURCES_DIRECTLY_WITH_DEVICE>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), gQueue, geometry);
+			pass.scene = CScene::create<CScene::CREATE_RESOURCES_WITH_ASSET_CONVERTER>(smart_refctd_ptr(m_device), smart_refctd_ptr(m_logger), gQueue, geometry);
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
 				{

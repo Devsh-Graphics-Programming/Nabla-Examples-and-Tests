@@ -153,7 +153,7 @@ public:
 		{
 			const std::span<const SPushConstantRange> range = {};
 
-			scratch.pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout));
+			scratch.pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
 
 			if (!scratch.pipelineLayout)
 			{
@@ -255,7 +255,10 @@ public:
 			params.subpasses = subpasses;
 			params.dependencies = dependencies;
 
-			scratch.renderpass = create<typename TYPES::RENDERPASS>(params);
+			if constexpr (withAssetConverter)
+				scratch.renderpass = ICPURenderpass::create(params);
+			else
+				scratch.renderpass = create<typename TYPES::RENDERPASS>(params);
 
 			if (!scratch.renderpass)
 			{
@@ -294,7 +297,10 @@ public:
 							.usage = USAGE
 						});
 
-						image = create<typename TYPES::IMAGE>(std::move(params));
+						if constexpr (withAssetConverter)
+							image = ICPUImage::create(params);
+						else
+							image = create<typename TYPES::IMAGE>(params);
 					}
 
 					if (!image)
