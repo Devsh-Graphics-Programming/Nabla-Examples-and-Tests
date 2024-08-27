@@ -782,50 +782,24 @@ public:
 		nbl::core::smart_refctd_ptr<nbl::video::ISemaphore> progress;
 	} semaphore;
 
-	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator)
-		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
-	{
-		_NBL_STATIC_INLINE_CONSTEXPR bool BUILD_WITH_CONVERTER = false; // tmp
-		using BUILDER = ::RESOURCES_BUILDER<BUILD_WITH_CONVERTER>;
+	struct CREATE_RESOURCES_DIRECTLY_WITH_DEVICE { using BUILDER = ::RESOURCES_BUILDER<false>; };
+	struct CREATE_RESOURCES_WITH_ASSET_CONVERTER { using BUILDER = ::RESOURCES_BUILDER<true>; };
 
-		bool status = createCommandBuffer();
-		BUILDER builder (m_device.get(), m_logger.get(), _geometryCreator);
-
-		// gpu resources
-		if (builder.build())
-		{
-			if (!builder.finalize(resources))
-				m_logger->log("Could not finalize to gpu objects!", nbl::system::ILogger::ELL_ERROR);
-		}
-		else
-			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
-
-		// frame buffer
-		{
-			const auto extent = resources.attachments.color->getCreationParameters().image->getCreationParameters().extent;
-
-			nbl::video::IGPUFramebuffer::SCreationParams params =
-			{
-				{
-					.renderpass = nbl::core::smart_refctd_ptr(resources.renderpass),
-					.depthStencilAttachments = &resources.attachments.depth.get(),
-					.colorAttachments = &resources.attachments.color.get(),
-					.width = extent.width,
-					.height = extent.height,
-					.layers = 1u
-				}
-			};
-
-			m_frameBuffer = m_device->createFramebuffer(std::move(params));
-
-			if (!m_frameBuffer)
-			{
-				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
-				return;
-			}
-		}
-	}
 	~CScene() {}
+
+	template<typename CREATE_WITH, typename... Args>
+	static auto create(Args&&... args) -> decltype(auto)
+	{
+		/*
+			user should call the constructor's args without last argument explicitly, this is a trick to make constructor templated, 
+			eg.create(smart_refctd_ptr(device), smart_refctd_ptr(logger), queuePointer, geometryPointer)
+		*/
+
+		auto* scene = new CScene(std::forward<Args>(args)..., CREATE_WITH {});
+		nbl::core::smart_refctd_ptr<CScene> smart(scene, nbl::core::dont_grab);
+
+		return smart;
+	}
 
 	inline void begin()
 	{
@@ -938,6 +912,50 @@ public:
 	}
 
 private:
+	template<typename CREATE_WITH = CREATE_RESOURCES_DIRECTLY_WITH_DEVICE> // TODO: enforce constraints, only those 2 above are valid
+	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator, CREATE_WITH createWith = {})
+		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
+	{
+		using BUILDER = typename CREATE_WITH::BUILDER;
+
+		bool status = createCommandBuffer();
+		BUILDER builder(m_device.get(), m_logger.get(), _geometryCreator);
+
+		// gpu resources
+		if (builder.build())
+		{
+			if (!builder.finalize(resources))
+				m_logger->log("Could not finalize to gpu objects!", nbl::system::ILogger::ELL_ERROR);
+		}
+		else
+			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
+
+		// frame buffer
+		{
+			const auto extent = resources.attachments.color->getCreationParameters().image->getCreationParameters().extent;
+
+			nbl::video::IGPUFramebuffer::SCreationParams params =
+			{
+				{
+					.renderpass = nbl::core::smart_refctd_ptr(resources.renderpass),
+					.depthStencilAttachments = &resources.attachments.depth.get(),
+					.colorAttachments = &resources.attachments.color.get(),
+					.width = extent.width,
+					.height = extent.height,
+					.layers = 1u
+				}
+			};
+
+			m_frameBuffer = m_device->createFramebuffer(std::move(params));
+
+			if (!m_frameBuffer)
+			{
+				m_logger->log("Could not create frame buffer!", nbl::system::ILogger::ELL_ERROR);
+				return;
+			}
+		}
+	}
+
 	bool createCommandBuffer()
 	{
 		m_commandPool = m_device->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
