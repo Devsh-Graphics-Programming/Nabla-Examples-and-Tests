@@ -3,7 +3,7 @@ if(NOT RES)
 	message(FATAL_ERROR "common.cmake not found. Should be in {repo_root}/cmake directory")
 endif()
 
-nbl_create_executable_project("CAssetConverter.cpp" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
+nbl_create_executable_project("" "" "" "" "${NBL_EXECUTABLE_PROJECT_CREATION_PCH_TARGET}")
 
 if(NBL_EMBED_BUILTIN_RESOURCES)
 	set(_BR_TARGET_ ${EXECUTABLE_NAME}_builtinResourceData)
@@ -21,4 +21,4 @@ if(NBL_EMBED_BUILTIN_RESOURCES)
 	ADD_CUSTOM_BUILTIN_RESOURCES(${_BR_TARGET_} RESOURCES_TO_EMBED "${_SEARCH_DIRECTORIES_}" "${RESOURCE_DIR}" "nbl::this_example::builtin" "${_OUTPUT_DIRECTORY_HEADER_}" "${_OUTPUT_DIRECTORY_SOURCE_}")
 
 	LINK_BUILTIN_RESOURCES_TO_TARGET(${EXECUTABLE_NAME} ${_BR_TARGET_})
-endif() 
+endif()
