@@ -641,18 +641,19 @@ public:
 			CAssetConverter::SInputs inputs = {};
 			inputs.logger = logger;
 
-			// TODO: gather ALL resources as inputs for converter, currently testing if converter can convert all of my pipelines
-
 			struct PROXY_CPU_HOOKS
 			{
 				using OBJECTS_SIZE = std::tuple_size<decltype(scratch.objects)>;
 
+				std::array<ICPURenderpass*, 1u> renderpass;
 				std::array<ICPUGraphicsPipeline*, OBJECTS_SIZE::value> pipelines;
 				std::array<ICPUBuffer*, OBJECTS_SIZE::value * 2u + 1u > buffers;
+				std::array<ICPUImageView*, 2u> attachments;
 			} hooks;
 			
-			// gather cpu assets for a span memory view
+			// gather CPU assets into span memory views
 			{ 
+				hooks.renderpass.front() = scratch.renderpass.get();
 				for (uint32_t i = 0u; i < hooks.pipelines.size(); ++i)
 				{
 					auto& [reference, meta] = scratch.objects[static_cast<E_OBJECT_TYPE>(i)];
@@ -663,12 +664,16 @@ public:
 					hooks.buffers[2u * i + 1u] = reference.bindings.index.buffer.get();
 				}
 				hooks.buffers.back() = scratch.ubo.buffer.get();
+				hooks.attachments[0u] = scratch.attachments.color.get();
+				hooks.attachments[1u] = scratch.attachments.depth.get();
 			}
 
-			// assign cpu hooks to inputs
+			// assign the CPU hooks to converter's inputs
 			{
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPURenderpass>>(inputs.assets) = hooks.renderpass;
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUGraphicsPipeline>>(inputs.assets) = hooks.pipelines;
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = hooks.buffers;
+				// std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = hooks.attachments; // NOTE: THIS IS NOT IMPLEMENTED YET IN CONVERTER!
 			}
 
 			// reserve and create the GPU object handles
@@ -694,15 +699,19 @@ public:
 							}
 						} ++counter;
 					}
+
+					return true;
 				};
 				
+				validate.template operator() < ICPURenderpass > (hooks.renderpass);
 				validate.template operator() < ICPUGraphicsPipeline > (hooks.pipelines);
 				validate.template operator() < ICPUBuffer > (hooks.buffers);
+				// validate.template operator() < ICPUImageView > (hooks.attachments);
 			}
 
-			// actual convert recording covering basically all data uploads, but remember for gpu objects to be created you also have to submit the conversion later!
-			CAssetConverter::SConvertParams params = {};
+			CAssetConverter::SConvertParams params = {}; // TODO: add IUtilities to params to grant transfer capabilities!
 
+			// basically all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards!
 			if (!reservation.convert(params))
 			{
 				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR);
@@ -711,25 +720,38 @@ public:
 			
 			// `autoSubmit` actually returns a pair of ISempahore::future_t one for compute and one for xfer
 			// you can store them and delay blocking for conversion to be complete
-
 			if (!params.autoSubmit())
 			{
 				logger->log("Failed to submit & await conversions!", nbl::system::ILogger::ELL_ERROR);
 				return false;
 			}
 
-			// assign gpu objects to output
-			const auto pipelines = reservation.getGPUObjects<ICPUGraphicsPipeline>();
-
+			// assign base gpu objects output
 			auto& base = static_cast<RESOURCES_BUNDLE::BASE_T&>(output);
 			{
-				//base.
+				auto&& [renderpass, pipelines, buffers] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>());
+				{
+					base.renderpass = renderpass;
+					for (uint32_t i = 0u; i < pipelines.size(); ++i)
+					{
+						auto& [gpu, meta] = base.objects[static_cast<E_OBJECT_TYPE>(i)];
+
+						gpu.pipeline = pipelines[i].value;
+						// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
+						gpu.bindings.vertex = {.offset = 0u, .buffer = buffers[2u * i + 0u].value};
+						gpu.bindings.index = {.offset = 0u, .buffer = buffers[2u * i + 1u].value};
+					}
+					base.ubo = {.offset = 0u, .buffer = buffers.back().value};
+					// TOOD: uncomment once possible
+					// base.attachments.color = attachments[0u].value;
+					// base.attachments.depth = attachments[1u].value;
+				}
 			}
 		}
 		else
 			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use gpu resources with allocated memory, just give the output ownership
 
-		// gpu resources are created at this point, let's create left gpu objects
+		// base gpu resources are created at this point and stored into output, let's create left gpu objects
 		
 		// descriptor set
 		{
