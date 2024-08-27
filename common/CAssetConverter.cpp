@@ -352,6 +352,35 @@ struct PatchGetter
 				}
 				break;
 			}
+			case ICPUDescriptorSet::AssetType:
+			{
+				const auto* typedUser = static_cast<const ICPUDescriptorSet*>(user);
+				if constexpr(std::is_same_v<AssetType,ICPUBuffer>)
+				{
+// TODO: find the exact category of how the buffer is being used
+					// we have no clue how this will be used, so we mark both usages
+					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+					return patch;
+				}
+				if constexpr(std::is_same_v<AssetType,ICPUSampler>)
+					return patch;
+#if 0
+				if constexpr(std::is_same_v<AssetType,ICPUImageView>)
+				{
+					// we have no clue how this will be used, so we mark both usages
+					patch.usage |= IGPUImage::EUF_SAMPLED_BIT|IGPUImage::EUF_STORAGE_BIT;
+					return patch;
+				}
+				if constexpr(std::is_same_v<AssetType,ICPUBufferView>)
+				{
+					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+					return patch;
+				}
+				if constexpr(std::is_same_v<AssetType,ICPUAccelerationStructure>)
+					return patch;
+#endif
+				break;
+			}
 			default:
 				return {};
 		}
@@ -392,6 +421,7 @@ struct PatchGetter
 	// progressive state
 	size_t uniqueCopyGroupID = 0xdeadbeefBADC0FFEull;
 	const IAsset* user = nullptr;
+// TODO: need user's patch
 };
 
 //
@@ -601,7 +631,97 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					}
 					case ICPUDescriptorSet::AssetType:
 					{
-						_NBL_TODO();
+						auto set = static_cast<const ICPUDescriptorSet*>(user);
+						const auto* layout = set->getLayout();
+						cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout});
+						for (auto i=0u; i<static_cast<uint32_t>(IDescriptor::E_TYPE::ET_COUNT); i++)
+						{
+							const auto type = static_cast<IDescriptor::E_TYPE>(i);
+							const auto infos = set->getDescriptorInfoStorage(type);
+							if (infos.empty())
+								continue;
+							for (const auto& info : infos)
+							if (auto untypedDesc=info.desc.get(); untypedDesc)
+							switch (IDescriptor::GetTypeCategory(type))
+							{
+								case IDescriptor::EC_BUFFER:
+								{
+									auto buffer = static_cast<const ICPUBuffer*>(untypedDesc);
+									patch_t<ICPUBuffer> patch = {buffer};
+									switch(type)
+									{
+										case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER:
+										case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
+											patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_BUFFER_BIT;
+											break;
+										case IDescriptor::E_TYPE::ET_STORAGE_BUFFER:
+										case IDescriptor::E_TYPE::ET_STORAGE_BUFFER_DYNAMIC:
+											patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT;
+											break;
+										break;
+											assert(false);
+											break;
+									}
+									cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
+									break;
+								}
+								case IDescriptor::EC_SAMPLER:
+								{
+									auto sampler = static_cast<const ICPUSampler*>(untypedDesc);
+									cache.operator()<ICPUSampler>(entry,sampler,{sampler});
+									break;
+								}
+								case IDescriptor::EC_IMAGE:
+								{
+									auto imageView = static_cast<const ICPUImageView*>(untypedDesc);
+#if 0
+									patch_t<ICPUImageView> patch = {imageView};
+									switch(type)
+									{
+										case IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER:
+											{
+												const auto* sampler = info.info.combinedImageSampler.sampler.get();
+												if (sampler)
+													cache.operator()<ICPUSampler>(entry,sampler,{sampler});
+											}
+											[[fallthrough]];
+										case IDescriptor::E_TYPE::ET_SAMPLED_IMAGE:
+										case IDescriptor::E_TYPE::ET_UNIFORM_BUFFER_DYNAMIC:
+											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT;
+											break;
+										case IDescriptor::E_TYPE::ET_STORAGE_IMAGE:
+											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_STORAGE_BIT;
+											break;
+										case IDescriptor::E_TYPE::ET_INPUT_ATTACHMENT:
+											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
+											break;
+										break;
+											assert(false);
+											break;
+									}
+									cache.operator()<ICPUImageView>(entry,imageView,{imageView});
+#else
+									_NBL_TODO();
+#endif
+									break;
+								}
+								case IDescriptor::EC_BUFFER_VIEW:
+								{
+									_NBL_TODO();
+//									auto bufferView = static_cast<const ICPUBufferView*>(untypedDesc);
+//									cache.operator()<ICPUBufferView>(entry,bufferView,{bufferView});
+									break;
+								}
+								case IDescriptor::EC_ACCELERATION_STRUCTURE:
+								{
+									_NBL_TODO();
+									break;
+								}
+								default:
+									assert(false);
+									break;
+							}
+						}
 						break;
 					}
 					case ICPUImageView::AssetType:
@@ -1129,6 +1249,137 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					}
 				}
 			}
+			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
+			{
+				core::vector<IGPUDescriptorSet::SWriteDescriptorSet> tmpWrites;
+				core::vector<IGPUDescriptorSet::SDescriptorInfo> tmpInfos;
+				// Why we're not grouping multiple descriptor sets into few pools and doing 1 pool per descriptor set.
+				// Descriptor Pools have large up-front slots reserved for all descriptor types, if we were to merge 
+				// multiple descriptor sets to be allocated from one pool, dropping any set wouldn't result in the
+				// reclamation of the memory used, it would at most (with the FREE pool create flag) return to pool. 
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUDescriptorSet* asset = entry.second.canonicalAsset;
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						tmpWrites.clear();
+						tmpInfos.clear();
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						bool depNotFound = false;
+						auto layout = getDependant(uniqueCopyGroupID,asset,asset->getLayout(),firstPatchMatch,depNotFound);
+						if (!layout)
+							continue;
+						const bool hasUpdateAfterBind = layout->needUpdateAfterBindPool();
+						using pool_flags_t = IDescriptorPool::E_CREATE_FLAGS;
+						auto pool = device->createDescriptorPoolForDSLayouts(
+							hasUpdateAfterBind ? pool_flags_t::ECF_UPDATE_AFTER_BIND_BIT:pool_flags_t::ECF_NONE,{&layout.get(),1}
+						);
+						core::smart_refctd_ptr<IGPUDescriptorSet> ds;
+						if (pool)
+						{
+							ds = pool->createDescriptorSet(layout);
+							if (ds)
+							{
+								// go over all types of descriptors
+								for (auto t=0u; t<static_cast<uint32_t>(IDescriptor::E_TYPE::ET_COUNT); t++)
+								{
+									const auto type = static_cast<IDescriptor::E_TYPE>(t);
+									const auto& redirect = layout->getDescriptorRedirect(type);
+									const auto bindingCount = redirect.getBindingCount();
+									const auto allInfos = asset->getDescriptorInfoStorage(static_cast<IDescriptor::E_TYPE>(t));
+									// go over every binding
+									for (auto j=0; j<bindingCount; j++)
+									{
+										const IDescriptorSetLayoutBase::CBindingRedirect::storage_range_index_t storageRangeIx(i);
+										const auto binding = redirect.getBinding(storageRangeIx);
+										const auto count = redirect.getCount(storageRangeIx);
+										// this is where the descriptors have their flattened place in a unified array 
+										const auto* infos = allInfos.data()+redirect.getStorageOffset(storageRangeIx).data;
+										// now lets populate
+										bool lastWasNull = true;
+										for (auto k=0u; k<count; k++)
+										{
+											const auto& info = infos[k];
+											// we can't write null descriptors
+											if (!info.desc)
+											{
+												lastWasNull = true;
+												continue;
+											}
+											// a bit of RLE
+											if (lastWasNull)
+											{
+												const auto tmpInfoOffset = tmpInfos.size();
+												tmpWrites.push_back({
+													.dstSet = ds.get(),
+													.binding = binding.data,
+													.arrayElement = k,
+													.count = 1,
+													.info = reinterpret_cast<const IGPUDescriptorSet::SDescriptorInfo*>(tmpInfoOffset)
+												});
+												lastWasNull = false;
+											}
+											else
+												tmpWrites.back().count++;
+											// comment is a todo
+											auto& outInfo = tmpInfos.emplace_back();
+											switch (IDescriptor::GetTypeCategory(type))
+											{
+												case IDescriptor::E_CATEGORY::EC_BUFFER:
+													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUBuffer*>(info.desc.get()),firstPatchMatch,depNotFound);
+													outInfo.info.buffer.offset = info.info.buffer.offset;
+													outInfo.info.buffer.size = info.info.buffer.size;
+													break;
+												case IDescriptor::E_CATEGORY::EC_SAMPLER:
+													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUSampler*>(info.desc.get()),firstPatchMatch,depNotFound);
+													break;
+#if 0
+												case IDescriptor::E_CATEGORY::EC_IMAGE:
+													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUImageView*>(info.desc.get()),firstPatchMatch,depNotFound);
+													outInfo.info.combinedImageSampler = info.info.combinedImageSampler;
+													break;
+												case IDescriptor::E_CATEGORY::EC_BUFFER_VIEW:
+													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUBufferView*>(info.desc.get()),firstPatchMatch,depNotFound);
+													break;
+												case IDescriptor::E_CATEGORY::EC_ACCELERATION_STRUCTURE:
+													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUAccelerationStructure*>(info.desc.get()),firstPatchMatch,depNotFound);
+													break;
+#endif
+												default:
+													assert(false);
+													depNotFound = true;
+													break;
+											}
+											if (depNotFound)
+												break;
+										}
+										if (depNotFound)
+											break;
+									}
+									if (depNotFound)
+										break;
+								}
+								if (depNotFound)
+									continue;
+								// now infos can't move in memory anymore
+								auto baseInfoPtr = tmpInfos.data();
+								for (auto& write : tmpWrites)
+									write.info = baseInfoPtr+reinterpret_cast<const size_t&>(write.info);
+								if (!device->updateDescriptorSets(tmpWrites,{}))
+								{
+									inputs.logger.log("Failed to write Descriptors into Descriptor Set's bindings!",system::ILogger::ELL_ERROR);
+									// fail
+									ds = nullptr;
+								}								
+							}
+						}
+						else
+							inputs.logger.log("Failed to create Descriptor Pool suited for Layout %s",system::ILogger::ELL_ERROR,layout->getObjectDebugName());
+						assign(entry.first,entry.second.firstCopyIx,i,std::move(ds));
+					}
+				}
+			}
 
 			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
 			auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(retval.m_stagingCaches);
@@ -1420,7 +1671,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 		dedupCreateProp.operator()<ICPUComputePipeline>();
 		dedupCreateProp.operator()<ICPURenderpass>();
 		dedupCreateProp.operator()<ICPUGraphicsPipeline>();
-//		dedupCreateProp.operator()<ICPUDescriptorSet>();
+		dedupCreateProp.operator()<ICPUDescriptorSet>();
 //		dedupCreateProp.operator()<ICPUFramebuffer>();
 	}
 
@@ -1725,7 +1976,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 	mergeCache.operator()<ICPUComputePipeline>();
 	mergeCache.operator()<ICPURenderpass>();
 	mergeCache.operator()<ICPUGraphicsPipeline>();
-//	mergeCache.operator()<ICPUDescriptorSet>();
+	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
 	// to make it valid

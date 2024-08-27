@@ -47,7 +47,8 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUPipelineCache,
 			asset::ICPUComputePipeline,
 			asset::ICPURenderpass,
-			asset::ICPUGraphicsPipeline
+			asset::ICPUGraphicsPipeline,
+			asset::ICPUDescriptorSet
 			// descriptor sets
 			// framebuffer
 		>;
@@ -389,6 +390,7 @@ class CAssetConverter : public core::IReferenceCounted
 					// graphics pipeline needs a renderpass
 					rehash.operator()<asset::ICPURenderpass>();
 					rehash.operator()<asset::ICPUGraphicsPipeline>();
+					rehash.operator()<asset::ICPUDescriptorSet>();
 				//	rehash.operator()<ICPUFramebuffer>();
 				}
 				// Clear the cache for a given type
@@ -1298,6 +1300,85 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUGraphicsPipeline,PatchG
 			hasher << params.blend.logicOp;
 		}
 		hasher << params.subpassIx;
+
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSet,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSet,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		{
+			const auto layoutHash = args.depHash(asset->getLayout());
+			if (layoutHash==NoContentHash)
+				return {};
+			hasher << layoutHash;
+		}
+		
+		for (auto i=0u; i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
+		{
+			const auto type = static_cast<asset::IDescriptor::E_TYPE>(i);
+			const auto infos = asset->getDescriptorInfoStorage(type);
+			if (infos.empty())
+				continue;
+			for (const auto& info : infos)
+			{
+				const auto* untypedDesc = info.desc.get();
+				if (untypedDesc)
+				{
+					core::blake3_hash_t descHash = NoContentHash;
+					switch (asset::IDescriptor::GetTypeCategory(type))
+					{
+						case asset::IDescriptor::EC_BUFFER:
+							descHash = args.depHash(static_cast<const asset::ICPUBuffer*>(untypedDesc));
+							hasher.update(&info.info.buffer,sizeof(info.info.buffer));
+							break;
+						case asset::IDescriptor::EC_SAMPLER:
+							descHash = args.depHash(static_cast<const asset::ICPUSampler*>(untypedDesc));
+							break;
+						case asset::IDescriptor::EC_IMAGE:
+							_NBL_TODO();
+//							descHash = args.depHash(static_cast<const asset::ICPUImageView*>(untypedDesc));
+							hasher.update(&info.info.image,sizeof(info.info.image));
+							if (type==asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER)
+							{
+								const auto* sampler = info.info.combinedImageSampler.sampler.get();
+								if (sampler)
+								{
+									const auto samplerHash = args.depHash(sampler);
+									if (samplerHash==NoContentHash)
+										return {};
+									hasher << samplerHash;
+								}
+								else
+									return {}; // we must have both
+							}
+							break;
+						case asset::IDescriptor::EC_BUFFER_VIEW:
+							_NBL_TODO();
+//							descHash = args.depHash(static_cast<const asset::ICPUBufferView*>(untypedDesc));
+							break;
+						case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
+							_NBL_TODO();
+//							descHash = args.depHash(static_cast<const asset::ICPUAccelerationStructure*>(untypedDesc));
+							break;
+						default:
+							assert(false);
+							break;
+					}
+					if (descHash==NoContentHash)
+						return {};
+					hasher << descHash;
+				}
+				else // null descriptor
+					hasher << 0x0ull;
+			}
+		}
 
 		return hasher;
 	}
