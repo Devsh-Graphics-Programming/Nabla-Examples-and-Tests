@@ -106,10 +106,10 @@ class RESOURCES_BUILDER
 public:
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	RESOURCES_BUILDER(nbl::video::ILogicalDevice* const _device, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
-		: device(_device), logger(_logger), geometryCreator(_geometryCreator)
+	RESOURCES_BUILDER(nbl::video::IUtilities* const _utilities, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
+		: utilities(_utilities), logger(_logger), geometryCreator(_geometryCreator)
 	{
-		assert(device);
+		assert(utilities);
 		assert(logger);
 		assert(geometryCreator);
 	}
@@ -331,7 +331,7 @@ public:
 					{
 						image->setObjectDebugName(DEBUG_NAME.data());
 
-						if (!device->allocate(image->getMemoryReqs(), image.get()).isValid())
+						if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
 						{
 							logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
 							return nullptr;
@@ -525,7 +525,7 @@ public:
 								if (!indexBuffer)
 									return false;
 
-							const auto mask = device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+							const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
 							for (auto it : { vertexBuffer , indexBuffer })
 							{
 								if (it)
@@ -533,7 +533,7 @@ public:
 									auto reqs = it->getMemoryReqs();
 									reqs.memoryTypeBits &= mask;
 
-									device->allocate(reqs, it.get());
+									utilities->getLogicalDevice()->allocate(reqs, it.get());
 								}
 							}
 
@@ -611,7 +611,7 @@ public:
 			}
 			else
 			{
-				const auto mask = device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+				const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
 
 				auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
 
@@ -620,7 +620,7 @@ public:
 					video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
 					reqs.memoryTypeBits &= mask;
 
-					device->allocate(reqs, it.get());
+					utilities->getLogicalDevice()->allocate(reqs, it.get());
 				}
 
 				scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
@@ -637,7 +637,7 @@ public:
 		if constexpr (withAssetConverter)
 		{
 			// asset converter - scratch at this point has ready to convert cpu resources
-			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = device,.optimizer = {} });
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = utilities->getLogicalDevice(),.optimizer = {} });
 			CAssetConverter::SInputs inputs = {};
 			inputs.logger = logger;
 
@@ -709,7 +709,15 @@ public:
 				// validate.template operator() < ICPUImageView > (hooks.attachments);
 			}
 
-			CAssetConverter::SConvertParams params = {}; // TODO: add IUtilities to params to grant transfer capabilities!
+			CAssetConverter::SConvertParams params = {};
+			params.utilities = utilities;
+			
+			/*
+				TODO: fill "params.transfer." with 
+				- command buffer span (one time submit + record commands!)
+				- proper queue
+				- a semaphore
+			*/
 
 			// basically all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards!
 			if (!reservation.convert(params))
@@ -726,7 +734,7 @@ public:
 				return false;
 			}
 
-			// assign base gpu objects output
+			// assign base gpu objects to output
 			auto& base = static_cast<RESOURCES_BUNDLE::BASE_T&>(output);
 			{
 				auto&& [renderpass, pipelines, buffers] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>());
@@ -760,7 +768,7 @@ public:
 			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout };
 			const uint32_t setCounts[] = { 0u, 1u };
 
-			output.descriptorPool = device->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+			output.descriptorPool = utilities->getLogicalDevice()->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
 
 			if (!output.descriptorPool)
 			{
@@ -797,7 +805,7 @@ public:
 
 			write.info = &info;
 
-			if(!device->updateDescriptorSets(1u, &write, 0u, nullptr))
+			if(!utilities->getLogicalDevice()->updateDescriptorSets(1u, &write, 0u, nullptr))
 			{
 				logger->log("Could not write descriptor set!", nbl::system::ILogger::ELL_ERROR);
 				return false;
@@ -857,22 +865,22 @@ private:
 			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...); // TODO: cases where our api requires to call ::create(...) instead directly calling "make smart pointer" could be here handled instead of in .build method
 		else
 			if constexpr (std::same_as<T, typename TYPES::DESCRIPTOR_SET_LAYOUT>)
-				return device->createDescriptorSetLayout(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createDescriptorSetLayout(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::PIPELINE_LAYOUT>)
-				return device->createPipelineLayout(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createPipelineLayout(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
-				return device->createRenderpass(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createRenderpass(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::IMAGE_VIEW>)
-				return device->createImageView(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createImageView(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
-				return device->createImage(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createImage(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::BUFFER>)
-				return device->createBuffer(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createBuffer(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::SHADER>)
-				return device->createShader(std::forward<Args>(args)...);
+				return utilities->getLogicalDevice()->createShader(std::forward<Args>(args)...);
 			else if constexpr (std::same_as<T, typename TYPES::GRAPHICS_PIPELINE>)
 			{
-				bool status = device->createGraphicsPipelines(std::forward<Args>(args)...);
+				bool status = utilities->getLogicalDevice()->createGraphicsPipelines(std::forward<Args>(args)...);
 				return nullptr; // I assume caller with use output from forwarded args, another inconsistency in our api imho
 			}
 			else
@@ -900,7 +908,7 @@ private:
 
 	RESOURCES_BUNDLE_SCRATCH scratch;
 
-	nbl::video::ILogicalDevice* const device;
+	nbl::video::IUtilities* const utilities;
 	nbl::system::ILogger* const logger;
 	const nbl::asset::IGeometryCreator* const geometryCreator;
 };
@@ -962,7 +970,7 @@ public:
 		m_commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		m_commandBuffer->beginDebugMarker("UISampleApp Offline Scene Frame");
 
-		semaphore.progress = m_device->createSemaphore(semaphore.startedValue);
+		semaphore.progress = m_utilities->getLogicalDevice()->createSemaphore(semaphore.startedValue);
 	}
 
 	inline void record()
@@ -1068,13 +1076,13 @@ public:
 
 private:
 	template<typename CREATE_WITH = CREATE_RESOURCES_DIRECTLY_WITH_DEVICE> // TODO: enforce constraints, only those 2 above are valid
-	CScene(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> _device, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator, CREATE_WITH createWith = {})
-		: m_device(nbl::core::smart_refctd_ptr(_device)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
+	CScene(nbl::core::smart_refctd_ptr<nbl::video::IUtilities> _utilities, nbl::core::smart_refctd_ptr<nbl::system::ILogger> _logger, nbl::video::CThreadSafeQueueAdapter* _graphicsQueue, const nbl::asset::IGeometryCreator* _geometryCreator, CREATE_WITH createWith = {})
+		: m_utilities(nbl::core::smart_refctd_ptr(_utilities)), m_logger(nbl::core::smart_refctd_ptr(_logger)), queue(_graphicsQueue)
 	{
 		using BUILDER = typename CREATE_WITH::BUILDER;
 
 		bool status = createCommandBuffer();
-		BUILDER builder(m_device.get(), m_logger.get(), _geometryCreator);
+		BUILDER builder(m_utilities.get(), m_logger.get(), _geometryCreator);
 
 		// gpu resources
 		if (builder.build())
@@ -1101,7 +1109,7 @@ private:
 				}
 			};
 
-			m_frameBuffer = m_device->createFramebuffer(std::move(params));
+			m_frameBuffer = m_utilities->getLogicalDevice()->createFramebuffer(std::move(params));
 
 			if (!m_frameBuffer)
 			{
@@ -1113,7 +1121,7 @@ private:
 
 	bool createCommandBuffer()
 	{
-		m_commandPool = m_device->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
+		m_commandPool = m_utilities->getLogicalDevice()->createCommandPool(queue->getFamilyIndex(), nbl::video::IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
 
 		if (!m_commandPool)
 		{
@@ -1130,7 +1138,7 @@ private:
 		return true;
 	}
 
-	nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> m_device;
+	nbl::core::smart_refctd_ptr<nbl::video::IUtilities> m_utilities;
 	nbl::core::smart_refctd_ptr<nbl::system::ILogger> m_logger;
 
 	nbl::video::CThreadSafeQueueAdapter* queue;
