@@ -212,7 +212,6 @@ public:
 				return logFail("Failed to create Command Buffers!\n");
 			}
 			cmdpool->createCommandBuffers(IGPUCommandPool::BUFFER_LEVEL::PRIMARY, { &cmdbuf,1 }, core::smart_refctd_ptr(m_logger));
-			// lets record, its still a one time submit because we have to re-record with different push constants each time
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			cmdbuf->bindComputePipeline(m_pipeline.get());
 			// This is the new fun part, pushing constants
