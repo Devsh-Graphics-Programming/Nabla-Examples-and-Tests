@@ -77,7 +77,7 @@ public:
 			* Samplers for combined image samplers can also be mutable, which for a binding of a descriptor set is specified also at creation time by leaving the immutableSamplers
 			* field set to its default (nullptr).
 			*/
-		smart_refctd_ptr<IGPUDescriptorSetLayout> lumaPresentDSLayout;
+		std::array<smart_refctd_ptr<IGPUDescriptorSetLayout>, 3> dsLayouts;
 		{
 			auto defaultSampler = m_device->createSampler(
 				{
@@ -85,41 +85,96 @@ public:
 				}
 			);
 
-			const IGPUDescriptorSetLayout::SBinding lumaPresentBindings[1] = {
+			const IGPUDescriptorSetLayout::SBinding imgBindings[3][1] = {
 				{
-					.binding = 0,
-					.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-					.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT | IShader::E_SHADER_STAGE::ESS_COMPUTE,
-					.count = 1,
-					.immutableSamplers = &defaultSampler
+					{
+						.binding = 0,
+						.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1,
+						.immutableSamplers = &defaultSampler
+					}
+				},
+				{
+					{
+						.binding = 0,
+						.type = IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1,
+						.immutableSamplers = nullptr
+					}
+				},
+				{
+					{
+						.binding = 0,
+						.type = IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+						.count = 1,
+						.immutableSamplers = &defaultSampler
+					}
 				}
 			};
-			lumaPresentDSLayout = m_device->createDescriptorSetLayout(lumaPresentBindings);
-			if (!lumaPresentDSLayout)
-				return logFail("Failed to Create Descriptor Layout: lumaPresentDSLayout");
+
+			bool dsLayoutCreation = true;
+			for (uint32_t index = 0; index < dsLayouts.size(); index++) {
+				dsLayouts[index] = m_device->createDescriptorSetLayout(imgBindings[index]);
+				dsLayoutCreation = dsLayoutCreation && dsLayouts[index];
+			}
+
+			if (!dsLayoutCreation)
+				return logFail("Failed to Create Descriptor Layouts");
 		}
 
 		// Create semaphores
-		m_lumaMeterSemaphore = m_device->createSemaphore(m_submitIx);
+		m_meterSemaphore = m_device->createSemaphore(m_submitIx);
+		m_gatherSemaphore = m_device->createSemaphore(m_submitIx);
 		m_presentSemaphore = m_device->createSemaphore(m_submitIx);
 
 		// create the descriptor sets and with enough room
 		{
-			core::smart_refctd_ptr<IDescriptorPool> lumaPresentPool;
+			std::array<core::smart_refctd_ptr<IDescriptorPool>, 3> dsPools;
+			bool dsPoolCreation = true;
 			{
-				const video::IGPUDescriptorSetLayout* const layouts[] = { lumaPresentDSLayout.get(), lumaPresentDSLayout.get() };
-				const uint32_t setCounts[] = { 1u, 1u };
-				lumaPresentPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				const video::IGPUDescriptorSetLayout* const layouts[] = { dsLayouts[0].get() };
+				const uint32_t setCounts[] = { 1u };
+				dsPools[0] = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				dsPoolCreation = dsPoolCreation && dsPools[0];
+			}
+			{
+				const video::IGPUDescriptorSetLayout* const layouts[] = { dsLayouts[1].get() };
+				const uint32_t setCounts[] = { 1u };
+				dsPools[1] = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				dsPoolCreation = dsPoolCreation && dsPools[1];
+			}
+			{
+				const video::IGPUDescriptorSetLayout* const layouts[] = { dsLayouts[2].get() };
+				const uint32_t setCounts[] = { 1u };
+				dsPools[2] = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+				dsPoolCreation = dsPoolCreation && dsPools[2];
 			}
 
-			if (!lumaPresentPool)
+			if (!dsPoolCreation)
 				return logFail("Failed to Create Descriptor Pools");
 
-			m_lumaPresentDS[0] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
-			m_lumaPresentDS[1] = lumaPresentPool->createDescriptorSet(core::smart_refctd_ptr(lumaPresentDSLayout));
-			if (!m_lumaPresentDS[0] || !m_lumaPresentDS[1])
-				return logFail("Could not create Descriptor Set: lumaPresentDS!");
+			bool dsCreation = true;
+			{
+				m_ds[0] = dsPools[0]->createDescriptorSet(dsLayouts[0]);
+				dsCreation = dsCreation && m_ds[0];
+			}
+			{
+				m_ds[1] = dsPools[1]->createDescriptorSet(dsLayouts[1]);
+				dsCreation = dsCreation && m_ds[1];
+			}
+			{
+				m_ds[2] = dsPools[2]->createDescriptorSet(dsLayouts[2]);
+				dsCreation = dsCreation && m_ds[2];
+			}
+
+			if (!dsCreation)
+				return logFail("Could not create Descriptor Sets!");
 		}
 
 		auto graphicsQueue = getGraphicsQueue();
@@ -219,12 +274,32 @@ public:
 			};
 
 			// Luma Meter
-			auto lumaMeterShader = loadCompileAndCreateShader("app_resources/luma_meter.comp.hlsl");
-			if (!lumaMeterShader)
-				return logFail("Failed to Load and Compile Compute Shader: lumaMeterShader!");
-			auto lumaLayout = m_device->createPipelineLayout({ &pcRange, 1 }, core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr, nullptr);
-			if (!createComputePipeline(lumaMeterShader, m_lumaMeterPipeline, lumaLayout))
+			auto meterShader = loadCompileAndCreateShader("app_resources/luma_meter.comp.hlsl");
+			if (!meterShader)
+				return logFail("Failed to Load and Compile Compute Shader: meterShader!");
+			auto meterLayout = m_device->createPipelineLayout(
+				{ &pcRange, 1 },
+				core::smart_refctd_ptr(dsLayouts[0]),
+				nullptr,
+				nullptr,
+				nullptr
+			);
+			if (!createComputePipeline(meterShader, m_meterPipeline, meterLayout))
 				return logFail("Could not create Luma Meter Pipeline!");
+
+			// Luma Gather
+			auto gatherShader = loadCompileAndCreateShader("app_resources/luma_gather.comp.hlsl");
+			if (!gatherShader)
+				return logFail("Failed to Load and Compile Compute Shader: gatherShader!");
+			auto gatherLayout = m_device->createPipelineLayout(
+				{ &pcRange, 1 },
+				core::smart_refctd_ptr(dsLayouts[0]),
+				nullptr,
+				nullptr,
+				core::smart_refctd_ptr(dsLayouts[1])
+			);
+			if (!createComputePipeline(gatherShader, m_gatherPipeline, gatherLayout))
+				return logFail("Could not create Luma Gather Pipeline!");
 
 			// Load FSTri Shader
 			ext::FullScreenTriangle::ProtoPipeline fsTriProtoPPln(m_assetMgr.get(), m_device.get(), m_logger.get());
@@ -240,7 +315,13 @@ public:
 				.entryPoint = "main",
 				.shader = fragmentShader.get()
 			};
-			auto presentLayout = m_device->createPipelineLayout({ &pcRange, 1 }, nullptr, core::smart_refctd_ptr(lumaPresentDSLayout), nullptr, nullptr);
+			auto presentLayout = m_device->createPipelineLayout(
+				{ &pcRange, 1 },
+				nullptr,
+				nullptr,
+				nullptr,
+				core::smart_refctd_ptr(dsLayouts[2])
+			);
 			m_presentPipeline = fsTriProtoPPln.createPipeline(fragSpec, presentLayout.get(), scResources->getRenderpass());
 			if (!m_presentPipeline)
 				return logFail("Could not create Graphics Pipeline!");
@@ -289,7 +370,7 @@ public:
 		// Allocate and create buffer for Luma Gather
 		{
 			// Allocate memory
-			m_lumaGatherAllocation = {};
+			m_gatherAllocation = {};
 			smart_refctd_ptr<IGPUBuffer> buffer;
 			{
 				auto build_buffer = [this](
@@ -318,11 +399,11 @@ public:
 					assert(allocation->memory.get() == buffer->getBoundMemory().memory);
 				};
 
-				build_buffer(m_device, &m_lumaGatherAllocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
+				build_buffer(m_device, &m_gatherAllocation, buffer, m_physicalDevice->getLimits().maxSubgroupSize, "Luma Gather Buffer");
 			}
-			m_lumaGatherBDA = buffer->getDeviceAddress();
+			m_gatherBDA = buffer->getDeviceAddress();
 
-			auto mapped_memory = m_lumaGatherAllocation.memory->map({ 0ull, m_lumaGatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
+			auto mapped_memory = m_gatherAllocation.memory->map({ 0ull, m_gatherAllocation.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ);
 			if (!mapped_memory)
 				return logFail("Failed to map the Device Memory!\n");
 		}
@@ -378,6 +459,13 @@ public:
 			if (!m_gpuImg || !m_device->allocate(m_gpuImg->getMemoryReqs(), m_gpuImg.get()).isValid())
 				return false;
 			m_gpuImg->setObjectDebugName("Autoexposure Image");
+
+			imageParams = m_gpuImg->getCreationParameters();
+			imageParams.usage = IGPUImage::EUF_SAMPLED_BIT | IGPUImage::EUF_STORAGE_BIT;
+			m_tonemappedImg = m_device->createImage(std::move(imageParams));
+			if (!m_tonemappedImg || !m_device->allocate(m_tonemappedImg->getMemoryReqs(), m_tonemappedImg.get()).isValid())
+				return false;
+			m_tonemappedImg->setObjectDebugName("Tonemapped Image");
 
 			// Now show the window
 			m_winMgr->show(m_window.get());
@@ -448,37 +536,51 @@ public:
 			IGPUImageView::SCreationParams gpuImgViewParams = {
 				.image = m_gpuImg,
 				.viewType = IGPUImageView::ET_2D,
-				.format = m_gpuImg->getCreationParameters().format
+				.format = m_gpuImg->getCreationParameters().format,
+			};
+			IGPUImageView::SCreationParams tonemappedImgViewParams = {
+				.image = m_tonemappedImg,
+				.viewType = IGPUImageView::ET_2D,
+				.format = m_tonemappedImg->getCreationParameters().format
 			};
 
 			m_gpuImgView = m_device->createImageView(std::move(gpuImgViewParams));
+			m_tonemappedImgView = m_device->createImageView(std::move(tonemappedImgViewParams));
 
-			IGPUDescriptorSet::SDescriptorInfo info1 = {};
-			info1.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			info1.desc = m_gpuImgView;
+			IGPUDescriptorSet::SDescriptorInfo infos[3];
+			infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			infos[0].desc = m_gpuImgView;
+			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
+			infos[1].desc = m_tonemappedImgView;
+			infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			infos[2].desc = m_tonemappedImgView;
 
-			IGPUDescriptorSet::SDescriptorInfo info2 = {};
-			info2.info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			info2.desc = m_gpuImgView; // FIXME: temporarily pass in input image
 
 			IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
 				{
-					.dstSet = m_lumaPresentDS[0].get(),
+					.dstSet = m_ds[0].get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
-					.info = &info1
+					.info = infos
 				},
 				{
-					.dstSet = m_lumaPresentDS[1].get(),
+					.dstSet = m_ds[1].get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
-					.info = &info2
+					.info = infos
+				},
+				{
+					.dstSet = m_ds[2].get(),
+					.binding = 0,
+					.arrayElement = 0,
+					.count = 1,
+					.info = infos
 				}
 			};
 
-			m_device->updateDescriptorSets(2, writeDescriptors, 0, nullptr);
+			m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);
 
 			queue->endCapture();
 		}
@@ -492,30 +594,38 @@ public:
 		const uint32_t SubgroupSize = m_physicalDevice->getLimits().maxSubgroupSize;
 
 		uint32_t2 viewportSize = { m_gpuImg->getCreationParameters().extent.width, m_gpuImg->getCreationParameters().extent.height };
+		float32_t sampleCount = (viewportSize.x * viewportSize.y) / 4;
+		uint32_t workgroupSize = SubgroupSize * SubgroupSize;
+		sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
 
 		// Luma Meter
 		{
 			auto queue = getComputeQueue();
 			auto cmdbuf = m_computeCmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_lumaPresentDS[0].get();
+			auto ds = m_ds[0].get();
 
 			auto pc = AutoexposurePushData
 			{
 				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
 				.lumaMinMax = LumaMinMax,
-				.EV = 0.0f,
+				.sampleCount = sampleCount,
 				.viewportSize = viewportSize,
-				.lumaMeterBDA = m_lumaGatherBDA
+				.lumaMeterBDA = m_gatherBDA
+			};
+
+			const uint32_t2 dispatchSize = {
+				1 + ((viewportSize.x / 2) - 1) / SubgroupSize,
+				1 + ((viewportSize.y / 2) - 1) / SubgroupSize
 			};
 
 			queue->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
-			cmdbuf->bindComputePipeline(m_lumaMeterPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_lumaMeterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
-			cmdbuf->pushConstants(m_lumaMeterPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
-			cmdbuf->dispatch(1 + (viewportSize.x - 1) / SubgroupSize, 1 + (viewportSize.y - 1) / SubgroupSize);
+			cmdbuf->bindComputePipeline(m_meterPipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_meterPipeline->getLayout(), 0, 1, &ds); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->pushConstants(m_meterPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
+			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
 			cmdbuf->end();
 
 			{
@@ -528,7 +638,7 @@ public:
 				submit_infos[0].commandBuffers = cmdBufs;
 				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
 					{
-						.semaphore = m_lumaMeterSemaphore.get(),
+						.semaphore = m_meterSemaphore.get(),
 						.value = m_submitIx + 1,
 						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
 					}
@@ -541,36 +651,114 @@ public:
 
 			const ISemaphore::SWaitInfo wait_infos[] = {
 				{
-					.semaphore = m_lumaMeterSemaphore.get(),
+					.semaphore = m_meterSemaphore.get(),
 					.value = m_submitIx + 1
 				}
 			};
 			m_device->blockForSemaphores(wait_infos);
 		}
 
-		// Get EV
+		// Luma Gather and Tonemapping
 		{
-			const auto memory_range = ILogicalDevice::MappedMemoryRange(
-				m_lumaGatherAllocation.memory.get(),
-				0ull,
-				m_lumaGatherAllocation.memory->getAllocationSize()
-			);
+			auto queue = getComputeQueue();
+			auto cmdbuf = m_computeCmdBufs[1].get();
+			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
+			auto ds1 = m_ds[0].get();
+			auto ds2 = m_ds[1].get();
 
-			if (!m_lumaGatherAllocation.memory->getMemoryPropertyFlags().hasFlags(IDeviceMemoryAllocation::EMPF_HOST_COHERENT_BIT))
-				m_device->invalidateMappedMemoryRanges(1, &memory_range);
+			auto pc = AutoexposurePushData
+			{
+				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
+				.lumaMinMax = LumaMinMax,
+				.sampleCount = sampleCount,
+				.viewportSize = viewportSize,
+				.lumaMeterBDA = m_gatherBDA
+			};
 
-			const uint32_t* buffData = reinterpret_cast<const uint32_t*>(m_lumaGatherAllocation.memory->getMappedPointer());
+			const uint32_t2 dispatchSize = {
+				1 + ((viewportSize.x) - 1) / SubgroupSize,
+				1 + ((viewportSize.y) - 1) / SubgroupSize
+			};
 
-			assert(m_lumaGatherAllocation.offset == 0); // simpler than writing out all the pointer arithmetic
+			const SMemoryBarrier computeBarriers[] = {
+				{
+					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+				},
+				{
+					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
+					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
+				}
+			};
 
-			m_EV = 0.0f;
-			for (int index = 0; index < SubgroupSize; index++) {
-				m_EV += static_cast<float32_t>(buffData[index]) / (log2(LumaMinMax[1]) - log2(LumaMinMax[0])) + log2(LumaMinMax[0]);
+			// change the layout of the image
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
+				{
+					.barrier = {
+						.dep = computeBarriers[0]
+						// no ownership transfers
+					},
+					.image = m_gpuImg.get(),
+				// transition the whole view
+				.subresourceRange = m_tonemappedImgView->getCreationParameters().subresourceRange,
+				// a wiping transition
+				.newLayout = IGPUImage::LAYOUT::GENERAL
+				}
+			};
+			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
+				{
+					.barrier = {
+						.dep = computeBarriers[1]
+						// no ownership transfers
+					},
+					.image = m_gpuImg.get(),
+				// transition the whole view
+				.subresourceRange = m_tonemappedImgView->getCreationParameters().subresourceRange,
+				// a wiping transition
+				.oldLayout = IGPUImage::LAYOUT::GENERAL,
+				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+				}
+			};
+
+			queue->startCapture();
+
+			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			cmdbuf->bindComputePipeline(m_gatherPipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_gatherPipeline->getLayout(), 0, 1, &ds1); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_gatherPipeline->getLayout(), 3, 1, &ds2);
+			cmdbuf->pushConstants(m_gatherPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers1 });
+			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
+			cmdbuf->end();
+
+			{
+				IQueue::SSubmitInfo submit_infos[1];
+				IQueue::SSubmitInfo::SCommandBufferInfo cmdBufs[] = {
+					{
+						.cmdbuf = cmdbuf
+					}
+				};
+				submit_infos[0].commandBuffers = cmdBufs;
+				IQueue::SSubmitInfo::SSemaphoreInfo signals[] = {
+					{
+						.semaphore = m_gatherSemaphore.get(),
+						.value = m_submitIx + 1,
+						.stageMask = asset::PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT
+					}
+				};
+				submit_infos[0].signalSemaphores = signals;
+
+				queue->submit(submit_infos);
+				queue->endCapture();
 			}
-			uint64_t sampleCount = (viewportSize.x * viewportSize.y) / 4;
-			uint64_t workgroupSize = SubgroupSize * SubgroupSize;
-			sampleCount = workgroupSize * (1 + (sampleCount - 1) / workgroupSize);
-			m_EV /= sampleCount;
+
+			const ISemaphore::SWaitInfo wait_infos[] = {
+				{
+					.semaphore = m_gatherSemaphore.get(),
+					.value = m_submitIx + 1
+				}
+			};
+			m_device->blockForSemaphores(wait_infos);
 		}
 
 		// Render to swapchain
@@ -583,15 +771,15 @@ public:
 			auto queue = getGraphicsQueue();
 			auto cmdbuf = m_graphicsCmdBufs[0].get();
 			cmdbuf->reset(IGPUCommandBuffer::RESET_FLAGS::NONE);
-			auto ds = m_lumaPresentDS[1].get();
+			auto ds = m_ds[2].get();
 
 			auto pc = AutoexposurePushData
 			{
 				.window = nbl::hlsl::luma_meter::MeteringWindow::create(MeteringWindowScale, MeteringWindowOffset),
 				.lumaMinMax = LumaMinMax,
-				.EV = m_EV,
+				.sampleCount = sampleCount,
 				.viewportSize = viewportSize,
-				.lumaMeterBDA = m_lumaGatherBDA
+				.lumaMeterBDA = m_gatherBDA
 			};
 
 			queue->startCapture();
@@ -628,7 +816,7 @@ public:
 			}
 
 			cmdbuf->bindGraphicsPipeline(m_presentPipeline.get());
-			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 1, 1, &ds);
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, m_presentPipeline->getLayout(), 3, 1, &ds);
 			ext::FullScreenTriangle::recordDrawCall(cmdbuf);
 			cmdbuf->endRenderPass();
 
@@ -695,29 +883,28 @@ public:
 	}
 
 protected:
-	nbl::video::IDeviceMemoryAllocator::SAllocation m_lumaGatherAllocation;
-	uint64_t m_lumaGatherBDA;
-	float32_t m_EV = 0;
-	smart_refctd_ptr<IGPUImage> m_gpuImg;
-	smart_refctd_ptr<IGPUImageView> m_gpuImgView;
+	nbl::video::IDeviceMemoryAllocator::SAllocation m_gatherAllocation;
+	uint64_t m_gatherBDA;
+	smart_refctd_ptr<IGPUImage> m_gpuImg, m_tonemappedImg;
+	smart_refctd_ptr<IGPUImageView> m_gpuImgView, m_tonemappedImgView;
 
 	// for image uploads
 	smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 	SIntendedSubmitInfo m_intendedSubmit;
 
 	// Pipelines
+	smart_refctd_ptr<IGPUComputePipeline> m_meterPipeline, m_gatherPipeline;
 	smart_refctd_ptr<IGPUGraphicsPipeline> m_presentPipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_lumaMeterPipeline;
 
 	// Descriptor Sets
-	std::array<smart_refctd_ptr<IGPUDescriptorSet>, ISwapchain::MaxImages> m_lumaPresentDS;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, 3> m_ds;
 
 	// Command Buffers
 	smart_refctd_ptr<IGPUCommandPool> m_graphicsCmdPool, m_computeCmdPool;
-	std::array<smart_refctd_ptr<IGPUCommandBuffer>, ISwapchain::MaxImages> m_graphicsCmdBufs, m_computeCmdBufs;
+	std::array<smart_refctd_ptr<IGPUCommandBuffer>, 2> m_graphicsCmdBufs, m_computeCmdBufs;
 
 	// Semaphores
-	smart_refctd_ptr<ISemaphore> m_lumaMeterSemaphore, m_presentSemaphore;
+	smart_refctd_ptr<ISemaphore> m_meterSemaphore, m_gatherSemaphore, m_presentSemaphore;
 	uint64_t m_submitIx = 0;
 
 	// window

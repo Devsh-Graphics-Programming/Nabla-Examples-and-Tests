@@ -4,11 +4,16 @@
 
 #include "nbl/builtin/hlsl/luma_meter/luma_meter.hlsl"
 #include "nbl/builtin/hlsl/bda/bda_accessor.hlsl"
+#include "nbl/builtin/hlsl/colorspace/EOTF.hlsl"
 #include "nbl/builtin/hlsl/colorspace/encodeCIEXYZ.hlsl"
+#include "nbl/builtin/hlsl/colorspace/decodeCIEXYZ.hlsl"
+#include "nbl/builtin/hlsl/colorspace/OETF.hlsl"
+#include "nbl/builtin/hlsl/tonemapper/operators.hlsl"
 #include "app_resources/common.hlsl"
 
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D texture;
-[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerState;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] Texture2D textureIn;
+[[vk::combinedImageSampler]] [[vk::binding(0, 0)]] SamplerState samplerStateIn;
+[[vk::binding(0, 3)]] RWTexture2D<float32_t4> textureOut;
 
 using namespace nbl::hlsl;
 using Ptr = bda::__ptr < uint32_t >;
@@ -43,7 +48,7 @@ struct TexAccessor
     }
 
     float32_t3 get(float32_t2 uv) {
-        return texture.Sample(samplerState, uv).rgb;
+        return textureIn.Sample(samplerStateIn, uv).rgb;
     }
 };
 
@@ -64,5 +69,21 @@ void main(uint32_t3 ID : SV_GroupThreadID, uint32_t3 GroupID : SV_GroupID)
     using LumaMeter = luma_meter::geom_meter< WorkgroupSize, PtrAccessor, SharedAccessor, TexAccessor>;
     LumaMeter meter = LumaMeter::create(pushData.lumaMinMax, pushData.sampleCount);
 
-    meter.sampleLuma(pushData.window, val_accessor, tex, sdata, (float32_t2)(glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize()), pushData.viewportSize);
+    float32_t EV = meter.gatherLuma(val_accessor);
+
+    uint32_t tid = workgroup::SubgroupContiguousIndex();
+    uint32_t2 coord = {
+        morton2d_decode_x(tid),
+        morton2d_decode_y(tid)
+    };
+
+    uint32_t2 pos = glsl::gl_WorkGroupID() * glsl::gl_WorkGroupSize() + coord;
+
+    float32_t2 uv = (float32_t2)(pos) / pushData.viewportSize;
+    float32_t3 color = colorspace::oetf::sRGB(tex.get(uv).rgb);
+    float32_t3 CIEColor = mul(colorspace::sRGBtoXYZ, color);
+    tonemapper::Reinhard<float32_t> reinhard = tonemapper::Reinhard<float32_t>::create(EV);
+    float32_t3 tonemappedColor = mul(colorspace::decode::XYZtoscRGB, reinhard(CIEColor));
+
+    textureOut[pos] = float32_t4(colorspace::eotf::sRGB(tonemappedColor), 1.0f);
 }
