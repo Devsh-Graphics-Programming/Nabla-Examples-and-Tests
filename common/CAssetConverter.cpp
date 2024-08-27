@@ -376,7 +376,7 @@ struct PatchGetter
 					patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
 					return patch;
 				}
-				if constexpr(std::is_same_v<AssetType,ICPUAccelerationStructure>)
+				if constexpr(std::is_same_v<AssetType,ICPUTopLevelAccelerationStructure>)
 					return patch;
 #endif
 				break;
@@ -1343,7 +1343,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUBufferView*>(info.desc.get()),firstPatchMatch,depNotFound);
 													break;
 												case IDescriptor::E_CATEGORY::EC_ACCELERATION_STRUCTURE:
-													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUAccelerationStructure*>(info.desc.get()),firstPatchMatch,depNotFound);
+													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUTopLevelAccelerationStructure*>(info.desc.get()),firstPatchMatch,depNotFound);
 													break;
 #endif
 												default:

@@ -1365,7 +1365,7 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSet,PatchGett
 							break;
 						case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
 							_NBL_TODO();
-//							descHash = args.depHash(static_cast<const asset::ICPUAccelerationStructure*>(untypedDesc));
+//							descHash = args.depHash(static_cast<const asset::ICPUTopLevelAccelerationStructure*>(untypedDesc));
 							break;
 						default:
 							assert(false);
