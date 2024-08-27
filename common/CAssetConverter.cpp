@@ -855,13 +855,15 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto& entry : conversionRequests)
 				for (auto i=0ull; i<entry.second.copyCount; i++)
 				{
+					const auto& patch = dfsCache.nodes[entry.second.patchIndex.value].patch;
+					//
 					IGPUBuffer::SCreationParams params = {};
 					params.size = entry.second.canonicalAsset->getSize();
-					params.usage = dfsCache.nodes[entry.second.patchIndex.value].patch.usage;
+					params.usage = patch.usage;
 					// concurrent ownership if any
 					const auto outIx = i+entry.second.firstCopyIx;
 					const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
-					const auto queueFamilies =  inputs.getSharedOwnershipQueueFamilies(uniqueCopyGroupID,entry.second.canonicalAsset);
+					const auto queueFamilies =  inputs.getSharedOwnershipQueueFamilies(uniqueCopyGroupID,entry.second.canonicalAsset,patch);
 					params.queueFamilyIndexCount = queueFamilies.size();
 					params.queueFamilyIndices = queueFamilies.data();
 					// if creation successful, we 

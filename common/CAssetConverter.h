@@ -548,10 +548,38 @@ class CAssetConverter : public core::IReferenceCounted
 			}
 
 			// if you want concurrent sharing return a list here
-			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::IPreHashed* bufferOrImage) const
+			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUBuffer* buffer, const patch_t<asset::ICPUBuffer>& patch) const
 			{
 				return {};
 			}
+#if 0
+			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::ICPUImage* buffer, const patch_t<asset::ICPUImage>& patch) const
+			{
+				return {};
+			}
+
+			// most plain PNG, JPG, etc. loaders don't produce images with mipmaps
+			virtual inline uint16_t getMipLevelCount(const size_t groupCopyID, const asset::ICPUImage* image, const patch_t<asset::ICPUImage>& patch) const
+			{
+				const auto origCount = image->getCreationParameters().mipLevels;
+				assert(img);
+				if (img->getRegions().empty())
+					return origCount;
+				// makes no sense to mip-map integer values, and we can't encode into BC formats
+				auto format = img->getCreationParameters().format;
+				if (asset::isIntegerFormat(format) || asset::isBlockCompressionFormat(format))
+					return origCount;
+				// its enough to define a single mipmap region above the base level to prevent automatic computation
+				for (auto& region : img->getRegions())
+				if (region.imageSubresource.mipLevel)
+					return false;
+
+				// override the mip-count if its not an integer format and there was no mip-pyramid specified 
+				if (params.mipLevels == 1u && !asset::isIntegerFormat(params.format))
+					params.mipLevels = 1u + static_cast<uint32_t>(std::log2(static_cast<float>(core::max<uint32_t>(core::max<uint32_t>(params.extent.width, params.extent.height), params.extent.depth))));
+				return true;
+			}
+#endif
 
 			// Typed Range of Inputs of the same type
             template<asset::Asset AssetType>
