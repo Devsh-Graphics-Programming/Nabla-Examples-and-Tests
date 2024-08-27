@@ -471,7 +471,7 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 			region.imageExtent = { mipW, mipH, textureCopy.imageExtent.z };
 			region.imageOffset = { 0u, 0u, 0u };
 
-			auto buffer = reinterpret_cast<uint8_t*>(textureCopy.image->getBuffer());
+			auto buffer = reinterpret_cast<uint8_t*>(textureCopy.image->getBuffer()->getPointer());
 			auto bufferOffset = textureCopy.image->getRegion(mip, core::vectorSIMDu32(0u, 0u))->bufferOffset;
 
 			m_utilities->updateImageViaStagingBuffer(
@@ -892,7 +892,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 
 		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
 		textureCopies.push_back({
-			.image = cpuBuffer,
+			.image = std::move(cpuBuffer),
 			.bufferOffset = 0u,
 			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
 			.index = inserted->alloc_idx,
@@ -907,7 +907,7 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 uint32_t DrawResourcesFiller::addMSDFTexture(core::smart_refctd_ptr<ICPUImage> textureBuffer, msdf_hash hash, SIntendedSubmitInfo& intendedNextSubmit)
 {
 	return addMSDFTexture(
-		[textureBuffer] { return textureBuffer; },
+		[textureBuffer] { return std::move(textureBuffer); },
 		hash,
 		intendedNextSubmit
 	);
