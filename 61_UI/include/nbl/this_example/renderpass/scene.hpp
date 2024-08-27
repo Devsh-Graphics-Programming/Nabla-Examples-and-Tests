@@ -59,22 +59,16 @@ struct RESOURCES_BUNDLE_BASE
 {
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	struct BUFFER_AND_USAGE
-	{
-		nbl::asset::SBufferBinding<typename TYPES::BUFFER> binding;
-		nbl::core::bitflag<nbl::asset::IBuffer::E_USAGE_FLAGS> usage = nbl::asset::IBuffer::EUF_NONE;
-	};
-
 	struct REFERENCE_OBJECT
 	{
-		struct BUFFERS
+		struct BINDINGS
 		{
-			BUFFER_AND_USAGE vertex, index;
+			nbl::asset::SBufferBinding<typename TYPES::BUFFER> vertex, index;
 		};
 
 		nbl::core::smart_refctd_ptr<typename TYPES::GRAPHICS_PIPELINE> pipeline = nullptr;
 
-		BUFFERS buffers;
+		BINDINGS bindings;
 		nbl::asset::E_INDEX_TYPE indexType = nbl::asset::E_INDEX_TYPE::EIT_UNKNOWN;
 		uint32_t indexCount = {};
 	};
@@ -83,7 +77,7 @@ struct RESOURCES_BUNDLE_BASE
 
 	nbl::core::smart_refctd_ptr<typename TYPES::RENDERPASS> renderpass;
 	std::array<REFERENCE_DRAW_HOOK, EOT_COUNT> objects;
-	BUFFER_AND_USAGE ubo;
+	nbl::asset::SBufferBinding<typename TYPES::BUFFER> ubo;
 
 	struct
 	{
@@ -311,7 +305,29 @@ public:
 						return nullptr;
 					}
 
-					if constexpr (!withAssetConverter) // valid only for gpu instance
+					if constexpr (withAssetConverter)
+					{
+						auto dummyBuffer = make_smart_refctd_ptr<ICPUBuffer>(FRAMEBUFFER_W * FRAMEBUFFER_H * getTexelOrBlockBytesize<format>());
+						dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
+
+						auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+						auto& region = regions->front();
+
+						region.imageSubresource = { .aspectMask = ASPECT, .mipLevel = 0u, .baseArrayLayer = 0u, .layerCount = 0u };
+						region.bufferOffset = 0u;
+						region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(FRAMEBUFFER_W, getTexelOrBlockBytesize<format>());
+						region.bufferImageHeight = 0u;
+						region.imageOffset = { 0u, 0u, 0u };
+						region.imageExtent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u };
+
+						if (!image->setBufferAndRegions(std::move(dummyBuffer), regions))
+						{
+							logger->log("Could not set image's regions!", ILogger::ELL_ERROR);
+							return nullptr;
+						}
+						image->setContentHash(image->computeContentHash());
+					}
+					else
 					{
 						image->setObjectDebugName(DEBUG_NAME.data());
 
@@ -329,7 +345,7 @@ public:
 						.image = std::move(image),
 						.viewType = TYPES::IMAGE_VIEW::ET_2D,
 						.format = format,
-						.subresourceRange = { ASPECT, 0u, 1u, 0u, 1u }
+						.subresourceRange = { .aspectMask = ASPECT, .baseMipLevel = 0u, .levelCount = 1u, .baseArrayLayer = 0u, .layerCount = 1u }
 					});
 
 					outView = create<typename TYPES::IMAGE_VIEW>(std::move(params));
@@ -357,19 +373,22 @@ public:
 		{
 			auto createShader = [&]<nbl::core::StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename TYPES::SHADER>& outShader) -> smart_refctd_ptr<typename TYPES::SHADER>
 			{
+				// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
+
 				const nbl::system::SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
 				const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
 				auto shader = nbl::core::make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
 
 				if constexpr (withAssetConverter)
+				{
+					buffer->setContentHash(buffer->computeContentHash());
 					outShader = std::move(shader);
+				}
 				else
 					outShader = create<typename TYPES::SHADER>(shader.get()); // note: dependency between cpu object instance & gpu object creation, not sure if its our API design failure or maybe I'm just thinking too much
 
 				return outShader;
 			};
-
-			// TODO: return value validation
 
 			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC];
 			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
@@ -467,22 +486,37 @@ public:
 
 						// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
 						auto vBuffer = smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
-						obj.buffers.vertex.usage = bitflag(IBUFFER::EUF_VERTEX_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
-						obj.buffers.vertex.binding.offset = 0u;
+						constexpr static auto VERTEX_USAGE = bitflag(IBUFFER::EUF_VERTEX_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+						obj.bindings.vertex.offset = 0u;
 						
 						auto iBuffer = smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
-						obj.buffers.index.usage = bitflag(IBUFFER::EUF_INDEX_BUFFER_BIT) | IBUFFER::EUF_VERTEX_BUFFER_BIT | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
-						obj.buffers.index.binding.offset = 0u;
+						constexpr static auto INDEX_USAGE = bitflag(IBUFFER::EUF_INDEX_BUFFER_BIT) | IBUFFER::EUF_VERTEX_BUFFER_BIT | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+						obj.bindings.index.offset = 0u;
 
 						if constexpr (withAssetConverter)
 						{
-							obj.buffers.vertex.binding = { .offset = 0u, .buffer = vBuffer };
-							obj.buffers.index.binding = { .offset = 0u, .buffer = iBuffer };
+							if (!vBuffer)
+								return false;
+
+							vBuffer->addUsageFlags(VERTEX_USAGE);
+							vBuffer->setContentHash(vBuffer->computeContentHash());
+							obj.bindings.vertex = { .offset = 0u, .buffer = vBuffer };
+
+							if (inGeometry.data.indexType != EIT_UNKNOWN)
+								if (iBuffer)
+								{
+									iBuffer->addUsageFlags(INDEX_USAGE);
+									iBuffer->setContentHash(iBuffer->computeContentHash());
+								}
+								else
+									return false;
+
+							obj.bindings.index = { .offset = 0u, .buffer = iBuffer };
 						}
 						else
 						{
-							auto vertexBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = vBuffer->getSize(), .usage = obj.buffers.vertex.usage }));
-							auto indexBuffer = iBuffer ? create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = iBuffer->getSize(), .usage = obj.buffers.index.usage })) : nullptr;
+							auto vertexBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = vBuffer->getSize(), .usage = VERTEX_USAGE }));
+							auto indexBuffer = iBuffer ? create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = iBuffer->getSize(), .usage = INDEX_USAGE })) : nullptr;
 
 							if (!vertexBuffer)
 								return false;
@@ -533,8 +567,8 @@ public:
 								if (!fillGPUBuffer(iBuffer, indexBuffer))
 									return false;
 
-							obj.buffers.vertex.binding = { .offset = 0u, .buffer = std::move(vertexBuffer) };
-							obj.buffers.index.binding = { .offset = 0u, .buffer = std::move(indexBuffer) };
+							obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
+							obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
 						}
 						
 						return true;
@@ -550,8 +584,8 @@ public:
 					{
 						logger->log("[%s] object will not be created!", ILogger::ELL_ERROR, meta.name.data());
 
-						obj.buffers.vertex = {};
-						obj.buffers.index = {};
+						obj.bindings.vertex = {};
+						obj.bindings.index = {};
 						obj.indexCount = 0u;
 						obj.indexType = E_INDEX_TYPE::EIT_UNKNOWN;
 						obj.pipeline = nullptr;
@@ -564,21 +598,22 @@ public:
 
 		// view parameters ubo buffer
 		{
-			using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
-
 			// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
-			scratch.ubo.usage = bitflag(IBUFFER::EUF_UNIFORM_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+			using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+			constexpr static auto UBO_USAGE = bitflag(IBUFFER::EUF_UNIFORM_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
 
 			if constexpr (withAssetConverter)
 			{
 				auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
-				scratch.ubo.binding = { .offset = 0u, .buffer = std::move(uboBuffer) };
+				uboBuffer->addUsageFlags(UBO_USAGE);
+				uboBuffer->setContentHash(uboBuffer->computeContentHash());
+				scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
 			}
 			else
 			{
 				const auto mask = device->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
 
-				auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = scratch.ubo.usage }));
+				auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
 
 				for (auto it : { uboBuffer })
 				{
@@ -588,7 +623,7 @@ public:
 					device->allocate(reqs, it.get());
 				}
 
-				scratch.ubo.binding = { .offset = 0u, .buffer = std::move(uboBuffer) };
+				scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
 			}
 		}
 
@@ -608,43 +643,69 @@ public:
 
 			// TODO: gather ALL resources as inputs for converter, currently testing if converter can convert all of my pipelines
 
-			// gather cpu assets 
-			std::array<ICPUGraphicsPipeline*, std::tuple_size<decltype(scratch.objects)>::value> hooks;
-			for (uint32_t i = 0u; i < hooks.size(); ++i)
+			struct PROXY_CPU_HOOKS
 			{
-				auto& [reference, meta] = scratch.objects[static_cast<E_OBJECT_TYPE>(i)];
-				hooks[i] = reference.pipeline.get();
+				using OBJECTS_SIZE = std::tuple_size<decltype(scratch.objects)>;
+
+				std::array<ICPUGraphicsPipeline*, OBJECTS_SIZE::value> pipelines;
+				std::array<ICPUBuffer*, OBJECTS_SIZE::value * 2u + 1u > buffers;
+			} hooks;
+			
+			// gather cpu assets for a span memory view
+			{ 
+				for (uint32_t i = 0u; i < hooks.pipelines.size(); ++i)
+				{
+					auto& [reference, meta] = scratch.objects[static_cast<E_OBJECT_TYPE>(i)];
+					hooks.pipelines[i] = reference.pipeline.get();
+
+					// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
+					hooks.buffers[2u * i + 0u] = reference.bindings.vertex.buffer.get();
+					hooks.buffers[2u * i + 1u] = reference.bindings.index.buffer.get();
+				}
+				hooks.buffers.back() = scratch.ubo.buffer.get();
 			}
 
-			// assign to inputs
+			// assign cpu hooks to inputs
 			{
-				std::get<CAssetConverter::SInputs::asset_span_t<ICPUGraphicsPipeline>>(inputs.assets) = hooks;
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUGraphicsPipeline>>(inputs.assets) = hooks.pipelines;
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = hooks.buffers;
 			}
 
 			// reserve and create the GPU object handles
 			CAssetConverter::SResults reservation = converter->reserve(inputs);
 			{
-				// retrieve the reserved handles
-				const auto pipelines = reservation.getGPUObjects<ICPUGraphicsPipeline>();
-
-				for (const auto& gpu : pipelines)
+				auto validate = [&]<typename ASSET_TYPE>(const auto& references) -> bool
 				{
-					// anything that fails to be reserved is a nullptr in the span of GPU Objects
-					auto pipeline = gpu.value;
+					// retrieve the reserved handles
+					const auto objects = reservation.getGPUObjects<ASSET_TYPE>();
 
-					if (!pipeline)
+					uint32_t counter = {};
+					for (const auto& object : objects)
 					{
-						logger->log("Failed to convert a CPU pipeline to GPU pipeline!", nbl::system::ILogger::ELL_ERROR);
-						return false;
+						// anything that fails to be reserved is a nullptr in the span of GPU Objects
+						auto gpu = object.value;
+
+						if (!gpu)
+						{
+							if (references[counter]) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
+							{
+								logger->log("Failed to convert a CPU object to GPU!", nbl::system::ILogger::ELL_ERROR);
+								return false;
+							}
+						} ++counter;
 					}
-				}
+				};
+				
+				validate.template operator() < ICPUGraphicsPipeline > (hooks.pipelines);
+				validate.template operator() < ICPUBuffer > (hooks.buffers);
 			}
 
 			// actual convert recording covering basically all data uploads, but remember for gpu objects to be created you also have to submit the conversion later!
 			CAssetConverter::SConvertParams params = {};
+
 			if (!reservation.convert(params))
 			{
-				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR); // TODO: to check, so it submits something or just records? 
+				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR);
 				return false;
 			}
 			
@@ -655,6 +716,14 @@ public:
 			{
 				logger->log("Failed to submit & await conversions!", nbl::system::ILogger::ELL_ERROR);
 				return false;
+			}
+
+			// assign gpu objects to output
+			const auto pipelines = reservation.getGPUObjects<ICPUGraphicsPipeline>();
+
+			auto& base = static_cast<RESOURCES_BUNDLE::BASE_T&>(output);
+			{
+				//base.
 			}
 		}
 		else
@@ -699,9 +768,9 @@ public:
 
 			nbl::video::IGPUDescriptorSet::SDescriptorInfo info;
 			{
-				info.desc = nbl::core::smart_refctd_ptr(output.ubo.binding.buffer);
-				info.info.buffer.offset = output.ubo.binding.offset;
-				info.info.buffer.size = output.ubo.binding.buffer->getSize();
+				info.desc = nbl::core::smart_refctd_ptr(output.ubo.buffer);
+				info.info.buffer.offset = output.ubo.offset;
+				info.info.buffer.size = output.ubo.buffer->getSize();
 			}
 
 			write.info = &info;
@@ -917,7 +986,7 @@ public:
 		const auto& [hook, meta] = resources.objects[object.meta.type];
 		auto* rawPipeline = hook.pipeline.get();
 
-		nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertex = hook.buffers.vertex.binding, index = hook.buffers.index.binding;
+		nbl::asset::SBufferBinding<const nbl::video::IGPUBuffer> vertex = hook.bindings.vertex, index = hook.bindings.index;
 
 		m_commandBuffer->bindGraphicsPipeline(rawPipeline);
 		m_commandBuffer->bindDescriptorSets(nbl::asset::EPBP_GRAPHICS, rawPipeline->getLayout(), 1, 1, &resources.descriptorSet.get());
@@ -964,8 +1033,8 @@ public:
 	inline void update()
 	{
 		nbl::asset::SBufferRange<nbl::video::IGPUBuffer> range;
-		range.buffer = nbl::core::smart_refctd_ptr(resources.ubo.binding.buffer);
-		range.size = resources.ubo.binding.buffer->getSize();
+		range.buffer = nbl::core::smart_refctd_ptr(resources.ubo.buffer);
+		range.size = resources.ubo.buffer->getSize();
 
 		m_commandBuffer->updateBuffer(range, &object.viewParameters);
 	}
