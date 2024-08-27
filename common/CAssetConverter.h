@@ -398,7 +398,7 @@ class CAssetConverter : public core::IReferenceCounted
 				//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
 				//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
 					// only once all the descriptor types have been hashed, we can hash sets
-				//	rehash.operator()<ICPUDescriptorSet>();
+					rehash.operator()<ICPUDescriptorSet>();
 					// naturally any pipeline depends on shaders and pipeline cache
 					rehash.operator()<asset::ICPUShader>();
 					rehash.operator()<asset::ICPUPipelineCache>();
@@ -406,7 +406,6 @@ class CAssetConverter : public core::IReferenceCounted
 					// graphics pipeline needs a renderpass
 					rehash.operator()<asset::ICPURenderpass>();
 					rehash.operator()<asset::ICPUGraphicsPipeline>();
-					rehash.operator()<asset::ICPUDescriptorSet>();
 				//	rehash.operator()<ICPUFramebuffer>();
 				}
 				// Clear the cache for a given type

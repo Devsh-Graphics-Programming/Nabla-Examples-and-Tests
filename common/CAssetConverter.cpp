@@ -1964,7 +1964,48 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 //				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
-				// TODO
+				for (auto i=0u; i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
+				{
+					const auto type = static_cast<asset::IDescriptor::E_TYPE>(i);
+					// TODO: hack into descriptor lifetime tracking
+#if 0
+					const auto infos = item.first->getDescriptorInfoStorage(type);
+					if (infos.empty())
+						continue;
+					for (const auto& info : infos)
+					{
+						switch (asset::IDescriptor::GetTypeCategory(type))
+						{
+							case asset::IDescriptor::EC_BUFFER:
+								if (const auto* buffer=nullptr; buffer)
+									depsMissing = missingDependent.operator()<ICPUBuffer>(buffer);
+								break;
+							case asset::IDescriptor::EC_SAMPLER:
+								if (const auto* sampler=nullptr; sampler)
+									depsMissing = missingDependent.operator()<ICPUSampler>(sampler);
+								break;
+							case asset::IDescriptor::EC_IMAGE:
+								if (const auto* image=nullptr; image)
+									depsMissing = missingDependent.operator()<ICPUImage>(image);
+								break;
+							case asset::IDescriptor::EC_BUFFER_VIEW:
+								if (const auto* bufferView=nullptr; bufferView)
+									depsMissing = missingDependent.operator()<ICPUBufferView>(bufferView);
+								break;
+							case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
+								_NBL_TODO();
+								[[fallthrough]];
+							default:
+								assert(false);
+								depsMissing = true;
+								break;
+						}
+						if (depsMissing)
+							break;
+					}
+					// TODO: remember about mutable sampler storage
+#endif
+				}
 			}
 			if (depsMissing)
 			{
