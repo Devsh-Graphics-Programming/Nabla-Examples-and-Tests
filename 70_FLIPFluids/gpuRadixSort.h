@@ -153,8 +153,6 @@ public:
 				dsLayout2.get()
 			};
 		sortDsPool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
-		//sortDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_radixSortDs[0]);
-		//sortDsPool->createDescriptorSets(dscLayoutPtrs.size(), dscLayoutPtrs.data(), &m_radixSortDs[1]);
 		m_radixSortDs[0] = sortDsPool->createDescriptorSet(dsLayout2);
 		m_radixSortDs[1] = sortDsPool->createDescriptorSet(dsLayout2);
     }
@@ -163,74 +161,77 @@ public:
     {
         uint32_t numWorkgroups = (numElements + numThreadsPerGroup - 1) / numThreadsPerGroup;
 
-        updateBuffers(numElements, numWorkgroups, dataBuffer->getSize() / numElements);
+        bool shouldWriteDs = updateBuffers(numElements, numWorkgroups, dataBuffer->getSize() / numElements);
 
-		{	// iteration 0 and 2
-			IGPUDescriptorSet::SDescriptorInfo infos[4];
-			infos[0].desc = smart_refctd_ptr(paramsBuffer);
-			infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-			infos[1].desc = smart_refctd_ptr(dataBuffer);
-			infos[1].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};
-			infos[2].desc = smart_refctd_ptr(tempDataBuffer);
-			infos[2].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
-			infos[3].desc = smart_refctd_ptr(histogramBuffer);
-			infos[3].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-				{.dstSet = m_radixSortDs[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = m_radixSortDs[0].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-				{.dstSet = m_radixSortDs[0].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-				{.dstSet = m_radixSortDs[0].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
-			};
-			m_device->updateDescriptorSets(std::span(writes, 4), {});
-		}
-		{	// iteration 1 and 3
-			IGPUDescriptorSet::SDescriptorInfo infos[4];
-			infos[0].desc = smart_refctd_ptr(paramsBuffer);
-			infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-			infos[1].desc = smart_refctd_ptr(tempDataBuffer);
-			infos[1].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
-			infos[2].desc = smart_refctd_ptr(dataBuffer);
-			infos[2].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};			
-			infos[3].desc = smart_refctd_ptr(histogramBuffer);
-			infos[3].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-				{.dstSet = m_radixSortDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = m_radixSortDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-				{.dstSet = m_radixSortDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-				{.dstSet = m_radixSortDs[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
-			};
-			m_device->updateDescriptorSets(std::span(writes, 4), {});
-		}
-		{	// iteration 0 and 2
-			IGPUDescriptorSet::SDescriptorInfo infos[3];
-			infos[0].desc = smart_refctd_ptr(paramsBuffer);
-			infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-			infos[1].desc = smart_refctd_ptr(dataBuffer);
-			infos[1].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};
-			infos[2].desc = smart_refctd_ptr(histogramBuffer);
-			infos[2].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-				{.dstSet = m_histogramDs[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = m_histogramDs[0].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-				{.dstSet = m_histogramDs[0].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-			};
-			m_device->updateDescriptorSets(std::span(writes, 3), {});
-		}
-		{	// iteration 1 and 3
-			IGPUDescriptorSet::SDescriptorInfo infos[3];
-			infos[0].desc = smart_refctd_ptr(paramsBuffer);
-			infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
-			infos[1].desc = smart_refctd_ptr(tempDataBuffer);
-			infos[1].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
-			infos[2].desc = smart_refctd_ptr(histogramBuffer);
-			infos[2].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
-			IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-				{.dstSet = m_histogramDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-				{.dstSet = m_histogramDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-				{.dstSet = m_histogramDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
-			};
-			m_device->updateDescriptorSets(std::span(writes, 3), {});
-		}
+		if (shouldWriteDs)
+		{
+			{	// iteration 0 and 2
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(dataBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(tempDataBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(histogramBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_radixSortDs[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_radixSortDs[0].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_radixSortDs[0].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_radixSortDs[0].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+			{	// iteration 1 and 3
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(tempDataBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(dataBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};			
+				infos[3].desc = smart_refctd_ptr(histogramBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_radixSortDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_radixSortDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_radixSortDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_radixSortDs[1].get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &infos[3]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+			{	// iteration 0 and 2
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(dataBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = dataBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(histogramBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = m_histogramDs[0].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_histogramDs[0].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_histogramDs[0].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
+			}
+			{	// iteration 1 and 3
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].desc = smart_refctd_ptr(paramsBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = paramsBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(tempDataBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = tempDataBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(histogramBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = histogramBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
+					{.dstSet = m_histogramDs[1].get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_histogramDs[1].get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_histogramDs[1].get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 3), {});
+			}
+		}		
 
         SSortParams params;
         params.numElements = numElements;
@@ -357,8 +358,9 @@ public:
     }
 
 private:
-    void updateBuffers(int numElements, int numWorkgroups, int dataTypeSize)
+    bool updateBuffers(int numElements, int numWorkgroups, int dataTypeSize)
     {
+		bool updated = false;
         if (!tempDataBuffer || tempDataBuffer->getSize() < numElements * dataTypeSize)
         {
             video::IGPUBuffer::SCreationParams params = {};
@@ -370,12 +372,13 @@ private:
 		    reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 
 		    auto bufMem = m_device->allocate(reqs, tempDataBuffer.get());
+			updated = true;
         }
 		uint32_t bufSize = sizeof(uint32_t) * numWorkgroups * NUM_SORT_BINS;
 		if (!histogramBuffer || histogramBuffer->getSize() != bufSize)
 		{
 			video::IGPUBuffer::SCreationParams params = {};
-		    params.size = numElements * dataTypeSize;
+		    params.size = bufSize;
 		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
             histogramBuffer = m_device->createBuffer(std::move(params));
 
@@ -383,7 +386,10 @@ private:
 		    reqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
 
 		    auto bufMem = m_device->allocate(reqs, histogramBuffer.get());
+			updated = true;
 		}
+
+		return updated;
     }
 
     struct SSortParams
