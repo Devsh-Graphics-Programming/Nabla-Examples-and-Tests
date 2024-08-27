@@ -413,7 +413,7 @@ template<typename T, typename... U>
 constexpr bool has_type(core::type_list<U...>) {return (std::is_same_v<T,U> || ...);}
 
 //
-auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
+auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 {
 	auto* const device = m_params.device;
 	if (inputs.readCache && inputs.readCache->m_params.device!=m_params.device)
@@ -427,7 +427,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		return {};
 	}
 
-	SResults retval = {};
+	SReserveResult retval = {};
 	
 	// this will allow us to look up the conversion parameter (actual patch for an asset) and therefore write the GPUObject to the correct place in the return value
 	core::vector<input_metadata_t> inputsMetadata[core::type_list_size_v<supported_asset_types>];
@@ -519,7 +519,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 				const auto count = assets.size();
 				const auto& patches = std::get<SInputs::patch_span_t<AssetType>>(inputs.patches);
 				// size and fill the result array with nullptr
-				std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects).resize(count);
+				std::get<SReserveResult::vector_t<AssetType>>(retval.m_gpuObjects).resize(count);
 				// size the final patch mapping
 				auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
 				metadata.resize(count);
@@ -1126,7 +1126,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 			}
 
 			// Propagate the results back, since the dfsCache has the original asset pointers as keys, we map in reverse
-			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
+			auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(retval.m_stagingCaches);
 			dfsCache.for_each([&](const instance_t<AssetType>& instance, dfs_cache<AssetType>::created_t& created)->void
 				{
 					// already found in read cache and not converted
@@ -1191,9 +1191,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 						}
 					}
 					//
-					if constexpr (has_type<AssetType>(SResults::convertible_asset_types{}))
+					if constexpr (has_type<AssetType>(SReserveResult::convertible_asset_types{}))
 					{
-						auto& requests = std::get<SResults::conversion_requests_t<ICPUBuffer>>(retval.m_conversionRequests);
+						auto& requests = std::get<SReserveResult::conversion_requests_t<ICPUBuffer>>(retval.m_conversionRequests);
 						requests.emplace_back(core::smart_refctd_ptr<const AssetType>(instance.asset),created.gpuObj.get());
 					}
 				}
@@ -1426,8 +1426,8 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 		//
 		const auto& metadata = inputsMetadata[index_of_v<AssetType,supported_asset_types>];
 		const auto& dfsCache = std::get<dfs_cache<AssetType>>(dfsCaches);
-		const auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(retval.m_stagingCaches);
-		auto& results = std::get<SResults::vector_t<AssetType>>(retval.m_gpuObjects);
+		const auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(retval.m_stagingCaches);
+		auto& results = std::get<SReserveResult::vector_t<AssetType>>(retval.m_gpuObjects);
 		for (size_t i=0; i<count; i++)
 		if (auto asset=assets[i]; asset)
 		{
@@ -1462,27 +1462,28 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SResults
 }
 
 //
-bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& params)
+auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams& params) -> SReserveResult::SConvertResult
 {
 	if (!reservations.m_converter)
 	{
 		reservations.m_logger.log("Cannot call convert on an unsuccessful reserve result!",system::ILogger::ELL_ERROR);
-		return false;
+		return {};
 	}
 	assert(reservations.m_converter.get()==this);
 	auto device = m_params.device;
-
 	const auto reqQueueFlags = reservations.getRequiredQueueFlags();
+
+	SReserveResult::SConvertResult retval = {};
 	// Anything to do?
 	if (reqQueueFlags.value!=IQueue::FAMILY_FLAGS::NONE)
 	{
 		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && (!params.utilities || params.utilities->getLogicalDevice()!=device))
 		{
 			reservations.m_logger.log("Transfer Capability required for this conversion and no compatible `utilities` provided!", system::ILogger::ELL_ERROR);
-			return false;
+			return {};
 		}
 
-		auto invalidQueue = [reqQueueFlags,device,&reservations,&params](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
+		auto invalidQueue = [reqQueueFlags,device,&reservations](const IQueue::FAMILY_FLAGS flag, IQueue* queue)->bool
 		{
 			if (!reqQueueFlags.hasFlags(flag))
 				return false;
@@ -1501,15 +1502,35 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		};
 		// If the transfer queue will be used, the transfer Intended Submit Info must be valid and utilities must be provided
 		if (invalidQueue(IQueue::FAMILY_FLAGS::TRANSFER_BIT,params.transfer.queue))
-			return false;
+			return {};
 		// If the compute queue will be used, the compute Intended Submit Info must be valid and utilities must be provided
 		if (invalidQueue(IQueue::FAMILY_FLAGS::COMPUTE_BIT,params.transfer.queue))
-			return false;
+			return {};
+
+		// weak patch
+		auto condBeginCmdBuf = [](IGPUCommandBuffer* cmdbuf)->void
+		{
+			if (cmdbuf)
+			switch (cmdbuf->getState())
+			{
+				case IGPUCommandBuffer::STATE::INITIAL:
+				case IGPUCommandBuffer::STATE::INVALID:
+					if (cmdbuf->isResettable() && cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT))
+						break;
+					break;
+				default:
+					break;
+			}
+		};
+		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
+			condBeginCmdBuf(params.transfer.getScratchCommandBuffer());
+		if (reqQueueFlags.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
+			condBeginCmdBuf(params.compute.getScratchCommandBuffer());
 
 		// wipe gpu item in staging cache (this may drop it as well if it was made for only a root asset == no users)
 		auto makFailureInStaging = [&]<Asset AssetType>(asset_traits<AssetType>::video_t* gpuObj)->void
 		{
-			auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+			auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 			const auto found = stagingCache.find(gpuObj);
 			assert(found!=stagingCache.end());
 			// change the content hash on the reverse map to a NoContentHash
@@ -1517,14 +1538,14 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		};
 
 		// upload Buffers
-		auto& buffersToUpload = std::get<SResults::conversion_requests_t<ICPUBuffer>>(reservations.m_conversionRequests);
+		auto& buffersToUpload = std::get<SReserveResult::conversion_requests_t<ICPUBuffer>>(reservations.m_conversionRequests);
 		{
 			core::vector<IGPUCommandBuffer::SBufferMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> ownershipTransfers;
 			ownershipTransfers.reserve(buffersToUpload.size());
 			// do the uploads
 			for (auto& item : buffersToUpload)
 			{
-				auto found = std::get<SResults::staging_cache_t<ICPUBuffer>>(reservations.m_stagingCaches).find(item.gpuObj);
+				auto found = std::get<SReserveResult::staging_cache_t<ICPUBuffer>>(reservations.m_stagingCaches).find(item.gpuObj);
 				const SBufferRange<IGPUBuffer> range = {
 					.offset = 0,
 					.size = item.gpuObj->getCreationParams().size,
@@ -1539,7 +1560,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 					makFailureInStaging.operator()<ICPUBuffer>(item.gpuObj);
 					continue;
 				}
-				params.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+				retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
 				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored && params.transfer.queue->getFamilyIndex()!=ownerQueueFamily)
 				{
@@ -1565,7 +1586,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 		}
 
 #if 0
-		auto& imagesToUpload = std::get<SResults::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
+		auto& imagesToUpload = std::get<SReserveResult::conversion_requests_t<ICPUImage>>(reservations.m_conversionRequests);
 		{
 			core::vector<IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier>> layoutTransitions;
 			layoutTransitions.reserve(imagesToUpload.size());
@@ -1631,7 +1652,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 	// want to check if deps successfully exist
 	auto missingDependent = [&reservations]<Asset AssetType>(const asset_traits<AssetType>::video_t* dep)->bool
 	{
-		auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+		auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 		auto found = stagingCache.find(const_cast<asset_traits<AssetType>::video_t*>(dep));
 		if (found!=stagingCache.end() && found->second.value==core::blake3_hash_t{})
 			return true;
@@ -1641,7 +1662,7 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 	// insert items into cache if overflows handled fine and commandbuffers ready to be recorded
 	auto mergeCache = [&]<Asset AssetType>()->void
 	{
-		auto& stagingCache = std::get<SResults::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
+		auto& stagingCache = std::get<SReserveResult::staging_cache_t<AssetType>>(reservations.m_stagingCaches);
 		auto& cache = std::get<CCache<AssetType>>(m_caches);
 		cache.m_forwardMap.reserve(cache.m_forwardMap.size()+stagingCache.size());
 		cache.m_reverseMap.reserve(cache.m_reverseMap.size()+stagingCache.size());
@@ -1692,8 +1713,11 @@ bool CAssetConverter::convert_impl(SResults&& reservations, SConvertParams& para
 //	mergeCache.operator()<ICPUDescriptorSet>();
 //	mergeCache.operator()<ICPUFramebuffer>();
 
-	params.device = device;
-	return true;
+	// to make it valid
+	retval.device = device;
+	retval.transfer = &params.transfer;
+	retval.compute = &params.compute;
+	return retval;
 }
 
 }

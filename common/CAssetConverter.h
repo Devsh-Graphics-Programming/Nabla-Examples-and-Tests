@@ -572,147 +572,39 @@ class CAssetConverter : public core::IReferenceCounted
 		// Split off from inputs because only assets that build on IPreHashed need uploading
 		struct SConvertParams
 		{
-			public:
-				// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
-				// If you want to record a pipeline barrier that will release ownership to another family, override this
-				virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
-				{
-					return IQueue::FamilyIgnored;
-				}
-				// You can choose what layout the images get transitioned to at the end of an upload
-				// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
-				virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
-				{
-					using layout_t = IGPUImage::LAYOUT;
-					using flags_t = IGPUImage::E_USAGE_FLAGS;
-					const auto usages = image->getCreationParameters().usage;
-					if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
-						return layout_t::READ_ONLY_OPTIMAL;
-					if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
-						return layout_t::ATTACHMENT_OPTIMAL;
-					// best guess
-					return layout_t::GENERAL;
-				}
-				// By default we always insert into the cache
-				virtual inline bool writeCache(const CCacheBase::key_t& createdFrom)
-				{
-					return true;
-				}
+			// By default the last to queue to touch a GPU object will own it after any transfer or compute operations are complete.
+			// If you want to record a pipeline barrier that will release ownership to another family, override this
+			virtual inline uint32_t getFinalOwnerQueueFamily(const IDeviceMemoryBacked* imageOrBuffer, const core::blake3_hash_t& createdFrom)
+			{
+				return IQueue::FamilyIgnored;
+			}
+			// You can choose what layout the images get transitioned to at the end of an upload
+			// (the images that don't get uploaded to can be transitioned from UNDEFINED without needing any work here)
+			virtual inline IGPUImage::LAYOUT getFinalLayout(const IGPUImage* image, const core::blake3_hash_t& createdFrom)
+			{
+				using layout_t = IGPUImage::LAYOUT;
+				using flags_t = IGPUImage::E_USAGE_FLAGS;
+				const auto usages = image->getCreationParameters().usage;
+				if (usages.hasFlags(flags_t::EUF_SAMPLED_BIT) || usages.hasFlags(flags_t::EUF_INPUT_ATTACHMENT_BIT))
+					return layout_t::READ_ONLY_OPTIMAL;
+				if (usages.hasFlags(flags_t::EUF_RENDER_ATTACHMENT_BIT) || usages.hasFlags(flags_t::EUF_TRANSIENT_ATTACHMENT_BIT))
+					return layout_t::ATTACHMENT_OPTIMAL;
+				// best guess
+				return layout_t::GENERAL;
+			}
+			// By default we always insert into the cache
+			virtual inline bool writeCache(const CCacheBase::key_t& createdFrom)
+			{
+				return true;
+			}
 
-				// Submits the buffered up calls, unline IUtilities::autoSubmit, no patching, it complicates life too much, just please pass correct open SIntendedSubmits.
-				struct SAutoSubmitResult
-				{
-					inline bool blocking() const {return transfer.blocking()||compute.blocking();}
-
-					inline bool ready() const {return transfer.ready()&&compute.ready();}
-
-					inline ISemaphore::WAIT_RESULT wait() const
-					{
-						if (transfer.blocking())
-						{
-							if (compute.blocking())
-							{
-								const ISemaphore::SWaitInfo waitInfos[2] = {transfer,compute};
-								auto* device = const_cast<ILogicalDevice*>(waitInfos[0].semaphore->getOriginDevice());
-								assert(waitInfos[1].semaphore->getOriginDevice()==device);
-								return device->blockForSemaphores(waitInfos,true);
-							}
-							return transfer.wait();
-						}
-						return compute.wait();
-					}
-
-					inline operator bool() const
-					{
-						if (wait()!=ISemaphore::WAIT_RESULT::SUCCESS)
-							return false;
-						return transfer.copy()==IQueue::RESULT::SUCCESS && compute.copy()==IQueue::RESULT::SUCCESS;
-					}
-
-					ISemaphore::future_t<IQueue::RESULT> transfer = IQueue::RESULT::OTHER_ERROR;
-					ISemaphore::future_t<IQueue::RESULT> compute = IQueue::RESULT::OTHER_ERROR;
-				};
-				inline SAutoSubmitResult autoSubmit(
-					std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
-					std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
-				)
-				{
-					// invalid
-					if (!device)
-						return {};
-					for (const auto& signal : extraTransferSignalSemaphores)
-					if (signal.semaphore->getOriginDevice()!=device)
-						return {};
-					for (const auto& signal : extraComputeSignalSemaphores)
-					if (signal.semaphore->getOriginDevice()!=device)
-						return {};
-					// you only get one shot at this!
-					device = nullptr;
-
-					SAutoSubmitResult retval = {};
-					// patch tmps
-					core::smart_refctd_ptr<ISemaphore> patchSema;
-					IQueue::SSubmitInfo::SSemaphoreInfo patch;
-					// first submit transfer
-					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT))
-					{
-						transfer.getScratchCommandBuffer()->end();
-						// patch if needed
-						if (extraTransferSignalSemaphores.empty())
-						{
-							patchSema = device->createSemaphore(0);
-							patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS};
-							extraTransferSignalSemaphores = {&patch,1};
-						}
-						// submit
-						auto submit = transfer.popSubmit(extraTransferSignalSemaphores);
-						if (const auto error=transfer.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
-							return {error};
-						retval.transfer.set({extraTransferSignalSemaphores.back().semaphore,extraTransferSignalSemaphores.back().value});
-					}
-					else
-					for (auto& sema : extraTransferSignalSemaphores)
-						sema.semaphore->signal(sema.value);
-					retval.transfer.set(IQueue::RESULT::SUCCESS);
-
-					// then submit compute
-					if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT))
-					{
-						compute.getScratchCommandBuffer()->end();
-						// patch if needed
-						if (extraComputeSignalSemaphores.empty())
-						{
-							patchSema = device->createSemaphore(0);
-							patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS}; // might try just compute later
-							extraComputeSignalSemaphores = {&patch,1};
-						}
-						// submit
-						auto submit = compute.popSubmit(extraComputeSignalSemaphores);
-						if (const auto error=compute.queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
-							return {std::move(retval.transfer),error};
-						retval.compute.set({extraComputeSignalSemaphores.back().semaphore,extraComputeSignalSemaphores.back().value});
-					}
-					else
-					for (auto& sema : extraComputeSignalSemaphores)
-						sema.semaphore->signal(sema.value);
-					retval.compute.set(IQueue::RESULT::SUCCESS);
-
-					return retval;
-				}
-
-				// One queue is for copies, another is for mip map generation and Acceleration Structure building
-				SIntendedSubmitInfo transfer = {};
-				SIntendedSubmitInfo compute = {};
-				// required for Buffer or Image upload operations
-				IUtilities* utilities = nullptr;
-
-			private:
-				friend class CAssetConverter;
-				// these get set after a successful conversion
-				ILogicalDevice* device = nullptr;
-				core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
+			// One queue is for copies, another is for mip map generation and Acceleration Structure building
+			SIntendedSubmitInfo transfer = {};
+			SIntendedSubmitInfo compute = {};
+			// required for Buffer or Image upload operations
+			IUtilities* utilities = nullptr;
 		};
-        struct SResults final
+        struct SReserveResult final
         {
 				template<asset::Asset AssetType>
 				using vector_t = core::vector<asset_cached_t<AssetType>>;
@@ -721,11 +613,11 @@ class CAssetConverter : public core::IReferenceCounted
 				template<asset::Asset AssetType>
 				using staging_cache_t = core::unordered_map<typename asset_traits<AssetType>::video_t*,typename CCache<AssetType>::key_t>;
 
-				inline SResults(SResults&&) = default;
-				inline SResults(const SResults&) = delete;
-				inline ~SResults() = default;
-				inline SResults& operator=(const SResults&) = delete;
-				inline SResults& operator=(SResults&&) = default;
+				inline SReserveResult(SReserveResult&&) = default;
+				inline SReserveResult(const SReserveResult&) = delete;
+				inline ~SReserveResult() = default;
+				inline SReserveResult& operator=(const SReserveResult&) = delete;
+				inline SReserveResult& operator=(SReserveResult&&) = default;
 
 				// What queues you'll need to run the submit
 				inline core::bitflag<IQueue::FAMILY_FLAGS> getRequiredQueueFlags() const {return m_queueFlags;}
@@ -748,25 +640,153 @@ class CAssetConverter : public core::IReferenceCounted
 				const auto& getStagingCache() const {return std::get<staging_cache_t<AssetType>>(m_stagingCaches);}
 
 				// You only get to call this once if successful, return value tells you whether you can submit the cmdbuffers
-				// NOTE: Just because this method returned true, DOESN'T MEAN the gpu objects are ready for use! You need to submit the intended submits for that first!
-				inline bool convert(SConvertParams& params)
+				struct SConvertResult final
 				{
-					const bool enqueueSuccess = m_converter->convert_impl(std::move(*this),params);
+					public:
+						inline ~SConvertResult() = default;
+
+						// Just because this class converts to true, DOESN'T MEAN the gpu objects are ready for use! You need to submit the intended submits for that first!
+						inline operator bool() const {return device;}
+
+						struct SSubmitResult
+						{
+							inline bool blocking() const {return transfer.blocking()||compute.blocking();}
+
+							inline bool ready() const {return transfer.ready()&&compute.ready();}
+
+							inline ISemaphore::WAIT_RESULT wait() const
+							{
+								if (transfer.blocking())
+								{
+									if (compute.blocking())
+									{
+										const ISemaphore::SWaitInfo waitInfos[2] = {transfer,compute};
+										auto* device = const_cast<ILogicalDevice*>(waitInfos[0].semaphore->getOriginDevice());
+										assert(waitInfos[1].semaphore->getOriginDevice()==device);
+										return device->blockForSemaphores(waitInfos,true);
+									}
+									return transfer.wait();
+								}
+								return compute.wait();
+							}
+
+							inline operator bool() const
+							{
+								if (wait()!=ISemaphore::WAIT_RESULT::SUCCESS)
+									return false;
+								return transfer.copy()==IQueue::RESULT::SUCCESS && compute.copy()==IQueue::RESULT::SUCCESS;
+							}
+
+							ISemaphore::future_t<IQueue::RESULT> transfer = IQueue::RESULT::OTHER_ERROR;
+							ISemaphore::future_t<IQueue::RESULT> compute = IQueue::RESULT::OTHER_ERROR;
+						};
+						// Submits the buffered up calls, unline IUtilities::autoSubmit, no patching, it complicates life too much, just please pass correct open SIntendedSubmits.
+						inline SSubmitResult submit(
+							std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraTransferSignalSemaphores={},
+							std::span<const IQueue::SSubmitInfo::SSemaphoreInfo> extraComputeSignalSemaphores={}
+						)
+						{
+							// invalid
+							if (!device)
+								return {};
+							for (const auto& signal : extraTransferSignalSemaphores)
+							if (signal.semaphore->getOriginDevice()!=device)
+								return {};
+							for (const auto& signal : extraComputeSignalSemaphores)
+							if (signal.semaphore->getOriginDevice()!=device)
+								return {};
+							// you only get one shot at this!
+							device = nullptr;
+
+							SSubmitResult retval = {};
+							// patch tmps
+							core::smart_refctd_ptr<ISemaphore> patchSema;
+							IQueue::SSubmitInfo::SSemaphoreInfo patch;
+							// first submit transfer
+							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::TRANSFER_BIT) && transfer->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
+							{
+								assert(transfer);
+								transfer->getScratchCommandBuffer()->end();
+								// patch if needed
+								if (extraTransferSignalSemaphores.empty())
+								{
+									patchSema = device->createSemaphore(0);
+									// cannot signal from TRANSFER stages because there might be a ownership transfer or layout transition
+									// and we need to wait for right after that, which doesn't have an explicit stage
+									patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS};
+									extraTransferSignalSemaphores = {&patch,1};
+								}
+								// submit
+								auto submit = transfer->popSubmit(extraTransferSignalSemaphores);
+								if (const auto error=transfer->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
+									return {error};
+								retval.transfer.set({extraTransferSignalSemaphores.back().semaphore,extraTransferSignalSemaphores.back().value});
+							}
+							else
+							for (auto& sema : extraTransferSignalSemaphores)
+								sema.semaphore->signal(sema.value);
+							retval.transfer.set(IQueue::RESULT::SUCCESS);
+
+							// then submit compute
+							if (submitsNeeded.hasFlags(IQueue::FAMILY_FLAGS::COMPUTE_BIT) && compute->getScratchCommandBuffer()->getState()==IGPUCommandBuffer::STATE::RECORDING)
+							{
+								assert(compute);
+								compute->getScratchCommandBuffer()->end();
+								// patch if needed
+								if (extraComputeSignalSemaphores.empty())
+								{
+									patchSema = device->createSemaphore(0);
+									// cannot signal from COMPUTE stages because there might be a ownership transfer or layout transition
+									// and we need to wait for right after that, which doesn't have an explicit stage
+									patch = {patchSema.get(),1,asset::PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS};
+									extraComputeSignalSemaphores = {&patch,1};
+								}
+								// submit
+								auto submit = compute->popSubmit(extraComputeSignalSemaphores);
+								if (const auto error=compute->queue->submit(submit); error!=IQueue::RESULT::SUCCESS)
+									return {std::move(retval.transfer),error};
+								retval.compute.set({extraComputeSignalSemaphores.back().semaphore,extraComputeSignalSemaphores.back().value});
+							}
+							else
+							for (auto& sema : extraComputeSignalSemaphores)
+								sema.semaphore->signal(sema.value);
+							retval.compute.set(IQueue::RESULT::SUCCESS);
+
+							return retval;
+						}
+
+					private:
+						friend class SReserveResult;
+						friend class CAssetConverter;
+
+						inline SConvertResult() = default;
+						// because the intended submits are pointers, return value of `convert` should not be allowed to escape its scope
+						inline SConvertResult(SConvertResult&&) = default;
+						inline SConvertResult& operator=(SConvertResult&&) = default;
+
+						// these get set after a successful conversion
+						SIntendedSubmitInfo* transfer = nullptr;
+						SIntendedSubmitInfo* compute = nullptr;
+						ILogicalDevice* device = nullptr;
+						core::bitflag<IQueue::FAMILY_FLAGS> submitsNeeded = IQueue::FAMILY_FLAGS::NONE;
+				};
+				inline SConvertResult convert(SConvertParams& params)
+				{
+					SConvertResult enqueueSuccess = m_converter->convert_impl(std::move(*this),params);
 					if (enqueueSuccess)
 					{
 						// wipe after success
 						core::for_each_in_tuple(m_stagingCaches,[](auto& stagingCache)->void{stagingCache.clear();});
 						// disallow a double run
 						m_converter = nullptr;
-						return true;
 					}
-					return false;
+					return enqueueSuccess;
 				}
 
 			private:
 				friend class CAssetConverter;
 
-				inline SResults() = default;
+				inline SReserveResult() = default;
 
 				// we need to remember a few things so that `convert` can work seamlessly
 				core::smart_refctd_ptr<CAssetConverter> m_converter = nullptr;
@@ -803,7 +823,7 @@ class CAssetConverter : public core::IReferenceCounted
 				core::bitflag<IQueue::FAMILY_FLAGS> m_queueFlags = IQueue::FAMILY_FLAGS::NONE;
         };
 		// First Pass: Explore the DAG of Assets and "gather" patch infos and create equivalent GPU Objects.
-		NBL_API SResults reserve(const SInputs& inputs);
+		NBL_API SReserveResult reserve(const SInputs& inputs);
 
 #undef NBL_API
 
@@ -832,8 +852,8 @@ class CAssetConverter : public core::IReferenceCounted
 			return std::get<CCache<AssetType>>(m_caches);
 		}
 
-		friend struct SResults;
-		bool convert_impl(SResults&& reservations, SConvertParams& params);
+		friend struct SReserveResult;
+		SReserveResult::SConvertResult convert_impl(SReserveResult&& reservations, SConvertParams& params);
 
         SCreationParams m_params;
 		core::tuple_transform_t<CCache,supported_asset_types> m_caches;
