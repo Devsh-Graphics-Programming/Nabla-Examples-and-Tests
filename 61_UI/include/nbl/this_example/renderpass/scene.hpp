@@ -99,6 +99,13 @@ struct RESOURCES_BUNDLE : public RESOURCES_BUNDLE_BASE<false>
 	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet;
 };
 
+#define EXPOSE_NABLA_NAMESPACES() using namespace nbl; \
+using namespace core; \
+using namespace asset; \
+using namespace video; \
+using namespace scene; \
+using namespace system
+
 template<bool withAssetConverter>
 class RESOURCES_BUILDER
 {
@@ -115,12 +122,7 @@ public:
 
 	inline bool build()
 	{
-		using namespace nbl;
-		using namespace core;
-		using namespace asset;
-		using namespace video;
-		using namespace scene;
-		using namespace system;
+		EXPOSE_NABLA_NAMESPACES();
 
 		// TODO: we could make those params templated with default values like below
 		_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
@@ -595,9 +597,65 @@ public:
 
 	inline bool finalize(RESOURCES_BUNDLE& output)
 	{
+		EXPOSE_NABLA_NAMESPACES();
+
 		if constexpr (withAssetConverter)
 		{
-			// TODO: asset converter, scratch at this point has ready to convert cpu resources
+			// asset converter - scratch at this point has ready to convert cpu resources
+			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = device,.optimizer = {} });
+			CAssetConverter::SInputs inputs = {};
+			inputs.logger = logger;
+
+			// TODO: gather ALL resources as inputs for converter, currently testing if converter can convert all of my pipelines
+
+			// gather cpu assets 
+			std::array<ICPUGraphicsPipeline*, std::tuple_size<decltype(scratch.objects)>::value> hooks;
+			for (uint32_t i = 0u; i < hooks.size(); ++i)
+			{
+				auto& [reference, meta] = scratch.objects[static_cast<E_OBJECT_TYPE>(i)];
+				hooks[i] = reference.pipeline.get();
+			}
+
+			// assign to inputs
+			{
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUGraphicsPipeline>>(inputs.assets) = hooks;
+			}
+
+			// reserve and create the GPU object handles
+			CAssetConverter::SResults reservation = converter->reserve(inputs);
+			{
+				// retrieve the reserved handles
+				const auto pipelines = reservation.getGPUObjects<ICPUGraphicsPipeline>();
+
+				for (const auto& gpu : pipelines)
+				{
+					// anything that fails to be reserved is a nullptr in the span of GPU Objects
+					auto pipeline = gpu.value;
+
+					if (!pipeline)
+					{
+						logger->log("Failed to convert a CPU pipeline to GPU pipeline!", nbl::system::ILogger::ELL_ERROR);
+						return false;
+					}
+				}
+			}
+
+			// actual convert recording covering basically all data uploads, but remember for gpu objects to be created you also have to submit the conversion later!
+			CAssetConverter::SConvertParams params = {};
+			if (!reservation.convert(params))
+			{
+				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR); // TODO: to check, so it submits something or just records? 
+				return false;
+			}
+			
+			// `autoSubmit` actually returns a pair of ISempahore::future_t one for compute and one for xfer
+			// you can store them and delay blocking for conversion to be complete
+
+			if (!params.autoSubmit())
+			{
+				logger->log("Failed to submit & await conversions!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
 		}
 		else
 			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use gpu resources with allocated memory, just give the output ownership
@@ -705,7 +763,7 @@ private:
 	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires RESOURCE_TYPE_CONCEPT<T, TYPES>
 	{
 		if constexpr (withAssetConverter)
-			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...);
+			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...); // TODO: cases where our api requires to call ::create(...) instead directly calling "make smart pointer" could be here handled instead of in .build method
 		else
 			if constexpr (std::same_as<T, typename TYPES::DESCRIPTOR_SET_LAYOUT>)
 				return device->createDescriptorSetLayout(std::forward<Args>(args)...);
