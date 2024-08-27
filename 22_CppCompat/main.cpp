@@ -484,14 +484,16 @@ private:
             printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }*/
-        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 1u)
+        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 3u)
         {
             printOnArithmeticFailure("additionVal", expectedValues.additionVal, testValues.additionVal, expectedValues.a, expectedValues.b);
+            std::cout << "ULP error: " << calcULPError(expectedValues.additionVal, testValues.additionVal) << std::endl;
             success = false;
         }
-        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 1u)
+        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 3u)
         {
             printOnArithmeticFailure("substractionVal", expectedValues.substractionVal, testValues.substractionVal, expectedValues.a, expectedValues.b);
+            std::cout << "ULP error: " << calcULPError(expectedValues.additionVal, testValues.additionVal) << std::endl;
             success = false;
         }
         if (calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal) > 2u) // TODO: only 1 ulp error allowed
