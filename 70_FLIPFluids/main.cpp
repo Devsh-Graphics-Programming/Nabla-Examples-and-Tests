@@ -12,6 +12,7 @@
 #include <nbl/builtin/hlsl/cpp_compat/matrix.hlsl>
 
 #include "app_resources/common.hlsl"
+#include "app_resources/descriptor_bindings.hlsl"
 
 using namespace nbl::hlsl;
 using namespace nbl;

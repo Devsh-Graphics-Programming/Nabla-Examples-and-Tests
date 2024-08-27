@@ -1,5 +1,6 @@
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
+#include "../descriptor_bindings.hlsl"
 
 struct SPushConstants
 {
@@ -9,17 +10,17 @@ struct SPushConstants
 
 [[vk::push_constant]] SPushConstants pc;
 
-[[vk::binding(0, 1)]]
+[[vk::binding(b_pcuGridData, s_pcu)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(1, 1)]] RWStructuredBuffer<Particle> particleInBuffer;
-[[vk::binding(2, 1)]] RWStructuredBuffer<Particle> particleOutBuffer;
+[[vk::binding(b_pcuPInBuffer, s_pcu)]] RWStructuredBuffer<Particle> particleInBuffer;
+[[vk::binding(b_pcuPOutBuffer, s_pcu)]] RWStructuredBuffer<Particle> particleOutBuffer;
 
-[[vk::binding(3, 1)]] RWStructuredBuffer<uint2> particleCellPairBuffer;
-[[vk::binding(4, 1)]] RWStructuredBuffer<uint2> gridParticleIDBuffer;
+[[vk::binding(b_pcuPairBuffer, s_pcu)]] RWStructuredBuffer<uint2> particleCellPairBuffer;
+[[vk::binding(b_pcuGridIDBuffer, s_pcu)]] RWStructuredBuffer<uint2> gridParticleIDBuffer;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void makeParticleCellPairs(uint32_t3 ID : SV_DispatchThreadID)
