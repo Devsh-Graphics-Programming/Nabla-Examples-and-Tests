@@ -547,6 +547,12 @@ class CAssetConverter : public core::IReferenceCounted
 				return 0;
 			}
 
+			// if you want concurrent sharing return a list here
+			virtual inline std::span<const uint32_t> getSharedOwnershipQueueFamilies(const size_t groupCopyID, const asset::IPreHashed* bufferOrImage) const
+			{
+				return {};
+			}
+
 			// Typed Range of Inputs of the same type
             template<asset::Asset AssetType>
             using asset_span_t = std::span<const typename asset_traits<AssetType>::asset_t* const>;

@@ -858,9 +858,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					IGPUBuffer::SCreationParams params = {};
 					params.size = entry.second.canonicalAsset->getSize();
 					params.usage = dfsCache.nodes[entry.second.patchIndex.value].patch.usage;
-					// TODO: make this configurable
-					params.queueFamilyIndexCount = 0;
-					params.queueFamilyIndices = nullptr;
+					// concurrent ownership if any
+					const auto outIx = i+entry.second.firstCopyIx;
+					const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+					const auto queueFamilies =  inputs.getSharedOwnershipQueueFamilies(uniqueCopyGroupID,entry.second.canonicalAsset);
+					params.queueFamilyIndexCount = queueFamilies.size();
+					params.queueFamilyIndices = queueFamilies.data();
 					// if creation successful, we 
 					if (assign(entry.first,entry.second.firstCopyIx,i,device->createBuffer(std::move(params))))
 						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
@@ -1562,8 +1565,18 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 				}
 				retval.submitsNeeded |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				// enqueue ownership release if necessary
-				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored && params.transfer.queue->getFamilyIndex()!=ownerQueueFamily)
+				if (const auto ownerQueueFamily=params.getFinalOwnerQueueFamily(item.gpuObj,{}); ownerQueueFamily!=IQueue::FamilyIgnored)
 				{
+					// silently skip ownership transfer
+					if (item.gpuObj->getCachedCreationParams().isConcurrentSharing())
+					{
+						reservations.m_logger.log("Buffer %s created with concurrent sharing, you cannot perform an ownership transfer on it!",system::ILogger::ELL_ERROR,item.gpuObj->getObjectDebugName());
+						continue;
+					}
+					// we already own
+					if (params.transfer.queue->getFamilyIndex()==ownerQueueFamily)
+						continue;
+					// else record our half of the ownership transfer 
 					ownershipTransfers.push_back({
 						.barrier = {
 							.dep = {
