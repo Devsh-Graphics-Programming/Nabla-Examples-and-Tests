@@ -302,7 +302,7 @@ public:
 						if constexpr (withAssetConverter)
 							image = ICPUImage::create(params);
 						else
-							image = create<typename TYPES::IMAGE>(params);
+							image = create<typename TYPES::IMAGE>(std::move(params));
 					}
 
 					if (!image)
