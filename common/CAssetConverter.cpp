@@ -1505,7 +1505,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						const auto& rhsReqs = getAsBase(rhs)->getMemoryReqs();
 						const size_t lhsWorstSize = lhsReqs.size+(0x1ull<<lhsReqs.alignmentLog2)-1;
 						const size_t rhsWorstSize = rhsReqs.size+(0x1ull<<rhsReqs.alignmentLog2)-1;
-						return lhsWorstSize<rhsWorstSize;
+						return lhsWorstSize>rhsWorstSize;
 					}
 				);
 
@@ -1569,6 +1569,32 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto& reqBin : allocationRequests)
 				if (reqBin.first.compatibileMemoryTypeBits&(0x1<<memTypeIx))
 				{
+					auto& binItems = reqBin.second;
+					const auto binItemCount = reqBin.second.size();
+					if (!binItemCount)
+						continue;
+
+					// the `std::exclusive_scan` syntax is more effort for this
+					{
+						offsetsTmp.resize(binItemCount);
+						offsetsTmp[0] = 0;
+						for (size_t i=0; true;)
+						{
+							const auto* memBacked = getAsBase(binItems[i]);
+							const auto& memReqs = memBacked->getMemoryReqs();
+							// round up the offset to get the correct alignment
+							offsetsTmp[i] = core::roundUp(offsetsTmp[i],0x1ull<<memReqs.alignmentLog2);
+							// record next offset
+							if (i<binItemCount-1)
+								offsetsTmp[++i] = offsetsTmp[i]+memReqs.size;
+							else
+								break;
+						}
+					}
+					// to replace
+					core::vector<memory_backed_ptr_variant_t> failures;
+					failures.reserve(binItemCount);
+					// ...
 					using allocate_flags_t = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
 					IDeviceMemoryAllocator::SAllocateInfo info = {
 						.size = 0xdeadbeefBADC0FFEull, // set later
@@ -1576,37 +1602,22 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						.memoryTypeIndex = memTypeIx,
 						.dedication = nullptr
 					};
-
-					auto& binItems = reqBin.second;
-					const auto binItemCount = reqBin.second.size();
-					// the `std::exclusive_scan` syntax is more effort for this
-					{
-						offsetsTmp.resize(binItemCount+1);
-						offsetsTmp[0] = 0;
-						for (size_t i=0; i<binItemCount;)
-						{
-							const auto* memBacked = getAsBase(binItems[i]);
-							const auto& memReqs = memBacked->getMemoryReqs();
-							// round up the offset to get the correct alignment
-							offsetsTmp[++i] = core::roundUp(offsetsTmp[i],0x1ull<<memReqs.alignmentLog2)+memReqs.size;
-						}
-					}
 					// allocate in progression of combined allocations, while trying allocate as much as possible in a single allocation
-					auto itemsBegin = binItems.begin();
+					auto binItemsIt = binItems.begin();
 					for (auto firstOffsetIt=offsetsTmp.begin(); firstOffsetIt!=offsetsTmp.end(); )
 					for (auto nextOffsetIt=offsetsTmp.end(); nextOffsetIt>firstOffsetIt; nextOffsetIt--)
 					{
 						const size_t combinedCount = std::distance(firstOffsetIt,nextOffsetIt);
 						const size_t lastIx = combinedCount-1;
 						// if we take `combinedCount` starting at `firstItem` their allocation would need this size
-						info.size = (firstOffsetIt[lastIx]-*firstOffsetIt)+getAsBase(itemsBegin[lastIx])->getMemoryReqs().size;
+						info.size = (firstOffsetIt[lastIx]-*firstOffsetIt)+getAsBase(binItemsIt[lastIx])->getMemoryReqs().size;
 						auto allocation = device->allocate(info);
 						if (allocation.isValid())
 						{
 							// bind everything
 							for (auto i=0; i<combinedCount; i++)
 							{
-								const auto& toBind = itemsBegin[i];
+								const auto& toBind = binItems[i];
 								bool bindSuccess = false;
 								const IDeviceMemoryBacked::SMemoryBinding binding = {
 									.memory = allocation.memory.get(),
@@ -1640,20 +1651,22 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 								}
 								assert(bindSuccess);
 							}
-							// erase `combinedCount` items from bin
-							itemsBegin = binItems.erase(itemsBegin,itemsBegin+combinedCount);
 							// move onto next batch
 							firstOffsetIt = nextOffsetIt;
+							binItemsIt += combinedCount;
 							break;
 						}
 						// we're unable to allocate even for a single item with a dedicated allocation, skip trying then
-						else if ((nextOffsetIt-1)==firstOffsetIt)
+						else if (combinedCount==1)
 						{
 							firstOffsetIt = nextOffsetIt;
-							itemsBegin++;
+							failures.push_back(std::move(*binItemsIt));
+							binItemsIt++;
 							break;
 						}
 					}
+					// leave only the failures behind
+					binItems = std::move(failures);
 				}
 			}
 
