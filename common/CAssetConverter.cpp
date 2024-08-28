@@ -808,7 +808,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 			{
 				// allocate and bind right away
 				auto allocation = device->allocate(memReqs,gpuObj);
-				if (allocation.isValid())
+				if (!allocation.isValid())
 				{
 					inputs.logger.log("Failed to allocate and bind dedicated memory for %s",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 					return false;
