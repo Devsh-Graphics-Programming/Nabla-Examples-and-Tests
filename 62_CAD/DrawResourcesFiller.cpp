@@ -457,22 +457,21 @@ void DrawResourcesFiller::finalizeTextureCopies(SIntendedSubmitInfo& intendedNex
 		auto& textureCopy = textureCopies[i];
 		for (uint32_t mip = 0; mip < textureCopy.image->getCreationParameters().mipLevels; mip++)
 		{
-			uint32_t mipW = textureCopy.imageExtent.x / (1 << mip);
-			uint32_t mipH = textureCopy.imageExtent.y / (1 << mip);
+			auto mipImageRegion = textureCopy.image->getRegion(mip, core::vectorSIMDu32(0u, 0u));
 
 			asset::IImage::SBufferCopy region = {};
 			region.imageSubresource.aspectMask = asset::IImage::EAF_COLOR_BIT;
-			region.imageSubresource.mipLevel = mip;
+			region.imageSubresource.mipLevel = mipImageRegion->imageSubresource.mipLevel;
 			region.imageSubresource.baseArrayLayer = textureCopy.index;
 			region.imageSubresource.layerCount = 1u;
 			region.bufferOffset = 0u;
-			region.bufferRowLength = mipW;
+			region.bufferRowLength = mipImageRegion->getExtent().width;
 			region.bufferImageHeight = 0u;
-			region.imageExtent = { mipW, mipH, textureCopy.imageExtent.z };
+			region.imageExtent = mipImageRegion->imageExtent;
 			region.imageOffset = { 0u, 0u, 0u };
 
 			auto buffer = reinterpret_cast<uint8_t*>(textureCopy.image->getBuffer()->getPointer());
-			auto bufferOffset = textureCopy.image->getRegion(mip, core::vectorSIMDu32(0u, 0u))->bufferOffset;
+			auto bufferOffset = mipImageRegion->bufferOffset;
 
 			m_utilities->updateImageViaStagingBuffer(
 				intendedNextSubmit, 
@@ -884,23 +883,26 @@ uint32_t DrawResourcesFiller::addMSDFTexture(std::function<core::smart_refctd_pt
 	// if inserted->alloc_idx was not InvalidTextureIdx then it means we had a cache hit and updated the value of our sema, in which case we don't queue anything for upload, and return the idx
 	if (inserted->alloc_idx == InvalidTextureIdx)
 	{
-		auto cpuBuffer = createResourceIfEmpty();
+		auto cpuImage = createResourceIfEmpty();
 
-		// New insertion == cache miss happened and insertion was successfull
-		inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
-		msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+		const auto cpuImageSize = cpuImage->getMipSize(0);
+		const bool sizeMatch = cpuImageSize.x == getMSDFResolution().x && cpuImageSize.y == getMSDFResolution().y && cpuImageSize.z == 1u;
 
-		// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
-		textureCopies.push_back({
-			.image = std::move(cpuBuffer),
-			.bufferOffset = 0u,
-			.imageExtent = uint32_t3(getMSDFResolution(), 1u),
-			.index = inserted->alloc_idx,
-		});
+		if (sizeMatch)
+		{
+			// New insertion == cache miss happened and insertion was successfull
+			inserted->alloc_idx = IndexAllocator::AddressAllocator::invalid_address;
+			msdfTextureArrayIndexAllocator->multi_allocate(1u, &inserted->alloc_idx);
+
+			// We queue copy and finalize all on `finalizeTextureCopies` function called before draw calls to make sure it's in mem
+			textureCopies.push_back({ .image = std::move(cpuImage), .index = inserted->alloc_idx });
+		}
 	}
-	msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
 
 	assert(inserted->alloc_idx != InvalidTextureIdx);
+	if (inserted->alloc_idx != InvalidTextureIdx)
+		msdfTextureArrayIndicesUsed.emplace(inserted->alloc_idx);
+
 	return inserted->alloc_idx;
 }
 

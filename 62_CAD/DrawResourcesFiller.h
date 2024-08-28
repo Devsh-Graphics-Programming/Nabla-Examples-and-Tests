@@ -219,8 +219,6 @@ protected:
 	struct TextureCopy
 	{
 		core::smart_refctd_ptr<ICPUImage> image;
-		uint64_t bufferOffset;
-		uint32_t3 imageExtent;
 		uint32_t index;
 	};
 
