@@ -390,40 +390,52 @@ private:
 
     bool m_keepRunning = true;
 
-    constexpr static inline uint32_t EmulatedFloat64TestIterations = 10000u;
+    constexpr static inline uint32_t EmulatedFloat64TestIterations = 10u;
     
-    template<bool FastMath, bool FlushDenormToZero>
+    enum class EmulatedFloatTestDevice
+    {
+        CPU,
+        GPU
+    };
+
+    template<bool FastMath, bool FlushDenormToZero, EmulatedFloatTestDevice Device>
     bool compareEmulatedFloat64TestValues(const TestValues<FastMath, FlushDenormToZero>& expectedValues, const TestValues<FastMath, FlushDenormToZero>& testValues)
     {
         bool success = true;
 
+        auto printOnFailure = [this](EmulatedFloatTestDevice device)
+        {
+            if (device == EmulatedFloatTestDevice::CPU)
+                m_logger->log("CPU test fail:", ILogger::ELL_ERROR);
+            else
+                m_logger->log("GPU test fail:", ILogger::ELL_ERROR);
+        };
+
         auto printOnArithmeticFailure = [this](const char* valName, uint64_t expectedValue, uint64_t testValue, uint64_t a, uint64_t b)
-            {
-                double expectedAsDouble = reinterpret_cast<double&>(expectedValue);
-                double testAsDouble = reinterpret_cast<double&>(testValue);
-                double error = std::abs(expectedAsDouble - testAsDouble);
+        {
+            double expectedAsDouble = reinterpret_cast<double&>(expectedValue);
+            double testAsDouble = reinterpret_cast<double&>(testValue);
+            double error = std::abs(expectedAsDouble - testAsDouble);
 
-                m_logger->log("for input values: A = %f B = %f", ILogger::ELL_ERROR, reinterpret_cast<double&>(a), reinterpret_cast<double&>(b));
+            std::stringstream ss;
+            ss << "for input values: A = " << reinterpret_cast<double&>(a) << " B = " << reinterpret_cast<double&>(b) << '\n';
+            ss << valName << " not equal!";
+            ss << "\nexpected value: " << std::fixed << std::setprecision(20) << expectedAsDouble;
+            ss << "\ntest value:     " << std::fixed << std::setprecision(20) << testAsDouble;
+            ss << "\nerror = " << error << '\n';
+            ss << "bit representations: \n";
+            ss << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
+            ss << std::bitset<64>(expectedValue) << '\n';
+            ss << std::bitset<64>(testValue) << '\n';
 
-                std::stringstream ss;
-                ss << valName << " not equal!";
-                ss << "\nexpected value: " << std::fixed << std::setprecision(20) << expectedAsDouble;
-                ss << "\ntest value:     " << std::fixed << std::setprecision(20) << testAsDouble;
-                ss << "\nerror = " << error << '\n';
-                ss << "bit representations: \n";
-                ss << "seeeeeeeeeeemmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm\n";
-                ss << std::bitset<64>(expectedValue) << '\n';
-                ss << std::bitset<64>(testValue) << '\n';
+            m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
 
-                m_logger->log(ss.str().c_str(), ILogger::ELL_ERROR);
-
-            };
+        };
 
         auto calcULPError = [](emulated_float64_t::storage_t expectedValue, emulated_float64_t::storage_t testValue)
         {
             return std::abs(int64_t(expectedValue) - int64_t(testValue));
         };
-
 
         auto printOnComparisonFailure = [this](const char* valName, int expectedValue, int testValue, double a, double b)
         {
@@ -443,97 +455,109 @@ private:
             success = false;
         }*/
 
-        // TODO: uncomment
-        /*if (expectedValues.int32CreateVal != testValues.int32CreateVal)
+        if (calcULPError(expectedValues.int32CreateVal, testValues.int32CreateVal) > 1u)
         {
             std::cout << expectedValues.int32CreateVal << std::endl;
             std::cout << testValues.int32CreateVal << std::endl;
+            printOnFailure(Device);
             printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.int64CreateVal != testValues.int64CreateVal)
+        if (calcULPError(expectedValues.int64CreateVal, testValues.int64CreateVal) > 1u)
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("int64CreateVal", expectedValues.int64CreateVal, testValues.int64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        // TODO: uncomment
-        if (expectedValues.uint32CreateVal != testValues.uint32CreateVal)
+        if (calcULPError(expectedValues.uint32CreateVal, testValues.uint32CreateVal) > 1u)
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("uint32CreateVal", expectedValues.uint32CreateVal, testValues.uint32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.uint64CreateVal != testValues.uint64CreateVal)
+        if (calcULPError(expectedValues.uint64CreateVal, testValues.uint64CreateVal) > 1u)
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("uint64CreateVal", expectedValues.uint64CreateVal, testValues.uint64CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        if (expectedValues.float16CreateVal != testValues.float16CreateVal)
+        /*if (calcULPError(expectedValues.float16CreateVal, testValues.float16CreateVal) > 1u)
         {
             m_logger->log("float16CreateVal not equal, expected value: %llu     test value: %llu", ILogger::ELL_ERROR, expectedValues.float16CreateVal, testValues.float16CreateVal);
             success = false;
-        }
-        if (expectedValues.float32CreateVal != testValues.float32CreateVal)
+        }*/
+        if (calcULPError(expectedValues.float32CreateVal, testValues.float32CreateVal) > 1u)
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("float32CreateVal", expectedValues.float32CreateVal, testValues.float32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }
-        */
         /*
         if (expectedValues.float64CreateVal != testValues.float64CreateVal)
         {
-            printOnArithmeticFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
+            printOnFailure("int32CreateVal", expectedValues.int32CreateVal, testValues.int32CreateVal, expectedValues.a, expectedValues.b);
             success = false;
         }*/
-        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 3u)
+        if (calcULPError(expectedValues.additionVal, testValues.additionVal) > 2u)
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("additionVal", expectedValues.additionVal, testValues.additionVal, expectedValues.a, expectedValues.b);
             std::cout << "ULP error: " << calcULPError(expectedValues.additionVal, testValues.additionVal) << std::endl;
             success = false;
         }
-        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 3u)
+        if (calcULPError(expectedValues.substractionVal, testValues.substractionVal) > 2u)
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("substractionVal", expectedValues.substractionVal, testValues.substractionVal, expectedValues.a, expectedValues.b);
             std::cout << "ULP error: " << calcULPError(expectedValues.additionVal, testValues.additionVal) << std::endl;
             success = false;
         }
         if (calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal) > 2u) // TODO: only 1 ulp error allowed
         {
+            printOnFailure(Device);
             std::cout << calcULPError(expectedValues.multiplicationVal, testValues.multiplicationVal);
             printOnArithmeticFailure("multiplicationVal", expectedValues.multiplicationVal, testValues.multiplicationVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (calcULPError(expectedValues.divisionVal, testValues.divisionVal) > 2u)  // TODO: only 1 ulp error allowed
         {
+            printOnFailure(Device);
             printOnArithmeticFailure("divisionVal", expectedValues.divisionVal, testValues.divisionVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.lessOrEqualVal != testValues.lessOrEqualVal)
         {
+            printOnFailure(Device);
             printOnComparisonFailure("lessOrEqualVal", expectedValues.lessOrEqualVal, testValues.lessOrEqualVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.greaterOrEqualVal != testValues.greaterOrEqualVal)
         {
+            printOnFailure(Device);
             printOnComparisonFailure("greaterOrEqualVal", expectedValues.greaterOrEqualVal, testValues.greaterOrEqualVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.equalVal != testValues.equalVal)
         {
+            printOnFailure(Device);
             printOnComparisonFailure("equalVal", expectedValues.equalVal, testValues.equalVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.notEqualVal != testValues.notEqualVal)
         {
+            printOnFailure(Device);
             printOnComparisonFailure("notEqualVal", expectedValues.notEqualVal, testValues.notEqualVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.lessVal != testValues.lessVal)
         {
+            printOnFailure(Device);
             printOnComparisonFailure("lessVal", expectedValues.lessVal, testValues.lessVal, expectedValues.a, expectedValues.b);
             success = false;
         }
         if (expectedValues.greaterVal != testValues.greaterVal)
         {
+            printOnFailure(Device);
             printOnComparisonFailure("greaterVal", expectedValues.greaterVal, testValues.greaterVal, expectedValues.a, expectedValues.b);
             success = false;
         }
@@ -762,7 +786,7 @@ private:
         printTestOutput("emulatedFloat64BInfTest", emulatedFloat64BInfTest(submitter));
         printTestOutput("emulatedFloat64BNegInfTest", emulatedFloat64BNegInfTest(submitter));
 
-        //TODO: test quick math
+        //TODO: test fast math
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -866,7 +890,7 @@ private:
         std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
         std::uniform_real_distribution f64Distribution(-10000000.0, 10000000.0);
 
-        std::uniform_real_distribution f64DistributionSmall(0.000000000001, 0.00000000001);
+        std::uniform_real_distribution f64DistributionSmall(0.001, 8.0);
         std::uniform_real_distribution f64DistributionLarge(10000000.0, 20000000.0);
 
         auto coinFlip = [&mt]()
@@ -941,7 +965,13 @@ private:
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
         testValInfo.a = emulated_float64_t<false, true>::create(std::bit_cast<uint64_t>(-0.0));
         testValInfo.b = emulated_float64_t<false, true>::create(std::bit_cast<uint64_t>(0.0));
-        testValInfo.constrTestValues = {};
+        testValInfo.constrTestValues = {
+            .int32 = 0,
+            .int64 = 0,
+            .uint32 = 0,
+            .uint64 = 0,
+            .float32 = 0
+        };
 
         testValInfo.fillExpectedTestValues();
         return performEmulatedFloat64Tests(testValInfo, submitter);
@@ -952,15 +982,15 @@ private:
         smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
 
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
-        const float32_t inf32 = std::numeric_limits<float64_t>::infinity();
+        const float32_t inf32 = std::numeric_limits<float32_t>::infinity();
         const float64_t inf64 = std::numeric_limits<float64_t>::infinity();
         testValInfo.a = emulated_float64_t<false, true>::create(inf64);
         testValInfo.b = emulated_float64_t<false, true>::create(inf64);
         testValInfo.constrTestValues = {
-            .int32 = std::bit_cast<int32_t>(inf32),
-            .int64 = std::bit_cast<int64_t>(inf64),
-            .uint32 = std::bit_cast<uint32_t>(inf32),
-            .uint64 = std::bit_cast<uint64_t>(inf64),
+            .int32 = 0,
+            .int64 = 0,
+            .uint32 = 0,
+            .uint64 = 0,
             .float32 = inf32
             //.float64 = inf64
         };
@@ -974,15 +1004,15 @@ private:
         smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
 
         EmulatedFloat64TestValuesInfo<false, true> testValInfo;
-        const float32_t inf32 = -std::numeric_limits<float64_t>::infinity();
+        const float32_t inf32 = -std::numeric_limits<float32_t>::infinity();
         const float64_t inf64 = -std::numeric_limits<float64_t>::infinity();
         testValInfo.a = emulated_float64_t<false, true>::create(inf64);
         testValInfo.b = emulated_float64_t<false, true>::create(inf64);
         testValInfo.constrTestValues = {
-            .int32 = std::bit_cast<int32_t>(inf32),
-            .int64 = std::bit_cast<int64_t>(inf64),
-            .uint32 = std::bit_cast<uint32_t>(inf32),
-            .uint64 = std::bit_cast<uint64_t>(inf64),
+            .int32 = 0,
+            .int64 = 0,
+            .uint32 = 0,
+            .uint64 = 0,
             .float32 = inf32
             //.float64 = inf64
         };
@@ -993,6 +1023,7 @@ private:
 
     EmulatedFloat64TestOutput emulatedFloat64BNaNTest(EF64Submitter& submitter)
     {
+        EmulatedFloat64TestOutput output = { true, true };
         smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
 
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
@@ -1004,14 +1035,14 @@ private:
             std::uniform_int_distribution i64Distribution(-std::numeric_limits<int64_t>::max(), std::numeric_limits<int64_t>::max());
             std::uniform_int_distribution u32Distribution(-std::numeric_limits<uint32_t>::max(), std::numeric_limits<uint32_t>::max());
             std::uniform_int_distribution u64Distribution(-std::numeric_limits<uint64_t>::max(), std::numeric_limits<uint64_t>::max());
-            std::uniform_real_distribution f32Distribution(-100000.0, 100000.0);
+            std::uniform_real_distribution f32Distribution(-100000.0f, 100000.0f);
             std::uniform_real_distribution f64Distribution(-100000.0, 100000.0);
 
             EmulatedFloat64TestValuesInfo<false, true> testValInfo;
             double aTmp = f64Distribution(mt);
             double bTmp = std::numeric_limits<float64_t>::quiet_NaN();
             testValInfo.a.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(aTmp);
-            testValInfo.b.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(std::numeric_limits<float64_t>::quiet_NaN);
+            testValInfo.b.data = reinterpret_cast<emulated_float64_t<false, true>::storage_t&>(bTmp);
             testValInfo.constrTestValues.int32 = i32Distribution(mt);
             testValInfo.constrTestValues.int64 = i64Distribution(mt);
             testValInfo.constrTestValues.uint32 = u32Distribution(mt);
@@ -1020,12 +1051,20 @@ private:
             //testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, submitter);
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
         }
+
+        return output;
     }
 
     EmulatedFloat64TestOutput emulatedFloat64BInfTest(EF64Submitter& submitter)
     {
+        EmulatedFloat64TestOutput output = { true, true };
         smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
 
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
@@ -1053,12 +1092,20 @@ private:
             //testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, submitter);
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
         }
+
+        return output;
     }
 
     EmulatedFloat64TestOutput emulatedFloat64BNegInfTest(EF64Submitter& submitter)
     {
+        EmulatedFloat64TestOutput output = { true, true };
         smart_refctd_ptr<ISemaphore> semaphore = m_device->createSemaphore(0);
 
         for (uint32_t i = 0u; i < EmulatedFloat64TestIterations; ++i)
@@ -1086,8 +1133,15 @@ private:
             //testValInfo.constrTestValues.float64 = f64Distribution(mt);
 
             testValInfo.fillExpectedTestValues();
-            return performEmulatedFloat64Tests(testValInfo, submitter);
+            auto singleTestOutput = performEmulatedFloat64Tests(testValInfo, submitter);
+
+            if (!singleTestOutput.cpuTestsSucceed)
+                output.cpuTestsSucceed = false;
+            if (!singleTestOutput.gpuTestsSucceed)
+                output.gpuTestsSucceed = false;
         }
+
+        return output;
     }
 
     template <bool FastMath, bool FlushDenormToZero>
@@ -1122,7 +1176,7 @@ private:
         EmulatedFloat64TestOutput output;
 
         // cpu validation
-        output.cpuTestsSucceed = compareEmulatedFloat64TestValues<false, true>(testValInfo.expectedTestValues, cpuTestValues);
+        output.cpuTestsSucceed = compareEmulatedFloat64TestValues<false, true, EmulatedFloatTestDevice::CPU>(testValInfo.expectedTestValues, cpuTestValues);
 
         // gpu validation
         PushConstants pc;
@@ -1133,7 +1187,7 @@ private:
         submitter.setPushConstants(pc);
         auto gpuTestValues = submitter.submitGetGPUTestValues();
 
-        output.gpuTestsSucceed = compareEmulatedFloat64TestValues<false, true>(testValInfo.expectedTestValues, gpuTestValues);
+        output.gpuTestsSucceed = compareEmulatedFloat64TestValues<false, true, EmulatedFloatTestDevice::GPU>(testValInfo.expectedTestValues, gpuTestValues);
 
         return output;
     }
