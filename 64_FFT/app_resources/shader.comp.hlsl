@@ -1,16 +1,16 @@
 #include "common.hlsl"
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
+#include "nbl/builtin/hlsl/bda/legacy_bda_accessor.hlsl"
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
+using namespace nbl::hlsl;
+
 // careful: change size according to Scalar type
-groupshared uint32_t sharedmem[4 * WorkgroupSize];
+groupshared uint32_t sharedmem[ workgroup::fft::sharedMemSize<scalar_t, WorkgroupSize> ];
 
 // Users MUST define this method for FFT to work
-namespace nbl { namespace hlsl { namespace glsl
-{
-uint32_t3 gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
-} } }
+uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
 
 struct SharedMemoryAccessor 
 {
@@ -26,44 +26,37 @@ struct SharedMemoryAccessor
 
 	void workgroupExecutionAndMemoryBarrier() 
 	{
-		AllMemoryBarrierWithGroupSync();
+		glsl::barrier();
     }
 
 };
 
-struct Accessor
+struct Accessor : DoubleLegacyBdaAccessor< complex_t<scalar_t> >
 {
-	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value) 
-	{
-		vk::RawBufferStore< nbl::hlsl::complex_t<scalar_t> >(pushConstants.outputAddress + sizeof(nbl::hlsl::complex_t<scalar_t>) * idx, value);
-	}
-	
-	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value) 
-	{
-		value = vk::RawBufferLoad< nbl::hlsl::complex_t<scalar_t> >(pushConstants.inputAddress + sizeof(nbl::hlsl::complex_t<scalar_t>) * idx);
-	}
-
-	void workgroupExecutionAndMemoryBarrier() 
-	{
-		AllMemoryBarrierWithGroupSync();
+	static Accessor create(const uint64_t inputAddress, const uint64_t outputAddress)
+    {
+        Accessor accessor;
+        accessor.inputAddress = inputAddress;
+        accessor.outputAddress = outputAddress;
+        return accessor;
     }
 
 	void memoryBarrier() 
 	{
-		AllMemoryBarrier();
+		// only one workgroup is touching any memory it wishes to trade
+		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
 	}
 };
 
 [numthreads(WorkgroupSize,1,1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)
 {
-	Accessor accessor;
+	Accessor accessor = Accessor::create(pushConstants.inputAddress, pushConstants.outputAddress);
 	SharedMemoryAccessor sharedmemAccessor;
 
-	// Workgroup	
+	// FFT
 
-	nbl::hlsl::workgroup::FFT<ElementsPerThread, true, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	workgroup::FFT<ElementsPerThread, true, WorkgroupSize, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 	accessor.workgroupExecutionAndMemoryBarrier();
-	nbl::hlsl::workgroup::FFT<ElementsPerThread, false, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
-
+	workgroup::FFT<ElementsPerThread, false, WorkgroupSize, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 }
