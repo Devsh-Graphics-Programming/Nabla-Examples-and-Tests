@@ -797,9 +797,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 		using memory_backed_ptr_variant_t = std::variant<asset_cached_t<ICPUBuffer>*,asset_cached_t<ICPUImage>*>;
 		core::map<MemoryRequirementBin,core::vector<memory_backed_ptr_variant_t>> allocationRequests;
 		// for this we require that the data storage for the dfsCaches' nodes does not change
-		auto requestAllocation = [&inputs,device,&allocationRequests]<DeviceMemoryBacked DeviceMemoryBackedType>(asset_cached_t<DeviceMemoryBackedType>* pGpuObj)->bool
+		auto requestAllocation = [&inputs,device,&allocationRequests]<Asset AssetType>(asset_cached_t<AssetType>* pGpuObj)->bool
 		{
-			const auto* gpuObj = pGpuObj->get();
+			auto* gpuObj = pGpuObj->get();
 			const IDeviceMemoryBacked::SDeviceMemoryRequirements& memReqs = gpuObj->getMemoryReqs();
 			// this shouldn't be possible
 			assert(memReqs.memoryTypeBits);
@@ -808,7 +808,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 			{
 				// allocate and bind right away
 				auto allocation = device->allocate(memReqs,gpuObj);
-				if (!allocation)
+				if (allocation.isValid())
 				{
 					inputs.logger.log("Failed to allocate and bind dedicated memory for %s",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 					return false;
@@ -822,7 +822,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					// we ignore this for now, because we can't know how many `DeviceMemory` objects we have left to make, so just join everything by default
 					//.refersDedicatedAllocation = memReqs.prefersDedicatedAllocation
 				};
-				if constexpr (std::is_same_v<DeviceMemoryBackedType,IGPUBuffer>)
+				if constexpr (std::is_same_v<std::remove_pointer_t<decltype(gpuObj)>,IGPUBuffer>)
 					reqBin.needsDeviceAddress = gpuObj->getCreationParams().usage.hasFlags(IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT);
 				allocationRequests[reqBin].emplace_back(pGpuObj);
 			}
@@ -1458,12 +1458,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					// propagate back to dfsCache
 					created.gpuObj = std::move(gpuObj);
 					// record if a device memory allocation will be needed
-					if constexpr (std::is_base_of_v<IDeviceMemoryBacked,AssetType>)
+					if constexpr (std::is_base_of_v<IDeviceMemoryBacked,typename asset_traits<AssetType>::video_t>)
 					{
 						if (!requestAllocation(&created.gpuObj))
 						{
-							created.gpuObj = nullptr;
-							continue;
+							created.gpuObj.value = nullptr;
+							return;
 						}
 					}
 					//
@@ -1571,7 +1571,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				{
 					using allocate_flags_t = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
 					IDeviceMemoryAllocator::SAllocateInfo info = {
-						.size = offsetsTmp.back(), // we have one more item in the array
+						.size = 0xdeadbeefBADC0FFEull, // set later
 						.flags = reqBin.first.needsDeviceAddress ? allocate_flags_t::EMAF_DEVICE_ADDRESS_BIT:allocate_flags_t::EMAF_NONE,
 						.memoryTypeIndex = memTypeIx,
 						.dedication = nullptr
