@@ -106,13 +106,19 @@ class RESOURCES_BUILDER
 public:
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
-	RESOURCES_BUILDER(nbl::video::IUtilities* const _utilities, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
-		: utilities(_utilities), logger(_logger), geometryCreator(_geometryCreator)
+	RESOURCES_BUILDER(nbl::video::IUtilities* const _utilities, nbl::video::IGPUCommandBuffer* const _commandBuffer, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
+		: utilities(_utilities), commandBuffer(_commandBuffer), logger(_logger), geometries(_geometryCreator)
 	{
 		assert(utilities);
 		assert(logger);
-		assert(geometryCreator);
 	}
+
+	/*
+		if (withAssetConverter) then
+			-> .build cpu objects
+		else
+			-> .build gpu objects & record any resource update upload transfers into command buffer
+	*/
 
 	inline bool build()
 	{
@@ -122,6 +128,13 @@ public:
 		_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
 		_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = EF_D16_UNORM;
 		_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = IGPUImage::ESCF_1_BIT;
+
+		if (!withAssetConverter)
+		{
+			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			commandBuffer->beginDebugMarker("Resources builder's buffers upload [manual]");
+		}
 
 		// descriptor set layout
 		{
@@ -414,8 +427,6 @@ public:
 
 		// geometries
 		{
-			auto geometries = GEOMETRIES_CPU(geometryCreator);
-
 			for (uint32_t i = 0; i < geometries.objects.size(); ++i)
 			{
 				const auto& inGeometry = geometries.objects[i];
@@ -537,38 +548,29 @@ public:
 								}
 							}
 
-							auto fillGPUBuffer = [&logger = logger](smart_refctd_ptr<ICPUBuffer> cBuffer, smart_refctd_ptr<IGPUBuffer> gBuffer)
-							{
-								auto binding = gBuffer->getBoundMemory();
-
-								if (!binding.memory->map({ 0ull, binding.memory->getAllocationSize() }, IDeviceMemoryAllocation::EMCAF_READ))
-								{
-									logger->log("Could not map device memory", ILogger::ELL_ERROR);
-									return false;
-								}
-
-								if (!binding.memory->isCurrentlyMapped())
-								{
-									logger->log("Buffer memory is not mapped!", system::ILogger::ELL_ERROR);
-									return false;
-								}
-
-								auto* mPointer = binding.memory->getMappedPointer();
-								memcpy(mPointer, cBuffer->getPointer(), gBuffer->getSize());
-								binding.memory->unmap();
-
-								return true;
-							};
-
-							if (!fillGPUBuffer(vBuffer, vertexBuffer))
-								return false;
-
-							if (indexBuffer)
-								if (!fillGPUBuffer(iBuffer, indexBuffer))
-									return false;
-
+							// record transfer uploads
 							obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
+							{
+								const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
+								if (!commandBuffer->updateBuffer(range, vBuffer->getPointer()))
+								{
+									logger->log("Could not record vertex buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+									status = false;
+								}
+							}
 							obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
+							{
+								if (iBuffer)
+								{
+									const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
+
+									if (!commandBuffer->updateBuffer(range, iBuffer->getPointer()))
+									{
+										logger->log("Could not record index buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+										status = false;
+									}
+								}
+							}
 						}
 						
 						return true;
@@ -627,15 +629,45 @@ public:
 			}
 		}
 
+		if (!withAssetConverter)
+			commandBuffer->end();
+
 		return true;
 	}
 
-	inline bool finalize(RESOURCES_BUNDLE& output)
+	/*
+		if (withAssetConverter) then
+			-> .convert cpu objects to gpu & update gpu buffers
+		else
+			-> update gpu buffers
+	*/
+
+	inline bool finalize(RESOURCES_BUNDLE& output, nbl::video::CThreadSafeQueueAdapter* transferCapableQueue)
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
+		auto completed = utilities->getLogicalDevice()->createSemaphore(0u);
+
+		std::array<IQueue::SSubmitInfo::SSemaphoreInfo, 1u> signals;
+		{
+			auto& signal = signals.front();
+			signal.value = 0x45;
+			signal.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
+			signal.semaphore = completed.get();
+		}
+
+		std::array<IQueue::SSubmitInfo::SCommandBufferInfo, 1u> commandBuffers = {};
+		{
+			commandBuffers.front().cmdbuf = commandBuffer;
+		}
+
 		if constexpr (withAssetConverter)
 		{
+			// record any required resource buffers' uploads
+			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
+			commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+			commandBuffer->beginDebugMarker("Resources builder's buffers upload [asset converter]");
+
 			// asset converter - scratch at this point has ready to convert cpu resources
 			smart_refctd_ptr<CAssetConverter> converter = CAssetConverter::create({ .device = utilities->getLogicalDevice(),.optimizer = {} });
 			CAssetConverter::SInputs inputs = {};
@@ -677,60 +709,63 @@ public:
 			}
 
 			// reserve and create the GPU object handles
-			CAssetConverter::SResults reservation = converter->reserve(inputs);
+			auto reservation = converter->reserve(inputs);
 			{
-				auto validate = [&]<typename ASSET_TYPE>(const auto& references) -> bool
+				auto prepass = [&]<typename ASSET_TYPE>(const auto& references) -> bool
 				{
 					// retrieve the reserved handles
-					const auto objects = reservation.getGPUObjects<ASSET_TYPE>();
+					auto objects = reservation.getGPUObjects<ASSET_TYPE>();
 
 					uint32_t counter = {};
-					for (const auto& object : objects)
+					for (auto& object : objects)
 					{
 						// anything that fails to be reserved is a nullptr in the span of GPU Objects
 						auto gpu = object.value;
+						auto* reference = references[counter];
 
+						// validate
 						if (!gpu)
 						{
-							if (references[counter]) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
+							if (reference) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
 							{
 								logger->log("Failed to convert a CPU object to GPU!", nbl::system::ILogger::ELL_ERROR);
 								return false;
 							}
-						} ++counter;
+						} 
+						
+						// record any uploads
+						if constexpr (std::same_as<ASSET_TYPE, ICPUBuffer>)
+						{
+							// TODO: does convert do it or should I do it? CHECK IT
+
+							const SBufferRange<IGPUBuffer> range = { .offset = 0u, .size = reference->getSize(), .buffer = gpu };
+							commandBuffer->updateBuffer(range, reference->getPointer());
+						}
+						
+						++counter;
 					}
 
 					return true;
 				};
 				
-				validate.template operator() < ICPURenderpass > (hooks.renderpass);
-				validate.template operator() < ICPUGraphicsPipeline > (hooks.pipelines);
-				validate.template operator() < ICPUBuffer > (hooks.buffers);
+				prepass.template operator() < ICPURenderpass > (hooks.renderpass);
+				prepass.template operator() < ICPUGraphicsPipeline > (hooks.pipelines);
+				prepass.template operator() < ICPUBuffer > (hooks.buffers);
 				// validate.template operator() < ICPUImageView > (hooks.attachments);
 			}
 
 			CAssetConverter::SConvertParams params = {};
 			params.utilities = utilities;
-			
-			/*
-				TODO: fill "params.transfer." with 
-				- command buffer span (one time submit + record commands!)
-				- proper queue
-				- a semaphore
-			*/
+			params.transfer.queue = transferCapableQueue;
+			params.transfer.scratchSemaphore = signals.front();
+			params.transfer.commandBuffers = commandBuffers;
+
+			commandBuffer->end();
 
 			// basically all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards!
 			if (!reservation.convert(params))
 			{
 				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR);
-				return false;
-			}
-			
-			// `autoSubmit` actually returns a pair of ISempahore::future_t one for compute and one for xfer
-			// you can store them and delay blocking for conversion to be complete
-			if (!params.autoSubmit())
-			{
-				logger->log("Failed to submit & await conversions!", nbl::system::ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -757,7 +792,32 @@ public:
 			}
 		}
 		else
-			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use gpu resources with allocated memory, just give the output ownership
+		{
+			const nbl::video::IQueue::SSubmitInfo infos [] =
+			{
+				{
+					.waitSemaphores = {},
+					.commandBuffers = commandBuffers,
+					.signalSemaphores = signals
+				}
+			};
+
+			if (transferCapableQueue->submit(infos) != nbl::video::IQueue::RESULT::SUCCESS)
+			{
+				logger->log("Failed to submit transfer upload operations!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			const nbl::video::ISemaphore::SWaitInfo info [] =
+			{ {
+				.semaphore = completed.get(),
+				.value = 0x45
+			} };
+
+			utilities->getLogicalDevice()->blockForSemaphores(info);
+
+			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to output
+		}
 
 		// base gpu resources are created at this point and stored into output, let's create left gpu objects
 		
@@ -909,8 +969,9 @@ private:
 	RESOURCES_BUNDLE_SCRATCH scratch;
 
 	nbl::video::IUtilities* const utilities;
+	nbl::video::IGPUCommandBuffer* const commandBuffer;
 	nbl::system::ILogger* const logger;
-	const nbl::asset::IGeometryCreator* const geometryCreator;
+	GEOMETRIES_CPU geometries;
 };
 
 #undef TYPES_IMPL_BOILERPLATE
@@ -1082,13 +1143,13 @@ private:
 		using BUILDER = typename CREATE_WITH::BUILDER;
 
 		bool status = createCommandBuffer();
-		BUILDER builder(m_utilities.get(), m_logger.get(), _geometryCreator);
+		BUILDER builder(m_utilities.get(), m_commandBuffer.get(), m_logger.get(), _geometryCreator);
 
 		// gpu resources
 		if (builder.build())
 		{
-			if (!builder.finalize(resources))
-				m_logger->log("Could not finalize to gpu objects!", nbl::system::ILogger::ELL_ERROR);
+			if (!builder.finalize(resources, queue))
+				m_logger->log("Could not finalize resource objects to gpu objects!", nbl::system::ILogger::ELL_ERROR);
 		}
 		else
 			m_logger->log("Could not build resource objects!", nbl::system::ILogger::ELL_ERROR);
