@@ -2,14 +2,15 @@
 
 #include "../common.hlsl"
 #include "../gridUtils.hlsl"
+#include "../descriptor_bindings.hlsl"
 
-[[vk::binding(0, 1)]]
+[[vk::binding(b_piGridData, s_pi)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(1, 1)]] RWStructuredBuffer<Particle> particleBuffer;
+[[vk::binding(b_piPBuffer, s_pi)]] RWStructuredBuffer<Particle> particleBuffer;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

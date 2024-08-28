@@ -31,17 +31,6 @@ public:
         // allocate remaining buffers on compute
 
 
-  //      nbl::video::IGPUDescriptorSetLayout::SBinding bindingsSet0[] = {
-		//	{
-		//		.binding=1,
-		//		.type=nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-		//		.createFlags=IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-		//		.stageFlags=IGPUShader::E_SHADER_STAGE::ESS_COMPUTE,
-		//		.count=1u,
-		//	},
-		//};
-		//smart_refctd_ptr<IGPUDescriptorSetLayout> dsLayout0 = device->createDescriptorSetLayout(bindingsSet0);
-
         nbl::video::IGPUDescriptorSetLayout::SBinding bindingsSet1[] = {
 			{
 				.binding=0,

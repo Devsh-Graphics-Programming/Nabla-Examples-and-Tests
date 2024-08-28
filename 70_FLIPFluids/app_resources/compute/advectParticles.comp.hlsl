@@ -1,14 +1,15 @@
 #include "../common.hlsl"
 #include "../gridSampling.hlsl"
+#include "../descriptor_bindings.hlsl"
 
-[[vk::binding(0, 1)]]
+[[vk::binding(b_apGridData, s_ap)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(1, 1)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(2, 1)]] RWStructuredBuffer<float4> velocityFieldBuffer;
+[[vk::binding(b_apPBuffer, s_ap)]] RWStructuredBuffer<Particle> particleBuffer;
+[[vk::binding(b_apVelFieldBuffer, s_ap)]] RWStructuredBuffer<float4> velocityFieldBuffer;
 
 // delta time push constant?
 

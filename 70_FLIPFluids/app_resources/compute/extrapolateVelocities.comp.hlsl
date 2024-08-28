@@ -1,15 +1,16 @@
 #include "../common.hlsl"
 #include "../gridSampling.hlsl"
+#include "../descriptor_bindings.hlsl"
 
-[[vk::binding(0, 1)]]
+[[vk::binding(b_evGridData, s_ev)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(1, 1)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(2, 1)]] RWStructuredBuffer<float4> velocityFieldBuffer;
-[[vk::binding(3, 1)]] RWStructuredBuffer<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_evPBuffer, s_ev)]] RWStructuredBuffer<Particle> particleBuffer;
+[[vk::binding(b_evVelFieldBuffer, s_ev)]] RWStructuredBuffer<float4> velocityFieldBuffer;
+[[vk::binding(b_evPrevVelFieldBuffer, s_ev)]] RWStructuredBuffer<float4> prevVelocityFieldBuffer;
 
 [numthreads(WorkgroupSize, 1, 1)]
 void main(uint32_t3 ID : SV_DispatchThreadID)

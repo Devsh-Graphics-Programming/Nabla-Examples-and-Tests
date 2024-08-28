@@ -6,21 +6,22 @@
 #include "../gridUtils.hlsl"
 #include "../cellUtils.hlsl"
 #include "../kernel.hlsl"
+#include "../descriptor_bindings.hlsl"
 
-[[vk::binding(0, 1)]]
+[[vk::binding(b_ufcGridData, s_ufc)]]
 cbuffer GridData
 {
     SGridData gridData;
 };
 
-[[vk::binding(1, 1)]] StructuredBuffer<Particle> particleBuffer;
-[[vk::binding(2, 1)]] StructuredBuffer<uint2> gridParticleIDBuffer;
+[[vk::binding(b_ufcPBuffer, s_ufc)]]        RWStructuredBuffer<Particle> particleBuffer;
+[[vk::binding(b_ufcGridIDBuffer, s_ufc)]]   RWStructuredBuffer<uint2> gridParticleIDBuffer;
 
-[[vk::binding(3, 1)]] RWStructuredBuffer<uint> cellMaterialInBuffer;
-[[vk::binding(4, 1)]] RWStructuredBuffer<uint> cellMaterialOutBuffer;
+[[vk::binding(b_ufcCMInBuffer, s_ufc)]]     RWStructuredBuffer<uint> cellMaterialInBuffer;
+[[vk::binding(b_ufcCMOutBuffer, s_ufc)]]    RWStructuredBuffer<uint> cellMaterialOutBuffer;
 
-[[vk::binding(5, 1)]] RWStructuredBuffer<float4> velocityFieldBuffer;
-[[vk::binding(6, 1)]] RWStructuredBuffer<float4> prevVelocityFieldBuffer;
+[[vk::binding(b_ufcVelBuffer, s_ufc)]]      RWStructuredBuffer<float4> velocityFieldBuffer;
+[[vk::binding(b_ufcPrevVelBuffer, s_ufc)]]  RWStructuredBuffer<float4> prevVelocityFieldBuffer;
 
 static const int kernel[6] = { -1, 1, -1, 1, -1, 1 };
 

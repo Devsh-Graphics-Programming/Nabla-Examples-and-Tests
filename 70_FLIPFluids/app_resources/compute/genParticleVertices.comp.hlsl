@@ -2,21 +2,22 @@
 
 #include "../common.hlsl"
 #include "../render_common.hlsl"
+#include "../descriptor_bindings.hlsl"
 
-[[vk::binding(0, 1)]]
+[[vk::binding(b_gpvCamData, s_gpv)]]
 cbuffer CameraData
 {
     SMVPParams camParams;
 };
 
-[[vk::binding(1, 1)]]
+[[vk::binding(b_gpvPParams, s_gpv)]]
 cbuffer ParticleParams
 {
     SParticleRenderParams pParams;
 };
 
-[[vk::binding(2, 1)]] RWStructuredBuffer<Particle> particleBuffer;
-[[vk::binding(0, 2)]] RWStructuredBuffer<VertexInfo> particleVertexBuffer;
+[[vk::binding(b_gpvPBuffer, s_gpv)]] RWStructuredBuffer<Particle> particleBuffer;
+[[vk::binding(b_gpvPVertBuffer, s_gpv)]] RWStructuredBuffer<VertexInfo> particleVertexBuffer;
 
 static const uint vertexOrder[6] = {0, 1, 2, 2, 1, 3};
 
