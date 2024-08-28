@@ -4,10 +4,10 @@
 
 [[vk::push_constant]] PushConstantData pushConstants;
 
-// careful: change size according to Scalar type
-groupshared uint32_t sharedmem[4 * WorkgroupSize];
-
 using namespace nbl::hlsl;
+
+// careful: change size according to Scalar type
+groupshared uint32_t sharedmem[ workgroup::fft::sharedMemSize<scalar_t, WorkgroupSize> ];
 
 // Users MUST define this method for FFT to work
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(WorkgroupSize, 1, 1); }
@@ -56,7 +56,7 @@ void main(uint32_t3 ID : SV_DispatchThreadID)
 
 	// FFT
 
-	workgroup::FFT<ElementsPerThread, true, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
+	workgroup::FFT<ElementsPerThread, true, WorkgroupSize, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);
 	accessor.workgroupExecutionAndMemoryBarrier();
-	workgroup::FFT<ElementsPerThread, false, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
+	workgroup::FFT<ElementsPerThread, false, WorkgroupSize, scalar_t>::template __call<Accessor, SharedMemoryAccessor>(accessor, sharedmemAccessor);	
 }

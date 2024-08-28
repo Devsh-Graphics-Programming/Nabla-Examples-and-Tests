@@ -9,7 +9,6 @@ struct PushConstantData
 	uint32_t dataElementCount;
 };
 
-#define _NBL_HLSL_WORKGROUP_SIZE_ 64
-NBL_CONSTEXPR uint32_t WorkgroupSize = _NBL_HLSL_WORKGROUP_SIZE_;
+NBL_CONSTEXPR uint32_t WorkgroupSize = 64;
 NBL_CONSTEXPR uint32_t ElementsPerThread = 8;
 NBL_CONSTEXPR uint32_t complexElementCount = WorkgroupSize * ElementsPerThread;
