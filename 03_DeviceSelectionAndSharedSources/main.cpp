@@ -80,21 +80,13 @@ public:
 			// All dependant assets will be converted (or found in the `inputs.readCache`) 
 			std::get<CAssetConverter::SInputs::asset_span_t<ICPUComputePipeline>>(inputs.assets) = {&cpuPipeline.get(),1};
 			// Simple Objects that don't require any queue submissions (such as trasfer operations or Acceleration Structure builds) are created right away
-			CAssetConverter::SResults reservation = converter->reserve(inputs);
+			CAssetConverter::SReserveResult reservation = converter->reserve(inputs);
 			// There's a 1:1 mapping between `SInputs::assets` and `SReservation::m_gpuObjects`.
 			const auto pipelines = reservation.getGPUObjects<ICPUComputePipeline>();
 			// Anything that fails to convert is a nullptr in the span of GPU Objects
 			pipeline = pipelines[0].value;
 			if (!pipeline)
 				return logFail("Failed to convert CPU pipeline to GPU pipeline");
-#if 1 // arek remove after you use it in ex 35
-			CAssetConverter::SConvertParams params = {};
-			if (!reservation.convert(params))
-				return logFail("Failed to submit conversions");
-			if (!params.autoSubmit())
-				return logFail("Failed to await conversions");
-			// TODO: if using multi-queue, then inherit from the `params` and override `getFinalOwnerQueueFamily`
-#endif
 
 			// Create Descriptor Sets for the Layouts manually
 			const auto dscLayoutPtrs = pipeline->getLayout()->getDescriptorSetLayouts();
