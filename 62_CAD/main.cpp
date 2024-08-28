@@ -910,7 +910,7 @@ public:
 		drawResourcesFiller.setGlyphMSDFTextureFunction(
 			[&](nbl::ext::TextRendering::FontFace* face, uint32_t glyphIdx) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
-				return std::move(face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), 4));
+				return std::move(face->generateGlyphMSDF(MSDFPixelRange, glyphIdx, drawResourcesFiller.getMSDFResolution(), MSDFMips));
 			}
 		);
 

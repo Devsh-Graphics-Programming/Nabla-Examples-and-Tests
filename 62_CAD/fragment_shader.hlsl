@@ -566,7 +566,7 @@ float4 main(PSInput input) : SV_TARGET
         if (textureId != InvalidTextureIdx)
         {
             float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId)), 0.0).xyz;
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, HatchFillMSDFSceenSpaceSize / MSDFSize);
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange * HatchFillMSDFSceenSpaceSize / MSDFSize);
             localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
         }
     }
@@ -579,13 +579,22 @@ float4 main(PSInput input) : SV_TARGET
         {
             float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
             float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)), mipLevel);
-            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange, input.getFontGlyphScreenPxRange());
-            float aaFactor = globals.antiAliasingFactor;
-            
-            // localAlpha = smoothstep(-globals.antiAliasingFactor, 0.0, msdf); 
-            // IDK why but it looks best if aa is done on the inside of the shape too esp for curved and diagonal shapes, it may make the shape a tiny bit thinner but worth it
-            localAlpha = smoothstep(+aaFactor, -aaFactor, msdf); 
-            localAlpha = smoothstep(+aaFactor, -aaFactor, msdf); 
+            float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphScreenPxRange());
+            /*
+                explaining "*= exp2(max(mipLevel,0.0))"
+                Each mip level has constant MSDFPixelRange
+                Which essentially makes the msdfSamples here (Harware Sampled) have different scales per mip
+                As we go up 1 mip level, the msdf distance should be multiplied by 2.0
+                While this makes total sense for NEAREST mip sampling when mipLevel is an integer and only one mip is being sampled.
+                It's a bit complex when it comes to trilinear filtering (LINEAR mip sampling), but it works in practice!
+                
+                Alternatively you can think of it as doing this instead:
+                localAlpha = smoothstep(+globals.antiAliasingFactor / exp2(max(mipLevel,0.0)), 0.0, msdf);
+                Which is reducing the aa feathering as we go up the mip levels. 
+                to avoid aa feathering of the MAX_MSDF_DISTANCE_VALUE to be less than aa factor and eventually color it and cause greyed out area around the main glyph
+            */
+            msdf *= exp2(max(mipLevel,0.0));
+            localAlpha = smoothstep(+globals.antiAliasingFactor, 0.0, msdf);
         }
     }
     else if (objType == ObjectType::IMAGE) 
