@@ -1013,6 +1013,28 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				}
 			}
+			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUBufferView* asset = entry.second.canonicalAsset;
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						bool depNotFound = false;
+						const SBufferRange<IGPUBuffer> underlying = {
+							.offset = asset->getOffsetInBuffer(),
+							.size = asset->getByteSize(),
+							.buffer = getDependant(uniqueCopyGroupID,asset,asset->getUnderlyingBuffer(),firstPatchMatch,depNotFound) // TODO: match our derived patch!
+						};
+						if (!underlying.isValid())
+							continue;
+						// no format promotion for buffer views
+						assign(entry.first,entry.second.firstCopyIx,i,device->createBufferView(underlying,asset->getFormat()));
+					}
+				}
+			}
 			if constexpr (std::is_same_v<AssetType,ICPUShader>)
 			{
 				ILogicalDevice::SShaderCreationParameters createParams = {
