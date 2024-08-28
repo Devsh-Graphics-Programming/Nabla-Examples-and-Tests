@@ -126,7 +126,7 @@ bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const ILogicalDevi
 	for (auto byte=limits.maxPushConstantsSize; byte<pushConstantBytes.size(); byte++)
 	if (pushConstantBytes[byte]!=shader_stage_t::ESS_UNKNOWN)
 		return false;
-	return invalid;
+	return !invalid;
 }
 
 
