@@ -504,6 +504,11 @@ public:
 					.subresourceRange = cpuImgParams.subresourceRange,
 					// a wiping transition
 					.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+				},
+				{
+					.image = m_tonemappedImg.get(),
+					.subresourceRange = cpuImgParams.subresourceRange,
+					.newLayout = IGPUImage::LAYOUT::GENERAL
 				}
 			};
 			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
@@ -552,7 +557,7 @@ public:
 			infos[0].desc = m_gpuImgView;
 			infos[1].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			infos[1].desc = m_tonemappedImgView;
-			infos[2].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+			infos[2].info.image.imageLayout = IImage::LAYOUT::GENERAL;
 			infos[2].desc = m_tonemappedImgView;
 
 
@@ -569,14 +574,14 @@ public:
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
-					.info = infos
+					.info = infos + 1
 				},
 				{
 					.dstSet = m_ds[2].get(),
 					.binding = 0,
 					.arrayElement = 0,
 					.count = 1,
-					.info = infos
+					.info = infos + 2
 				}
 			};
 
@@ -680,45 +685,6 @@ public:
 				1 + ((viewportSize.y) - 1) / SubgroupSize
 			};
 
-			const SMemoryBarrier computeBarriers[] = {
-				{
-					.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-				},
-				{
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT,
-					.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS,
-				}
-			};
-
-			// change the layout of the image
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
-				{
-					.barrier = {
-						.dep = computeBarriers[0]
-						// no ownership transfers
-					},
-					.image = m_gpuImg.get(),
-				// transition the whole view
-				.subresourceRange = m_tonemappedImgView->getCreationParameters().subresourceRange,
-				// a wiping transition
-				.newLayout = IGPUImage::LAYOUT::GENERAL
-				}
-			};
-			const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
-				{
-					.barrier = {
-						.dep = computeBarriers[1]
-						// no ownership transfers
-					},
-					.image = m_gpuImg.get(),
-				// transition the whole view
-				.subresourceRange = m_tonemappedImgView->getCreationParameters().subresourceRange,
-				// a wiping transition
-				.oldLayout = IGPUImage::LAYOUT::GENERAL,
-				.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
-				}
-			};
-
 			queue->startCapture();
 
 			cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -726,9 +692,7 @@ public:
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_gatherPipeline->getLayout(), 0, 1, &ds1); // also if you created DS Set with 3th index you need to respect it here - firstSet tells you the index of set and count tells you what range from this index it should update, useful if you had 2 DS with lets say set index 2,3, then you can bind both with single call setting firstSet to 2, count to 2 and last argument would be pointet to your DS pointers
 			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_gatherPipeline->getLayout(), 3, 1, &ds2);
 			cmdbuf->pushConstants(m_gatherPipeline->getLayout(), IShader::E_SHADER_STAGE::ESS_COMPUTE, 0, sizeof(pc), &pc);
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers1 });
 			cmdbuf->dispatch(dispatchSize.x, dispatchSize.y);
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
 			cmdbuf->end();
 
 			{
