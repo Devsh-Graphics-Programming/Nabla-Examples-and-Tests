@@ -129,7 +129,7 @@ public:
 		_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = EF_D16_UNORM;
 		_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = IGPUImage::ESCF_1_BIT;
 
-		if (!withAssetConverter)
+		if constexpr (!withAssetConverter)
 		{
 			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -629,7 +629,7 @@ public:
 			}
 		}
 
-		if (!withAssetConverter)
+		if constexpr (!withAssetConverter)
 			commandBuffer->end();
 
 		return true;
@@ -663,7 +663,7 @@ public:
 
 		if constexpr (withAssetConverter)
 		{
-			// record any required resource buffers' uploads
+			// note that asset converter records basic transfer uploads itself, we only begin the recording with ONE_TIME_SUBMIT_BIT
 			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			commandBuffer->begin(nbl::video::IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 			commandBuffer->beginDebugMarker("Resources builder's buffers upload [asset converter]");
@@ -723,23 +723,14 @@ public:
 						auto gpu = object.value;
 						auto* reference = references[counter];
 
-						// validate
-						if (!gpu)
+						if (reference)
 						{
-							if (reference) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
+							// validate
+							if (!gpu) // throw errors only if corresponding cpu hook was VALID (eg. we may have nullptr for some index buffers in the span for converter but it's OK, I'm too lazy to filter them before passing to the converter inputs and don't want to deal with dynamic alloc)
 							{
 								logger->log("Failed to convert a CPU object to GPU!", nbl::system::ILogger::ELL_ERROR);
 								return false;
 							}
-						} 
-						
-						// record any uploads
-						if constexpr (std::same_as<ASSET_TYPE, ICPUBuffer>)
-						{
-							// TODO: does convert do it or should I do it? CHECK IT
-
-							const SBufferRange<IGPUBuffer> range = { .offset = 0u, .size = reference->getSize(), .buffer = gpu };
-							commandBuffer->updateBuffer(range, reference->getPointer());
 						}
 						
 						++counter;
@@ -763,9 +754,17 @@ public:
 			commandBuffer->end();
 
 			// basically all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards!
-			if (!reservation.convert(params))
+			auto result = reservation.convert(params);
+			if (!result)
 			{
 				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			auto future = result.submit(signals);
+			if (!future)
+			{
+				logger->log("Failed to await submission feature!", nbl::system::ILogger::ELL_ERROR);
 				return false;
 			}
 
@@ -790,6 +789,9 @@ public:
 					// base.attachments.depth = attachments[1u].value;
 				}
 			}
+
+			assert(false); // TODO & TMP, I dont have attachments converted yet so my scene wont work anyway
+			exit(0x45);
 		}
 		else
 		{
@@ -797,7 +799,7 @@ public:
 			{
 				{
 					.waitSemaphores = {},
-					.commandBuffers = commandBuffers,
+					.commandBuffers = commandBuffers, // note that here our command buffer is already recorded!
 					.signalSemaphores = signals
 				}
 			};
@@ -816,7 +818,7 @@ public:
 
 			utilities->getLogicalDevice()->blockForSemaphores(info);
 
-			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to output
+			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to base output
 		}
 
 		// base gpu resources are created at this point and stored into output, let's create left gpu objects
