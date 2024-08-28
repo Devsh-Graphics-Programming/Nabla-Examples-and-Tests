@@ -40,7 +40,7 @@ class CAssetConverter : public core::IReferenceCounted
 			asset::ICPUBuffer,
 			// acceleration structures
 			// image,
-//			asset::ICPUBufferView,
+			asset::ICPUBufferView,
 			// image view
 			asset::ICPUDescriptorSetLayout,
 			asset::ICPUPipelineLayout,
@@ -140,8 +140,6 @@ class CAssetConverter : public core::IReferenceCounted
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUBuffer);
 
-				inline bool valid(const ILogicalDevice* device) const {return usage!=IGPUBuffer::E_USAGE_FLAGS::EUF_NONE;}
-
 				using usage_flags_t = IGPUBuffer::E_USAGE_FLAGS;
 				core::bitflag<usage_flags_t> usage = usage_flags_t::EUF_NONE;
 
@@ -154,16 +152,31 @@ class CAssetConverter : public core::IReferenceCounted
 				}
 		};
 		template<>
+		struct patch_impl_t<asset::ICPUBufferView>
+		{
+			public:
+				PATCH_IMPL_BOILERPLATE(asset::ICPUBufferView);
+
+				uint8_t stbo : 1 = false;
+				uint8_t utbo : 1 = false;
+
+			protected:
+				inline std::pair<bool,this_t> combine(const this_t& other) const
+				{
+					this_t retval = *this;
+					retval.stbo |= other.stbo;
+					retval.utbo |= other.utbo;
+					return {true,retval};
+				}
+		};
+		template<>
 		struct patch_impl_t<asset::ICPUPipelineLayout>
 		{
 			public:
 				PATCH_IMPL_BOILERPLATE(asset::ICPUPipelineLayout);
 
-				inline bool valid(const ILogicalDevice* device) const {return !invalid;}
-
 				using shader_stage_t = asset::IShader::E_SHADER_STAGE;
 				std::array<core::bitflag<shader_stage_t>,asset::CSPIRVIntrospector::MaxPushConstantsSize> pushConstantBytes = {shader_stage_t::ESS_UNKNOWN};
-				bool invalid = true;
 				
 			protected:
 				inline std::pair<bool,this_t> combine(const this_t& other) const
@@ -173,6 +186,8 @@ class CAssetConverter : public core::IReferenceCounted
 						retval.pushConstantBytes[byte] |= other.pushConstantBytes[byte];
 					return {true,retval};
 				}
+
+				bool invalid = true;
 		};
 #undef PATCH_IMPL_BOILERPLATE
 		// The default specialization provides simple equality operations and hash operations, this will work as long as your patch_impl_t doesn't:
@@ -194,6 +209,7 @@ class CAssetConverter : public core::IReferenceCounted
 			inline this_t& operator=(this_t&& other) = default;
 
 			// The assumption is we'll only ever be combining valid patches together.
+			// Returns: whether the combine op was a success, DOESN'T MEAN the result is VALID!
 			inline std::pair<bool,this_t> combine(const this_t& other) const
 			{
 				//assert(base_t::valid() && other.valid());
@@ -376,13 +392,13 @@ class CAssetConverter : public core::IReferenceCounted
 					rehash.operator()<asset::ICPUPipelineLayout>();
 					// shaders and images depend on buffers for data sourcing
 					rehash.operator()<asset::ICPUBuffer>();
-				//	rehash.operator()<ICPUBufferView>();
+					rehash.operator()<asset::ICPUBufferView>();
 				//	rehash.operator()<ICPUImage>();
 				//	rehash.operator()<ICPUImageView>();
 				//	rehash.operator()<ICPUBottomLevelAccelerationStructure>();
 				//	rehash.operator()<ICPUTopLevelAccelerationStructure>();
 					// only once all the descriptor types have been hashed, we can hash sets
-				//	rehash.operator()<ICPUDescriptorSet>();
+					rehash.operator()<asset::ICPUDescriptorSet>();
 					// naturally any pipeline depends on shaders and pipeline cache
 					rehash.operator()<asset::ICPUShader>();
 					rehash.operator()<asset::ICPUPipelineCache>();
@@ -390,7 +406,6 @@ class CAssetConverter : public core::IReferenceCounted
 					// graphics pipeline needs a renderpass
 					rehash.operator()<asset::ICPURenderpass>();
 					rehash.operator()<asset::ICPUGraphicsPipeline>();
-					rehash.operator()<asset::ICPUDescriptorSet>();
 				//	rehash.operator()<ICPUFramebuffer>();
 				}
 				// Clear the cache for a given type
@@ -951,6 +966,29 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBuffer,PatchGetter>
 };
 
 template<typename PatchGetter>
+struct CAssetConverter::CHashCache::hash_impl<asset::ICPUBufferView,PatchGetter>
+{
+	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUBufferView,PatchGetter>&& args)
+	{
+		const auto* asset = args.asset;
+
+		core::blake3_hasher hasher;
+		{
+			const auto bufferHash = args.depHash(asset->getUnderlyingBuffer());
+			if (bufferHash==NoContentHash)
+				return {};
+			hasher << bufferHash;
+		}
+		// NOTE: We don't hash the metada from the patch! Because it doesn't matter.
+		// The view usage in the patch helps us propagate and patch during DFS, but no more.
+		hasher << asset->getFormat();
+		hasher << asset->getOffsetInBuffer();
+		hasher << asset->getByteSize();
+		return hasher;
+	}
+};
+
+template<typename PatchGetter>
 struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSetLayout,PatchGetter>
 {
 	static inline core::blake3_hasher _call(hash_impl_args<asset::ICPUDescriptorSetLayout,PatchGetter>&& args)
@@ -1360,8 +1398,7 @@ struct CAssetConverter::CHashCache::hash_impl<asset::ICPUDescriptorSet,PatchGett
 							}
 							break;
 						case asset::IDescriptor::EC_BUFFER_VIEW:
-							_NBL_TODO();
-//							descHash = args.depHash(static_cast<const asset::ICPUBufferView*>(untypedDesc));
+							descHash = args.depHash(static_cast<const asset::ICPUBufferView*>(untypedDesc));
 							break;
 						case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
 							_NBL_TODO();

@@ -96,6 +96,14 @@ bool CAssetConverter::patch_impl_t<ICPUBuffer>::valid(const ILogicalDevice* devi
 	return true;
 }
 
+CAssetConverter::patch_impl_t<ICPUBufferView>::patch_impl_t(const ICPUBufferView* buffer) {}
+bool CAssetConverter::patch_impl_t<ICPUBufferView>::valid(const ILogicalDevice* device)
+{
+	// note that we don't check the validity of things we don't patch, so offset alignment, size and format
+	// we could check if the format and usage make sense, but it will be checked by the driver anyway
+	return true;
+}
+
 CAssetConverter::patch_impl_t<ICPUPipelineLayout>::patch_impl_t(const ICPUPipelineLayout* pplnLayout) : patch_impl_t()
 {
 	const auto pc = pplnLayout->getPushConstantRanges();
@@ -118,15 +126,9 @@ bool CAssetConverter::patch_impl_t<ICPUPipelineLayout>::valid(const ILogicalDevi
 	for (auto byte=limits.maxPushConstantsSize; byte<pushConstantBytes.size(); byte++)
 	if (pushConstantBytes[byte]!=shader_stage_t::ESS_UNKNOWN)
 		return false;
-	return true;
+	return !invalid;
 }
 
-// nothing in the compute pipeline can be patched
-
-// renderpass won't check for formats, resolve modes, sampler counts being supported because we don't patch them
-// most we could patch would be sample counts, but nobody will really profit from this right now
-
-// graphics pipeline can't really be patched just as a compute pipeline cannot be patched
 
 
 // question of propagating changes, image view and buffer view
@@ -472,16 +474,19 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 		// gather all dependencies (DFS graph search) and patch, this happens top-down
 		// do not deduplicate/merge assets at this stage, only patch GPU creation parameters
 		{
-			// stack is nice an polymorphic
-			core::stack<instance_t<IAsset>> dfsStack;
+			// stack is nice and polymorphic
+			core::stack<std::pair<instance_t<IAsset>,patch_index_t>> dfsStack;
 			// returns `input_metadata_t` which you can `bool(input_metadata_t)` to find out if a new element was inserted
 			auto cache = [&]<Asset AssetType>(const instance_t<IAsset>& user, const AssetType* asset, patch_t<AssetType>&& patch) -> input_metadata_t
 			{
 				assert(asset);
 				// skip invalid inputs silently
 				if (!patch.valid(device))
+				{
+					inputs.logger.log("Asset %p used by %p in group %d has an invalid initial patch and won't be converted!",system::ILogger::ELL_ERROR,asset,user.asset,user.uniqueCopyGroupID);
 					return {};
-				// special checks
+				}
+				// special checks (normally the GPU object creation will fail, but these are common pitfall paths, so issue errors earlier for select problems)
 				if constexpr (std::is_same_v<AssetType,ICPUShader>)
 				if (asset->getContentType()==ICPUShader::E_CONTENT_TYPE::ECT_GLSL)
 				{
@@ -540,7 +545,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				dfsCache.nodes.emplace_back(std::move(patch),CHashCache::NoContentHash);
 				// Only when we don't find a compatible patch entry do we carry on with the DFS
 				if (asset_traits<AssetType>::HasChildren)
-					dfsStack.emplace(record);
+					dfsStack.emplace(record,newPatchIndex);
 				return {.uniqueCopyGroupID=record.uniqueCopyGroupID,.patchIndex=newPatchIndex};
 			};
 			// initialize stacks
@@ -559,11 +564,14 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					patch_t<AssetType> patch(asset);
 					if (i<patches.size())
 					{
+						// derived patch has to be valid
 						if (!patch.valid(device))
 							continue;
+						// the overriden one too
 						auto overidepatch = patches[i];
 						if (!overidepatch.valid(device))
 							continue;
+						// the combination must be a success (doesn't need to be valid though)
 						bool combineSuccess;
 						std::tie(combineSuccess,patch) = patch.combine(overidepatch);
 						if (!combineSuccess)
@@ -577,10 +585,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 			// Perform Depth First Search of the Asset Graph
 			while (!dfsStack.empty())
 			{
-				const auto entry = dfsStack.top();
+				const auto& entry = dfsStack.top();
+				const auto userInstance = std::get<instance_t<IAsset>>(entry);
+				const auto userPatchIx = std::get<patch_index_t>(entry);
 				dfsStack.pop();
 				// everything we popped has already been cached in dfsCache, now time to go over dependents
-				const auto* user = entry.asset;
+				const auto* user = userInstance.asset;
 				switch (user->getAssetType())
 				{
 					case ICPUDescriptorSetLayout::AssetType:
@@ -588,7 +598,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						auto layout = static_cast<const ICPUDescriptorSetLayout*>(user);
 						for (const auto& sampler : layout->getImmutableSamplers())
 						if (sampler)
-							cache.operator()<ICPUSampler>(entry,sampler.get(),{sampler.get()});
+							cache.operator()<ICPUSampler>(userInstance,sampler.get(),{sampler.get()});
 						break;
 					}
 					case ICPUPipelineLayout::AssetType:
@@ -596,27 +606,27 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						auto pplnLayout = static_cast<const ICPUPipelineLayout*>(user);
 						for (auto i=0; i<ICPUPipelineLayout::DESCRIPTOR_SET_COUNT; i++)
 						if (auto layout=pplnLayout->getDescriptorSetLayout(i); layout)
-							cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout});
+							cache.operator()<ICPUDescriptorSetLayout>(userInstance,layout,{layout});
 						break;
 					}
 					case ICPUComputePipeline::AssetType:
 					{
 						auto compPpln = static_cast<const ICPUComputePipeline*>(user);
 						const auto* layout = compPpln->getLayout();
-						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout});
+						cache.operator()<ICPUPipelineLayout>(userInstance,layout,{layout});
 						const auto* shader = compPpln->getSpecInfo().shader;
 						patch_t<ICPUShader> patch = {shader};
 						patch.stage = IGPUShader::E_SHADER_STAGE::ESS_COMPUTE;
-						cache.operator()<ICPUShader>(entry,shader,std::move(patch));
+						cache.operator()<ICPUShader>(userInstance,shader,std::move(patch));
 						break;
 					}
 					case ICPUGraphicsPipeline::AssetType:
 					{
 						auto gfxPpln = static_cast<const ICPUGraphicsPipeline*>(user);
 						const auto* layout = gfxPpln->getLayout();
-						cache.operator()<ICPUPipelineLayout>(entry,layout,{layout});
+						cache.operator()<ICPUPipelineLayout>(userInstance,layout,{layout});
 						const auto* rpass = gfxPpln->getRenderpass();
-						cache.operator()<ICPURenderpass>(entry,rpass,{rpass});
+						cache.operator()<ICPURenderpass>(userInstance,rpass,{rpass});
 						using stage_t = ICPUShader::E_SHADER_STAGE;
 						for (stage_t stage : {stage_t::ESS_VERTEX,stage_t::ESS_TESSELLATION_CONTROL,stage_t::ESS_TESSELLATION_EVALUATION,stage_t::ESS_GEOMETRY,stage_t::ESS_FRAGMENT})
 						{
@@ -625,7 +635,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 								continue;
 							patch_t<ICPUShader> patch = {shader};
 							patch.stage = stage;
-							cache.operator()<ICPUShader>(entry,shader,std::move(patch));
+							cache.operator()<ICPUShader>(userInstance,shader,std::move(patch));
 						}
 						break;
 					}
@@ -633,7 +643,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					{
 						auto set = static_cast<const ICPUDescriptorSet*>(user);
 						const auto* layout = set->getLayout();
-						cache.operator()<ICPUDescriptorSetLayout>(entry,layout,{layout});
+						cache.operator()<ICPUDescriptorSetLayout>(userInstance,layout,{layout});
 						for (auto i=0u; i<static_cast<uint32_t>(IDescriptor::E_TYPE::ET_COUNT); i++)
 						{
 							const auto type = static_cast<IDescriptor::E_TYPE>(i);
@@ -658,17 +668,17 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 										case IDescriptor::E_TYPE::ET_STORAGE_BUFFER_DYNAMIC:
 											patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_BUFFER_BIT;
 											break;
-										break;
+										default:
 											assert(false);
 											break;
 									}
-									cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
+									cache.operator()<ICPUBuffer>(userInstance,buffer,std::move(patch));
 									break;
 								}
 								case IDescriptor::EC_SAMPLER:
 								{
 									auto sampler = static_cast<const ICPUSampler*>(untypedDesc);
-									cache.operator()<ICPUSampler>(entry,sampler,{sampler});
+									cache.operator()<ICPUSampler>(userInstance,sampler,{sampler});
 									break;
 								}
 								case IDescriptor::EC_IMAGE:
@@ -682,7 +692,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 											{
 												const auto* sampler = info.info.combinedImageSampler.sampler.get();
 												if (sampler)
-													cache.operator()<ICPUSampler>(entry,sampler,{sampler});
+													cache.operator()<ICPUSampler>(userInstance,sampler,{sampler});
 											}
 											[[fallthrough]];
 										case IDescriptor::E_TYPE::ET_SAMPLED_IMAGE:
@@ -695,11 +705,11 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 										case IDescriptor::E_TYPE::ET_INPUT_ATTACHMENT:
 											patch.usage |= IGPUImage::E_USAGE_FLAGS::EUF_INPUT_ATTACHMENT_BIT;
 											break;
-										break;
+										default:
 											assert(false);
 											break;
 									}
-									cache.operator()<ICPUImageView>(entry,imageView,{imageView});
+									cache.operator()<ICPUImageView>(userInstance,imageView,{imageView});
 #else
 									_NBL_TODO();
 #endif
@@ -707,9 +717,18 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 								}
 								case IDescriptor::EC_BUFFER_VIEW:
 								{
-									_NBL_TODO();
-//									auto bufferView = static_cast<const ICPUBufferView*>(untypedDesc);
-//									cache.operator()<ICPUBufferView>(entry,bufferView,{bufferView});
+									auto bufferView = static_cast<const ICPUBufferView*>(untypedDesc);
+									patch_t<ICPUBufferView> patch = {bufferView};
+									switch (type)
+									{
+										case IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER:
+											patch.utbo = true;
+											break;
+										case IDescriptor::E_TYPE::ET_STORAGE_TEXEL_BUFFER:
+											patch.stbo = true;
+											break;
+									}
+									cache.operator()<ICPUBufferView>(userInstance,bufferView,std::move(patch));
 									break;
 								}
 								case IDescriptor::EC_ACCELERATION_STRUCTURE:
@@ -736,9 +755,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						if (buffer)
 						{
 							patch_t<ICPUBuffer> patch = {buffer};
-							// we have no clue how this will be used, so we mark both usages
-							patch.usage |= IGPUBuffer::EUF_STORAGE_TEXEL_BUFFER_BIT|IGPUBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-							cache.operator()<ICPUBuffer>(entry,buffer,std::move(patch));
+							const auto& userPatch = std::get<dfs_cache<ICPUBufferView>>(dfsCaches).nodes[userPatchIx.value].patch;
+							if (userPatch.utbo)
+								patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+							if (userPatch.stbo)
+								patch.usage |= IGPUBuffer::E_USAGE_FLAGS::EUF_STORAGE_TEXEL_BUFFER_BIT;
+							cache.operator()<ICPUBuffer>(userInstance,buffer,std::move(patch));
 						}
 						break;
 					}
@@ -775,9 +797,9 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 		using memory_backed_ptr_variant_t = std::variant<asset_cached_t<ICPUBuffer>*,asset_cached_t<ICPUImage>*>;
 		core::map<MemoryRequirementBin,core::vector<memory_backed_ptr_variant_t>> allocationRequests;
 		// for this we require that the data storage for the dfsCaches' nodes does not change
-		auto requestAllocation = [&inputs,device,&allocationRequests]<DeviceMemoryBacked DeviceMemoryBackedType>(asset_cached_t<DeviceMemoryBackedType>* pGpuObj)->bool
+		auto requestAllocation = [&inputs,device,&allocationRequests]<Asset AssetType>(asset_cached_t<AssetType>* pGpuObj)->bool
 		{
-			const auto* gpuObj = pGpuObj->get();
+			auto* gpuObj = pGpuObj->get();
 			const IDeviceMemoryBacked::SDeviceMemoryRequirements& memReqs = gpuObj->getMemoryReqs();
 			// this shouldn't be possible
 			assert(memReqs.memoryTypeBits);
@@ -786,7 +808,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 			{
 				// allocate and bind right away
 				auto allocation = device->allocate(memReqs,gpuObj);
-				if (!allocation)
+				if (!allocation.isValid())
 				{
 					inputs.logger.log("Failed to allocate and bind dedicated memory for %s",system::ILogger::ELL_ERROR,gpuObj->getObjectDebugName());
 					return false;
@@ -800,7 +822,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					// we ignore this for now, because we can't know how many `DeviceMemory` objects we have left to make, so just join everything by default
 					//.refersDedicatedAllocation = memReqs.prefersDedicatedAllocation
 				};
-				if constexpr (std::is_same_v<DeviceMemoryBackedType,IGPUBuffer>)
+				if constexpr (std::is_same_v<std::remove_pointer_t<decltype(gpuObj)>,IGPUBuffer>)
 					reqBin.needsDeviceAddress = gpuObj->getCreationParams().usage.hasFlags(IGPUBuffer::E_USAGE_FLAGS::EUF_SHADER_DEVICE_ADDRESS_BIT);
 				allocationRequests[reqBin].emplace_back(pGpuObj);
 			}
@@ -989,6 +1011,28 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					// if creation successful, we 
 					if (assign(entry.first,entry.second.firstCopyIx,i,device->createBuffer(std::move(params))))
 						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
+				}
+			}
+			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUBufferView* asset = entry.second.canonicalAsset;
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						bool depNotFound = false;
+						const SBufferRange<IGPUBuffer> underlying = {
+							.offset = asset->getOffsetInBuffer(),
+							.size = asset->getByteSize(),
+							.buffer = getDependant(uniqueCopyGroupID,asset,asset->getUnderlyingBuffer(),firstPatchMatch,depNotFound) // TODO: match our derived patch!
+						};
+						if (!underlying.isValid())
+							continue;
+						// no format promotion for buffer views
+						assign(entry.first,entry.second.firstCopyIx,i,device->createBufferView(underlying,asset->getFormat()));
+					}
 				}
 			}
 			if constexpr (std::is_same_v<AssetType,ICPUShader>)
@@ -1334,18 +1378,16 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 												case IDescriptor::E_CATEGORY::EC_SAMPLER:
 													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUSampler*>(info.desc.get()),firstPatchMatch,depNotFound);
 													break;
-#if 0
-												case IDescriptor::E_CATEGORY::EC_IMAGE:
-													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUImageView*>(info.desc.get()),firstPatchMatch,depNotFound);
-													outInfo.info.combinedImageSampler = info.info.combinedImageSampler;
-													break;
+//												case IDescriptor::E_CATEGORY::EC_IMAGE:
+//													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUImageView*>(info.desc.get()),firstPatchMatch,depNotFound);
+//													outInfo.info.combinedImageSampler = info.info.combinedImageSampler;
+//													break;
 												case IDescriptor::E_CATEGORY::EC_BUFFER_VIEW:
 													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUBufferView*>(info.desc.get()),firstPatchMatch,depNotFound);
 													break;
-												case IDescriptor::E_CATEGORY::EC_ACCELERATION_STRUCTURE:
-													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUTopLevelAccelerationStructure*>(info.desc.get()),firstPatchMatch,depNotFound);
-													break;
-#endif
+//												case IDescriptor::E_CATEGORY::EC_ACCELERATION_STRUCTURE:
+//													outInfo.desc = getDependant(uniqueCopyGroupID,asset,static_cast<const ICPUTopLevelAccelerationStructure*>(info.desc.get()),firstPatchMatch,depNotFound);
+//													break;
 												default:
 													assert(false);
 													depNotFound = true;
@@ -1438,12 +1480,12 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 					// propagate back to dfsCache
 					created.gpuObj = std::move(gpuObj);
 					// record if a device memory allocation will be needed
-					if constexpr (std::is_base_of_v<IDeviceMemoryBacked,AssetType>)
+					if constexpr (std::is_base_of_v<IDeviceMemoryBacked,typename asset_traits<AssetType>::video_t>)
 					{
 						if (!requestAllocation(&created.gpuObj))
 						{
-							created.gpuObj = nullptr;
-							continue;
+							created.gpuObj.value = nullptr;
+							return;
 						}
 					}
 					//
@@ -1485,7 +1527,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						const auto& rhsReqs = getAsBase(rhs)->getMemoryReqs();
 						const size_t lhsWorstSize = lhsReqs.size+(0x1ull<<lhsReqs.alignmentLog2)-1;
 						const size_t rhsWorstSize = rhsReqs.size+(0x1ull<<rhsReqs.alignmentLog2)-1;
-						return lhsWorstSize<rhsWorstSize;
+						return lhsWorstSize>rhsWorstSize;
 					}
 				);
 
@@ -1549,44 +1591,55 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 				for (auto& reqBin : allocationRequests)
 				if (reqBin.first.compatibileMemoryTypeBits&(0x1<<memTypeIx))
 				{
-					using allocate_flags_t = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
-					IDeviceMemoryAllocator::SAllocateInfo info = {
-						.size = offsetsTmp.back(), // we have one more item in the array
-						.flags = reqBin.first.needsDeviceAddress ? allocate_flags_t::EMAF_DEVICE_ADDRESS_BIT:allocate_flags_t::EMAF_NONE,
-						.memoryTypeIndex = memTypeIx,
-						.dedication = nullptr
-					};
-
 					auto& binItems = reqBin.second;
 					const auto binItemCount = reqBin.second.size();
+					if (!binItemCount)
+						continue;
+
 					// the `std::exclusive_scan` syntax is more effort for this
 					{
-						offsetsTmp.resize(binItemCount+1);
+						offsetsTmp.resize(binItemCount);
 						offsetsTmp[0] = 0;
-						for (size_t i=0; i<binItemCount;)
+						for (size_t i=0; true;)
 						{
 							const auto* memBacked = getAsBase(binItems[i]);
 							const auto& memReqs = memBacked->getMemoryReqs();
 							// round up the offset to get the correct alignment
-							offsetsTmp[++i] = core::roundUp(offsetsTmp[i],0x1ull<<memReqs.alignmentLog2)+memReqs.size;
+							offsetsTmp[i] = core::roundUp(offsetsTmp[i],0x1ull<<memReqs.alignmentLog2);
+							// record next offset
+							if (i<binItemCount-1)
+								offsetsTmp[++i] = offsetsTmp[i]+memReqs.size;
+							else
+								break;
 						}
 					}
+					// to replace
+					core::vector<memory_backed_ptr_variant_t> failures;
+					failures.reserve(binItemCount);
+					// ...
+					using allocate_flags_t = IDeviceMemoryAllocation::E_MEMORY_ALLOCATE_FLAGS;
+					IDeviceMemoryAllocator::SAllocateInfo info = {
+						.size = 0xdeadbeefBADC0FFEull, // set later
+						.flags = reqBin.first.needsDeviceAddress ? allocate_flags_t::EMAF_DEVICE_ADDRESS_BIT:allocate_flags_t::EMAF_NONE,
+						.memoryTypeIndex = memTypeIx,
+						.dedication = nullptr
+					};
 					// allocate in progression of combined allocations, while trying allocate as much as possible in a single allocation
-					auto itemsBegin = binItems.begin();
+					auto binItemsIt = binItems.begin();
 					for (auto firstOffsetIt=offsetsTmp.begin(); firstOffsetIt!=offsetsTmp.end(); )
 					for (auto nextOffsetIt=offsetsTmp.end(); nextOffsetIt>firstOffsetIt; nextOffsetIt--)
 					{
 						const size_t combinedCount = std::distance(firstOffsetIt,nextOffsetIt);
 						const size_t lastIx = combinedCount-1;
 						// if we take `combinedCount` starting at `firstItem` their allocation would need this size
-						info.size = (firstOffsetIt[lastIx]-*firstOffsetIt)+getAsBase(itemsBegin[lastIx])->getMemoryReqs().size;
+						info.size = (firstOffsetIt[lastIx]-*firstOffsetIt)+getAsBase(binItemsIt[lastIx])->getMemoryReqs().size;
 						auto allocation = device->allocate(info);
 						if (allocation.isValid())
 						{
 							// bind everything
 							for (auto i=0; i<combinedCount; i++)
 							{
-								const auto& toBind = itemsBegin[i];
+								const auto& toBind = binItems[i];
 								bool bindSuccess = false;
 								const IDeviceMemoryBacked::SMemoryBinding binding = {
 									.memory = allocation.memory.get(),
@@ -1620,20 +1673,22 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 								}
 								assert(bindSuccess);
 							}
-							// erase `combinedCount` items from bin
-							itemsBegin = binItems.erase(itemsBegin,itemsBegin+combinedCount);
 							// move onto next batch
 							firstOffsetIt = nextOffsetIt;
+							binItemsIt += combinedCount;
 							break;
 						}
 						// we're unable to allocate even for a single item with a dedicated allocation, skip trying then
-						else if ((nextOffsetIt-1)==firstOffsetIt)
+						else if (combinedCount==1)
 						{
 							firstOffsetIt = nextOffsetIt;
-							itemsBegin++;
+							failures.push_back(std::move(*binItemsIt));
+							binItemsIt++;
 							break;
 						}
 					}
+					// leave only the failures behind
+					binItems = std::move(failures);
 				}
 			}
 
@@ -1662,7 +1717,7 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 		}
 //		dedupCreateProp.operator()<ICPUBottomLevelAccelerationStructure>();
 //		dedupCreateProp.operator()<ICPUTopLevelAccelerationStructure>();
-//		dedupCreateProp.operator()<ICPUBufferView>();
+		dedupCreateProp.operator()<ICPUBufferView>();
 		dedupCreateProp.operator()<ICPUShader>();
 		dedupCreateProp.operator()<ICPUSampler>();
 		dedupCreateProp.operator()<ICPUDescriptorSetLayout>();
@@ -1938,13 +1993,56 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 			// rescan all the GPU objects and find out if they depend on anything that failed, if so add to failure set
 			bool depsMissing = false;
 			// only go over types we could actually break via missing upload/build (i.e. pipelines are unbreakable)
-//			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
-//				depMissing = missingDependent.operator()<ICPUBuffer>(item.first->getBuffer());
+			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
+				depsMissing = missingDependent.operator()<ICPUBuffer>(item.first->getUnderlyingBuffer());
 //			if constexpr (std::is_same_v<AssetType,ICPUImageView>)
-//				depMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
+//				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
-				// TODO
+				const IGPUDescriptorSetLayout* layout = item.first->getLayout();
+				// check samplers
+				{
+					const auto count = layout->getTotalMutableCombinedSamplerCount();
+					const auto* samplers = item.first->getAllMutableCombinedSamplers();
+					for (auto i=0u; !depsMissing && i<count; i++)
+					if (samplers[i])
+						depsMissing = missingDependent.operator()<ICPUSampler>(samplers[i].get());
+				}
+				for (auto i=0u; !depsMissing && i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
+				{
+					const auto type = static_cast<asset::IDescriptor::E_TYPE>(i);
+					const auto count = layout->getTotalDescriptorCount(type);
+					auto* psDescriptors = item.first->getAllDescriptors(type);
+					if (!psDescriptors)
+						continue;
+					for (auto i=0u; !depsMissing && i<count; i++)
+					{
+						auto* untypedDesc = psDescriptors[i].get();
+						if (untypedDesc)
+						switch (asset::IDescriptor::GetTypeCategory(type))
+						{
+							case asset::IDescriptor::EC_BUFFER:
+								depsMissing = missingDependent.operator()<ICPUBuffer>(static_cast<const IGPUBuffer*>(untypedDesc));
+								break;
+							case asset::IDescriptor::EC_SAMPLER:
+								depsMissing = missingDependent.operator()<ICPUSampler>(static_cast<const IGPUSampler*>(untypedDesc));
+								break;
+							case asset::IDescriptor::EC_IMAGE:
+//								depsMissing = missingDependent.operator()<ICPUImage>(static_cast<const IGPUImageView*>(untypedDesc));
+								break;
+							case asset::IDescriptor::EC_BUFFER_VIEW:
+								depsMissing = missingDependent.operator()<ICPUBufferView>(static_cast<const IGPUBufferView*>(untypedDesc));
+								break;
+							case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
+								_NBL_TODO();
+								[[fallthrough]];
+							default:
+								assert(false);
+								depsMissing = true;
+								break;
+						}
+					}
+				}
 			}
 			if (depsMissing)
 			{
@@ -1967,7 +2065,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 //	mergeCache.operator()<ICPUImage>();
 //	mergeCache.operator()<ICPUBottomLevelAccelerationStructure>();
 //	mergeCache.operator()<ICPUTopLevelAccelerationStructure>();
-//	mergeCache.operator()<ICPUBufferView>();
+	mergeCache.operator()<ICPUBufferView>();
 	mergeCache.operator()<ICPUShader>();
 	mergeCache.operator()<ICPUSampler>();
 	mergeCache.operator()<ICPUDescriptorSetLayout>();
