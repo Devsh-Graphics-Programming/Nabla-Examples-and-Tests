@@ -565,6 +565,8 @@ float4 main(PSInput input) : SV_TARGET
         uint32_t textureId = asuint(style.screenSpaceLineWidth);
         if (textureId != InvalidTextureIdx)
         {
+            // For Hatch fiils we sample the first mip as we don't fill the others, because they are constant in screenspace and render as expected
+            // If later on we decided that we can have different sizes here, we should do computations similar to FONT_GLYPH
             float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(frac(input.position.xy / HatchFillMSDFSceenSpaceSize), float(textureId)), 0.0).xyz;
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, MSDFPixelRange * HatchFillMSDFSceenSpaceSize / MSDFSize);
             localAlpha *= smoothstep(+globals.antiAliasingFactor / 2.0, -globals.antiAliasingFactor / 2.0f, msdf);
