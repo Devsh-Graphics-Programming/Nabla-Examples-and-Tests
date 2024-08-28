@@ -41,12 +41,14 @@ ClipProjectionData getClipProjectionData(in MainObject mainObj)
 
 nbl::hlsl::portable_vector64_t2 transformPointNdc(nbl::hlsl::portable_matrix64_t3x3 transformation, nbl::hlsl::portable_vector64_t2 point2d)
 {
-    nbl::hlsl::portable_vector64_t3 transformationResult = transformation * nbl::hlsl::create_portable_vector64_t3(point2d.x, point2d.y, 1.0f);
+    //nbl::hlsl::portable_vector64_t3 transformationResult = transformation * nbl::hlsl::create_portable_vector64_t3(point2d.x, point2d.y, 1.0f);
+    nbl::hlsl::portable_vector64_t3 transformationResult = nbl::hlsl::portableMul64(transformation, nbl::hlsl::create_portable_vector64_t3(point2d.x, point2d.y, 1.0f));
     return nbl::hlsl::create_portable_vector64_t2(transformationResult.x, transformationResult.y);
 }
 nbl::hlsl::portable_vector64_t2 transformVectorNdc(nbl::hlsl::portable_matrix64_t3x3 transformation, nbl::hlsl::portable_vector64_t2 vector2d)
 {
-    nbl::hlsl::portable_vector64_t3 transformationResult = transformation * nbl::hlsl::create_portable_vector64_t3(vector2d.x, vector2d.y, 0.0f);
+    //nbl::hlsl::portable_vector64_t3 transformationResult = transformation * nbl::hlsl::create_portable_vector64_t3(vector2d.x, vector2d.y, 0.0f);
+    nbl::hlsl::portable_vector64_t3 transformationResult = nbl::hlsl::portableMul64(transformation, nbl::hlsl::create_portable_vector64_t3(vector2d.x, vector2d.y, 0.0f));
     return nbl::hlsl::create_portable_vector64_t2(transformationResult.x, transformationResult.y);
 }
 float2 transformPointScreenSpace(nbl::hlsl::portable_matrix64_t3x3 transformation, nbl::hlsl::portable_vector64_t2 point2d)
@@ -130,7 +132,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
             nbl::hlsl::_static_cast<float>((nbl::hlsl::create_portable_float64_t(2.0) /
-            (clipProjectionData.projectionToNDC.columns[0].x * nbl::hlsl::create_portable_float64_t(globals.resolution.x))))
+            (clipProjectionData.projectionToNDC[0].x * nbl::hlsl::create_portable_float64_t(globals.resolution.x)))) // TODO: not portable, fix.. operator[]?
         );
 
         if (objType == ObjectType::LINE)
