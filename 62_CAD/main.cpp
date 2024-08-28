@@ -917,36 +917,7 @@ public:
 		drawResourcesFiller.setHatchFillMSDFTextureFunction(
 			[&](HatchFillPattern pattern) -> core::smart_refctd_ptr<asset::ICPUImage>
 			{
-				ICPUImage::SCreationParams imgParams;
-				{
-					imgParams.flags = static_cast<ICPUImage::E_CREATE_FLAGS>(0u); // no flags
-					imgParams.type = ICPUImage::ET_2D;
-					imgParams.format = TextRenderer::MSDFTextureFormat;
-					imgParams.extent = { uint32_t(MSDFSize), uint32_t(MSDFSize), 1 };
-					imgParams.mipLevels = 1u;
-					imgParams.arrayLayers = 1u;
-					imgParams.samples = ICPUImage::ESCF_1_BIT;
-				}
-
-				auto buffer = Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
-				auto image = ICPUImage::create(std::move(imgParams));
-				auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
-
-				{
-					auto& region = regions->front();
-					region.bufferOffset = 0u;
-					region.bufferRowLength = 0u;
-					region.bufferImageHeight = 0u;
-					region.imageSubresource.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-					region.imageSubresource.mipLevel = 0u;
-					region.imageSubresource.baseArrayLayer = 0u;
-					region.imageSubresource.layerCount = 1u;
-					region.imageOffset = { 0u,0u,0u };
-					region.imageExtent = { uint32_t(MSDFSize), uint32_t(MSDFSize), 1 };
-				}
-				image->setBufferAndRegions(std::move(buffer), std::move(regions));
-
-				return image;
+				return Hatch::generateHatchFillPatternMSDF(m_textRenderer.get(), pattern, drawResourcesFiller.getMSDFResolution());
 			}
 		);
 		return true;

@@ -1150,7 +1150,7 @@ void shaded(std::vector<CPolyline>& polylines, const float64_t2& offset)
 
 }
 
-core::smart_refctd_ptr<asset::ICPUBuffer> Hatch::generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents)
+core::smart_refctd_ptr<asset::ICPUImage> Hatch::generateHatchFillPatternMSDF(nbl::ext::TextRendering::TextRenderer* textRenderer, HatchFillPattern fillPattern, uint32_t2 msdfExtents)
 {
 	std::array<float64_t2, 9u> offsets = {};
 	uint32_t idx = 0u;
@@ -1243,7 +1243,36 @@ core::smart_refctd_ptr<asset::ICPUBuffer> Hatch::generateHatchFillPatternMSDF(nb
 
 	auto bufferSize = msdfExtents.x * msdfExtents.y * sizeof(uint8_t) * 4;
 	auto buffer = core::make_smart_refctd_ptr<ICPUBuffer>(bufferSize);
-	uint32_t result = textRenderer->generateShapeMSDF(buffer.get(), 0u, glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
-	assert(result == bufferSize);
-	return buffer;
+	size_t bufferOffset = 0ull;
+	textRenderer->generateShapeMSDF(buffer.get(), &bufferOffset, glyph, MSDFPixelRange, msdfExtents, float32_t2(scaleX, scaleY), float32_t2(0, 0));
+	assert(bufferOffset == bufferSize);
+
+	ICPUImage::SCreationParams imgParams;
+	{
+		imgParams.flags = static_cast<ICPUImage::E_CREATE_FLAGS>(0u); // no flags
+		imgParams.type = ICPUImage::ET_2D;
+		imgParams.format = nbl::ext::TextRendering::TextRenderer::MSDFTextureFormat;
+		imgParams.extent = { uint32_t(MSDFSize), uint32_t(MSDFSize), 1 };
+		imgParams.mipLevels = 1u;
+		imgParams.arrayLayers = 1u;
+		imgParams.samples = ICPUImage::ESCF_1_BIT;
+	}
+
+	auto image = ICPUImage::create(std::move(imgParams));
+	auto regions = core::make_refctd_dynamic_array<core::smart_refctd_dynamic_array<IImage::SBufferCopy>>(1u);
+	{
+		auto& region = regions->front();
+		region.bufferOffset = 0u;
+		region.bufferRowLength = 0u;
+		region.bufferImageHeight = 0u;
+		region.imageSubresource.aspectMask = asset::IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+		region.imageSubresource.mipLevel = 0u;
+		region.imageSubresource.baseArrayLayer = 0u;
+		region.imageSubresource.layerCount = 1u;
+		region.imageOffset = { 0u,0u,0u };
+		region.imageExtent = { uint32_t(MSDFSize), uint32_t(MSDFSize), 1 };
+	}
+	image->setBufferAndRegions(std::move(buffer), std::move(regions));
+
+	return image;
 }
