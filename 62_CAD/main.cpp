@@ -68,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_4;
+constexpr ExampleMode mode = ExampleMode::CASE_0;
 
 class Camera2D
 {
@@ -468,10 +468,18 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		auto a = emulated_float64_t<false, true>::create(2.5f);
-		float b = a.getAsFloat32();
-		double aAsDouble = reinterpret_cast<double&>(a);
-		float aAsFloat = aAsDouble;
+		auto a = emulated_float64_t<false, true>::create(-0.000012345678f);
+		float b = nbl::hlsl::_static_cast<float>(a);
+		int c = nbl::hlsl::_static_cast<float>(a);
+
+		std::cout << b << std::endl;
+		std::cout << c << std::endl;
+
+		auto d = _static_cast<emulated_float64_t<false, true>>(b);
+		auto e = _static_cast<emulated_float64_t<false, true>>(c);
+
+		std::cout << reinterpret_cast<double&>(d) << std::endl;
+		std::cout << reinterpret_cast<double&>(e) << std::endl;
 
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 

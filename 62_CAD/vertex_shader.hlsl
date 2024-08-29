@@ -132,7 +132,7 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setLineThickness(sdfLineThickness);
         outV.setCurrentWorldToScreenRatio(
             nbl::hlsl::_static_cast<float>((nbl::hlsl::create_portable_float64_t(2.0) /
-            (clipProjectionData.projectionToNDC[0].x * nbl::hlsl::create_portable_float64_t(globals.resolution.x)))) // TODO: not portable, fix.. operator[]?
+            (clipProjectionData.projectionToNDC[0].x * nbl::hlsl::create_portable_float64_t(globals.resolution.x))))
         );
 
         if (objType == ObjectType::LINE)
@@ -561,7 +561,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
 
 // Make the cage fullscreen for testing: 
-#if 0
+#if 1
     // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
     if(objType != ObjectType::POLYLINE_CONNECTOR)
     {
