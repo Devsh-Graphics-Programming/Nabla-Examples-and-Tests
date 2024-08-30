@@ -224,8 +224,6 @@ protected:
 
 	SubmitFunc submitDraws;
 	
-	static constexpr uint32_t InvalidStyleIdx = ~0u;
-
 	void finalizeMainObjectCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
 
 	void finalizeGeometryCopiesToGPU(SIntendedSubmitInfo& intendedNextSubmit);
