@@ -170,6 +170,30 @@ NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding ufcParticleToCell_bs1[] = {
 };
 #endif
 
+// applyBodyForces
+NBL_CONSTEXPR uint32_t s_abf = 1;
+NBL_CONSTEXPR uint32_t b_abfVelFieldBuffer = 1;
+NBL_CONSTEXPR uint32_t b_abfCMBuffer = 2;
+
+#ifndef __HLSL_VERSION
+NBL_CONSTEXPR IGPUDescriptorSetLayout::SBinding abfApplyForces_bs1[] = {
+    {
+        .binding = b_abfVelFieldBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 1,
+    },
+    {
+        .binding = b_abfCMBuffer,
+        .type = asset::IDescriptor::E_TYPE::ET_STORAGE_BUFFER,
+        .createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+        .stageFlags = asset::IShader::E_SHADER_STAGE::ESS_COMPUTE,
+        .count = 1,
+    }
+};
+#endif
+
 // extrapolateVelocities
 NBL_CONSTEXPR uint32_t s_ev = 1;
 NBL_CONSTEXPR uint32_t b_evGridData = 0;

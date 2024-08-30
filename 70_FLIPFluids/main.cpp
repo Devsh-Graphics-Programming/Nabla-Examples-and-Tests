@@ -275,6 +275,7 @@ public:
 		simAreaSize *= m_gridData.gridCellSize;
 		m_gridData.worldMin = float32_t4(0.f);
 		m_gridData.worldMax = simAreaSize;
+		numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
 		numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
 		
 		WorkgroupCount = numParticles / WorkgroupSize;
@@ -311,7 +312,6 @@ public:
 		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 		createBuffer(tempParticleBuffer, params);
 
-		int32_t numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
 		params.size = numGridCells * sizeof(uint32_t2);
 		params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
 		createBuffer(gridParticleIDBuffer, params);
@@ -469,6 +469,24 @@ public:
 					{.dstSet = m_particleToCellDs.get(), .binding = b_ufcPrevVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 6), {});
+			}
+		}
+		{
+			// apply forces pipeline
+			createComputePipeline(m_applyBodyForcesPipeline, m_applyForcesPool, m_applyForcesDs, 
+				"app_resources/compute/applyBodyForces.comp.hlsl", "main", abfApplyForces_bs1);
+
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[2];
+				infos[0].desc = smart_refctd_ptr(velocityFieldBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
+					{.dstSet = m_applyForcesDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_applyForcesDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 2), {});
 			}
 		}
 		{
@@ -711,7 +729,7 @@ public:
 		for (uint32_t i = 0; i < m_substepsPerFrame; i++)
 		{
 			dispatchUpdateFluidCells(cmdbuf);			// particle to grid
-			//dispatchApplyBodyForces(i == 0);	// external forces, e.g. gravity
+			dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
 			//dispatchApplyDiffusion();
 			//dispatchApplyPressure();
 			dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
@@ -956,7 +974,7 @@ public:
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
 		}
 		
-		const uint32_t numGridWorkgroups = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z / WorkgroupSize;
+		const uint32_t numGridWorkgroups = numGridCells / WorkgroupSize;
 
 		cmdbuf->bindComputePipeline(m_updateFluidCellsPipeline.get());
 		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateFluidCellsPipeline->getLayout(), 1, 1, &m_updateFluidCellsDs.get());
@@ -1074,8 +1092,44 @@ public:
 		cmdbuf->dispatch(numGridWorkgroups, 1, 1);
 	}
 	
-	void dispatchApplyBodyForces(bool isFirstSubstep)
+	void dispatchApplyBodyForces(IGPUCommandBuffer* cmdbuf, bool isFirstSubstep)
 	{
+		{
+			uint32_t bufferBarriersCount = 0u;
+			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = velocityFieldBuffer->getSize(),
+					.buffer = velocityFieldBuffer,
+				};
+			}
+			{
+				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				bufferBarrier.range =
+				{
+					.offset = 0u,
+					.size = gridCellMaterialBuffer->getSize(),
+					.buffer = gridCellMaterialBuffer,
+				};
+			}
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+		}
+
+		const uint32_t numGridWorkgroups = numGridCells / WorkgroupSize;
+		cmdbuf->bindComputePipeline(m_applyBodyForcesPipeline.get());
+		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_applyBodyForcesPipeline->getLayout(), 1, 1, &m_applyForcesDs.get());
+		cmdbuf->dispatch(numGridWorkgroups, 1, 1);
 	}
 	
 	void dispatchApplyDiffusion()
@@ -1849,6 +1903,8 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> m_updateNeighborCellsDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_particleToCellPool;
 	smart_refctd_ptr<IGPUDescriptorSet> m_particleToCellDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_applyForcesPool;
+	smart_refctd_ptr<IGPUDescriptorSet> m_applyForcesDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_extrapolateVelPool;
 	smart_refctd_ptr<IGPUDescriptorSet> m_extrapolateVelDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_advectParticlesPool;
@@ -1882,6 +1938,7 @@ private:
 	SParticleRenderParams m_pRenderParams;
 	uint32_t particlesPerCell = 8;
 	uint32_t numParticles;
+	uint32_t numGridCells;
 
 	// buffers
 	smart_refctd_ptr<IGPUBuffer> cameraBuffer;

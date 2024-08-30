@@ -8,6 +8,7 @@
 NBL_CONSTEXPR uint32_t WorkgroupSize = NUM_THREADS;
 NBL_CONSTEXPR float ratioFLIPPIC = 0.95;
 NBL_CONSTEXPR float deltaTime = 1.0f / 60.0f;
+NBL_CONSTEXPR float gravity = 10.0f;
 
 #ifdef __HLSL_VERSION
 
