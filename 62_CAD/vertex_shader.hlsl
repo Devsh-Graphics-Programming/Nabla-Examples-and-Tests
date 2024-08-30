@@ -126,7 +126,8 @@ PSInput main(uint vertexID : SV_VertexID)
         LineStyle lineStyle = lineStyles[mainObj.styleIdx];
 
         // Width is on both sides, thickness is one one side of the curve (div by 2.0f)
-        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + nbl::hlsl::_static_cast<float>(nbl::hlsl::create_portable_float64_t(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
+        const float screenSpaceLineWidth = lineStyle.screenSpaceLineWidth + nbl::hlsl::_static_cast<float>(
+            nbl::hlsl::_static_cast<nbl::hlsl::portable_float64_t<> >(lineStyle.worldSpaceLineWidth) * globals.screenToWorldRatio);
         const float antiAliasedLineThickness = screenSpaceLineWidth * 0.5f + globals.antiAliasingFactor;
         const float sdfLineThickness = screenSpaceLineWidth / 2.0f;
         outV.setLineThickness(sdfLineThickness);
@@ -188,9 +189,7 @@ PSInput main(uint vertexID : SV_VertexID)
             // transform these points into screen space and pass to fragment
             float2 transformedPoints[3u];
             for (uint i = 0u; i < 3u; ++i)
-            {
                 transformedPoints[i] = transformPointScreenSpace(clipProjectionData.projectionToNDC, points[i]);
-            }
 
             nbl::hlsl::shapes::QuadraticBezier<float> quadraticBezier = nbl::hlsl::shapes::QuadraticBezier<float>::construct(transformedPoints[0u], transformedPoints[1u], transformedPoints[2u]);
             nbl::hlsl::shapes::Quadratic<float> quadratic = nbl::hlsl::shapes::Quadratic<float>::constructFromBezier(quadraticBezier);
@@ -561,7 +560,7 @@ PSInput main(uint vertexID : SV_VertexID)
 
 
 // Make the cage fullscreen for testing: 
-#if 1
+#if 0
     // disabled for object of POLYLINE_CONNECTOR type, since miters would cover whole screen
     if(objType != ObjectType::POLYLINE_CONNECTOR)
     {

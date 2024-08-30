@@ -68,7 +68,7 @@ constexpr std::array<float, (uint32_t)ExampleMode::CASE_COUNT> cameraExtents =
 	600.0,	// CASE_8
 };
 
-constexpr ExampleMode mode = ExampleMode::CASE_0;
+constexpr ExampleMode mode = ExampleMode::CASE_4;
 
 class Camera2D
 {
@@ -468,19 +468,6 @@ public:
 
 	inline bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
 	{
-		auto a = emulated_float64_t<false, true>::create(-0.000012345678f);
-		float b = nbl::hlsl::_static_cast<float>(a);
-		int c = nbl::hlsl::_static_cast<float>(a);
-
-		std::cout << b << std::endl;
-		std::cout << c << std::endl;
-
-		auto d = _static_cast<emulated_float64_t<false, true>>(b);
-		auto e = _static_cast<emulated_float64_t<false, true>>(c);
-
-		std::cout << reinterpret_cast<double&>(d) << std::endl;
-		std::cout << reinterpret_cast<double&>(e) << std::endl;
-
 		m_inputSystem = make_smart_refctd_ptr<InputSystem>(logger_opt_smart_ptr(smart_refctd_ptr(m_logger)));
 
 		// Remember to call the base class initialization!
@@ -826,6 +813,10 @@ public:
 			shaders[1] = loadCompileAndCreateShader(fragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			shaders[2] = loadCompileAndCreateShader(debugfragmentShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
 			shaders[3] = loadCompileAndCreateShader(resolveAlphasShaderPath, IShader::E_SHADER_STAGE::ESS_FRAGMENT);
+			assert(shaders[0]);
+			assert(shaders[1]);
+			assert(shaders[2]);
+			assert(shaders[3]);
 #endif
 		}
 
