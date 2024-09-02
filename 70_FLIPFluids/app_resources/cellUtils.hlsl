@@ -171,6 +171,13 @@ void enforceBoundaryCondition(inout float3 velocity, uint cellMaterial)
     velocity = select(is_solid_cell, 0.0f, velocity);
 }
 
+// handling solid obstacles
+inline bool3 isSolidCell(float3 position)
+{
+    // no obstacles for now, in cuboid sim area
+    return false;
+}
+
 #define LOOP_NEIGHBOR_CELLS_BEGIN(CELL_IDX, NEIGHBOR_IDX, N_ID, RANGE, GRID_SIZE) {\
 for (int i = (int)CELL_IDX.x + RANGE[0]; i <= (int)CELL_IDX.x + RANGE[1]; ++i)\
 for (int j = (int)CELL_IDX.y + RANGE[2]; j <= (int)CELL_IDX.y + RANGE[3]; ++j)\
