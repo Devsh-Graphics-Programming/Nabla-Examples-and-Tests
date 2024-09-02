@@ -220,7 +220,19 @@ public:
 				};
 				m_device->updateDescriptorSets(std::span(writes, 3), {});
 			}
-		}		
+		}
+
+		SBufferRange<IGPUBuffer> range;
+		range.buffer = histogramBuffer;
+		range.size = histogramBuffer->getSize();
+		cmdbuf->fillBuffer(range, 0ull);
+
+		SMemoryBarrier memBarrier;
+		memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+		memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+		memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
 
         SSortParams params;
         params.numElements = numElements;
@@ -239,61 +251,12 @@ public:
             cmdbuf->updateBuffer(range, &params);
 
             {
-                uint32_t bufferBarriersCount = 0u;
-			    IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
-			    {
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = paramsBuffer->getSize(),
-					    .buffer = paramsBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = histogramBuffer->getSize(),
-					    .buffer = histogramBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = tempDataBuffer->getSize(),
-					    .buffer = tempDataBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = dataBuffer->getSize(),
-					    .buffer = dataBuffer,
-				    };
-			    }
-                cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+				SMemoryBarrier memBarrier;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
             cmdbuf->bindComputePipeline(m_buildHistogramPipeline.get());
@@ -302,54 +265,27 @@ public:
 		    cmdbuf->dispatch(numWorkgroups, 1, 1);
 
             {
-                uint32_t bufferBarriersCount = 0u;
-			    IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
-			    {
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = histogramBuffer->getSize(),
-					    .buffer = histogramBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = tempDataBuffer->getSize(),
-					    .buffer = tempDataBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = dataBuffer->getSize(),
-					    .buffer = dataBuffer,
-				    };
-			    }
-                cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+				SMemoryBarrier memBarrier;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
 			cmdbuf->bindComputePipeline(m_radixSortPipeline.get());
 			const IGPUDescriptorSet* sortSet = m_radixSortDs[i % 2].get();
 		    cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_radixSortPipeline->getLayout(), 1, 1, &sortSet);
 		    cmdbuf->dispatch(numWorkgroups, 1, 1);
+
+			{
+				SMemoryBarrier memBarrier;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+            }
         }
     }
 
@@ -357,11 +293,11 @@ private:
     bool updateBuffers(int numElements, int numWorkgroups, int dataTypeSize)
     {
 		bool updated = false;
-        if (!tempDataBuffer || tempDataBuffer->getSize() < numElements * dataTypeSize)
+        if (!tempDataBuffer || tempDataBuffer->getSize() != numElements * dataTypeSize)
         {
             video::IGPUBuffer::SCreationParams params = {};
 		    params.size = numElements * dataTypeSize;
-		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
             tempDataBuffer = m_device->createBuffer(std::move(params));
 
 		    video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = tempDataBuffer->getMemoryReqs();
@@ -375,7 +311,7 @@ private:
 		{
 			video::IGPUBuffer::SCreationParams params = {};
 		    params.size = bufSize;
-		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT;
+		    params.usage = IGPUBuffer::EUF_STORAGE_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT;
             histogramBuffer = m_device->createBuffer(std::move(params));
 
 		    video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = histogramBuffer->getMemoryReqs();
