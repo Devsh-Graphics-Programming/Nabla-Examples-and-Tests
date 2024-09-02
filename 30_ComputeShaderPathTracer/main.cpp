@@ -27,10 +27,9 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 	using device_base_t = examples::SimpleWindowedApplication;
 	using clock_t = std::chrono::steady_clock;
 
-	_NBL_STATIC_INLINE_CONSTEXPR uint32_t WIN_W = 1280, WIN_H = 720, SC_IMG_COUNT = 3u, FRAMES_IN_FLIGHT = 5u;
-	static_assert(FRAMES_IN_FLIGHT > SC_IMG_COUNT);
-
-	constexpr static inline clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t2 WindowDimensions = { 1280, 720 };
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FramesInFlight = 5;
+	_NBL_STATIC_INLINE_CONSTEXPR clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 
 	public:
 		inline UISampleApp(const path& _localInputCWD, const path& _localOutputCWD, const path& _sharedInputCWD, const path& _sharedOutputCWD) 
@@ -44,12 +43,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					auto windowCallback = core::make_smart_refctd_ptr<CEventCallback>(smart_refctd_ptr(m_inputSystem), smart_refctd_ptr(m_logger));
 					IWindow::SCreationParams params = {};
 					params.callback = core::make_smart_refctd_ptr<nbl::video::ISimpleManagedSurface::ICallback>();
-					params.width = WIN_W;
-					params.height = WIN_H;
+					params.width = WindowDimensions.x;
+					params.height = WindowDimensions.y;
 					params.x = 32;
 					params.y = 32;
 					params.flags = ui::IWindow::ECF_HIDDEN | IWindow::ECF_BORDERLESS | IWindow::ECF_RESIZABLE;
-					params.windowCaption = "UISampleApp";
+					params.windowCaption = "ComputeShaderPathtracer";
 					params.callback = windowCallback;
 					const_cast<std::remove_const_t<decltype(m_window)>&>(m_window) = m_winMgr->createWindow(std::move(params));
 				}
@@ -78,7 +77,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			if (!m_semaphore)
 				return logFail("Failed to Create a Semaphore!");
 
-			ISwapchain::SCreationParams swapchainParams = { .surface = m_surface->getSurface() };
+			ISwapchain::SCreationParams swapchainParams = { .surface = smart_refctd_ptr<ISurface>(m_surface->getSurface()) };
 			if (!swapchainParams.deduceFormat(m_physicalDevice))
 				return logFail("Could not choose a Surface Format for the Swapchain!");
 
@@ -118,10 +117,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				return logFail("Could not create Window & Surface or initialize the Surface!");
 
 			m_maxFramesInFlight = m_surface->getMaxFramesInFlight();
-			if (FRAMES_IN_FLIGHT < m_maxFramesInFlight)
+			if (FramesInFlight < m_maxFramesInFlight)
 			{
 				m_logger->log("Lowering frames in flight!", ILogger::ELL_WARNING);
-				m_maxFramesInFlight = FRAMES_IN_FLIGHT;
+				m_maxFramesInFlight = FramesInFlight;
 			}
 
 			m_cmdPool = m_device->createCommandPool(gQueue->getFamilyIndex(), IGPUCommandPool::CREATE_FLAGS::RESET_COMMAND_BUFFER_BIT);
