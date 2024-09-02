@@ -2,9 +2,9 @@
 #define _FLIP_EXAMPLE_CELL_UTILS_HLSL
 
 #ifdef __HLSL_VERSION
-static const uint CM_AIR = 0;
+static const uint CM_SOLID = 0;
 static const uint CM_FLUID = 1;
-static const uint CM_SOLID = 2;
+static const uint CM_AIR = 2;
 
 static const uint CellMatMask       = 0x00000003u;
 static const uint CellMatMaskShift  = 0;

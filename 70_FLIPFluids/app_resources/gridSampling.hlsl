@@ -49,19 +49,19 @@ inline float _sampleVelocity(float3 pos, RWStructuredBuffer<float4> gridBuffer, 
 
 inline float _sampleVelX(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
 {
-    float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.5f, 0.5f, 0.5f);
+    float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.5f, 0.0f, 0.0f);
     return _sampleVelocity(gridPos, gridBuffer, gridData, 0);
 }
 
 inline float _sampleVelY(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
 {
-    float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.5f, 0.5f, 0.5f);
+    float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.0f, 0.5f, 0.0f);
     return _sampleVelocity(gridPos, gridBuffer, gridData, 1);
 }
 
 inline float _sampleVelZ(float3 pos, RWStructuredBuffer<float4> gridBuffer, SGridData gridData)
 {
-    float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.5f, 0.5f, 0.5f);
+    float3 gridPos = worldPosToGridPos(pos, gridData) + float3(0.0f, 0.0f, 0.5f);
     return _sampleVelocity(gridPos, gridBuffer, gridData, 2);
 }
 

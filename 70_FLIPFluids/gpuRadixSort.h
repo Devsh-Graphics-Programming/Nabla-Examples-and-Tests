@@ -254,6 +254,45 @@ public:
 					    .buffer = paramsBuffer,
 				    };
 			    }
+				{
+				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.range =
+				    {
+					    .offset = 0u,
+					    .size = histogramBuffer->getSize(),
+					    .buffer = histogramBuffer,
+				    };
+			    }
+				{
+				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.range =
+				    {
+					    .offset = 0u,
+					    .size = tempDataBuffer->getSize(),
+					    .buffer = tempDataBuffer,
+				    };
+			    }
+				{
+				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.range =
+				    {
+					    .offset = 0u,
+					    .size = dataBuffer->getSize(),
+					    .buffer = dataBuffer,
+				    };
+			    }
                 cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
             }
 
@@ -287,8 +326,21 @@ public:
 				    bufferBarrier.range =
 				    {
 					    .offset = 0u,
-					    .size = (i % 2) == 1 ? tempDataBuffer->getSize() : dataBuffer->getSize(),
-					    .buffer = (i % 2) == 1 ? tempDataBuffer : dataBuffer,
+					    .size = tempDataBuffer->getSize(),
+					    .buffer = tempDataBuffer,
+				    };
+			    }
+				{
+				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				    bufferBarrier.range =
+				    {
+					    .offset = 0u,
+					    .size = dataBuffer->getSize(),
+					    .buffer = dataBuffer,
 				    };
 			    }
                 cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
@@ -298,51 +350,6 @@ public:
 			const IGPUDescriptorSet* sortSet = m_radixSortDs[i % 2].get();
 		    cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_radixSortPipeline->getLayout(), 1, 1, &sortSet);
 		    cmdbuf->dispatch(numWorkgroups, 1, 1);
-
-			{
-                uint32_t bufferBarriersCount = 0u;
-			    IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
-			    {
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = histogramBuffer->getSize(),
-					    .buffer = histogramBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = (i % 2) == 1 ? tempDataBuffer->getSize() : dataBuffer->getSize(),
-					    .buffer = (i % 2) == 1 ? tempDataBuffer : dataBuffer,
-				    };
-			    }
-				{
-				    auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				    bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				    bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				    bufferBarrier.range =
-				    {
-					    .offset = 0u,
-					    .size = (i % 2) == 0 ? tempDataBuffer->getSize() : dataBuffer->getSize(),
-					    .buffer = (i % 2) == 0 ? tempDataBuffer : dataBuffer,
-				    };
-			    }
-                cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
-            }
         }
     }
 

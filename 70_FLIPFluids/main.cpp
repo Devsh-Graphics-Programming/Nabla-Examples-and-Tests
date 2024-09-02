@@ -269,7 +269,7 @@ public:
 		m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
 		m_gridData.gridSize = int32_t4{128, 128, 128, 0};
 		m_gridData.particleInitMin = int32_t4{2, 2, 2, 0};
-		m_gridData.particleInitMax = int32_t4{10, 10, 10, 0};
+		m_gridData.particleInitMax = int32_t4{18, 10, 10, 0};
 		m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
 		float32_t4 simAreaSize = m_gridData.gridSize;
 		simAreaSize *= m_gridData.gridCellSize;
@@ -278,9 +278,7 @@ public:
 		numGridCells = m_gridData.gridSize.x * m_gridData.gridSize.y * m_gridData.gridSize.z;
 		numParticles = m_gridData.particleInitSize.x * m_gridData.particleInitSize.y * m_gridData.particleInitSize.z * particlesPerCell;
 		
-		WorkgroupCount = numParticles / WorkgroupSize;
-		if (numParticles % WorkgroupSize > 0)
-			WorkgroupCount++;
+		WorkgroupCount = (numParticles + WorkgroupSize - 1) / WorkgroupSize;
 
 		{
 			float zNear = 0.1f, zFar = 10000.f;
@@ -483,8 +481,8 @@ public:
 				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
 				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
-					{.dstSet = m_applyForcesDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_applyForcesDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 2), {});
 			}
@@ -506,10 +504,10 @@ public:
 				outputInfos[1].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
 				outputInfos[1].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
-					{.dstSet = m_extrapolateVelDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &outputInfos[0]},
-					{.dstSet = m_extrapolateVelDs.get(), .binding = 3, .arrayElement = 0, .count = 1, .info = &outputInfos[1]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evGridData, .arrayElement = 0, .count = 1, .info = &inputInfos[0]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPBuffer, .arrayElement = 0, .count = 1, .info = &inputInfos[1]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &outputInfos[0]},
+					{.dstSet = m_extrapolateVelDs.get(), .binding = b_evPrevVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &outputInfos[1]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 4), {});
 			}
@@ -522,14 +520,14 @@ public:
 				IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
-				infos[1].desc = smart_refctd_ptr(velocityFieldBuffer);
-				infos[1].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
-				infos[2].desc = smart_refctd_ptr(prevVelocityFieldBuffer);
-				infos[2].info.buffer = {.offset = 0, .size = prevVelocityFieldBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(particleBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[3] = {
-					{.dstSet = m_advectParticlesDs.get(), .binding = 0, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_advectParticlesDs.get(), .binding = 1, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_advectParticlesDs.get(), .binding = 2, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_advectParticlesDs.get(), .binding = b_apGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_advectParticlesDs.get(), .binding = b_apPBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_advectParticlesDs.get(), .binding = b_apVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 3), {});
 			}
@@ -729,7 +727,7 @@ public:
 		for (uint32_t i = 0; i < m_substepsPerFrame; i++)
 		{
 			dispatchUpdateFluidCells(cmdbuf);			// particle to grid
-			dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
+			//dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
 			//dispatchApplyDiffusion();
 			//dispatchApplyPressure();
 			dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
@@ -974,8 +972,8 @@ public:
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
 		}
 		
-		const uint32_t numGridWorkgroups = numGridCells / WorkgroupSize;
-
+		const uint32_t numGridWorkgroups = (numGridCells + WorkgroupSize - 1) / WorkgroupSize;
+		
 		cmdbuf->bindComputePipeline(m_updateFluidCellsPipeline.get());
 		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateFluidCellsPipeline->getLayout(), 1, 1, &m_updateFluidCellsDs.get());
 		cmdbuf->dispatch(numGridWorkgroups, 1, 1);
@@ -1126,7 +1124,8 @@ public:
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
 		}
 
-		const uint32_t numGridWorkgroups = numGridCells / WorkgroupSize;
+		const uint32_t numGridWorkgroups = (numGridCells + WorkgroupSize - 1) / WorkgroupSize;
+
 		cmdbuf->bindComputePipeline(m_applyBodyForcesPipeline.get());
 		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_applyBodyForcesPipeline->getLayout(), 1, 1, &m_applyForcesDs.get());
 		cmdbuf->dispatch(numGridWorkgroups, 1, 1);
@@ -1541,8 +1540,8 @@ private:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = particleCellPairBuffer->getSize(),
-					.buffer = particleCellPairBuffer,
+					.size = particleBuffer->getSize(),
+					.buffer = particleBuffer,
 				};
 			}
 			{
@@ -1554,8 +1553,8 @@ private:
 				bufferBarrier.range =
 				{
 					.offset = 0u,
-					.size = particleBuffer->getSize(),
-					.buffer = particleBuffer,
+					.size = particleCellPairBuffer->getSize(),
+					.buffer = particleCellPairBuffer,
 				};
 			}
 			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
