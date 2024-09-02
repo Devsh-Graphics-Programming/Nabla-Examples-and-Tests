@@ -727,7 +727,7 @@ public:
 		for (uint32_t i = 0; i < m_substepsPerFrame; i++)
 		{
 			dispatchUpdateFluidCells(cmdbuf);			// particle to grid
-			//dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
+			dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
 			//dispatchApplyDiffusion();
 			//dispatchApplyPressure();
 			dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
@@ -1565,26 +1565,26 @@ private:
 		cmdbuf->dispatch(WorkgroupCount, 1, 1);
 
 		// dispatch sort pairs
-		{
-			uint32_t bufferBarriersCount = 0u;
-			IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
-			{
-				auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
-				bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
-				bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
-				bufferBarrier.range =
-				{
-					.offset = 0u,
-					.size = particleCellPairBuffer->getSize(),
-					.buffer = particleCellPairBuffer,
-				};
-			}
-			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
-		}
+		//{
+		//	uint32_t bufferBarriersCount = 0u;
+		//	IGPUCommandBuffer::SPipelineBarrierDependencyInfo::buffer_barrier_t bufferBarriers[6u];
+		//	{
+		//		auto& bufferBarrier = bufferBarriers[bufferBarriersCount++];
+		//		bufferBarrier.barrier.dep.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		//		bufferBarrier.barrier.dep.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		//		bufferBarrier.barrier.dep.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		//		bufferBarrier.barrier.dep.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		//		bufferBarrier.range =
+		//		{
+		//			.offset = 0u,
+		//			.size = particleCellPairBuffer->getSize(),
+		//			.buffer = particleCellPairBuffer,
+		//		};
+		//	}
+		//	cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.bufBarriers = {bufferBarriers, bufferBarriersCount}});
+		//}
 
-		radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
+		//radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
 
 		// clear vel field
 		{
@@ -1740,7 +1740,7 @@ private:
 
 	bool testSort()
 	{
-		const uint32_t numTestElements = 64;
+		const uint32_t numTestElements = 128;
 		smart_refctd_ptr<IGPUBuffer> testbuf;
 		IDeviceMemoryAllocator::SAllocation testbufAlloc;
 
