@@ -311,12 +311,19 @@ public:
 					base.renderpass = renderpass;
 					for (uint32_t i = 0u; i < pipelines.size(); ++i)
 					{
-						auto& [gpu, meta] = base.objects[static_cast<E_OBJECT_TYPE>(i)];
+						const auto type = static_cast<E_OBJECT_TYPE>(i);
+						const auto& [rcpu, rmeta] = scratch.objects[type];
+						auto& [gpu, meta] = base.objects[type];
 
 						gpu.pipeline = pipelines[i].value;
 						// [[ [vertex, index] [vertex, index] [vertex, index] ... [ubo] ]]
 						gpu.bindings.vertex = {.offset = 0u, .buffer = buffers[2u * i + 0u].value};
 						gpu.bindings.index = {.offset = 0u, .buffer = buffers[2u * i + 1u].value};
+
+						gpu.indexCount = rcpu.indexCount;
+						gpu.indexType = rcpu.indexType;
+						meta.name = rmeta.name;
+						meta.type = rmeta.type;
 					}
 					base.ubo = {.offset = 0u, .buffer = buffers.back().value};
 					
