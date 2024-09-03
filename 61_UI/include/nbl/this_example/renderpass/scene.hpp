@@ -106,6 +106,8 @@ class RESOURCES_BUILDER
 public:
 	TYPES_IMPL_BOILERPLATE(withAssetConverter);
 
+	using THIS_T = RESOURCES_BUILDER<withAssetConverter>;
+
 	RESOURCES_BUILDER(nbl::video::IUtilities* const _utilities, nbl::video::IGPUCommandBuffer* const _commandBuffer, nbl::system::ILogger* const _logger, const nbl::asset::IGeometryCreator* const _geometryCreator)
 		: utilities(_utilities), commandBuffer(_commandBuffer), logger(_logger), geometries(_geometryCreator)
 	{
@@ -124,11 +126,6 @@ public:
 	{
 		EXPOSE_NABLA_NAMESPACES();
 
-		// TODO: we could make those params templated with default values like below
-		_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
-		_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = EF_D16_UNORM;
-		_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = IGPUImage::ESCF_1_BIT;
-
 		if constexpr (!withAssetConverter)
 		{
 			commandBuffer->reset(nbl::video::IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
@@ -136,498 +133,22 @@ public:
 			commandBuffer->beginDebugMarker("Resources builder's buffers upload [manual]");
 		}
 
-		// descriptor set layout
-		{
-			typename TYPES::DESCRIPTOR_SET_LAYOUT::SBinding bindings [] =
-			{
-				{
-					.binding = 0u,
-					.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-					.createFlags = TYPES::DESCRIPTOR_SET_LAYOUT::SBinding::E_CREATE_FLAGS::ECF_NONE,
-					.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
-					.count = 1u,
-				}
-			};
+		using FUNCTOR_T = std::function<bool(void)>;
 
-			scratch.descriptorSetLayout = create<typename TYPES::DESCRIPTOR_SET_LAYOUT>(bindings);
+		auto work = std::to_array
+		({
+			FUNCTOR_T(std::bind(&THIS_T::createDescriptorSetLayout, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createPipelineLayout, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createRenderpass, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createFramebufferAttachments, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createShaders, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createGeometries, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createViewParametersUboBuffer, this))
+		});
 
-			if (!scratch.descriptorSetLayout)
-			{
-				logger->log("Could not descriptor set layout!", ILogger::ELL_ERROR);
+		for (auto& task : work)
+			if (!task())
 				return false;
-			}
-		}
-
-		// pipeline layout
-		{
-			const std::span<const SPushConstantRange> range = {};
-
-			scratch.pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
-
-			if (!scratch.pipelineLayout)
-			{
-				logger->log("Could not create pipeline layout!", ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-		
-		// renderpass
-		{
-			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SColorAttachmentDescription colorAttachments[] =
-			{
-				{
-					{
-						{
-							.format = COLOR_FBO_ATTACHMENT_FORMAT,
-							.samples = SAMPLES,
-							.mayAlias = false
-						},
-						/* .loadOp = */ TYPES::RENDERPASS::LOAD_OP::CLEAR,
-						/* .storeOp = */ TYPES::RENDERPASS::STORE_OP::STORE,
-						/* .initialLayout = */ TYPES::IMAGE::LAYOUT::UNDEFINED,
-						/* .finalLayout = */ TYPES::IMAGE::LAYOUT::READ_ONLY_OPTIMAL
-					}
-				},
-				TYPES::RENDERPASS::SCreationParams::ColorAttachmentsEnd
-			};
-
-			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
-			{
-				{
-					{
-						{
-							.format = DEPTH_FBO_ATTACHMENT_FORMAT,
-							.samples = SAMPLES,
-							.mayAlias = false
-						},
-						/* .loadOp = */ {TYPES::RENDERPASS::LOAD_OP::CLEAR},
-						/* .storeOp = */ {TYPES::RENDERPASS::STORE_OP::STORE},
-						/* .initialLayout = */ {TYPES::IMAGE::LAYOUT::UNDEFINED},
-						/* .finalLayout = */ {TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL}
-					}
-				},
-				TYPES::RENDERPASS::SCreationParams::DepthStencilAttachmentsEnd
-			};
-
-			typename TYPES::RENDERPASS::SCreationParams::SSubpassDescription subpasses[] =
-			{
-				{},
-				TYPES::RENDERPASS::SCreationParams::SubpassesEnd
-			};
-
-			subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL };
-			subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL } };
-
-			_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SSubpassDependency dependencies[] =
-			{
-				// wipe-transition of Color to ATTACHMENT_OPTIMAL
-				{
-					.srcSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
-					.dstSubpass = 0,
-					.memoryBarrier =
-					{
-					// 
-					.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,
-					// destination needs to wait as early as possible
-					.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// because of depth test needing a read and a write
-					.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
-				}
-				// leave view offsets and flags default
-				},
-				// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
-				{
-					.srcSubpass = 0,
-					.dstSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
-					.memoryBarrier =
-					{
-					// last place where the depth can get modified
-					.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
-					// only write ops, reads can't be made available
-					.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
-					// 
-					.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
-					//
-					.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
-					// 
-					}
-				// leave view offsets and flags default
-				},
-				TYPES::RENDERPASS::SCreationParams::DependenciesEnd
-			};
-
-			typename TYPES::RENDERPASS::SCreationParams params = {};
-			params.colorAttachments = colorAttachments;
-			params.depthStencilAttachments = depthAttachments;
-			params.subpasses = subpasses;
-			params.dependencies = dependencies;
-
-			if constexpr (withAssetConverter)
-				scratch.renderpass = ICPURenderpass::create(params);
-			else
-				scratch.renderpass = create<typename TYPES::RENDERPASS>(params);
-
-			if (!scratch.renderpass)
-			{
-				logger->log("Could not create render pass!", ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-
-		// frame buffer's attachments
-		{
-			auto createImageView = [&]<E_FORMAT format>(smart_refctd_ptr<typename TYPES::IMAGE_VIEW>& outView) -> smart_refctd_ptr<typename TYPES::IMAGE_VIEW>
-			{
-				constexpr bool IS_DEPTH = isDepthOrStencilFormat<format>();
-				constexpr auto USAGE = [](const bool isDepth)
-				{
-					bitflag<TYPES::IMAGE::E_USAGE_FLAGS> usage = TYPES::IMAGE::EUF_RENDER_ATTACHMENT_BIT;
-
-					if (!isDepth)
-						usage |= TYPES::IMAGE::EUF_SAMPLED_BIT;
-
-					return usage;
-				}(IS_DEPTH);
-				constexpr auto ASPECT = IS_DEPTH ? IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-				constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
-				{
-					smart_refctd_ptr<typename TYPES::IMAGE> image;
-					{
-						auto params = typename TYPES::IMAGE::SCreationParams(
-						{
-							.type = TYPES::IMAGE::ET_2D,
-							.samples = SAMPLES,
-							.format = format,
-							.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
-							.mipLevels = 1u,
-							.arrayLayers = 1u,
-							.usage = USAGE
-						});
-
-						if constexpr (withAssetConverter)
-							image = ICPUImage::create(params);
-						else
-							image = create<typename TYPES::IMAGE>(std::move(params));
-					}
-
-					if (!image)
-					{
-						logger->log("Could not create image!", ILogger::ELL_ERROR);
-						return nullptr;
-					}
-
-					if constexpr (withAssetConverter)
-					{
-						auto dummyBuffer = make_smart_refctd_ptr<ICPUBuffer>(FRAMEBUFFER_W * FRAMEBUFFER_H * getTexelOrBlockBytesize<format>());
-						dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
-
-						auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
-						auto& region = regions->front();
-
-						region.imageSubresource = { .aspectMask = ASPECT, .mipLevel = 0u, .baseArrayLayer = 0u, .layerCount = 0u };
-						region.bufferOffset = 0u;
-						region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(FRAMEBUFFER_W, getTexelOrBlockBytesize<format>());
-						region.bufferImageHeight = 0u;
-						region.imageOffset = { 0u, 0u, 0u };
-						region.imageExtent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u };
-
-						if (!image->setBufferAndRegions(std::move(dummyBuffer), regions))
-						{
-							logger->log("Could not set image's regions!", ILogger::ELL_ERROR);
-							return nullptr;
-						}
-						image->setContentHash(image->computeContentHash());
-					}
-					else
-					{
-						image->setObjectDebugName(DEBUG_NAME.data());
-
-						if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
-						{
-							logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
-							return nullptr;
-						}
-					}
-
-					auto params = typename TYPES::IMAGE_VIEW::SCreationParams(
-					{
-						.flags = TYPES::IMAGE_VIEW::ECF_NONE,
-						.subUsages = USAGE,
-						.image = std::move(image),
-						.viewType = TYPES::IMAGE_VIEW::ET_2D,
-						.format = format,
-						.subresourceRange = { .aspectMask = ASPECT, .baseMipLevel = 0u, .levelCount = 1u, .baseArrayLayer = 0u, .layerCount = 1u }
-					});
-
-					outView = create<typename TYPES::IMAGE_VIEW>(std::move(params));
-
-					if (!outView)
-					{
-						logger->log("Could not create image view!", ILogger::ELL_ERROR);
-						return nullptr;
-					}
-
-					return smart_refctd_ptr(outView);
-				}
-			};
-
-			const bool allocated = createImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > (scratch.attachments.color) && createImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > (scratch.attachments.depth);
-
-			if (!allocated)
-			{
-				logger->log("Could not allocate frame buffer's attachments!", ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-
-		// shaders
-		{
-			auto createShader = [&]<nbl::core::StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename TYPES::SHADER>& outShader) -> smart_refctd_ptr<typename TYPES::SHADER>
-			{
-				// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
-
-				const nbl::system::SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
-				const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
-				auto shader = nbl::core::make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
-
-				if constexpr (withAssetConverter)
-				{
-					buffer->setContentHash(buffer->computeContentHash());
-					outShader = std::move(shader);
-				}
-				else
-					outShader = create<typename TYPES::SHADER>(shader.get()); // note: dependency between cpu object instance & gpu object creation, not sure if its our API design failure or maybe I'm just thinking too much
-
-				return outShader;
-			};
-
-			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC];
-			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
-			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
-
-			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& cone = scratch.shaders[GEOMETRIES_CPU::EGP_CONE];
-			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
-			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
-
-			typename RESOURCES_BUNDLE_SCRATCH::SHADERS& ico = scratch.shaders[GEOMETRIES_CPU::EGP_ICO];
-			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
-			createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
-			
-			for (const auto& it : scratch.shaders)
-			{
-				if (!it.vertex || !it.fragment)
-				{
-					logger->log("Could not create shaders!", ILogger::ELL_ERROR);
-					return false;
-				}
-			}
-		}
-
-		// geometries
-		{
-			for (uint32_t i = 0; i < geometries.objects.size(); ++i)
-			{
-				const auto& inGeometry = geometries.objects[i];
-				auto& [obj, meta] = scratch.objects[i];
-
-				bool status = true;
-
-				meta.name = inGeometry.meta.name;
-				meta.type = inGeometry.meta.type;
-
-				struct
-				{
-					SBlendParams blend;
-					SRasterizationParams rasterization;
-					typename TYPES::GRAPHICS_PIPELINE::SCreationParams pipeline;
-				} params;
-				
-				{
-					params.blend.logicOp = ELO_NO_OP;
-
-					auto& b = params.blend.blendParams[0];
-					b.srcColorFactor = EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
-					b.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-					b.colorBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
-					b.srcAlphaFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-					b.dstAlphaFactor = EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
-					b.alphaBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
-					b.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
-				}
-
-				params.rasterization.faceCullingMode = EFCM_NONE;
-				{
-					const typename TYPES::SHADER::SSpecInfo info [] =
-					{
-						{.entryPoint = "VSMain", .shader = scratch.shaders[inGeometry.shadersType].vertex.get() },
-						{.entryPoint = "PSMain", .shader = scratch.shaders[inGeometry.shadersType].fragment.get() }
-					};
-
-					params.pipeline.layout = scratch.pipelineLayout.get();
-					params.pipeline.shaders = info;
-					params.pipeline.renderpass = scratch.renderpass.get();
-					params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
-
-					obj.indexCount = inGeometry.data.indexCount;
-					obj.indexType = inGeometry.data.indexType;
-
-					// TODO: cache pipeline & try lookup for existing one first maybe
-
-					// similar issue like with shaders again, in this case gpu contructor allows for extra cache parameters + there is no constructor you can use to fire make_smart_refctd_ptr yourself for cpu
-					if constexpr (withAssetConverter)
-						obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
-					else
-					{
-						const std::span<const IGPUGraphicsPipeline::SCreationParams> info = { { params.pipeline } };
-						create<typename TYPES::GRAPHICS_PIPELINE>(nullptr, info, &obj.pipeline);
-					}
-
-					if (!obj.pipeline)
-					{
-						logger->log("Could not create graphics pipeline for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-						status = false;
-					}
-
-					// object buffers
-					auto createVIBuffers = [&]() -> bool
-					{
-						using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
-
-						// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
-						auto vBuffer = smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
-						constexpr static auto VERTEX_USAGE = bitflag(IBUFFER::EUF_VERTEX_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
-						obj.bindings.vertex.offset = 0u;
-						
-						auto iBuffer = smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
-						constexpr static auto INDEX_USAGE = bitflag(IBUFFER::EUF_INDEX_BUFFER_BIT) | IBUFFER::EUF_VERTEX_BUFFER_BIT | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
-						obj.bindings.index.offset = 0u;
-
-						if constexpr (withAssetConverter)
-						{
-							if (!vBuffer)
-								return false;
-
-							vBuffer->addUsageFlags(VERTEX_USAGE);
-							vBuffer->setContentHash(vBuffer->computeContentHash());
-							obj.bindings.vertex = { .offset = 0u, .buffer = vBuffer };
-
-							if (inGeometry.data.indexType != EIT_UNKNOWN)
-								if (iBuffer)
-								{
-									iBuffer->addUsageFlags(INDEX_USAGE);
-									iBuffer->setContentHash(iBuffer->computeContentHash());
-								}
-								else
-									return false;
-
-							obj.bindings.index = { .offset = 0u, .buffer = iBuffer };
-						}
-						else
-						{
-							auto vertexBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = vBuffer->getSize(), .usage = VERTEX_USAGE }));
-							auto indexBuffer = iBuffer ? create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = iBuffer->getSize(), .usage = INDEX_USAGE })) : nullptr;
-
-							if (!vertexBuffer)
-								return false;
-
-							if (inGeometry.data.indexType != EIT_UNKNOWN)
-								if (!indexBuffer)
-									return false;
-
-							const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-							for (auto it : { vertexBuffer , indexBuffer })
-							{
-								if (it)
-								{
-									auto reqs = it->getMemoryReqs();
-									reqs.memoryTypeBits &= mask;
-
-									utilities->getLogicalDevice()->allocate(reqs, it.get());
-								}
-							}
-
-							// record transfer uploads
-							obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
-							{
-								const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
-								if (!commandBuffer->updateBuffer(range, vBuffer->getPointer()))
-								{
-									logger->log("Could not record vertex buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-									status = false;
-								}
-							}
-							obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
-							{
-								if (iBuffer)
-								{
-									const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
-
-									if (!commandBuffer->updateBuffer(range, iBuffer->getPointer()))
-									{
-										logger->log("Could not record index buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-										status = false;
-									}
-								}
-							}
-						}
-						
-						return true;
-					};
-
-					if (!createVIBuffers())
-					{
-						logger->log("Could not create buffers for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
-						status = false;
-					}
-
-					if (!status)
-					{
-						logger->log("[%s] object will not be created!", ILogger::ELL_ERROR, meta.name.data());
-
-						obj.bindings.vertex = {};
-						obj.bindings.index = {};
-						obj.indexCount = 0u;
-						obj.indexType = E_INDEX_TYPE::EIT_UNKNOWN;
-						obj.pipeline = nullptr;
-
-						continue;
-					}
-				}
-			}
-		}
-
-		// view parameters ubo buffer
-		{
-			// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
-			using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
-			constexpr static auto UBO_USAGE = bitflag(IBUFFER::EUF_UNIFORM_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
-
-			if constexpr (withAssetConverter)
-			{
-				auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
-				uboBuffer->addUsageFlags(UBO_USAGE);
-				uboBuffer->setContentHash(uboBuffer->computeContentHash());
-				scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
-			}
-			else
-			{
-				const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
-
-				auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
-
-				for (auto it : { uboBuffer })
-				{
-					video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
-					reqs.memoryTypeBits &= mask;
-
-					utilities->getLogicalDevice()->allocate(reqs, it.get());
-				}
-
-				scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
-			}
-		}
 
 		if constexpr (!withAssetConverter)
 			commandBuffer->end();
@@ -682,6 +203,14 @@ public:
 				std::array<ICPUBuffer*, OBJECTS_SIZE::value * 2u + 1u > buffers;
 				std::array<ICPUImageView*, 2u> attachments;
 			} hooks;
+
+			enum E_ATTACHMENT_ID
+			{
+				EAI_COLOR = 0u,
+				EAI_DEPTH = 1u,
+
+				EAI_COUNT
+			};
 			
 			// gather CPU assets into span memory views
 			{ 
@@ -696,8 +225,8 @@ public:
 					hooks.buffers[2u * i + 1u] = reference.bindings.index.buffer.get();
 				}
 				hooks.buffers.back() = scratch.ubo.buffer.get();
-				hooks.attachments[0u] = scratch.attachments.color.get();
-				hooks.attachments[1u] = scratch.attachments.depth.get();
+				hooks.attachments[EAI_COLOR] = scratch.attachments.color.get();
+				hooks.attachments[EAI_DEPTH] = scratch.attachments.depth.get();
 			}
 
 			// assign the CPU hooks to converter's inputs
@@ -790,14 +319,79 @@ public:
 						gpu.bindings.index = {.offset = 0u, .buffer = buffers[2u * i + 1u].value};
 					}
 					base.ubo = {.offset = 0u, .buffer = buffers.back().value};
-					// TOOD: uncomment once possible
-					// base.attachments.color = attachments[0u].value;
-					// base.attachments.depth = attachments[1u].value;
+					
+					/*
+						// base.attachments.color = attachments[EAI_COLOR].value;
+						// base.attachments.depth = attachments[EAI_DEPTH].value;
+
+						note conversion of image views is not yet supported by the asset converter 
+						- it's complicated, we have to kinda temporary ignore DRY a bit here to not break the design which is correct
+
+						TEMPORARY: we patch attachments by allocating them ourselves here given cpu instances & parameters
+						TODO: remove following code once asset converter works with image views & update stuff
+					*/
+
+					for (uint32_t i = 0u; i < EAI_COUNT; ++i)
+					{
+						const auto* reference = hooks.attachments[i];
+						auto& out = (i == EAI_COLOR ? base.attachments.color : base.attachments.depth);
+
+						const auto& viewParams = reference->getCreationParameters();
+						const auto& imageParams = viewParams.image->getCreationParameters();
+
+						auto image = utilities->getLogicalDevice()->createImage
+						(
+							IGPUImage::SCreationParams
+							({
+								.type = imageParams.type,
+								.samples = imageParams.samples,
+								.format = imageParams.format,
+								.extent = imageParams.extent,
+								.mipLevels = imageParams.mipLevels,
+								.arrayLayers = imageParams.arrayLayers,
+								.usage = imageParams.usage
+							})
+						);
+
+						if (!image)
+						{
+							logger->log("Could not create image!", ILogger::ELL_ERROR);
+							return false;
+						}
+
+						bool IS_DEPTH = isDepthOrStencilFormat(imageParams.format);
+						std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
+						image->setObjectDebugName(DEBUG_NAME.data());
+
+						if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
+						{
+							logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
+							return false;
+						}
+						
+						out = utilities->getLogicalDevice()->createImageView
+						(
+							IGPUImageView::SCreationParams
+							({
+								.flags = viewParams.flags,
+								.subUsages = viewParams.subUsages,
+								.image = std::move(image),
+								.viewType = viewParams.viewType,
+								.format = viewParams.format,
+								.subresourceRange = viewParams.subresourceRange
+							})
+						);
+
+						if (!out)
+						{
+							logger->log("Could not create image view!", ILogger::ELL_ERROR);
+							return false;
+						}
+					}
+
+					logger->log("Image View attachments has been allocated by hand after asset converter successful submit becasuse it doesn't support converting them yet!", ILogger::ELL_WARNING);
 				}
 			}
-
-			assert(false); // TODO & TMP, I dont have attachments converted yet so my scene wont work anyway
-			exit(0x45);
 		}
 		else
 		{
@@ -884,6 +478,559 @@ public:
 	}
 
 private:
+	bool createDescriptorSetLayout()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		typename TYPES::DESCRIPTOR_SET_LAYOUT::SBinding bindings[] =
+		{
+			{
+				.binding = 0u,
+				.type = IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+				.createFlags = TYPES::DESCRIPTOR_SET_LAYOUT::SBinding::E_CREATE_FLAGS::ECF_NONE,
+				.stageFlags = IShader::E_SHADER_STAGE::ESS_VERTEX | IShader::E_SHADER_STAGE::ESS_FRAGMENT,
+				.count = 1u,
+			}
+		};
+
+		scratch.descriptorSetLayout = create<typename TYPES::DESCRIPTOR_SET_LAYOUT>(bindings);
+
+		if (!scratch.descriptorSetLayout)
+		{
+			logger->log("Could not descriptor set layout!", ILogger::ELL_ERROR);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool createPipelineLayout()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		const std::span<const SPushConstantRange> range = {};
+
+		scratch.pipelineLayout = create<typename TYPES::PIPELINE_LAYOUT>(range, nullptr, smart_refctd_ptr(scratch.descriptorSetLayout), nullptr, nullptr);
+
+		if (!scratch.pipelineLayout)
+		{
+			logger->log("Could not create pipeline layout!", ILogger::ELL_ERROR);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool createRenderpass()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SColorAttachmentDescription colorAttachments[] =
+		{
+			{
+				{
+					{
+						.format = COLOR_FBO_ATTACHMENT_FORMAT,
+						.samples = SAMPLES,
+						.mayAlias = false
+					},
+					/* .loadOp = */ TYPES::RENDERPASS::LOAD_OP::CLEAR,
+					/* .storeOp = */ TYPES::RENDERPASS::STORE_OP::STORE,
+					/* .initialLayout = */ TYPES::IMAGE::LAYOUT::UNDEFINED,
+					/* .finalLayout = */ TYPES::IMAGE::LAYOUT::READ_ONLY_OPTIMAL
+				}
+			},
+			TYPES::RENDERPASS::SCreationParams::ColorAttachmentsEnd
+		};
+
+		_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SDepthStencilAttachmentDescription depthAttachments[] =
+		{
+			{
+				{
+					{
+						.format = DEPTH_FBO_ATTACHMENT_FORMAT,
+						.samples = SAMPLES,
+						.mayAlias = false
+					},
+					/* .loadOp = */ {TYPES::RENDERPASS::LOAD_OP::CLEAR},
+					/* .storeOp = */ {TYPES::RENDERPASS::STORE_OP::STORE},
+					/* .initialLayout = */ {TYPES::IMAGE::LAYOUT::UNDEFINED},
+					/* .finalLayout = */ {TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL}
+				}
+			},
+			TYPES::RENDERPASS::SCreationParams::DepthStencilAttachmentsEnd
+		};
+
+		typename TYPES::RENDERPASS::SCreationParams::SSubpassDescription subpasses[] =
+		{
+			{},
+			TYPES::RENDERPASS::SCreationParams::SubpassesEnd
+		};
+
+		subpasses[0].depthStencilAttachment.render = { .attachmentIndex = 0u,.layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL };
+		subpasses[0].colorAttachments[0] = { .render = {.attachmentIndex = 0u, .layout = TYPES::IMAGE::LAYOUT::ATTACHMENT_OPTIMAL } };
+
+		_NBL_STATIC_INLINE_CONSTEXPR TYPES::RENDERPASS::SCreationParams::SSubpassDependency dependencies[] =
+		{
+			// wipe-transition of Color to ATTACHMENT_OPTIMAL
+			{
+				.srcSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
+				.dstSubpass = 0,
+				.memoryBarrier =
+				{
+				// 
+				.srcStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+				// only write ops, reads can't be made available
+				.srcAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT,
+				// destination needs to wait as early as possible
+				.dstStageMask = PIPELINE_STAGE_FLAGS::EARLY_FRAGMENT_TESTS_BIT | PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+				// because of depth test needing a read and a write
+				.dstAccessMask = ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | ACCESS_FLAGS::DEPTH_STENCIL_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_READ_BIT | ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT
+			}
+			// leave view offsets and flags default
+			},
+			// color from ATTACHMENT_OPTIMAL to PRESENT_SRC
+			{
+				.srcSubpass = 0,
+				.dstSubpass = TYPES::RENDERPASS::SCreationParams::SSubpassDependency::External,
+				.memoryBarrier =
+				{
+				// last place where the depth can get modified
+				.srcStageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT,
+				// only write ops, reads can't be made available
+				.srcAccessMask = ACCESS_FLAGS::COLOR_ATTACHMENT_WRITE_BIT,
+				// 
+				.dstStageMask = PIPELINE_STAGE_FLAGS::FRAGMENT_SHADER_BIT,
+				//
+				.dstAccessMask = ACCESS_FLAGS::SAMPLED_READ_BIT
+				// 
+				}
+			// leave view offsets and flags default
+			},
+			TYPES::RENDERPASS::SCreationParams::DependenciesEnd
+		};
+
+		typename TYPES::RENDERPASS::SCreationParams params = {};
+		params.colorAttachments = colorAttachments;
+		params.depthStencilAttachments = depthAttachments;
+		params.subpasses = subpasses;
+		params.dependencies = dependencies;
+
+		if constexpr (withAssetConverter)
+			scratch.renderpass = ICPURenderpass::create(params);
+		else
+			scratch.renderpass = create<typename TYPES::RENDERPASS>(params);
+
+		if (!scratch.renderpass)
+		{
+			logger->log("Could not create render pass!", ILogger::ELL_ERROR);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool createFramebufferAttachments()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		auto createImageView = [&]<E_FORMAT format>(smart_refctd_ptr<typename TYPES::IMAGE_VIEW>& outView) -> smart_refctd_ptr<typename TYPES::IMAGE_VIEW>
+		{
+			constexpr bool IS_DEPTH = isDepthOrStencilFormat<format>();
+			constexpr auto USAGE = [](const bool isDepth)
+			{
+				bitflag<TYPES::IMAGE::E_USAGE_FLAGS> usage = TYPES::IMAGE::EUF_RENDER_ATTACHMENT_BIT;
+
+				if (!isDepth)
+					usage |= TYPES::IMAGE::EUF_SAMPLED_BIT;
+
+				return usage;
+			}(IS_DEPTH);
+			constexpr auto ASPECT = IS_DEPTH ? IImage::E_ASPECT_FLAGS::EAF_DEPTH_BIT : IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+			constexpr std::string_view DEBUG_NAME = IS_DEPTH ? "UI Scene Depth Attachment Image" : "UI Scene Color Attachment Image";
+			{
+				smart_refctd_ptr<typename TYPES::IMAGE> image;
+				{
+					auto params = typename TYPES::IMAGE::SCreationParams(
+					{
+						.type = TYPES::IMAGE::ET_2D,
+						.samples = SAMPLES,
+						.format = format,
+						.extent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u },
+						.mipLevels = 1u,
+						.arrayLayers = 1u,
+						.usage = USAGE
+					});
+
+					if constexpr (withAssetConverter)
+						image = ICPUImage::create(params);
+					else
+						image = create<typename TYPES::IMAGE>(std::move(params));
+				}
+
+				if (!image)
+				{
+					logger->log("Could not create image!", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+
+				if constexpr (withAssetConverter)
+				{
+					auto dummyBuffer = make_smart_refctd_ptr<ICPUBuffer>(FRAMEBUFFER_W * FRAMEBUFFER_H * getTexelOrBlockBytesize<format>());
+					dummyBuffer->setContentHash(dummyBuffer->computeContentHash());
+
+					auto regions = make_refctd_dynamic_array<smart_refctd_dynamic_array<ICPUImage::SBufferCopy>>(1u);
+					auto& region = regions->front();
+
+					region.imageSubresource = { .aspectMask = ASPECT, .mipLevel = 0u, .baseArrayLayer = 0u, .layerCount = 0u };
+					region.bufferOffset = 0u;
+					region.bufferRowLength = IImageAssetHandlerBase::calcPitchInBlocks(FRAMEBUFFER_W, getTexelOrBlockBytesize<format>());
+					region.bufferImageHeight = 0u;
+					region.imageOffset = { 0u, 0u, 0u };
+					region.imageExtent = { FRAMEBUFFER_W, FRAMEBUFFER_H, 1u };
+
+					if (!image->setBufferAndRegions(std::move(dummyBuffer), regions))
+					{
+						logger->log("Could not set image's regions!", ILogger::ELL_ERROR);
+						return nullptr;
+					}
+					image->setContentHash(image->computeContentHash());
+				}
+				else
+				{
+					image->setObjectDebugName(DEBUG_NAME.data());
+
+					if (!utilities->getLogicalDevice()->allocate(image->getMemoryReqs(), image.get()).isValid())
+					{
+						logger->log("Could not allocate memory for an image!", ILogger::ELL_ERROR);
+						return nullptr;
+					}
+				}
+
+				auto params = typename TYPES::IMAGE_VIEW::SCreationParams(
+				{
+					.flags = TYPES::IMAGE_VIEW::ECF_NONE,
+					.subUsages = USAGE,
+					.image = std::move(image),
+					.viewType = TYPES::IMAGE_VIEW::ET_2D,
+					.format = format,
+					.subresourceRange = { .aspectMask = ASPECT, .baseMipLevel = 0u, .levelCount = 1u, .baseArrayLayer = 0u, .layerCount = 1u }
+				});
+
+				outView = create<typename TYPES::IMAGE_VIEW>(std::move(params));
+
+				if (!outView)
+				{
+					logger->log("Could not create image view!", ILogger::ELL_ERROR);
+					return nullptr;
+				}
+
+				return smart_refctd_ptr(outView);
+			}
+		};
+
+		const bool allocated = createImageView.template operator() < COLOR_FBO_ATTACHMENT_FORMAT > (scratch.attachments.color) && createImageView.template operator() < DEPTH_FBO_ATTACHMENT_FORMAT > (scratch.attachments.depth);
+
+		if (!allocated)
+		{
+			logger->log("Could not allocate frame buffer's attachments!", ILogger::ELL_ERROR);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool createShaders()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		auto createShader = [&]<nbl::core::StringLiteral virtualPath>(IShader::E_SHADER_STAGE stage, smart_refctd_ptr<typename TYPES::SHADER>& outShader) -> smart_refctd_ptr<typename TYPES::SHADER>
+		{
+			// TODO: use SPIRV loader & our ::system ns to get those cpu shaders, do not create myself (shit I forgot it exists)
+
+			const nbl::system::SBuiltinFile& in = ::geometry::creator::spirv::builtin::get_resource<virtualPath>();
+			const auto buffer = make_smart_refctd_ptr<CCustomAllocatorCPUBuffer<null_allocator<uint8_t>, true> >(in.size, (void*)in.contents, adopt_memory);
+			auto shader = nbl::core::make_smart_refctd_ptr<ICPUShader>(smart_refctd_ptr(buffer), stage, IShader::E_CONTENT_TYPE::ECT_SPIRV, ""); // must create cpu instance regardless underlying type
+
+			if constexpr (withAssetConverter)
+			{
+				buffer->setContentHash(buffer->computeContentHash());
+				outShader = std::move(shader);
+			}
+			else
+				outShader = create<typename TYPES::SHADER>(shader.get()); // note: dependency between cpu object instance & gpu object creation, not sure if its our API design failure or maybe I'm just thinking too much
+
+			return outShader;
+		};
+
+		typename RESOURCES_BUNDLE_SCRATCH::SHADERS& basic = scratch.shaders[GEOMETRIES_CPU::EGP_BASIC];
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, basic.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, basic.fragment);
+
+		typename RESOURCES_BUNDLE_SCRATCH::SHADERS& cone = scratch.shaders[GEOMETRIES_CPU::EGP_CONE];
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.cone.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, cone.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, cone.fragment); // note we reuse fragment from basic!
+
+		typename RESOURCES_BUNDLE_SCRATCH::SHADERS& ico = scratch.shaders[GEOMETRIES_CPU::EGP_ICO];
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.ico.vertex.spv") > (IShader::E_SHADER_STAGE::ESS_VERTEX, ico.vertex);
+		createShader.template operator() < NBL_CORE_UNIQUE_STRING_LITERAL_TYPE("geometryCreator/spirv/gc.basic.fragment.spv") > (IShader::E_SHADER_STAGE::ESS_FRAGMENT, ico.fragment); // note we reuse fragment from basic!
+			
+		for (const auto& it : scratch.shaders)
+		{
+			if (!it.vertex || !it.fragment)
+			{
+				logger->log("Could not create shaders!", ILogger::ELL_ERROR);
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	bool createGeometries()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		for (uint32_t i = 0; i < geometries.objects.size(); ++i)
+		{
+			const auto& inGeometry = geometries.objects[i];
+			auto& [obj, meta] = scratch.objects[i];
+
+			bool status = true;
+
+			meta.name = inGeometry.meta.name;
+			meta.type = inGeometry.meta.type;
+
+			struct
+			{
+				SBlendParams blend;
+				SRasterizationParams rasterization;
+				typename TYPES::GRAPHICS_PIPELINE::SCreationParams pipeline;
+			} params;
+				
+			{
+				params.blend.logicOp = ELO_NO_OP;
+
+				auto& b = params.blend.blendParams[0];
+				b.srcColorFactor = EBF_SRC_ALPHA;//VK_BLEND_FACTOR_SRC_ALPHA;
+				b.dstColorFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				b.colorBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
+				b.srcAlphaFactor = EBF_ONE_MINUS_SRC_ALPHA;//VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+				b.dstAlphaFactor = EBF_ZERO;//VK_BLEND_FACTOR_ZERO;
+				b.alphaBlendOp = EBO_ADD;//VK_BLEND_OP_ADD;
+				b.colorWriteMask = (1u << 0u) | (1u << 1u) | (1u << 2u) | (1u << 3u);//VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+			}
+
+			params.rasterization.faceCullingMode = EFCM_NONE;
+			{
+				const typename TYPES::SHADER::SSpecInfo info [] =
+				{
+					{.entryPoint = "VSMain", .shader = scratch.shaders[inGeometry.shadersType].vertex.get() },
+					{.entryPoint = "PSMain", .shader = scratch.shaders[inGeometry.shadersType].fragment.get() }
+				};
+
+				params.pipeline.layout = scratch.pipelineLayout.get();
+				params.pipeline.shaders = info;
+				params.pipeline.renderpass = scratch.renderpass.get();
+				params.pipeline.cached = { .vertexInput = inGeometry.data.inputParams, .primitiveAssembly = inGeometry.data.assemblyParams, .rasterization = params.rasterization, .blend = params.blend, .subpassIx = 0u };
+
+				obj.indexCount = inGeometry.data.indexCount;
+				obj.indexType = inGeometry.data.indexType;
+
+				// TODO: cache pipeline & try lookup for existing one first maybe
+
+				// similar issue like with shaders again, in this case gpu contructor allows for extra cache parameters + there is no constructor you can use to fire make_smart_refctd_ptr yourself for cpu
+				if constexpr (withAssetConverter)
+					obj.pipeline = ICPUGraphicsPipeline::create(params.pipeline);
+				else
+				{
+					const std::span<const IGPUGraphicsPipeline::SCreationParams> info = { { params.pipeline } };
+					create<typename TYPES::GRAPHICS_PIPELINE>(nullptr, info, &obj.pipeline);
+				}
+
+				if (!obj.pipeline)
+				{
+					logger->log("Could not create graphics pipeline for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+					status = false;
+				}
+
+				// object buffers
+				auto createVIBuffers = [&]() -> bool
+				{
+					using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+
+					// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
+					auto vBuffer = smart_refctd_ptr(inGeometry.data.bindings[0].buffer); // no offset
+					constexpr static auto VERTEX_USAGE = bitflag(IBUFFER::EUF_VERTEX_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+					obj.bindings.vertex.offset = 0u;
+						
+					auto iBuffer = smart_refctd_ptr(inGeometry.data.indexBuffer.buffer); // no offset
+					constexpr static auto INDEX_USAGE = bitflag(IBUFFER::EUF_INDEX_BUFFER_BIT) | IBUFFER::EUF_VERTEX_BUFFER_BIT | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+					obj.bindings.index.offset = 0u;
+
+					if constexpr (withAssetConverter)
+					{
+						if (!vBuffer)
+							return false;
+
+						vBuffer->addUsageFlags(VERTEX_USAGE);
+						vBuffer->setContentHash(vBuffer->computeContentHash());
+						obj.bindings.vertex = { .offset = 0u, .buffer = vBuffer };
+
+						if (inGeometry.data.indexType != EIT_UNKNOWN)
+							if (iBuffer)
+							{
+								iBuffer->addUsageFlags(INDEX_USAGE);
+								iBuffer->setContentHash(iBuffer->computeContentHash());
+							}
+							else
+								return false;
+
+						obj.bindings.index = { .offset = 0u, .buffer = iBuffer };
+					}
+					else
+					{
+						auto vertexBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = vBuffer->getSize(), .usage = VERTEX_USAGE }));
+						auto indexBuffer = iBuffer ? create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = iBuffer->getSize(), .usage = INDEX_USAGE })) : nullptr;
+
+						if (!vertexBuffer)
+							return false;
+
+						if (inGeometry.data.indexType != EIT_UNKNOWN)
+							if (!indexBuffer)
+								return false;
+
+						const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+						for (auto it : { vertexBuffer , indexBuffer })
+						{
+							if (it)
+							{
+								auto reqs = it->getMemoryReqs();
+								reqs.memoryTypeBits &= mask;
+
+								utilities->getLogicalDevice()->allocate(reqs, it.get());
+							}
+						}
+
+						// record transfer uploads
+						obj.bindings.vertex = { .offset = 0u, .buffer = std::move(vertexBuffer) };
+						{
+							const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.vertex.offset, .size = obj.bindings.vertex.buffer->getSize(), .buffer = obj.bindings.vertex.buffer };
+							if (!commandBuffer->updateBuffer(range, vBuffer->getPointer()))
+							{
+								logger->log("Could not record vertex buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+								status = false;
+							}
+						}
+						obj.bindings.index = { .offset = 0u, .buffer = std::move(indexBuffer) };
+						{
+							if (iBuffer)
+							{
+								const SBufferRange<IGPUBuffer> range = { .offset = obj.bindings.index.offset, .size = obj.bindings.index.buffer->getSize(), .buffer = obj.bindings.index.buffer };
+
+								if (!commandBuffer->updateBuffer(range, iBuffer->getPointer()))
+								{
+									logger->log("Could not record index buffer transfer upload for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+									status = false;
+								}
+							}
+						}
+					}
+						
+					return true;
+				};
+
+				if (!createVIBuffers())
+				{
+					logger->log("Could not create buffers for [%s] object!", ILogger::ELL_ERROR, meta.name.data());
+					status = false;
+				}
+
+				if (!status)
+				{
+					logger->log("[%s] object will not be created!", ILogger::ELL_ERROR, meta.name.data());
+
+					obj.bindings.vertex = {};
+					obj.bindings.index = {};
+					obj.indexCount = 0u;
+					obj.indexType = E_INDEX_TYPE::EIT_UNKNOWN;
+					obj.pipeline = nullptr;
+
+					continue;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	bool createViewParametersUboBuffer()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		// note: similar issue like with shaders, this time with cpu-gpu constructors differing in arguments
+		using IBUFFER = nbl::asset::IBuffer; // seems to be ambigous, both asset & core namespaces has IBuffer
+		constexpr static auto UBO_USAGE = bitflag(IBUFFER::EUF_UNIFORM_BUFFER_BIT) | IBUFFER::EUF_TRANSFER_DST_BIT | IBUFFER::EUF_INLINE_UPDATE_VIA_CMDBUF;
+
+		if constexpr (withAssetConverter)
+		{
+			auto uboBuffer = make_smart_refctd_ptr<ICPUBuffer>(sizeof(SBasicViewParameters));
+			uboBuffer->addUsageFlags(UBO_USAGE);
+			uboBuffer->setContentHash(uboBuffer->computeContentHash());
+			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
+		}
+		else
+		{
+			const auto mask = utilities->getLogicalDevice()->getPhysicalDevice()->getUpStreamingMemoryTypeBits();
+
+			auto uboBuffer = create<typename TYPES::BUFFER>(typename TYPES::BUFFER::SCreationParams({ .size = sizeof(SBasicViewParameters), .usage = UBO_USAGE }));
+
+			if (!uboBuffer)
+				return false;
+
+			for (auto it : { uboBuffer })
+			{
+				video::IDeviceMemoryBacked::SDeviceMemoryRequirements reqs = it->getMemoryReqs();
+				reqs.memoryTypeBits &= mask;
+
+				utilities->getLogicalDevice()->allocate(reqs, it.get());
+			}
+
+			scratch.ubo = { .offset = 0u, .buffer = std::move(uboBuffer) };
+		}
+
+		return true;
+	}
+
+	template<typename T, typename... Args>
+	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires RESOURCE_TYPE_CONCEPT<T, TYPES>
+	{
+		if constexpr (withAssetConverter)
+			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...); // TODO: cases where our api requires to call ::create(...) instead directly calling "make smart pointer" could be here handled instead of in .build method
+		else
+			if constexpr (std::same_as<T, typename TYPES::DESCRIPTOR_SET_LAYOUT>)
+				return utilities->getLogicalDevice()->createDescriptorSetLayout(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::PIPELINE_LAYOUT>)
+				return utilities->getLogicalDevice()->createPipelineLayout(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
+				return utilities->getLogicalDevice()->createRenderpass(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::IMAGE_VIEW>)
+				return utilities->getLogicalDevice()->createImageView(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
+				return utilities->getLogicalDevice()->createImage(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::BUFFER>)
+				return utilities->getLogicalDevice()->createBuffer(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::SHADER>)
+				return utilities->getLogicalDevice()->createShader(std::forward<Args>(args)...);
+			else if constexpr (std::same_as<T, typename TYPES::GRAPHICS_PIPELINE>)
+			{
+				bool status = utilities->getLogicalDevice()->createGraphicsPipelines(std::forward<Args>(args)...);
+				return nullptr; // I assume caller with use output from forwarded args, another inconsistency in our api imho
+			}
+			else
+				return nullptr; // TODO: should static assert
+	}
+
 	struct GEOMETRIES_CPU
 	{
 		enum E_GEOMETRY_SHADER
@@ -926,35 +1073,6 @@ private:
 		const std::array<REFERENCE_OBJECT_CPU, EOT_COUNT> objects;
 	};
 
-	template<typename T, typename... Args>
-	inline nbl::core::smart_refctd_ptr<T> create(Args&&... args) requires RESOURCE_TYPE_CONCEPT<T, TYPES>
-	{
-		if constexpr (withAssetConverter)
-			return nbl::core::make_smart_refctd_ptr<T>(std::forward<Args>(args)...); // TODO: cases where our api requires to call ::create(...) instead directly calling "make smart pointer" could be here handled instead of in .build method
-		else
-			if constexpr (std::same_as<T, typename TYPES::DESCRIPTOR_SET_LAYOUT>)
-				return utilities->getLogicalDevice()->createDescriptorSetLayout(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::PIPELINE_LAYOUT>)
-				return utilities->getLogicalDevice()->createPipelineLayout(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::RENDERPASS>)
-				return utilities->getLogicalDevice()->createRenderpass(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::IMAGE_VIEW>)
-				return utilities->getLogicalDevice()->createImageView(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::IMAGE>)
-				return utilities->getLogicalDevice()->createImage(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::BUFFER>)
-				return utilities->getLogicalDevice()->createBuffer(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::SHADER>)
-				return utilities->getLogicalDevice()->createShader(std::forward<Args>(args)...);
-			else if constexpr (std::same_as<T, typename TYPES::GRAPHICS_PIPELINE>)
-			{
-				bool status = utilities->getLogicalDevice()->createGraphicsPipelines(std::forward<Args>(args)...);
-				return nullptr; // I assume caller with use output from forwarded args, another inconsistency in our api imho
-			}
-			else
-				return nullptr; // TODO: should static assert
-	}
-
 	using RESOURCES_BUNDLE_BASE_T = RESOURCES_BUNDLE_BASE<withAssetConverter>;
 
 	struct RESOURCES_BUNDLE_SCRATCH : public RESOURCES_BUNDLE_BASE_T
@@ -973,6 +1091,11 @@ private:
 		nbl::core::smart_refctd_ptr<typename TYPES::PIPELINE_LAYOUT> pipelineLayout;
 		std::array<SHADERS, GEOMETRIES_CPU::EGP_COUNT> shaders; //! note, shaders differ from common interface creation rules and cpu-gpu constructors are different, gpu requires cpu shader to be constructed first anyway (so no interface shadered params!) 
 	};
+
+	// TODO: we could make those params templated with default values like below
+	_NBL_STATIC_INLINE_CONSTEXPR auto FRAMEBUFFER_W = 1280u, FRAMEBUFFER_H = 720u;
+	_NBL_STATIC_INLINE_CONSTEXPR auto COLOR_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_R8G8B8A8_SRGB, DEPTH_FBO_ATTACHMENT_FORMAT = nbl::asset::EF_D16_UNORM;
+	_NBL_STATIC_INLINE_CONSTEXPR auto SAMPLES = nbl::video::IGPUImage::ESCF_1_BIT;
 
 	RESOURCES_BUNDLE_SCRATCH scratch;
 
