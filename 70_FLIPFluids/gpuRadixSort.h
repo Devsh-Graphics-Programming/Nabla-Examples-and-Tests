@@ -146,11 +146,11 @@ public:
 		m_radixSortDs[1] = sortDsPool->createDescriptorSet(dsLayout2);
     }
 
-    void sort(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<IGPUBuffer> dataBuffer, uint32_t numElements)
+    void sort(IGPUCommandBuffer* cmdbuf, smart_refctd_ptr<IGPUBuffer> dataBuffer, uint32_t numElements, bool shouldWriteDs = false)
     {
-        uint32_t numWorkgroups = (numElements + numThreadsPerGroup - 1) / numThreadsPerGroup;
+        uint32_t numWorkgroups = (numElements + SORT_WORKGROUP_SIZE - 1) / SORT_WORKGROUP_SIZE;
 
-        bool shouldWriteDs = updateBuffers(numElements, numWorkgroups, dataBuffer->getSize() / numElements);
+        shouldWriteDs = shouldWriteDs || updateBuffers(numElements, numWorkgroups, dataBuffer->getSize() / numElements);
 
 		if (shouldWriteDs)
 		{
@@ -228,10 +228,10 @@ public:
 		cmdbuf->fillBuffer(range, 0ull);
 
 		SMemoryBarrier memBarrier;
-		memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
-		memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-		memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+		memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+		memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+		memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 		cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
 
         SSortParams params;
@@ -252,10 +252,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -266,10 +266,10 @@ public:
 
             {
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
 
@@ -280,10 +280,10 @@ public:
 
 			{
 				SMemoryBarrier memBarrier;
-				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
-				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
-				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::ALL_COMMANDS_BITS;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::MEMORY_READ_BITS | ACCESS_FLAGS::MEMORY_WRITE_BITS;
 				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
             }
         }
@@ -332,7 +332,7 @@ private:
 		uint32_t numThreadsPerGroup;
     };
 
-	const uint32_t numThreadsPerGroup = 32;
+	const uint32_t numThreadsPerGroup = 32;		// subgroup size
 
     smart_refctd_ptr<ILogicalDevice> m_device;
 
