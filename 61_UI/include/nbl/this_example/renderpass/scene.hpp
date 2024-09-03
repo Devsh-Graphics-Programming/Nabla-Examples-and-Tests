@@ -40,7 +40,7 @@ template<typename T, typename... Types>
 concept _implIsResourceTypeC = (std::same_as<T, Types> || ...);
 
 template<typename T, typename Types>
-concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE, typename Types::BUFFER, typename Types::SHADER, typename Types::GRAPHICS_PIPELINE>;
+concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPTOR_SET_LAYOUT, typename Types::PIPELINE_LAYOUT, typename Types::RENDERPASS, typename Types::IMAGE_VIEW, typename Types::IMAGE, typename Types::BUFFER, typename Types::SHADER, typename Types::GRAPHICS_PIPELINE, typename Types::DESCRIPTOR_SET>;
 
 #define TYPES_IMPL_BOILERPLATE(WITH_CONVERTER) struct TYPES \
 { \
@@ -52,6 +52,7 @@ concept RESOURCE_TYPE_CONCEPT = _implIsResourceTypeC<T, typename Types::DESCRIPT
 	using BUFFER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUBuffer, nbl::video::IGPUBuffer>; \
 	using SHADER = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUShader, nbl::video::IGPUShader>; \
 	using GRAPHICS_PIPELINE = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUGraphicsPipeline, nbl::video::IGPUGraphicsPipeline>; \
+	using DESCRIPTOR_SET = std::conditional_t<WITH_CONVERTER, nbl::asset::ICPUDescriptorSet, nbl::video::IGPUDescriptorSet>; \
 }
 
 template<bool withAssetConverter>
@@ -83,14 +84,13 @@ struct RESOURCES_BUNDLE_BASE
 	{
 		nbl::core::smart_refctd_ptr<typename TYPES::IMAGE_VIEW> color, depth;
 	} attachments;
+
+	nbl::core::smart_refctd_ptr<typename TYPES::DESCRIPTOR_SET> descriptorSet;
 };
 
 struct RESOURCES_BUNDLE : public RESOURCES_BUNDLE_BASE<false>
 {
 	using BASE_T = RESOURCES_BUNDLE_BASE<false>;
-
-	nbl::core::smart_refctd_ptr<nbl::video::IDescriptorPool> descriptorPool;
-	nbl::core::smart_refctd_ptr<nbl::video::IGPUDescriptorSet> descriptorSet;
 };
 
 #define EXPOSE_NABLA_NAMESPACES() using namespace nbl; \
@@ -143,7 +143,8 @@ public:
 			FUNCTOR_T(std::bind(&THIS_T::createFramebufferAttachments, this)),
 			FUNCTOR_T(std::bind(&THIS_T::createShaders, this)),
 			FUNCTOR_T(std::bind(&THIS_T::createGeometries, this)),
-			FUNCTOR_T(std::bind(&THIS_T::createViewParametersUboBuffer, this))
+			FUNCTOR_T(std::bind(&THIS_T::createViewParametersUboBuffer, this)),
+			FUNCTOR_T(std::bind(&THIS_T::createDescriptorSet, this))
 		});
 
 		for (auto& task : work)
@@ -202,6 +203,7 @@ public:
 				std::array<ICPUGraphicsPipeline*, OBJECTS_SIZE::value> pipelines;
 				std::array<ICPUBuffer*, OBJECTS_SIZE::value * 2u + 1u > buffers;
 				std::array<ICPUImageView*, 2u> attachments;
+				std::array<ICPUDescriptorSet*, 1u> descriptorSet;
 			} hooks;
 
 			enum E_ATTACHMENT_ID
@@ -227,6 +229,7 @@ public:
 				hooks.buffers.back() = scratch.ubo.buffer.get();
 				hooks.attachments[EAI_COLOR] = scratch.attachments.color.get();
 				hooks.attachments[EAI_DEPTH] = scratch.attachments.depth.get();
+				hooks.descriptorSet.front() = scratch.descriptorSet.get();
 			}
 
 			// assign the CPU hooks to converter's inputs
@@ -235,6 +238,7 @@ public:
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUGraphicsPipeline>>(inputs.assets) = hooks.pipelines;
 				std::get<CAssetConverter::SInputs::asset_span_t<ICPUBuffer>>(inputs.assets) = hooks.buffers;
 				// std::get<CAssetConverter::SInputs::asset_span_t<ICPUImageView>>(inputs.assets) = hooks.attachments; // NOTE: THIS IS NOT IMPLEMENTED YET IN CONVERTER!
+				std::get<CAssetConverter::SInputs::asset_span_t<ICPUDescriptorSet>>(inputs.assets) = hooks.descriptorSet;
 			}
 
 			// reserve and create the GPU object handles
@@ -272,6 +276,7 @@ public:
 				prepass.template operator() < ICPUGraphicsPipeline > (hooks.pipelines);
 				prepass.template operator() < ICPUBuffer > (hooks.buffers);
 				// validate.template operator() < ICPUImageView > (hooks.attachments);
+				prepass.template operator() < ICPUDescriptorSet > (hooks.descriptorSet);
 			}
 
 			auto semaphore = utilities->getLogicalDevice()->createSemaphore(0u);
@@ -303,10 +308,10 @@ public:
 				return false;
 			}
 
-			// assign base gpu objects to output
+			// assign gpu objects to output
 			auto& base = static_cast<RESOURCES_BUNDLE::BASE_T&>(output);
 			{
-				auto&& [renderpass, pipelines, buffers] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>());
+				auto&& [renderpass, pipelines, buffers, descriptorSet] = std::make_tuple(reservation.getGPUObjects<ICPURenderpass>().front().value, reservation.getGPUObjects<ICPUGraphicsPipeline>(), reservation.getGPUObjects<ICPUBuffer>(), reservation.getGPUObjects<ICPUDescriptorSet>().front().value);
 				{
 					base.renderpass = renderpass;
 					for (uint32_t i = 0u; i < pipelines.size(); ++i)
@@ -326,6 +331,7 @@ public:
 						meta.type = rmeta.type;
 					}
 					base.ubo = {.offset = 0u, .buffer = buffers.back().value};
+					base.descriptorSet = descriptorSet;
 					
 					/*
 						// base.attachments.color = attachments[EAI_COLOR].value;
@@ -428,34 +434,6 @@ public:
 			static_cast<RESOURCES_BUNDLE::BASE_T&>(output) = static_cast<RESOURCES_BUNDLE::BASE_T&>(scratch); // scratch has all ready to use allocated gpu resources with uploaded memory so now just assign resources to base output
 		}
 
-		// base gpu resources are created at this point and stored into output, let's create left gpu objects
-		
-		// descriptor set
-		{
-			auto* descriptorSetLayout = output.objects.front().first.pipeline->getLayout()->getDescriptorSetLayout(1u); // let's just take any, the layout is shared across all possible pipelines
-
-			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { nullptr, descriptorSetLayout };
-			const uint32_t setCounts[] = { 0u, 1u };
-
-			output.descriptorPool = utilities->getLogicalDevice()->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
-
-			if (!output.descriptorPool)
-			{
-				logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
-				return false;
-			}
-
-			// I think this could also be created with converter?
-			// TODO: once asset converter descriptor set conversion works update accordingly to work with the builder interface
-			output.descriptorPool->createDescriptorSets({{descriptorSetLayout}}, &output.descriptorSet);
-
-			if (!output.descriptorSet)
-			{
-				logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
-				return false;
-			}
-		}
-
 		// write the descriptor set
 		{
 			// descriptor write ubo
@@ -505,6 +483,38 @@ private:
 		if (!scratch.descriptorSetLayout)
 		{
 			logger->log("Could not descriptor set layout!", ILogger::ELL_ERROR);
+			return false;
+		}
+
+		return true;
+	}
+
+	bool createDescriptorSet()
+	{
+		EXPOSE_NABLA_NAMESPACES();
+
+		if constexpr (withAssetConverter)
+			scratch.descriptorSet = make_smart_refctd_ptr<ICPUDescriptorSet>(smart_refctd_ptr(scratch.descriptorSetLayout));
+		else
+		{
+			const nbl::video::IGPUDescriptorSetLayout* const layouts[] = { scratch.descriptorSetLayout.get()};
+			const uint32_t setCounts[] = { 1u };
+
+			// note descriptor set has back smart pointer to its pool, so we dont need to keep it explicitly
+			auto pool = utilities->getLogicalDevice()->createDescriptorPoolForDSLayouts(nbl::video::IDescriptorPool::E_CREATE_FLAGS::ECF_NONE, layouts, setCounts);
+
+			if (!pool)
+			{
+				logger->log("Could not create Descriptor Pool!", nbl::system::ILogger::ELL_ERROR);
+				return false;
+			}
+
+			pool->createDescriptorSets(layouts, &scratch.descriptorSet);
+		}
+
+		if (!scratch.descriptorSet)
+		{
+			logger->log("Could not create Descriptor Set!", nbl::system::ILogger::ELL_ERROR);
 			return false;
 		}
 
