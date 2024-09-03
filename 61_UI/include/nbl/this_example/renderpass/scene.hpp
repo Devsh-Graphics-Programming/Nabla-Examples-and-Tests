@@ -745,23 +745,29 @@ public:
 				// validate.template operator() < ICPUImageView > (hooks.attachments);
 			}
 
+			auto semaphore = utilities->getLogicalDevice()->createSemaphore(0u);
+
 			CAssetConverter::SConvertParams params = {};
 			params.utilities = utilities;
 			params.transfer.queue = transferCapableQueue;
-			params.transfer.scratchSemaphore = signals.front();
+			params.transfer.scratchSemaphore.semaphore = semaphore.get();
+			params.transfer.scratchSemaphore.value = 0u; // the initial signal value is incremented by one for each submit so let's start with 0u, we will have only one submit so our scratch signal value will be 1u
+			params.transfer.scratchSemaphore.stageMask = bitflag(PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS);
 			params.transfer.commandBuffers = commandBuffers;
 
-			commandBuffer->end();
-
-			// basically all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards!
+			// basically it records all data uploads, but remember for gpu objects to be finalized you also have to submit the conversion afterwards to the queue!
 			auto result = reservation.convert(params);
+
 			if (!result)
 			{
 				logger->log("Failed to record assets conversion!", nbl::system::ILogger::ELL_ERROR);
 				return false;
 			}
 
+			// submit the work to queue, note we will have 2 semaphores under the hood, scratch + our signal
 			auto future = result.submit(signals);
+
+			// and note that this operator actually blocks for semaphores!
 			if (!future)
 			{
 				logger->log("Failed to await submission feature!", nbl::system::ILogger::ELL_ERROR);
