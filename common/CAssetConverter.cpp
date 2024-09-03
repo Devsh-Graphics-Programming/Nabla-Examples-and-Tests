@@ -1013,6 +1013,28 @@ auto CAssetConverter::reserve(const SInputs& inputs) -> SReserveResult
 						retval.m_queueFlags |= IQueue::FAMILY_FLAGS::TRANSFER_BIT;
 				}
 			}
+			if constexpr (std::is_same_v<AssetType,ICPUBufferView>)
+			{
+				for (auto& entry : conversionRequests)
+				{
+					const ICPUBufferView* asset = entry.second.canonicalAsset;
+					for (auto i=0ull; i<entry.second.copyCount; i++)
+					{
+						const auto outIx = i+entry.second.firstCopyIx;
+						const auto uniqueCopyGroupID = gpuObjUniqueCopyGroupIDs[outIx];
+						bool depNotFound = false;
+						const SBufferRange<IGPUBuffer> underlying = {
+							.offset = asset->getOffsetInBuffer(),
+							.size = asset->getByteSize(),
+							.buffer = getDependant(uniqueCopyGroupID,asset,asset->getUnderlyingBuffer(),firstPatchMatch,depNotFound) // TODO: match our derived patch!
+						};
+						if (!underlying.isValid())
+							continue;
+						// no format promotion for buffer views
+						assign(entry.first,entry.second.firstCopyIx,i,device->createBufferView(underlying,asset->getFormat()));
+					}
+				}
+			}
 			if constexpr (std::is_same_v<AssetType,ICPUShader>)
 			{
 				ILogicalDevice::SShaderCreationParameters createParams = {
@@ -1977,33 +1999,39 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 //				depsMissing = missingDependent.operator()<ICPUImage>(item.first->getCreationParams().image);
 			if constexpr (std::is_same_v<AssetType,ICPUDescriptorSet>)
 			{
-				for (auto i=0u; i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
+				const IGPUDescriptorSetLayout* layout = item.first->getLayout();
+				// check samplers
+				{
+					const auto count = layout->getTotalMutableCombinedSamplerCount();
+					const auto* samplers = item.first->getAllMutableCombinedSamplers();
+					for (auto i=0u; !depsMissing && i<count; i++)
+					if (samplers[i])
+						depsMissing = missingDependent.operator()<ICPUSampler>(samplers[i].get());
+				}
+				for (auto i=0u; !depsMissing && i<static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_COUNT); i++)
 				{
 					const auto type = static_cast<asset::IDescriptor::E_TYPE>(i);
-					// TODO: hack into descriptor lifetime tracking
-#if 0
-					const auto infos = item.first->getDescriptorInfoStorage(type);
-					if (infos.empty())
+					const auto count = layout->getTotalDescriptorCount(type);
+					auto* psDescriptors = item.first->getAllDescriptors(type);
+					if (!psDescriptors)
 						continue;
-					for (const auto& info : infos)
+					for (auto i=0u; !depsMissing && i<count; i++)
 					{
+						auto* untypedDesc = psDescriptors[i].get();
+						if (untypedDesc)
 						switch (asset::IDescriptor::GetTypeCategory(type))
 						{
 							case asset::IDescriptor::EC_BUFFER:
-								if (const auto* buffer=nullptr; buffer)
-									depsMissing = missingDependent.operator()<ICPUBuffer>(buffer);
+								depsMissing = missingDependent.operator()<ICPUBuffer>(static_cast<const IGPUBuffer*>(untypedDesc));
 								break;
 							case asset::IDescriptor::EC_SAMPLER:
-								if (const auto* sampler=nullptr; sampler)
-									depsMissing = missingDependent.operator()<ICPUSampler>(sampler);
+								depsMissing = missingDependent.operator()<ICPUSampler>(static_cast<const IGPUSampler*>(untypedDesc));
 								break;
 							case asset::IDescriptor::EC_IMAGE:
-								if (const auto* image=nullptr; image)
-									depsMissing = missingDependent.operator()<ICPUImage>(image);
+//								depsMissing = missingDependent.operator()<ICPUImage>(static_cast<const IGPUImageView*>(untypedDesc));
 								break;
 							case asset::IDescriptor::EC_BUFFER_VIEW:
-								if (const auto* bufferView=nullptr; bufferView)
-									depsMissing = missingDependent.operator()<ICPUBufferView>(bufferView);
+								depsMissing = missingDependent.operator()<ICPUBufferView>(static_cast<const IGPUBufferView*>(untypedDesc));
 								break;
 							case asset::IDescriptor::EC_ACCELERATION_STRUCTURE:
 								_NBL_TODO();
@@ -2013,11 +2041,7 @@ auto CAssetConverter::convert_impl(SReserveResult&& reservations, SConvertParams
 								depsMissing = true;
 								break;
 						}
-						if (depsMissing)
-							break;
 					}
-					// TODO: remember about mutable sampler storage
-#endif
 				}
 			}
 			if (depsMissing)
