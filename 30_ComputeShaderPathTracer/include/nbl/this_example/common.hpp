@@ -10,7 +10,5 @@
 
 // example's own headers
 #include "nbl/this_example/transform.hpp"
-#include "nbl/this_example/renderpass/scene.hpp"
-//#include "nbl/this_example/renderpass/ui.hpp"
 
 #endif // __NBL_THIS_EXAMPLE_COMMON_H_INCLUDED__
