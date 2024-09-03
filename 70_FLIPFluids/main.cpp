@@ -23,7 +23,7 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-// struct Particle defined in shader???
+// structs defined in shader???
 struct Particle
 {
 	float32_t4 position;
@@ -297,6 +297,9 @@ public:
 		params.size = sizeof(SGridData);
 		params.usage = IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT | IGPUBuffer::EUF_INLINE_UPDATE_VIA_CMDBUF;
 		createBuffer(gridDataBuffer, params);
+
+		params.size = 2 * sizeof(float32_t4);
+		createBuffer(pressureParamsBuffer, params);
 		
 		params.size = sizeof(SMVPParams);
 		createBuffer(cameraBuffer, params);
@@ -485,6 +488,131 @@ public:
 					{.dstSet = m_applyForcesDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 2), {});
+			}
+		}
+		// solve pressure system pipelines
+		{
+			createComputePipeline(m_calcDivergencePipeline, m_calcDivergencePool, m_calcDivergenceDs, 
+				"app_resources/compute/pressureSolver.comp.hlsl", "calculateNegativeDivergence", psDivergence_bs1);
+
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[4];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(velocityFieldBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(divergenceBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[4] = {
+					{.dstSet = m_calcDivergenceDs.get(), .binding = b_abfVelFieldBuffer, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_calcDivergenceDs.get(), .binding = b_abfCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_calcDivergenceDs.get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 4), {});
+			}
+		}
+		{
+			const std::string entryPoint = "solvePressureSystem";
+			auto shader = compileShader("app_resources/compute/pressureSolver.comp.hlsl", entryPoint);
+
+			auto descriptorSetLayout1 = m_device->createDescriptorSetLayout(psSolvePressure_bs1);
+
+			const std::array<IGPUDescriptorSetLayout*, ICPUPipelineLayout::DESCRIPTOR_SET_COUNT> dscLayoutPtrs = {
+				nullptr,
+				descriptorSetLayout1.get()
+			};
+			const uint32_t setCounts[2u] = { 0u, 2u };
+			m_solvePressurePool = m_device->createDescriptorPoolForDSLayouts(IDescriptorPool::ECF_UPDATE_AFTER_BIND_BIT, std::span(dscLayoutPtrs.begin(), dscLayoutPtrs.end()), setCounts);
+			m_solvePressureDs[0] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
+			m_solvePressureDs[1] = m_solvePressurePool->createDescriptorSet(descriptorSetLayout1);
+
+			const asset::SPushConstantRange pcRange = { .stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE, .offset = 0, .size = 2 * sizeof(uint32_t) };
+
+			smart_refctd_ptr<nbl::video::IGPUPipelineLayout> pipelineLayout = m_device->createPipelineLayout({}, nullptr, smart_refctd_ptr(descriptorSetLayout1), nullptr, nullptr);
+
+			IGPUComputePipeline::SCreationParams params = {};
+			params.layout = pipelineLayout.get();
+			params.shader.entryPoint = entryPoint;
+			params.shader.shader = shader.get();
+				
+			m_device->createComputePipelines(nullptr, { &params,1 }, &m_solvePressurePipeline);
+
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[6];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(divergenceBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
+				infos[4].desc = smart_refctd_ptr(pressureBuffer);
+				infos[4].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+				infos[5].desc = smart_refctd_ptr(tempPressureBuffer);
+				infos[5].info.buffer = {.offset = 0, .size = tempPressureBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
+					{.dstSet = m_solvePressureDs[0].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_solvePressureDs[0].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_solvePressureDs[0].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_solvePressureDs[0].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+					{.dstSet = m_solvePressureDs[0].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 6), {});
+			}
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[6];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(divergenceBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = divergenceBuffer->getSize()};
+				infos[4].desc = smart_refctd_ptr(tempPressureBuffer);
+				infos[4].info.buffer = {.offset = 0, .size = tempPressureBuffer->getSize()};
+				infos[5].desc = smart_refctd_ptr(pressureBuffer);
+				infos[5].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
+					{.dstSet = m_solvePressureDs[1].get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_solvePressureDs[1].get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_solvePressureDs[1].get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_solvePressureDs[1].get(), .binding = b_psDivBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+					{.dstSet = m_solvePressureDs[1].get(), .binding = b_psPresOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 6), {});
+			}
+		}
+		{
+			createComputePipeline(m_updateVelPsPipeline, m_updateVelPsPool, m_updateVelPsDs, 
+				"app_resources/compute/pressureSolver.comp.hlsl", "updateVelocities", psUpdateVelPs_bs1);
+
+			{
+				IGPUDescriptorSet::SDescriptorInfo infos[5];
+				infos[0].desc = smart_refctd_ptr(gridDataBuffer);
+				infos[0].info.buffer = {.offset = 0, .size = gridDataBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(pressureParamsBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = pressureParamsBuffer->getSize()};
+				infos[2].desc = smart_refctd_ptr(gridCellMaterialBuffer);
+				infos[2].info.buffer = {.offset = 0, .size = gridCellMaterialBuffer->getSize()};
+				infos[3].desc = smart_refctd_ptr(velocityFieldBuffer);
+				infos[3].info.buffer = {.offset = 0, .size = velocityFieldBuffer->getSize()};
+				infos[4].desc = smart_refctd_ptr(pressureBuffer);
+				infos[4].info.buffer = {.offset = 0, .size = pressureBuffer->getSize()};
+				IGPUDescriptorSet::SWriteDescriptorSet writes[5] = {
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psParams, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_updateVelPsDs.get(), .binding = b_psPresInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+				};
+				m_device->updateDescriptorSets(std::span(writes, 5), {});
 			}
 		}
 		{
@@ -702,8 +830,10 @@ public:
 		}
 
 		bool bCaptureTestInitParticles = false;
+		float32_t4 pressureSolverParams[2];
 		SBufferRange<IGPUBuffer> gridDataRange;
 		SBufferRange<IGPUBuffer> pParamsRange;
+		SBufferRange<IGPUBuffer> pressureParamsRange;
 		if (m_shouldInitParticles)
 		{
 			bCaptureTestInitParticles = true;
@@ -719,6 +849,17 @@ public:
 				pParamsRange.buffer = pParamsBuffer;
 			}
 			cmdbuf->updateBuffer(pParamsRange, &m_pRenderParams);
+
+			float a = m_gridData.gridInvCellSize * m_gridData.gridInvCellSize;
+			float b = 1.f / (2.f * (a * 3));
+			pressureSolverParams[0] = float32_t4(b * a, b * a, b * a, b);
+			pressureSolverParams[1] = float32_t4(m_gridData.gridInvCellSize);
+
+			{
+				pressureParamsRange.size = pressureParamsBuffer->getSize();
+				pressureParamsRange.buffer = pressureParamsBuffer;
+			}
+			cmdbuf->updateBuffer(pressureParamsRange, &pressureSolverParams);
 
 			initializeParticles(cmdbuf);
 		}
@@ -738,7 +879,7 @@ public:
 			dispatchUpdateFluidCells(cmdbuf);			// particle to grid
 			dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
 			//dispatchApplyDiffusion();
-			//dispatchApplyPressure();
+			dispatchApplyPressure(cmdbuf);
 			dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
 			dispatchAdvection(cmdbuf);				// update/advect fluid
 		}
@@ -944,8 +1085,66 @@ public:
 	{
 	}
 	
-	void dispatchApplyPressure()
+	void dispatchApplyPressure(IGPUCommandBuffer* cmdbuf)
 	{
+		{
+			SMemoryBarrier memBarrier;
+			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+		}
+
+		const uint32_t numGridWorkgroups = (numGridCells + WorkgroupSize - 1) / WorkgroupSize;
+
+		cmdbuf->bindComputePipeline(m_calcDivergencePipeline.get());
+		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_calcDivergencePipeline->getLayout(), 1, 1, &m_calcDivergenceDs.get());
+		cmdbuf->dispatch(numGridWorkgroups, 1, 1);
+
+		for (int i = 0; i < 15; i++)
+		{
+			{
+				SMemoryBarrier memBarrier;
+				memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+				memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+				memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+				cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+			}
+
+			cmdbuf->bindComputePipeline(m_solvePressurePipeline.get());
+			cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_solvePressurePipeline->getLayout(), 1, 1, &m_solvePressureDs[i % 2].get());
+			cmdbuf->dispatch(numGridWorkgroups, 1, 1);
+		}
+
+		{
+			SMemoryBarrier memBarrier;
+			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+		}
+
+		IGPUCommandBuffer::SBufferCopy region;
+		region.size = tempPressureBuffer->getSize();
+		region.srcOffset = 0;
+		region.dstOffset = 0;
+		cmdbuf->copyBuffer(tempPressureBuffer.get(), pressureBuffer.get(), 1, &region);
+
+		{
+			SMemoryBarrier memBarrier;
+			memBarrier.srcStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.srcAccessMask = ACCESS_FLAGS::SHADER_WRITE_BITS;
+			memBarrier.dstStageMask = PIPELINE_STAGE_FLAGS::COMPUTE_SHADER_BIT;
+			memBarrier.dstAccessMask = ACCESS_FLAGS::SHADER_READ_BITS;
+			cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, {.memBarriers = {&memBarrier, 1}});
+		}
+
+		cmdbuf->bindComputePipeline(m_updateVelPsPipeline.get());
+		cmdbuf->bindDescriptorSets(nbl::asset::EPBP_COMPUTE, m_updateVelPsPipeline->getLayout(), 1, 1, &m_updateVelPsDs.get());
+		cmdbuf->dispatch(numGridWorkgroups, 1, 1);
 	}
 	
 	void dispatchExtrapolateVelocities(IGPUCommandBuffer* cmdbuf)
@@ -1513,15 +1712,21 @@ private:
 
 	// simulation compute shaders
 	smart_refctd_ptr<IGPUComputePipeline> m_initParticlePipeline;
+
 	smart_refctd_ptr<IGPUComputePipeline> m_updateFluidCellsPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_updateNeighborCellsPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_particleToCellPipeline;
+
 	smart_refctd_ptr<IGPUComputePipeline> m_applyBodyForcesPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_diffusionPipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_applyPressurePipeline;
+
+	smart_refctd_ptr<IGPUComputePipeline> m_calcDivergencePipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_solvePressurePipeline;
+	smart_refctd_ptr<IGPUComputePipeline> m_updateVelPsPipeline;
+
 	smart_refctd_ptr<IGPUComputePipeline> m_extrapolateVelPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_advectParticlesPipeline;
-	smart_refctd_ptr<IGPUComputePipeline> m_densityProjectPipeline;
+	//smart_refctd_ptr<IGPUComputePipeline> m_densityProjectPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_genParticleVerticesPipeline;
 
 	// -- some more helper compute shaders
@@ -1529,6 +1734,7 @@ private:
 	smart_refctd_ptr<IGPUComputePipeline> m_gridParticleIDPipeline;
 	smart_refctd_ptr<IGPUComputePipeline> m_shuffleParticlesPipeline;
 
+	// descriptors
 	smart_refctd_ptr<video::IDescriptorPool> m_initParticlePool;
 	smart_refctd_ptr<IGPUDescriptorSet> m_initParticleDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_updateFluidCellsPool;
@@ -1539,6 +1745,12 @@ private:
 	smart_refctd_ptr<IGPUDescriptorSet> m_particleToCellDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_applyForcesPool;
 	smart_refctd_ptr<IGPUDescriptorSet> m_applyForcesDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_calcDivergencePool;
+	smart_refctd_ptr<IGPUDescriptorSet> m_calcDivergenceDs;	
+	smart_refctd_ptr<video::IDescriptorPool> m_solvePressurePool;
+	std::array<smart_refctd_ptr<IGPUDescriptorSet>, 2> m_solvePressureDs;
+	smart_refctd_ptr<video::IDescriptorPool> m_updateVelPsPool;
+	smart_refctd_ptr<IGPUDescriptorSet> m_updateVelPsDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_extrapolateVelPool;
 	smart_refctd_ptr<IGPUDescriptorSet> m_extrapolateVelDs;
 	smart_refctd_ptr<video::IDescriptorPool> m_advectParticlesPool;
@@ -1584,6 +1796,7 @@ private:
 	smart_refctd_ptr<IGPUBuffer> particleCellPairBuffer;// uint2
 
 	smart_refctd_ptr<IGPUBuffer> gridDataBuffer;		// SGridData
+	smart_refctd_ptr<IGPUBuffer> pressureParamsBuffer;	// SPressureSolverParams
 	smart_refctd_ptr<IGPUBuffer> gridParticleIDBuffer;	// uint2
 	smart_refctd_ptr<IGPUBuffer> gridCellMaterialBuffer;	// uint, fluid or solid
 	smart_refctd_ptr<IGPUBuffer> velocityFieldBuffer;	// float4
@@ -1592,6 +1805,7 @@ private:
 	smart_refctd_ptr<IGPUBuffer> gridAxisTypeBuffer;	// uint3
 	smart_refctd_ptr<IGPUBuffer> divergenceBuffer;		// float
 	smart_refctd_ptr<IGPUBuffer> pressureBuffer;		// float
+	smart_refctd_ptr<IGPUBuffer> tempPressureBuffer;	// float
 	smart_refctd_ptr<IGPUBuffer> gridWeightBuffer;		// float
 	smart_refctd_ptr<IGPUBuffer> gridUintWeightBuffer;	// uint
 	smart_refctd_ptr<IGPUBuffer> gridDensityPressureBuffer;// float
