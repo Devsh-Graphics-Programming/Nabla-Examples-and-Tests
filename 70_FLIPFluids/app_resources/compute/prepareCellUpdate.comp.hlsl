@@ -54,5 +54,7 @@ void shuffleParticles(uint32_t3 ID : SV_DispatchThreadID)
     uint currp_id = ID.x;
     uint prevp_id = particleCellPairBuffer[currp_id].y;
 
-    particleOutBuffer[currp_id] = particleInBuffer[prevp_id];
+    particleOutBuffer[currp_id].position = particleInBuffer[prevp_id].position;
+    particleOutBuffer[currp_id].velocity = particleInBuffer[prevp_id].velocity;
+    particleOutBuffer[currp_id].id = particleInBuffer[prevp_id].id;
 }

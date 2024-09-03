@@ -20,8 +20,8 @@ struct Particle
     float4 position;
     float4 velocity;
 
-    uint32_t id;
-    uint3 pad;
+    uint id;
+    uint pad[3];
 };
 
 struct SMVPParams
