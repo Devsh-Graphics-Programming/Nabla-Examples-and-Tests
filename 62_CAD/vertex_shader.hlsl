@@ -243,7 +243,7 @@ PSInput main(uint vertexID : SV_VertexID)
                 // this is the place where we use it's tangent in the bezier to form sides the cages
                 const float optimalT = 0.145f;
 
-                //Whether or not to flip the the interior cage nodes
+                // Whether or not to flip the the interior cage nodes
                 int flip = cross2D(transformedPoints[0u] - transformedPoints[1u], transformedPoints[2u] - transformedPoints[1u]) > 0.0f ? -1 : 1;
 
                 const float middleT = 0.5f;
@@ -268,7 +268,7 @@ PSInput main(uint vertexID : SV_VertexID)
      P0 +                                    \    + P2
                 */
 
-                //Internal cage points
+                // Internal cage points
                 float2 interior0;
                 float2 interior1;
 
@@ -414,17 +414,11 @@ PSInput main(uint vertexID : SV_VertexID)
         curveBox.aabbMin = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
         curveBox.aabbMax = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 8u);
 
-        float64_t2 aabbMinDouble = float64_t2(nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMin.x), nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMin.y));
-        float64_t2 aabbMaxDouble = float64_t2(nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMin.x), nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMax.y));
-
         for (uint32_t i = 0; i < 3; i ++)
         {
             curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * i, 4u);
             curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
-
-        //const float2 ndcAxisU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin));
-        //const float2 ndcAxisV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin));
 
         const float2 ndcAxisU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin));
         const float2 ndcAxisV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin));
@@ -436,7 +430,6 @@ PSInput main(uint vertexID : SV_VertexID)
         
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
         const nbl::hlsl::portable_vector64_t2 undilatedCornerF64 = nbl::hlsl::create_portable_vector64_t2(undilatedCorner.x, undilatedCorner.y);
-        //const double2 undilatedCornerF64 = nbl::hlsl::create_portable_vector64_t2(undilatedCorner.x, undilatedCorner.y);
 
         // We don't dilate on AMD (= no fragShaderInterlock)
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
@@ -449,28 +442,7 @@ PSInput main(uint vertexID : SV_VertexID)
         const nbl::hlsl::portable_vector64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::create_portable_vector64_t2(1.0f) - undilatedCornerF64) +
             curveBox.aabbMax * undilatedCornerF64;
 
-        /*const nbl::hlsl::portable_vector64_t2 currentCorner = aabbMinDouble * (double2(1.0f, 1.0f) - undilatedCornerF64) +
-            aabbMaxDouble * undilatedCornerF64;*/
-
         const float2 coord = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::create_portable_vector64_t2(dilateVec.x, dilateVec.y));
-
-        if (vertexID == 0)
-        {
-            printf("CurveBox.aabbMin = %f, %f\n", curveBox.aabbMin.x, curveBox.aabbMin.y);
-            printf("CurveBox.aabbMax = %f, %f\n", curveBox.aabbMax.x, curveBox.aabbMax.y);
-            printf("CurveBox.curveMin[0] = %f\n", curveBox.curveMin[0]);
-            printf("CurveBox.curveMin[1] = %f\n", curveBox.curveMin[1]);
-            printf("CurveBox.curveMin[2] = %f\n", curveBox.curveMin[2]);
-            printf("CurveBox.curveMin[0] = %f\n", curveBox.curveMin[0]);
-            printf("CurveBox.curveMin[1] = %f\n", curveBox.curveMin[1]);
-            printf("CurveBox.curveMin[2] = %f\n", curveBox.curveMin[2]);
-
-            printf("currentCorner = %f, %f\n", float(currentCorner.x), float(currentCorner.y));
-            printf("coord = %f, %f\n", coord.x, coord.y);
-
-            const nbl::hlsl::portable_vector64_t2 dilateVec64 = nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dilateVec);
-            printf("dilateVec = %f\n\n", float(dilateVec64.x), float(dilateVec64.y));
-        }
 
         outV.position = float4(coord, 0.f, 1.f);
  

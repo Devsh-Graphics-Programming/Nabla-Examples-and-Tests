@@ -58,6 +58,12 @@ public:
 
     bool onAppInitialized(smart_refctd_ptr<ISystem>&& system) override
     {
+        nbl::hlsl::emulated_float64_t<false, true> a = nbl::hlsl::emulated_float64_t < false, true>::create(76432.9);
+        nbl::hlsl::emulated_float64_t<false, true> b = nbl::hlsl::emulated_float64_t < false, true>::create(95719.3);
+        
+        auto output = a - b;
+        std::cout << reinterpret_cast<double&>(output);
+
         // TODO: emulated_float64_t tests should be located in another example since they use FE_TOWARDZERO rounding and fast math
         std::fesetround(FE_TOWARDZERO);
 
@@ -379,7 +385,7 @@ private:
 
     bool m_keepRunning = true;
 
-    constexpr static inline uint32_t EmulatedFloat64TestIterations = 10u;
+    constexpr static inline uint32_t EmulatedFloat64TestIterations = 1000u;
     
     enum class EmulatedFloatTestDevice
     {
