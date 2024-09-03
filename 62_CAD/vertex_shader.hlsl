@@ -413,11 +413,18 @@ PSInput main(uint vertexID : SV_VertexID)
         CurveBox curveBox;
         curveBox.aabbMin = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress, 8u);
         curveBox.aabbMax = vk::RawBufferLoad<nbl::hlsl::portable_vector64_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2), 8u);
+
+        float64_t2 aabbMinDouble = float64_t2(nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMin.x), nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMin.y));
+        float64_t2 aabbMaxDouble = float64_t2(nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMin.x), nbl::hlsl::bit_cast<float64_t>(curveBox.aabbMax.y));
+
         for (uint32_t i = 0; i < 3; i ++)
         {
             curveBox.curveMin[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * i, 4u);
             curveBox.curveMax[i] = vk::RawBufferLoad<float32_t2>(drawObj.geometryAddress + sizeof(nbl::hlsl::portable_vector64_t2) * 2 + sizeof(float32_t2) * (3 + i), 4u);
         }
+
+        //const float2 ndcAxisU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin));
+        //const float2 ndcAxisV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin));
 
         const float2 ndcAxisU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMax.x, curveBox.aabbMin.y) - curveBox.aabbMin));
         const float2 ndcAxisV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2(curveBox.aabbMin.x, curveBox.aabbMax.y) - curveBox.aabbMin));
@@ -428,7 +435,9 @@ PSInput main(uint vertexID : SV_VertexID)
         outV.setCurveBoxScreenSpaceSize(float2(screenSpaceAabbExtents));
         
         const float2 undilatedCorner = float2(bool2(vertexIdx & 0x1u, vertexIdx >> 1));
-        
+        const nbl::hlsl::portable_vector64_t2 undilatedCornerF64 = nbl::hlsl::create_portable_vector64_t2(undilatedCorner.x, undilatedCorner.y);
+        //const double2 undilatedCornerF64 = nbl::hlsl::create_portable_vector64_t2(undilatedCorner.x, undilatedCorner.y);
+
         // We don't dilate on AMD (= no fragShaderInterlock)
         const float pixelsToIncreaseOnEachSide = globals.antiAliasingFactor + 1.0;
         const float2 dilateRate = pixelsToIncreaseOnEachSide / screenSpaceAabbExtents; // float sufficient to hold the dilate rect? 
@@ -437,10 +446,31 @@ PSInput main(uint vertexID : SV_VertexID)
         dilateHatch<nbl::hlsl::jit::device_capabilities::fragmentShaderPixelInterlock>(dilateVec, dilatedUV, undilatedCorner, dilateRate, ndcAxisU, ndcAxisV);
 
         // doing interpolation this way to ensure correct endpoints and 0 and 1, we can alternatively use branches to set current corner based on vertexIdx
-        const nbl::hlsl::portable_vector64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::create_portable_vector64_t2(1.0f) -
-            nbl::hlsl::create_portable_vector64_t2_from_2d_vec(undilatedCorner)) +
-            curveBox.aabbMax * nbl::hlsl::create_portable_vector64_t2_from_2d_vec(undilatedCorner);
-        const float2 coord = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dilateVec));
+        const nbl::hlsl::portable_vector64_t2 currentCorner = curveBox.aabbMin * (nbl::hlsl::create_portable_vector64_t2(1.0f) - undilatedCornerF64) +
+            curveBox.aabbMax * undilatedCornerF64;
+
+        /*const nbl::hlsl::portable_vector64_t2 currentCorner = aabbMinDouble * (double2(1.0f, 1.0f) - undilatedCornerF64) +
+            aabbMaxDouble * undilatedCornerF64;*/
+
+        const float2 coord = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, currentCorner) + nbl::hlsl::create_portable_vector64_t2(dilateVec.x, dilateVec.y));
+
+        if (vertexID == 0)
+        {
+            printf("CurveBox.aabbMin = %f, %f\n", curveBox.aabbMin.x, curveBox.aabbMin.y);
+            printf("CurveBox.aabbMax = %f, %f\n", curveBox.aabbMax.x, curveBox.aabbMax.y);
+            printf("CurveBox.curveMin[0] = %f\n", curveBox.curveMin[0]);
+            printf("CurveBox.curveMin[1] = %f\n", curveBox.curveMin[1]);
+            printf("CurveBox.curveMin[2] = %f\n", curveBox.curveMin[2]);
+            printf("CurveBox.curveMin[0] = %f\n", curveBox.curveMin[0]);
+            printf("CurveBox.curveMin[1] = %f\n", curveBox.curveMin[1]);
+            printf("CurveBox.curveMin[2] = %f\n", curveBox.curveMin[2]);
+
+            printf("currentCorner = %f, %f\n", float(currentCorner.x), float(currentCorner.y));
+            printf("coord = %f, %f\n", coord.x, coord.y);
+
+            const nbl::hlsl::portable_vector64_t2 dilateVec64 = nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dilateVec);
+            printf("dilateVec = %f\n\n", float(dilateVec64.x), float(dilateVec64.y));
+        }
 
         outV.position = float4(coord, 0.f, 1.f);
  
@@ -498,6 +528,13 @@ PSInput main(uint vertexID : SV_VertexID)
         uint16_t textureID = glyphInfo.getTextureID();
 
         const float32_t2 dirV = float32_t2(glyphInfo.dirU.y, -glyphInfo.dirU.x) * glyphInfo.aspectRatio;
+        //if (vertexID == 0)
+        {
+            printf("aspectRatio: %f, %f \n", glyphInfo.aspectRatio);
+            printf("topLeft: %f, %f \n", glyphInfo.topLeft.x, glyphInfo.topLeft.y);
+            printf("dirU: %f, %f \n", glyphInfo.dirU.x, glyphInfo.dirU.y);
+            printf("dirV: %f, %f \n\n", dirV.x, dirV.y);
+        }
         const float2 screenTopLeft = nbl::hlsl::_static_cast<float2>(transformPointNdc(clipProjectionData.projectionToNDC, glyphInfo.topLeft));
         const float2 screenDirU = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(glyphInfo.dirU)));
         const float2 screenDirV = nbl::hlsl::_static_cast<float2>(transformVectorNdc(clipProjectionData.projectionToNDC, nbl::hlsl::create_portable_vector64_t2_from_2d_vec(dirV)));

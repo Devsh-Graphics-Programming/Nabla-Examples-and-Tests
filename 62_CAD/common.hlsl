@@ -1,7 +1,7 @@
 #ifndef _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 #define _CAD_EXAMPLE_COMMON_HLSL_INCLUDED_
 
-#include <nbl/builtin/hlsl/emulated_float64_t_utils.hlsl>
+#include <nbl/builtin/hlsl/emulated/emulated_float64_t_utils.hlsl>
 #include <nbl/builtin/hlsl/limits.hlsl>
 #include <nbl/builtin/hlsl/glsl_compat/core.hlsl>
 #include <nbl/builtin/hlsl/shapes/beziers.hlsl>
