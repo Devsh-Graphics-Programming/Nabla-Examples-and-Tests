@@ -12,7 +12,6 @@ using namespace asset;
 using namespace ui;
 using namespace video;
 
-
 class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 {
 	using device_base_t = examples::SimpleWindowedApplication;
@@ -30,6 +29,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 	_NBL_STATIC_INLINE_CONSTEXPR clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
 	_NBL_STATIC_INLINE_CONSTEXPR E_LIGHT_GEOMETRY LightGeom = E_LIGHT_GEOMETRY::ELG_TRIANGLE;
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t DefaultWorkGroupSize = 16u;
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxDepthLog2 = 4u; // 5
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxSamplesLog2 = 10u; // 18
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferDimensions = 3u << MaxDepthLog2;
+	_NBL_STATIC_INLINE_CONSTEXPR uint32_t MaxBufferSamples = 1u << MaxSamplesLog2;
+	_NBL_STATIC_INLINE std::string DefaultImagePathsFile = "../../media/envmap/envmap_0.exr";
 	_NBL_STATIC_INLINE std::array<std::string, 3> ShaderPaths = { "../litBySphere.comp", "../litByTriangle.comp", "../litByRectangle.comp" };
 
 	public:
@@ -144,6 +148,26 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			// image upload utils
+			{
+				m_scratchSemaphore = m_device->createSemaphore(0);
+				if (!m_scratchSemaphore)
+					return logFail("Could not create Scratch Semaphore");
+				m_scratchSemaphore->setObjectDebugName("Scratch Semaphore");
+				// we don't want to overcomplicate the example with multi-queue
+				m_intendedSubmit.queue = getGraphicsQueue();
+				// wait for nothing before upload
+				m_intendedSubmit.waitSemaphores = {};
+				m_intendedSubmit.waitSemaphores = {};
+				// fill later
+				m_intendedSubmit.commandBuffers = {};
+				m_intendedSubmit.scratchSemaphore = {
+					.semaphore = m_scratchSemaphore.get(),
+					.value = 0,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_TRANSFER_BITS
+				};
+			}
+
 			// Create command pool and buffers
 			{
 				auto gQueue = getGraphicsQueue();
@@ -158,6 +182,335 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			// Create descriptor layouts and pipeline for the pathtracer
+			{
+				IGPUDescriptorSetLayout::SBinding descriptorSet0Bindings[] = {
+					{
+						.binding = 0u,
+							.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+								.count = 1u,
+								.immutableSamplers = nullptr
+					}
+				};
+				IGPUDescriptorSetLayout::SBinding uboBindings[] = {
+					{
+						.binding = 0u,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1u,
+						.immutableSamplers = nullptr
+					}
+				};
+				IGPUDescriptorSetLayout::SBinding descriptorSet3Bindings[] = {
+					{
+						.binding = 0u,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1u,
+						.immutableSamplers = nullptr
+					},
+					{
+						.binding = 1u,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1u,
+						.immutableSamplers = nullptr
+					},
+					{
+						.binding = 2u,
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1u,
+						.immutableSamplers = nullptr
+					},
+				};
+
+				auto gpuDescriptorSetLayout0 = m_device->createDescriptorSetLayout({ descriptorSet0Bindings, 1 });
+				auto gpuDescriptorSetLayout1 = m_device->createDescriptorSetLayout({ uboBindings, 1 });
+				auto gpuDescriptorSetLayout2 = m_device->createDescriptorSetLayout({ descriptorSet3Bindings, 3 });
+
+				if (!gpuDescriptorSetLayout0 || !gpuDescriptorSetLayout1 || !gpuDescriptorSetLayout2) {
+					return logFail("Failed to create descriptor set layouts!\n");
+				}
+
+				auto createGpuResources = [&](std::string pathToShader, smart_refctd_ptr<IGPUComputePipeline> pipeline) -> bool
+				{
+					IAssetLoader::SAssetLoadParams lp = {};
+					lp.logger = m_logger.get();
+					lp.workingDirectory = ""; // virtual root
+					auto assetBundle = m_assetManager->getAsset(pathToShader, lp);
+					const auto assets = assetBundle.getContents();
+					if (assets.empty())
+					{
+						return logFail("Could not load shader!");
+					}
+
+					auto source = IAsset::castDown<ICPUShader>(assets[0]);
+					// The down-cast should not fail!
+					assert(source);
+
+					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
+					auto shader = m_device->createShader(source.get());
+					if (!shader)
+					{
+						return logFail("Shader creationed failed: %s!", pathToShader);
+					}
+
+					auto gpuPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
+					if (!gpuPipelineLayout) {
+						return logFail("Failed to create pipeline layout");
+					}
+
+					IGPUComputePipeline::SCreationParams params = {};
+					params.layout = gpuPipelineLayout.get();
+					params.shader.shader = shader.get();
+					params.shader.entryPoint = "main";
+					params.shader.entries = nullptr;
+					params.shader.requireFullSubgroups = true;
+					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
+					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline)) {
+						return logFail("Failed to create compute pipeline!\n");
+					}
+
+					return true;
+				};
+
+				if (!createGpuResources(ShaderPaths[LightGeom], m_pipeline)) {
+					return logFail("Pipeline creation failed!");
+				}
+			}
+
+			// load image
+			smart_refctd_ptr<ICPUImage> cpuImg;
+			smart_refctd_ptr<ICPUImageView> cpuImgView;
+			smart_refctd_ptr<IGPUImage> gpuImg;
+			{
+				IAssetLoader::SAssetLoadParams params;
+				auto imageBundle = m_assetManager->getAsset(DefaultImagePathsFile.data(), params);
+				cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
+
+				ICPUImageView::SCreationParams viewParams = {
+					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
+					.image = std::move(cpuImg),
+					.viewType = IImageView<ICPUImage>::E_TYPE::ET_2D,
+					.format = cpuImg->getCreationParameters().format,
+					.subresourceRange = {
+						.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT,
+						.baseMipLevel = 0u,
+						.levelCount = ICPUImageView::remaining_mip_levels,
+						.baseArrayLayer = 0u,
+						.layerCount = ICPUImageView::remaining_array_layers
+					}
+				};
+
+				cpuImgView = ICPUImageView::create(std::move(viewParams));
+				const auto& cpuImgParams = cpuImgView->getCreationParameters();
+
+				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
+				infos[0].desc = m_gpuImgView;
+
+				IGPUDescriptorSet::SWriteDescriptorSet writeDescriptors[] = {
+					{
+						.dstSet = m_ds[0].get(),
+						.binding = 0,
+						.arrayElement = 0,
+						.count = 1,
+						.info = infos
+					},
+					{
+						.dstSet = m_ds[1].get(),
+						.binding = 0,
+						.arrayElement = 0,
+						.count = 1,
+						.info = infos
+					},
+					{
+						.dstSet = m_ds[2].get(),
+						.binding = 0,
+						.arrayElement = 0,
+						.count = 1,
+						.info = infos
+					}
+				};
+
+				m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);
+			}
+
+			// create views for textures
+			{
+				auto createHDRIImageView = [&](const asset::E_FORMAT colorFormat, const uint32_t width, const uint32_t height) ->smart_refctd_ptr<IGPUImageView>
+				{
+					smart_refctd_ptr<IGPUImageView> view;
+					{
+						IGPUImage::SCreationParams imgInfo;
+						imgInfo.format = colorFormat;
+						imgInfo.type = IGPUImage::ET_2D;
+						imgInfo.extent.width = width;
+						imgInfo.extent.height = height;
+						imgInfo.extent.depth = 1u;
+						imgInfo.mipLevels = 1u;
+						imgInfo.arrayLayers = 1u;
+						imgInfo.samples = IGPUImage::ESCF_1_BIT;
+						imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
+						imgInfo.usage = asset::IImage::EUF_STORAGE_BIT | asset::IImage::EUF_TRANSFER_DST_BIT | asset::IImage::EUF_SAMPLED_BIT;
+
+						auto image = m_device->createImage(std::move(imgInfo));
+						auto imageMemReqs = image->getMemoryReqs();
+						imageMemReqs.memoryTypeBits &= m_device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
+						m_device->allocate(imageMemReqs, image.get());
+
+						IGPUImageView::SCreationParams imgViewInfo;
+						imgViewInfo.image = std::move(image);
+						imgViewInfo.format = colorFormat;
+						imgViewInfo.viewType = IGPUImageView::ET_2D;
+						imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
+						imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+						imgViewInfo.subresourceRange.baseArrayLayer = 0u;
+						imgViewInfo.subresourceRange.baseMipLevel = 0u;
+						imgViewInfo.subresourceRange.layerCount = 1u;
+						imgViewInfo.subresourceRange.levelCount = 1u;
+
+						view = m_device->createImageView(std::move(imgViewInfo));
+					}
+
+					return view;
+				};
+
+				auto extent = cpuImg->getCreationParameters().extent;
+				auto params = cpuImgView->getCreationParameters();
+				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
+
+				const auto swapchainImageCount = m_surface->getSwapchainResources()->getSwapchain()->getImageCount();
+				for (uint32_t index = 0; index < swapchainImageCount; index++)
+				{
+					m_outImgViews[index] = createHDRIImageView(asset::E_FORMAT::EF_R16G16B16A16_SFLOAT, WindowDimensions.x, WindowDimensions.y);
+				}
+			}
+
+			// create sequence buffer view
+			{
+				auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxBufferDimensions * MaxBufferDimensions);
+
+				core::OwenSampler sampler(MaxBufferDimensions, 0xdeadbeefu);
+				//core::SobolSampler sampler(MaxBufferDimensions);
+
+				auto out = reinterpret_cast<uint32_t*>(sampleSequence->getPointer());
+				for (auto dim = 0u; dim < MaxBufferDimensions; dim++)
+					for (uint32_t i = 0; i < MaxBufferSamples; i++)
+					{
+						out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
+					}
+
+				IGPUBuffer::SCreationParams params = {};
+				const size_t size = sampleSequence->getSize();
+				params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
+				params.size = size;
+
+				auto sequenceBufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
+					std::move(m_intendedSubmit),
+					std::move(params),
+					sampleSequence->getPointer()
+				);
+				sequenceBufferFuture.wait();
+				auto sequenceBuffer = sequenceBufferFuture.get()->get();
+				SBufferRange<IGPUBuffer> bufferRange;
+				bufferRange.buffer = smart_refctd_ptr<IGPUBuffer>(sequenceBuffer);
+				bufferRange.size = sequenceBuffer->getSize();
+
+				m_sequenceBufferView = m_device->createBufferView(bufferRange, asset::E_FORMAT::EF_R32G32B32_UINT);
+			}
+
+			// upload image data
+			{
+				auto uploadImg = [&](
+					const uint32_t cmdIndex,
+					smart_refctd_ptr<IGPUImage> gpuImg,
+					smart_refctd_ptr<ICPUImage> cpuImg,
+					smart_refctd_ptr<ICPUImageView> cpuImgView
+				) -> void
+				{
+					// we don't want to overcomplicate the example with multi-queue
+					auto queue = getGraphicsQueue();
+					auto cmdbuf = m_cmdBufs[cmdIndex].get();
+					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
+					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
+
+					// there's no previous operation to wait for
+					const SMemoryBarrier transferBarriers[] = {
+						{
+							.dstStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.dstAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT
+						},
+						{
+							.srcStageMask = PIPELINE_STAGE_FLAGS::COPY_BIT,
+							.srcAccessMask = ACCESS_FLAGS::TRANSFER_WRITE_BIT,
+						}
+					};
+
+					// upload image and write to descriptor set
+					queue->startCapture();
+
+					cmdbuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
+					// change the layout of the image
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers1[] = {
+						{
+							.barrier = {
+								.dep = transferBarriers[0]
+								// no ownership transfers
+							},
+							.image = gpuImg.get(),
+						// transition the whole view
+						.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
+						// a wiping transition
+						.newLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL
+					}
+					};
+					const IGPUCommandBuffer::SImageMemoryBarrier<IGPUCommandBuffer::SOwnershipTransferBarrier> imgBarriers2[] = {
+						{
+							.barrier = {
+								.dep = transferBarriers[1]
+								// no ownership transfers
+							},
+							.image = gpuImg.get(),
+						// transition the whole view
+						.subresourceRange = cpuImgView->getCreationParameters().subresourceRange,
+						// a wiping transition
+						.oldLayout = IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						.newLayout = IGPUImage::LAYOUT::READ_ONLY_OPTIMAL
+					}
+					};
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers1 });
+					// upload contents
+					m_utils->updateImageViaStagingBuffer(
+						m_intendedSubmit,
+						cpuImg->getBuffer(),
+						cpuImg->getCreationParameters().format,
+						gpuImg.get(),
+						IGPUImage::LAYOUT::TRANSFER_DST_OPTIMAL,
+						cpuImg->getRegions()
+					);
+					cmdbuf->pipelineBarrier(E_DEPENDENCY_FLAGS::EDF_NONE, { .imgBarriers = imgBarriers2 });
+					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
+
+					queue->endCapture();
+				};
+
+				uploadImg(0, gpuImg, cpuImg, cpuImgView);
+			}
+
+			// create pathtracer descriptors
+			{
+
+			}
+
+			// Create ui descriptors
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
 				{
@@ -229,27 +582,27 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				[this]() -> void {
 					ImGuiIO& io = ImGui::GetIO();
 
-					camera.setProjectionMatrix([&]() 
-					{
-						static matrix4SIMD projection;
-
-						if (isPerspective)
-							if(isLH)
-								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-							else
-								projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
-						else
+					camera.setProjectionMatrix([&]()
 						{
-							float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
+							static matrix4SIMD projection;
 
-							if(isLH)
-								projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+							if (isPerspective)
+								if (isLH)
+									projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovLH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
+								else
+									projection = matrix4SIMD::buildProjectionMatrixPerspectiveFovRH(core::radians(fov), io.DisplaySize.x / io.DisplaySize.y, zNear, zFar);
 							else
-								projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
-						}
+							{
+								float viewHeight = viewWidth * io.DisplaySize.y / io.DisplaySize.x;
 
-						return projection;
-					}());
+								if (isLH)
+									projection = matrix4SIMD::buildProjectionMatrixOrthoLH(viewWidth, viewHeight, zNear, zFar);
+								else
+									projection = matrix4SIMD::buildProjectionMatrixOrthoRH(viewWidth, viewHeight, zNear, zFar);
+							}
+
+							return projection;
+						}());
 
 					ImGuizmo::SetOrthographic(false);
 					ImGuizmo::BeginFrame();
@@ -308,7 +661,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					if (viewDirty || firstFrame)
 					{
-						core::vectorSIMDf cameraPosition(cosf(camYAngle)* cosf(camXAngle)* transformParams.camDistance, sinf(camXAngle)* transformParams.camDistance, sinf(camYAngle)* cosf(camXAngle)* transformParams.camDistance);
+						core::vectorSIMDf cameraPosition(cosf(camYAngle) * cosf(camXAngle) * transformParams.camDistance, sinf(camXAngle) * transformParams.camDistance, sinf(camYAngle) * cosf(camXAngle) * transformParams.camDistance);
 						core::vectorSIMDf cameraTarget(0.f, 0.f, 0.f);
 						const static core::vectorSIMDf up(0.f, 1.f, 0.f);
 
@@ -325,8 +678,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					if (ImGuizmo::IsUsing())
 					{
 						ImGui::Text("Using gizmo");
-					}
-					else
+					} else
 					{
 						ImGui::Text(ImGuizmo::IsOver() ? "Over gizmo" : "");
 						ImGui::SameLine();
@@ -439,31 +791,31 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 							ImGui::End();
 						}
 					}
-					
+
 					// view matrices editor
 					{
 						ImGui::Begin("Matrices");
 
 						auto addMatrixTable = [&](const char* topText, const char* tableName, const int rows, const int columns, const float* pointer, const bool withSeparator = true)
-						{
-							ImGui::Text(topText);
-							if (ImGui::BeginTable(tableName, columns))
 							{
-								for (int y = 0; y < rows; ++y)
+								ImGui::Text(topText);
+								if (ImGui::BeginTable(tableName, columns))
 								{
-									ImGui::TableNextRow();
-									for (int x = 0; x < columns; ++x)
+									for (int y = 0; y < rows; ++y)
 									{
-										ImGui::TableSetColumnIndex(x);
-										ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+										ImGui::TableNextRow();
+										for (int x = 0; x < columns; ++x)
+										{
+											ImGui::TableSetColumnIndex(x);
+											ImGui::Text("%.3f", *(pointer + (y * columns) + x));
+										}
 									}
+									ImGui::EndTable();
 								}
-								ImGui::EndTable();
-							}
 
-							if (withSeparator)
-								ImGui::Separator();
-						};
+								if (withSeparator)
+									ImGui::Separator();
+							};
 
 						addMatrixTable("Model Matrix", "ModelMatrixTable", 3, 4, pass.scene->object.model.pointer());
 						addMatrixTable("Camera View Matrix", "ViewMatrixTable", 3, 4, view.pointer());
@@ -481,110 +833,6 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			m_winMgr->show(m_window.get());
 			oracle.reportBeginFrameRecord();
 			camera.mapKeysToArrows();
-
-			// Create descriptors for the pathtracer
-			{
-				IGPUDescriptorSetLayout::SBinding descriptorSet0Bindings[] = {
-					{
-						.binding = 0u,
-						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1u,
-						.immutableSamplers = nullptr
-					}
-				};
-				IGPUDescriptorSetLayout::SBinding uboBindings[] = {
-					{
-						.binding = 0u,
-						.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_BUFFER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1u,
-						.immutableSamplers = nullptr
-					}
-				};
-				IGPUDescriptorSetLayout::SBinding descriptorSet3Bindings[] = {
-					{
-						.binding = 0u,
-						.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1u,
-						.immutableSamplers = nullptr
-					},
-					{
-						.binding = 1u,
-						.type = nbl::asset::IDescriptor::E_TYPE::ET_UNIFORM_TEXEL_BUFFER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1u,
-						.immutableSamplers = nullptr
-					},
-					{
-						.binding = 2u,
-						.type = nbl::asset::IDescriptor::E_TYPE::ET_COMBINED_IMAGE_SAMPLER,
-						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-						.count = 1u,
-						.immutableSamplers = nullptr
-					},
-				};
-
-				auto gpuDescriptorSetLayout0 = m_device->createDescriptorSetLayout({ descriptorSet0Bindings, 1 });
-				auto gpuDescriptorSetLayout1 = m_device->createDescriptorSetLayout({ uboBindings, 1 });
-				auto gpuDescriptorSetLayout2 = m_device->createDescriptorSetLayout({ descriptorSet3Bindings, 3 });
-
-				if (!gpuDescriptorSetLayout0 || !gpuDescriptorSetLayout1 || !gpuDescriptorSetLayout2) {
-					return logFail("Failed to create descriptor set layouts!\n");
-				}
-
-				auto createGpuResources = [&](std::string pathToShader, smart_refctd_ptr<IGPUComputePipeline> pipeline) -> bool
-				{
-					IAssetLoader::SAssetLoadParams lp = {};
-					lp.logger = m_logger.get();
-					lp.workingDirectory = ""; // virtual root
-					auto assetBundle = m_assetManager->getAsset(pathToShader, lp);
-					const auto assets = assetBundle.getContents();
-					if (assets.empty())
-					{
-						return logFail("Could not load shader!");
-					}
-
-					auto source = IAsset::castDown<ICPUShader>(assets[0]);
-					// The down-cast should not fail!
-					assert(source);
-
-					// this time we skip the use of the asset converter since the ICPUShader->IGPUShader path is quick and simple
-					auto shader = m_device->createShader(source.get());
-					if (!shader)
-					{
-						return logFail("Shader creationed failed: %s!", pathToShader);
-					}
-
-					auto gpuPipelineLayout = m_device->createPipelineLayout({}, core::smart_refctd_ptr(gpuDescriptorSetLayout0), core::smart_refctd_ptr(gpuDescriptorSetLayout1), core::smart_refctd_ptr(gpuDescriptorSetLayout2), nullptr);
-					if (!gpuPipelineLayout) {
-						return logFail("Failed to create pipeline layout");
-					}
-
-					IGPUComputePipeline::SCreationParams params = {};
-					params.layout = gpuPipelineLayout.get();
-					params.shader.shader = shader.get();
-					params.shader.entryPoint = "main";
-					params.shader.entries = nullptr;
-					params.shader.requireFullSubgroups = true;
-					params.shader.requiredSubgroupSize = static_cast<IGPUShader::SSpecInfo::SUBGROUP_SIZE>(5);
-					if (!m_device->createComputePipelines(nullptr, { &params,1 }, &pipeline)) {
-						return logFail("Failed to create compute pipeline!\n");
-					}
-
-					return true;
-				};
-
-				if (!createGpuResources(ShaderPaths[LightGeom], m_pipeline)) {
-					return logFail("Pipeline creation failed!");
-				}
-			}
 
 			return true;
 		}
@@ -847,6 +1095,15 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		InputSystem::ChannelReader<IMouseEventChannel> mouse;
 		InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
 
+		// pathtracer resources
+		smart_refctd_ptr<IGPUImageView> m_envMapView, m_scrambleView;
+		smart_refctd_ptr<IGPUBufferView> m_sequenceBufferView;
+		std::array<smart_refctd_ptr<IGPUImageView>, ISwapchain::MaxImages> m_outImgViews;
+
+		// image upload resources
+		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
+		SIntendedSubmitInfo m_intendedSubmit;
+
 		struct C_UI
 		{
 			nbl::core::smart_refctd_ptr<nbl::ext::imgui::UI> manager;
@@ -915,89 +1172,8 @@ smart_refctd_ptr<IGPUImageView> createHDRImageView(nbl::core::smart_refctd_ptr<n
 	return gpuImageViewColorBuffer;
 }
 
-struct ShaderParameters
-{
-	const uint32_t MaxDepthLog2 = 4; //5
-	const uint32_t MaxSamplesLog2 = 10; //18
-} kShaderParameters;
-
-
-
-
-
-
 int main()
 {
-	auto createImageView = [&](std::string pathToOpenEXRHDRIImage)
-		{
-#ifndef _NBL_COMPILE_WITH_OPENEXR_LOADER_
-			assert(false);
-#endif
-
-			auto pathToTexture = pathToOpenEXRHDRIImage;
-			IAssetLoader::SAssetLoadParams lp(0ull, nullptr, IAssetLoader::ECF_DONT_CACHE_REFERENCES);
-			auto cpuTexture = assetManager->getAsset(pathToTexture, lp);
-			auto cpuTextureContents = cpuTexture.getContents();
-			assert(!cpuTextureContents.empty());
-			auto cpuImage = core::smart_refctd_ptr_static_cast<asset::ICPUImage>(*cpuTextureContents.begin());
-			cpuImage->setImageUsageFlags(IImage::E_USAGE_FLAGS::EUF_SAMPLED_BIT);
-
-			ICPUImageView::SCreationParams viewParams;
-			viewParams.flags = static_cast<ICPUImageView::E_CREATE_FLAGS>(0u);
-			viewParams.image = cpuImage;
-			viewParams.format = viewParams.image->getCreationParameters().format;
-			viewParams.viewType = IImageView<ICPUImage>::ET_2D;
-			viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-			viewParams.subresourceRange.baseArrayLayer = 0u;
-			viewParams.subresourceRange.layerCount = 1u;
-			viewParams.subresourceRange.baseMipLevel = 0u;
-			viewParams.subresourceRange.levelCount = 1u;
-
-			auto cpuImageView = ICPUImageView::create(std::move(viewParams));
-
-			cpu2gpuParams.beginCommandBuffers();
-			auto gpuImageView = CPU2GPU.getGPUObjectsFromAssets(&cpuImageView, &cpuImageView + 1u, cpu2gpuParams)->front();
-			cpu2gpuParams.waitForCreationToComplete(false);
-
-			return gpuImageView;
-		};
-
-	auto gpuEnvmapImageView = createImageView("../../media/envmap/envmap_0.exr");
-
-	smart_refctd_ptr<IGPUBufferView> gpuSequenceBufferView;
-	{
-		const uint32_t MaxDimensions = 3u << kShaderParameters.MaxDepthLog2;
-		const uint32_t MaxSamples = 1u << kShaderParameters.MaxSamplesLog2;
-
-		auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxDimensions * MaxSamples);
-
-		core::OwenSampler sampler(MaxDimensions, 0xdeadbeefu);
-		//core::SobolSampler sampler(MaxDimensions);
-
-		auto out = reinterpret_cast<uint32_t*>(sampleSequence->getPointer());
-		for (auto dim = 0u; dim < MaxDimensions; dim++)
-			for (uint32_t i = 0; i < MaxSamples; i++)
-			{
-				out[i * MaxDimensions + dim] = sampler.sample(dim, i);
-			}
-
-		// TODO: Temp Fix because createFilledDeviceLocalBufferOnDedMem doesn't take in params
-		// auto gpuSequenceBuffer = utilities->createFilledDeviceLocalBufferOnDedMem(graphicsQueue, sampleSequence->getSize(), sampleSequence->getPointer());
-		core::smart_refctd_ptr<IGPUBuffer> gpuSequenceBuffer;
-		{
-			IGPUBuffer::SCreationParams params = {};
-			const size_t size = sampleSequence->getSize();
-			params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-			params.size = size;
-			gpuSequenceBuffer = device->createBuffer(std::move(params));
-			auto gpuSequenceBufferMemReqs = gpuSequenceBuffer->getMemoryReqs();
-			gpuSequenceBufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			device->allocate(gpuSequenceBufferMemReqs, gpuSequenceBuffer.get());
-			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u, size, gpuSequenceBuffer}, sampleSequence->getPointer(), graphicsQueue);
-		}
-		gpuSequenceBufferView = device->createBufferView(gpuSequenceBuffer.get(), asset::EF_R32G32B32_UINT);
-	}
-
 	smart_refctd_ptr<IGPUImageView> gpuScrambleImageView;
 	{
 		IGPUImage::SCreationParams imgParams;
@@ -1054,14 +1230,6 @@ int main()
 		viewParams.subresourceRange.levelCount = 1u;
 		viewParams.subresourceRange.layerCount = 1u;
 		gpuScrambleImageView = device->createImageView(std::move(viewParams));
-	}
-
-	// Create Out Image TODO
-	constexpr uint32_t MAX_FBO_COUNT = 4u;
-	smart_refctd_ptr<IGPUImageView> outHDRImageViews[MAX_FBO_COUNT] = {};
-	assert(MAX_FBO_COUNT >= swapchain->getImageCount());
-	for (uint32_t i = 0; i < swapchain->getImageCount(); ++i) {
-		outHDRImageViews[i] = createHDRImageView(device, asset::EF_R16G16B16A16_SFLOAT, WIN_W, WIN_H);
 	}
 
 	core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSets0[FBO_COUNT] = {};
