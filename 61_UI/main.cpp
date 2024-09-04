@@ -188,7 +188,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), (int)m_maxFramesInFlight, renderpass, nullptr, smart_refctd_ptr(m_window));
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), renderpass, nullptr, smart_refctd_ptr(m_window));
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
 				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
@@ -553,7 +553,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					.renderArea = currentRenderArea
 				};
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui.manager->render(cb, pass.ui.descriptorSet.get(), resourceIx);
+				pass.ui.manager->render(cb, pass.ui.descriptorSet.get());
 				cb->endRenderPass();
 			}
 			cb->end();
