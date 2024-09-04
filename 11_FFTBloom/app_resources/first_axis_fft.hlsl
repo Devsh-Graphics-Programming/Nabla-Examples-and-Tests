@@ -2,11 +2,13 @@
 #include "nbl/builtin/hlsl/workgroup/fft.hlsl"
 #include "nbl/builtin/hlsl/cpp_compat/promote.hlsl"
 
+using namespace nbl::hlsl;
+
 /*
  * Remember we have these defines: 
- * _NBL_HLSL_WORKGROUP_SIZE_
- * ELEMENTS_PER_THREAD
- * USE_HALF_PRECISION
+ * _NBL_HLSL_WORKGROUP_SIZE_             (always PoT)
+ * ELEMENTS_PER_THREAD                   (always PoT)
+ * (may be defined) USE_HALF_PRECISION
  * KERNEL_SCALE
 */
 
@@ -15,19 +17,15 @@
 [[vk::combinedImageSampler]][[vk::binding(0,0)]] SamplerState samplerState;
 
 #ifdef USE_HALF_PRECISION
-#define UINTS_PER_COMPLEX 1
 #define scalar_t float16_t
 #else
-#define UINTS_PER_COMPLEX 2
 #define scalar_t float32_t
 #endif
 
-groupshared uint32_t sharedmem[UINTS_PER_COMPLEX * _NBL_HLSL_WORKGROUP_SIZE_];
+groupshared uint32_t sharedmem[workgroup::fft::sharedMemSize<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
 // Users MUST define this method for FFT to work
-namespace nbl { namespace hlsl { namespace glsl{
-uint32_t3 gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
-} } }
+uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
 
 struct SharedMemoryAccessor 
 {
@@ -43,12 +41,12 @@ struct SharedMemoryAccessor
 
 	void workgroupExecutionAndMemoryBarrier() 
 	{
-		AllMemoryBarrierWithGroupSync();
+		glsl::barrier();
     }
 
 };
 
-// Each Workgroup computes the FFT along a scanline (fixed x for the whole Workgroup) so we use `gl_WorkGroupID().x` to get the x coordinate for sampling
+// Each Workgroup computes the FFT along a horizontal scanline (fixed y for the whole Workgroup) so we use `gl_WorkGroupID().x` to get the y coordinate for sampling
 // For now leaving as old GLSL example, sampling is done one time per channel. Maybe could be changed so that all channels are preloaded on a single sample instead
 struct PreloadedAccessor {
 	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value) 
@@ -63,7 +61,8 @@ struct PreloadedAccessor {
 
 	void memoryBarrier() 
 	{
-		AllMemoryBarrier();
+		// only one workgroup is touching any memory it wishes to trade
+		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
 	}
 
 	template<uint32_t Channel>
@@ -76,7 +75,7 @@ struct PreloadedAccessor {
 		Promote<float32_t2, float32_t> promoter;
 
 		const uint32_t stride = (ELEMENTS_PER_THREAD / 2) * _NBL_HLSL_WORKGROUP_SIZE_; // Initial stride of global array in Forward FFT
-		for (uint32_t virtualThreadID = SubgroupContiguousIndex(); virtualThreadID < (ELEMENTS_PER_THREAD / 2) * _NBL_HLSL_WORKGROUP_SIZE_; virtualThreadID += _NBL_HLSL_WORKGROUP_SIZE_)
+		for (uint32_t virtualThreadID = workgroup::SubgroupContiguousIndex(); virtualThreadID < (ELEMENTS_PER_THREAD / 2) * _NBL_HLSL_WORKGROUP_SIZE_; virtualThreadID += _NBL_HLSL_WORKGROUP_SIZE_)
         {
             const uint32_t loIx = ((virtualThreadID & (~(stride - 1))) << 1) | (virtualThreadID & (stride - 1));
 			normalizedCoords.x = (float32_t(loIx)+0.5f)/(inputImageSize*KERNEL_SCALE);
@@ -102,8 +101,9 @@ struct PreloadedAccessor {
 	template<uint32_t Channel>
 	void unload()
 	{
-		// Each channel will be stored as the whole image in col-major order, and its size is N^2 for N = _NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD
-		const uint32_t channelStride = Channel * _NBL_HLSL_WORKGROUP_SIZE_ * _NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD * ELEMENTS_PER_THREAD; 
+		// Each channel will be stored as half the image (cut along the x axis) in col-major order, and the whole size of the image is N^2, 
+		// for N = _NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD
+		const uint32_t channelStride = Channel * _NBL_HLSL_WORKGROUP_SIZE_ * _NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD * ELEMENTS_PER_THREAD / 2; 
 
 	}
 

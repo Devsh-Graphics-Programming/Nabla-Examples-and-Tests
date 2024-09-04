@@ -1,10 +1,6 @@
 #ifndef FFT_UTILS
 #define FFT_UTILS
 
-// Everything in this file will probably be eventually refactored into the FFT Class if this is made into an extension again
-#include "nbl/application_templates/MonoDeviceApplication.hpp"
-#include "nbl/application_templates/MonoAssetManagerAndBuiltinResourceApplication.hpp"
-
 
 using namespace nbl;
 using namespace core;
