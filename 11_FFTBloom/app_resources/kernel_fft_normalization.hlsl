@@ -25,7 +25,7 @@ using namespace nbl::hlsl;
 #define IMAGE_SIDE_LENGTH (_NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD)
 #define CHANNELS 3
 
-groupshared uint32_t sharedmem[workgroup::fft::sharedMemSize<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
+groupshared uint32_t sharedmem[workgroup::fft::SharedMemoryDWORDs<scalar_t, _NBL_HLSL_WORKGROUP_SIZE_>];
 
 // Users MUST define this method for FFT to work
 uint32_t3 glsl::gl_WorkGroupSize() { return uint32_t3(_NBL_HLSL_WORKGROUP_SIZE_, 1, 1); }
@@ -102,14 +102,23 @@ struct PreloadedFirstAxisAccessor {
 		return x * IMAGE_SIDE_LENGTH + y;
 	}
 
-	void storeColMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) value)
+	void storeColMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) firstValue, NBL_CONST_REF_ARG(complex_t<scalar_t>) secondValue)
 	{
-		vk::RawBufferStore<complex_t<scalar_t>>(startAddress + colMajorOffset(index, gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), value);
+		vk::RawBufferStore<complex_t<scalar_t>>(startAddress + colMajorOffset(index, 2 * gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), firstValue);
+		vk::RawBufferStore<complex_t<scalar_t>>(startAddress + colMajorOffset(index, 2 * gl_WorkGroupID().x + 1) * sizeof(complex_t<scalar_t>), secondValue);
+	}
+
+	// Util to unpack elements from the two different FFTs
+	void unpack(uint32_t elementIndex, NBL_REF_ARG(complex_t<scalar_t>) firstLineElement, NBL_REF_ARG(complex_t<scalar_t>) secondLineElement)
+	{
+		firstLineElement = (preloaded[elementIndex] + conj(preloaded[(ELEMENTS_PER_THREAD - elementIndex) & (ELEMENTS_PER_THREAD - 1)])) * scalar_t(0.5);
+		secondLineElement = rotateRight<scalar_t>(preloaded[elementIndex] - conj(preloaded[(ELEMENTS_PER_THREAD - elementIndex) & (ELEMENTS_PER_THREAD - 1)])) * 0.5;
 	}
 
 	// Once the FFT is done, each thread should write its elements back. We want the storage to be in column-major order since the next FFT will be on y axis.
 	// Channels will be contiguous in buffer memory. We only need to store outputs 0 through Nyquist, since the rest can be recovered via complex conjugation:
 	// see https://en.wikipedia.org/wiki/Discrete_Fourier_transform#DFT_of_real_and_purely_imaginary_signals
+	// FFT unpacking rules explained here: https://kovleventer.com/blog/fft_real/
 	// Also, elements 0 and Nyquist fit into a single complex element since they're both real, and it's always thread 0 holding these values
 	template<uint32_t Channel>
 	void unload()
@@ -118,24 +127,28 @@ struct PreloadedFirstAxisAccessor {
 		// for N = _NBL_HLSL_WORKGROUP_SIZE_ * ELEMENTS_PER_THREAD
 		const uint32_t channelStride = Channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
 		const uint32_t channelStartAddress = pushConstants.outputAddress + channelStride;
-		
-		// All but one subgroups are coherent - Thread 0 has different storing rules
+
+		// Thread 0 has special unpacking and storage rules - no worries on this `if`, all but the first subgroup are coherent
 		if (! workgroup::SubgroupContiguousIndex())
 		{
-			complex_t<scalar_t> packedZeroNyquist;
-			packedZeroNyquist.real(preloaded[0].real());
-			packedZeroNyquist.imag(preloaded[ELEMENTS_PER_THREAD / 2].real());
-			storeColMajor(channelStartAddress, 0, packedZeroNyquist);
-			for (uint32_t element = 1; element < ELEMENTS_PER_THREAD; element++)
+			complex_t<scalar_t> packedFirstZeroNyquist =  {preloaded[0].real(), preloaded[ELEMENTS_PER_THREAD / 2].real()};
+			complex_t<scalar_t> packedSecondZeroNyquist = {preloaded[0].imag(), preloaded[ELEMENTS_PER_THREAD / 2].imag()};
+			storeColMajor(channelStartAddress, 0, packedFirstZeroNyquist, packedSecondZeroNyquist);
+			
+			for (uint32_t elementIndex = 1; elementIndex < ELEMENTS_PER_THREAD / 2; elementIndex++)
 			{
-				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * element, preloaded[element]);
+				complex_t<scalar_t> firstLineElement, secondLineElement;
+				unpack(elementIndex, firstLineElement, secondLineElement);
+				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * element, firstLineElement, secondLineElement);
 			}
 		}
-		else 
+		else
 		{
-			for (uint32_t element = 0; element < ELEMENTS_PER_THREAD; element++)
+			for (uint32_t element = 0; element < ELEMENTS_PER_THREAD / 2; element++)
 			{
-				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * element + workgroup::SubgroupContiguousIndex(), preloaded[element]);
+				complex_t<scalar_t> firstLineElement, secondLineElement;
+				unpack(elementIndex, firstLineElement, secondLineElement);
+				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * element + workgroup::SubgroupContiguousIndex(), firstLineElement, secondLineElement);
 			}
 		}
 	}
