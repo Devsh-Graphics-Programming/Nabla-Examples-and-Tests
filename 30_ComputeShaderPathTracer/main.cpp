@@ -666,6 +666,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				}
 			}
 
+			/*
 			// Create ui descriptors
 			{
 				using binding_flags_t = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS;
@@ -890,6 +891,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					* note it also modifies input view matrix but projection matrix is immutable
 					*/
 
+					/*
 					static struct
 					{
 						core::matrix4SIMD view, projection, model;
@@ -982,7 +984,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					ImGui::End();
 				}
-			);
+			);*/
 
 			m_winMgr->setWindowSize(m_window.get(), WindowDimensions.x, WindowDimensions.y);
 			m_surface->recreateSwapchain();
@@ -995,6 +997,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		bool updateGUIDescriptorSet()
 		{
+			/*
 			// texture atlas + our scene texture, note we don't create info & write pair for the font sampler because UI extension's is immutable and baked into DS layout
 			static std::array<IGPUDescriptorSet::SDescriptorInfo, TEXTURES_AMOUNT> descriptorInfo;
 			static IGPUDescriptorSet::SWriteDescriptorSet writes[TEXTURES_AMOUNT];
@@ -1016,7 +1019,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			writes[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info = descriptorInfo.data() + nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID;
 			writes[CScene::NBL_OFFLINE_SCENE_TEX_ID].info = descriptorInfo.data() + CScene::NBL_OFFLINE_SCENE_TEX_ID;
 
-			return m_device->updateDescriptorSets(writes, {});
+			return m_device->updateDescriptorSets(writes, {});*/
 		}
 
 		inline void workLoopBody() override
@@ -1155,6 +1158,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 		inline void update()
 		{
+			/*
 			camera.setMoveSpeed(moveSpeed);
 			camera.setRotateSpeed(rotateSpeed);
 
@@ -1227,6 +1231,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
 			ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
+			*/
 		}
 
 	private:
