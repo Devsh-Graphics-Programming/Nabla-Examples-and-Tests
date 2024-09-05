@@ -1049,14 +1049,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			update();
 
 			// render whole scene to offline frame buffer & submit
-			pass.scene->begin();
 			{
-				pass.scene->update();
-				pass.scene->record();
-				pass.scene->end();
-			}
-			pass.scene->submit();
 
+			}
+
+			/*
 			auto* const cb = m_cmdBufs.data()[resourceIx].get();
 			cb->reset(IGPUCommandBuffer::RESET_FLAGS::RELEASE_RESOURCES_BIT);
 			cb->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
@@ -1147,6 +1144,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_window->setCaption("[Nabla Engine] UI App Test Demo");
 				m_surface->present(m_currentImageAcquire.imageIndex, rendered);
 			}
+			*/
 		}
 
 		inline bool keepRunning() override
