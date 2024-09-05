@@ -24,6 +24,27 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		ELG_RECTANGLE
 	};
 
+	template<typename BufferType>
+	_NBL_STATIC_INLINE SBufferRange<BufferType> createBuffer(
+		const size_t size,
+		const core::bitflag<asset::IBuffer::E_USAGE_FLAGS> usage,
+		const void* data
+	)
+	{
+		BufferType::SCreationParams params = {};
+		params.usage = usage;
+		params.size = size;
+
+		auto bufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
+			std::move(m_intendedSubmit),
+			std::move(params),
+			data
+		);
+		bufferFuture.wait();
+		auto buffer = bufferFuture.get()->get();
+		return SBufferRange<IGPUBuffer>{0u, buffer->getSize(), smart_refctd_ptr<IGPUBuffer>(buffer)};
+	}
+
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t2 WindowDimensions = { 1280, 720 };
 	_NBL_STATIC_INLINE_CONSTEXPR uint32_t FramesInFlight = 5;
 	_NBL_STATIC_INLINE_CONSTEXPR clock_t::duration DisplayImageDuration = std::chrono::milliseconds(900);
@@ -310,9 +331,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				};
 
 				cpuImgView = ICPUImageView::create(std::move(viewParams));
-				const auto& cpuImgParams = cpuImgView->getCreationParameters();
-
-				IGPUDescriptorSet::SDescriptorInfo infos[3];
+				/*IGPUDescriptorSet::SDescriptorInfo infos[3];
 				infos[0].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 				infos[0].desc = m_gpuImgView;
 
@@ -340,7 +359,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					}
 				};
 
-				m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);
+				m_device->updateDescriptorSets(3, writeDescriptors, 0, nullptr);*/
 			}
 
 			// create views for textures
@@ -386,6 +405,40 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				auto extent = cpuImg->getCreationParameters().extent;
 				auto params = cpuImgView->getCreationParameters();
 				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
+				m_scrambleView = createHDRIImageView(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height);
+
+				IGPUImage::SBufferCopy region = {};
+				region.bufferOffset = 0u;
+				region.bufferRowLength = 0u;
+				region.bufferImageHeight = 0u;
+				region.imageExtent = extent;
+				region.imageOffset = { 0u,0u,0u };
+				region.imageSubresource.layerCount = 1u;
+				region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+
+				constexpr auto ScrambleStateChannels = 2u;
+				const auto renderPixelCount = extent.width * extent.height;
+				core::vector<uint32_t> random(renderPixelCount* ScrambleStateChannels);
+				{
+					core::RandomSampler rng(0xbadc0ffeu);
+					for (auto& pixel : random)
+						pixel = rng.nextSample();
+				}
+
+				auto bufferRange = createBuffer<ICPUBuffer>(
+					random.size() * sizeof(uint32_t),
+					asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT,
+					random.data()
+				);
+
+				m_utils->updateImageViaStagingBufferAutoSubmit(
+					m_intendedSubmit,
+					bufferRange.buffer,
+					asset::E_FORMAT::EF_R32G32_UINT,
+					m_scrambleView->getCreationParameters().image.get(),
+					IGPUImage::LAYOUT::UNDEFINED,
+					&region
+				);
 
 				const auto swapchainImageCount = m_surface->getSwapchainResources()->getSwapchain()->getImageCount();
 				for (uint32_t index = 0; index < swapchainImageCount; index++)
@@ -408,22 +461,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
 					}
 
-				IGPUBuffer::SCreationParams params = {};
-				const size_t size = sampleSequence->getSize();
-				params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT;
-				params.size = size;
-
-				auto sequenceBufferFuture = m_utils->createFilledDeviceLocalBufferOnDedMem(
-					std::move(m_intendedSubmit),
-					std::move(params),
+				auto bufferRange = createBuffer<IGPUBuffer>(
+					sampleSequence->getSize(),
+					asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT,
 					sampleSequence->getPointer()
 				);
-				sequenceBufferFuture.wait();
-				auto sequenceBuffer = sequenceBufferFuture.get()->get();
-				SBufferRange<IGPUBuffer> bufferRange;
-				bufferRange.buffer = smart_refctd_ptr<IGPUBuffer>(sequenceBuffer);
-				bufferRange.size = sequenceBuffer->getSize();
-
 				m_sequenceBufferView = m_device->createBufferView(bufferRange, asset::E_FORMAT::EF_R32G32B32_UINT);
 			}
 
@@ -1134,104 +1176,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 NBL_MAIN_FUNC(ComputeShaderPathtracer)
 
 #if 0
-smart_refctd_ptr<IGPUImageView> createHDRImageView(nbl::core::smart_refctd_ptr<nbl::video::ILogicalDevice> device, asset::E_FORMAT colorFormat, uint32_t width, uint32_t height)
-{
-	smart_refctd_ptr<IGPUImageView> gpuImageViewColorBuffer;
-	{
-		IGPUImage::SCreationParams imgInfo;
-		imgInfo.format = colorFormat;
-		imgInfo.type = IGPUImage::ET_2D;
-		imgInfo.extent.width = width;
-		imgInfo.extent.height = height;
-		imgInfo.extent.depth = 1u;
-		imgInfo.mipLevels = 1u;
-		imgInfo.arrayLayers = 1u;
-		imgInfo.samples = asset::ICPUImage::ESCF_1_BIT;
-		imgInfo.flags = static_cast<asset::IImage::E_CREATE_FLAGS>(0u);
-		imgInfo.usage = core::bitflag(asset::IImage::EUF_STORAGE_BIT) | asset::IImage::EUF_TRANSFER_SRC_BIT;
-
-		auto image = device->createImage(std::move(imgInfo));
-		auto imageMemReqs = image->getMemoryReqs();
-		imageMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-		device->allocate(imageMemReqs, image.get());
-
-		IGPUImageView::SCreationParams imgViewInfo;
-		imgViewInfo.image = std::move(image);
-		imgViewInfo.format = colorFormat;
-		imgViewInfo.viewType = IGPUImageView::ET_2D;
-		imgViewInfo.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-		imgViewInfo.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-		imgViewInfo.subresourceRange.baseArrayLayer = 0u;
-		imgViewInfo.subresourceRange.baseMipLevel = 0u;
-		imgViewInfo.subresourceRange.layerCount = 1u;
-		imgViewInfo.subresourceRange.levelCount = 1u;
-
-		gpuImageViewColorBuffer = device->createImageView(std::move(imgViewInfo));
-	}
-
-	return gpuImageViewColorBuffer;
-}
-
 int main()
 {
-	smart_refctd_ptr<IGPUImageView> gpuScrambleImageView;
-	{
-		IGPUImage::SCreationParams imgParams;
-		imgParams.flags = static_cast<IImage::E_CREATE_FLAGS>(0u);
-		imgParams.type = IImage::ET_2D;
-		imgParams.format = EF_R32G32_UINT;
-		imgParams.extent = { WIN_W, WIN_H,1u };
-		imgParams.mipLevels = 1u;
-		imgParams.arrayLayers = 1u;
-		imgParams.samples = IImage::ESCF_1_BIT;
-		imgParams.usage = core::bitflag(IImage::EUF_SAMPLED_BIT) | IImage::EUF_TRANSFER_DST_BIT;
-		imgParams.initialLayout = asset::IImage::EL_UNDEFINED;
-
-		IGPUImage::SBufferCopy region = {};
-		region.bufferOffset = 0u;
-		region.bufferRowLength = 0u;
-		region.bufferImageHeight = 0u;
-		region.imageExtent = imgParams.extent;
-		region.imageOffset = { 0u,0u,0u };
-		region.imageSubresource.layerCount = 1u;
-		region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-
-		constexpr auto ScrambleStateChannels = 2u;
-		const auto renderPixelCount = imgParams.extent.width * imgParams.extent.height;
-		core::vector<uint32_t> random(renderPixelCount * ScrambleStateChannels);
-		{
-			core::RandomSampler rng(0xbadc0ffeu);
-			for (auto& pixel : random)
-				pixel = rng.nextSample();
-		}
-
-		// TODO: Temp Fix because createFilledDeviceLocalBufferOnDedMem doesn't take in params
-		// auto buffer = utilities->createFilledDeviceLocalBufferOnDedMem(graphicsQueue, random.size()*sizeof(uint32_t), random.data());
-		core::smart_refctd_ptr<IGPUBuffer> buffer;
-		{
-			IGPUBuffer::SCreationParams params = {};
-			const size_t size = random.size() * sizeof(uint32_t);
-			params.usage = core::bitflag(asset::IBuffer::EUF_TRANSFER_DST_BIT) | asset::IBuffer::EUF_TRANSFER_SRC_BIT;
-			params.size = size;
-			buffer = device->createBuffer(std::move(params));
-			auto bufferMemReqs = buffer->getMemoryReqs();
-			bufferMemReqs.memoryTypeBits &= device->getPhysicalDevice()->getDeviceLocalMemoryTypeBits();
-			device->allocate(bufferMemReqs, buffer.get());
-			utilities->updateBufferRangeViaStagingBufferAutoSubmit(asset::SBufferRange<IGPUBuffer>{0u, size, buffer}, random.data(), graphicsQueue);
-		}
-
-		IGPUImageView::SCreationParams viewParams;
-		viewParams.flags = static_cast<IGPUImageView::E_CREATE_FLAGS>(0u);
-		// TODO: Replace this IGPUBuffer -> IGPUImage to using image upload utility
-		viewParams.image = utilities->createFilledDeviceLocalImageOnDedMem(std::move(imgParams), buffer.get(), 1u, &region, graphicsQueue);
-		viewParams.viewType = IGPUImageView::ET_2D;
-		viewParams.format = EF_R32G32_UINT;
-		viewParams.subresourceRange.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
-		viewParams.subresourceRange.levelCount = 1u;
-		viewParams.subresourceRange.layerCount = 1u;
-		gpuScrambleImageView = device->createImageView(std::move(viewParams));
-	}
-
 	core::smart_refctd_ptr<IGPUDescriptorSet> descriptorSets0[FBO_COUNT] = {};
 	for (uint32_t i = 0; i < FBO_COUNT; ++i)
 	{
