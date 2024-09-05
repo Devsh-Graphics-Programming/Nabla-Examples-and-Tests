@@ -552,7 +552,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.commandBuffers = { commandBuffersInfo,1 },
 				.scratchSemaphore = {
 					.semaphore = m_semaphore.get(),
-					.value = 0,
+					.value = m_realFrameIx,
 					.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS 
 				}
 			};
@@ -581,6 +581,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						.stageMask = PIPELINE_STAGE_FLAGS::COLOR_ATTACHMENT_OUTPUT_BIT
 					} 
 				};
+
 				{
 					{
 						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = 
