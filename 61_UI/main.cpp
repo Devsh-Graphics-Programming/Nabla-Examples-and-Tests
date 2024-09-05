@@ -542,6 +542,21 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				.extent = {m_window->getWidth(),m_window->getHeight()}
 			};
 
+			IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = {{.cmdbuf = cb }};
+
+
+			SIntendedSubmitInfo intendedSubmitInfo = 
+			{
+				.queue = queue,
+				.waitSemaphores = {},
+				.commandBuffers = { commandBuffersInfo,1 },
+				.scratchSemaphore = {
+					.semaphore = m_semaphore.get(),
+					.value = 0,
+					.stageMask = PIPELINE_STAGE_FLAGS::ALL_GRAPHICS_BITS 
+				}
+			};
+
 			// UI render pass
 			{
 				auto scRes = static_cast<CDefaultSwapchainFramebuffers*>(m_surface->getSwapchainResources());
@@ -553,7 +568,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 					.renderArea = currentRenderArea
 				};
 				cb->beginRenderPass(info, IGPUCommandBuffer::SUBPASS_CONTENTS::INLINE);
-				pass.ui.manager->render(cb, pass.ui.descriptorSet.get());
+				pass.ui.manager->render(intendedSubmitInfo, pass.ui.descriptorSet.get());
 				cb->endRenderPass();
 			}
 			cb->end();
@@ -568,11 +583,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 				};
 				{
 					{
-						const IQueue::SSubmitInfo::SCommandBufferInfo commandBuffers[] = 
-						{ 
-							{ .cmdbuf = cb } 
-						};
-
 						const IQueue::SSubmitInfo::SSemaphoreInfo acquired[] = 
 						{ 
 							{
@@ -581,11 +591,12 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 								.stageMask = PIPELINE_STAGE_FLAGS::NONE
 							} 
 						};
+
 						const IQueue::SSubmitInfo infos[] = 
 						{ 
 							{
 								.waitSemaphores = acquired,
-								.commandBuffers = commandBuffers,
+								.commandBuffers = commandBuffersInfo,
 								.signalSemaphores = rendered
 							} 
 						};
