@@ -215,11 +215,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				IGPUDescriptorSetLayout::SBinding descriptorSet0Bindings[] = {
 					{
 						.binding = 0u,
-							.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
-							.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
-							.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
-							.count = 1u,
-							.immutableSamplers = nullptr
+						.type = nbl::asset::IDescriptor::E_TYPE::ET_STORAGE_IMAGE,
+						.createFlags = IGPUDescriptorSetLayout::SBinding::E_CREATE_FLAGS::ECF_NONE,
+						.stageFlags = IShader::E_SHADER_STAGE::ESS_COMPUTE,
+						.count = 1u,
+						.immutableSamplers = nullptr
 					}
 				};
 				IGPUDescriptorSetLayout::SBinding uboBindings[] = {
@@ -664,6 +664,12 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 					m_device->updateDescriptorSets(kDescriptorCount, samplerWriteDescriptorSet.data(), 0u, nullptr);
 				}
+			}
+
+			// create sync
+			{
+				for (auto i = 0u; i < m_maxFramesInFlight; i++)
+					m_renderFinished[i] = m_device->createSemaphore(0);
 			}
 
 			/*
@@ -1262,6 +1268,9 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		smart_refctd_ptr<IGPUBuffer> m_ubo;
 		std::array<smart_refctd_ptr<IGPUImageView>, ISwapchain::MaxImages> m_outImgViews;
 
+		// sync
+		std::array<smart_refctd_ptr<ISemaphore>, FramesInFlight> m_renderFinished;
+
 		// image upload resources
 		smart_refctd_ptr<ISemaphore> m_scratchSemaphore;
 		SIntendedSubmitInfo m_intendedSubmit;
@@ -1298,25 +1307,6 @@ NBL_MAIN_FUNC(ComputeShaderPathtracer)
 #if 0
 int main()
 {
-	constexpr uint32_t FRAME_COUNT = 500000u;
-
-	core::smart_refctd_ptr<video::IGPUFence> frameComplete[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUSemaphore> imageAcquire[FRAMES_IN_FLIGHT] = { nullptr };
-	core::smart_refctd_ptr<video::IGPUSemaphore> renderFinished[FRAMES_IN_FLIGHT] = { nullptr };
-	for (uint32_t i = 0u; i < FRAMES_IN_FLIGHT; i++)
-	{
-		imageAcquire[i] = device->createSemaphore();
-		renderFinished[i] = device->createSemaphore();
-	}
-
-	CDumbPresentationOracle oracle;
-	oracle.reportBeginFrameRecord();
-	constexpr uint64_t MAX_TIMEOUT = 99999999999999ull;
-
-	// polling for events!
-	CommonAPI::InputSystem::ChannelReader<IMouseEventChannel> mouse;
-	CommonAPI::InputSystem::ChannelReader<IKeyboardEventChannel> keyboard;
-
 	uint32_t resourceIx = 0;
 	while (windowCb->isWindowOpen())
 	{
