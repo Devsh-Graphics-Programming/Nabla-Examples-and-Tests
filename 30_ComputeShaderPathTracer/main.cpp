@@ -308,13 +308,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 			}
 
 			// load image
-			smart_refctd_ptr<ICPUImage> cpuImg;
 			smart_refctd_ptr<ICPUImageView> cpuImgView;
-			smart_refctd_ptr<IGPUImage> gpuImg;
 			{
 				IAssetLoader::SAssetLoadParams params;
 				auto imageBundle = m_assetManager->getAsset(DefaultImagePathsFile.data(), params);
-				cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
+				auto cpuImg = IAsset::castDown<ICPUImage>(imageBundle.getContents().begin()[0]);
 
 				ICPUImageView::SCreationParams viewParams = {
 					.flags = ICPUImageView::E_CREATE_FLAGS::ECF_NONE,
@@ -402,8 +400,8 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					return view;
 				};
 
-				auto extent = cpuImg->getCreationParameters().extent;
 				auto params = cpuImgView->getCreationParameters();
+				auto extent = params.image->getCreationParameters().extent;
 				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
 				m_scrambleView = createHDRIImageView(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height);
 
@@ -544,7 +542,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					queue->endCapture();
 				};
 
-				uploadImg(0, gpuImg, cpuImg, cpuImgView);
+				uploadImg(0, m_envMapView->getCreationParameters().image, cpuImgView->getCreationParameters().image, cpuImgView);
 			}
 
 			// create pathtracer descriptors
