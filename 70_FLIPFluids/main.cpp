@@ -268,8 +268,8 @@ public:
 		m_gridData.gridCellSize = 0.25f;
 		m_gridData.gridInvCellSize = 1.f / m_gridData.gridCellSize;
 		m_gridData.gridSize = int32_t4{128, 128, 128, 0};
-		m_gridData.particleInitMin = int32_t4{2, 2, 2, 0};
-		m_gridData.particleInitMax = int32_t4{18, 10, 10, 0};
+		m_gridData.particleInitMin = int32_t4{6, 6, 6, 0};
+		m_gridData.particleInitMax = int32_t4{22, 14, 14, 0};
 		m_gridData.particleInitSize = m_gridData.particleInitMax - m_gridData.particleInitMin;
 		float32_t4 simAreaSize = m_gridData.gridSize;
 		simAreaSize *= m_gridData.gridCellSize;
@@ -721,8 +721,8 @@ public:
 				IGPUDescriptorSet::SDescriptorInfo infos[2];
 				infos[0].desc = smart_refctd_ptr(particleCellPairBuffer);
 				infos[0].info.buffer = {.offset = 0, .size = particleCellPairBuffer->getSize()};
-				infos[1].desc = smart_refctd_ptr(particleBuffer);
-				infos[1].info.buffer = {.offset = 0, .size = particleBuffer->getSize()};
+				infos[1].desc = smart_refctd_ptr(gridParticleIDBuffer);
+				infos[1].info.buffer = {.offset = 0, .size = gridParticleIDBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[2] = {
 					{.dstSet = m_gridParticleIDDs.get(), .binding = b_pcuPairBuffer, .arrayElement = 0, .count = 1, .info = &infos[0]},
 					{.dstSet = m_gridParticleIDDs.get(), .binding = b_pcuGridIDBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
@@ -751,9 +751,7 @@ public:
 			}
 		}
 
-		radixSort.resize(m_maxFramesInFlight);
-		for (int i = 0; i < m_maxFramesInFlight; i++)
-			radixSort[i].initialize(m_device, m_system, m_assetMgr, m_logger);
+		radixSort.initialize(m_device, m_system, m_assetMgr, m_logger);
 
 		// testSort();
 
@@ -887,10 +885,10 @@ public:
 		// simulation steps
 		for (uint32_t i = 0; i < m_substepsPerFrame; i++)
 		{
-			dispatchUpdateFluidCells(cmdbuf, resourceIx);			// particle to grid
+			dispatchUpdateFluidCells(cmdbuf);			// particle to grid
 			dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
 			//dispatchApplyDiffusion();
-			//dispatchApplyPressure(cmdbuf);
+			dispatchApplyPressure(cmdbuf);
 			dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
 			dispatchAdvection(cmdbuf);				// update/advect fluid
 		}
@@ -1028,9 +1026,9 @@ public:
 		return device_base_t::onAppTerminated();
 	}
 
-	void dispatchUpdateFluidCells(IGPUCommandBuffer* cmdbuf, const uint32_t frameIdx)
+	void dispatchUpdateFluidCells(IGPUCommandBuffer* cmdbuf)
 	{
-		prepareCellUpdate(cmdbuf, frameIdx);
+		prepareCellUpdate(cmdbuf);
 
 		{
 			SMemoryBarrier memBarrier;
@@ -1482,7 +1480,7 @@ private:
 		m_shouldInitParticles = false;
 	}
 
-	void prepareCellUpdate(IGPUCommandBuffer* cmdbuf, const uint32_t frameIdx)
+	void prepareCellUpdate(IGPUCommandBuffer* cmdbuf)
 	{
 		// what's a better way to do this? enums?
 		uint32_t pushConstants[2] = { numParticles, 0 };
@@ -1511,7 +1509,7 @@ private:
         }
 
 		// dispatch sort pairs
-		radixSort[frameIdx].sort(cmdbuf, particleCellPairBuffer, numParticles);
+		radixSort.sort(cmdbuf, particleCellPairBuffer, numParticles);
 				
 		{
 			SMemoryBarrier memBarrier;
@@ -1635,7 +1633,7 @@ private:
 		cmdBuf->begin(IGPUCommandBuffer::USAGE::ONE_TIME_SUBMIT_BIT);
 		cmdBuf->beginDebugMarker("Radix sort Dispatch", core::vectorSIMDf(0, 1, 0, 1));
 		
-		radixSort[0].sort(cmdBuf.get(), testbuf, numTestElements);
+		radixSort.sort(cmdBuf.get(), testbuf, numTestElements);
 
 		cmdBuf->endDebugMarker();
 		cmdBuf->end();
@@ -1774,7 +1772,7 @@ private:
 	Camera camera = Camera(core::vectorSIMDf(0,0,0), core::vectorSIMDf(0,0,0), core::matrix4SIMD());
 	video::CDumbPresentationOracle oracle;
 
-	std::vector<GPURadixSort> radixSort;
+	GPURadixSort radixSort;
 
 	bool m_shouldInitParticles = true;
 

@@ -178,23 +178,5 @@ inline bool3 isSolidCell(float3 position)
     return false;
 }
 
-#define LOOP_NEIGHBOR_CELLS_BEGIN(CELL_IDX, NEIGHBOR_IDX, N_ID, RANGE, GRID_SIZE) {\
-for (int i = (int)CELL_IDX.x + RANGE[0]; i <= (int)CELL_IDX.x + RANGE[1]; ++i)\
-for (int j = (int)CELL_IDX.y + RANGE[2]; j <= (int)CELL_IDX.y + RANGE[3]; ++j)\
-for (int k = (int)CELL_IDX.z + RANGE[4]; k <= (int)CELL_IDX.z + RANGE[5]; ++k) {\
-    const int3 NEIGHBOR_IDX = int3(i, j, k);\
-    const uint N_ID = cellIdxToFlatIdx(NEIGHBOR_IDX, GRID_SIZE);\
-
-#define LOOP_NEIGHBOR_CELLS_END }}
-
-#define LOOP_PARTICLE_NEIGHBOR_CELLS_BEGIN(CELL_IDX, P_ID, P_ID_BUFFER, RANGE, GRID_SIZE) {\
-for (int i = max((int)CELL_IDX.x + RANGE[0], 0); i <= min((int)CELL_IDX.x + RANGE[1], GRID_SIZE.x - 1); ++i)\
-for (int j = max((int)CELL_IDX.y + RANGE[2], 0); j <= min((int)CELL_IDX.y + RANGE[3], GRID_SIZE.y - 1); ++j)\
-for (int k = max((int)CELL_IDX.z + RANGE[4], 0); k <= min((int)CELL_IDX.z + RANGE[5], GRID_SIZE.z - 1); ++k) {\
-    const uint2 index = P_ID_BUFFER[cellIdxToFlatIdx(int3(i, j, k), GRID_SIZE)];\
-    for (uint P_ID = index.x; P_ID < index.y; ++P_ID) {\
-
-#define LOOP_PARTICLE_NEIGHBOR_CELLS_END }}}
-
 #endif
 #endif

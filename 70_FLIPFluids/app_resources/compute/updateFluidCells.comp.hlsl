@@ -88,19 +88,32 @@ void addParticlesToCells(uint32_t3 ID : SV_DispatchThreadID)
     float3 totalWeight = 0;
     float3 totalVel = 0;
 
-    LOOP_PARTICLE_NEIGHBOR_CELLS_BEGIN(cIdx, pid, gridParticleIDBuffer, kernel, gridData.gridSize)
+    for (int i = max(cIdx.x - 1, 0); i <= min(cIdx.x + 1, gridData.gridSize.x - 1); i++)
     {
-        const Particle p = particleBuffer[pid];
+        for (int j = max(cIdx.y - 1, 0); j <= min(cIdx.y + 1, gridData.gridSize.y - 1); j++)
+        {
+            for (int k = max(cIdx.z - 1, 0); k <= min(cIdx.z + 1, gridData.gridSize.z - 1); k++)
+            {
+                uint2 idx = gridParticleIDBuffer[cellIdxToFlatIdx(int3(i, j, k), gridData.gridSize)];
+                for (uint pid = idx.x; pid < idx.y; pid++)
+                {
+                    Particle p = particleBuffer[pid];
+                    
+                    float3 weight;
+                    weight.x = getWeight(p.position.xyz, posvx, gridData.gridInvCellSize);
+                    weight.y = getWeight(p.position.xyz, posvy, gridData.gridInvCellSize);
+                    weight.z = getWeight(p.position.xyz, posvz, gridData.gridInvCellSize);
 
-        float3 weight;
-        weight.x = getWeight(p.position.xyz, posvx, gridData.gridInvCellSize);
-        weight.y = getWeight(p.position.xyz, posvy, gridData.gridInvCellSize);
-        weight.z = getWeight(p.position.xyz, posvz, gridData.gridInvCellSize);
-
-        totalWeight += weight;
-        totalVel += weight * p.velocity.xyz;
+                    totalWeight += weight;
+                    totalVel += weight * p.velocity.xyz;
+                }
+            }
+        }
     }
-    LOOP_PARTICLE_NEIGHBOR_CELLS_END
+
+    // uint2 idx = gridParticleIDBuffer[cellIdxToFlatIdx(cIdx, gridData.gridSize)];
+    // totalWeight = 1;
+    // totalVel = particleBuffer[idx.x].velocity.xyz;
 
     float3 velocity = select(totalWeight > 0, totalVel / max(totalWeight, FLT_MIN), 0.0f);
 
