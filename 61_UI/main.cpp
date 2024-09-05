@@ -450,6 +450,72 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 						ImGui::End();
 					}
 
+					// Nabla Imgui backend MDI buffer info
+					{
+						const auto& streamingBuffer = pass.ui.manager->getStreamingBuffer();
+
+						const size_t totalAllocatedSize = streamingBuffer->get_total_size();
+						const size_t isUse = streamingBuffer->max_size();
+
+						float freePercentage = 100.0f * (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
+						float allocatedPercentage = 1.0f - (float)(totalAllocatedSize - isUse) / (float)totalAllocatedSize;
+
+						ImVec2 barSize = ImVec2(400, 30);
+						float windowPadding = 10.0f;
+						float verticalPadding = ImGui::GetStyle().FramePadding.y;
+
+						ImGui::SetNextWindowSize(ImVec2(barSize.x + 2 * windowPadding, 110 + verticalPadding), ImGuiCond_Always);
+						ImGui::Begin("Nabla Imgui MDI Buffer Info", nullptr, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar);
+
+						ImGui::Text("Total Allocated Size: %zu bytes", totalAllocatedSize);
+						ImGui::Text("In use: %zu bytes", isUse);
+						ImGui::Text("Buffer Usage:");
+
+						ImGui::SetCursorPosX(windowPadding);
+
+						if (freePercentage > 70.0f)
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.0f, 1.0f, 0.0f, 0.4f));
+						else if (freePercentage > 30.0f)
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 1.0f, 0.0f, 0.4f));
+						else
+							ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(1.0f, 0.0f, 0.0f, 0.4f));
+
+						ImGui::ProgressBar(allocatedPercentage, barSize, "");
+
+						ImGui::PopStyleColor();
+
+						ImDrawList* drawList = ImGui::GetWindowDrawList();
+
+						ImVec2 progressBarPos = ImGui::GetItemRectMin();
+						ImVec2 progressBarSize = ImGui::GetItemRectSize();
+
+						const char* text = "%.2f%% free";
+						char textBuffer[64];
+						snprintf(textBuffer, sizeof(textBuffer), text, freePercentage);
+
+						ImVec2 textSize = ImGui::CalcTextSize(textBuffer);
+						ImVec2 textPos = ImVec2
+						(
+							progressBarPos.x + (progressBarSize.x - textSize.x) * 0.5f,
+							progressBarPos.y + (progressBarSize.y - textSize.y) * 0.5f
+						);
+
+						ImVec4 bgColor = ImGui::GetStyleColorVec4(ImGuiCol_WindowBg);
+						drawList->AddRectFilled
+						(
+							ImVec2(textPos.x - 5, textPos.y - 2),
+							ImVec2(textPos.x + textSize.x + 5, textPos.y + textSize.y + 2),
+							ImGui::GetColorU32(bgColor)
+						);
+
+						ImGui::SetCursorScreenPos(textPos);
+						ImGui::Text("%s", textBuffer);
+
+						ImGui::Dummy(ImVec2(0.0f, verticalPadding));
+
+						ImGui::End();
+					}
+
 					ImGui::End();
 				}
 			);
@@ -543,7 +609,6 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			};
 
 			IQueue::SSubmitInfo::SCommandBufferInfo commandBuffersInfo[] = {{.cmdbuf = cb }};
-
 
 			SIntendedSubmitInfo intendedSubmitInfo = 
 			{
