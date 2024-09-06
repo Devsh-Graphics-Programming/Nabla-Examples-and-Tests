@@ -49,9 +49,18 @@ struct SharedMemoryAccessor
 
 };
 
+// ---------------------- Utils -----------------------
+uint32_t colMajorOffset(uint32_t x, uint32_t y)
+{
+	return x * IMAGE_SIDE_LENGTH + y;
+}
+
+// -------------------------------------------- FIRST AXIS FFT ---------------------------------------------
+
 // Each Workgroup computes the FFT along two consecutive horizontal scanlines (fixed y for the whole Workgroup) so we use `2 * gl_WorkGroupID().x, 2 * gl_WorkGroupID().x + 1` 
 // to get the y coordinates for each of the consecutive lines
 // Since the image is square of size IMAGE_SIDE_LENGTH (defined above) we will be launching half that amount of workgroups
+
 struct PreloadedFirstAxisAccessor {
 	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value) 
 	{
@@ -82,7 +91,8 @@ struct PreloadedFirstAxisAccessor {
 		const uint32_t stride = IMAGE_SIDE_LENGTH / 2; // Initial stride of global array in Forward FFT
 		for (uint32_t virtualThreadID = workgroup::SubgroupContiguousIndex(); virtualThreadID < IMAGE_SIDE_LENGTH / 2; virtualThreadID += _NBL_HLSL_WORKGROUP_SIZE_)
         {
-            const uint32_t loIx = ((virtualThreadID & (~(stride - 1))) << 1) | (virtualThreadID & (stride - 1));
+        	// Index computation here is easier than FFT since the stride is fixed
+            const uint32_t loIx = virtualThreadID;
 			normalizedCoordsFirstLine.x = (float32_t(loIx)+0.5f)/(inputImageSize*KERNEL_SCALE);
 			normalizedCoordsSecondLine.x = normalizedCoordsFirstLine.x;
 			preloaded[loIx / _NBL_HLSL_WORKGROUP_SIZE_].real(scalar_t(texture.SampleLevel(samplerState, normalizedCoordsFirstLine + promoter(0.5-0.5/KERNEL_SCALE), -log2(KERNEL_SCALE))[Channel]));
@@ -96,12 +106,7 @@ struct PreloadedFirstAxisAccessor {
 		}
 	}
 
-	// Utils to write values to output buffer in column major order
-	uint32_t colMajorOffset(uint32_t x, uint32_t y)
-	{
-		return x * IMAGE_SIDE_LENGTH + y;
-	}
-
+	// Util to write values to output buffer in column major order
 	void storeColMajor(uint32_t startAddress, uint32_t index, NBL_CONST_REF_ARG(complex_t<scalar_t>) firstValue, NBL_CONST_REF_ARG(complex_t<scalar_t>) secondValue)
 	{
 		vk::RawBufferStore<complex_t<scalar_t>>(startAddress + colMajorOffset(index, 2 * gl_WorkGroupID().x) * sizeof(complex_t<scalar_t>), firstValue);
@@ -139,16 +144,16 @@ struct PreloadedFirstAxisAccessor {
 			{
 				complex_t<scalar_t> firstLineElement, secondLineElement;
 				unpack(elementIndex, firstLineElement, secondLineElement);
-				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * element, firstLineElement, secondLineElement);
+				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex, firstLineElement, secondLineElement);
 			}
 		}
 		else
 		{
-			for (uint32_t element = 0; element < ELEMENTS_PER_THREAD / 2; element++)
+			for (uint32_t elementIndex = 0; elementIndex < ELEMENTS_PER_THREAD / 2; elementIndex++)
 			{
 				complex_t<scalar_t> firstLineElement, secondLineElement;
 				unpack(elementIndex, firstLineElement, secondLineElement);
-				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * element + workgroup::SubgroupContiguousIndex(), firstLineElement, secondLineElement);
+				storeColMajor(channelStartAddress, _NBL_HLSL_WORKGROUP_SIZE_ * elementIndex + workgroup::SubgroupContiguousIndex(), firstLineElement, secondLineElement);
 			}
 		}
 	}
@@ -167,3 +172,52 @@ void firstAxisFFT()
 		preloadedAccessor.unload<channel>();
 	}
 }
+
+
+// ------------------------------------------ SECOND AXIS FFT -------------------------------------------------------------
+
+// This time each Workgroup will compute the FFT along a vertical line (fixed x for the whole Workgroup). We get the x coordinate for the
+// column a workgroup is working on via `gl_WorkGroupID().x`.We have launched IMAGE_SIDE_LENGTH / 2 workgroups, and there are exactly 
+// that amount of columns in the buffer. We have to keep this in mind: What's stored as the first column is actually`Z + iN`, 
+// where `Z` is the actual 0th column and `N` is the Nyquist column (the one with index IMAGE_SIDE_LENGTH / 2). Those are packed together
+// so they need to be unpacked properly after FFT like we did earlier.
+
+struct PreloadedSecondAxisAccessor
+{
+	void set(uint32_t idx, nbl::hlsl::complex_t<scalar_t> value) 
+	{
+		preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_] = value;
+	}
+	
+	void get(uint32_t idx, NBL_REF_ARG(nbl::hlsl::complex_t<scalar_t>) value) 
+	{
+		value = preloaded[idx / _NBL_HLSL_WORKGROUP_SIZE_]
+	}
+
+	void memoryBarrier() 
+	{
+		// only one workgroup is touching any memory it wishes to trade
+		spirv::memoryBarrier(spv::ScopeWorkgroup, spv::MemorySemanticsAcquireReleaseMask | spv::MemorySemanticsUniformMemoryMask);
+	}
+
+	template<uint32_t Channel>
+	void preload()
+	{
+		const uint32_t channelStride = Channel * IMAGE_SIDE_LENGTH * IMAGE_SIDE_LENGTH / 2 * sizeof(complex_t<scalar_t>);
+		const uint32_t channelStartAddress = pushConstants.outputAddress + channelStride;
+
+		const uint32_t stride = IMAGE_SIDE_LENGTH / 2; // Initial stride of global array in Forward FFT
+		for (uint32_t virtualThreadID = workgroup::SubgroupContiguousIndex(); virtualThreadID < IMAGE_SIDE_LENGTH / 2; virtualThreadID += _NBL_HLSL_WORKGROUP_SIZE_)
+		{
+			const uint32_t loIx = virtualThreadID;
+			preloaded[loIx / _NBL_HLSL_WORKGROUP_SIZE_] = vk::RawBufferLoad<complex_t<scalar_t>>(channelStartAddress + colMajorOffset(gl_WorkGroupID().x, loIx) * sizeof(complex_t<scalar_t>));
+			const uint32_t hiIx = loIx | stride;
+			preloaded[hiIx / _NBL_HLSL_WORKGROUP_SIZE_] = vk::RawBufferLoad<complex_t<scalar_t>>(channelStartAddress + colMajorOffset(gl_WorkGroupID().x, hiIx) * sizeof(complex_t<scalar_t>));
+		}
+	}
+
+	template<uint32_t Channel>
+	void normalizeUnload()
+
+	complex_t<scalar_t> preloaded[ELEMENTS_PER_THREAD];
+};
