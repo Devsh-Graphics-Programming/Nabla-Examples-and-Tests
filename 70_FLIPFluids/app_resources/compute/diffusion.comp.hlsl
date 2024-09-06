@@ -18,8 +18,8 @@ cbuffer GridData
 
 [[vk::binding(b_dCMBuffer, s_d)]] RWStructuredBuffer<uint> cellMaterialBuffer;
 [[vk::binding(b_dVelBuffer, s_d)]] RWStructuredBuffer<float4> velocityFieldBuffer;
-[[vk::binding(b_dAxisInBuffer, s_d)]] RWStructuredBuffer<uint3> axisCellMaterialInBuffer;
-[[vk::binding(b_dAxisOutBuffer, s_d)]] RWStructuredBuffer<uint3> axisCellMaterialOutBuffer;
+[[vk::binding(b_dAxisInBuffer, s_d)]] RWStructuredBuffer<uint4> axisCellMaterialInBuffer;
+[[vk::binding(b_dAxisOutBuffer, s_d)]] RWStructuredBuffer<uint4> axisCellMaterialOutBuffer;
 [[vk::binding(b_dDiffInBuffer, s_d)]] RWStructuredBuffer<float4> gridDiffusionInBuffer;
 [[vk::binding(b_dDiffOutBuffer, s_d)]] RWStructuredBuffer<float4> gridDiffusionOutBuffer;
 
@@ -53,7 +53,7 @@ void setAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     uint3 cmAxisTypes = 0;
     setCellMaterial(cmAxisTypes, cellAxisType);
 
-    axisCellMaterialOutBuffer[cid] = cmAxisTypes;
+    axisCellMaterialOutBuffer[cid].xyz = cmAxisTypes;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
@@ -63,28 +63,28 @@ void setNeighborAxisCellMaterial(uint32_t3 ID : SV_DispatchThreadID)
     int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
 
     uint3 axisCm = (uint3)0;
-    uint3 this_axiscm = getCellMaterial(axisCellMaterialInBuffer[cid]);
+    uint3 this_axiscm = getCellMaterial(axisCellMaterialInBuffer[cid].xyz);
     setCellMaterial(axisCm, this_axiscm);
 
-    uint3 xp_axiscm = cellIdx.x == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize)]);
+    uint3 xp_axiscm = cellIdx.x == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz);
     setXPrevMaterial(axisCm, xp_axiscm);
 
-    uint3 xn_axiscm = cellIdx.x == gridData.gridSize.x - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(1, 0, 0), gridData.gridSize)]);
+    uint3 xn_axiscm = cellIdx.x == gridData.gridSize.x - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz);
     setXNextMaterial(axisCm, xn_axiscm);
 
-    uint3 yp_axiscm = cellIdx.y == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize)]);
+    uint3 yp_axiscm = cellIdx.y == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz);
     setYPrevMaterial(axisCm, yp_axiscm);
 
-    uint3 yn_axiscm = cellIdx.y == gridData.gridSize.y - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 1, 0), gridData.gridSize)]);
+    uint3 yn_axiscm = cellIdx.y == gridData.gridSize.y - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz);
     setYNextMaterial(axisCm, yn_axiscm);
 
-    uint3 zp_axiscm = cellIdx.z == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize)]);
+    uint3 zp_axiscm = cellIdx.z == 0 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz);
     setZPrevMaterial(axisCm, zp_axiscm);
 
-    uint3 zn_axiscm = cellIdx.z == gridData.gridSize.z - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, 1), gridData.gridSize)]);
+    uint3 zn_axiscm = cellIdx.z == gridData.gridSize.z - 1 ? (uint3)CM_SOLID : getCellMaterial(axisCellMaterialInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz);
     setZNextMaterial(axisCm, zn_axiscm);
 
-    axisCellMaterialOutBuffer[cid] = axisCm;
+    axisCellMaterialOutBuffer[cid].xyz = axisCm;
 }
 
 [numthreads(WorkgroupSize, 1, 1)]
@@ -93,29 +93,35 @@ void applyDiffusion(uint32_t3 ID : SV_DispatchThreadID)
     uint cid = ID.x;
     int3 cellIdx = flatIdxToCellIdx(cid, gridData.gridSize);
 
-    uint axisCm = axisCellMaterialInBuffer[cid];
+    uint3 axisCm = axisCellMaterialInBuffer[cid].xyz;
     float3 velocity = (float3)0;
 
-    float3 diff = gridDiffusionInBuffer[cid];
-    float3 xp_diff = isFluidCell(getXPrevMaterial(axisCm)) ? gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz : diff;
+    float3 diff = gridDiffusionInBuffer[cid].xyz;
+    float3 xp_diff = select(isFluidCell(getXPrevMaterial(axisCm)),
+        gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(-1, 0, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.x * xp_diff;
 
-    float3 xn_diff = isFluidCell(getXNextMaterial(axisCm)) ? gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz : diff;
+    float3 xn_diff = select(isFluidCell(getXNextMaterial(axisCm)),
+        gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(1, 0, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.x * xn_diff;
 
-    float3 yp_diff = isFluidCell(getYPrevMaterial(axisCm)) ? gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz : diff;
+    float3 yp_diff = select(isFluidCell(getYPrevMaterial(axisCm)),
+        gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, -1, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.y * yp_diff;
 
-    float3 yn_diff = isFluidCell(getYNextMaterial(axisCm)) ? gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz : diff;
+    float3 yn_diff = select(isFluidCell(getYNextMaterial(axisCm)),
+        gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 1, 0), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.y * yn_diff;
 
-    float3 zp_diff = isFluidCell(getZPrevMaterial(axisCm)) ? gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz : diff;
+    float3 zp_diff = select(isFluidCell(getZPrevMaterial(axisCm)),
+        gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, -1), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.z * zp_diff;
 
-    float3 zn_diff = isFluidCell(getZNextMaterial(axisCm)) ? gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz : diff;
+    float3 zn_diff = select(isFluidCell(getZNextMaterial(axisCm)),
+        gridDiffusionInBuffer[cellIdxToFlatIdx(cellIdx + int3(0, 0, 1), gridData.gridSize)].xyz, diff);
     velocity += pc.diffusionParameters.z * zn_diff;
 
-    velocity += pc.diffusionParameters.w * velocityFieldBuffer[cid];
+    velocity += pc.diffusionParameters.w * velocityFieldBuffer[cid].xyz;
 
     enforceBoundaryCondition(velocity, cellMaterialBuffer[cid]);
 

@@ -335,6 +335,14 @@ public:
 		createBuffer(velocityFieldBuffer, params);
 		createBuffer(prevVelocityFieldBuffer, params);
 
+		params.size = numGridCells * sizeof(uint32_t4);
+		createBuffer(gridAxisCellMaterialBuffer, params);
+		createBuffer(tempAxisCellMaterialBuffer, params);
+
+		params.size = numGridCells * sizeof(float32_t4);
+		createBuffer(gridDiffusionBuffer, params);
+		createBuffer(tempDiffusionBuffer, params);
+
 		params.size = numParticles * 6 * sizeof(VertexInfo);
 		createBuffer(particleVertexBuffer, params);
 
@@ -605,12 +613,12 @@ public:
 				infos[5].desc = smart_refctd_ptr(tempDiffusionBuffer);
 				infos[5].info.buffer = {.offset = 0, .size = tempDiffusionBuffer->getSize()};
 				IGPUDescriptorSet::SWriteDescriptorSet writes[6] = {
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
-					{.dstSet = m_diffusionDs[0].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dGridData, .arrayElement = 0, .count = 1, .info = &infos[0]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dCMBuffer, .arrayElement = 0, .count = 1, .info = &infos[1]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dVelBuffer, .arrayElement = 0, .count = 1, .info = &infos[2]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dAxisInBuffer, .arrayElement = 0, .count = 1, .info = &infos[3]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffInBuffer, .arrayElement = 0, .count = 1, .info = &infos[4]},
+					{.dstSet = m_diffusionDs[1].get(), .binding = b_dDiffOutBuffer, .arrayElement = 0, .count = 1, .info = &infos[5]},
 				};
 				m_device->updateDescriptorSets(std::span(writes, 6), {});
 			}
@@ -1024,7 +1032,7 @@ public:
 		{
 			dispatchUpdateFluidCells(cmdbuf);			// particle to grid
 			dispatchApplyBodyForces(cmdbuf, i == 0);	// external forces, e.g. gravity
-			//dispatchApplyDiffusion();
+			dispatchApplyDiffusion(cmdbuf);
 			dispatchApplyPressure(cmdbuf);
 			dispatchExtrapolateVelocities(cmdbuf);	// grid -> particle vel
 			dispatchAdvection(cmdbuf);				// update/advect fluid
@@ -2022,7 +2030,7 @@ private:
 	smart_refctd_ptr<IGPUBuffer> gridCellMaterialBuffer;	// uint, fluid or solid
 	smart_refctd_ptr<IGPUBuffer> velocityFieldBuffer;	// float4
 	smart_refctd_ptr<IGPUBuffer> prevVelocityFieldBuffer;// float4
-	smart_refctd_ptr<IGPUBuffer> gridDiffusionBuffer;	// float3
+	smart_refctd_ptr<IGPUBuffer> gridDiffusionBuffer;	// float4
 	smart_refctd_ptr<IGPUBuffer> gridAxisCellMaterialBuffer;	// uint3
 	smart_refctd_ptr<IGPUBuffer> divergenceBuffer;		// float
 	smart_refctd_ptr<IGPUBuffer> pressureBuffer;		// float
@@ -2034,7 +2042,7 @@ private:
 
 	smart_refctd_ptr<IGPUBuffer> tempCellMaterialBuffer;	// uint, fluid or solid
 	smart_refctd_ptr<IGPUBuffer> tempDiffusionBuffer;	// float4
-	smart_refctd_ptr<IGPUBuffer> tempAxisCellMaterialBuffer;	// uint3
+	smart_refctd_ptr<IGPUBuffer> tempAxisCellMaterialBuffer;	// uint4
 	smart_refctd_ptr<IGPUBuffer> tempPressureBuffer;	// float
 };
 
