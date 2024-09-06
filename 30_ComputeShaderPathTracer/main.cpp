@@ -29,14 +29,13 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 		SBasicViewParameters uboData;
 	};
 
-	template<typename BufferType>
-	_NBL_STATIC_INLINE SBufferRange<BufferType> createBuffer(
+	SBufferRange<IGPUBuffer> createBuffer(
 		const size_t size,
 		const core::bitflag<asset::IBuffer::E_USAGE_FLAGS> usage,
 		const void* data
 	)
 	{
-		BufferType::SCreationParams params = {};
+		IGPUBuffer::SCreationParams params = {};
 		params.usage = usage;
 		params.size = size;
 
@@ -412,38 +411,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_envMapView = createHDRIImageView(params.format, extent.width, extent.height);
 				m_scrambleView = createHDRIImageView(asset::E_FORMAT::EF_R32G32_UINT, extent.width, extent.height);
 
-				IGPUImage::SBufferCopy region = {};
-				region.bufferOffset = 0u;
-				region.bufferRowLength = 0u;
-				region.bufferImageHeight = 0u;
-				region.imageExtent = extent;
-				region.imageOffset = { 0u,0u,0u };
-				region.imageSubresource.layerCount = 1u;
-				region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
 
-				constexpr auto ScrambleStateChannels = 2u;
-				const auto renderPixelCount = extent.width * extent.height;
-				core::vector<uint32_t> random(renderPixelCount* ScrambleStateChannels);
-				{
-					core::RandomSampler rng(0xbadc0ffeu);
-					for (auto& pixel : random)
-						pixel = rng.nextSample();
-				}
-
-				auto bufferRange = createBuffer<ICPUBuffer>(
-					random.size() * sizeof(uint32_t),
-					asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_TRANSFER_SRC_BIT,
-					random.data()
-				);
-
-				m_utils->updateImageViaStagingBufferAutoSubmit(
-					m_intendedSubmit,
-					bufferRange.buffer,
-					asset::E_FORMAT::EF_R32G32_UINT,
-					m_scrambleView->getCreationParameters().image.get(),
-					IGPUImage::LAYOUT::UNDEFINED,
-					&region
-				);
 
 				const auto swapchainImageCount = m_surface->getSwapchainResources()->getSwapchain()->getImageCount();
 				for (uint32_t index = 0; index < swapchainImageCount; index++)
@@ -454,11 +422,11 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 
 			// create ubo and sequence buffer view
 			{
-				m_ubo = make_smart_refctd_ptr<IGPUBuffer>(createBuffer<IGPUBuffer>(
+				m_ubo = createBuffer(
 					sizeof(SBasicViewParametersAligned),
 					IGPUBuffer::EUF_UNIFORM_BUFFER_BIT | IGPUBuffer::EUF_TRANSFER_DST_BIT,
 					nullptr
-				));
+				).buffer;
 
 				auto sampleSequence = core::make_smart_refctd_ptr<asset::ICPUBuffer>(sizeof(uint32_t) * MaxBufferDimensions * MaxBufferDimensions);
 
@@ -472,7 +440,7 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 						out[i * MaxBufferDimensions + dim] = sampler.sample(dim, i);
 					}
 
-				auto bufferRange = createBuffer<IGPUBuffer>(
+				auto bufferRange = createBuffer(
 					sampleSequence->getSize(),
 					asset::IBuffer::EUF_TRANSFER_DST_BIT | asset::IBuffer::EUF_UNIFORM_TEXEL_BUFFER_BIT,
 					sampleSequence->getPointer()
@@ -480,18 +448,16 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 				m_sequenceBufferView = m_device->createBufferView(bufferRange, asset::E_FORMAT::EF_R32G32B32_UINT);
 			}
 
-			// upload image data
+			// upload data
 			{
-				auto uploadImg = [&](
-					const uint32_t cmdIndex,
-					smart_refctd_ptr<IGPUImage> gpuImg,
-					smart_refctd_ptr<ICPUImage> cpuImg,
-					smart_refctd_ptr<ICPUImageView> cpuImgView
-				) -> void
+				// upload env map
 				{
+					auto& gpuImg = m_envMapView->getCreationParameters().image;
+					auto& cpuImg = cpuImgView->getCreationParameters().image;
+
 					// we don't want to overcomplicate the example with multi-queue
 					auto queue = getGraphicsQueue();
-					auto cmdbuf = m_cmdBufs[cmdIndex].get();
+					auto cmdbuf = m_cmdBufs[0].get();
 					IQueue::SSubmitInfo::SCommandBufferInfo cmdbufInfo = { cmdbuf };
 					m_intendedSubmit.commandBuffers = { &cmdbufInfo, 1 };
 
@@ -553,9 +519,41 @@ class ComputeShaderPathtracer final : public examples::SimpleWindowedApplication
 					m_utils->autoSubmit(m_intendedSubmit, [&](SIntendedSubmitInfo& nextSubmit) -> bool { return true; });
 
 					queue->endCapture();
-				};
+				}
 
-				uploadImg(0, m_envMapView->getCreationParameters().image, cpuImgView->getCreationParameters().image, cpuImgView);
+				// upload scramble data
+				{
+					auto extent = cpuImgView->getCreationParameters().image->getCreationParameters().extent;
+
+					IGPUImage::SBufferCopy region = {};
+					region.bufferOffset = 0u;
+					region.bufferRowLength = 0u;
+					region.bufferImageHeight = 0u;
+					region.imageExtent = extent;
+					region.imageOffset = { 0u,0u,0u };
+					region.imageSubresource.layerCount = 1u;
+					region.imageSubresource.aspectMask = IImage::E_ASPECT_FLAGS::EAF_COLOR_BIT;
+
+					constexpr auto ScrambleStateChannels = 2u;
+					const auto renderPixelCount = extent.width * extent.height;
+					core::vector<uint32_t> random(renderPixelCount * ScrambleStateChannels);
+					{
+						core::RandomSampler rng(0xbadc0ffeu);
+						for (auto& pixel : random)
+							pixel = rng.nextSample();
+					}
+
+					const std::span<const asset::IImage::SBufferCopy> regions = { &region, 1 };
+
+					m_utils->updateImageViaStagingBufferAutoSubmit(
+						m_intendedSubmit,
+						random.data(),
+						asset::E_FORMAT::EF_R32G32_UINT,
+						m_scrambleView->getCreationParameters().image.get(),
+						IGPUImage::LAYOUT::UNDEFINED,
+						regions
+					);
+				}
 			}
 
 			// create pathtracer descriptors
