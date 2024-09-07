@@ -599,8 +599,8 @@ float4 main(PSInput input) : SV_TARGET
 
         if (textureId != InvalidTextureIdx)
         {
-            float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)));
-            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(float2(uv.x, uv.y), float(textureId)), mipLevel);
+            float mipLevel = msdfTextures.CalculateLevelOfDetail(msdfSampler, uv);
+            float3 msdfSample = msdfTextures.SampleLevel(msdfSampler, float3(uv, float(textureId)), mipLevel);
             float msdf = nbl::hlsl::text::msdfDistance(msdfSample, input.getFontGlyphScreenPxRange());
             /*
                 explaining "*= exp2(max(mipLevel,0.0))"

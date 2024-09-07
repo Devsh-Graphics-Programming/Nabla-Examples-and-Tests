@@ -80,8 +80,10 @@ struct GlyphInfo
     void packMinUV_TextureID(float32_t2 minUV, uint16_t textureId)
     {
         minUV_textureID_packed = textureId;
-        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.x * 255.0f), 16, 8);
-        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, (uint32_t)(minUV.y * 255.0f), 24, 8);
+        uint32_t uPacked = (uint32_t)(clamp(minUV.x, 0.0f, 1.0f) * 255.0f);
+        uint32_t vPacked = (uint32_t)(clamp(minUV.y, 0.0f, 1.0f) * 255.0f);
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, uPacked, 16, 8);
+        minUV_textureID_packed = nbl::hlsl::glsl::bitfieldInsert<uint32_t>(minUV_textureID_packed, vPacked, 24, 8);
     }
 
     float32_t2 getMinUV()
@@ -109,9 +111,9 @@ struct ImageObjectInfo
 static uint32_t packR11G11B10_UNORM(float32_t3 color)
 {
     // Scale and convert to integers
-    uint32_t r = (uint32_t)(color.r * 2047.0f); // 11 bits -> 2^11 - 1 = 2047
-    uint32_t g = (uint32_t)(color.g * 2047.0f); // 11 bits -> 2^11 - 1 = 2047
-    uint32_t b = (uint32_t)(color.b * 1023.0f); // 10 bits -> 2^10 - 1 = 1023
+    uint32_t r = (uint32_t)(clamp(color.r, 0.0f, 1.0f) * 2047.0f + 0.5f); // 11 bits -> 2^11 - 1 = 2047
+    uint32_t g = (uint32_t)(clamp(color.g, 0.0f, 1.0f) * 2047.0f + 0.5f); // 11 bits -> 2^11 - 1 = 2047
+    uint32_t b = (uint32_t)(clamp(color.b, 0.0f, 1.0f) * 1023.0f + 0.5f); // 10 bits -> 2^10 - 1 = 1023
 
     // Insert each component into the correct position
     uint32_t packed = r;  // R: bits 0-10
