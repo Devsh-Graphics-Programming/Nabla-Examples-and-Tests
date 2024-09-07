@@ -188,7 +188,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 				auto descriptorSetLayout = m_device->createDescriptorSetLayout(bindings);
 
-				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), renderpass, nullptr, smart_refctd_ptr(m_window));
+				pass.ui.manager = core::make_smart_refctd_ptr<nbl::ext::imgui::UI>(smart_refctd_ptr(m_device), smart_refctd_ptr(descriptorSetLayout), renderpass, 0u);
 
 				IDescriptorPool::SCreateInfo descriptorPoolInfo = {};
 				descriptorPoolInfo.maxDescriptorCount[static_cast<uint32_t>(asset::IDescriptor::E_TYPE::ET_SAMPLER)] = 69u;
@@ -769,11 +769,10 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			}
 			if (move) camera.endInputProcessing(nextPresentationTimestamp);
 
-			const auto mousePosition = m_window->getCursorControl()->getPosition();
 			core::SRange<const nbl::ui::SMouseEvent> mouseEvents(capturedEvents.mouse.data(), capturedEvents.mouse.data() + capturedEvents.mouse.size());
 			core::SRange<const nbl::ui::SKeyboardEvent> keyboardEvents(capturedEvents.keyboard.data(), capturedEvents.keyboard.data() + capturedEvents.keyboard.size());
 
-			pass.ui.manager->update(deltaTimeInSec, { mousePosition.x , mousePosition.y }, mouseEvents, keyboardEvents);
+			pass.ui.manager->update(m_window.get(), deltaTimeInSec, mouseEvents, keyboardEvents);
 		}
 
 	private:
