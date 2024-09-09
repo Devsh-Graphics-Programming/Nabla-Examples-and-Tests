@@ -452,8 +452,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 
 					// Nabla Imgui backend MDI buffer info
 					{
-						const auto& streamingBuffer = pass.ui.manager->getStreamingBuffer();
-
+						auto* streamingBuffer = pass.ui.manager->getStreamingBuffer();
 						const size_t totalAllocatedSize = streamingBuffer->get_total_size();
 						const size_t isUse = streamingBuffer->max_size();
 
@@ -536,7 +535,7 @@ class UISampleApp final : public examples::SimpleWindowedApplication
 			static IGPUDescriptorSet::SWriteDescriptorSet writes[TEXTURES_AMOUNT];
 
 			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
-			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = pass.ui.manager->getFontAtlasView();
+			descriptorInfo[nbl::ext::imgui::UI::NBL_FONT_ATLAS_TEX_ID].desc = core::smart_refctd_ptr<nbl::video::IGPUImageView>(pass.ui.manager->getFontAtlasView());
 
 			descriptorInfo[CScene::NBL_OFFLINE_SCENE_TEX_ID].info.image.imageLayout = IImage::LAYOUT::READ_ONLY_OPTIMAL;
 
